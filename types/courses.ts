@@ -403,12 +403,21 @@ export interface CourseApplication extends CourseApplicationRow {
     total_paid?: number | null;
     balance?: number | null;
   } | null;
-  /** The provisioned person. jkkn_identities is reached THROUGH profiles —
-   *  course_applications has no FK to it, but jkkn_identities.profile_id does,
-   *  so PostgREST embeds it in reverse. Readable by the same roles that can see
-   *  applications: all 7 holding courses.applications.view also hold
-   *  users.jkkn_id.view, so this never silently returns null for them. */
-  profile?: { id: string; jkkn_identities?: { jkkn_id: string }[] | null } | null;
+  /**
+   * The applicant's JKKN ID once they have been provisioned, null while the
+   * application is still pending.
+   *
+   * A POSTGREST COMPUTED COLUMN backed by fn_jkkn_id_of, not an embed. The
+   * embed this replaced — profiles -> jkkn_identities(jkkn_id) — was wrong
+   * twice: jkkn_identities_select demands users.jkkn_id.view, which NONE of
+   * administrator / coo / course_coordinator holds (measured 2026-09-19), and
+   * an RLS-blocked embed returns null rather than erroring, so the whole tab
+   * read "Not issued"; and it joins on jkkn_identities.profile_id, which is
+   * NULL for every learner and staff row, so a reused identity would read
+   * "Not issued" too. fn_jkkn_id_of is SECURITY DEFINER, open to all
+   * authenticated by design, and walks all three anchors.
+   */
+  jkkn_id?: string | null;
 }
 
 export interface CourseApplicationFilters {

@@ -66298,14 +66298,20 @@ BEGIN
 END;
 $function$;
 
--- Restores exactly the grants the dropped function carried
--- ({authenticated, service_role}); a DROP takes its ACL with it.
-GRANT EXECUTE ON FUNCTION public.hr_attendance_period_console(integer, integer) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.hr_attendance_period_console(integer, integer) TO service_role;
+-- Restores exactly the ACL the dropped function carried
+-- ({authenticated, service_role}, no PUBLIC): a DROP takes its ACL with it, and
+-- CREATE hands EXECUTE back to PUBLIC by default. Without the REVOKE this
+-- SECURITY DEFINER function -- which returns every institution's attendance
+-- state for a month -- becomes callable by anon. Revoking PUBLIC alone would not
+-- undo a direct anon grant and revoking anon alone would not undo PUBLIC, so
+-- both are named.
+REVOKE EXECUTE ON FUNCTION public.hr_attendance_period_console(integer, integer) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.hr_attendance_period_console(integer, integer) TO authenticated;
+GRANT  EXECUTE ON FUNCTION public.hr_attendance_period_console(integer, integer) TO service_role;
 
 -- ===========================================================================
 -- Course Events identity: one person, one JKKN ID (2026-09-19)
--- Sources: 20260919120000_course_identity_reuse_existing_jkkn_id.sql
+-- Sources: 20260919120001_course_identity_reuse_existing_jkkn_id.sql
 --          20260919120200_jkkn_allocate_person_level_guard.sql
 --          20260919120400_course_approve_enrollment_identity_columns.sql
 -- (20260919120100 is omitted: superseded the same day by 120400.)

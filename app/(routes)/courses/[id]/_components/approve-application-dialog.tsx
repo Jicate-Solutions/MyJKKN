@@ -226,7 +226,7 @@ export function ApproveApplicationDialog({
                 </p>
                 {/* Which sign-in page is not cosmetic: fn_resolve_participant_jkkn_id
                     is scoped to person_kind='external_participant', so a reused
-                    staff member's or learner's number does not resolve at
+                    team member's or learner's number does not resolve at
                     /auth/participant-login and sending them there is a dead end. */}
                 <p className="text-xs text-muted-foreground">
                   {result.participantType && result.participantType !== 'external' ? (

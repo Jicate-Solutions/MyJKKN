@@ -280,3 +280,11 @@ BEGIN
   );
 END;
 $function$;
+
+-- Restates the lock this function already carries live
+-- ({authenticated, service_role}, no PUBLIC). Written out because CREATE OR
+-- REPLACE preserving an ACL is not the same as the file saying what the ACL is:
+-- the next author to DROP and recreate it inherits nothing.
+REVOKE EXECUTE ON FUNCTION public.fn_course_approve_application(uuid, uuid, text, uuid, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_course_approve_application(uuid, uuid, text, uuid, text) TO authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_course_approve_application(uuid, uuid, text, uuid, text) TO service_role;

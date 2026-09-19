@@ -131,6 +131,29 @@ export const getApplicationColumns = (
     ),
   },
   {
+    // Not sortable: `jkkn_id` is a PostgREST computed column, not a real
+    // course_applications column, and listPaged forwards sort_by into a literal
+    // .order(column) call — the same reason `package` and `contact` are off.
+    id: 'jkkn_id',
+    header: 'JKKN ID',
+    enableSorting: false,
+    size: 120,
+    cell: ({ row }) => {
+      const id = row.original.jkkn_id;
+      if (!id) {
+        // Pending and rejected applicants have no number yet, and that is the
+        // normal state rather than a fault — so it reads as absent, not broken.
+        return <span className="text-xs text-muted-foreground">Not issued</span>;
+      }
+      return (
+        <span className="flex items-center gap-1.5 font-mono text-sm font-medium">
+          <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" />
+          {id}
+        </span>
+      );
+    },
+  },
+  {
     accessorKey: 'status',
     header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
     size: 130,

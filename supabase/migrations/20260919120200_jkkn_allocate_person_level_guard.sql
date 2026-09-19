@@ -115,3 +115,12 @@ BEGIN
     USING ERRCODE = '53400';
 END;
 $function$;
+
+-- NO SIGNED-IN CALLER AT ALL, which is the lock this function already carries
+-- live ({postgres, service_role}). Minting a lifetime number is a trigger and
+-- operator path; nothing reaches it from a user session, and a SECURITY DEFINER
+-- allocator that any authenticated user could call would hand out permanent
+-- identity. service_role keeps EXECUTE independently, so the auto-issue
+-- triggers, the cron and fn_jkkn_issue_manual are unaffected.
+REVOKE EXECUTE ON FUNCTION public.fn_jkkn_allocate(text, uuid, uuid, uuid, uuid) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_jkkn_allocate(text, uuid, uuid, uuid, uuid) TO service_role;

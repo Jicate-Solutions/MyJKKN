@@ -736,7 +736,7 @@ export function BiometricImportDialog({ open, onOpenChange, onImportComplete }: 
               )}
 
               {report.relieved_skipped.length > 0 && (
-                <Section title={`Relieved staff in the file — skipped (${report.relieved_skipped.length})`} tone="warn">
+                <Section title={`Relieved team members in the file — skipped (${report.relieved_skipped.length})`} tone="warn">
                   <p className="mb-2 text-xs text-muted-foreground">
                     These codes are still enrolled on the machine but belong to people marked relieved
                     in MyJKKN. Nothing is written for them. Records imported while they were active are

@@ -46,10 +46,7 @@ const SELECT = `
   enrollment:course_enrollments!course_enrollments_application_id_fkey(
     id, enrollment_number, status, total_payable, total_paid, balance
   ),
-  profile:profiles!course_applications_profile_id_fkey(
-    id,
-    jkkn_identities(jkkn_id)
-  )
+  jkkn_id
 `;
 
 export class CourseApplicationService extends BaseService {

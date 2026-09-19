@@ -259,3 +259,11 @@ COMMENT ON FUNCTION public.fn_course_resolve_applicant(text, text) IS
 REVOKE ALL ON FUNCTION public.fn_course_resolve_applicant(text, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_course_resolve_applicant(text, text) TO authenticated;
 
+
+-- anon named alongside PUBLIC. Revoking PUBLIC alone does not undo a direct
+-- anon grant, and Supabase grants anon directly on new functions -- so a
+-- SECURITY DEFINER lookup that resolves a person's lifetime number across every
+-- anchor would otherwise stay reachable without a session.
+REVOKE EXECUTE ON FUNCTION public.fn_course_resolve_applicant(text, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_course_resolve_applicant(text, text) TO authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_course_resolve_applicant(text, text) TO service_role;
