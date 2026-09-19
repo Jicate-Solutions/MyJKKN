@@ -50,8 +50,8 @@ describe('safeServiceWorkerUpdate', () => {
     if (originalNavigator) {
       Object.defineProperty(globalThis, 'navigator', originalNavigator);
     } else {
-      // @ts-expect-error — restoring an environment that had no navigator
-      delete globalThis.navigator;
+      // Restoring an environment that had no navigator.
+      Reflect.deleteProperty(globalThis, 'navigator');
     }
   });
 
