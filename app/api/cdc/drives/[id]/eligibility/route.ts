@@ -100,6 +100,13 @@ export async function PUT(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Criteria decide who is told about the drive on legacy drives, so writing
+    // them needs the same permission as editing the drive (RLS is role-based).
+    const { data: canEdit } = await supabase.rpc('user_has_permission', { permission_name: 'cdc.drives.edit' });
+    if (canEdit !== true) {
+      return NextResponse.json({ error: 'Forbidden — cdc.drives.edit required' }, { status: 403 });
+    }
+
     const body = (await request.json()) as CdcDriveEligibilityInput;
     if (!Array.isArray(body.program_ids) || body.program_ids.length === 0) {
       return NextResponse.json(

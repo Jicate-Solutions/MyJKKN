@@ -1781,6 +1781,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/cdc/drives/new': 'cdc.drives.create',
   '/cdc/drives/[id]': 'cdc.drives.view',
   '/cdc/drives/[id]/responses': 'cdc.drives.view',
+  '/cdc/drives/[id]/participants': 'cdc.drives.view',
+  '/cdc/drives/[id]/selected': 'cdc.drives.view',
+  '/cdc/drives/[id]/documents/bulk-upload': 'cdc.drives.edit',
+  '/cdc/drives/[id]/attendance': 'cdc.drives.view',
+  '/cdc/drives/coordinating': 'cdc.drives.view',
   '/cdc/drives/[id]/notifications': 'cdc.drives.view',
   '/cdc/drives/[id]/edit': 'cdc.drives.edit',
   // Staff view = assigned-learner willingness tracker; learners reach the same

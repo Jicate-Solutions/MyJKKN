@@ -27,6 +27,12 @@ import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/re
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { LearnerWillingnessSnapshot } from '@/lib/services/cdc/willingness-service';
 
+// The page dispatches on useAuth (learner form vs team tracker). These tests
+// cover the learner form, so the hook reports a signed-in learner.
+vi.mock('@/hooks/use-auth', () => ({
+  useAuth: () => ({ profile: { id: 'u1', learner_id: 'l1', role: 'student' }, isLoading: false, error: null }),
+}));
+
 vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
@@ -222,6 +228,6 @@ describe('willingness page — closed by status, unchanged behaviour', () => {
     await renderPage();
 
     expect(await screen.findByText(/not open for willingness right now/i)).toBeTruthy();
-    expect(screen.getByText(/Current status: Eligibility Locked/i)).toBeTruthy();
+    expect(screen.getByText(/Current status: Participants Finalized/i)).toBeTruthy();
   });
 });

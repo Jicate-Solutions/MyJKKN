@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildCardElement, parseFrontLayout, schoolHeading, type CardRenderInput } from '@/lib/id-cards/render-card';
 import { buildFieldReport } from '@/lib/id-cards/field-report';
-import type { CardPersonData } from '@/lib/id-cards/render-data';
+import { schoolClassLabel, type CardPersonData } from '@/lib/id-cards/render-data';
 
 const base: CardPersonData = {
   kind: 'learner', fullName: 'AADHIRA E M', rollNumber: null, registerNumber: null, designation: null,
@@ -23,7 +23,7 @@ describe('school vocabulary on ID cards', () => {
     expect(schoolHeading('DEPARTMENT')).toBe('WING');
     expect(schoolHeading('SEMESTER')).toBe('TERM');
     expect(schoolHeading('YEAR :')).toBe('YEAR :');
-    expect(schoolHeading('ROLL NO :')).toBe('ADMISSION NUMBER :');
+    expect(schoolHeading('ROLL NO :')).toBe('ADM. NO. :');
   });
 
   it('an authored "COURSE :" heading prints as "CLASS :" on a school card, unchanged on a college card', () => {
@@ -51,5 +51,14 @@ describe('school vocabulary on ID cards', () => {
     expect(labels).toContain('Class');
     expect(labels).toContain('Wing');
     expect(labels).not.toContain('Course');
+  });
+
+  it('school CLASS value: Roman class + section; Grade-named classes keep GRADE', () => {
+    expect(schoolClassLabel('Standard 1', 'A')).toBe('I - A');
+    expect(schoolClassLabel('Standard 12', 'Section B')).toBe('XII - B');
+    expect(schoolClassLabel('Grade 1', 'A')).toBe('GRADE - I - A');
+    expect(schoolClassLabel('LKG', 'B')).toBe('LKG - B');
+    expect(schoolClassLabel('Standard 5', null)).toBe('V');
+    expect(schoolClassLabel('', 'A')).toBeNull();
   });
 });

@@ -3387,6 +3387,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "FileText",
         "children": [
           {
+            "path": "/cdc/drives/coordinating",
+            "label": "Coordinating",
+            "iconName": "ClipboardCheck",
+            "children": []
+          },
+          {
             "path": "/cdc/drives/new",
             "label": "New",
             "iconName": "Plus",

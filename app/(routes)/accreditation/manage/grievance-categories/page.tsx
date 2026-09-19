@@ -195,7 +195,7 @@ async function fetchIqacInstitutions(): Promise<IqacInstitution[]> {
 
 export default function GrievanceCategoriesPage() {
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
+  const { hasAllInstitutionsScope } = usePermissions();
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
 
@@ -207,7 +207,7 @@ export default function GrievanceCategoriesPage() {
   const { data: pickableInstitutions = [] } = useQuery({
     queryKey: ['grievance-categories', 'iqac-institutions'],
     queryFn: fetchIqacInstitutions,
-    enabled: isSuperAdmin,
+    enabled: hasAllInstitutionsScope,
   });
 
   const [pickedInstId, setPickedInstId] = useState<string>('');
@@ -215,14 +215,14 @@ export default function GrievanceCategoriesPage() {
   // Default super-admin's selection to the first iqac-coded institution once
   // the list loads. Runs once per mount (pickableInstitutions stable by id).
   useEffect(() => {
-    if (isSuperAdmin && !pickedInstId && pickableInstitutions.length > 0) {
+    if (hasAllInstitutionsScope && !pickedInstId && pickableInstitutions.length > 0) {
       setPickedInstId(pickableInstitutions[0].id);
     }
-  }, [isSuperAdmin, pickedInstId, pickableInstitutions]);
+  }, [hasAllInstitutionsScope, pickedInstId, pickableInstitutions]);
 
   const effectiveInstitutionId = useMemo(
-    () => (isSuperAdmin ? pickedInstId : profile?.institution_id ?? ''),
-    [isSuperAdmin, pickedInstId, profile?.institution_id]
+    () => (hasAllInstitutionsScope ? pickedInstId : profile?.institution_id ?? ''),
+    [hasAllInstitutionsScope, pickedInstId, profile?.institution_id]
   );
 
   const { data: items = [], isLoading, error, refetch } = useQuery({
@@ -297,7 +297,7 @@ export default function GrievanceCategoriesPage() {
                 </p>
               </div>
               <div className="flex flex-wrap items-end gap-2">
-                {isSuperAdmin && (
+                {hasAllInstitutionsScope && (
                   <div className="w-64">
                     <Label className="text-xs">Institution</Label>
                     <Select
