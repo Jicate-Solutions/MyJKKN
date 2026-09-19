@@ -6,6 +6,7 @@ import { queryKeys } from '@/lib/query/query-keys';
 import { CourseApplicationService } from '@/lib/services/courses/course-application-service';
 import { getErrorMessage } from '@/lib/utils';
 import type {
+  CourseApplicantMatch,
   CourseApplicationFilters,
   CourseApprovalResult,
   CourseCredentialsResult,
@@ -37,6 +38,31 @@ export function useCourseApplication(id: string) {
     queryKey: queryKeys.courseApplications.detail(id),
     queryFn: () => CourseApplicationService.getById(id),
     enabled: Boolean(id),
+  });
+}
+
+/**
+ * Who is this applicant, really?
+ *
+ * Read-only and safe to run while the admin is still typing — it provisions
+ * nothing. `enabled` is gated on having an email, because the resolver matches
+ * on EMAIL alone: a phone number only ever produces the warning list, never a
+ * link, so asking without an address would return nothing useful.
+ *
+ * staleTime is generous: the answer depends on the register, which does not
+ * change between two keystrokes.
+ */
+export function useCourseApplicantMatch(
+  email: string | null,
+  phone: string | null,
+  enabled = true,
+) {
+  const normalised = (email ?? '').trim().toLowerCase();
+  return useQuery<CourseApplicantMatch>({
+    queryKey: queryKeys.courseApplications.match(normalised, phone ?? ''),
+    queryFn: () => CourseApplicationService.resolveApplicant(normalised, phone),
+    enabled: enabled && normalised.length > 3,
+    staleTime: 60_000,
   });
 }
 

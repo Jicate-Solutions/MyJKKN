@@ -41,7 +41,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { parseMonthlyReportFile } from '@/lib/hr/biometric/parse-monthly-report';
+import { parseMonthlyReportFile, lastDayOfMonth } from '@/lib/hr/biometric/parse-monthly-report';
 import { resolveInstitutionFromReport } from '@/lib/hr/biometric/resolve-institution';
 import { normBiometricCode } from '@/lib/hr/biometric/normalize-code';
 import {
@@ -164,6 +164,32 @@ export async function POST(request: NextRequest) {
     const file = formData.get('file') as File | null;
     const dryRun = String(formData.get('dryRun') ?? '') === 'true';
 
+    // ---- Which days of the file to process ----------------------------------
+    // Day-of-month NUMBERS, not dates: the caller picks the range before the
+    // file is sent, and nothing knows the report month until the header is
+    // parsed below. A date picker would have no month to clamp to and could
+    // point at the wrong one entirely. Absent = process the whole file.
+    const rawDayFrom = formData.get('dayFrom');
+    const rawDayTo = formData.get('dayTo');
+    const wantsRange = rawDayFrom !== null || rawDayTo !== null;
+    const dayFromIn = rawDayFrom === null ? 1 : Number(rawDayFrom);
+    const dayToIn = rawDayTo === null ? 31 : Number(rawDayTo);
+
+    if (wantsRange) {
+      const bad = [dayFromIn, dayToIn].some(
+        (n) => !Number.isInteger(n) || n < 1 || n > 31,
+      );
+      if (bad || dayFromIn > dayToIn) {
+        return NextResponse.json(
+          {
+            error: 'Invalid day range',
+            message: `Process days must be two whole numbers between 1 and 31, with the first not after the second. Got ${rawDayFrom ?? '—'} to ${rawDayTo ?? '—'}.`,
+          },
+          { status: 400 },
+        );
+      }
+    }
+
     if (!file) {
       return NextResponse.json({ error: 'No file provided', message: 'Upload the biometric export.' }, { status: 400 });
     }
@@ -194,6 +220,69 @@ export async function POST(request: NextRequest) {
     if (report.year === 0) {
       return NextResponse.json(
         { error: 'Unreadable report month', message: `Could not read the Report Month ("${report.monthLabel}").` },
+        { status: 400 },
+      );
+    }
+
+    // ---- Narrow the file to the chosen days ---------------------------------
+    //
+    // ONE FILTER, APPLIED ONCE, BEFORE ANYTHING READS A DATE. Everything below
+    // — the timing range, the permission and holiday windows, the verdicts, the
+    // written records — derives from emp.days, so narrowing here narrows all of
+    // them and nothing downstream needs to know a range exists.
+    //
+    // WHY THIS EXISTS. The machine's report is pulled fortnightly, so days
+    // 16-30 of a 1-15 export arrive as blank columns. Judged blind they became
+    // ABSENT, which carries affects_lop, so half a month of phantom loss-of-pay
+    // went to the Salary Register. Not writing them at all leaves those dates
+    // with no hr_attendance_records row, which the attendance page already
+    // renders as AEYP -- "Attendance entries yet to be processed" -- and the
+    // period projection counts only the days it actually has.
+    const monthLastDay = lastDayOfMonth(report.year, report.month);
+    const dayFrom = Math.max(1, dayFromIn);
+    const dayTo = Math.min(dayToIn, monthLastDay);
+    const processedAllDays = dayFrom <= 1 && dayTo >= monthLastDay;
+
+    let cellsSkipped = 0;
+    if (!processedAllDays) {
+      for (const e of report.employees) {
+        const inRange = e.days.filter((d) => d.day >= dayFrom && d.day <= dayTo);
+        cellsSkipped += e.days.length - inRange.length;
+        e.days = inRange;
+      }
+    }
+
+    const iso = (d: number) =>
+      `${report.year}-${String(report.month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+    // A range with nothing in it is a mistake worth stopping for: importing it
+    // would write nothing and report success.
+    if (report.employees.every((e) => e.days.length === 0)) {
+      return NextResponse.json(
+        {
+          error: 'No days in range',
+          message: `${report.monthLabel} has no day columns between ${dayFrom} and ${dayTo}.`,
+        },
+        { status: 400 },
+      );
+    }
+
+    // No punch anywhere in the chosen range means the machine recorded nothing
+    // for ANY employee across those days. Processing it would mark every person
+    // absent for the whole range on no evidence at all.
+    const punchesInRange = report.employees.some((e) =>
+      e.days.some((d) => d.inTime || d.outTime),
+    );
+    if (!punchesInRange) {
+      return NextResponse.json(
+        {
+          error: 'No punches in range',
+          message:
+            `No employee has a single punch between ${iso(dayFrom)} and ${iso(dayTo)}. ` +
+            (report.punchDayFrom && report.punchDayTo
+              ? `This export carries punches from day ${report.punchDayFrom} to day ${report.punchDayTo} — process that range instead.`
+              : 'This export carries no punches at all.'),
+        },
         { status: 400 },
       );
     }
@@ -287,11 +376,43 @@ export async function POST(request: NextRequest) {
     const matched: Array<{ staff: StaffRow; emp: (typeof report.employees)[number] }> = [];
     const unmatched: Array<{ code: string; name: string }> = [];
     const relievedSkipped: Array<{ code: string; name: string; staff: string }> = [];
+    /**
+     * Linked, active, and the device recorded NOT ONE PUNCH for them across the
+     * whole processed range.
+     *
+     * These are not absences — they are silence. 35 of the 385 people in the
+     * August import had zero punches in the month and 30 of them are active
+     * staff, so the importer wrote each of them 31 ABSENT days: a full month of
+     * loss-of-pay asserted from the absence of evidence rather than evidence of
+     * absence. Their code is enrolled on the machine but the machine never sees
+     * them — posted where no device reaches, on long leave, or gone without
+     * anyone clearing the enrolment.
+     *
+     * Excluded WHOLE, before evaluation, so they leave no verdict, no record,
+     * no exception and no reconciliation row to dilute the totals. With no rows
+     * their days read AEYP on the attendance page and the Salary Register holds
+     * them out with "No attendance in the closed month" — neither paid nor
+     * docked until a human decides which it is. They are listed in the preview,
+     * never dropped silently: 30 people missing from a payroll input is exactly
+     * the kind of thing that must be said out loud.
+     */
+    const noBiometricData: Array<{
+      code: string; name: string; staff_name: string | null; staff_code: string | null;
+    }> = [];
     for (const emp of report.employees) {
       const key = normBiometricCode(emp.code);
       const s = key ? staffByCode.get(key) : undefined;
       if (s) {
-        matched.push({ staff: s, emp });
+        if (emp.days.some((d) => d.inTime || d.outTime)) {
+          matched.push({ staff: s, emp });
+        } else {
+          noBiometricData.push({
+            code: emp.code,
+            name: emp.name,
+            staff_name: [s.first_name, s.last_name].filter(Boolean).join(' ').trim() || null,
+            staff_code: s.staff_id,
+          });
+        }
       } else if (key && relievedByCode.has(key)) {
         relievedSkipped.push({ code: emp.code, name: emp.name, staff: relievedByCode.get(key)! });
       } else {
@@ -855,8 +976,33 @@ export async function POST(request: NextRequest) {
       matched_employees: matched.length,
       unmatched_codes: unmatched,
       relieved_skipped: relievedSkipped,
+      no_biometric_data: noBiometricData,
       pending_requests_on_marked_days: pendingOnMarkedDays,
-      total_day_cells: report.employees.reduce((n, e) => n + e.days.length, 0),
+      // Cells that will actually be judged. Counting every employee's cells
+      // would include the excluded staff above and overstate the work by a
+      // whole month per person.
+      total_day_cells: matched.reduce((n, m) => n + m.emp.days.length, 0),
+      /**
+       * WHICH DAYS THIS RUN TOUCHED, and which days the machine actually had
+       * something to say about. The two are deliberately separate: `day_from`/
+       * `day_to` is the caller's instruction and always wins, while
+       * `punch_day_from`/`punch_day_to` is only evidence the UI uses to warn
+       * that the instruction is wider than the export.
+       */
+      coverage: {
+        mode: processedAllDays ? ('all' as const) : ('range' as const),
+        day_from: dayFrom,
+        day_to: dayTo,
+        applied_from: iso(dayFrom),
+        applied_to: iso(dayTo),
+        month_from: iso(1),
+        month_to: iso(monthLastDay),
+        days_in_month: monthLastDay,
+        days_processed: dayTo - dayFrom + 1,
+        punch_day_from: report.punchDayFrom,
+        punch_day_to: report.punchDayTo,
+        cells_skipped: cellsSkipped,
+      },
       counts,
       preview,
       preview_truncated: preview.length >= PREVIEW_LIMIT,
@@ -877,7 +1023,15 @@ export async function POST(request: NextRequest) {
 
     if (dryRun) {
       return NextResponse.json(
-        { ...base, message: `${records.length} day-record(s) ready for ${matched.length} employee(s).` },
+        {
+          ...base,
+          message:
+            `${records.length} day-record(s) ready for ${matched.length} employee(s), ` +
+            `${base.coverage.applied_from} to ${base.coverage.applied_to}` +
+            (noBiometricData.length > 0
+              ? `. ${noBiometricData.length} linked employee(s) had no punch in this range and are excluded.`
+              : '.'),
+        },
         { status: 200 },
       );
     }

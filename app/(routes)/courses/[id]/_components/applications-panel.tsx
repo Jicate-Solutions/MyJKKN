@@ -163,7 +163,7 @@ function ApplicationSheet({
                     <div className="min-w-0">
                       <p className="text-xs text-muted-foreground">JKKN ID</p>
                       <p className="break-words font-mono text-sm font-semibold">
-                        {application.profile?.jkkn_identities?.[0]?.jkkn_id ?? 'Not issued'}
+                        {application.jkkn_id ?? 'Not issued'}
                       </p>
                     </div>
                   </div>
@@ -437,7 +437,7 @@ export function ApplicationsPanel({ courseEventId }: { courseEventId: string }) 
               applicant_type: row.applicant_type,
               form: row.form?.name ?? '',
               package: row.package?.name ?? '',
-              jkkn_id: row.profile?.jkkn_identities?.[0]?.jkkn_id ?? '',
+              jkkn_id: row.jkkn_id ?? '',
               // Blank, not 0, for an application with no enrolment: a zero in a
               // fee column reads as "nothing owed" when the truth is "not yet
               // approved".

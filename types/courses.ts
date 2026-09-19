@@ -403,12 +403,21 @@ export interface CourseApplication extends CourseApplicationRow {
     total_paid?: number | null;
     balance?: number | null;
   } | null;
-  /** The provisioned person. jkkn_identities is reached THROUGH profiles —
-   *  course_applications has no FK to it, but jkkn_identities.profile_id does,
-   *  so PostgREST embeds it in reverse. Readable by the same roles that can see
-   *  applications: all 7 holding courses.applications.view also hold
-   *  users.jkkn_id.view, so this never silently returns null for them. */
-  profile?: { id: string; jkkn_identities?: { jkkn_id: string }[] | null } | null;
+  /**
+   * The applicant's JKKN ID once they have been provisioned, null while the
+   * application is still pending.
+   *
+   * A POSTGREST COMPUTED COLUMN backed by fn_jkkn_id_of, not an embed. The
+   * embed this replaced — profiles -> jkkn_identities(jkkn_id) — was wrong
+   * twice: jkkn_identities_select demands users.jkkn_id.view, which NONE of
+   * administrator / coo / course_coordinator holds (measured 2026-09-19), and
+   * an RLS-blocked embed returns null rather than erroring, so the whole tab
+   * read "Not issued"; and it joins on jkkn_identities.profile_id, which is
+   * NULL for every learner and staff row, so a reused identity would read
+   * "Not issued" too. fn_jkkn_id_of is SECURITY DEFINER, open to all
+   * authenticated by design, and walks all three anchors.
+   */
+  jkkn_id?: string | null;
 }
 
 export interface CourseApplicationFilters {
@@ -432,6 +441,51 @@ export type CourseApplicationCounts = Record<CourseApplicationStatus, number> & 
  *  object is discarded. It is absent when an existing identity was reused —
  *  overwriting a person's password to display it to an admin would be an
  *  account takeover, not a convenience. */
+/** Which identity a course enrollment is written against. Mirrors
+ *  course_enrollments_identity_chk, which makes this more than a label: a
+ *  'staff' row must carry neither learner_id nor external_participant_id, a
+ *  'learner' row must carry a learner_id, and an 'external' row must carry an
+ *  external_participant_id. */
+export type CourseParticipantType = 'learner' | 'staff' | 'external';
+
+/** Somebody who shares the applicant's phone number but not their email. */
+export interface CourseApplicantPhoneMatch {
+  kind: 'learner' | 'staff';
+  jkkn_id: string;
+  display_name: string | null;
+}
+
+/**
+ * What fn_course_resolve_applicant answers: is this applicant already somebody
+ * MyJKKN knows?
+ *
+ * Matched on normalised EMAIL across all three jkkn_identities anchors
+ * (learner_profile_id, team_member_id, profile_id). A phone match never links
+ * automatically — it only populates phone_only_matches.
+ *
+ * `ambiguous` means one address resolved to two or more DIFFERENT JKKN IDs.
+ * Approval refuses rather than guessing which human is applying.
+ */
+export interface CourseApplicantMatch {
+  ok: true;
+  matched: boolean;
+  ambiguous: boolean;
+  /** Present only when matched and not ambiguous. */
+  jkkn_id?: string;
+  /** Present only when ambiguous — the competing numbers, to show the admin. */
+  jkkn_ids?: string[];
+  person_kind?: string | null;
+  participant_type?: CourseParticipantType;
+  profile_id?: string | null;
+  learner_profile_id?: string | null;
+  team_member_id?: string | null;
+  display_name?: string | null;
+  /** Where the match came from: 'staff record', 'learner record', 'MyJKKN account'. */
+  matched_on?: string | null;
+  email?: string | null;
+  phone_only_matches: CourseApplicantPhoneMatch[];
+}
+
 export interface CourseApprovalResult {
   ok: true;
   profile_id: string;
@@ -449,6 +503,19 @@ export interface CourseApprovalResult {
   /** The person already had a profile and a JKKN ID — a second course, not a
    *  second identity. No password is issued in this case. */
   reusedExistingIdentity: boolean;
+  /** Which identity the enrollment was written against. Anything other than
+   *  'external' means MyJKKN already knew this person: they keep the number and
+   *  the login they already had, and no password was minted. */
+  participantType?: CourseParticipantType;
+  /** The matched person's name, when an existing identity was reused. */
+  matchedName?: string | null;
+  /** Their person_kind in the JKKN register ('learner', 'team_member', …). */
+  matchedKind?: string | null;
+  /** People who share the applicant's PHONE but not their email address. Shown
+   *  to the admin as a warning and never acted on — families share numbers, and
+   *  the 2026-08-27 register backfill withheld 18 such pairs for human review
+   *  rather than merging them. */
+  phoneOnlyMatches?: CourseApplicantPhoneMatch[];
   /** Whether the welcome email actually went out. Sent AFTER the approval
    *  transaction and unable to fail it, so this is reported rather than thrown:
    *  when false the admin still has to hand the credentials over themselves. */
