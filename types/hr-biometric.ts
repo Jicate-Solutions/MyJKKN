@@ -285,6 +285,36 @@ export const SHIFT_SCOPE_LABEL: Record<string, string> = {
   non_teaching: 'Non-teaching',
 };
 
+/**
+ * Which days of the report month an import run touched.
+ *
+ * TWO INDEPENDENT FACTS, never collapsed into one. `day_from`/`day_to` is what
+ * the operator asked for and is what was processed. `punch_day_from`/
+ * `punch_day_to` is what the machine actually recorded. The UI compares them to
+ * warn that "all days" was chosen for an export that stops mid-month — it never
+ * silently substitutes one for the other, because a genuine institution-wide
+ * shutdown looks identical to a short export and only a human can tell them
+ * apart.
+ */
+export interface BiometricCoverage {
+  mode: 'all' | 'range';
+  /** Day-of-month, after clamping to the month's real length. */
+  day_from: number;
+  day_to: number;
+  /** The same pair as ISO dates, for display. */
+  applied_from: string;
+  applied_to: string;
+  month_from: string;
+  month_to: string;
+  days_in_month: number;
+  days_processed: number;
+  /** First/last day carrying a punch anywhere in the file. Null if none. */
+  punch_day_from: number | null;
+  punch_day_to: number | null;
+  /** Day cells dropped as outside the chosen range. */
+  cells_skipped: number;
+}
+
 export interface BiometricImportReport {
   success: boolean;
   dry_run: boolean;
@@ -298,6 +328,19 @@ export interface BiometricImportReport {
   /** Codes owned by a RELIEVED team member. Skipped, not imported -- named so
    *  a skip is visible rather than looking like an unknown code. */
   relieved_skipped: Array<{ code: string; name: string; staff: string }>;
+  /**
+   * Linked, active staff with NOT ONE PUNCH anywhere in the processed range.
+   * Excluded whole — no verdict, no record, no exception — because silence from
+   * the device is not evidence of absence. Their days stay AEYP.
+   */
+  no_biometric_data: Array<{
+    code: string;
+    name: string;
+    staff_name: string | null;
+    staff_code: string | null;
+  }>;
+  /** Which days of the month this run processed, and which days hold punches. */
+  coverage: BiometricCoverage;
   /**
    * Days this import marked ABSENT or HALF_DAY that already carry an undecided
    * request. Reported, never acted on: attendance restamps only on approval,

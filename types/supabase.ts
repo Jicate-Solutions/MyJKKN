@@ -214922,8 +214922,12 @@ export type Database = {
           approved_comp_off: number
           approved_leave: number
           approved_short_time_off: number
+          days_covered: number
+          days_in_month: number
+          first_covered_date: string
           institution_id: string
           institution_name: string
+          last_covered_date: string
           locked_at: string
           pending_comp_off: number
           pending_leave: number
