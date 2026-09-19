@@ -1,7 +1,7 @@
 # MyJKKN Accreditation & Compliance Module — End-User Manual
 
 **Module path:** `/accreditation`
-**Audience:** IQAC coordinators, Principals, HODs, faculty named as metric owners, committee members, the Accreditation Officer, and Director's office staff.
+**Audience:** IQAC coordinators, Principals, HODs, Senior Learners named as metric owners, committee members, the Accreditation Officer, and Director's office team members.
 **Version:** 2026-09-18 (written from the live codebase on that date).
 
 ---
@@ -323,7 +323,7 @@ A (body × college) pair with no evidence never appears — so DCI shows only th
 
 **Rules.** The five system defaults (SH / Ragging / Academic / Infrastructure / Other) can be renamed and reconfigured but never deleted.
 
-**Workflow.** Choose the college → **New Category** (e.g. "Hostel Mess") → set SLA, assignee, metric → **Create** → staff can now file tickets under it.
+**Workflow.** Choose the college → **New Category** (e.g. "Hostel Mess") → set SLA, assignee, metric → **Create** → team members can now file tickets under it.
 
 ---
 
@@ -474,7 +474,7 @@ NAAC is the primary body. It is the only tab with its own sub-menu, because it c
 2. **Four tiles**: **Marks earned** (of 900) · **Coverage (marks-weighted)** · **Metrics earning marks** (N of M) · **Evidence rows**.
    - In cluster view a caveat appears: "Cluster view is a union, not an average… Pick a college above for a score that college could actually claim."
 3. **Buttons**: Coverage matrix · IQAC committees · DCF 2025 / AQAR export · Survey consent · 8.4 Survey export.
-4. **Ten attribute cards** — Attr 1 Curriculum · 2 Faculty Resources · 3 Infrastructure · 4 Financial · 5 Learning & Teaching · 6 Extended Curricular · 7 Governance (incl. IQAC + grievance) · 8 Student Outcomes · 9 Research & Innovation · 10 Sustainability. Each shows "X / Y marks", a percentage bar, evidence rows, and an expandable list of metrics with "earned / possible".
+4. **Ten attribute cards** — Attr 1 (learning framework) · 2 (Senior Learner resources) · 3 Infrastructure · 4 Financial · 5 Learning & Teaching · 6 Extended Curricular · 7 Governance (incl. IQAC + grievance) · 8 (learner outcomes) · 9 Research & Innovation · 10 Sustainability. Each shows "X / Y marks", a percentage bar, evidence rows, and an expandable list of metrics with "earned / possible". The cards carry the regulator's own published names on screen; this manual describes them in JKKN terms.
    - A metric with marks available but no evidence reads **"0 earned — no evidence yet (N marks available)"**.
    - Some metrics carry zero possible marks by design and say why: **"Shares metric X's marks"** (facet rows such as 7.3.d → 7.3.1), **"Affiliated-only — not scored against the Autonomous ceiling"** (⚑ 8.2.2), or **"Superseded starter row"** (9.1.1 → use 9.2; 10.1.1 → use 10.4).
 5. **"Marks by college"** table — **College | Type | Marks (of 900) | % | Evidence**.
@@ -624,7 +624,7 @@ Steps inside a **Held** meeting:
 
 ### 9.6 Grievance — `/accreditation/naac/grievance`
 
-**Key:** `accreditation.naac.view` · **Who:** IQAC coordinator, grievance cell staff, any office filing on a learner's behalf
+**Key:** `accreditation.naac.view` · **Who:** IQAC coordinator, grievance cell team members, any office filing on a learner's behalf
 
 **What it is for.** The UGC-mandated grievance redressal register. **Every resolved ticket automatically emits NAAC 7.7.1 + UGC evidence.**
 
@@ -663,7 +663,7 @@ Clicking **Surveys** in the sidebar lands on **Survey Consent** — consent is t
 
 #### 9.7.1 Survey Consent (DPDPA) — `/accreditation/naac/surveys/consent`
 
-**Key:** `accreditation.naac.surveys.consent.submit` · **Who:** the individual learner / alumnus / staff member (data subject)
+**Key:** `accreditation.naac.surveys.consent.submit` · **Who:** the individual learner / alumnus / team member (data subject)
 
 **What it is for.** Record informed consent under DPDPA 2023 §6 before your personal data may be exported for NAAC 8.4 or NIRF perception surveys. One consent covers both bodies.
 
@@ -699,7 +699,7 @@ Clicking **Surveys** in the sidebar lands on **Survey Consent** — consent is t
 
 **What the recipient sees.** A public page (no login): four 1–5 ratings, one optional comment, a DPDPA consent tick, **Send my feedback**. Answers are never shown against a name.
 
-**Workflow.** New cycle → Build the list → Links CSV → send links → **Open** → chase the "not yet" rows → after the window, **Close** → NAAC 1.2 evidence is written → use the answers in that year's BoS / curriculum review.
+**Workflow.** New cycle → Build the list → Links CSV → send links → **Open** → chase the "not yet" rows → after the window, **Close** → NAAC 1.2 evidence is written → use the answers in that year's BoS / learning framework review.
 
 ---
 
@@ -771,7 +771,7 @@ Each card's list opens automatically when it contains a gap. Per metric you see 
 
 **Buttons.** Coverage matrix · SAR generator (soon).
 
-**Ten criterion cards (points).** 1 Vision, Mission & PEOs (50) · 2 POs & COs (150) · 3 Curriculum & Syllabus (100) · 4 Teaching-Learning Processes (100) · 5 Students' Performance (150) · 6 Faculty Information & Contributions (200) · 7 Facilities & Technical Support (80) · 8 Continuous Improvement (50) · 9 First-year Academics (50) · 10 Student Support Systems (50). Each has a **View N metrics** list.
+**Ten criterion cards (points).** 1 Vision, Mission & PEOs (50) · 2 POs & COs (150) · 3 (learning framework and learning pathway) (100) · 4 Teaching-Learning Processes (100) · 5 (learners' performance) (150) · 6 (Senior Learner information and contributions) (200) · 7 Facilities & Technical Support (80) · 8 Continuous Improvement (50) · 9 First-year Academics (50) · 10 (learner support systems) (50). Each has a **View N metrics** list. The cards carry the regulator's own published names on screen; this manual describes them in JKKN terms.
 
 **Extra section.** **Uncategorised NBA metrics** appears when a metric matched no criterion.
 
@@ -785,7 +785,7 @@ Each card's list opens automatically when it contains a gap. Per metric you see 
 
 **What it is for.** A **placeholder** for the QS World University Rankings. Nothing is computed. The banner reads "Scaffolding placeholder. Deep QS ranking integration lands in Phase 2 … after Jan 2027."
 
-**Six indicator cards.** AR Academic Reputation (40%) · ER Employer Reputation (10%) · FSR Faculty/Student Ratio (20%) · CIT Citations per Faculty (20%) · ISF International Faculty (5%) · ISS International Students (5%). Badges: **Seeded** (a catalogue row exists — AR and CIT today) or **Coming Phase 2+** (dimmed). A seeded card shows "— / <max> pts" — nothing is scored.
+**Six indicator cards.** AR Academic Reputation (40%) · ER Employer Reputation (10%) · FSR (Senior Learner to learner ratio) (20%) · CIT (citations per Senior Learner) (20%) · ISF (international Senior Learners) (5%) · ISS (international learners) (5%). Badges: **Seeded** (a catalogue row exists — AR and CIT today) or **Coming Phase 2+** (dimmed). A seeded card shows "— / <max> pts" — nothing is scored. The cards carry the regulator's own published names on screen; this manual describes them in JKKN terms.
 
 **Workflow.** Informational only. Expect no change until Phase 2.
 
@@ -801,7 +801,7 @@ Each card's list opens automatically when it contains a gap. Per metric you see 
 
 **Tiles.** Metrics seeded · Max score tracked · Evidence rows · Cycle = Annual inspection ("Next: Annual (schedule TBD)").
 
-**Six category cards.** Infrastructure · Faculty · Patient Load · Clinical Exposure · Research & Publications · Ethics & Compliance. Metrics are bucketed by keywords in their category (e.g. "patient", "opd", "ipd" → Patient Load). Uncategorised metrics are hidden until re-tagged.
+**Six category cards.** Infrastructure · (Senior Learners) · Patient Load · Clinical Exposure · Research & Publications · Ethics & Compliance. Metrics are bucketed by keywords in their category (e.g. "patient", "opd", "ipd" → Patient Load). Uncategorised metrics are hidden until re-tagged. The cards carry the regulator's own published names on screen; this manual describes them in JKKN terms.
 
 **Warnings.** "JKKN Dental College not found" if the institution row is missing its IQAC code. The DCI catalogue today holds only placeholder entries, so coverage figures describe the catalogue, not DCI's full schedule.
 
@@ -847,7 +847,7 @@ Each card's list opens automatically when it contains a gap. Per metric you see 
 
 **What it is for.** Teacher-education compliance, fixed to **JKKN College of Education** (IQAC code `EDUC`).
 
-**Header.** "NCTE — Teacher Education Compliance" with a **Scope (auto-detected)** box and badge "Fixed scope — 1 college".
+**Header.** the NCTE compliance title with a **Scope (auto-detected)** box and badge "Fixed scope — 1 college".
 
 **Tiles.** Metrics seeded · Max score tracked · Evidence rows · Cycle = Periodic.
 
@@ -887,7 +887,7 @@ Each card's list opens automatically when it contains a gap. Per metric you see 
 
 **Live-evidence card (red).** "Anti-ragging evidence is LIVE on production" — every anti-ragging affidavit recorded in the Anti-ragging module automatically becomes UGC evidence (and NAAC Attr 7, NIRF Outreach, NBA 1.2.2). The card shows the current count for your scope.
 
-**Six domain cards.** 2(f) / 12(B) Status · **Anti-Ragging** (red border, "Live" badge) · Grievance Redressal (UGC Regulations 2023 §5 — fed by NAAC → Grievance resolutions) · Fee Structures · Faculty Recruitment · Student Welfare.
+**Six domain cards.** 2(f) / 12(B) Status · **Anti-Ragging** (red border, "Live" badge) · Grievance Redressal (UGC Regulations 2023 §5 — fed by NAAC → Grievance resolutions) · Fee Structures · (Senior Learner recruitment) · (learner welfare). The cards carry the regulator's own published names on screen; this manual describes them in JKKN terms.
 
 **Workflow.** Pick your college → confirm the anti-ragging count matches the affidavits you have collected → resolve grievances in the register to feed Grievance Redressal.
 
