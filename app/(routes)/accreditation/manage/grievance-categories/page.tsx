@@ -335,7 +335,7 @@ export default function GrievanceCategoriesPage() {
               items={items}
               loading={isLoading}
               error={error ? (error as Error).message : null}
-              onRefresh={() => refetch()}
+              onRefresh={() => { void refetch(); }}
               onBulkDelete={(ids) => GrievanceCategoryService.bulkDelete(ids)}
               columns={columns}
               entityLabel="category"

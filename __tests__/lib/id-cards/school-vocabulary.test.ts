@@ -53,7 +53,7 @@ describe('school vocabulary on ID cards', () => {
     expect(labels).not.toContain('Course');
   });
 
-  it('school CLASS value: Roman class + section; Grade-named classes keep GRADE', () => {
+  it('school CLASS value: Roman class + section; a Grade-named class keeps GRADE', () => {
     expect(schoolClassLabel('Standard 1', 'A')).toBe('I - A');
     expect(schoolClassLabel('Standard 12', 'Section B')).toBe('XII - B');
     expect(schoolClassLabel('Grade 1', 'A')).toBe('GRADE - I - A');

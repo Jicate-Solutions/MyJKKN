@@ -29,6 +29,11 @@ CREATE INDEX IF NOT EXISTS idx_cdc_drive_selections_learner ON public.cdc_drive_
 
 ALTER TABLE public.cdc_drive_selections ENABLE ROW LEVEL SECURITY;
 
+-- Anon lock: Supabase default privileges grant ALL on new tables to anon.
+-- Reads go through RLS as authenticated; writes are service-role only.
+REVOKE ALL ON TABLE public.cdc_drive_selections FROM anon, PUBLIC;
+GRANT SELECT ON TABLE public.cdc_drive_selections TO authenticated;
+
 -- CDC team members read everything. A learner reads their OWN decision only after the
 -- drive has announced results (never while decisions are still being entered).
 DROP POLICY IF EXISTS "cdc_drive_selections_read" ON public.cdc_drive_selections;

@@ -70,6 +70,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_cdc_drive_documents_current
 ALTER TABLE public.cdc_drive_document_batches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cdc_drive_documents        ENABLE ROW LEVEL SECURITY;
 
+-- Anon lock: Supabase default privileges grant ALL on new tables to anon.
+-- Reads go through RLS as authenticated; writes are service-role only.
+REVOKE ALL ON TABLE public.cdc_drive_document_batches FROM anon, PUBLIC;
+GRANT SELECT ON TABLE public.cdc_drive_document_batches TO authenticated;
+REVOKE ALL ON TABLE public.cdc_drive_documents FROM anon, PUBLIC;
+GRANT SELECT ON TABLE public.cdc_drive_documents TO authenticated;
+
 DROP POLICY IF EXISTS "cdc_drive_document_batches_read" ON public.cdc_drive_document_batches;
 CREATE POLICY "cdc_drive_document_batches_read" ON public.cdc_drive_document_batches
   FOR SELECT USING (public.is_cdc_staff());
