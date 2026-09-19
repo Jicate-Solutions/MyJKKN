@@ -36,14 +36,36 @@
 --     hand. No automatic de-activation — a learner flapping between states is
 --     worse than a learner in the wrong one, and it is a policy question.
 --
---     What this file adds is one field. The audit row already named the reason
---     (`first_present_attendance`), the attendance row (`student_attendance_id`)
---     and the actor (`changed_by = auth.uid()`). But `auth.uid()` is NULL on
---     every service-role and SQL write path, and those paths write attendance
---     too — so on exactly the rows an office user would be puzzling over, "who
---     marked it" could be blank. `student_attendance.marked_by` is NOT NULL, so
---     it is now copied into the audit metadata as `marked_by`. Nothing else
---     about the audit row changes.
+--     What this file adds is two metadata fields. The audit row already named
+--     the reason (`first_present_attendance`), the attendance row
+--     (`student_attendance_id`) and the actor (`changed_by = auth.uid()`). But
+--     `auth.uid()` is NULL on every service-role and SQL write path, and those
+--     paths write attendance too — so on exactly the rows an office user would
+--     be puzzling over, "who marked it" could be blank.
+--
+--     🛑 WHERE THE MARKER ACTUALLY LIVES (corrected in repair round 3).
+--     Rounds 1 and 2 of this file read `NEW.marked_by`. THERE IS NO SUCH COLUMN.
+--     `public.student_attendance` has exactly: id, attendance_date,
+--     institution_id, created_at, updated_at, timetable_id, section_id,
+--     attendance_data, semester_id, program_id, department_id, degree_id,
+--     academic_year_id, period_slot_id, section_ids. That claim came from a
+--     repo file, not from the live table, and a migration or setup file naming
+--     a column is not evidence the column exists.
+--
+--     The write path stores the marker INSIDE the payload, per period:
+--       attendance_data -> <period> -> 'marked_by_details' ->> 'marker_id'
+--     written by app/(routes)/academic/attendance/mark/page.tsx (marked_by_details)
+--     and by AttendanceCoreService.upsertConsolidatedAttendance, whose INSERT
+--     column list carries no marked_by at all. It is a `profiles.id`, the same
+--     identity space as `changed_by`. attendance-report-service reads it back
+--     the same way.
+--
+--     So the audit row now carries `marked_by` (read defensively out of the
+--     payload — missing, malformed or non-uuid all yield NULL, never an error)
+--     and `marked_by_source`, which says where that value came from:
+--     `attendance_data.marked_by_details.marker_id`, `auth.uid` when the
+--     payload records none but a JWT is present, or `unknown` when neither.
+--     Nothing else about the audit row changes.
 --
 -- 🅲  EDITING AN OLD ATTENDANCE ROW COULD ACTIVATE LEARNERS WHOSE PRESENT MARKS
 --     PREDATE THE SWITCH.
@@ -124,8 +146,10 @@ CREATE TABLE IF NOT EXISTS public.learner_activation_failures (
   -- office user works from: these people were NOT activated.
   learner_ids            uuid[] NOT NULL DEFAULT '{}'::uuid[],
 
-  -- Who marked the attendance (student_attendance.marked_by, always present)
-  -- and who the database thought was calling (auth.uid(), NULL off a JWT path).
+  -- Who marked the attendance, read out of
+  -- attendance_data -> <period> -> marked_by_details ->> marker_id (a
+  -- profiles.id) — NULL when the payload records none. And who the database
+  -- thought was calling (auth.uid(), NULL off a JWT path).
   marked_by              uuid,
   attempted_by           uuid,
 
@@ -211,6 +235,65 @@ COMMENT ON FUNCTION public.fn_present_learner_ids(jsonb) IS
 
 
 -- ----------------------------------------------------------------------------
+-- 2b. Who marked THIS learner present — read out of the payload.
+--
+--     There is no `marked_by` column on `public.student_attendance`. The marker
+--     is written into the payload per period by the marking screens and by
+--     AttendanceCoreService.upsertConsolidatedAttendance:
+--         attendance_data -> <period> -> 'marked_by_details' ->> 'marker_id'
+--     and it is a `profiles.id`.
+--
+--     DEFENSIVE BY CONSTRUCTION, because this runs inside an attendance save:
+--     a period that is not an object, a missing `marked_by_details`, a missing
+--     `marker_id`, an empty string or anything that is not uuid-shaped all
+--     yield NULL. Nothing here can raise.
+--
+--     WHICH period's marker: the first (by period key) in which this learner is
+--     marked Present — the period that activates them. If that period records
+--     no usable marker, any other period on the same row that does, because a
+--     name is more use to the office than a NULL.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_attendance_marker_for_learner(
+  p_attendance_data jsonb,
+  p_learner_id      uuid)
+RETURNS uuid
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public
+AS $function$
+  SELECT m.marker
+  FROM (
+    SELECT
+      per.period_key,
+      CASE WHEN jsonb_typeof(per.period_val) = 'object'
+             AND COALESCE(per.period_val -> 'marked_by_details' ->> 'marker_id', '') ~*
+                 '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+           THEN (per.period_val -> 'marked_by_details' ->> 'marker_id')::uuid
+      END AS marker
+    FROM jsonb_each(
+           CASE WHEN jsonb_typeof(p_attendance_data) = 'object'
+                THEN p_attendance_data
+                ELSE '{}'::jsonb END) AS per(period_key, period_val),
+         jsonb_array_elements(
+           CASE WHEN jsonb_typeof(per.period_val -> 'students') = 'array'
+                THEN per.period_val -> 'students'
+                ELSE '[]'::jsonb END) AS s(rec)
+    WHERE lower(COALESCE(s.rec ->> 'status', '')) = 'present'
+      AND COALESCE(s.rec ->> 'student_id', '') ~*
+          '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+      AND (s.rec ->> 'student_id')::uuid = p_learner_id
+  ) m
+  ORDER BY (m.marker IS NULL), m.period_key
+  LIMIT 1;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_attendance_marker_for_learner(jsonb, uuid) FROM anon, PUBLIC;
+
+COMMENT ON FUNCTION public.fn_attendance_marker_for_learner(jsonb, uuid) IS
+  'The profiles.id of whoever marked this learner Present on one student_attendance payload, read from attendance_data -> <period> -> marked_by_details ->> marker_id. There is NO marked_by column on student_attendance; the marking screens and AttendanceCoreService write the marker into the payload. Returns NULL for a missing, empty or non-uuid value rather than raising — it runs inside an attendance save.';
+
+
+-- ----------------------------------------------------------------------------
 -- 3. The activation itself — promote + audit, callable.
 --
 --    Verbatim logic from 20260821030000's step (d): an ALLOWLIST OF TWO, the
@@ -225,7 +308,16 @@ COMMENT ON FUNCTION public.fn_present_learner_ids(jsonb) IS
 --    would hand every signed-in user a lifecycle write over PostgREST. The
 --    trigger reaches it as the function owner; the catch-up script runs as the
 --    operator. Nobody else needs it and nobody else gets it.
+--
+--    The 10-argument shape from repair rounds 1 and 2 is dropped first. It was
+--    never applied to any database — this whole PR is FILE ONLY — but leaving
+--    it would create an overload rather than replace it, and two functions with
+--    the same name and different marker semantics is how the wrong one gets
+--    called a year from now.
 -- ----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.fn_activate_learners_for_first_present(
+  uuid[], uuid, date, uuid, uuid, uuid, uuid, uuid, text, text);
+
 CREATE OR REPLACE FUNCTION public.fn_activate_learners_for_first_present(
   p_learner_ids           uuid[],
   p_student_attendance_id uuid,
@@ -236,7 +328,12 @@ CREATE OR REPLACE FUNCTION public.fn_activate_learners_for_first_present(
   p_marked_by             uuid,
   p_changed_by            uuid,
   p_trigger_op            text,
-  p_source                text DEFAULT 'fn_activate_learner_on_first_present'
+  p_source                text,
+  -- Where p_marked_by came from, recorded verbatim in the audit row:
+  -- 'attendance_data.marked_by_details.marker_id' | 'auth.uid' | 'unknown'.
+  -- The caller knows; the function cannot work it out, and a guessed
+  -- provenance is worse than none.
+  p_marked_by_source      text
 )
 RETURNS integer
 LANGUAGE plpgsql
@@ -283,11 +380,15 @@ BEGIN
         'section_id',              p_section_id,
         'timetable_id',            p_timetable_id,
         'institution_id',          p_institution_id,
-        -- 🅱️ Who actually marked the attendance. `changed_by` above is
-        -- auth.uid(), which is NULL on every service-role / SQL write path;
-        -- student_attendance.marked_by is NOT NULL, so the office can always
-        -- see whose mark caused this.
+        -- 🅱️ Who actually marked the attendance, and where that came from.
+        -- `changed_by` above is auth.uid(), which is NULL on every
+        -- service-role / SQL write path. The marker is read out of the payload
+        -- (attendance_data -> <period> -> marked_by_details ->> marker_id);
+        -- there is no marked_by COLUMN on student_attendance. Recording the
+        -- source means a NULL here is readable as "nobody wrote one" rather
+        -- than mistaken for "we did not look".
         'marked_by',               p_marked_by,
+        'marked_by_source',        p_marked_by_source,
         -- Recorded so the money consequence is visible in the audit trail
         -- itself, not only in a file header.
         'fee_thresholds_bypassed', true)
@@ -301,10 +402,10 @@ END;
 $function$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_activate_learners_for_first_present(
-  uuid[], uuid, date, uuid, uuid, uuid, uuid, uuid, text, text) FROM anon, PUBLIC;
+  uuid[], uuid, date, uuid, uuid, uuid, uuid, uuid, text, text, text) FROM anon, PUBLIC;
 
 COMMENT ON FUNCTION public.fn_activate_learners_for_first_present(
-  uuid[], uuid, date, uuid, uuid, uuid, uuid, uuid, text, text) IS
+  uuid[], uuid, date, uuid, uuid, uuid, uuid, uuid, text, text, text) IS
   'Moves the reserved/admitted learners among p_learner_ids to active and writes one learners_profile_status_history row each (reason_code first_present_attendance). Returns how many were activated. Allowlist of two statuses; idempotent — an already-active learner matches nothing and gets no history row. Granted to NOBODY: the trigger reaches it as owner, the Director-gated catch-up runs it as the operator.';
 
 
@@ -325,6 +426,7 @@ SET search_path = public
 AS $function$
 DECLARE
   v_newly_present uuid[];
+  v_group         record;
   v_err_state     text;
   v_err_msg       text;
   v_err_detail    text;
@@ -372,17 +474,43 @@ BEGIN
     END IF;
 
     -- (d) Promote and audit, through the one shared body.
-    PERFORM public.fn_activate_learners_for_first_present(
-      v_newly_present,
-      NEW.id,
-      NEW.attendance_date,
-      NEW.section_id,
-      NEW.timetable_id,
-      NEW.institution_id,
-      NEW.marked_by,
-      auth.uid(),
-      TG_OP,
-      'fn_activate_learner_on_first_present');
+    --
+    --     GROUPED BY MARKER, because one attendance row holds several periods
+    --     and `upsertConsolidatedAttendance` merges later periods into the
+    --     existing row — so two different people can legitimately have marked
+    --     two learners on the same row. Attributing both to whichever name came
+    --     first would put a wrong person on an audit row the office uses to
+    --     reverse an activation by hand. One call per distinct marker costs a
+    --     loop and is the honest answer.
+    --
+    --     A NULL marker is a group of its own: the payload recorded none, so the
+    --     caller falls back to auth.uid() and says so in `marked_by_source`.
+    FOR v_group IN
+      SELECT m.marker, array_agg(m.learner_id ORDER BY m.learner_id) AS ids
+      FROM (
+        SELECT n AS learner_id,
+               public.fn_attendance_marker_for_learner(NEW.attendance_data, n) AS marker
+        FROM unnest(v_newly_present) AS n
+      ) m
+      GROUP BY m.marker
+    LOOP
+      PERFORM public.fn_activate_learners_for_first_present(
+        v_group.ids,
+        NEW.id,
+        NEW.attendance_date,
+        NEW.section_id,
+        NEW.timetable_id,
+        NEW.institution_id,
+        COALESCE(v_group.marker, auth.uid()),
+        auth.uid(),
+        TG_OP,
+        'fn_activate_learner_on_first_present',
+        CASE
+          WHEN v_group.marker IS NOT NULL THEN 'attendance_data.marked_by_details.marker_id'
+          WHEN auth.uid()     IS NOT NULL THEN 'auth.uid'
+          ELSE 'unknown'
+        END);
+    END LOOP;
 
     RETURN NULL;
 
@@ -405,7 +533,13 @@ BEGIN
       VALUES
         (NEW.id, NEW.attendance_date, NEW.section_id, NEW.timetable_id,
          NEW.institution_id, TG_OP, COALESCE(v_newly_present, '{}'::uuid[]),
-         NEW.marked_by, auth.uid(),
+         -- The marker for the failure record: whatever the payload says for the
+         -- first learner we were trying to move, else the caller. Best effort —
+         -- this is the handler, and it must not be the thing that raises.
+         COALESCE(
+           public.fn_attendance_marker_for_learner(NEW.attendance_data, v_newly_present[1]),
+           auth.uid()),
+         auth.uid(),
          v_err_state, COALESCE(v_err_msg, 'unknown error'), v_err_detail, v_err_context);
     EXCEPTION WHEN OTHERS THEN
       RAISE WARNING
@@ -436,6 +570,8 @@ DO $do$
 DECLARE
   v_rls  boolean;
   v_body text;
+  v_refs text[];
+  v_bad  text[];
 BEGIN
   IF to_regclass('public.learner_activation_failures') IS NULL THEN
     RAISE EXCEPTION 'public.learner_activation_failures was not created';
@@ -453,18 +589,18 @@ BEGIN
     RAISE EXCEPTION 'anon still holds SELECT on public.learner_activation_failures';
   END IF;
 
-  IF to_regprocedure('public.fn_activate_learners_for_first_present(uuid[],uuid,date,uuid,uuid,uuid,uuid,uuid,text,text)') IS NULL THEN
+  IF to_regprocedure('public.fn_activate_learners_for_first_present(uuid[],uuid,date,uuid,uuid,uuid,uuid,uuid,text,text,text)') IS NULL THEN
     RAISE EXCEPTION 'fn_activate_learners_for_first_present() was not created';
   END IF;
 
   IF has_function_privilege('anon',
-       'public.fn_activate_learners_for_first_present(uuid[],uuid,date,uuid,uuid,uuid,uuid,uuid,text,text)',
+       'public.fn_activate_learners_for_first_present(uuid[],uuid,date,uuid,uuid,uuid,uuid,uuid,text,text,text)',
        'EXECUTE') THEN
     RAISE EXCEPTION 'anon still holds EXECUTE on fn_activate_learners_for_first_present()';
   END IF;
 
   IF has_function_privilege('authenticated',
-       'public.fn_activate_learners_for_first_present(uuid[],uuid,date,uuid,uuid,uuid,uuid,uuid,text,text)',
+       'public.fn_activate_learners_for_first_present(uuid[],uuid,date,uuid,uuid,uuid,uuid,uuid,text,text,text)',
        'EXECUTE') THEN
     RAISE EXCEPTION 'authenticated holds EXECUTE on fn_activate_learners_for_first_present() — it must be reachable only as the owner';
   END IF;
@@ -483,6 +619,42 @@ BEGIN
     RAISE EXCEPTION 'fn_activate_learner_on_first_present() is not the hardened body — CREATE OR REPLACE did not take';
   END IF;
 
-  RAISE LOG 'first-present activation hardened: failures table installed, trigger body can no longer reject an attendance save, UPDATE activates only learners who become present';
+  -- 🛑 EVERY COLUMN THE TRIGGER READS MUST EXIST ON student_attendance,
+  --    CHECKED AGAINST *THIS* DATABASE'S CATALOG.
+  --
+  --    Repair rounds 1 and 2 read `NEW.marked_by`, a column that exists in no
+  --    database anywhere. Every local test passed, because the test fixture
+  --    invented the column; the switch's own pre-flight passed, because it only
+  --    looked at the function's TEXT. On production the trigger would have
+  --    raised `record "new" has no field "marked_by"` on every attendance save,
+  --    the new exception handler would have caught it, and the rule would have
+  --    been switched on and activated NOBODY — silently, while looking
+  --    perfectly installed.
+  --
+  --    A file naming a column is not evidence the column exists. This is.
+  --    NOTE: a NEW.<name> written in a COMMENT inside the body counts as a
+  --    reference too. This guard fails CLOSED on purpose — a needless refusal
+  --    costs one reworded comment; a missed one costs a rule that activates
+  --    nobody on production.
+  SELECT array_agg(DISTINCT lower(m[1]))
+    INTO v_refs
+    FROM regexp_matches(v_body, '\m(?:NEW|OLD)\.([a-zA-Z_][a-zA-Z0-9_]*)', 'g') AS m;
+
+  SELECT array_agg(r ORDER BY r)
+    INTO v_bad
+    FROM unnest(COALESCE(v_refs, '{}'::text[])) AS r
+   WHERE r NOT IN (
+     SELECT lower(c.column_name)
+     FROM information_schema.columns c
+     WHERE c.table_schema = 'public' AND c.table_name = 'student_attendance');
+
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION
+      'fn_activate_learner_on_first_present() reads %, which public.student_attendance does not have in THIS database. Every NEW./OLD. reference must be a real column, or the trigger raises on every attendance save and silently activates nobody',
+      v_bad
+      USING ERRCODE = 'undefined_column';
+  END IF;
+
+  RAISE LOG 'first-present activation hardened: failures table installed, trigger body can no longer reject an attendance save, UPDATE activates only learners who become present, and every column it reads (%) exists on student_attendance', v_refs;
 END
 $do$;

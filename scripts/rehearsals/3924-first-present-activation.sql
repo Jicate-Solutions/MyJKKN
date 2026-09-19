@@ -105,10 +105,14 @@ BEGIN
   PERFORM set_config('request.jwt.claim.sub', k_ghost::text, true);
 
   INSERT INTO public.student_attendance
-    (attendance_date, marked_by, institution_id, timetable_id, section_id, attendance_data)
+    (attendance_date, institution_id, timetable_id, section_id, attendance_data)
   VALUES
-    (CURRENT_DATE, v_marker, v_inst, v_timetable, v_section,
-     jsonb_build_object('P1', jsonb_build_object('students',
+    (CURRENT_DATE, v_inst, v_timetable, v_section,
+     jsonb_build_object('P1', jsonb_build_object(
+       -- The marker lives HERE, in the payload — student_attendance has no
+       -- marked_by column. This is the shape the marking screens write.
+       'marked_by_details', jsonb_build_object('marker_id', v_marker::text),
+       'students',
        jsonb_build_array(jsonb_build_object('status','Present','student_id', k_learner_a::text)))))
   RETURNING id INTO v_att_1;
 
@@ -123,10 +127,12 @@ BEGIN
   PERFORM set_config('request.jwt.claim.sub', v_marker::text, true);
 
   INSERT INTO public.student_attendance
-    (attendance_date, marked_by, institution_id, timetable_id, section_id, attendance_data)
+    (attendance_date, institution_id, timetable_id, section_id, attendance_data)
   VALUES
-    (CURRENT_DATE, v_marker, v_inst, v_timetable, v_section,
-     jsonb_build_object('P1', jsonb_build_object('students',
+    (CURRENT_DATE, v_inst, v_timetable, v_section,
+     jsonb_build_object('P1', jsonb_build_object(
+       'marked_by_details', jsonb_build_object('marker_id', v_marker::text),
+       'students',
        jsonb_build_array(
          jsonb_build_object('status','Present','student_id', k_learner_b::text),
          jsonb_build_object('status','Absent', 'student_id', k_learner_a::text)))))
@@ -142,7 +148,9 @@ BEGIN
   -- again (it already is active), and — the real claim — nobody who was ALREADY
   -- present is re-processed.
   UPDATE public.student_attendance
-     SET attendance_data = jsonb_build_object('P1', jsonb_build_object('students',
+     SET attendance_data = jsonb_build_object('P1', jsonb_build_object(
+           'marked_by_details', jsonb_build_object('marker_id', v_marker::text),
+           'students',
            jsonb_build_array(
              jsonb_build_object('status','Present','student_id', k_learner_b::text),
              jsonb_build_object('status','Present','student_id', k_learner_a::text))))
@@ -166,6 +174,17 @@ BEGIN
     'b_attendance_ref',                    (v_hist.metadata ->> 'student_attendance_id'),
     'b_attendance_ref_matches',            ((v_hist.metadata ->> 'student_attendance_id') = v_att_2::text),
     'b_marked_by_in_metadata',             (v_hist.metadata ->> 'marked_by'),
+    'b_marked_by_matches_payload',         ((v_hist.metadata ->> 'marked_by') = v_marker::text),
+    'b_marked_by_source',                  (v_hist.metadata ->> 'marked_by_source'),
+    -- The round-3 check: the trigger must read only columns this database has.
+    'b_trigger_reads_only_real_columns',   NOT EXISTS (
+      SELECT 1
+      FROM (SELECT DISTINCT lower(m[1]) AS ref
+            FROM regexp_matches(
+              pg_get_functiondef('public.fn_activate_learner_on_first_present()'::regprocedure),
+              '\m(?:NEW|OLD)\.([a-zA-Z_][a-zA-Z0-9_]*)', 'g') AS m) r
+      WHERE r.ref NOT IN (SELECT lower(column_name) FROM information_schema.columns
+                          WHERE table_schema = 'public' AND table_name = 'student_attendance')),
     'b_changed_by',                        v_hist.changed_by,
     'b_fee_thresholds_bypassed',           (v_hist.metadata -> 'fee_thresholds_bypassed'),
     -- C

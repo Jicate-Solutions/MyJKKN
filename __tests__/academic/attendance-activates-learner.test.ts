@@ -130,6 +130,43 @@ const L = {
 
 const POLICY_KEY = 'learners.activate_on_first_present.enabled';
 
+/**
+ * 🛑 EVERY COLUMN `public.student_attendance` HAS ON PRODUCTION, AND NO OTHERS.
+ *
+ * Read from production `information_schema.columns` by the desk on 2026-09-19,
+ * after the catch-up preview failed there with
+ * `ERROR 42703: column sa.marked_by does not exist`. Corroborated independently
+ * by the generated `types/supabase.ts` on jicate/main, whose Row type for this
+ * table carries none of the invented column either.
+ *
+ * Repair rounds 1 and 2 shipped a trigger body reading `NEW.marked_by` on the
+ * strength of `supabase/setup/01_tables.sql`, which declares that column. It
+ * does not exist. `supabase/setup/` is drifted here: it also still carries
+ * `validate_attendance_staff_assignment()` and its BEFORE trigger, both of
+ * which read `NEW.marked_by` and were dropped by
+ * `20250905_rollback_attendance_staff_validation.sql` — if that trigger were
+ * live, every attendance save on production would already be failing.
+ *
+ * A migration or setup file naming a column is not evidence the column exists.
+ */
+const PRODUCTION_ATTENDANCE_COLUMNS = [
+  'id',
+  'attendance_date',
+  'institution_id',
+  'created_at',
+  'updated_at',
+  'timetable_id',
+  'section_id',
+  'attendance_data',
+  'semester_id',
+  'program_id',
+  'department_id',
+  'degree_id',
+  'academic_year_id',
+  'period_slot_id',
+  'section_ids',
+] as const;
+
 let admin: Client;
 let db: Client;
 // Teardown must know what actually opened. `admin` is ASSIGNED before it is
@@ -199,19 +236,32 @@ CREATE TABLE public.learners_profile_status_history (
   changed_at          timestamptz NOT NULL DEFAULT now(),
   metadata            jsonb DEFAULT '{}'::jsonb);
 
+-- 🛑 EXACTLY THE PRODUCTION COLUMN LIST. Same names, same nullability, nothing
+-- extra. Repair rounds 1 and 2 shipped a trigger reading \`NEW.marked_by\`, and
+-- this fixture INVENTED that column, so 46 tests passed green over a body that
+-- would have raised on every attendance save in production. A fixture that is
+-- more generous than the real table does not test the real table.
+--
+-- Source: production information_schema, read by the desk 2026-09-19, and
+-- corroborated independently by the generated types/supabase.ts on jicate/main.
+-- PRODUCTION_ATTENDANCE_COLUMNS below is the same list, and
+-- \`the trigger reads only columns production has\` asserts against it.
 CREATE TABLE public.student_attendance (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  attendance_date  date  NOT NULL,
-  institution_id   uuid  NOT NULL,
-  timetable_id     uuid  NOT NULL,
-  section_id       uuid  NOT NULL,
-  attendance_data  jsonb NOT NULL DEFAULT '{}'::jsonb,
-  -- NOT NULL on production and carries no default there; the DEFAULT here only
-  -- spares every fixture INSERT in this file from restating the same marker.
-  marked_by        uuid  NOT NULL DEFAULT '${MARKER}'::uuid,
-  semester_id      uuid,
+  id               uuid        NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
+  attendance_date  date        NOT NULL,
+  institution_id   uuid        NOT NULL,
   created_at       timestamptz NOT NULL DEFAULT now(),
-  updated_at       timestamptz NOT NULL DEFAULT now());
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+  timetable_id     uuid        NOT NULL,
+  section_id       uuid        NOT NULL,
+  attendance_data  jsonb       NOT NULL DEFAULT '{}'::jsonb,
+  semester_id      uuid,
+  program_id       uuid,
+  department_id    uuid,
+  degree_id        uuid,
+  academic_year_id uuid,
+  period_slot_id   text,
+  section_ids      uuid[]);
 
 CREATE TABLE public.platform_policies (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -340,9 +390,31 @@ UPDATE public.platform_policies SET value = 'true'::jsonb WHERE policy_key = '${
  * keyed by period, each period holding a `students` array of
  * { status, student_id } — the shape measured on production 2026-08-11.
  */
-function markPayload(marks: Array<[string, string]>, periodKey = 'P1'): string {
+function markPayload(
+  marks: Array<[string, string]>,
+  periodKey = 'P1',
+  /**
+   * WHO MARKED IT lives HERE, not in a column. `student_attendance` has no
+   * marked_by; app/(routes)/academic/attendance/mark/page.tsx and
+   * AttendanceCoreService.upsertConsolidatedAttendance both write the marker
+   * into the payload as marked_by_details.marker_id (a profiles.id), and
+   * attendance-report-service reads it back the same way.
+   * `null` reproduces a payload that records no marker at all.
+   */
+  markerId: string | null = MARKER,
+): string {
   return JSON.stringify({
     [periodKey]: {
+      ...(markerId
+        ? {
+            marked_by_details: {
+              marker_id: markerId,
+              marker_name: 'A Marker',
+              marker_role: 'faculty',
+              marked_at: new Date().toISOString(),
+            },
+          }
+        : {}),
       students: marks.map(([student_id, status]) => ({
         status,
         student_id,
@@ -353,12 +425,16 @@ function markPayload(marks: Array<[string, string]>, periodKey = 'P1'): string {
   });
 }
 
-async function mark(marks: Array<[string, string]>, date = '2026-08-11'): Promise<string> {
+async function mark(
+  marks: Array<[string, string]>,
+  date = '2026-08-11',
+  markerId: string | null = MARKER,
+): Promise<string> {
   const res = await db.query(
     `INSERT INTO public.student_attendance
        (attendance_date, institution_id, timetable_id, section_id, attendance_data)
      VALUES ($1, $2, $3, $4, $5::jsonb) RETURNING id`,
-    [date, INST, TIMETABLE, SECTION, markPayload(marks)],
+    [date, INST, TIMETABLE, SECTION, markPayload(marks, 'P1', markerId)],
   );
   return res.rows[0].id;
 }
@@ -1120,11 +1196,269 @@ describe('the failure table is locked the way every new table must be', () => {
     for (const role of ['anon', 'authenticated']) {
       const r = await db.query(
         `SELECT has_function_privilege($1,
-           'public.fn_activate_learners_for_first_present(uuid[],uuid,date,uuid,uuid,uuid,uuid,uuid,text,text)',
+           'public.fn_activate_learners_for_first_present(uuid[],uuid,date,uuid,uuid,uuid,uuid,uuid,text,text,text)',
            'EXECUTE') AS granted`,
         [role],
       );
       expect(r.rows[0].granted).toBe(false);
     }
+  });
+});
+
+/* ===========================================================================
+ * REPAIR ROUND 3 (PR #3924) — the defect the first two rounds could not see.
+ *
+ * The desk ran 3924-catchup-preview.sql read-only on production and all three
+ * queries failed with `ERROR 42703: column sa.marked_by does not exist`.
+ * `public.student_attendance` has no such column and never had one; the claim
+ * came from supabase/setup/01_tables.sql, not from a live table.
+ *
+ * WHY 46 GREEN TESTS MISSED IT: this file's own fixture declared the column.
+ * A fixture more generous than the real table does not test the real table —
+ * it tests the fixture. On production the trigger would have raised
+ * `record "new" has no field "marked_by"` on EVERY attendance save, repair
+ * round 1's exception handler would have caught it, and the rule would have
+ * been switched ON and activated NOBODY while looking perfectly installed.
+ *
+ * So the fixture now matches the production column list exactly, and the two
+ * groups below make that a thing the suite checks rather than a thing somebody
+ * remembered to do.
+ * ======================================================================== */
+
+/** Every `NEW.x` / `OLD.x` the installed trigger body reads. */
+async function triggerColumnRefs(): Promise<string[]> {
+  const r = await db.query(
+    `SELECT DISTINCT lower(m[1]) AS ref
+       FROM regexp_matches(
+              pg_get_functiondef('public.fn_activate_learner_on_first_present()'::regprocedure),
+              '\\m(?:NEW|OLD)\\.([a-zA-Z_][a-zA-Z0-9_]*)', 'g') AS m
+      ORDER BY 1`,
+  );
+  return r.rows.map((x: { ref: string }) => x.ref);
+}
+
+describe('the trigger reads only columns production actually has', () => {
+  it('the fixture IS the production column list — no extras, nothing missing', async () => {
+    // If this drifts, every other case in this group is measuring the wrong
+    // table and the suite goes back to being unable to see round 2's defect.
+    const r = await db.query(
+      `SELECT lower(column_name) AS c FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='student_attendance' ORDER BY 1`,
+    );
+    expect(r.rows.map((x: { c: string }) => x.c).sort()).toEqual(
+      [...PRODUCTION_ATTENDANCE_COLUMNS].sort(),
+    );
+  });
+
+  it('every NEW./OLD. reference in the trigger body is a real column', async () => {
+    const refs = await triggerColumnRefs();
+    // Non-vacuity: the body must actually read something, or this passes over
+    // a function that reads nothing at all.
+    expect(refs.length).toBeGreaterThan(0);
+    expect(refs).toContain('attendance_data');
+    const unknown = refs.filter(
+      (c) => !(PRODUCTION_ATTENDANCE_COLUMNS as readonly string[]).includes(c),
+    );
+    expect(unknown).toEqual([]);
+  });
+
+  it('and it no longer reads marked_by, which is the column that does not exist', async () => {
+    expect(await triggerColumnRefs()).not.toContain('marked_by');
+  });
+
+  it('CONTROL: the round-2 shape — a body reading NEW.marked_by — IS caught', async () => {
+    // The guard has to be able to fail, or "no unknown columns" is worth
+    // nothing. This installs exactly the mistake round 2 shipped.
+    await db.query(`
+      CREATE OR REPLACE FUNCTION public.fn_activate_learner_on_first_present() RETURNS trigger
+      LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $ctl$
+      BEGIN
+        BEGIN
+          PERFORM public.fn_activate_learners_for_first_present(
+            '{}'::uuid[], NEW.id, NEW.attendance_date, NEW.section_id,
+            NEW.timetable_id, NEW.institution_id, NEW.marked_by, auth.uid(),
+            TG_OP, 'ctl', 'ctl');
+        EXCEPTION WHEN OTHERS THEN
+          INSERT INTO public.learner_activation_failures (error_message) VALUES ('ctl');
+        END;
+        RETURN NULL;
+      END $ctl$;
+    `);
+    const refs = await triggerColumnRefs();
+    expect(refs).toContain('marked_by');
+    const unknown = refs.filter(
+      (c) => !(PRODUCTION_ATTENDANCE_COLUMNS as readonly string[]).includes(c),
+    );
+    expect(unknown).toEqual(['marked_by']); // the guard fires
+    // beforEach re-applies HARDEN, restoring the real body for the next case.
+  });
+
+  it('CONTROL: that same body really would raise on a production-shaped table', async () => {
+    // Not a text argument — the engine's own answer. The control body above is
+    // still installed from the previous case only within that case, so install
+    // it again here and drive a real attendance save through it.
+    await db.query(`
+      CREATE OR REPLACE FUNCTION public.fn_ctl_reads_missing_column() RETURNS trigger
+      LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $ctl$
+      BEGIN
+        PERFORM NEW.marked_by;
+        RETURN NULL;
+      END $ctl$;
+    `);
+    await db.query('DROP TRIGGER IF EXISTS trg_activate_learner_on_first_present ON public.student_attendance');
+    await db.query(`CREATE TRIGGER trg_ctl AFTER INSERT OR UPDATE OF attendance_data
+        ON public.student_attendance FOR EACH ROW EXECUTE FUNCTION public.fn_ctl_reads_missing_column()`);
+    await expect(mark([[L.reserved, 'Present']])).rejects.toThrow(/has no field "marked_by"/i);
+
+    await db.query('DROP TRIGGER IF EXISTS trg_ctl ON public.student_attendance');
+    await db.query(`CREATE TRIGGER trg_activate_learner_on_first_present
+        AFTER INSERT OR UPDATE OF attendance_data ON public.student_attendance
+        FOR EACH ROW EXECUTE FUNCTION public.fn_activate_learner_on_first_present()`);
+  });
+});
+
+describe('an activation on the production-shaped table really activates', () => {
+  /**
+   * The round-1/2 suite could not tell "activated" from "failed quietly": the
+   * exception handler makes a broken activation look like a clean save. Every
+   * case here checks the learner MOVED, a history row EXISTS, and the failure
+   * table is EMPTY — the three together.
+   */
+  it('a Present mark moves the learner, writes history, and records no failure', async () => {
+    expect(await statusOf(L.reserved)).toBe('reserved');
+    const attendanceId = await mark([[L.reserved, 'Present']]);
+
+    expect(await statusOf(L.reserved)).toBe('active');
+    expect(await historyCount(L.reserved)).toBe(1);
+    expect(await failures()).toHaveLength(0);
+
+    const r = await db.query(
+      `SELECT metadata FROM public.learners_profile_status_history WHERE learner_id = $1`,
+      [L.reserved],
+    );
+    expect(r.rows[0].metadata.student_attendance_id).toBe(attendanceId);
+  });
+
+  it('the audit row names the marker read out of the payload, and says so', async () => {
+    await mark([[L.admitted, 'Present']]);
+    const r = await db.query(
+      `SELECT metadata FROM public.learners_profile_status_history WHERE learner_id = $1`,
+      [L.admitted],
+    );
+    expect(r.rows[0].metadata.marked_by).toBe(MARKER);
+    expect(r.rows[0].metadata.marked_by_source).toBe(
+      'attendance_data.marked_by_details.marker_id',
+    );
+    expect(await failures()).toHaveLength(0);
+  });
+
+  it('a payload with NO marker still activates, and says the marker is unknown', async () => {
+    // The marker is optional data inside a jsonb blob. A missing one must cost
+    // an audit field, never an activation.
+    await mark([[L.reserved, 'Present']], '2026-08-11', null);
+    expect(await statusOf(L.reserved)).toBe('active');
+    const r = await db.query(
+      `SELECT changed_by, metadata FROM public.learners_profile_status_history WHERE learner_id = $1`,
+      [L.reserved],
+    );
+    expect(r.rows[0].metadata.marked_by).toBeNull();
+    expect(r.rows[0].metadata.marked_by_source).toBe('unknown');
+    expect(await failures()).toHaveLength(0);
+  });
+
+  it('falls back to auth.uid() when the payload records no marker but a caller is signed in', async () => {
+    await db.query(`SELECT set_config('request.jwt.claim.sub', $1, false)`, [MARKER]);
+    try {
+      await mark([[L.reserved, 'Present']], '2026-08-11', null);
+    } finally {
+      await db.query(`SELECT set_config('request.jwt.claim.sub', '', false)`);
+    }
+    const r = await db.query(
+      `SELECT metadata FROM public.learners_profile_status_history WHERE learner_id = $1`,
+      [L.reserved],
+    );
+    expect(r.rows[0].metadata.marked_by).toBe(MARKER);
+    expect(r.rows[0].metadata.marked_by_source).toBe('auth.uid');
+  });
+
+  it('a malformed marker_id is read as NULL, never as an error', async () => {
+    for (const bad of ['', 'not-a-uuid', '   ']) {
+      await db.query(RESET);
+      // Built from the same helper every other case uses, then the marker is
+      // corrupted in place — so the payload shape stays the production one and
+      // only the field under test is wrong.
+      const payload = JSON.parse(markPayload([[L.reserved, 'Present']], 'P1', MARKER));
+      payload.P1.marked_by_details.marker_id = bad;
+      await db.query(
+        `INSERT INTO public.student_attendance
+           (attendance_date, institution_id, timetable_id, section_id, attendance_data)
+         VALUES ('2026-08-11', $1, $2, $3, $4::jsonb)`,
+        [INST, TIMETABLE, SECTION, JSON.stringify(payload)],
+      );
+      expect(await statusOf(L.reserved)).toBe('active');
+      expect(await failures()).toHaveLength(0);
+      const r = await db.query(
+        `SELECT metadata FROM public.learners_profile_status_history WHERE learner_id = $1`,
+        [L.reserved],
+      );
+      expect(r.rows[0].metadata.marked_by).toBeNull();
+      expect(r.rows[0].metadata.marked_by_source).toBe('unknown');
+    }
+  });
+
+  it('two periods marked by two different people attribute each learner correctly', async () => {
+    // One student_attendance row holds several periods, and
+    // upsertConsolidatedAttendance merges later periods into the existing row,
+    // so two markers on one row is ordinary. Attributing both learners to
+    // whichever name came first would put the wrong person on an audit row the
+    // office uses to reverse an activation.
+    const other = '00000000-0000-4000-8000-0000000000d2';
+    await db.query(`INSERT INTO public.profiles (id) VALUES ($1) ON CONFLICT DO NOTHING`, [other]);
+    await db.query(
+      `INSERT INTO public.student_attendance
+         (attendance_date, institution_id, timetable_id, section_id, attendance_data)
+       VALUES ('2026-08-11', $1, $2, $3, $4::jsonb || $5::jsonb)`,
+      [
+        INST, TIMETABLE, SECTION,
+        markPayload([[L.reserved, 'Present']], 'P1', MARKER),
+        markPayload([[L.admitted, 'Present']], 'P2', other),
+      ],
+    );
+    const a = await db.query(
+      `SELECT metadata FROM public.learners_profile_status_history WHERE learner_id = $1`,
+      [L.reserved],
+    );
+    const b = await db.query(
+      `SELECT metadata FROM public.learners_profile_status_history WHERE learner_id = $1`,
+      [L.admitted],
+    );
+    expect(a.rows[0].metadata.marked_by).toBe(MARKER);
+    expect(b.rows[0].metadata.marked_by).toBe(other);
+    expect(await failures()).toHaveLength(0);
+  });
+
+  it('the switch migration REFUSES over a body that reads a missing column', async () => {
+    await db.query(`
+      CREATE OR REPLACE FUNCTION public.fn_activate_learner_on_first_present() RETURNS trigger
+      LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $ctl$
+      BEGIN
+        BEGIN
+          PERFORM NEW.marked_by, public.fn_activate_learners_for_first_present(
+            '{}'::uuid[], NEW.id, NEW.attendance_date, NEW.section_id,
+            NEW.timetable_id, NEW.institution_id, NULL::uuid, NULL::uuid,
+            TG_OP, 'ctl', 'ctl');
+        EXCEPTION WHEN OTHERS THEN
+          INSERT INTO public.learner_activation_failures (error_message) VALUES ('ctl');
+        END;
+        RETURN NULL;
+      END $ctl$;
+    `);
+    await db.query(`UPDATE public.platform_policies SET value='false'::jsonb WHERE policy_key=$1`, [POLICY_KEY]);
+    await expect(db.query(readFileSync(SWITCH_ON, 'utf8'))).rejects.toThrow(/marked_by/i);
+    const r = await db.query(
+      `SELECT (value #>> '{}')::boolean AS enabled FROM public.platform_policies WHERE policy_key=$1`,
+      [POLICY_KEY],
+    );
+    expect(r.rows[0].enabled).toBe(false); // still off
   });
 });

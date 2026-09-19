@@ -57,7 +57,16 @@ WITH present_marks AS (
     sa.section_id                  AS section_id,
     sa.timetable_id                AS timetable_id,
     sa.institution_id              AS institution_id,
-    sa.marked_by                   AS marked_by,
+    -- There is NO marked_by COLUMN on student_attendance. The marking screens
+    -- and AttendanceCoreService write the marker into the payload, per period:
+    --   attendance_data -> <period> -> 'marked_by_details' ->> 'marker_id'
+    -- (a profiles.id). Missing, malformed or non-uuid all read as NULL here
+    -- rather than raising.
+    CASE WHEN jsonb_typeof(per.period_val) = 'object'
+           AND COALESCE(per.period_val -> 'marked_by_details' ->> 'marker_id', '') ~*
+               '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+         THEN (per.period_val -> 'marked_by_details' ->> 'marker_id')::uuid
+    END                            AS marked_by,
     sa.created_at                  AS marked_at
   FROM public.student_attendance sa
   CROSS JOIN LATERAL jsonb_each(
@@ -129,7 +138,16 @@ WITH present_marks AS (
     sa.section_id                  AS section_id,
     sa.timetable_id                AS timetable_id,
     sa.institution_id              AS institution_id,
-    sa.marked_by                   AS marked_by,
+    -- There is NO marked_by COLUMN on student_attendance. The marking screens
+    -- and AttendanceCoreService write the marker into the payload, per period:
+    --   attendance_data -> <period> -> 'marked_by_details' ->> 'marker_id'
+    -- (a profiles.id). Missing, malformed or non-uuid all read as NULL here
+    -- rather than raising.
+    CASE WHEN jsonb_typeof(per.period_val) = 'object'
+           AND COALESCE(per.period_val -> 'marked_by_details' ->> 'marker_id', '') ~*
+               '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+         THEN (per.period_val -> 'marked_by_details' ->> 'marker_id')::uuid
+    END                            AS marked_by,
     sa.created_at                  AS marked_at
   FROM public.student_attendance sa
   CROSS JOIN LATERAL jsonb_each(
@@ -201,7 +219,16 @@ WITH present_marks AS (
     sa.section_id                  AS section_id,
     sa.timetable_id                AS timetable_id,
     sa.institution_id              AS institution_id,
-    sa.marked_by                   AS marked_by,
+    -- There is NO marked_by COLUMN on student_attendance. The marking screens
+    -- and AttendanceCoreService write the marker into the payload, per period:
+    --   attendance_data -> <period> -> 'marked_by_details' ->> 'marker_id'
+    -- (a profiles.id). Missing, malformed or non-uuid all read as NULL here
+    -- rather than raising.
+    CASE WHEN jsonb_typeof(per.period_val) = 'object'
+           AND COALESCE(per.period_val -> 'marked_by_details' ->> 'marker_id', '') ~*
+               '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+         THEN (per.period_val -> 'marked_by_details' ->> 'marker_id')::uuid
+    END                            AS marked_by,
     sa.created_at                  AS marked_at
   FROM public.student_attendance sa
   CROSS JOIN LATERAL jsonb_each(

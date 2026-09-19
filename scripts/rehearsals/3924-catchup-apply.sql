@@ -131,7 +131,16 @@ WITH present_marks AS (
     sa.section_id                  AS section_id,
     sa.timetable_id                AS timetable_id,
     sa.institution_id              AS institution_id,
-    sa.marked_by                   AS marked_by,
+    -- There is NO marked_by COLUMN on student_attendance. The marking screens
+    -- and AttendanceCoreService write the marker into the payload, per period:
+    --   attendance_data -> <period> -> 'marked_by_details' ->> 'marker_id'
+    -- (a profiles.id). Missing, malformed or non-uuid all read as NULL here
+    -- rather than raising.
+    CASE WHEN jsonb_typeof(per.period_val) = 'object'
+           AND COALESCE(per.period_val -> 'marked_by_details' ->> 'marker_id', '') ~*
+               '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+         THEN (per.period_val -> 'marked_by_details' ->> 'marker_id')::uuid
+    END                            AS marked_by,
     sa.created_at                  AS marked_at
   FROM public.student_attendance sa
   CROSS JOIN LATERAL jsonb_each(
@@ -183,7 +192,7 @@ DECLARE
   v_err_state  text;
   v_err_msg    text;
 BEGIN
-  IF to_regprocedure('public.fn_activate_learners_for_first_present(uuid[],uuid,date,uuid,uuid,uuid,uuid,uuid,text,text)') IS NULL THEN
+  IF to_regprocedure('public.fn_activate_learners_for_first_present(uuid[],uuid,date,uuid,uuid,uuid,uuid,uuid,text,text,text)') IS NULL THEN
     RAISE EXCEPTION
       'migration 20260919005000_harden_first_present_activation.sql is not applied here — this file refuses to hand-roll the activation';
   END IF;
@@ -287,7 +296,12 @@ BEGIN
         r.marked_by,
         NULL::uuid,                       -- changed_by: an operator session has no auth.uid()
         'CATCHUP',
-        'first_present_catchup_2026_09_19');
+        'first_present_catchup_2026_09_19',
+        -- Where r.marked_by came from. The catch-up has no JWT to fall back on,
+        -- so it is the payload or nothing.
+        CASE WHEN r.marked_by IS NOT NULL
+             THEN 'attendance_data.marked_by_details.marker_id'
+             ELSE 'unknown' END);
     EXCEPTION WHEN OTHERS THEN
       v_failed := v_failed + 1;
       GET STACKED DIAGNOSTICS v_err_state = RETURNED_SQLSTATE, v_err_msg = MESSAGE_TEXT;

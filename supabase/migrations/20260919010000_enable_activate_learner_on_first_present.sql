@@ -93,6 +93,27 @@
 --   should confirm the trigger is installed before merging" — is now enforced by
 --   the migration instead of asked of a person.
 --
+-- ── 🛑 AND THAT EVERY COLUMN IT READS ACTUALLY EXISTS (repair round 3) ───────
+--
+--   Rounds 1 and 2 of the hardening read `NEW.marked_by`. There is no such
+--   column on `public.student_attendance` — that claim came from a repo file,
+--   not from the live table. Switched on, the trigger would have raised on every
+--   attendance save, the new exception handler would have caught it, and the
+--   rule would have activated NOBODY while looking perfectly installed: every
+--   save recorded as a failure, no error anybody sees. The text assertions above
+--   all passed on that body. So the guard now reads `information_schema` in the
+--   database being applied to and refuses if any `NEW.`/`OLD.` reference is not
+--   a real column.
+--
+--   WHAT THIS STILL DOES NOT DO: it does not run an activation. A smoke
+--   activation inside a savepoint would have to invent a `learners_profiles`
+--   row on a ~90-column table with live FKs and fire five other triggers, and a
+--   mistake there writes to real data — so it is deliberately NOT attempted
+--   here. THE FIRST PROOF THAT AN ACTIVATION ACTUALLY WORKS ON PRODUCTION IS
+--   THE DESK'S ROLLED-BACK REHEARSAL,
+--   scripts/rehearsals/3924-first-present-activation.sql, run on the Director's
+--   word. Everything this file can prove without writing, it proves.
+--
 -- MIGRATION IS FILE ONLY — NOT APPLIED. Director-gated.
 -- ============================================================================
 
@@ -103,6 +124,8 @@
 DO $guard$
 DECLARE
   v_body text;
+  v_refs text[];
+  v_bad  text[];
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_trigger t
@@ -118,7 +141,7 @@ BEGIN
       USING ERRCODE = 'no_data_found';
   END IF;
 
-  IF to_regprocedure('public.fn_activate_learners_for_first_present(uuid[],uuid,date,uuid,uuid,uuid,uuid,uuid,text,text)') IS NULL THEN
+  IF to_regprocedure('public.fn_activate_learners_for_first_present(uuid[],uuid,date,uuid,uuid,uuid,uuid,uuid,text,text,text)') IS NULL THEN
     RAISE EXCEPTION
       'migration 20260919005000_harden_first_present_activation.sql has not been applied — the rule must not be switched on while an activation failure can still reject an attendance save'
       USING ERRCODE = 'no_data_found';
@@ -133,6 +156,42 @@ BEGIN
       'the installed fn_activate_learner_on_first_present() is the UNHARDENED 2026-08-11 body — apply 20260919005000_harden_first_present_activation.sql first'
       USING ERRCODE = 'check_violation';
   END IF;
+
+  -- 🛑 THE CHECK THAT WOULD HAVE CAUGHT REPAIR ROUND 2 (added in round 3).
+  --
+  --    Rounds 1 and 2 read `NEW.marked_by`. There is no such column on
+  --    public.student_attendance — the claim came from a repo file, not from a
+  --    live table. On production every attendance save would have raised
+  --    `record "new" has no field "marked_by"` inside the trigger, the new
+  --    exception handler would have caught it, and the rule would have been ON
+  --    and activated NOBODY, silently, with every save recorded as a failure.
+  --    The text checks above all passed. Only the catalog can answer this.
+  --    NOTE: a NEW.<name> written in a COMMENT inside the body counts as a
+  --    reference too. This guard fails CLOSED on purpose — a needless refusal
+  --    costs one reworded comment; a missed one costs a rule that activates
+  --    nobody on production.
+  SELECT array_agg(DISTINCT lower(m[1]))
+    INTO v_refs
+    FROM regexp_matches(v_body, '\m(?:NEW|OLD)\.([a-zA-Z_][a-zA-Z0-9_]*)', 'g') AS m;
+
+  SELECT array_agg(r ORDER BY r)
+    INTO v_bad
+    FROM unnest(COALESCE(v_refs, '{}'::text[])) AS r
+   WHERE r NOT IN (
+     SELECT lower(c.column_name)
+     FROM information_schema.columns c
+     WHERE c.table_schema = 'public' AND c.table_name = 'student_attendance');
+
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION
+      'REFUSING to switch the rule on: fn_activate_learner_on_first_present() reads %, which public.student_attendance does not have in THIS database. Switched on, it would activate nobody and record every save as a failure',
+      v_bad
+      USING ERRCODE = 'undefined_column';
+  END IF;
+
+  RAISE NOTICE
+    'pre-flight OK: trigger installed, hardened body in place, and every student_attendance column it reads (%) exists here',
+    v_refs;
 END
 $guard$;
 
