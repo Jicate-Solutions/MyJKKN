@@ -1,23 +1,47 @@
 // app/api/courses/payments/initiate/route.ts
 //
-// POST — start an online payment for ONE course instalment bill.
+// POST — start an online payment for one or more course instalment bills of
+// the SAME enrolment, each for a chosen amount up to that bill's balance.
 //
 // Called by the participant from /my-courses. Returns what Razorpay Checkout
 // needs on the client: the order id, the PUBLIC key id, and the amount.
 //
-// THE AMOUNT IS NEVER TAKEN FROM THE CLIENT. It is read from course_bills
+// PARTIAL PAYMENTS: a GPay/UPI transaction is capped well below some course
+// fees, so a participant must be able to pay LESS than a bill's full balance
+// in one transaction and pay the remainder later. Every requested amount is
+// still bounded server-side (0 < amount <= balance_amount) and, below the
+// bill's full balance, must clear a MIN_PARTIAL_AMOUNT floor — otherwise a
+// bill could be split into dozens of trivial payments. The floor is waived
+// when the amount equals the remaining balance exactly, so a small tail
+// balance can always be paid off.
+//
+// MULTIPLE INSTALMENTS, ONE TRANSACTION: the participant may select several
+// unpaid bills and pay a custom amount against each in a single Razorpay
+// order. One course_bill_payments row is inserted per selected bill, all
+// sharing the order's razorpay_order_id/razorpay_account_id but each with
+// its own transaction_ref (that column stays UNIQUE per row) and its own
+// amount_paid. course_bill_payments_rzp_payment_bill_uniq (composite on
+// razorpay_payment_id + bill_id) is what keeps this safe: a bill still can't
+// be double-credited for the same payment, but N bills sharing one payment
+// is no longer a conflict. All selected bills must belong to the SAME
+// enrolment — that keeps the order scoped to one institution's account,
+// which the resolver below is pinned to.
+//
+// THE AMOUNT IS NEVER TAKEN AT FACE VALUE FROM THE CLIENT BEYOND THIS CHECK.
+// Every amount is validated against course_bills.balance_amount, read
 // server-side. A body-supplied amount is the classic way a checkout gets
-// under-paid: the browser is not a trustworthy source for what somebody owes.
+// under- or over-paid: the browser is not a trustworthy source for what
+// somebody owes, so it is bounded, never trusted outright.
 //
-// WHICH INSTITUTION GETS THE MONEY: the bill's own institution_id, resolved
-// through the shared vault (resolveRazorpayCredentials → the institution's
-// active razorpay_accounts row, falling back to the common env account). So a
-// course run by one college is paid into that college's merchant account
-// without any per-course configuration.
+// WHICH INSTITUTION GETS THE MONEY: the bills' shared institution_id,
+// resolved through the shared vault (resolveRazorpayCredentials → the
+// institution's active razorpay_accounts row, falling back to the common env
+// account). So a course run by one college is paid into that college's
+// merchant account without any per-course configuration.
 //
-// The chosen account is PINNED onto the payment row as razorpay_account_id, so
-// verification later uses the same account that created the order even if the
-// institution rotates credentials in between.
+// The chosen account is PINNED onto every payment row as razorpay_account_id,
+// so verification later uses the same account that created the order even if
+// the institution rotates credentials in between.
 
 import { NextResponse } from 'next/server';
 import { randomUUID } from 'node:crypto';
@@ -26,6 +50,7 @@ import { withAuth } from '@/lib/auth/with-auth';
 import { getPaymentProvider } from '@/lib/services/payments/factory';
 import { toPaise } from '@/lib/services/payments/amount';
 import { COURSE_FEE_HEAD } from '@/lib/services/payments/fee-heads';
+import { MIN_PARTIAL_COURSE_PAYMENT } from '@/lib/services/payments/course-payment-rules';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,13 +66,24 @@ function serviceClient() {
 const transactionRef = () =>
   `CP-${randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase()}`;
 
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
 export const POST = withAuth(
   async (request, auth) => {
     const body = await request.json().catch(() => ({}));
-    const { billId } = (body ?? {}) as { billId?: string };
+    const rawPayments = (body ?? {}) as { payments?: Array<{ billId?: string; amount?: number }> };
+    const requested = Array.isArray(rawPayments.payments) ? rawPayments.payments : [];
 
-    if (!billId) {
-      return NextResponse.json({ ok: false, error: 'Missing bill id' }, { status: 400 });
+    if (requested.length === 0) {
+      return NextResponse.json({ ok: false, error: 'No instalments selected' }, { status: 400 });
+    }
+
+    const billIds = requested.map((p) => p.billId).filter((id): id is string => !!id);
+    if (billIds.length !== requested.length || new Set(billIds).size !== billIds.length) {
+      return NextResponse.json(
+        { ok: false, error: 'Each instalment may only be selected once' },
+        { status: 400 },
+      );
     }
 
     // Read through the USER's client. RLS on course_bills already allows a
@@ -55,7 +91,7 @@ export const POST = withAuth(
     // on course_enrollments.profile_id = auth.uid()), so this single read is
     // both the fetch and the authorisation check — there is no way to name
     // somebody else's bill and have it come back.
-    const { data: bill, error: readError } = await auth.supabase
+    const { data: bills, error: readError } = await auth.supabase
       .from('course_bills')
       .select(
         `id, bill_number, installment_no, label, total_amount, paid_amount, balance_amount,
@@ -65,51 +101,103 @@ export const POST = withAuth(
            course:course_events!course_enrollments_course_event_id_fkey(title)
          )`,
       )
-      .eq('id', billId)
-      .maybeSingle();
+      .in('id', billIds);
 
     if (readError) {
       console.error('[courses/pay/initiate] bill read failed:', readError.message);
       return NextResponse.json({ ok: false, error: 'Could not load the bill' }, { status: 500 });
     }
-    if (!bill) {
+    if (!bills || bills.length !== billIds.length) {
       return NextResponse.json({ ok: false, error: 'Bill not found' }, { status: 404 });
     }
 
-    const b = bill as any;
+    const rows = bills as any[];
 
-    // Only the person the bill belongs to may pay it here. RLS also lets billing
-    // STAFF read the row, and this endpoint is the participant's self-service
-    // path — an admin recording a payment goes through the offline flow.
-    if (b.enrollment?.profile_id !== auth.user.id) {
+    // Only the person the bills belong to may pay them here. RLS also lets
+    // billing STAFF read these rows, and this endpoint is the participant's
+    // self-service path — an admin recording a payment goes through the
+    // offline flow.
+    if (rows.some((b) => b.enrollment?.profile_id !== auth.user.id)) {
       return NextResponse.json(
         { ok: false, error: 'You can only pay your own instalments.' },
         { status: 403 },
       );
     }
 
-    if (b.status === 'paid') {
+    // One order, one institution's merchant account: every selected bill must
+    // belong to the same enrolment. Combining bills across courses/colleges
+    // would need to split the order across accounts, which Razorpay orders
+    // can't do.
+    const enrollmentIds = new Set(rows.map((b) => b.enrollment_id));
+    if (enrollmentIds.size > 1) {
       return NextResponse.json(
-        { ok: false, error: 'This instalment is already paid.' },
+        { ok: false, error: 'Instalments from different courses must be paid separately.' },
+        { status: 400 },
+      );
+    }
+
+    if (rows.some((b) => b.status === 'paid')) {
+      return NextResponse.json(
+        { ok: false, error: 'One of these instalments is already paid.' },
         { status: 409 },
       );
     }
-    if (b.status === 'voided') {
+    if (rows.some((b) => b.status === 'voided')) {
       return NextResponse.json(
-        { ok: false, error: 'This instalment has been cancelled.' },
+        { ok: false, error: 'One of these instalments has been cancelled.' },
         { status: 409 },
       );
     }
 
-    // The outstanding balance, from the database. Partial payments are already
-    // reflected here by fn_course_recompute_balances.
-    const due = Number(b.balance_amount ?? 0);
-    if (!(due > 0)) {
-      return NextResponse.json(
-        { ok: false, error: 'There is nothing left to pay on this instalment.' },
-        { status: 409 },
-      );
+    // Validate every requested amount against ITS bill's balance — from the
+    // database, not the client. Partial payments are already reflected here
+    // by fn_course_recompute_balances.
+    const byId = new Map(rows.map((b) => [b.id, b]));
+    const entries: { bill: any; amount: number }[] = [];
+
+    for (const p of requested) {
+      const bill = byId.get(p.billId!);
+      const balance = Number(bill.balance_amount ?? 0);
+      const amount = round2(Number(p.amount));
+
+      if (!(balance > 0)) {
+        return NextResponse.json(
+          { ok: false, error: `There is nothing left to pay on ${bill.bill_number}.` },
+          { status: 409 },
+        );
+      }
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return NextResponse.json(
+          { ok: false, error: `Enter a valid amount for ${bill.bill_number}.` },
+          { status: 400 },
+        );
+      }
+      if (amount > balance) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `The amount for ${bill.bill_number} cannot exceed its balance of ₹${balance}.`,
+          },
+          { status: 400 },
+        );
+      }
+      // The floor only applies to a PARTIAL amount — paying off whatever is
+      // left, however small, must always be possible.
+      if (amount < MIN_PARTIAL_COURSE_PAYMENT && amount !== balance) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `A partial payment on ${bill.bill_number} must be at least ₹${MIN_PARTIAL_COURSE_PAYMENT.toLocaleString('en-IN')}, or pay the full balance of ₹${balance}.`,
+          },
+          { status: 400 },
+        );
+      }
+
+      entries.push({ bill, amount });
     }
+
+    const institutionId = rows[0].institution_id;
+    const totalAmount = round2(entries.reduce((sum, e) => sum + e.amount, 0));
 
     const admin = serviceClient();
     const { data: profile } = await admin
@@ -119,8 +207,8 @@ export const POST = withAuth(
       .maybeSingle();
     const p = (profile ?? {}) as any;
 
-    const ref = transactionRef();
-    const amountPaise = toPaise(due);
+    const baseRef = transactionRef();
+    const amountPaise = toPaise(totalAmount);
 
     try {
       // purpose: 'create-order' makes the resolver refuse a test-mode key in
@@ -167,7 +255,7 @@ export const POST = withAuth(
       for (const head of ACCOUNT_LADDER) {
         try {
           const candidate = await getPaymentProvider('courses', {
-            institutionId: b.institution_id,
+            institutionId,
             feeHead: head,
             purpose: 'create-order',
           });
@@ -192,7 +280,7 @@ export const POST = withAuth(
       // hazard lib/services/payments/fee-heads.ts documents.
       if (!provider || !accountId) {
         console.error('[courses/pay/initiate] no institution Razorpay account', {
-          institutionId: b.institution_id,
+          institutionId,
           tried: ACCOUNT_LADDER,
           lastError: (lastError as any)?.message ?? null,
         });
@@ -206,19 +294,25 @@ export const POST = withAuth(
         );
       }
 
+      const courseTitle = rows[0].enrollment?.course?.title ?? 'Course';
+      const description =
+        entries.length === 1
+          ? `${courseTitle} — ${entries[0].bill.label || `Instalment ${entries[0].bill.installment_no}`}`
+          : `${courseTitle} — ${entries.length} instalments`;
+
       const order = await provider.createOrder({
-        transactionRef: ref,
+        transactionRef: baseRef,
         amountPaise,
         currency: 'INR',
         module: 'courses',
         notes: {
-          bill_id: b.id,
-          bill_number: b.bill_number,
-          enrollment_id: b.enrollment_id,
-          transaction_ref: ref,
-          institution_id: b.institution_id ?? '',
+          bill_ids: entries.map((e) => e.bill.id).join(','),
+          bill_numbers: entries.map((e) => e.bill.bill_number).join(','),
+          enrollment_id: rows[0].enrollment_id,
+          transaction_ref: baseRef,
+          institution_id: institutionId ?? '',
         },
-        description: `${b.enrollment?.course?.title ?? 'Course'} — ${b.label || `Instalment ${b.installment_no}`}`,
+        description,
         customer: {
           name: p.full_name ?? undefined,
           // A synthetic participants.jkkn.local address must never be sent to
@@ -234,19 +328,25 @@ export const POST = withAuth(
       // Recorded as 'initiated' BEFORE the participant pays, so an abandoned or
       // failed attempt is still visible to the institution rather than vanishing.
       // amount_paid must be > 0 (CHECK), so the intended amount is stored and
-      // corrected on verify if Razorpay captured something different.
-      const { error: insertError } = await admin.from('course_bill_payments').insert({
-        bill_id: b.id,
-        enrollment_id: b.enrollment_id,
-        institution_id: b.institution_id,
-        amount_paid: due,
+      // relied on at verify — the gateway reports one captured total for the
+      // whole order, not a per-bill breakdown, so this is the only place the
+      // split is ever decided.
+      const paymentRows = entries.map((e, i) => ({
+        bill_id: e.bill.id,
+        enrollment_id: e.bill.enrollment_id,
+        institution_id: e.bill.institution_id,
+        amount_paid: e.amount,
         payment_date: new Date().toISOString().slice(0, 10),
         payment_mode: 'razorpay',
         status: 'initiated',
-        transaction_ref: ref,
+        transaction_ref: entries.length === 1 ? baseRef : `${baseRef}-${i + 1}`,
         razorpay_order_id: order.gatewayOrderId,
         razorpay_account_id: accountId,
-      } as any);
+      }));
+
+      const { error: insertError } = await admin
+        .from('course_bill_payments')
+        .insert(paymentRows as any);
 
       if (insertError) {
         console.error('[courses/pay/initiate] txn insert failed:', insertError.message);
@@ -264,11 +364,11 @@ export const POST = withAuth(
         // never leaves the server.
         keyId: order.clientKeyId,
         amountPaise,
-        amount: due,
+        amount: totalAmount,
         currency: 'INR',
-        transactionRef: ref,
-        billNumber: b.bill_number,
-        description: `${b.enrollment?.course?.title ?? 'Course'} — ${b.label || `Instalment ${b.installment_no}`}`,
+        transactionRef: baseRef,
+        billNumbers: entries.map((e) => e.bill.bill_number),
+        description,
         prefill: {
           name: p.full_name ?? '',
           email:

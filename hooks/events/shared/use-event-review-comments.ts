@@ -10,6 +10,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
+import { reportTagResult } from '@/components/shared/report-tag-result';
 import {
   EventReviewCommentService,
   type CreateReviewCommentDto,
@@ -43,8 +44,25 @@ function useInvalidate(eventId: string) {
 export function useCreateReviewComment(eventId: string) {
   const invalidate = useInvalidate(eventId);
   return useMutation({
-    mutationFn: (dto: CreateReviewCommentDto) =>
-      EventReviewCommentService.createComment(dto),
+    // Post first, tag second. A comment that landed must NOT be reported as a
+    // failure because tagging hit a problem afterwards — the user would re-post
+    // and the thread would carry the remark twice. So a tagging failure is
+    // surfaced on its own and the mutation still resolves.
+    mutationFn: async (dto: CreateReviewCommentDto & { mention_ids?: string[] }) => {
+      const { mention_ids, ...rest } = dto;
+      const comment = await EventReviewCommentService.createComment(rest);
+      if (mention_ids && mention_ids.length > 0) {
+        try {
+          const result = await EventReviewCommentService.tagPeople(eventId, comment.id, mention_ids);
+          reportTagResult(result, 'event');
+        } catch (e) {
+          toast.error(
+            `Comment posted, but tagging failed: ${(e as Error).message || 'unknown error'}`,
+          );
+        }
+      }
+      return comment;
+    },
     onSuccess: (_data, dto) => {
       invalidate();
       toast.success(dto.parent_id ? 'Reply posted' : 'Comment posted');
@@ -78,6 +96,37 @@ export function useSetReviewCommentResolved(eventId: string) {
       toast.success(resolved ? 'Marked as resolved' : 'Thread reopened');
     },
     onError: (e: Error) => toast.error(e.message || 'The thread could not be updated'),
+  });
+}
+
+/**
+ * Resend a tag's alert: finishes one that failed, or sends a reminder. Same
+ * request as tagging — the route treats a re-tag as "make sure they know".
+ */
+export function useResendReviewTag(eventId: string) {
+  const invalidate = useInvalidate(eventId);
+  return useMutation({
+    mutationFn: ({ commentId, userId }: { commentId: string; userId: string }) =>
+      EventReviewCommentService.tagPeople(eventId, commentId, [userId]),
+    onSuccess: (result) => {
+      invalidate();
+      reportTagResult(result, 'event');
+    },
+    onError: (e: Error) => toast.error(e.message || 'The alert could not be resent'),
+  });
+}
+
+/** Untag one person: their access to this event's review thread ends; the comment stays. */
+export function useUntagReviewComment(eventId: string) {
+  const invalidate = useInvalidate(eventId);
+  return useMutation({
+    mutationFn: ({ commentId, userId }: { commentId: string; userId: string }) =>
+      EventReviewCommentService.untag(commentId, userId),
+    onSuccess: () => {
+      invalidate();
+      toast.success('Tag removed — they no longer have access to this discussion');
+    },
+    onError: (e: Error) => toast.error(e.message || 'The tag could not be removed'),
   });
 }
 

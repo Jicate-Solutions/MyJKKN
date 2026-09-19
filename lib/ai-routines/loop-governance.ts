@@ -233,6 +233,27 @@ export const LOOP_GOVERNANCE_ROUTINES: AIRoutine[] = [
       "Fires via the AI-routine dispatcher (ai_routine_schedules row 'metaloop-charter-collect', migration 20260927040000), NOT vercel.json. Auth: CRON_SECRET (Bearer or ?secret=, both constant-time). Exactly-once across both clocks: fn_ai_collect_claim's delivered_at stamp + source_job_id UNIQUE — whichever of the daily/Sunday collects fires first wins, the other is a clean no-op. Safe no-op while the job type is dark or migrations are unapplied.",
   },
   {
+    id: 'loop-bar-proposals',
+    name: 'Loop Bars — Bar Proposer (machine proposes, the Director taps)',
+    category: 'misc-ai',
+    type: 'cron',
+    schedule: 'Daily 11:19 IST (dispatcher-managed)',
+    triggerPath: '/api/cron/loop-bar-proposals',
+    callsClaude: false,
+    featureKey: null,
+    featureKeyNote:
+      'Rules-based SQL — one RPC to fn_loop_bar_proposals_generate, derived from charter legs already on loop_registry; no model is resolved and nothing is enqueued.',
+    whatItDoes:
+      "Director rulings 2026-09-16 (G3): every operational loop carries ONE concrete bar its verdict is judged against, and the machine proposes that bar. Each day it walks every ACTIVE loop that has no approved bar and no open bar question, and proposes one: a COMPARISON bar (the loop against its own past) when the charter already names an outcome metric and a baseline window; otherwise a THRESHOLD bar on the counter metric; otherwise it files an honest 'insufficient' note — \"no metric on record — needs an owner interview\" — which is visible on /admin/loops/charters rather than a silent skip. It NEVER sets a bar: loop_registry.bar is written only when a super admin approves the proposal (fn_loop_bar_decide). Separately, a loop that misses its approved bar 4 runs in a row raises a 'bar-review' card on the same surface — that card is raised by fn_loop_record_measurement at measurement time, not by this route.",
+    configKnobs:
+      'None in the route — the proposal rules live in fn_loop_bar_proposals_generate (migration 20261225070000). Schedule editable on /admin/ai-routines with no deploy.',
+    sideEffects:
+      "DB writes only, all human-gated: INSERTs kind='bar' rows into loop_charter_proposals with status 'proposed' or 'insufficient'. NEVER writes loop_registry, never pauses a loop, no notifications, no emails, no model calls.",
+    safeToManualTrigger: true,
+    notes:
+      "Fires via the AI-routine dispatcher (ai_routine_schedules row 'loop-bar-proposals', migration 20261225070100), NOT vercel.json. Auth: CRON_SECRET Bearer header only — no ?secret= query form. Idempotent: a loop with a 'proposed' or a standing 'insufficient' bar row is skipped, so a daily clock never re-asks a question already on the Director's desk (his 2026-09-17 confirmation). Returns {proposed, insufficient, skipped}; a failed RPC is HTTP 500 so the dispatcher records it. Safe no-op (500, not a crash) while 20261225070000 is unapplied.",
+  },
+  {
     id: 'attendance-intervention-measure',
     name: 'Attendance → Intervention — Daily Effect Measure (the loop\'s return edge)',
     category: 'misc-ai',
@@ -273,5 +294,26 @@ export const LOOP_GOVERNANCE_ROUTINES: AIRoutine[] = [
     safeToManualTrigger: true,
     notes:
       "Fires via the AI-routine dispatcher (ai_routine_schedules row 'counselor-briefing-measure', migration 20261210071700), NOT vercel.json. Auth: CRON_SECRET Bearer header only — no ?secret= query form. Idempotent: same-day re-runs refresh the same (counselor, week) rows. Named leads are read back from the structured action items the briefing generator persists (admission_daily_briefings.content->'action_items', id = 'hot-<lead id>'); briefings that name nobody count as briefings but cannot be acted on. Returns {measured, with_delta, flagged_changed_nothing} (counts only); a failed RPC is HTTP 500 so the dispatcher records it. The weekly known-delta regress (fn_loops_regress_counselor_briefing_effect via /api/cron/loops-regress) proves the SAME measurer this route runs. Safe no-op (500, not a crash) while 20261210071700 is unapplied.",
+  },
+  {
+    id: 'consultants-measure',
+    name: 'Consultant Effectiveness — Weekly Conversion Measure (the consultants loop\'s only clock)',
+    category: 'misc-ai',
+    type: 'cron',
+    schedule: 'Weekly Mondays 11:23 IST (dispatcher-managed, after Sunday 07:53 loops-regress)',
+    triggerPath: '/api/cron/consultants-measure',
+    callsClaude: false,
+    featureKey: null,
+    featureKeyNote:
+      'Rules-based SQL — one RPC to fn_consultants_measure_conversion; no model is resolved and nothing is enqueued.',
+    whatItDoes:
+      "Gives the consultants loop the scheduled run it never had. The measurer has existed since 2026-08-26 (fn_consultants_measure_conversion, migration 20261003010000) and a weekly known-delta regress proves it, but nothing ever called it — consultant_conversion_measurements has stayed empty, so the loop produced no reading of its own. Each Monday this route makes one RPC, which reads the consultant attribution ledger once and, per consultant, rates the 30-day WINDOW against that consultant's OWN pre-window baseline with the SAME estimator (conversion = current_stage IN ('enrolled','confirmed'); rate = conversions/attributions*100, 2 dp), NULLing either side that sits below the de-noise floor. It upserts one row per (consultant, window) into consultant_conversion_measurements and returns them. The route then averages the window conversion rates of the consultants that cleared the floor into the run's headline number and records it against the loop's bar. EXPECT 0.00: the conversion rule is current_stage IN ('enrolled','confirmed') and no attributed lead has ever reached that stage — live, all 1,857 consultant_lead_attributions sit at lead_registered / application_started / new / contacted — so the headline reads 0.00 on every run until admissions actually moves leads to enrolled/confirmed. Director ruling 2026-09-19 (\"Keep 'enrolled', show zero\"): KEEP this rule and record the 0.00 honestly; do NOT relabel the estimator to application-started, which would move the number without moving the outcome. Such a run carries a `note` saying so.",
+    configKnobs:
+      "platform_policies consultants.loop.min_attributions_k (5 — de-noise floor; the route reads the SAME row the fn reads, so the headline and the fn's own NULLing agree). Window (30 days) and as-of date are the fn's defaults (migration 20261003010000); the route passes no arguments. Schedule editable on /admin/ai-routines.",
+    sideEffects:
+      "DB writes only, via the SECDEF fn: upserts consultant_conversion_measurements rows on (consultant_id, window_start, window_end), plus one loop_measurements row written by fn_loop_record_measurement. MEASUREMENT ONLY — never writes consultant_lead_attributions, education_consultants, admission_leads, referral commissions or anything money-adjacent (the loop's feed-forward leg is gates f:'off' by design, Director-gated territory). No notifications, no emails, no model calls.",
+    safeToManualTrigger: true,
+    notes:
+      "Fires via the AI-routine dispatcher (ai_routine_schedules row 'consultants-measure', migration 20261226020000), NOT vercel.json. Auth: CRON_SECRET Bearer header only — no ?secret= query form. Idempotent: the fn upserts on (consultant_id, window_start, window_end), so a same-day re-run refreshes the same rows. Returns {measured, above_floor, min_attributions_k, headline, note, bar_recorded, bar_met, bar_error}; an RPC error or a non-array payload is HTTP 500 so the dispatcher records the failure — never a silent 200. An EMPTY result is a legitimate reading (no consultant has an attribution yet), and a headline of null means nobody cleared the floor — never a 0 that would read as a real 0% rate. A headline of 0.00 over real attributions is the EXPECTED steady state (see whatItDoes) and is recorded as 0 against the bar, with `note` carrying the reason: no attributed lead has reached the 'enrolled'/'confirmed' stage. The note rides on the response only — fn_loop_record_measurement derives its own gap from the loop's bar and takes no caller-supplied reason, and runId is a run trace, not a comment box. The weekly known-delta regress (fn_loops_regress_consultants via /api/cron/loops-regress) proves the SAME measurer this route runs. Safe no-op (500, not a crash) while 20261003010000 is unapplied.",
   },
 ];

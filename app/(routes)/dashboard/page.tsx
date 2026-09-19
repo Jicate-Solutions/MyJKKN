@@ -15,6 +15,7 @@ import { Suspense } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { GuideAdoptionMount } from '@/components/guide/guide-adoption-mount';
 import { BookingPageNudge } from '@/components/dashboard/booking-page-nudge';
+import { FixedForYouPrompts } from '@/app/(routes)/my-bug-reports/_components/fixed-for-you-prompts';
 import { DashboardErrorBoundary } from '@/components/dashboard/dashboard-error-boundary';
 import { getDashboardMetrics } from '@/lib/services/dashboard/dashboard-metrics-service';
 import { HeroStrip } from '@/components/dashboard/hero-strip';
@@ -397,6 +398,18 @@ export default async function DashboardV2Page({
         <DashboardErrorBoundary label='Booking page nudge' mode='silent'>
           <Suspense fallback={null}>
             <BookingPageNudge />
+          </Suspense>
+        </DashboardErrorBoundary>
+
+        {/* Reporter prompts ("did our fix work?" / "is this still happening?")
+            on the page people actually land on (Director 2026-09-16 19:17:
+            "Dashboard banner + a notification"). Only /my-bug-reports showed
+            them before, and 24 fix prompts drew 1 view in 20 h. The component
+            fetches the viewer's own prompts and renders nothing when there are
+            none, so it is mounted for every persona. Silent boundary. */}
+        <DashboardErrorBoundary label='Reporter prompts' mode='silent'>
+          <Suspense fallback={null}>
+            <FixedForYouPrompts />
           </Suspense>
         </DashboardErrorBoundary>
 

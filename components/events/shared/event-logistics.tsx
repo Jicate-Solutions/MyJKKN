@@ -17,7 +17,7 @@ import { SponsorsBoard } from './sponsors-board';
 import { BudgetBoard } from './budget-board';
 import { CommitteesBoard } from './committees-board';
 import { CheckinBoard } from './checkin-board';
-import { QrBoard } from './qr-board';
+import { QrBoard, TournamentQrLinks } from './qr-board';
 import { VolunteersBoard } from './volunteers-board';
 import { IncidentsBoard } from './incidents-board';
 import { CertificatesBoard } from './certificates-board';
@@ -130,7 +130,14 @@ export const EVENT_LOGISTICS_TABS: EventLogisticsTab[] = [
     icon: QrCode,
     eventTypes: 'all',
     toolKey: 'check-in',
-    render: ({ eventId, canManage }) => <QrBoard eventId={eventId} canManage={canManage} />,
+    // Tournament entries have no BIB number, so the BIB-based board is always
+    // empty for them — route to the tournament passes / registration QR instead.
+    render: ({ eventId, eventType, canManage }) =>
+      eventType === 'sports_tournament' ? (
+        <TournamentQrLinks eventId={eventId} canManage={canManage} />
+      ) : (
+        <QrBoard eventId={eventId} canManage={canManage} />
+      ),
   },
   {
     key: 'volunteers',

@@ -80,6 +80,53 @@ interface WaitingSource {
   load: (admin: AdminClient) => PromiseLike<WaitingItem[]>;
 }
 
+type CharterProposalWaitingRow = {
+  id: string;
+  loop_key: string | null;
+  created_at: string;
+};
+
+/**
+ * Charter drafts awaiting a signature. Filters to kind='charter' so the bar
+ * questions (their own source below) are not listed as charters — and falls
+ * back to the original unfiltered read while `kind` does not exist yet, since
+ * between this deploy and the Director-gated migration apply every proposed
+ * row IS a charter and those decisions must not vanish (rule #27). Swallows
+ * every failure to [] like the sources around it.
+ */
+async function loadCharterProposalsWaiting(admin: AdminClient): Promise<WaitingItem[]> {
+  let rows: CharterProposalWaitingRow[] = [];
+  try {
+    const filtered = await admin
+      .from('loop_charter_proposals')
+      .select('id, loop_key, created_at')
+      .eq('status', 'proposed')
+      .eq('kind', 'charter')
+      .order('created_at', { ascending: true })
+      .limit(100);
+    if (filtered.error) {
+      const unfiltered = await admin
+        .from('loop_charter_proposals')
+        .select('id, loop_key, created_at')
+        .eq('status', 'proposed')
+        .order('created_at', { ascending: true })
+        .limit(100);
+      rows = (unfiltered.data ?? []) as CharterProposalWaitingRow[];
+    } else {
+      rows = (filtered.data ?? []) as CharterProposalWaitingRow[];
+    }
+  } catch {
+    return [];
+  }
+  return rows.map((row) => ({
+    key: `charter-proposals:${row.id}`,
+    label: `Charter to review: ${row.loop_key || row.id}`,
+    sourceLabel: 'Loop charters',
+    waitingSince: row.created_at,
+    href: '/admin/loops/charters',
+  }));
+}
+
 const WAITING_SOURCES: WaitingSource[] = [
   {
     // Prompt graduation: a challenger prompt beat the champion and the swap
@@ -109,25 +156,82 @@ const WAITING_SOURCES: WaitingSource[] = [
   {
     // MetaLoop charter drafts: the machine drafted a loop charter and the
     // approval waits on a super admin at /admin/loops/charters.
+    //
+    // 2026-09-17: loop_charter_proposals now also carries kind='bar' and
+    // 'bar-review' rows (its own source below), so this one filters to
+    // kind='charter' or it would list a bar question as a charter. The filter
+    // is attempted first and falls back to the original unfiltered read when
+    // the column is not there yet — between this deploy and the Director-gated
+    // migration apply, every proposed row IS a charter, and charter decisions
+    // must not vanish from the panel for that window (rule #27).
     key: 'charter-proposals',
+    load: (admin) => loadCharterProposalsWaiting(admin),
+  },
+  {
+    // Adoption loop (2026-09-16, ruling 8): a feature still near-zero four
+    // weeks in becomes ONE card — simplify / retrain / retire — decided on
+    // /admin/adoption. Fail-open like the sources above.
+    key: 'adoption-proposals',
     load: (admin) =>
       admin
-        .from('loop_charter_proposals')
-        .select('id, loop_key, created_at')
-        .eq('status', 'proposed')
+        .from('adoption_proposals')
+        .select('id, feature_key, proposed_option, created_at')
+        .eq('status', 'pending')
         .order('created_at', { ascending: true })
         .limit(100)
         .then(
           (r) =>
-            ((r.data ?? []) as { id: string; loop_key: string | null; created_at: string }[]).map(
-              (row) => ({
-                key: `charter-proposals:${row.id}`,
-                label: `Charter to review: ${row.loop_key || row.id}`,
-                sourceLabel: 'Loop charters',
-                waitingSince: row.created_at,
-                href: '/admin/loops/charters',
-              }),
-            ),
+            (
+              (r.data ?? []) as {
+                id: string;
+                feature_key: string | null;
+                proposed_option: string | null;
+                created_at: string;
+              }[]
+            ).map((row) => ({
+              key: `adoption-proposals:${row.id}`,
+              label: `Feature adoption: ${row.feature_key || row.id} → ${row.proposed_option || 'decide'}?`,
+              sourceLabel: 'Feature adoption',
+              waitingSince: row.created_at,
+              href: '/admin/adoption',
+            })),
+          () => [] as WaitingItem[],
+        ),
+  },
+  {
+    // Loop bars (2026-09-16, ruling G3): the machine proposed a bar for a loop
+    // that has none ('bar'), or a loop missed its bar four runs running and the
+    // bar itself is now in question ('bar-review'). Both are decided on
+    // /admin/loops/charters. Charter proposals are the sibling source above —
+    // this one filters to the two bar kinds so neither queue counts the other.
+    key: 'bar-proposals',
+    load: (admin) =>
+      admin
+        .from('loop_charter_proposals')
+        .select('id, loop_key, kind, created_at')
+        .eq('status', 'proposed')
+        .in('kind', ['bar', 'bar-review'])
+        .order('created_at', { ascending: true })
+        .limit(100)
+        .then(
+          (r) =>
+            (
+              (r.data ?? []) as {
+                id: string;
+                loop_key: string | null;
+                kind: string | null;
+                created_at: string;
+              }[]
+            ).map((row) => ({
+              key: `bar-proposals:${row.id}`,
+              label:
+                row.kind === 'bar-review'
+                  ? `Bar may be wrong: ${row.loop_key || row.id}`
+                  : `Bar: ${row.loop_key || row.id}`,
+              sourceLabel: 'Loop bars',
+              waitingSince: row.created_at,
+              href: '/admin/loops/charters',
+            })),
           () => [] as WaitingItem[],
         ),
   },

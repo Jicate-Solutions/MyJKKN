@@ -3,6 +3,7 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { sanitizeSearch } from '@/lib/config/pagination';
+import { recordFeatureUse } from '@/lib/usage/record';
 import type {
   EducationConsultant,
   ConsultantInstitution,
@@ -15,6 +16,10 @@ import type {
   ConsultantCommissionStructure,
   CreateCommissionStructureInput,
   UpdateCommissionStructureInput,
+  CommissionRateCard,
+  ConsultantRateCardEarning,
+  RateCardPayment,
+  RateCardPaymentInput,
   ConsultantLeadAttribution,
   CreateLeadAttributionInput,
   LeadAttributionFilters,
@@ -758,6 +763,162 @@ export class ConsultantService {
     }
 
     return data || [];
+  }
+
+  /**
+   * The standard service-charge rate card for an intake year, groups and slabs
+   * nested. `year` is the opening year — 2026 is the "2026-27" card. Omit it for
+   * the newest active card.
+   *
+   * Returns null when no card has been published for that year; the caller shows
+   * the empty state rather than inventing a rate.
+   */
+  static async getRateCard(year?: number): Promise<CommissionRateCard | null> {
+    const supabase = createClientSupabaseClient();
+
+    let query = (supabase as any)
+      .from('commission_rate_cards')
+      .select(
+        `*, groups:commission_rate_card_groups(*, slabs:commission_rate_card_slabs(*))`
+      )
+      .eq('is_active', true);
+    if (year != null) query = query.eq('academic_year', year);
+
+    const { data, error } = await query
+      .order('academic_year', { ascending: false })
+      .limit(1);
+
+    if (error) throw new Error(error.message);
+
+    const card = data?.[0];
+    if (!card) return null;
+
+    // PostgREST cannot order an embedded resource by a column of a resource
+    // nested one level deeper, so both levels are sorted here. Without this the
+    // card renders its lines and slabs in insertion order, which is not the
+    // printed order.
+    const groups = [...(card.groups || [])]
+      .sort((a: any, b: any) => a.priority - b.priority || a.name.localeCompare(b.name))
+      .map((g: any) => ({
+        ...g,
+        slabs: [...(g.slabs || [])].sort((a: any, b: any) => a.min_count - b.min_count),
+      }));
+
+    return { ...card, groups } as CommissionRateCard;
+  }
+
+  /**
+   * The intake years that have a published card, newest first. Drives the year
+   * picker, so a year only becomes selectable once its card actually exists —
+   * picking a year with no card would otherwise render an empty table that looks
+   * like "this consultant earned nothing".
+   */
+  static async getRateCardYears(): Promise<{ academic_year: number; name: string }[]> {
+    const supabase = createClientSupabaseClient();
+
+    const { data, error } = await (supabase as any)
+      .from('commission_rate_cards')
+      .select('academic_year, name')
+      .eq('is_active', true)
+      .order('academic_year', { ascending: false });
+
+    if (error) throw new Error(error.message);
+    return data || [];
+  }
+
+  /**
+   * The rate card applied to one consultant's real referrals: per group, how many
+   * of their admissions qualify, which slab that count reaches, and what it pays.
+   *
+   * Qualifying means the learner's lifecycle_status is account, admitted or
+   * active — enquiry_submitted, reserved and rejected earn nothing. Counts are
+   * per group, and the slab reached applies to the whole count.
+   */
+  static async getConsultantRateCardEarnings(
+    consultantId: string,
+    year?: number
+  ): Promise<ConsultantRateCardEarning[]> {
+    const supabase = createClientSupabaseClient();
+
+    const { data, error } = await (supabase as any).rpc(
+      'fn_consultant_rate_card_earnings',
+      { p_consultant_id: consultantId, p_academic_year: year ?? null }
+    );
+
+    if (error) throw new Error(error.message);
+
+    // The RPC returns count as bigint, which PostgREST serialises as a string on
+    // some driver versions; coerce so the UI can sum it.
+    return (data || []).map((r: any) => ({
+      ...r,
+      qualifying_count: Number(r.qualifying_count ?? 0),
+      rate_amount: r.rate_amount == null ? null : Number(r.rate_amount),
+      total_amount: r.total_amount == null ? null : Number(r.total_amount),
+      paid_amount: Number(r.paid_amount ?? 0),
+      balance_amount: Number(r.balance_amount ?? 0),
+      excess_amount: Number(r.excess_amount ?? 0),
+    }));
+  }
+
+  /**
+   * Payments and recoveries recorded for a consultant against one year's card,
+   * newest first. Filtered through the group's card so switching the year picker
+   * never shows another year's money.
+   */
+  static async getRateCardPayments(consultantId: string, year: number): Promise<RateCardPayment[]> {
+    const supabase = createClientSupabaseClient();
+
+    const { data, error } = await (supabase as any)
+      .from('commission_rate_card_payments')
+      .select(
+        `*, group:commission_rate_card_groups!inner(id, name, card:commission_rate_cards!inner(academic_year))`
+      )
+      .eq('consultant_id', consultantId)
+      .eq('group.card.academic_year', year)
+      .order('paid_on', { ascending: false })
+      .order('created_at', { ascending: false });
+
+    if (error) throw new Error(error.message);
+    return (data || []).map((p: any) => ({ ...p, amount: Number(p.amount) }));
+  }
+
+  static async createRateCardPayment(input: RateCardPaymentInput, userId?: string | null): Promise<void> {
+    const supabase = createClientSupabaseClient();
+    const { error } = await (supabase as any)
+      .from('commission_rate_card_payments')
+      .insert({ ...input, created_by: userId ?? null, updated_by: userId ?? null });
+    if (error) throw new Error(error.message);
+    // Adoption loop: the payment is already saved; this only counts the use
+    // (browser client carries auth.uid(); the helper never throws).
+    await recordFeatureUse(supabase, 'admission.consultant_rate_card');
+  }
+
+  static async updateRateCardPayment(
+    id: string,
+    input: Omit<RateCardPaymentInput, 'consultant_id'>,
+    userId?: string | null
+  ): Promise<void> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await (supabase as any)
+      .from('commission_rate_card_payments')
+      .update({ ...input, updated_by: userId ?? null, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select('id');
+    if (error) throw new Error(error.message);
+    // RLS turns a denied UPDATE into "0 rows, no error"; without this the dialog
+    // would report success while nothing changed.
+    if (!data?.length) throw new Error('You do not have permission to change this payment');
+  }
+
+  static async deleteRateCardPayment(id: string): Promise<void> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await (supabase as any)
+      .from('commission_rate_card_payments')
+      .delete()
+      .eq('id', id)
+      .select('id');
+    if (error) throw new Error(error.message);
+    if (!data?.length) throw new Error('You do not have permission to delete this payment');
   }
 
   /**

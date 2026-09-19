@@ -66,7 +66,14 @@ describe('createQrCode', () => {
     // Gateway-enforced anti-double-charge. If this ever ships as multiple_use a
     // customer could pay the same QR twice.
     expect(p.get('usage')).toBe('single_use');
-    expect(p.get('fixed_amount')).toBe('true');
+    // MUST be '1', not 'true'. This assertion previously required 'true' and so
+    // encoded the bug instead of catching it: the body is form-encoded, so the value
+    // arrives at Razorpay as a string, and their validator rejects the string "true"
+    // for a boolean field. The first real call ever made 400'd with "The fixed amount
+    // field must be true or false." — a message that reads like it is asking for
+    // exactly what was sent. Sibling precedent: create-order.ts sends
+    // payment_capture as '1'.
+    expect(p.get('fixed_amount')).toBe('1');
     expect(p.get('payment_amount')).toBe('250000');
     expect(p.get('close_by')).toBe('1780000900');
     expect(p.get('name')).toBe('JKKN Store');

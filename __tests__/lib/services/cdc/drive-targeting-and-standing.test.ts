@@ -32,6 +32,15 @@ describe('normalizeInstitutionSemesters', () => {
     ]);
   });
 
+  it('keeps program targeting per institution: UUIDs only, deduped', () => {
+    const P = '44444444-4444-4444-4444-444444444444';
+    const out = normalizeInstitutionSemesters(
+      [{ institution_id: A, semester_orders: [5], program_ids: [P, P, 'not-a-uuid', 7] }],
+      [A]
+    );
+    expect(out).toEqual([{ institution_id: A, semester_orders: [5], program_ids: [P] }]);
+  });
+
   it('returns [] for garbage input', () => {
     expect(normalizeInstitutionSemesters(null, [A])).toEqual([]);
     expect(normalizeInstitutionSemesters('nope', [A])).toEqual([]);

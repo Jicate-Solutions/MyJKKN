@@ -39,7 +39,9 @@ function usePoTransition(fn: (args: { id: string; userId: string; reason?: strin
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: fn,
-    onSuccess: (_r, { id }) => {
+    // Settled, not just success: a transition refused because the PO already
+    // moved on must refresh the page, or it keeps offering the stale action.
+    onSettled: (_r, _e, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['procurement-purchase-orders'] });
       queryClient.invalidateQueries({ queryKey: ['procurement-purchase-order', id] });
     },

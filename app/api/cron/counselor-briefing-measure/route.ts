@@ -51,6 +51,12 @@ export async function GET(request: NextRequest) {
       measured: result.measured,
       with_delta: result.with_delta,
       flagged_changed_nothing: result.flagged_changed_nothing,
+      // The number this loop's bar judges (mean forward_delta, pp) — recorded
+      // against the bar by the service, surfaced here for the dispatcher log.
+      headline: result.headline,
+      bar_recorded: result.bar_recorded,
+      bar_met: result.bar_met,
+      ...(result.bar_error ? { bar_error: result.bar_error } : {}),
     });
   } catch (e) {
     // A failed measure must land as a non-2xx so the dispatcher's last_status

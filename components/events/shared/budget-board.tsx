@@ -19,6 +19,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -359,6 +360,9 @@ function ItemDialog({
       <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{initial ? 'Edit Budget Line' : 'Add Budget Line'}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {initial ? 'Update this budget line item.' : 'Add a new budget line item to this event.'}
+          </DialogDescription>
         </DialogHeader>
         <ItemForm key={initial?.id ?? 'new'} eventId={eventId} initial={initial} onClose={onClose} />
       </DialogContent>
