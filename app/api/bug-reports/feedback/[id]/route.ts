@@ -55,7 +55,25 @@ export async function POST(
       if (!data?.success) {
         return NextResponse.json({ error: data?.error ?? 'answer failed' }, { status: 400 });
       }
-      return NextResponse.json({ ok: true, answer: data.answer });
+      // 2026-09-18 (blind-critic gap 1): pass the reopen result through instead
+      // of a bare ok. `bug_status` is read back from bug_reports inside the RPC
+      // after the reopen, so the screen can only say "the report is open again"
+      // when it truly is, and a test can assert the end-to-end reopen.
+      return NextResponse.json({
+        ok: true,
+        answer: data.answer,
+        // 'still_open' for an "is this still happening?" prompt (20261223000000):
+        // the /my-bug-reports box picks its closure message from this. main's
+        // route never passed it, so that message had never shown (critic round 3).
+        kind: data.kind ?? 'fix_check',
+        reopened: data.reopened ?? 0,
+        bug_status: data.bug_status ?? null,
+        fixer_notified: !!data.fixer_notified,
+        // false = the outcome ledger did not record this answer (the RPC warned);
+        // the request row is the source of truth and the next ledger refresh
+        // recounts it, but a caller must be able to see it (critic round 1)
+        ledger_recorded: data.ledger_recorded !== false
+      });
     }
 
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
