@@ -12,7 +12,7 @@
  */
 
 import fs from 'node:fs';
-import { parseMonthlyReportFile } from '../lib/hr/biometric/parse-monthly-report';
+import { parseMonthlyReportFile, parseMonthlyReportGrid } from '../lib/hr/biometric/parse-monthly-report';
 import { evaluateDay } from '../lib/hr/biometric/evaluate-day';
 import { normBiometricCode } from '../lib/hr/biometric/normalize-code';
 import { validateUpload, finaliseValidation, type ValidationStaffRow } from '../lib/hr/biometric/validate-upload';
@@ -197,6 +197,106 @@ console.log('=== evaluator ===');
 {
   const r = evaluateDay({ inTime: '09:00', outTime: '17:00', timing: null });
   check('no shift configured = EXCEPTION', r.verdict === 'EXCEPTION', r.verdict);
+}
+
+// --- month length, on a synthetic grid -------------------------------------
+// The machine prints 31 day-columns whatever the month is. Before 2026-09-19
+// the parser formatted all 31 blind, so a September file produced
+// '2026-09-31' and Postgres killed the import with 22008.
+console.log('');
+console.log('=== month length ===');
+
+/**
+ * One 10-row employee block with `dayCount` day-columns, for `monthLabel`.
+ * `punchThrough` is the last day carrying punches — the rest of the row is
+ * blank, which is what a fortnightly export looks like.
+ */
+const gridFor = (
+  monthLabel: string,
+  dayCount = 31,
+  punchOnLastDay = false,
+  punchThrough?: number,
+): unknown[][] => {
+  const days = Array.from({ length: dayCount }, (_, i) => String(i + 1));
+  const cell = (i: number, filled: string, empty: string) => {
+    if (punchThrough !== undefined) return i + 1 <= punchThrough ? filled : empty;
+    return i < dayCount - 1 || punchOnLastDay ? filled : empty;
+  };
+  return [
+    ['Dept. Name', '', 'MO', 'CompName', '', 'JKKN', 'Report Month', '', monthLabel],
+    ['Empcode', '', '00002', 'Name', '', 'Test Person'],
+    ['', ...days],
+    ['', ...days.map(() => 'Mon')],
+    ['IN', ...days.map((_, i) => cell(i, '09:00', '--:--'))],
+    ['OUT', ...days.map((_, i) => cell(i, '17:00', '--:--'))],
+    ['WORK', ...days.map((_, i) => cell(i, '08:00', '00:00'))],
+    ['Break', ...days.map(() => '00:00')],
+    ['OT', ...days.map(() => '00:00')],
+    ['Status', ...days.map((_, i) => cell(i, 'P', 'A'))],
+  ];
+};
+
+{
+  const r = parseMonthlyReportGrid(gridFor('September-2026'));
+  const dates = r.employees[0]?.days.map((d) => d.workDate) ?? [];
+  check('September keeps 30 days', dates.length === 30, String(dates.length));
+  check('September never emits 2026-09-31', !dates.includes('2026-09-31'), dates.slice(-2).join(','));
+  check('September ends on the 30th', dates[dates.length - 1] === '2026-09-30', dates[dates.length - 1]);
+  check('dropped column is reported', r.warnings.some((w) => w.includes('30 days')), r.warnings.join(' | '));
+}
+{
+  const r = parseMonthlyReportGrid(gridFor('February-2027'));
+  const dates = r.employees[0]?.days.map((d) => d.workDate) ?? [];
+  check('non-leap February keeps 28 days', dates.length === 28, String(dates.length));
+  check('February ends on the 28th', dates[dates.length - 1] === '2027-02-28', dates[dates.length - 1]);
+}
+{
+  const r = parseMonthlyReportGrid(gridFor('February-2028'));
+  const dates = r.employees[0]?.days.map((d) => d.workDate) ?? [];
+  check('leap February keeps 29 days', dates.length === 29, String(dates.length));
+}
+{
+  const r = parseMonthlyReportGrid(gridFor('July-2026'));
+  const dates = r.employees[0]?.days.map((d) => d.workDate) ?? [];
+  check('31-day month keeps all 31 days', dates.length === 31, String(dates.length));
+  check('31-day month warns about nothing', r.warnings.length === 0, r.warnings.join(' | '));
+}
+{
+  // A punch in a column that cannot exist is worth saying out loud, not just dropping.
+  const r = parseMonthlyReportGrid(gridFor('September-2026', 31, true));
+  check(
+    'a dropped column carrying punches is called out',
+    r.warnings.some((w) => w.includes('carried punches')),
+    r.warnings.join(' | '),
+  );
+}
+
+// --- punch span detection ---------------------------------------------------
+// The importer processes the range the operator chose; this pair only lets the
+// preview say "you asked for all 30 days but this export stops on the 15th".
+console.log('');
+console.log('=== punch span ===');
+
+{
+  const r = parseMonthlyReportGrid(gridFor('September-2026', 31, false, 15));
+  check('fortnightly export detects day 1', r.punchDayFrom === 1, String(r.punchDayFrom));
+  check('fortnightly export detects day 15', r.punchDayTo === 15, String(r.punchDayTo));
+}
+{
+  const r = parseMonthlyReportGrid(gridFor('September-2026', 31, false, 0));
+  check('a file with no punches detects nothing',
+    r.punchDayFrom === null && r.punchDayTo === null, `${r.punchDayFrom}/${r.punchDayTo}`);
+}
+{
+  // A punch in the day-31 column of a 30-day month is dropped by the month
+  // filter, so it must not widen the span to a day that does not exist.
+  const r = parseMonthlyReportGrid(gridFor('September-2026', 31, true));
+  check('a dropped column never widens the span', r.punchDayTo === 30, String(r.punchDayTo));
+}
+{
+  const r = parseMonthlyReportGrid(gridFor('July-2026', 31, true));
+  check('a full month spans 1 to 31',
+    r.punchDayFrom === 1 && r.punchDayTo === 31, `${r.punchDayFrom}-${r.punchDayTo}`);
 }
 
 // --- parser, against the real export --------------------------------------

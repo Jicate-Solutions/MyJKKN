@@ -30,7 +30,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import {
   ANOMALY_LABEL, SHIFT_SCOPE_LABEL, VERDICT_CLASS, VERDICT_LABEL,
-  type BiometricAnomalyKind, type BiometricImportReport,
+  type BiometricAnomalyKind, type BiometricCoverage, type BiometricImportReport,
   type BiometricSuggestResponse, type ImportVerdict,
 } from '@/types/hr-biometric';
 import { DAY_OF_WEEK_OPTIONS } from '@/types/hr-shift-timings';
@@ -39,6 +39,36 @@ import { useSuggestMappings } from '@/hooks/hr/use-biometric-mapping';
 import { LinkCodesStep } from './link-codes-step';
 
 type Step = 'select-file' | 'analyzing' | 'link-codes' | 'preview' | 'validate' | 'submitting' | 'results';
+
+/**
+ * The chosen range survives the dialog closing, because the same person imports
+ * the same two halves of every month. Per-viewer convenience only — never read
+ * back as truth, and every access is guarded: localStorage throws in a private
+ * window and returns null with site data cleared.
+ */
+const MODE_KEY = 'hr.biometric.import.dayMode';
+const DAY_KEY = 'hr.biometric.import.day';
+
+function readStoredMode(): 'all' | 'range' {
+  try {
+    return localStorage.getItem(MODE_KEY) === 'all' ? 'all' : 'range';
+  } catch { return 'range'; }
+}
+
+function readStoredDay(which: 'from' | 'to', fallback: string): string {
+  try {
+    const v = localStorage.getItem(`${DAY_KEY}.${which}`);
+    return v && /^\d{1,2}$/.test(v) ? v : fallback;
+  } catch { return fallback; }
+}
+
+function storeRange(mode: 'all' | 'range', from: string, to: string): void {
+  try {
+    localStorage.setItem(MODE_KEY, mode);
+    localStorage.setItem(`${DAY_KEY}.from`, from);
+    localStorage.setItem(`${DAY_KEY}.to`, to);
+  } catch { /* a remembered default is not worth failing an import over */ }
+}
 
 const STEPS: Array<{ key: Step; label: string }> = [
   { key: 'select-file', label: '1. Upload' },
@@ -65,6 +95,33 @@ export function BiometricImportDialog({ open, onOpenChange, onImportComplete }: 
   const [isDragging, setIsDragging] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [suggestion, setSuggestion] = useState<BiometricSuggestResponse | null>(null);
+
+  /**
+   * WHICH DAYS TO PROCESS, chosen BEFORE the file is sent.
+   *
+   * The report is pulled fortnightly, so the usual file is days 1-15 with the
+   * rest of the month blank. Judged blind those blanks became ABSENT — a half
+   * month of loss-of-pay on the Salary Register — so the range is an explicit
+   * instruction rather than something guessed from the data.
+   *
+   * DAY NUMBERS, NOT DATES. Nothing here knows the report month until the
+   * server parses the header, so a date picker would have no month to clamp to.
+   * The preview echoes the resolved dates once they are known.
+   */
+  const [dayMode, setDayMode] = useState<'all' | 'range'>(() => readStoredMode());
+  const [dayFrom, setDayFrom] = useState<string>(() => readStoredDay('from', '1'));
+  const [dayTo, setDayTo] = useState<string>(() => readStoredDay('to', '15'));
+
+  const rangeError = useMemo(() => {
+    if (dayMode === 'all') return null;
+    const a = Number(dayFrom);
+    const b = Number(dayTo);
+    if (!Number.isInteger(a) || !Number.isInteger(b) || a < 1 || b < 1 || a > 31 || b > 31) {
+      return 'Both days must be whole numbers between 1 and 31.';
+    }
+    if (a > b) return 'The first day cannot be after the last.';
+    return null;
+  }, [dayMode, dayFrom, dayTo]);
 
   // The wired useAuth() exposes only { profile, isLoading, error } — permission
   // checks live in usePermissions(). can() already folds in super-admin and
@@ -112,11 +169,17 @@ export function BiometricImportDialog({ open, onOpenChange, onImportComplete }: 
     const fd = new FormData();
     fd.append('file', f);
     fd.append('dryRun', dryRun ? 'true' : 'false');
+    // Omitted entirely in 'all' mode — the route reads their absence as "the
+    // whole file", so an empty string can never be mistaken for day 0.
+    if (dayMode === 'range') {
+      fd.append('dayFrom', String(Number(dayFrom)));
+      fd.append('dayTo', String(Number(dayTo)));
+    }
     const res = await fetch('/api/hr/attendance/import', { method: 'POST', body: fd });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body?.message || body?.error || `Request failed (${res.status})`);
     return body as BiometricImportReport;
-  }, []);
+  }, [dayMode, dayFrom, dayTo]);
 
   /**
    * Dry-run the file. When codes are unmapped we fetch mapping suggestions from
@@ -157,9 +220,22 @@ export function BiometricImportDialog({ open, onOpenChange, onImportComplete }: 
       toast.error('Upload the machine export as .xls or .xlsx.');
       return;
     }
+    if (rangeError) {
+      toast.error(rangeError);
+      return;
+    }
+    storeRange(dayMode, dayFrom, dayTo);
     setFile(f); setReport(null); setErrorMsg(null);
     void analyse(f);
-  }, [analyse]);
+  }, [analyse, rangeError, dayMode, dayFrom, dayTo]);
+
+  /** Re-run the dry run after the range was changed on the preview step. */
+  const reanalyse = useCallback(() => {
+    if (!file || rangeError) return;
+    storeRange(dayMode, dayFrom, dayTo);
+    setReport(null); setErrorMsg(null);
+    void analyse(file, true);
+  }, [file, rangeError, dayMode, dayFrom, dayTo, analyse]);
 
   const submit = useCallback(async () => {
     if (!file) return;
@@ -182,7 +258,24 @@ export function BiometricImportDialog({ open, onOpenChange, onImportComplete }: 
   );
 
   const writable = report ? report.total_day_cells - report.counts.EXCEPTION : 0;
-  const nothingToImport = !report || report.matched_employees === 0 || writable === 0;
+  /**
+   * The range on screen no longer matches the range the preview was built from.
+   *
+   * Everything above the write is shared between dryRun and the commit so the
+   * preview cannot disagree with it — but only while both are given the SAME
+   * range. Editing the days without pressing Re-analyse would break exactly
+   * that, committing days nobody reviewed, so the import is held until the two
+   * agree again.
+   */
+  const rangeDirty = useMemo(() => {
+    if (!report) return false;
+    return dayMode === 'range'
+      ? Number(dayFrom) !== report.coverage.day_from || Number(dayTo) !== report.coverage.day_to
+      : report.coverage.mode !== 'all';
+  }, [report, dayMode, dayFrom, dayTo]);
+
+  const nothingToImport =
+    !report || report.matched_employees === 0 || writable === 0 || rangeDirty || Boolean(rangeError);
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -226,6 +319,13 @@ export function BiometricImportDialog({ open, onOpenChange, onImportComplete }: 
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>{errorMsg}</AlertDescription>
             </Alert>
+          )}
+
+          {step === 'select-file' && (
+            <DayRangeChooser
+              mode={dayMode} from={dayFrom} to={dayTo} error={rangeError}
+              onMode={setDayMode} onFrom={setDayFrom} onTo={setDayTo}
+            />
           )}
 
           {(step === 'select-file' || step === 'analyzing') && (
@@ -276,6 +376,13 @@ export function BiometricImportDialog({ open, onOpenChange, onImportComplete }: 
 
           {step === 'preview' && report && (
             <div className="space-y-4">
+              <CoverageStrip
+                coverage={report.coverage}
+                mode={dayMode} from={dayFrom} to={dayTo} error={rangeError}
+                onMode={setDayMode} onFrom={setDayFrom} onTo={setDayTo}
+                onReanalyse={reanalyse}
+              />
+
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <Stat label="Machine" value={report.institution?.name ?? '—'} small />
                 <Stat label="Month" value={report.month_label || '—'} small />
@@ -605,6 +712,46 @@ export function BiometricImportDialog({ open, onOpenChange, onImportComplete }: 
                 </Section>
               )}
 
+              {report.no_biometric_data.length > 0 && (
+                <Section title={`No biometric data — excluded (${report.no_biometric_data.length})`} tone="warn">
+                  <p className="mb-2 text-xs text-muted-foreground">
+                    The machine holds an enrolment code for these people but recorded no punch at all
+                    between {shortDate(report.coverage.applied_from)} and{' '}
+                    {shortDate(report.coverage.applied_to)}, so this import has no evidence either way
+                    and does not mark them absent. Their days stay &ldquo;Attendance entries yet to be
+                    processed&rdquo; and the Salary Register holds them out as &ldquo;No attendance&rdquo;
+                    — neither paid nor docked until someone records leave, files a regularization, or
+                    marks them relieved.
+                  </p>
+                  <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
+                    {report.no_biometric_data.map((n) => (
+                      <Badge key={n.code} variant="outline" className="text-xs">
+                        <span className="font-mono">{n.code}</span>
+                        {n.staff_name ? ` · ${n.staff_name}` : ''}
+                        {n.staff_code ? ` · ${n.staff_code}` : ''}
+                      </Badge>
+                    ))}
+                  </div>
+                </Section>
+              )}
+
+              {report.relieved_skipped.length > 0 && (
+                <Section title={`Relieved staff in the file — skipped (${report.relieved_skipped.length})`} tone="warn">
+                  <p className="mb-2 text-xs text-muted-foreground">
+                    These codes are still enrolled on the machine but belong to people marked relieved
+                    in MyJKKN. Nothing is written for them. Records imported while they were active are
+                    left exactly as they are.
+                  </p>
+                  <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
+                    {report.relieved_skipped.map((r) => (
+                      <Badge key={r.code} variant="outline" className="text-xs">
+                        <span className="font-mono">{r.code}</span> · {r.staff}
+                      </Badge>
+                    ))}
+                  </div>
+                </Section>
+              )}
+
               {report.exceptions.length > 0 && (
                 <Section title={`Days that could not be judged (${report.exceptions_total})`} tone="warn">
                   <p className="mb-2 text-xs text-muted-foreground">
@@ -658,6 +805,7 @@ export function BiometricImportDialog({ open, onOpenChange, onImportComplete }: 
               {report.unmatched_codes.length === 0
                 && report.counts.EXCEPTION === 0
                 && report.anomalies_total === 0
+                && report.no_biometric_data.length === 0
                 && report.reconciled_employees === report.reconciliation.length && (
                 <Alert>
                   <CheckCircle2 className="h-4 w-4" />
@@ -724,13 +872,19 @@ export function BiometricImportDialog({ open, onOpenChange, onImportComplete }: 
                     <ArrowLeft className="mr-2 h-4 w-4" />Choose another file
                   </Button>
                 )}
-                <Button onClick={() => setStep('validate')}>Next: validate<ArrowRight className="ml-2 h-4 w-4" /></Button>
+                <Button onClick={() => setStep('validate')} disabled={rangeDirty || Boolean(rangeError)}>
+                  Next: validate<ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
               </>
             )}
             {step === 'validate' && (
               <>
                 <Button variant="outline" onClick={() => setStep('preview')}><ArrowLeft className="mr-2 h-4 w-4" />Back</Button>
-                <Button onClick={submit} disabled={nothingToImport}>
+                <Button
+                  onClick={submit}
+                  disabled={nothingToImport}
+                  title={rangeDirty ? 'The days were changed — press Re-analyse on the preview first.' : undefined}
+                >
                   Import {writable} day record{writable === 1 ? '' : 's'}
                 </Button>
               </>
@@ -795,6 +949,182 @@ function WorkingWeekCell({ pattern, days, today }: {
           </span>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** '2026-09-01' -> '1 Sep 2026'. */
+function shortDate(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return `${d.getUTCDate()} ${d.toLocaleString('en-GB', { month: 'short', timeZone: 'UTC' })} ${d.getUTCFullYear()}`;
+}
+
+/**
+ * What this run processed, restated as real dates now the month is known — and
+ * the one place the detected punch span is allowed to speak.
+ *
+ * IT WARNS, IT DOES NOT CORRECT. A range wider than the punches is usually a
+ * fortnightly export processed as a whole month, which would mark the untouched
+ * half absent. But an institution-wide shutdown at month end looks exactly the
+ * same in the data, so the narrowing is offered as a button and never applied
+ * on its own.
+ */
+function CoverageStrip({
+  coverage, mode, from, to, error, onMode, onFrom, onTo, onReanalyse,
+}: {
+  coverage: BiometricCoverage;
+  mode: 'all' | 'range';
+  from: string;
+  to: string;
+  error: string | null;
+  onMode: (m: 'all' | 'range') => void;
+  onFrom: (v: string) => void;
+  onTo: (v: string) => void;
+  onReanalyse: () => void;
+}) {
+  const { punch_day_from: pFrom, punch_day_to: pTo } = coverage;
+  const short =
+    pFrom !== null && pTo !== null && (pFrom > coverage.day_from || pTo < coverage.day_to);
+
+  const dirty = mode === 'range'
+    ? Number(from) !== coverage.day_from || Number(to) !== coverage.day_to
+    : coverage.mode !== 'all';
+
+  return (
+    <div className="rounded-lg border p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium">
+            Processing {shortDate(coverage.applied_from)} – {shortDate(coverage.applied_to)}
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {coverage.days_processed} of {coverage.days_in_month} days in the month
+            {coverage.days_processed < coverage.days_in_month
+              && ' — the rest stay "Attendance entries yet to be processed".'}
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <select
+            value={mode}
+            onChange={(e) => onMode(e.target.value as 'all' | 'range')}
+            aria-label="How much of the file to process"
+            className="h-8 rounded-md border bg-background px-2 text-sm"
+          >
+            <option value="all">All days</option>
+            <option value="range">Only days</option>
+          </select>
+          {mode === 'range' && (
+            <>
+              <input
+                type="number" min={1} max={31} value={from}
+                onChange={(e) => onFrom(e.target.value)}
+                aria-label="First day of the month to process"
+                className="h-8 w-16 rounded-md border bg-background px-2 text-center text-sm"
+              />
+              <span className="text-muted-foreground">to</span>
+              <input
+                type="number" min={1} max={31} value={to}
+                onChange={(e) => onTo(e.target.value)}
+                aria-label="Last day of the month to process"
+                className="h-8 w-16 rounded-md border bg-background px-2 text-center text-sm"
+              />
+            </>
+          )}
+          <Button size="sm" variant="secondary" onClick={onReanalyse} disabled={!dirty || Boolean(error)}>
+            Re-analyse
+          </Button>
+        </div>
+      </div>
+
+      {error && <p className="mt-2 text-xs font-medium text-red-700">{error}</p>}
+
+      {short && !error && (
+        <Alert className="mt-3">
+          <CalendarDays className="h-4 w-4" />
+          <AlertDescription className="text-xs">
+            This export carries punches only from day {pFrom} to day {pTo}, but days{' '}
+            {coverage.day_from}–{coverage.day_to} are being processed. The days outside the punches
+            will be marked absent for everyone.{' '}
+            <button
+              type="button"
+              className="font-medium underline underline-offset-2"
+              onClick={() => { onMode('range'); onFrom(String(pFrom)); onTo(String(pTo)); }}
+            >
+              Narrow to {pFrom}–{pTo}
+            </button>
+            {' '}then press Re-analyse.
+          </AlertDescription>
+        </Alert>
+      )}
+    </div>
+  );
+}
+
+/**
+ * How much of the file to process, asked BEFORE the upload.
+ *
+ * Day numbers rather than dates: the report month is only known once the server
+ * has parsed the header, so there is no month here to bound a date picker to,
+ * and a picker silently pointing at the wrong month would be worse than two
+ * plain numbers. The preview restates the choice as real dates.
+ */
+function DayRangeChooser({ mode, from, to, error, onMode, onFrom, onTo }: {
+  mode: 'all' | 'range';
+  from: string;
+  to: string;
+  error: string | null;
+  onMode: (m: 'all' | 'range') => void;
+  onFrom: (v: string) => void;
+  onTo: (v: string) => void;
+}) {
+  return (
+    <div className="mb-4 rounded-lg border p-4">
+      <p className="text-sm font-medium">How much of this file should be processed?</p>
+      <div className="mt-3 space-y-2.5">
+        <label className="flex cursor-pointer items-center gap-2.5 text-sm">
+          <input
+            type="radio" name="biometric-day-mode" className="h-4 w-4 accent-primary"
+            checked={mode === 'all'} onChange={() => onMode('all')}
+          />
+          <span>All days in the file</span>
+        </label>
+
+        <label className="flex cursor-pointer flex-wrap items-center gap-2.5 text-sm">
+          <input
+            type="radio" name="biometric-day-mode" className="h-4 w-4 accent-primary"
+            checked={mode === 'range'} onChange={() => onMode('range')}
+          />
+          <span>Only these days</span>
+          <input
+            type="number" min={1} max={31} value={from} disabled={mode !== 'range'}
+            onChange={(e) => onFrom(e.target.value)}
+            onClick={() => onMode('range')}
+            aria-label="First day of the month to process"
+            className="h-8 w-16 rounded-md border bg-background px-2 text-center text-sm disabled:opacity-50"
+          />
+          <span className="text-muted-foreground">to</span>
+          <input
+            type="number" min={1} max={31} value={to} disabled={mode !== 'range'}
+            onChange={(e) => onTo(e.target.value)}
+            onClick={() => onMode('range')}
+            aria-label="Last day of the month to process"
+            className="h-8 w-16 rounded-md border bg-background px-2 text-center text-sm disabled:opacity-50"
+          />
+          <span className="text-muted-foreground">of the month</span>
+        </label>
+      </div>
+
+      {error ? (
+        <p className="mt-3 text-xs font-medium text-red-700">{error}</p>
+      ) : (
+        <p className="mt-3 text-xs text-muted-foreground">
+          {mode === 'range'
+            ? `Days outside ${from}–${to} are not processed at all — they stay "Attendance entries yet to be processed" until you import them.`
+            : 'Every day column in the file is judged. Use this only when the export covers the whole month — a blank day is read as absent.'}
+        </p>
+      )}
     </div>
   );
 }

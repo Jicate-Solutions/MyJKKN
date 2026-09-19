@@ -66152,3 +66152,823 @@ REVOKE EXECUTE ON FUNCTION public.fn_wa_bridge_ack(uuid, text, text, text, integ
 GRANT  EXECUTE ON FUNCTION public.fn_wa_bridge_ack(uuid, text, text, text, integer) TO service_role;
 
 -- ---------------------------------------------------------------------------
+
+-- ===========================================================================
+-- attendance close console: month coverage (2026-09-19)
+-- Source: 20261224130000_hr_attendance_console_coverage.sql
+-- ===========================================================================
+-- ============================================================================
+-- Attendance close console: how much of the month is actually imported.
+-- 2026-09-19
+-- ----------------------------------------------------------------------------
+-- WHY. The biometric report is pulled fortnightly, so a month sits half
+-- imported for two weeks at a time. Nothing on the close console said so:
+-- an institution with days 1-15 imported and one with all 30 rendered
+-- identically, and the salary register's unpaid days are
+--
+--     unpaid = business_working_days - paid_days
+--
+-- where the basis is the FULL month and does not shrink with the import. Close
+-- a half-imported September and every line shows ~13 unpaid days — half a
+-- month's pay deducted from people who worked it.
+--
+-- This adds the four figures that make a short month visible. Display only:
+-- no pay arithmetic, no projection and no policy changes here.
+--
+-- DROP AND RECREATE, NOT A SECOND FUNCTION. The return type changes, which
+-- CREATE OR REPLACE cannot do. The drop names the exact (integer, integer)
+-- signature so this can never leave two overloads behind — PostgREST cannot
+-- choose between overloads, and a stray 5-argument
+-- fn_hr_lock_attendance_period broke every close on 2026-09-08 for precisely
+-- that reason.
+--
+-- The permission gate, the role_has_institution_access filter and the HR
+-- inclusion filter are carried over verbatim.
+-- ============================================================================
+
+DROP FUNCTION IF EXISTS public.hr_attendance_period_console(integer, integer);
+
+CREATE FUNCTION public.hr_attendance_period_console(p_year integer, p_month integer)
+ RETURNS TABLE(
+   institution_id uuid, institution_name text, period_id uuid, status text,
+   locked_at timestamp with time zone, staff_with_records integer,
+   active_staff integer, relieved_with_records integer, record_count integer,
+   pending_total integer, pending_leave integer, pending_short_time_off integer,
+   pending_comp_off integer, approved_leave integer, approved_short_time_off integer,
+   approved_comp_off integer, unprocessed_days integer,
+   days_covered integer, days_in_month integer,
+   first_covered_date date, last_covered_date date)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_start date := make_date(p_year, p_month, 1);
+  v_end   date := (make_date(p_year, p_month, 1) + interval '1 month - 1 day')::date;
+BEGIN
+  IF NOT (public.is_super_admin()
+          OR public.user_has_permission('hr.attendance.period.view')) THEN
+    RAISE EXCEPTION 'hr.attendance.period.view is required to see the attendance close console.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  RETURN QUERY
+  SELECT i.id,
+         i.name::text,
+         ap.id,
+         COALESCE(ap.status, 'open')::text,
+         ap.locked_at,
+         COALESCE(r.staff_ct, 0)::int,
+         COALESCE(h.active_ct, 0)::int,
+         COALESCE(r.relieved_ct, 0)::int,
+         COALESCE(r.rec_ct, 0)::int,
+         (COALESCE(q.p_total, 0) + COALESCE(c.p_claims, 0))::int,
+         COALESCE(q.p_leave, 0)::int,
+         COALESCE(q.p_sto, 0)::int,
+         (COALESCE(q.p_comp, 0) + COALESCE(c.p_claims, 0))::int,
+         COALESCE(q.a_leave, 0)::int,
+         COALESCE(q.a_sto, 0)::int,
+         (COALESCE(q.a_comp, 0) + COALESCE(c.a_claims, 0))::int,
+         COALESCE(r.unprocessed_ct, 0)::int,
+         -- DISTINCT DATES, not records: a day is covered once anyone has a row
+         -- on it. Weekly offs count, because the importer writes them too, so
+         -- this is "how far through the month the import reached" and not a
+         -- working-day figure.
+         COALESCE(r.days_ct, 0)::int,
+         (v_end - v_start + 1)::int,
+         r.first_date,
+         r.last_date
+    FROM public.institutions i
+    LEFT JOIN public.hr_attendance_periods ap
+           ON ap.institution_id = i.id
+          AND ap.period_year = p_year AND ap.period_month = p_month
+    LEFT JOIN LATERAL (
+      SELECT count(DISTINCT rr.employee_id) AS staff_ct,
+             count(DISTINCT rr.employee_id)
+               FILTER (WHERE NOT COALESCE(s2.is_active, false)) AS relieved_ct,
+             count(*)                       AS rec_ct,
+             count(DISTINCT rr.work_date)   AS days_ct,
+             min(rr.work_date)              AS first_date,
+             max(rr.work_date)              AS last_date,
+             count(*) FILTER (WHERE st.code NOT IN (
+               'PRESENT','REGULARIZED','HALF_DAY','ABSENT','WEEKLY_OFF',
+               'HOLIDAY','LEAVE','ON_DUTY','on_clinical_posting')) AS unprocessed_ct
+        FROM public.hr_attendance_records rr
+        JOIN public.hr_attendance_status_types st ON st.id = rr.status_type_id
+        LEFT JOIN public.staff s2 ON s2.id = rr.employee_id
+       WHERE rr.institution_id = i.id
+         AND rr.work_date BETWEEN v_start AND v_end
+    ) r ON true
+    LEFT JOIN LATERAL (
+      SELECT count(*) AS active_ct
+        FROM public.staff s3
+       WHERE s3.institution_id = i.id
+         AND COALESCE(s3.is_active, false)
+    ) h ON true
+    LEFT JOIN LATERAL (
+      SELECT
+        count(*) FILTER (WHERE la.status IN ('pending','escalated'))  AS p_total,
+        count(*) FILTER (WHERE la.status IN ('pending','escalated') AND lt.request_category = 'leave')            AS p_leave,
+        count(*) FILTER (WHERE la.status IN ('pending','escalated') AND lt.request_category = 'short_time_off')   AS p_sto,
+        count(*) FILTER (WHERE la.status IN ('pending','escalated') AND lt.request_category = 'compensatory_off') AS p_comp,
+        count(*) FILTER (WHERE la.status = 'approved' AND lt.request_category = 'leave')                          AS a_leave,
+        count(*) FILTER (WHERE la.status = 'approved' AND lt.request_category = 'short_time_off')                 AS a_sto,
+        count(*) FILTER (WHERE la.status = 'approved' AND lt.request_category = 'compensatory_off')               AS a_comp
+        FROM public.hr_leave_applications la
+        JOIN public.hr_leave_types lt ON lt.id = la.leave_type_id
+        JOIN public.staff s ON s.id = la.employee_id
+       WHERE s.institution_id = i.id
+         AND la.start_date <= v_end AND la.end_date >= v_start
+    ) q ON true
+    -- Comp off CLAIMS. A different table from the bookings above, keyed on the
+    -- worked day rather than a date range, and the half the gate blocks on.
+    LEFT JOIN LATERAL (
+      SELECT count(*) FILTER (WHERE cc.status = 'pending')  AS p_claims,
+             count(*) FILTER (WHERE cc.status = 'approved') AS a_claims
+        FROM public.hr_comp_off_credits cc
+        JOIN public.staff s4 ON s4.id = cc.employee_id
+       WHERE s4.institution_id = i.id
+         AND cc.worked_date BETWEEN v_start AND v_end
+    ) c ON true
+   WHERE public.role_has_institution_access(i.id)
+     AND public.fn_hr_institution_included(i.id)
+   ORDER BY (COALESCE(r.rec_ct, 0) = 0) DESC,
+            (COALESCE(q.p_total, 0) + COALESCE(c.p_claims, 0) > 0) DESC,
+            i.name;
+END;
+$function$;
+
+-- Restores exactly the grants the dropped function carried
+-- ({authenticated, service_role}); a DROP takes its ACL with it.
+GRANT EXECUTE ON FUNCTION public.hr_attendance_period_console(integer, integer) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.hr_attendance_period_console(integer, integer) TO service_role;
+
+-- ===========================================================================
+-- Course Events identity: one person, one JKKN ID (2026-09-19)
+-- Sources: 20260919120000_course_identity_reuse_existing_jkkn_id.sql
+--          20260919120200_jkkn_allocate_person_level_guard.sql
+--          20260919120400_course_approve_enrollment_identity_columns.sql
+-- (20260919120100 is omitted: superseded the same day by 120400.)
+-- ===========================================================================
+
+-- Course Events — stop approval minting a SECOND lifetime JKKN ID for a person
+-- MyJKKN already knows.
+--
+-- THE BUG, in one line. jkkn_identities has three mutually exclusive anchors:
+--
+--     learner_profile_id   6,808 rows   profile_id populated on 0 of them
+--     team_member_id         739 rows   profile_id populated on 0 of them
+--     profile_id             312 rows   (associate + external_participant)
+--
+-- and fn_course_approve_application guarded issuance with
+--
+--     SELECT jkkn_id FROM jkkn_identities WHERE profile_id = v_profile_id
+--
+-- which cannot see 7,558 of the 7,870 issued numbers — every learner, every
+-- staff member. For anyone already in MyJKKN it returned NULL and a second
+-- permanent number was minted on a second profile with a second login.
+-- Verified in production: BOOBALAN A holds 635500-1 (team_member anchor) AND
+-- 789537-1 (profile anchor, created by a course approval on 2026-08-19).
+--
+-- fn_jkkn_allocate's "one person, one number, for life" guard did not save us
+-- either: it compares only the ANCHOR it was handed, so a call carrying just
+-- p_profile_id is blind to the learner and team-member lanes by construction.
+--
+-- tg_jkkn_auto_issue_associate already does the right thing — learner link,
+-- then staff-email bridge, then existing profile row — and fn_jkkn_id_of
+-- already packages exactly those three bridges. The associate lane had the
+-- guard; the external_participant lane did not. This migration closes that
+-- asymmetry in three places:
+--
+--   1. fn_course_resolve_applicant  — NEW. Who is this applicant, really?
+--   2. fn_course_approve_application — reuse the person instead of copying them
+--   3. fn_jkkn_allocate             — make the lifetime guard person-level
+--
+-- Matching rule, decided with the user: an EMAIL match auto-links; a PHONE
+-- match only warns. The 2026-08-27 backfill deliberately withheld 18
+-- phone-overlap pairs for human review because families share numbers, and
+-- auto-merging on phone would silently do what that review exists to prevent.
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- 1. fn_course_resolve_applicant — is this applicant already in MyJKKN?
+-- ═══════════════════════════════════════════════════════════════════════════
+--
+-- SECURITY DEFINER because a Course Coordinator holds no read on `staff` or
+-- `learners_profiles` under RLS, and the whole point is to see people they
+-- cannot otherwise see. It returns only what an approval decision needs: a
+-- name, a number, and the ids to link to.
+--
+-- AMBIGUITY IS DEFINED ON THE RESOLVED NUMBER, NOT THE ROW COUNT. One human
+-- routinely produces several rows (a learner with a login matches through both
+-- learners_profiles and profiles). What matters is whether those rows collapse
+-- to ONE jkkn_id. Two or more distinct numbers behind one address means we do
+-- not know who this is, and approval must refuse rather than guess.
+
+CREATE OR REPLACE FUNCTION public.fn_course_resolve_applicant(
+  p_email text DEFAULT NULL,
+  p_phone text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_email      text := nullif(lower(btrim(coalesce(p_email, ''))), '');
+  v_phone      text := nullif(regexp_replace(coalesce(p_phone, ''), '\D', '', 'g'), '');
+  v_candidates jsonb := '[]'::jsonb;
+  v_phone_only jsonb := '[]'::jsonb;
+  v_numbers    text[];
+  v_pick       jsonb;
+BEGIN
+  IF NOT (
+    COALESCE(public.is_super_admin(), false)
+    OR public.is_admin()
+    OR public.user_has_permission('courses.applications.decide')
+  ) THEN
+    RAISE EXCEPTION 'Not authorised to resolve course applicants' USING ERRCODE = '42501';
+  END IF;
+
+  -- A participants.jkkn.local address is minted by the approval route for
+  -- somebody who gave no email at all. It identifies nobody and must never
+  -- match anybody, least of all another synthetic address.
+  IF v_email IS NOT NULL AND v_email LIKE '%@participants.jkkn.local' THEN
+    v_email := NULL;
+  END IF;
+
+  -- ── email candidates: all four bridges into the register ─────────────────
+  IF v_email IS NOT NULL THEN
+    SELECT coalesce(jsonb_agg(to_jsonb(c) ORDER BY c.rank), '[]'::jsonb)
+      INTO v_candidates
+      FROM (
+        -- (1) a learner, found on the learner record itself
+        SELECT 1 AS rank,
+               'learner'::text                      AS participant_type,
+               ji.person_kind                       AS person_kind,
+               btrim(ji.jkkn_id)                    AS jkkn_id,
+               lp.id                                AS learner_profile_id,
+               NULL::uuid                           AS team_member_id,
+               (SELECT pr.id FROM public.profiles pr
+                 WHERE pr.learner_id = lp.id
+                 ORDER BY pr.created_at LIMIT 1)    AS profile_id,
+               nullif(btrim(concat_ws(' ', lp.first_name, lp.last_name)), '') AS display_name,
+               'learner record'::text               AS matched_on
+          FROM public.learners_profiles lp
+          JOIN public.jkkn_identities ji
+            ON ji.learner_profile_id = lp.id AND ji.retired_at IS NULL
+         WHERE lower(btrim(coalesce(lp.student_email, ''))) = v_email
+            OR lower(btrim(coalesce(lp.college_email, ''))) = v_email
+
+        UNION ALL
+
+        -- (2) a staff member, found on the staff record itself
+        SELECT 2,
+               'staff',
+               ji.person_kind,
+               btrim(ji.jkkn_id),
+               NULL::uuid,
+               st.id,
+               (SELECT pr.id FROM public.profiles pr
+                 WHERE btrim(coalesce(pr.email, '')) <> ''
+                   AND lower(btrim(pr.email)) IN (
+                         lower(btrim(coalesce(st.institution_email, ''))),
+                         lower(btrim(coalesce(st.email, '')))
+                       )
+                 ORDER BY pr.created_at LIMIT 1),
+               nullif(btrim(concat_ws(' ', st.first_name, st.last_name)), ''),
+               'staff record'
+          FROM public.staff st
+          JOIN public.jkkn_identities ji
+            ON ji.team_member_id = st.id AND ji.retired_at IS NULL
+         WHERE lower(btrim(coalesce(st.institution_email, ''))) = v_email
+            OR lower(btrim(coalesce(st.email, ''))) = v_email
+
+        UNION ALL
+
+        -- (3) a profile-anchored person: an associate, or somebody an earlier
+        --     course approval already provisioned. 'external' rather than a
+        --     kind of their own — see the participant_type note below.
+        SELECT 3,
+               'external',
+               ji.person_kind,
+               btrim(ji.jkkn_id),
+               NULL::uuid,
+               NULL::uuid,
+               pr.id,
+               nullif(btrim(pr.full_name), ''),
+               'MyJKKN account'
+          FROM public.profiles pr
+          JOIN public.jkkn_identities ji
+            ON ji.profile_id = pr.id AND ji.retired_at IS NULL
+         WHERE btrim(coalesce(pr.email, '')) <> ''
+           AND lower(btrim(pr.email)) = v_email
+
+        UNION ALL
+
+        -- (4) a learner reached through their LOGIN rather than their learner
+        --     record — the bridge fn_jkkn_id_of uses. Catches a learner whose
+        --     learners_profiles row carries a different address from the one
+        --     they log in with.
+        SELECT 4,
+               'learner',
+               ji.person_kind,
+               btrim(ji.jkkn_id),
+               pr.learner_id,
+               NULL::uuid,
+               pr.id,
+               nullif(btrim(pr.full_name), ''),
+               'MyJKKN account'
+          FROM public.profiles pr
+          JOIN public.jkkn_identities ji
+            ON ji.learner_profile_id = pr.learner_id AND ji.retired_at IS NULL
+         WHERE pr.learner_id IS NOT NULL
+           AND btrim(coalesce(pr.email, '')) <> ''
+           AND lower(btrim(pr.email)) = v_email
+      ) c;
+  END IF;
+
+  SELECT array_agg(DISTINCT x.jkkn_id)
+    INTO v_numbers
+    FROM jsonb_to_recordset(v_candidates) AS x(jkkn_id text);
+
+  -- ── phone: a WARNING for the admin, never an automatic link ──────────────
+  -- Only people the email did NOT already find, so a confirmed match does not
+  -- also nag about itself.
+  IF v_phone IS NOT NULL AND length(v_phone) >= 6 THEN
+    SELECT coalesce(jsonb_agg(to_jsonb(w)), '[]'::jsonb)
+      INTO v_phone_only
+      FROM (
+        SELECT 'learner'::text AS kind,
+               btrim(ji.jkkn_id) AS jkkn_id,
+               nullif(btrim(concat_ws(' ', lp.first_name, lp.last_name)), '') AS display_name
+          FROM public.learners_profiles lp
+          JOIN public.jkkn_identities ji
+            ON ji.learner_profile_id = lp.id AND ji.retired_at IS NULL
+         WHERE regexp_replace(coalesce(lp.student_mobile, ''), '\D', '', 'g') = v_phone
+           AND (v_numbers IS NULL OR NOT (btrim(ji.jkkn_id) = ANY (v_numbers)))
+
+        UNION ALL
+
+        SELECT 'staff',
+               btrim(ji.jkkn_id),
+               nullif(btrim(concat_ws(' ', st.first_name, st.last_name)), '')
+          FROM public.staff st
+          JOIN public.jkkn_identities ji
+            ON ji.team_member_id = st.id AND ji.retired_at IS NULL
+         WHERE regexp_replace(coalesce(st.phone, ''), '\D', '', 'g') = v_phone
+           AND (v_numbers IS NULL OR NOT (btrim(ji.jkkn_id) = ANY (v_numbers)))
+      ) w;
+  END IF;
+
+  -- ── the verdict ──────────────────────────────────────────────────────────
+  IF v_numbers IS NULL OR array_length(v_numbers, 1) IS NULL THEN
+    RETURN jsonb_build_object(
+      'ok', true, 'matched', false, 'ambiguous', false,
+      'participant_type', 'external',
+      'candidates', v_candidates, 'phone_only_matches', v_phone_only
+    );
+  END IF;
+
+  IF array_length(v_numbers, 1) > 1 THEN
+    RETURN jsonb_build_object(
+      'ok', true, 'matched', true, 'ambiguous', true,
+      'jkkn_ids', to_jsonb(v_numbers),
+      'candidates', v_candidates, 'phone_only_matches', v_phone_only
+    );
+  END IF;
+
+  -- One number. Take the best-ranked row that actually carries a profile id,
+  -- so the approval gets a login to reuse when one exists; fall back to the
+  -- best-ranked row otherwise (a learner or staff member with no login yet).
+  SELECT to_jsonb(c) INTO v_pick
+    FROM jsonb_to_recordset(v_candidates)
+      AS c(rank int, participant_type text, person_kind text, jkkn_id text,
+           learner_profile_id uuid, team_member_id uuid, profile_id uuid,
+           display_name text, matched_on text)
+   ORDER BY (c.profile_id IS NULL), c.rank
+   LIMIT 1;
+
+  RETURN jsonb_build_object(
+    'ok', true, 'matched', true, 'ambiguous', false,
+    'jkkn_id',            v_numbers[1],
+    'person_kind',        v_pick ->> 'person_kind',
+    'participant_type',   v_pick ->> 'participant_type',
+    'profile_id',         v_pick ->> 'profile_id',
+    'learner_profile_id', v_pick ->> 'learner_profile_id',
+    'team_member_id',     v_pick ->> 'team_member_id',
+    'display_name',       v_pick ->> 'display_name',
+    'matched_on',         v_pick ->> 'matched_on',
+    'email',              v_email,
+    'candidates',         v_candidates,
+    'phone_only_matches', v_phone_only
+  );
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_course_resolve_applicant(text, text) IS
+  'Resolve a course applicant to an EXISTING MyJKKN person by normalised email, across all three jkkn_identities anchors. Email auto-links; phone only warns (phone_only_matches). Two or more distinct numbers behind one address returns ambiguous=true and approval must refuse.';
+
+REVOKE ALL ON FUNCTION public.fn_course_resolve_applicant(text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_course_resolve_applicant(text, text) TO authenticated;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- 3. fn_jkkn_allocate — make the lifetime guard PERSON-level
+-- ═══════════════════════════════════════════════════════════════════════════
+--
+-- The existing three-anchor check is kept verbatim and the bridges are added
+-- after it, in BOTH directions, so no lane — present or future — can mint a
+-- second number for somebody already in the register.
+--
+-- Blast radius, deliberately checked:
+--   • tg_jkkn_auto_issue_associate already pre-checks these same bridges, so
+--     it sees no change at all.
+--   • All three auto-issue triggers are EXCEPTION WHEN OTHERS ⇒ RAISE WARNING,
+--     so a newly-caught collision degrades to a skipped issuance and a warning
+--     in the log — never a failed admission, hire or role grant.
+--   • fn_jkkn_issue_manual's per-row Issue button on /users/jkkn-id will now
+--     refuse for a person who already holds a number through another bridge.
+--     That is the intended outcome and the one visible change outside Courses.
+
+CREATE OR REPLACE FUNCTION public.fn_jkkn_allocate(
+  p_person_kind text,
+  p_learner_profile_id uuid,
+  p_team_member_id uuid,
+  p_profile_id uuid,
+  p_issued_by uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_attempt   int;
+  v_six       text;
+  v_candidate text;
+  v_id        uuid;
+  v_existing  text;
+BEGIN
+  -- One person, one number, for life. Refuse a second — the whole design
+  -- rests on a learner who returns as a team member keeping the number they
+  -- already have. (The partial unique indexes enforce this too; this check
+  -- exists to fail with a sentence a human can act on.)
+  SELECT jkkn_id INTO v_existing
+    FROM public.jkkn_identities
+   WHERE (p_learner_profile_id IS NOT NULL AND learner_profile_id = p_learner_profile_id)
+      OR (p_team_member_id     IS NOT NULL AND team_member_id     = p_team_member_id)
+      OR (p_profile_id         IS NOT NULL AND profile_id         = p_profile_id)
+   LIMIT 1;
+
+  -- The three anchors above are mutually exclusive columns, so that check only
+  -- ever compared the ONE anchor it was handed. A profile-anchored call was
+  -- therefore blind to every learner and team_member row — 96% of the register
+  -- — which is exactly how a course approval minted a second lifetime number
+  -- for a staff member who already had one. Walk the bridges as well.
+  IF v_existing IS NULL AND p_profile_id IS NOT NULL THEN
+    v_existing := public.fn_jkkn_id_of('profile', p_profile_id);
+  END IF;
+
+  IF v_existing IS NULL AND p_learner_profile_id IS NOT NULL THEN
+    SELECT ji.jkkn_id INTO v_existing
+      FROM public.jkkn_identities ji
+      JOIN public.profiles pr ON pr.id = ji.profile_id
+     WHERE pr.learner_id = p_learner_profile_id
+     LIMIT 1;
+  END IF;
+
+  IF v_existing IS NULL AND p_team_member_id IS NOT NULL THEN
+    -- Empty-string emails can never match: without the <> '' guard every staff
+    -- row with no address would collide with every profile with no address.
+    SELECT ji.jkkn_id INTO v_existing
+      FROM public.jkkn_identities ji
+      JOIN public.profiles pr ON pr.id = ji.profile_id
+      JOIN public.staff st ON st.id = p_team_member_id
+     WHERE btrim(coalesce(pr.email, '')) <> ''
+       AND lower(btrim(pr.email)) IN (
+             lower(btrim(coalesce(st.institution_email, ''))),
+             lower(btrim(coalesce(st.email, '')))
+           )
+     LIMIT 1;
+  END IF;
+
+  IF v_existing IS NOT NULL THEN
+    RAISE EXCEPTION 'This person already holds JKKN ID %. A person is issued one number for life; to record a new capacity, update person_kind on the existing row.', btrim(v_existing)
+      USING ERRCODE = '23505';
+  END IF;
+
+  FOR v_attempt IN 1..20 LOOP
+    -- 100000..999999 inclusive: random() is [0,1), so floor(random()*900000)
+    -- is 0..899999.
+    v_six       := (100000 + floor(random() * 900000))::int::text;
+    v_candidate := v_six || '-' || public.fn_jkkn_id_check_digit(v_six);
+
+    INSERT INTO public.jkkn_identities (
+      jkkn_id, person_kind, learner_profile_id, team_member_id, profile_id, issued_by
+    )
+    VALUES (
+      v_candidate, p_person_kind, p_learner_profile_id, p_team_member_id, p_profile_id, p_issued_by
+    )
+    ON CONFLICT (jkkn_id) DO NOTHING
+    RETURNING id INTO v_id;
+
+    -- ON CONFLICT covers only a number collision. A one-person-one-number
+    -- violation is a different unique index and is left to raise.
+    IF v_id IS NOT NULL THEN
+      RETURN jsonb_build_object(
+        'ok',          true,
+        'identity_id', v_id,
+        'jkkn_id',     v_candidate,
+        'person_kind', p_person_kind,
+        'attempts',    v_attempt
+      );
+    END IF;
+  END LOOP;
+
+  RAISE EXCEPTION 'Could not find an unused JKKN ID in 20 attempts. The 900,000-number pool is close to exhausted or something is wrong.'
+    USING ERRCODE = '53400';
+END;
+$function$;
+
+-- Follow-up to 20260919120100. That migration started writing an honest
+-- participant_type ('learner' / 'staff' instead of a hardcoded 'external') but
+-- kept passing external_participant_id unconditionally, which violates the
+-- table's own identity contract:
+--
+--   course_enrollments_identity_chk CHECK (
+--        (participant_type = 'learner'  AND learner_id IS NOT NULL)
+--     OR (participant_type = 'staff'    AND learner_id IS NULL AND external_participant_id IS NULL)
+--     OR (participant_type = 'external' AND external_participant_id IS NOT NULL))
+--
+-- So the type is not a label: it decides which identity column the row carries.
+-- A staff enrolment is not an external-participant enrolment and must not point
+-- at the event_external_participants row at all; a learner enrolment must carry
+-- its learner_id.
+--
+-- The fix derives the type FROM the identity we actually resolved rather than
+-- the other way round, so the row can never disagree with itself:
+--
+--   learner_id resolved      -> 'learner'
+--   staff match, no learner  -> 'staff'
+--   otherwise                -> 'external'
+
+CREATE OR REPLACE FUNCTION public.fn_course_approve_application(
+  p_application_id uuid,
+  p_auth_user_id uuid,
+  p_email text DEFAULT NULL::text,
+  p_package_id uuid DEFAULT NULL::uuid,
+  p_decision_note text DEFAULT NULL::text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_app          public.course_applications%ROWTYPE;
+  v_package      public.course_packages%ROWTYPE;
+  v_profile_id   uuid;
+  v_jkkn_id      text;
+  v_issue        jsonb;
+  v_role_id      uuid;
+  v_enrollment   uuid;
+  v_enroll_no    text;
+  v_installments int;
+  v_bill_count   int;
+  v_email        text := nullif(btrim(coalesce(p_email, '')), '');
+  v_match        jsonb;
+  v_participant  text := 'external';
+  v_reused       boolean := false;
+  v_matched_name text;
+  v_matched_kind text;
+  v_is_staff     boolean := false;
+  v_learner_id   uuid;
+  v_external_id  uuid;
+BEGIN
+  IF NOT (
+    coalesce(public.is_super_admin(), false)
+    OR public.is_admin()
+    OR public.user_has_permission('courses.applications.decide')
+  ) THEN
+    RAISE EXCEPTION 'Not authorised to decide course applications' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT * INTO v_app FROM public.course_applications WHERE id = p_application_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'No course application %', p_application_id USING ERRCODE = '23503';
+  END IF;
+
+  IF v_app.status NOT IN ('pending', 'shortlisted') THEN
+    RAISE EXCEPTION 'This application is already %. Only a pending or shortlisted application can be approved.', v_app.status
+      USING ERRCODE = '22023';
+  END IF;
+
+  IF v_app.applicant_type <> 'external' THEN
+    RAISE EXCEPTION 'Only external applicants are provisioned this way; % applicants already hold an identity.', v_app.applicant_type
+      USING ERRCODE = '22023';
+  END IF;
+
+  SELECT * INTO v_package
+    FROM public.course_packages
+   WHERE id = coalesce(p_package_id, v_app.package_id)
+     AND course_event_id = v_app.course_event_id AND is_active;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Choose an active package for this course before approving. An enrollment cannot exist without one to price it.'
+      USING ERRCODE = '22023';
+  END IF;
+
+  SELECT count(*) INTO v_installments
+    FROM public.course_package_installments WHERE package_id = v_package.id;
+  IF v_installments = 0 THEN
+    RAISE EXCEPTION 'Package "%" has no instalment schedule, so no bills can be raised. Add its instalments before approving anyone onto it.', v_package.name
+      USING ERRCODE = '22023';
+  END IF;
+
+  SELECT linked_profile_id INTO v_profile_id
+    FROM public.event_external_participants WHERE id = v_app.external_participant_id;
+
+  IF v_profile_id IS NOT NULL THEN
+    -- Already bound by an earlier approval. Whether that binding was right is
+    -- not this transaction's business; re-deciding it here would move somebody
+    -- mid-course. Classify from the PROFILE, not from a previous enrollment
+    -- row, so the answer does not depend on what an earlier, buggier approval
+    -- happened to write.
+    v_reused := true;
+    SELECT CASE WHEN pr.is_external_participant THEN NULL ELSE pr.learner_id END,
+           (NOT pr.is_external_participant)
+             AND btrim(coalesce(pr.email, '')) <> ''
+             AND EXISTS (
+                   SELECT 1 FROM public.staff st
+                    WHERE lower(btrim(coalesce(st.institution_email, ''))) = lower(btrim(pr.email))
+                       OR lower(btrim(coalesce(st.email, '')))             = lower(btrim(pr.email))
+                 )
+      INTO v_learner_id, v_is_staff
+      FROM public.profiles pr
+     WHERE pr.id = v_profile_id;
+  ELSE
+    v_match := public.fn_course_resolve_applicant(v_email, v_app.applicant_phone);
+
+    IF coalesce((v_match ->> 'ambiguous')::boolean, false) THEN
+      RAISE EXCEPTION
+        'This email address resolves to more than one person (JKKN IDs %). Approving would guess which of them is applying. Link this application to the right person manually, or use an address that belongs to one of them.',
+        (SELECT string_agg(value #>> '{}', ', ') FROM jsonb_array_elements(v_match -> 'jkkn_ids'))
+        USING ERRCODE = '22023';
+    END IF;
+
+    v_matched_name := v_match ->> 'display_name';
+    v_matched_kind := v_match ->> 'person_kind';
+    v_learner_id   := nullif(v_match ->> 'learner_profile_id', '')::uuid;
+    v_is_staff     := (v_match ->> 'participant_type') = 'staff';
+
+    IF coalesce((v_match ->> 'matched')::boolean, false)
+       AND (v_match ->> 'profile_id') IS NOT NULL THEN
+      -- The person already has a MyJKKN login. Reuse it whole: no auth user,
+      -- no profile write, no password. Nothing about their record is amended
+      -- by taking a course.
+      v_profile_id := (v_match ->> 'profile_id')::uuid;
+      v_reused     := true;
+
+    ELSIF coalesce((v_match ->> 'matched')::boolean, false) THEN
+      -- Known person, no login yet — roughly 817 learners have no profile, and
+      -- staff with a blank institution_email never get one. Create the LOGIN.
+      -- is_external_participant is deliberately NOT set: they are not one.
+      IF p_auth_user_id IS NULL THEN
+        RAISE EXCEPTION 'An auth user id is required to create the participant''s profile' USING ERRCODE = '22023';
+      END IF;
+
+      INSERT INTO public.profiles (
+        id, email, full_name, phone_number, role,
+        learner_id, institution_id, is_active, profile_completed
+      )
+      VALUES (
+        p_auth_user_id, v_email,
+        coalesce(v_matched_name, v_app.applicant_name), v_app.applicant_phone,
+        'course_participant', v_learner_id, NULL, true, true
+      )
+      ON CONFLICT (id) DO UPDATE
+        SET profile_completed = true,
+            email      = coalesce(public.profiles.email, EXCLUDED.email),
+            full_name  = coalesce(public.profiles.full_name, EXCLUDED.full_name),
+            learner_id = coalesce(public.profiles.learner_id, EXCLUDED.learner_id)
+      RETURNING id INTO v_profile_id;
+
+      v_reused := true;
+
+    ELSE
+      -- A genuine outsider. Unchanged from before.
+      IF p_auth_user_id IS NULL THEN
+        RAISE EXCEPTION 'An auth user id is required to create the participant''s profile' USING ERRCODE = '22023';
+      END IF;
+
+      v_learner_id := NULL;
+      v_is_staff   := false;
+
+      INSERT INTO public.profiles (
+        id, email, full_name, phone_number, role,
+        is_external_participant, institution_id, is_active, profile_completed
+      )
+      VALUES (
+        p_auth_user_id, v_email, v_app.applicant_name, v_app.applicant_phone,
+        'course_participant', true, NULL, true, true
+      )
+      ON CONFLICT (id) DO UPDATE
+        SET is_external_participant = true,
+            profile_completed = true,
+            email      = coalesce(public.profiles.email, EXCLUDED.email),
+            full_name  = coalesce(public.profiles.full_name, EXCLUDED.full_name)
+      RETURNING id INTO v_profile_id;
+    END IF;
+
+    UPDATE public.event_external_participants
+       SET linked_profile_id = v_profile_id
+     WHERE id = v_app.external_participant_id;
+  END IF;
+
+  -- fn_jkkn_id_of, not a bare profile_id lookup. THIS IS THE FIX: it resolves
+  -- profile -> learner link -> staff email, so an existing learner or staff
+  -- member is found and keeps the number they already have.
+  v_jkkn_id := public.fn_jkkn_id_of('profile', v_profile_id);
+
+  IF v_jkkn_id IS NULL THEN
+    v_issue   := public.fn_issue_jkkn_id('external_participant', NULL, NULL, v_profile_id);
+    v_jkkn_id := v_issue ->> 'jkkn_id';
+  END IF;
+
+  -- Derive the type FROM the identity, never the other way round, so the row
+  -- cannot disagree with course_enrollments_identity_chk.
+  IF v_learner_id IS NOT NULL THEN
+    v_participant := 'learner';
+    v_external_id := v_app.external_participant_id;   -- the CHECK permits both
+  ELSIF v_is_staff THEN
+    v_participant := 'staff';
+    v_external_id := NULL;                            -- the CHECK forbids it
+  ELSE
+    v_participant := 'external';
+    v_external_id := v_app.external_participant_id;   -- the CHECK requires it
+  END IF;
+
+  -- The portal role is for people whose ONLY reason to hold an account is this
+  -- course. A reused staff member or learner needs nothing: course_enrollments,
+  -- course_bills and course_bill_payments all fall back to
+  -- profile_id = auth.uid(), so /my-courses works off their normal login.
+  IF v_participant = 'external' THEN
+    SELECT id INTO v_role_id FROM public.custom_roles WHERE role_key = 'course_participant';
+    IF v_role_id IS NOT NULL THEN
+      INSERT INTO public.user_roles (user_id, role_id, is_primary, assigned_by)
+      VALUES (v_profile_id, v_role_id, true, auth.uid())
+      ON CONFLICT DO NOTHING;
+    END IF;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM public.course_enrollments
+     WHERE course_event_id = v_app.course_event_id AND profile_id = v_profile_id
+  ) THEN
+    RAISE EXCEPTION 'This person is already enrolled on this course.' USING ERRCODE = '23505';
+  END IF;
+
+  v_enroll_no := 'CE-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 10));
+
+  INSERT INTO public.course_enrollments (
+    course_event_id, institution_id, application_id, package_id,
+    participant_type, profile_id, learner_id, external_participant_id,
+    enrollment_number, status, total_payable, total_paid, balance
+  )
+  VALUES (
+    v_app.course_event_id, v_app.institution_id, v_app.id, v_package.id,
+    v_participant, v_profile_id, v_learner_id, v_external_id,
+    v_enroll_no, 'active', v_package.total_amount, 0, v_package.total_amount
+  )
+  RETURNING id INTO v_enrollment;
+
+  INSERT INTO public.course_bills (
+    enrollment_id, course_event_id, institution_id, bill_number,
+    installment_no, label, total_amount, paid_amount, balance_amount, due_date, status
+  )
+  SELECT
+    v_enrollment, v_app.course_event_id, v_app.institution_id,
+    'CB-' || upper(substr(replace(v_enrollment::text, '-', ''), 1, 8)) || '-' || i.installment_no,
+    i.installment_no, i.label, i.amount, 0, i.amount, i.due_date, 'pending'
+  FROM public.course_package_installments i
+  WHERE i.package_id = v_package.id
+  ORDER BY i.installment_no;
+
+  GET DIAGNOSTICS v_bill_count = ROW_COUNT;
+
+  UPDATE public.course_applications
+     SET status = 'approved', package_id = v_package.id, profile_id = v_profile_id,
+         decided_by = auth.uid(), decided_at = now(), decision_note = p_decision_note
+   WHERE id = v_app.id;
+
+  RETURN jsonb_build_object(
+    'ok', true, 'profile_id', v_profile_id, 'jkkn_id', v_jkkn_id,
+    'enrollment_id', v_enrollment, 'enrollment_no', v_enroll_no,
+    'package_name', v_package.name, 'total_payable', v_package.total_amount,
+    'bill_count', v_bill_count,
+    'reused_identity', v_reused,
+    'participant_type', v_participant,
+    'matched_name', v_matched_name,
+    'matched_kind', v_matched_kind
+  );
+END;
+$function$;
