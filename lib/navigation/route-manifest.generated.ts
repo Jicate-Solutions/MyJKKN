@@ -7041,6 +7041,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "FileText",
         "children": [
           {
+            "path": "/solutions/paradigm-shift/confirmations",
+            "label": "Confirmations",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/solutions/paradigm-shift/leaderboard",
             "label": "Leaderboard",
             "iconName": "Trophy",
