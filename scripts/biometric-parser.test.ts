@@ -40,6 +40,12 @@ const workingDay: ResolvedShiftTiming = {
   grace_minutes: 5,
   grace_deadline: '09:05:00',
   matched_by: 'non_teaching',
+  // Added to ResolvedShiftTiming after this fixture was written. 'span' with no
+  // required_minutes is the default the resolver returns for a timing that
+  // carries windows — which is what every case below is judged against.
+  applicable_gender: 'all',
+  attendance_mode: 'span',
+  required_minutes: null,
 };
 const sunday: ResolvedShiftTiming = {
   ...workingDay, day_of_week: 7, is_working_day: false,
