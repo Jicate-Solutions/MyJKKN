@@ -1,5 +1,6 @@
 import { BaseService } from '@/lib/services/base-service';
 import type {
+  CourseApplicantMatch,
   CourseApplication,
   CourseApplicationCounts,
   CourseApplicationFilters,
@@ -194,6 +195,28 @@ export class CourseApplicationService extends BaseService {
     }
 
     return { ...counts, total: (data ?? []).length };
+  }
+
+  /**
+   * Is this applicant already somebody MyJKKN knows?
+   *
+   * Straight to the RPC: fn_course_resolve_applicant is SECURITY DEFINER and
+   * runs its own courses.applications.decide gate, and it only ever READS. The
+   * approve route asks the same question again server-side before provisioning
+   * anything — this call exists so the dialog can say who the person is BEFORE
+   * the admin clicks, not to be the thing that decides.
+   */
+  static async resolveApplicant(
+    email: string | null,
+    phone: string | null,
+  ): Promise<CourseApplicantMatch> {
+    const { data, error } = await this.supabase.rpc('fn_course_resolve_applicant', {
+      p_email: email || null,
+      p_phone: phone || null,
+    } as any);
+
+    if (error) throw error;
+    return data as unknown as CourseApplicantMatch;
   }
 
   // ── decisions ──────────────────────────────────────────────────────────────
