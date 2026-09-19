@@ -168,7 +168,10 @@ jobs:
   vitest:
     name: Vitest (gated subset — quarantine list in test-suite.yml)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 2026-09-19: 10 -> 20. On the 2-vCPU runner a PASSING run takes 6-9 min (six recent greens: 9 8 6 9 7 7), so the
+    # 10-min limit killed the job at 10:0x on seven ready PRs at once (#3878 #3883 #3900 #3914 #3919 #3922 #3923) —
+    # every one CANCELLED by the clock, none by a failing test. The wave reads CANCELLED as red and merges nothing.
+    timeout-minutes: 20
 
     # See "THE POSTGRES SERVICE" above. Trust auth: throwaway container, no data.
     services:
