@@ -13,9 +13,18 @@
 -- exactly that list.
 --
 -- THE SET IS DEFINED ONCE. The `present_marks` / `first_present` /
--- `catchup_set` CTE below is character-for-character identical in the apply
--- file, so the list he approves is the list that runs. If you edit one, edit
--- the other — a `diff` of the two CTEs must come back empty.
+-- `catchup_set` CTE below appears three times in this file and once in the
+-- apply file, and all four copies are character-for-character identical. If you
+-- edit one, edit all of them — a `diff` of any two must come back empty.
+--
+-- 🔒 THE LIST IS FROZEN, NOT RECOMPUTED (repair round 2). Present marks land
+-- every day, so a list read on Monday is not the list a script would compute on
+-- Tuesday. Section 3 below therefore ends with an APPROVED-SET TOKEN — the ids,
+-- the count and an md5 of the sorted ids — which is pasted into
+-- `3924-catchup-apply.sql`. That file refuses to run without it, refuses if it
+-- does not check out, activates only ids that are on the token AND still
+-- eligible, and REPORTS rather than activates anyone who became eligible after
+-- this preview was taken.
 --
 -- ELIGIBILITY MATCHES THE TRIGGER, not a fresh opinion of it:
 --   · the Present token is matched case-insensitively (production holds one
@@ -161,3 +170,68 @@ LEFT JOIN public.institutions  i  ON i.id = lp.institution_id
 GROUP BY ROLLUP (COALESCE(i.name, '(no institution)'))
 ORDER BY institution NULLS LAST;
 -- The NULL institution row produced by ROLLUP is the GRAND TOTAL.
+
+
+-- ── 3. THE APPROVED-SET TOKEN — PASTE THIS INTO THE APPLY SCRIPT ────────────
+--
+-- The list above is what the Director reads. This is the same list in the one
+-- form a script can check: the learner ids, sorted and comma-joined, with a
+-- count and an md5 of exactly that sorted text.
+--
+-- 🔒 WHY. Present marks land every day. If the apply script recomputed its own
+-- set when it ran, it could activate learners he never saw — the list would
+-- have moved under the approval. So `3924-catchup-apply.sql` takes these three
+-- values, refuses to run without them, refuses if they do not check out, and
+-- activates only ids that are on THIS list AND still eligible. Anyone who
+-- becomes eligible after this moment is reported by the apply and left alone.
+--
+-- Copy all three values into the marked block at the top of
+-- `scripts/rehearsals/3924-catchup-apply.sql`. If the Director wants a shorter
+-- list than the one above, re-run the preview against a narrowed set rather
+-- than hand-editing the ids — a hand-edited list fails the checksum, which is
+-- exactly what it is for.
+--
+-- A zero count / NULL md5 means nobody is eligible; there is nothing to apply.
+
+WITH present_marks AS (
+  SELECT
+    (s.rec ->> 'student_id')::uuid AS learner_id,
+    sa.id                          AS student_attendance_id,
+    sa.attendance_date             AS attendance_date,
+    sa.section_id                  AS section_id,
+    sa.timetable_id                AS timetable_id,
+    sa.institution_id              AS institution_id,
+    sa.marked_by                   AS marked_by,
+    sa.created_at                  AS marked_at
+  FROM public.student_attendance sa
+  CROSS JOIN LATERAL jsonb_each(
+         CASE WHEN jsonb_typeof(sa.attendance_data) = 'object'
+              THEN sa.attendance_data ELSE '{}'::jsonb END) AS per(period_key, period_val)
+  CROSS JOIN LATERAL jsonb_array_elements(
+         CASE WHEN jsonb_typeof(per.period_val -> 'students') = 'array'
+              THEN per.period_val -> 'students' ELSE '[]'::jsonb END) AS s(rec)
+  WHERE lower(COALESCE(s.rec ->> 'status', '')) = 'present'
+    AND COALESCE(s.rec ->> 'student_id', '') ~*
+        '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+),
+first_present AS (
+  SELECT DISTINCT ON (pm.learner_id)
+         pm.learner_id, pm.student_attendance_id, pm.attendance_date,
+         pm.section_id, pm.timetable_id, pm.institution_id, pm.marked_by, pm.marked_at
+  FROM present_marks pm
+  ORDER BY pm.learner_id, pm.attendance_date ASC, pm.marked_at ASC, pm.student_attendance_id ASC
+),
+catchup_set AS (
+  SELECT fp.learner_id, fp.student_attendance_id, fp.attendance_date,
+         fp.section_id, fp.timetable_id, fp.institution_id, fp.marked_by,
+         lp.lifecycle_status::text AS current_status
+  FROM first_present fp
+  JOIN public.learners_profiles lp ON lp.id = fp.learner_id
+  WHERE lp.lifecycle_status::text IN ('reserved', 'admitted')
+)
+SELECT
+  'PASTE THIS INTO THE APPLY SCRIPT'                           AS label,
+  count(*)::integer                                            AS approved_count,
+  md5(string_agg(learner_id::text, ',' ORDER BY learner_id))   AS approved_md5,
+  string_agg(learner_id::text, ',' ORDER BY learner_id)        AS approved_ids
+FROM catchup_set;
