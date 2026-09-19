@@ -17,7 +17,19 @@
 import { Suspense, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { Building2, CalendarClock, CalendarDays, Hash, MapPin, Share2, Users } from 'lucide-react';
+import {
+  Building2,
+  CalendarClock,
+  CalendarDays,
+  Check,
+  Copy,
+  ExternalLink,
+  Hash,
+  KeyRound,
+  MapPin,
+  Share2,
+  Users,
+} from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -45,6 +57,13 @@ import { ApplicationsPanel } from './_components/applications-panel';
 const COURSE_TABS = [
   'overview', 'settings', 'packages', 'sessions', 'forms', 'applications',
 ] as const;
+
+/** Where an approved participant signs in with the JKKN ID + temporary password
+ *  they were issued. A real route (app/auth/participant-login) that is PUBLIC —
+ *  listed in proxy.ts in both PUBLIC_PATHS_SET and the matcher exclusion. Until
+ *  now it existed on this console only as plain text inside
+ *  approve-application-dialog.tsx, with nothing to click. */
+const PARTICIPANT_LOGIN_PATH = '/auth/participant-login';
 
 /** Status is a CHECK constraint, not a Postgres enum — mirrors
  *  _components/columns.tsx's own STATUS_LABEL/STATUS_VARIANT, which aren't
@@ -122,9 +141,26 @@ function CourseDetailPageInner() {
   const id = String(params?.id ?? '');
   const [activeTab, setActiveTab] = useTabParam('overview', COURSE_TABS);
   const [shareOpen, setShareOpen] = useState(false);
+  const [loginCopied, setLoginCopied] = useState(false);
 
   const { data: course, isLoading, isError } = useCourseEvent(id);
   const updateCourseEvent = useUpdateCourseEvent();
+
+  /** origin is read at click time, not render time, so the copied link is right
+   *  on localhost, on a preview deployment and in production with no env var to
+   *  keep in step. Same construction as forms-panel.tsx's publicUrl(). */
+  const copyParticipantLogin = async () => {
+    try {
+      await navigator.clipboard.writeText(
+        `${window.location.origin}${PARTICIPANT_LOGIN_PATH}`,
+      );
+      setLoginCopied(true);
+      setTimeout(() => setLoginCopied(false), 1500);
+    } catch {
+      // Clipboard can be blocked (insecure origin, permissions). The URL is on
+      // screen next to the button, so failing silently is not a dead end.
+    }
+  };
 
   const handleSubmit = (values: CourseFormOutput) => {
     // institution_id is deliberately dropped, not forwarded: UpdateCourseEventDto
@@ -294,6 +330,49 @@ function CourseDetailPageInner() {
                     {course.slug}
                   </span>
                   {course.year && <span>Year {course.year}</span>}
+                </div>
+
+                {/* Participant sign-in. No PermissionGuard, for the same reason
+                    the Share button carries none: this page only renders a course
+                    the viewer could already read, and the URL handed out is a
+                    public page. Shown for draft courses too — a coordinator
+                    testing the flow needs it before the course is published. */}
+                <div className="space-y-2 border-t pt-3">
+                  <div className="flex items-start gap-2.5">
+                    <KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0">
+                      <p className="text-xs text-muted-foreground">Participant sign-in</p>
+                      <p className="break-all font-mono text-sm font-medium">
+                        {typeof window === 'undefined'
+                          ? PARTICIPANT_LOGIN_PATH
+                          : `${window.location.origin}${PARTICIPANT_LOGIN_PATH}`}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Approved participants sign in here with the JKKN ID and password
+                        they were issued.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button variant="outline" size="sm" onClick={copyParticipantLogin}>
+                      {loginCopied ? (
+                        <Check className="mr-1.5 h-4 w-4" />
+                      ) : (
+                        <Copy className="mr-1.5 h-4 w-4" />
+                      )}
+                      {loginCopied ? 'Copied' : 'Copy link'}
+                    </Button>
+                    {/* target="_blank" is load-bearing, not decoration:
+                        /api/auth/participant-login sets a DIFFERENT session cookie,
+                        so signing in from this tab would replace the admin's own
+                        session. A new tab keeps this console signed in. */}
+                    <Button asChild variant="outline" size="sm">
+                      <a href={PARTICIPANT_LOGIN_PATH} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink className="mr-1.5 h-4 w-4" />
+                        Open login page
+                      </a>
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
