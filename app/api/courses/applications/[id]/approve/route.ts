@@ -35,6 +35,7 @@ import { createClient } from '@supabase/supabase-js';
 import { withAuth } from '@/lib/auth/with-auth';
 import { generateTemporaryPassword } from '@/lib/utils/temporary-password';
 import { CourseWelcomeEmailService } from '@/lib/services/email/course-welcome-email-service';
+import type { CourseApplicantMatch } from '@/types/courses';
 
 export const dynamic = 'force-dynamic';
 
@@ -91,7 +92,7 @@ export const POST = withAuth(
     // approve into an institution they have no access to.
     const { data: application, error: readError } = await supabase
       .from('course_applications')
-      .select('id, status, applicant_type, applicant_name, applicant_email, external_participant_id, course_event_id')
+      .select('id, status, applicant_type, applicant_name, applicant_email, applicant_phone, external_participant_id, course_event_id')
       .eq('id', applicationId)
       .maybeSingle();
 
@@ -130,11 +131,64 @@ export const POST = withAuth(
 
     const existingProfileId = (participant as any)?.linked_profile_id ?? null;
 
-    let authUserId: string | null = existingProfileId;
+    // Is this applicant somebody MyJKKN already knows?
+    //
+    // Asked BEFORE auth.admin.createUser, because the answer decides whether an
+    // auth user should exist at all. Until 2026-09-19 it was never asked: the
+    // approval looked for an identity on jkkn_identities.profile_id alone, and
+    // that column is NULL on every learner and every staff row — 96% of the
+    // register — so a returning learner or staff member was handed a second
+    // profile, a second login and a second permanent JKKN ID.
+    //
+    // Through auth.supabase rather than the service client: the resolver is
+    // SECURITY DEFINER and gates on the CALLER's courses.applications.decide,
+    // exactly like the approval RPC below.
+    let match: CourseApplicantMatch | null = null;
+
+    if (!existingProfileId) {
+      const { data: resolved, error: resolveError } = await supabase.rpc(
+        'fn_course_resolve_applicant',
+        {
+          p_email: contactEmail || null,
+          p_phone: app.applicant_phone ?? null,
+        } as any,
+      );
+
+      if (resolveError) {
+        console.error('[courses/approve] resolve failed:', resolveError.message);
+        return NextResponse.json(
+          { ok: false, error: 'Could not check whether this applicant already holds a JKKN ID.' },
+          { status: 500 },
+        );
+      }
+
+      match = (resolved ?? null) as unknown as CourseApplicantMatch | null;
+
+      // One address, two different people. Guessing which of them is applying
+      // is exactly how somebody ends up with a number that is not theirs.
+      if (match?.ambiguous) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              `This email address belongs to more than one person (JKKN IDs ${(match.jkkn_ids ?? []).join(', ')}). ` +
+              'Link this application to the right person, or use an address that belongs to only one of them.',
+          },
+          { status: 409 },
+        );
+      }
+    }
+
+    // They already have a MyJKKN login — reuse it whole. No auth user is
+    // created and no password is minted: overwriting an existing person's
+    // password to hand it to an admin would be a takeover of their account.
+    const reusedProfileId = match?.matched ? (match.profile_id ?? null) : null;
+
+    let authUserId: string | null = existingProfileId ?? reusedProfileId;
     let tempPassword: string | null = null;
     let createdAuthUser = false;
 
-    if (!existingProfileId) {
+    if (!authUserId) {
       const password = generateTemporaryPassword();
       const authEmail = contactEmail || syntheticEmail();
       const { data: created, error: createError } = await admin.auth.admin.createUser({
@@ -282,6 +336,9 @@ export const POST = withAuth(
         totalPayable: Number(approved.total_payable ?? 0),
         enrollmentNumber: approved.enrollment_no,
         instalments: (billRows ?? []) as any[],
+        // Decides which sign-in page the email points at. A reused staff member
+        // or learner cannot use /auth/participant-login.
+        participantType: approved.participant_type ?? 'external',
       });
     }
 
@@ -294,7 +351,12 @@ export const POST = withAuth(
       // Present only when a login was just created. The UI shows it once — it
       // is never stored and cannot be retrieved again.
       tempPassword,
-      reusedExistingIdentity: Boolean(existingProfileId),
+      reusedExistingIdentity: Boolean(approved.reused_identity ?? existingProfileId),
+      participantType: approved.participant_type ?? 'external',
+      matchedName: approved.matched_name ?? match?.display_name ?? null,
+      matchedKind: approved.matched_kind ?? match?.person_kind ?? null,
+      // Never acted on — shown so the admin can notice a shared number.
+      phoneOnlyMatches: match?.phone_only_matches ?? [],
     });
   },
   { requirePermission: 'courses.applications.decide', allowApiKey: false },

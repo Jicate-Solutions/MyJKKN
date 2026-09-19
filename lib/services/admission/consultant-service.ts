@@ -3,6 +3,7 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { sanitizeSearch } from '@/lib/config/pagination';
+import { recordFeatureUse } from '@/lib/usage/record';
 import type {
   EducationConsultant,
   ConsultantInstitution,
@@ -887,6 +888,9 @@ export class ConsultantService {
       .from('commission_rate_card_payments')
       .insert({ ...input, created_by: userId ?? null, updated_by: userId ?? null });
     if (error) throw new Error(error.message);
+    // Adoption loop: the payment is already saved; this only counts the use
+    // (browser client carries auth.uid(); the helper never throws).
+    await recordFeatureUse(supabase, 'admission.consultant_rate_card');
   }
 
   static async updateRateCardPayment(
