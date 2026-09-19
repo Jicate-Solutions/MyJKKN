@@ -82,3 +82,12 @@ CREATE POLICY "cdc_drive_documents_read" ON public.cdc_drive_documents
     public.is_cdc_staff()
     OR learner_id IN (SELECT p.learner_id FROM public.profiles p WHERE p.id = auth.uid())
   );
+
+-- Grants ----------------------------------------------------------------------
+-- Updated: 2026-09-19 - explicit anon lock (Supabase's default privileges grant
+-- anon ALL on every new public table; RLS alone is not the lock). Reads go
+-- through the RLS policies above; every write goes through the service role.
+REVOKE ALL ON TABLE public.cdc_drive_document_batches FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.cdc_drive_documents        FROM anon, PUBLIC;
+GRANT SELECT ON TABLE public.cdc_drive_document_batches TO authenticated;
+GRANT SELECT ON TABLE public.cdc_drive_documents        TO authenticated;

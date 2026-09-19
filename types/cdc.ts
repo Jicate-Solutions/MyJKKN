@@ -689,7 +689,7 @@ export interface CdcDriveDayAccess {
 }
 
 // =====================================================================================
-// Drive documents + bulk upload (20260919120000)
+// Drive documents + bulk upload (20260919111000)
 // =====================================================================================
 
 export type CdcDocumentType =
@@ -748,7 +748,7 @@ export interface CdcDocumentBatch {
 }
 
 // =====================================================================================
-// Selection decisions (20260919130000)
+// Selection decisions (20260919112000)
 // =====================================================================================
 
 export type CdcSelectionDecision = 'selected' | 'waitlisted' | 'rejected' | 'hold';

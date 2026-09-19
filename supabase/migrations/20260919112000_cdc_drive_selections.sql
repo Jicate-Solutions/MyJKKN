@@ -43,3 +43,10 @@ CREATE POLICY "cdc_drive_selections_read" ON public.cdc_drive_selections
       )
     )
   );
+
+-- Grants ----------------------------------------------------------------------
+-- Updated: 2026-09-19 - explicit anon lock (Supabase's default privileges grant
+-- anon ALL on every new public table; RLS alone is not the lock). Reads go
+-- through the RLS policy above; every write goes through the service role.
+REVOKE ALL ON TABLE public.cdc_drive_selections FROM anon, PUBLIC;
+GRANT SELECT ON TABLE public.cdc_drive_selections TO authenticated;

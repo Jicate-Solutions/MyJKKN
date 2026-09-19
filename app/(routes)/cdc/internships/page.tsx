@@ -133,7 +133,7 @@ export default function CdcInternshipsPage() {
         </div>
 
         {/* Content */}
-        {loading && <Loading />}
+        {loading && <Loading title="Corporate Internships" />}
 
         {!loading && error && (
           <Card>
