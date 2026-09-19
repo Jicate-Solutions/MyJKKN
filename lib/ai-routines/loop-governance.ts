@@ -316,4 +316,25 @@ export const LOOP_GOVERNANCE_ROUTINES: AIRoutine[] = [
     notes:
       "Fires via the AI-routine dispatcher (ai_routine_schedules row 'consultants-measure', migration 20261226020000), NOT vercel.json. Auth: CRON_SECRET Bearer header only — no ?secret= query form. Idempotent: the fn upserts on (consultant_id, window_start, window_end), so a same-day re-run refreshes the same rows. Returns {measured, above_floor, min_attributions_k, headline, note, bar_recorded, bar_met, bar_error}; an RPC error or a non-array payload is HTTP 500 so the dispatcher records the failure — never a silent 200. An EMPTY result is a legitimate reading (no consultant has an attribution yet), and a headline of null means nobody cleared the floor — never a 0 that would read as a real 0% rate. A headline of 0.00 over real attributions is the EXPECTED steady state (see whatItDoes) and is recorded as 0 against the bar, with `note` carrying the reason: no attributed lead has reached the 'enrolled'/'confirmed' stage. The note rides on the response only — fn_loop_record_measurement derives its own gap from the loop's bar and takes no caller-supplied reason, and runId is a run trace, not a comment box. The weekly known-delta regress (fn_loops_regress_consultants via /api/cron/loops-regress) proves the SAME measurer this route runs. Safe no-op (500, not a crash) while 20261003010000 is unapplied.",
   },
+  {
+    id: 'top-numbers',
+    name: 'The Two Top Numbers — weekly T1 (defect hours) and T2 (adoption share)',
+    category: 'misc-ai',
+    type: 'cron',
+    schedule: 'Weekly · Mondays 09:11 IST (dispatcher-managed)',
+    triggerPath: '/api/cron/top-numbers',
+    callsClaude: false,
+    featureKey: null,
+    featureKeyNote:
+      'Rules-based: one Sentry read plus SQL counts, then two calls to fn_loop_record_measurement. No model is resolved and nothing is enqueued.',
+    whatItDoes:
+      "Director rulings 2026-09-18 (06:24, 06:27): every loop in MyJKKN serves one of exactly TWO numbers, so a loop's bar can be judged by whether the top actually moved. Once a week, for the ISO week that just ENDED (never a half-finished one), it computes both and records them against the registry rows top-defect-hours and top-adoption-share. T1 — hours real users lose to defects — is the unresolved user-facing Sentry groups on vercel-production (level error or fatal, cron routes excluded) counted as users_affected x 2 min, plus open bug_reports at least a day old counted as reporters x 5 min, expressed in hours. T2 — share of shipped features actually used — is the proportion of live, usage-wired features shipped 14+ days ago whose weekly reach clears 20% of an intended role. The minute-constants are a first honest guess and are written INSIDE each measurement's run_id, so a later recalibration changes the next reading and rewrites no past one.",
+    configKnobs:
+      'Constants live in lib/services/loops/top-numbers.ts and are recorded with every measurement: T1_MINUTES_PER_AFFECTED_USER=2, T1_MINUTES_PER_REPORTER=5, T1_BUG_MIN_AGE_DAYS=1, T2_USED_SHARE_PCT=20, T2_MIN_AGE_DAYS=14. Env: SENTRY_READ_TOKEN (falls back to the existing SENTRY_AUTH_TOKEN), SENTRY_ORG / SENTRY_ORG_SLUG, SENTRY_PROJECT / SENTRY_PROJECT_SLUG, SENTRY_ENVIRONMENT (default vercel-production). Schedule editable on /admin/ai-routines with no deploy.',
+    sideEffects:
+      "DB writes only: two loop_measurements rows via fn_loop_record_measurement, both with bar_value NULL and met NULL (neither top number has an approved bar, and NULL is neither a hit nor a miss, so no miss streak moves and no 'bar may be wrong' card can be raised by this route). Writes nothing else — no loop_registry edit, no notifications, no emails, no model calls. Reads Sentry read-only.",
+    safeToManualTrigger: true,
+    notes:
+      "Fires via the AI-routine dispatcher (ai_routine_schedules row 'top-numbers', migration 20261226010100), NOT vercel.json. Auth: CRON_SECRET Bearer header only — no ?secret= query form. NEVER a silent skip and never a fake number: when the Sentry token is unset or the call fails, T1 is still RECORDED with value NULL and gap 'insufficient — …', because a missing row would read on /admin/loops exactly like a week nobody measured; likewise T2 records 'insufficient — usage record not live' until something records usage. Re-running in the same week appends a second reading for that week rather than replacing the first — the table is an append-only log. Returns {week, results[]}; a failed RPC is HTTP 500 so the dispatcher records it. Needs the registry rows from 20261226010000 (fn_loop_record_measurement raises if a loop_key is absent) and loop_measurements from 20261225070000; while either is unapplied the route answers 500, never a crash.",
+  },
 ];
