@@ -269,7 +269,7 @@ export const OVERRIDE_KIND_OPTIONS: ReadonlyArray<{
   label: string;
   hint: string;
 }> = [
-  { value: 'category', label: 'Category', hint: 'Staff type, gender and category. Beats the general week.' },
+  { value: 'category', label: 'Category', hint: 'Teaching or non-teaching, gender and category. Beats the general week.' },
   { value: 'role', label: 'Role', hint: 'Everyone holding a role, any category. Beats a category override.' },
   { value: 'staff', label: 'Individual', hint: 'One team member. Beats everything else.' },
 ] as const;
