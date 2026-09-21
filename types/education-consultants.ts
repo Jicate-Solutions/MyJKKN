@@ -931,6 +931,12 @@ export interface ConsultantRateCardEarning {
    * count, never that the standard rate quietly applied.
    */
   is_override: boolean;
+  /**
+   * How much of this year's advance this line consumed. Advances are spread down
+   * the card in its printed order, filling each line's outstanding balance until
+   * the advance runs out, so this is already deducted from balance_amount.
+   */
+  advance_applied: number;
 }
 
 /**
@@ -1005,4 +1011,39 @@ export interface RateCardSlabInput {
   min_count: number;
   max_count: number | null;
   amount: number;
+}
+
+
+/** What happens to the unused part of an advance — decided per agency when it is recorded. */
+export type AdvanceDisposition = 'carry_forward' | 'recoverable';
+
+/**
+ * An advance paid to an agency against one intake year's card.
+ *
+ * It carries no college line — with no line there is nothing else to say which
+ * card it belongs to, which is why the year is required (Director, 2026-09-21).
+ */
+export interface RateCardAdvanceInput {
+  consultant_id: string;
+  entry_type: 'advance';
+  amount: number;
+  paid_on: string;
+  academic_year: number;
+  advance_disposition: AdvanceDisposition;
+  payment_mode?: string | null;
+  reference?: string | null;
+  notes?: string | null;
+}
+
+export interface RateCardAdvance {
+  id: string;
+  consultant_id: string;
+  amount: number;
+  paid_on: string;
+  academic_year: number;
+  advance_disposition: AdvanceDisposition;
+  payment_mode: string | null;
+  reference: string | null;
+  notes: string | null;
+  created_at: string;
 }

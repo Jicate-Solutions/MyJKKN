@@ -23,6 +23,8 @@ import type {
   RateCardPaymentInput,
   RateCardSlab,
   RateCardSlabInput,
+  RateCardAdvance,
+  RateCardAdvanceInput,
   ConsultantLeadAttribution,
   CreateLeadAttributionInput,
   LeadAttributionFilters,
@@ -865,6 +867,7 @@ export class ConsultantService {
       balance_amount: Number(r.balance_amount ?? 0),
       excess_amount: Number(r.excess_amount ?? 0),
       is_override: r.is_override === true,
+      advance_applied: Number(r.advance_applied ?? 0),
     }));
   }
 
@@ -907,6 +910,10 @@ export class ConsultantService {
       .select(
         `*, group:commission_rate_card_groups!inner(id, name, card:commission_rate_cards!inner(academic_year))`
       )
+      // Line payments and recoveries only. The !inner join already excludes
+      // advances, which carry no group — they are listed on their own, because a
+      // payment answers "which college" and an advance answers "which year".
+      .in('entry_type', ['payment', 'recovery'])
       .eq('consultant_id', consultantId)
       .eq('group.card.academic_year', year)
       .order('paid_on', { ascending: false })
@@ -3040,6 +3047,61 @@ export class ConsultantService {
       );
     if (insError) throw new Error(insError.message);
 
+    await recordFeatureUse(supabase, 'admission.consultant_rate_card');
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Advances
+  //
+  // An advance is money given to the agency against ONE intake year, with no
+  // college line. It is consumed automatically as that year's admissions come in,
+  // spread down the card in its printed order by fn_consultant_rate_card_earnings.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /** The advances held against one intake year for this agency, newest first. */
+  static async getRateCardAdvances(consultantId: string, year: number): Promise<RateCardAdvance[]> {
+    const supabase = createClientSupabaseClient();
+
+    const { data, error } = await (supabase as any)
+      .from('commission_rate_card_payments')
+      .select('*')
+      .eq('consultant_id', consultantId)
+      .eq('entry_type', 'advance')
+      .eq('academic_year', year)
+      .order('paid_on', { ascending: false })
+      .order('created_at', { ascending: false });
+
+    if (error) throw new Error(error.message);
+    return (data || []).map((a: any) => ({ ...a, amount: Number(a.amount) })) as RateCardAdvance[];
+  }
+
+  /**
+   * Record an advance. The year is required and the college line is deliberately
+   * absent; the database refuses either mistake, and this refuses it earlier so
+   * the person sees a sentence rather than a constraint name.
+   */
+  static async createRateCardAdvance(input: RateCardAdvanceInput, userId?: string | null): Promise<void> {
+    if (!input.academic_year) {
+      throw new Error('An advance has to say which intake year it is against.');
+    }
+    if (!(input.amount > 0)) {
+      throw new Error('An advance has to be more than zero.');
+    }
+    if (input.advance_disposition !== 'carry_forward' && input.advance_disposition !== 'recoverable') {
+      throw new Error('Say what happens to the unused part: carry it forward, or recover it.');
+    }
+
+    const supabase = createClientSupabaseClient();
+    const { error } = await (supabase as any)
+      .from('commission_rate_card_payments')
+      .insert({
+        ...input,
+        group_id: null,
+        entry_type: 'advance',
+        created_by: userId ?? null,
+        updated_by: userId ?? null,
+      });
+    if (error) throw new Error(error.message);
     await recordFeatureUse(supabase, 'admission.consultant_rate_card');
   }
 
