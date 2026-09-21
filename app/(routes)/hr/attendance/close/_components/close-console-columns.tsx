@@ -200,10 +200,21 @@ export function getCloseConsoleColumns(
   return [
     {
       accessorKey: 'institution_name',
-      size: 240,
+      size: 540,
       header: ({ column }) => <DataTableColumnHeader column={column} title='Institution' />,
       cell: ({ row }) => (
-        <span className='truncate text-sm font-medium'>{row.original.institution_name}</span>
+        <span className='truncate text-sm font-medium'>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger>
+              {row.original.institution_name}
+            </TooltipTrigger>
+            <TooltipContent>
+              {row.original.institution_name}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        </span>
       ),
     },
     {
@@ -306,19 +317,7 @@ export function getCloseConsoleColumns(
         );
       },
     },
-    {
-      accessorKey: 'unprocessed_days',
-      size: 110,
-      header: ({ column }) => <DataTableColumnHeader column={column} title='Unjudged' />,
-      cell: ({ row }) =>
-        row.original.unprocessed_days > 0 ? (
-          <span className='block text-right tabular-nums text-amber-700 dark:text-amber-400'>
-            {row.original.unprocessed_days}
-          </span>
-        ) : (
-          <span className='block text-right tabular-nums text-muted-foreground'>0</span>
-        ),
-    },
+    
     {
       id: 'actions',
       size: 300,
