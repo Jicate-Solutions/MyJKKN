@@ -38,6 +38,7 @@ import {
   summariseAdoption,
   toNumber,
   type AdoptionMetricRow,
+  rollingWeekStart,
 } from '@/lib/adoption/summarise';
 
 /** A fixed "now" so an age never depends on the day the suite runs. */
@@ -351,7 +352,7 @@ describe('term cadence', () => {
       'weekly',
       'weekly',
     ]);
-    expect(activeShareLabel(absent)).toBe('Weekly');
+    expect(activeShareLabel(absent)).toBe('Last 7 days');
   });
 
   it('is NOT judged on the running term, however low it reads', () => {
@@ -620,5 +621,24 @@ describe('summariseAdoption', () => {
 
   it('survives a null row set', () => {
     expect(summariseAdoption(null as unknown as AdoptionMetricRow[], NOW).labelled).toBe(0);
+  });
+});
+
+describe('rollingWeekStart', () => {
+  it('names the day six days before today in India, so the window always covers seven days', () => {
+    // 2026-09-22 05:09 IST is 2026-09-21 23:39 UTC — the IST day is the 22nd.
+    expect(rollingWeekStart(new Date('2026-09-21T23:39:00Z'))).toBe('2026-09-16');
+  });
+
+  it('uses the Indian day, not the UTC one, late in the evening', () => {
+    // 2026-09-22 23:30 IST is still 2026-09-22 in India (18:00 UTC).
+    expect(rollingWeekStart(new Date('2026-09-22T18:00:00Z'))).toBe('2026-09-16');
+  });
+
+  it('moves with the clock rather than jumping on Mondays', () => {
+    const mon = rollingWeekStart(new Date('2026-09-21T06:00:00Z'));
+    const tue = rollingWeekStart(new Date('2026-09-22T06:00:00Z'));
+    expect(mon).toBe('2026-09-15');
+    expect(tue).toBe('2026-09-16');
   });
 });

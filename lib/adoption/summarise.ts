@@ -291,8 +291,25 @@ function hadFullLastTerm(group: FeatureGroup): boolean {
 
 /** The header over the RUNNING share column. A term feature shows this beside
  *  a second column for the last completed term, which is the deciding one. */
-export function activeShareLabel(group: FeatureGroup): 'Weekly' | 'This term' {
-  return isTermFeature(group) ? 'This term' : 'Weekly';
+export function activeShareLabel(group: FeatureGroup): 'Last 7 days' | 'This term' {
+  return isTermFeature(group) ? 'This term' : 'Last 7 days';
+}
+
+/**
+ * The first day of a ROLLING seven-day window ending today (Indian calendar
+ * days), as `YYYY-MM-DD` for the metrics function's `p_week_start`.
+ *
+ * Why not the calendar week: measured 2026-09-22, a Tuesday, the calendar week
+ * was one day old and the same features read 27.9 % where a rolling week read
+ * 43.0 % — a bar of 40 % would have reported a collapse that had not happened.
+ * Every Monday and Tuesday reading was wrong in the same direction. A rolling
+ * window always covers seven days of real working life, so two readings a day
+ * apart are comparable.
+ */
+export function rollingWeekStart(now: Date = new Date()): string {
+  const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  ist.setUTCDate(ist.getUTCDate() - 6);
+  return ist.toISOString().slice(0, 10);
 }
 
 /**

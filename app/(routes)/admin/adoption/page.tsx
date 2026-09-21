@@ -54,6 +54,7 @@ import {
   toNumber,
   type AdoptionMetricRow,
   type Numeric,
+  rollingWeekStart,
 } from '@/lib/adoption/summarise';
 import { FeatureActions, type PendingProposal } from './_components/feature-actions';
 import { RegisterFeatureForm } from './_components/register-feature-form';
@@ -180,8 +181,15 @@ export default async function FeatureAdoptionPage() {
   });
   const loopEnabled = loopEnabledData === true;
 
+  const now = new Date();
   const [metricsResult, loginsResult, proposalsResult] = await Promise.all([
-    supabase.rpc('fn_adoption_metrics', { p_week_start: null, p_institution_id: null }),
+    // One clock for the whole render: the rolling window and the dead rule must agree.
+    supabase.rpc('fn_adoption_metrics', {
+      // A ROLLING seven days, not the calendar week: on a Monday or Tuesday a
+      // calendar week is barely begun and every share reads as a collapse.
+      p_week_start: rollingWeekStart(now),
+      p_institution_id: null,
+    }),
     supabase.rpc('fn_adoption_logins_daily', { p_days: 30, p_institution_id: null }),
     supabase
       .from('adoption_proposals')
@@ -210,7 +218,6 @@ export default async function FeatureAdoptionPage() {
     }
   }
 
-  const now = new Date();
   const { labelled, measured, dead, groups } = summariseAdoption(rows, now);
   const weekStart = rows[0]?.week_start ?? null;
   // Skipped features are labelled but deliberately not measured. They are out
@@ -227,8 +234,8 @@ export default async function FeatureAdoptionPage() {
             Feature adoption
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            What share of the people a feature was built for actually used it this week
-            {weekStart ? ` (week beginning ${weekStart})` : ''}. A feature is called dead
+            What share of the people a feature was built for actually used it in the last
+            seven days{weekStart ? ` (since ${weekStart})` : ''}. A feature is called dead
             when it is at least {DEAD_AFTER_DAYS} days old and under {DEAD_WEEKLY_PCT}% for
             every role it was meant for. A seasonal feature — marked{' '}
             <span className="font-medium text-foreground">term</span> — is judged on the LAST
@@ -261,7 +268,7 @@ export default async function FeatureAdoptionPage() {
           />
           <Headline
             value={measured}
-            label="Measured this week"
+            label="Measured"
             hint="Labelled features that something records and that have intended people."
           />
           <Headline
@@ -412,7 +419,7 @@ export default async function FeatureAdoptionPage() {
                         </span>
                         <div className="text-xs text-muted-foreground">
                           {toNumber(seasonal ? row.term_active : row.weekly_active)} of{' '}
-                          {toNumber(row.intended_count)} {seasonal ? 'this term' : 'this week'}
+                          {toNumber(row.intended_count)} {seasonal ? 'this term' : 'in 7 days'}
                         </div>
                       </TableCell>
 

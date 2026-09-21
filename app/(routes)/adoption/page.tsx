@@ -42,6 +42,7 @@ import {
   summariseAdoption,
   toNumber,
   type AdoptionMetricRow,
+  rollingWeekStart,
 } from '@/lib/adoption/summarise';
 
 /** Beyond this the list stops being something a person reads and starts being
@@ -115,8 +116,11 @@ export default async function AdoptionPage() {
 
   const supabase = await createServerSupabaseClient();
 
+  // One clock for the whole render: the rolling window and the dead rule must agree.
+  const now = new Date();
   const { data: metricsData, error: metricsError } = await supabase.rpc('fn_adoption_metrics', {
-    p_week_start: null,
+    // A ROLLING seven days, not the calendar week (see rollingWeekStart).
+    p_week_start: rollingWeekStart(now),
     p_institution_id: institutionId,
   });
 
@@ -132,7 +136,6 @@ export default async function AdoptionPage() {
     );
   }
 
-  const now = new Date();
   const rows = (metricsData ?? []) as AdoptionMetricRow[];
   const { labelled, measured, dead, groups } = summariseAdoption(rows, now);
   const institutionName = profile.institutions?.name ?? null;
@@ -166,7 +169,8 @@ export default async function AdoptionPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Adoption</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            What share of the people a feature was built for actually used it this week
+            What share of the people a feature was built for actually used it in the last
+            seven days
             {institutionName ? ` at ${institutionName}` : ''}. A feature counts as dead when
             it is at least {DEAD_AFTER_DAYS} days old and under {DEAD_WEEKLY_PCT}% for every
             role it was meant for. A seasonal feature is judged on the last completed term
@@ -182,7 +186,7 @@ export default async function AdoptionPage() {
           />
           <Headline
             value={measured}
-            label="Measured this week"
+            label="Measured"
             hint="Labelled features with intended people here."
           />
           <Headline
@@ -258,7 +262,7 @@ export default async function AdoptionPage() {
                           and the last completed term — which is the one that
                           decides whether anybody actually uses it. */}
                       <TableHead className="text-right">
-                        {seasonal ? activeShareLabel(group) : 'Used this week'}
+                        {seasonal ? activeShareLabel(group) : 'Used in the last 7 days'}
                       </TableHead>
                       <TableHead className="text-right">
                         {seasonal ? 'Last term' : activeShareLabel(group)}
