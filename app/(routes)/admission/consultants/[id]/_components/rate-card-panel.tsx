@@ -100,9 +100,15 @@ interface RateCardPanelProps {
 
 export function RateCardPanel({ consultantId }: RateCardPanelProps) {
   const queryClient = useQueryClient()
-  const { can, isSuperAdmin, userProfile } = usePermissions()
+  const { isSuperAdmin, userProfile } = usePermissions()
   // RLS is the real gate; this only hides buttons that would be refused.
-  const canManage = can('admission.consultants.commissions.manage')
+  //
+  // RECORDING MONEY — a payment, a recovery or an advance — is SUPER-ADMIN ONLY
+  // (Director, 2026-09-21). It was admission.consultants.commissions.manage,
+  // which 41 people held. The database policy on commission_rate_card_payments
+  // was tightened to is_super_admin() in the same change, so anything looser here
+  // would just offer a button the save refuses.
+  const canManage = isSuperAdmin
   // Recording a payment is 'manage'. CHANGING A RATE is admin-only at the
   // database (the slabs table's write policy), so the UI gates it the same way —
   // otherwise the menu offers an action the save will reject.
@@ -371,8 +377,9 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
       },
     ]
 
-    // An Administrator may change rates but may not hold commissions.manage, so the
-    // column appears for either capability and each item is gated on its own.
+    // The two capabilities no longer overlap: recording money is super-admin only,
+    // changing a rate is super-admin OR admin. So the column appears for either
+    // and every item inside it is gated on its own.
     if (canManage || canSetRates) {
       cols.push({
         id: 'actions',
