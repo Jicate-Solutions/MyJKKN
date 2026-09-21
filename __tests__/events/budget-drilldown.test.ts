@@ -23,15 +23,37 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-vi.mock('@/lib/supabase/client', () => ({
-  createClientSupabaseClient: () => ({}),
-  createAdminClient: () => ({}),
-  getSupabaseClient: () => ({}),
-}));
+/**
+ * A Supabase stub that records the columns asked for and hands back fixed rows,
+ * so the SERVICE METHOD can be driven — not just the pure function beneath it.
+ *
+ * This exists because of a real defect: an edit left TWO copies of
+ * getBudgetSummary in the class, and in TypeScript the later one wins. The
+ * surviving copy was the OLD count-everything version, so the double-count fix
+ * was not in effect at all — while every test of summariseBudget still passed,
+ * because they never went through the class. CI caught it; these tests did not.
+ */
+const spy: { columns: string; rows: unknown[] } = { columns: '', rows: [] };
+vi.mock('@/lib/supabase/client', () => {
+  const client = {
+    from: () => ({
+      select: (cols: string) => {
+        spy.columns = cols;
+        return { eq: () => Promise.resolve({ data: spy.rows, error: null }) };
+      },
+    }),
+  };
+  return {
+    createClientSupabaseClient: () => client,
+    createAdminClient: () => client,
+    getSupabaseClient: () => client,
+  };
+});
 
 import {
   buildBudgetTree,
   summariseBudget,
+  EventBudgetService,
   type SummarisableLine,
 } from '@/lib/services/events/shared/event-budget-service';
 import type { MarathonBudgetItem } from '@/types/events-marathon';
@@ -450,5 +472,25 @@ describe('the budget lock, narrowed', () => {
     expect(body()).toMatch(
       /IF v_status IS NULL OR v_status NOT IN \('approved', 'locked'\) THEN\s*\n\s*RETURN COALESCE\(NEW, OLD\);/
     );
+  });
+});
+
+describe('EventBudgetService.getBudgetSummary (the method, not the helper)', () => {
+  it('asks the database for parent_id — without it nothing can be de-duplicated', async () => {
+    spy.rows = [];
+    await EventBudgetService.getBudgetSummary('e1');
+    expect(spy.columns).toContain('parent_id');
+    expect(spy.columns).toContain('id');
+  });
+
+  it('does not count an itemised line and its items twice', async () => {
+    spy.rows = [
+      { id: 'chess', parent_id: null, category: 'Sports', type: 'expense', estimated_amount: 58000, actual_amount: 0, status: 'planned' },
+      { id: 't', parent_id: 'chess', category: 'Trophies', type: 'expense', estimated_amount: 40000, actual_amount: 0, status: 'planned' },
+      { id: 'r', parent_id: 'chess', category: 'Referees', type: 'expense', estimated_amount: 18000, actual_amount: 0, status: 'planned' },
+    ];
+    const s = await EventBudgetService.getBudgetSummary('e1');
+    // 1,16,000 here would mean the old version is the one being called.
+    expect(s.total_estimated_expense).toBe(58000);
   });
 });
