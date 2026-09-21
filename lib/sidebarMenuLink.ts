@@ -577,6 +577,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // whose authority comes from an approval flow rather than a permission key
   // are not blocked at the route layer. See app/(routes)/hr/leave/approvals/page.tsx.
   '/hr/leave/approvals': 'hr.leave.apply',
+  // Eligibility: same reasoning as Approvals above. An approver's authority
+  // here comes from the leave type's approval flow, not from a permission key,
+  // so the static gate is the permissive self-service one and the page itself
+  // shows only what RLS returns — the HR-only half is gated on
+  // hr.leave.types.manage inside the page.
+  '/hr/leave/eligibility': 'hr.leave.apply',
   '/hr/leave/[id]': 'hr.leave.apply',
   // ── Employee Self Service (2026-07-21) ───────────────────────────────────
   // These entries are LOAD-BEARING beyond the sidebar. app/(routes)/hr/layout.tsx

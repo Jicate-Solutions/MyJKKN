@@ -28,6 +28,7 @@ export interface LeaveTypeColumnActions {
   onEdit: (t: HRLeaveType) => void;
   /** Opens the approval-chain editor for this type. */
   onApprovalFlow: (t: HRLeaveType) => void;
+  onEligibilityFlow: (t: HRLeaveType) => void;
   /** Asks the page to open its archive confirmation. */
   onArchive: (t: HRLeaveType) => void;
   onActivate: (t: HRLeaveType) => Promise<void> | void;
@@ -204,11 +205,36 @@ export function getLeaveTypeColumns(
           </span>
         );
 
+        // WHO DECIDES ELIGIBILITY, only on a gated type. Three states, none of
+        // them an error: an eligibility flow of its own, the institution's
+        // eligibility catch-all, or — the documented fallback — the leave
+        // approvers above. Rendered beside the leave state, never instead of
+        // it, because the two decisions are taken by different people.
+        const eligibilityChip = t.requires_eligibility && (
+          <Badge
+            variant="outline"
+            className="ml-1.5 text-[10px] font-normal"
+            title={
+              cov.eligibilityFlowTypeIds?.has(t.id)
+                ? 'Eligibility requests have their own approvers. Edit with “Who approves eligibility”.'
+                : cov.orgsWithEligibilityCatchAll?.has(t.hr_organization_id)
+                  ? 'Eligibility requests follow the institution’s eligibility flow. Use “Who approves eligibility” to set one for this type.'
+                  : 'No eligibility approvers set, so eligibility requests go to the leave approvers. Use “Who approves eligibility” to change that.'
+            }
+          >
+            {cov.eligibilityFlowTypeIds?.has(t.id)
+              ? 'Eligibility: own'
+              : cov.orgsWithEligibilityCatchAll?.has(t.hr_organization_id)
+                ? 'Eligibility: org'
+                : 'Eligibility: leave approvers'}
+          </Badge>
+        );
+
         // A type with its OWN flow. The only state the row menu's "Who approves
         // this" has actually been used for.
         if (cov.ownFlowTypeIds.has(t.id)) {
           return (
-            <span className="inline-flex items-center">
+            <span className="inline-flex flex-wrap items-center gap-y-1">
               <Badge
                 variant="secondary"
                 title="This leave type has its own approval flow, which beats the organisation's catch-all."
@@ -216,6 +242,7 @@ export function getLeaveTypeColumns(
                 Own flow
               </Badge>
               {groupChips}
+              {eligibilityChip}
             </span>
           );
         }
@@ -233,6 +260,7 @@ export function getLeaveTypeColumns(
                 Org default
               </span>
               {groupChips}
+              {eligibilityChip}
             </span>
           );
         }
@@ -241,12 +269,15 @@ export function getLeaveTypeColumns(
         // can apply for this leave type at all — the one case worth shouting
         // about, and the reason this column exists.
         return (
-          <Badge
-            variant="destructive"
-            title="No approval flow resolves for this leave type, so applying for it fails outright. Use “Who approves this” on the row menu, or give the organisation a catch-all flow."
-          >
-            Not set
-          </Badge>
+          <span className="inline-flex flex-wrap items-center gap-y-1">
+            <Badge
+              variant="destructive"
+              title="No approval flow resolves for this leave type, so applying for it fails outright. Use “Who approves this” on the row menu, or give the organisation a catch-all flow."
+            >
+              Not set
+            </Badge>
+            {eligibilityChip}
+          </span>
         );
       },
     },
@@ -318,6 +349,7 @@ export function getLeaveTypeColumns(
           onAssign={actions.onAssign}
           onEdit={actions.onEdit}
           onApprovalFlow={actions.onApprovalFlow}
+          onEligibilityFlow={actions.onEligibilityFlow}
           onArchive={actions.onArchive}
           onActivate={actions.onActivate}
           onDelete={actions.onDelete}

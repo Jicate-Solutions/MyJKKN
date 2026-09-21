@@ -331,6 +331,62 @@ function ApprovalFlowSection({ t }: { t: HRLeaveType }) {
   );
 }
 
+/**
+ * Who decides ELIGIBILITY for a gated type (2026-09-21). Resolved the way
+ * LeaveEligibilityService.buildEligibilityChain does: the type's eligibility
+ * flow, else the institution's eligibility catch-all, else the LEAVE flow —
+ * a documented fallback, so that state is described, not flagged.
+ */
+function EligibilityFlowSection({ t }: { t: HRLeaveType }) {
+  const { data, isLoading } = useLeaveApprovalFlow(t.hr_organization_id, t.id, 'leave_eligibility');
+  const { data: roles } = useLeaveApproverRoles();
+
+  if (isLoading) {
+    return (
+      <Section title="Eligibility approvers">
+        <div className="col-span-full flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Resolving who approves eligibility…
+        </div>
+      </Section>
+    );
+  }
+
+  const effective = data?.effective ?? null;
+  if (!effective) {
+    return (
+      <Section title="Eligibility approvers">
+        <div className="col-span-full text-sm text-muted-foreground">
+          No eligibility approvers are set, so requests go to the leave approvers above. Set
+          some with <strong>Who approves eligibility</strong> on the row menu.
+        </div>
+      </Section>
+    );
+  }
+
+  const roleName = (key: string | null) =>
+    key ? (roles?.find((r) => r.role_key === key)?.role_name ?? null) : null;
+
+  return (
+    <Section title="Eligibility approvers">
+      <Field label="Source">
+        {data?.own ? (
+          <Badge variant="secondary">Own flow</Badge>
+        ) : (
+          <span className="text-muted-foreground">Institution eligibility flow</span>
+        )}
+      </Field>
+      <Field label="Flow name">{effective.flow_name}</Field>
+      <Field label="Escalates after">
+        {effective.escalate_after_hours > 0
+          ? `${effective.escalate_after_hours} hours`
+          : 'Never'}
+      </Field>
+      <FlowChain flow={effective} roleName={roleName} testId="eligibility-flow-steps" />
+    </Section>
+  );
+}
+
 function LeaveTypeDetailContent({ t }: { t: HRLeaveType }) {
   const isSto = t.request_category === 'short_time_off';
   // Shared ['hr-org-mappings'] query — already in cache from the page, filters
@@ -440,6 +496,7 @@ function LeaveTypeDetailContent({ t }: { t: HRLeaveType }) {
       </Section>
 
       <ApprovalFlowSection t={t} />
+      {t.requires_eligibility && <EligibilityFlowSection t={t} />}
 
       <Section title="Eligibility and validity">
         <Field label="Applies to">

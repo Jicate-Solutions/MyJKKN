@@ -11070,3 +11070,16 @@ CREATE POLICY reservation_communications_insert ON public.reservation_communicat
 
 REVOKE ALL ON public.reservation_communications FROM anon, PUBLIC;
 GRANT SELECT, INSERT ON public.reservation_communications TO authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Leave eligibility approval flow (flow_for = 'leave_eligibility') — 2026-09-21
+-- Mirror of supabase/migrations/20261225110000_leave_eligibility_approval_flow.sql
+-- ---------------------------------------------------------------------------
+DROP POLICY IF EXISTS hr_approval_flows_leave_read ON public.hr_approval_flows;
+CREATE POLICY hr_approval_flows_leave_read
+  ON public.hr_approval_flows
+  FOR SELECT
+  USING (
+    flow_for IN ('leave_approval', 'leave_eligibility')
+    AND hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids()))
+  );

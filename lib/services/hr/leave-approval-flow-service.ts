@@ -23,6 +23,7 @@ import type {
   LeaveApproverEntry,
   LeaveApproverRoleOption,
   LeaveChainResyncResult,
+  LeaveFlowFor,
   LeaveFlowRunMode,
   LeaveFlowStepSource,
   LeaveStaffGroup,
@@ -30,7 +31,11 @@ import type {
 import { pickLeaveFlow } from '@/lib/hr/leave/approval-chain';
 import type { HRLeaveApprovalQueueRow } from '@/types/hr';
 
-const FLOW_FOR = 'leave_approval';
+/**
+ * The default everywhere a caller does not say otherwise, so every reader that
+ * predates eligibility flows (2026-09-21) keeps asking about leave approval.
+ */
+const FLOW_FOR: LeaveFlowFor = 'leave_approval';
 const SELECT =
   'id, hr_organization_id, flow_name, conditions, steps, is_active, escalate_after_hours, ' +
   'step_source, run_mode, role_ladder, fallback_approver';
@@ -48,6 +53,14 @@ export interface LeaveApprovalFlowCoverage {
   orgsWithCatchAll: Set<string>;
   /** Which groups each leave type overrides, for the chips on the row. */
   groupFlows: Map<string, Set<LeaveStaffGroup>>;
+  /**
+   * Leave types with an ELIGIBILITY flow of their own, and organizations with
+   * an eligibility catch-all. Only meaningful for a type that requires
+   * eligibility; a gated type in neither set routes its requests to the leave
+   * flow, which is the documented fallback rather than a misconfiguration.
+   */
+  eligibilityFlowTypeIds: Set<string>;
+  orgsWithEligibilityCatchAll: Set<string>;
 }
 
 export interface SaveLeaveApprovalFlowInput {
@@ -57,6 +70,12 @@ export interface SaveLeaveApprovalFlowInput {
   leaveTypeId: string;
   flowName: string;
   steps: LeaveApprovalFlowStep[];
+  /**
+   * Which decision this flow governs. Defaults to leave approval. An
+   * eligibility flow may not carry a staffGroup — save() refuses it and the
+   * database CHECK refuses it again.
+   */
+  flowFor?: LeaveFlowFor;
   /**
    * Where the steps come from and how they run — two INDEPENDENT settings, so
    * a ladder can be climbed (sequential) or opened to every superior at once
@@ -98,10 +117,13 @@ export class LeaveApprovalFlowService {
   static async listCoverage(
     supabase: SupabaseClient
   ): Promise<LeaveApprovalFlowCoverage> {
+    // Both kinds in one fetch: the table labels each gated type's eligibility
+    // routing beside its leave routing, and a second query per render would
+    // double the cost for a handful of rows.
     const { data, error } = await supabase
       .from('hr_approval_flows')
-      .select('hr_organization_id, conditions')
-      .eq('flow_for', FLOW_FOR)
+      .select('hr_organization_id, flow_for, conditions')
+      .in('flow_for', ['leave_approval', 'leave_eligibility'])
       .eq('is_active', true)
       .is('valid_until', null);
     if (error) throw error;
@@ -109,12 +131,20 @@ export class LeaveApprovalFlowService {
     const ownFlowTypeIds = new Set<string>();
     const orgsWithCatchAll = new Set<string>();
     const groupFlows = new Map<string, Set<LeaveStaffGroup>>();
+    const eligibilityFlowTypeIds = new Set<string>();
+    const orgsWithEligibilityCatchAll = new Set<string>();
     for (const row of (data ?? []) as Array<{
       hr_organization_id: string;
+      flow_for: LeaveFlowFor;
       conditions: { leave_type_id?: string; staff_group?: LeaveStaffGroup } | null;
     }>) {
       const typeId = row.conditions?.leave_type_id;
       const group = row.conditions?.staff_group;
+      if (row.flow_for === 'leave_eligibility') {
+        if (typeId) eligibilityFlowTypeIds.add(typeId);
+        else orgsWithEligibilityCatchAll.add(row.hr_organization_id);
+        continue;
+      }
       if (group) {
         // A group flow narrows an existing slot; it never makes the type
         // "covered", so it is tracked separately from ownFlowTypeIds.
@@ -128,18 +158,25 @@ export class LeaveApprovalFlowService {
       if (typeId) ownFlowTypeIds.add(typeId);
       else orgsWithCatchAll.add(row.hr_organization_id);
     }
-    return { ownFlowTypeIds, orgsWithCatchAll, groupFlows };
+    return {
+      ownFlowTypeIds,
+      orgsWithCatchAll,
+      groupFlows,
+      eligibilityFlowTypeIds,
+      orgsWithEligibilityCatchAll,
+    };
   }
 
   static async listForOrg(
     supabase: SupabaseClient,
-    hrOrgId: string
+    hrOrgId: string,
+    flowFor: LeaveFlowFor = FLOW_FOR
   ): Promise<LeaveApprovalFlow[]> {
     const { data, error } = await supabase
       .from('hr_approval_flows')
       .select(SELECT)
       .eq('hr_organization_id', hrOrgId)
-      .eq('flow_for', FLOW_FOR)
+      .eq('flow_for', flowFor)
       .eq('is_active', true)
       .is('valid_until', null)
       .order('created_at', { ascending: true });
@@ -158,7 +195,13 @@ export class LeaveApprovalFlowService {
   static async resolveForLeaveType(
     supabase: SupabaseClient,
     hrOrgId: string,
-    leaveTypeId: string
+    leaveTypeId: string,
+    /**
+     * For 'leave_eligibility' the group fields below are always null and
+     * effectiveTeaching / effectiveNonTeaching equal `effective`: eligibility
+     * flows carry no group, so the answer is the same for everybody.
+     */
+    flowFor: LeaveFlowFor = FLOW_FOR
   ): Promise<{
     own: LeaveApprovalFlow | null;
     fallback: LeaveApprovalFlow | null;
@@ -170,7 +213,7 @@ export class LeaveApprovalFlowService {
     effectiveTeaching: LeaveApprovalFlow | null;
     effectiveNonTeaching: LeaveApprovalFlow | null;
   }> {
-    const flows = await this.listForOrg(supabase, hrOrgId);
+    const flows = await this.listForOrg(supabase, hrOrgId, flowFor);
 
     // own / fallback / effective keep their original meaning: the ALL-STAFF
     // slot. Existing callers (the detail dialog and its test) read them, and a
@@ -211,6 +254,15 @@ export class LeaveApprovalFlowService {
     supabase: SupabaseClient,
     input: SaveLeaveApprovalFlowInput
   ): Promise<LeaveApprovalFlow> {
+    const flowFor = input.flowFor ?? FLOW_FOR;
+
+    // An eligibility flow governs everybody who asks; the teaching split is a
+    // leave-approval concept. The CHECK constraint refuses the row too, but a
+    // 23514 names a constraint, not the tab the admin should not have used.
+    if (flowFor === 'leave_eligibility' && input.staffGroup) {
+      throw new Error('An eligibility flow applies to all staff; it cannot be split by group.');
+    }
+
     // A ROLE-LADDER FLOW HAS NO STEPS OF ITS OWN — its chain is derived per
     // applicant at apply time, so requiring one here would make the mode
     // unsavable. What it needs instead is a non-empty ladder, which the CHECK
@@ -256,7 +308,7 @@ export class LeaveApprovalFlowService {
 
     const row = {
       hr_organization_id: input.hrOrgId,
-      flow_for: FLOW_FOR,
+      flow_for: flowFor,
       flow_name: input.flowName,
       // staff_group is written only when set, never as null: the resolver and
       // the unique index both read "key absent" as All staff, and a literal
@@ -310,7 +362,7 @@ export class LeaveApprovalFlowService {
       .from('hr_approval_flows')
       .select('id')
       .eq('hr_organization_id', input.hrOrgId)
-      .eq('flow_for', FLOW_FOR)
+      .eq('flow_for', flowFor)
       .eq('is_active', true)
       .is('valid_until', null)
       .eq('conditions->>leave_type_id', input.leaveTypeId);

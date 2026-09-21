@@ -47,6 +47,23 @@ export interface LeaveApplicationFilters {
   pageSize?: number;
 }
 
+/**
+ * The columns of one hr_approval_flows row that seed a chain. Shared with
+ * LeaveEligibilityService, which reads the same table with a different
+ * flow_for and hands the row to buildChainFromFlow().
+ */
+export type LeaveFlowRow = {
+  id: string;
+  flow_name: string | null;
+  conditions: Record<string, unknown> | null;
+  steps: Array<Record<string, unknown>> | null;
+  escalate_after_hours: number | null;
+  step_source: LeaveFlowStepSource | null;
+  run_mode: LeaveFlowRunMode | null;
+  role_ladder: string[] | null;
+  fallback_approver: LeaveApproverEntry | null;
+};
+
 // =====================================================================================
 // Leave Service
 // =====================================================================================
@@ -209,18 +226,7 @@ export class LeaveService {
 
     if (error) throw error;
 
-    type FlowRow = {
-      id: string;
-      flow_name: string | null;
-      conditions: Record<string, unknown> | null;
-      steps: Array<Record<string, unknown>> | null;
-      escalate_after_hours: number | null;
-      step_source: LeaveFlowStepSource | null;
-      run_mode: LeaveFlowRunMode | null;
-      role_ladder: string[] | null;
-      fallback_approver: LeaveApproverEntry | null;
-    };
-    const candidates = (flows ?? []) as unknown as FlowRow[];
+    const candidates = (flows ?? []) as unknown as LeaveFlowRow[];
 
     // WHICH FLOW GOVERNS THIS PERSON IS DECIDED IN POSTGRES (2026-09-19).
     //
@@ -235,7 +241,7 @@ export class LeaveService {
     // is why it is SECURITY DEFINER and why the employee id is gated inside it.
     // departmentId is still accepted for signature stability and future
     // department-scoped flows; no seeded flow keys on it today.
-    let chosen: FlowRow | undefined;
+    let chosen: LeaveFlowRow | undefined;
     if (employeeId) {
       const { data: flowId, error: pickError } = await (supabase as any).rpc(
         'fn_hr_leave_pick_flow',
@@ -267,32 +273,7 @@ export class LeaveService {
       );
     }
 
-    // A ROLE LADDER IS RESOLVED IN POSTGRES, NEVER HERE. The rungs above the
-    // applicant depend on the roles they hold, and user_roles / custom_roles are
-    // not readable by an ordinary member of staff — a browser-side lookup comes
-    // back empty for exactly the people applying, which is the silent
-    // false-negative this module has shipped twice (see assertCanDecide).
-    let rungsAbove: string[] = [];
-    if ((chosen.step_source ?? 'explicit') === 'role_ladder') {
-      const ladder = Array.isArray(chosen.role_ladder) ? chosen.role_ladder : [];
-      const { data: rungs, error: ladderError } = await (supabase as any).rpc(
-        'hr_resolve_leave_ladder',
-        { p_employee_id: employeeId, p_ladder: ladder }
-      );
-      if (ladderError) throw ladderError;
-      rungsAbove = (rungs ?? []) as string[];
-    }
-
-    const steps = buildChain({
-      flow: {
-        steps: (chosen.steps ?? []) as unknown as LeaveApprovalFlowStep[],
-        escalate_after_hours: chosen.escalate_after_hours ?? 48,
-        step_source: chosen.step_source ?? 'explicit',
-        run_mode: chosen.run_mode ?? 'sequential',
-        fallback_approver: chosen.fallback_approver ?? null,
-      },
-      rungsAbove,
-    });
+    const steps = await this.buildChainFromFlow(supabase, chosen, employeeId);
 
     if (steps.length === 0) {
       // A LADDER THAT RESOLVED TO NOBODY IS A DIFFERENT PROBLEM from a flow with
@@ -316,6 +297,45 @@ export class LeaveService {
     // shared with the editor's preview and covered by
     // __tests__/hr/leave-approval-chain.test.ts.
     return steps;
+  }
+
+  /**
+   * One flow row → the chain a request would freeze. Shared by leave
+   * applications and eligibility requests (2026-09-21), which pick their flow
+   * differently but must turn it into steps identically. Returns an EMPTY array
+   * rather than throwing so each caller can name its own screen in the error.
+   */
+  static async buildChainFromFlow(
+    supabase: SupabaseClient,
+    flow: LeaveFlowRow,
+    employeeId: string | null
+  ): Promise<LeaveApprovalStep[]> {
+    // A ROLE LADDER IS RESOLVED IN POSTGRES, NEVER HERE. The rungs above the
+    // applicant depend on the roles they hold, and user_roles / custom_roles are
+    // not readable by an ordinary member of staff — a browser-side lookup comes
+    // back empty for exactly the people applying, which is the silent
+    // false-negative this module has shipped twice (see assertCanDecide).
+    let rungsAbove: string[] = [];
+    if ((flow.step_source ?? 'explicit') === 'role_ladder') {
+      const ladder = Array.isArray(flow.role_ladder) ? flow.role_ladder : [];
+      const { data: rungs, error: ladderError } = await (supabase as any).rpc(
+        'hr_resolve_leave_ladder',
+        { p_employee_id: employeeId, p_ladder: ladder }
+      );
+      if (ladderError) throw ladderError;
+      rungsAbove = (rungs ?? []) as string[];
+    }
+
+    return buildChain({
+      flow: {
+        steps: (flow.steps ?? []) as unknown as LeaveApprovalFlowStep[],
+        escalate_after_hours: flow.escalate_after_hours ?? 48,
+        step_source: flow.step_source ?? 'explicit',
+        run_mode: flow.run_mode ?? 'sequential',
+        fallback_approver: flow.fallback_approver ?? null,
+      },
+      rungsAbove,
+    });
   }
 
   /**
