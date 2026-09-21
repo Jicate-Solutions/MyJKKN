@@ -1,5 +1,5 @@
 -- ============================================================================
--- Migration: 20260918140000_pde_clinical_case_stages
+-- Migration: 20270115090000_pde_clinical_case_stages
 -- Staged clinical cases + stage locking for the PDE clinical-reasoning module.
 -- ============================================================================
 -- WHY
@@ -258,7 +258,7 @@ GRANT  EXECUTE ON FUNCTION public.fn_pde_case_access(uuid) TO authenticated;
 -- ----------------------------------------------------------------------------
 -- Marks a single answer against the key that lives in the row. Created here for
 -- the two objective types that exist today; the companion migration
--- 20260918140100 REPLACES it to add multi_select / matching / sequencing.
+-- 20270115090100 REPLACES it to add multi_select / matching / sequencing.
 --
 -- Returns NULL for a question that cannot be objectively marked (free_text_socratic),
 -- so the caller can exclude it from the denominator rather than score it zero.
@@ -556,7 +556,7 @@ GRANT  EXECUTE ON FUNCTION public.fn_pde_submit_stage(uuid, jsonb) TO authentica
 -- expected_regions are still absent entirely.
 --
 -- stage_id IS NULL questions (every case that exists today) are always returned.
--- The companion migration 20260918140100 replaces this again to widen the
+-- The companion migration 20270115090100 replaces this again to widen the
 -- question_type list; this body is the stage half of that final shape.
 -- ----------------------------------------------------------------------------
 

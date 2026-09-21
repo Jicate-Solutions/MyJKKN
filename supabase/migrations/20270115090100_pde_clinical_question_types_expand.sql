@@ -1,5 +1,5 @@
 -- ============================================================================
--- Migration: 20260918140100_pde_clinical_question_types_expand
+-- Migration: 20270115090100_pde_clinical_question_types_expand
 -- Adds multi_select, matching and sequencing to the clinical question types.
 -- ============================================================================
 -- WHY
@@ -24,7 +24,7 @@
 --   fn_pde_get_case_questions, so the key stays in the database for all three.
 --
 -- Migrations are FILES ONLY in this repo — this is NOT applied here.
--- Idempotent. Safe to re-apply. Runs after 20260918140000 (stages).
+-- Idempotent. Safe to re-apply. Runs after 20270115090000 (stages).
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
@@ -59,7 +59,7 @@ CREATE INDEX IF NOT EXISTS idx_pde_assessment_questions_clinical_type_v2
   );
 
 -- ----------------------------------------------------------------------------
--- 2. Marking — replaces the version from 20260918140000
+-- 2. Marking — replaces the version from 20270115090000
 -- ----------------------------------------------------------------------------
 -- PARTIAL CREDIT RULES (each returns 0..100; NULL means "not objectively
 -- markable", which keeps the question out of the stage denominator rather than
@@ -272,13 +272,13 @@ GRANT  EXECUTE ON FUNCTION public.fn_pde_mark_clinical_answer(uuid, jsonb) TO au
 -- ----------------------------------------------------------------------------
 -- 4. Question delivery — widen the type list, keep the stage gate
 -- ----------------------------------------------------------------------------
--- Replaces the body created in 20260918140000. The stage-gating WHERE clause is
+-- Replaces the body created in 20270115090000. The stage-gating WHERE clause is
 -- carried forward verbatim; the only differences are the six-type IN list and
 -- the extra `- 'exclusion_rationale'` strip, which keeps a multi_select rubric's
 -- "why D is wrong" out of the learner's payload until review.
 --
 -- The two migrations deliberately each define the whole function so either can
--- be read on its own; 20260918140100 is the final shape.
+-- be read on its own; 20270115090100 is the final shape.
 -- ----------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION public.fn_pde_get_case_questions(p_assessment_id uuid)
