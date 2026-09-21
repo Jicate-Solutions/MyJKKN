@@ -379,3 +379,76 @@ describe('the measurement migration', () => {
     }
   });
 });
+
+describe('the budget lock, narrowed', () => {
+  const sql = readFileSync(
+    join(
+      process.cwd(),
+      'supabase/migrations/20270104090000_budget_lock_allows_reporting_actuals.sql'
+    ),
+    'utf8'
+  )
+    .split('\n')
+    .filter((l) => !l.trimStart().startsWith('--'))
+    .join('\n');
+
+  const body = () => {
+    const from = sql.indexOf('FUNCTION public.fn_guard_event_budget_locked');
+    return sql.slice(from, sql.indexOf('$$;', from));
+  };
+
+  it('names EVERY planning field, so none can be changed after sign-off', () => {
+    // A field missing from this list is a field an in-charge could quietly
+    // rewrite on an approved budget. That is the whole risk of narrowing it.
+    for (const col of [
+      'estimated_amount',
+      'type',
+      'category',
+      'category_id',
+      'description',
+      'quantity',
+      'unit_rate',
+      'parent_id',
+      'committee_id',
+      'event_id',
+      'vendor',
+      'notes',
+    ]) {
+      expect(body(), `${col} is not protected`).toMatch(
+        new RegExp(`NEW\\.${col}\\s+IS DISTINCT FROM OLD\\.${col}`)
+      );
+    }
+  });
+
+  it('lets nothing move once the books are locked', () => {
+    const b = body();
+    expect(b).toMatch(/IF v_status = 'locked' THEN\s*\n\s*RAISE EXCEPTION/);
+    // The locked test must come BEFORE the reporting escape hatch, or closed
+    // books stay editable. Compare against the escape hatch ITSELF, not the
+    // declaration of the variable it uses — which is what this first measured,
+    // and it passes on a broken ordering.
+    expect(b.indexOf("IF v_status = 'locked' THEN")).toBeLessThan(
+      b.indexOf("IF TG_OP = 'UPDATE' AND v_reporter THEN")
+    );
+  });
+
+  it('opens reporting only to people who run this budget', () => {
+    const b = body();
+    expect(b).toContain('fn_is_event_incharge(v_event)');
+    expect(b).toContain("user_has_permission('events.budget.manage')");
+    // and only for an UPDATE — never an insert or a delete
+    expect(b).toMatch(/IF TG_OP = 'UPDATE' AND v_reporter THEN/);
+  });
+
+  it('leaves approvers exactly as they were', () => {
+    expect(body()).toMatch(
+      /IF is_super_admin\(\) OR is_admin\(\) OR user_has_permission\('events\.budget\.approve'\) THEN\s*\n\s*RETURN COALESCE\(NEW, OLD\);/
+    );
+  });
+
+  it('does not touch a draft or an unsubmitted budget', () => {
+    expect(body()).toMatch(
+      /IF v_status IS NULL OR v_status NOT IN \('approved', 'locked'\) THEN\s*\n\s*RETURN COALESCE\(NEW, OLD\);/
+    );
+  });
+});
