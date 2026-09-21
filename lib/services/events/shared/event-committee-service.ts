@@ -164,6 +164,38 @@ export class EventCommitteeService {
     return this.updateCommittee(committee.id, payload as Partial<MarathonCommittee>);
   }
 
+  // --- Leads ----------------------------------------------------------------
+
+  /**
+   * Replace a committee's leads with the people picked from the directory.
+   *
+   * lead_ids is what the database checks when a lead adds a task to their own
+   * committee (migration 20261229090000). lead_name is kept in step because it
+   * is what the card prints and what the name-matching read policies compare
+   * against; leaving it stale would show one set of names and admit another.
+   *
+   * A person with no MyJKKN login (member_id null) cannot be a lead — leading
+   * means writing tasks, which needs an account — so they are dropped from
+   * lead_ids and kept only in the printed name.
+   */
+  static setLeads(
+    committee: MarathonCommittee,
+    people: { member_id: string | null; name: string }[]
+  ) {
+    const named = people.map((p) => p.name.trim()).filter(Boolean);
+    const ids = people
+      .map((p) => p.member_id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+    return this.updateCommittee(committee.id, {
+      event_id: committee.event_id,
+      lead_ids: ids,
+      lead_name: named.length > 0 ? named.join(' & ') : null,
+      // The legacy single-lead column follows the first pick so anything still
+      // reading lead_id (older policies, the marathon board) stays truthful.
+      lead_id: ids[0] ?? null,
+    } as Partial<MarathonCommittee>);
+  }
+
   // --- External (non-JKKN) members — decision #8 ---------------------------
 
   /** Add a guest member (name + optional phone) to a committee's external_members list. */
