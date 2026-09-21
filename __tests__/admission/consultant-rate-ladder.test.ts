@@ -156,7 +156,7 @@ describe('the resolver replaces the ladder rather than merging it', () => {
   const migration = readFileSync(
     join(
       process.cwd(),
-      'supabase/migrations/20261229090000_commission_rate_card_consultant_ladder.sql'
+      'supabase/migrations/20261230090000_commission_rate_card_consultant_ladder.sql'
     ),
     'utf8'
   ).replace(/^\s*--.*$/gm, '');
