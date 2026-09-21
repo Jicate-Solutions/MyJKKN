@@ -90,6 +90,14 @@ export interface MarathonCommittee {
   name: string;
   description: string | null;
   lead_id: string | null;
+  /**
+   * Login ids of this committee's leads, picked from the MyJKKN directory.
+   * A lead may run their own committee's task list (migration
+   * 20261229090000). Separate from lead_id, which holds at most one person —
+   * committees routinely name two ("SNEKA & HARINI").
+   */
+  lead_ids?: string[] | null;
+  /** Free-text display string for the lead line on the card. */
   lead_name: string | null;
   member_ids: string[];
   member_names: string[];
