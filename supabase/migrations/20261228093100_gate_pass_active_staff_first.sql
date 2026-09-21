@@ -161,7 +161,7 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.issue_gate_pass_for_service_request(uuid) FROM public;
+REVOKE EXECUTE ON FUNCTION public.issue_gate_pass_for_service_request(uuid) FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.issue_gate_pass_for_service_request(uuid) TO authenticated;
 
 COMMIT;

@@ -118,7 +118,7 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.sync_bus_pass_to_learner_profile(uuid) FROM public;
+REVOKE EXECUTE ON FUNCTION public.sync_bus_pass_to_learner_profile(uuid) FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.sync_bus_pass_to_learner_profile(uuid) TO authenticated;
 
 COMMIT;
