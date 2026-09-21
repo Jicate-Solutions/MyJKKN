@@ -18,6 +18,7 @@ import type {
   UpdateCommissionStructureInput,
   CommissionRateCard,
   ConsultantRateCardEarning,
+  ConsultantFirstYearFeeCollection,
   RateCardPayment,
   RateCardPaymentInput,
   ConsultantLeadAttribution,
@@ -857,6 +858,32 @@ export class ConsultantService {
       paid_amount: Number(r.paid_amount ?? 0),
       balance_amount: Number(r.balance_amount ?? 0),
       excess_amount: Number(r.excess_amount ?? 0),
+    }));
+  }
+
+  /**
+   * Per institution, how much of the counted learners' 1st-year academic fees
+   * has been collected. Same learner set as getConsultantRateCardEarnings.
+   */
+  static async getConsultantFirstYearFeeCollection(
+    consultantId: string,
+    year: number
+  ): Promise<ConsultantFirstYearFeeCollection[]> {
+    const supabase = createClientSupabaseClient();
+
+    const { data, error } = await (supabase as any).rpc(
+      'fn_consultant_first_year_fee_collection',
+      { p_consultant_id: consultantId, p_academic_year: year }
+    );
+
+    if (error) throw new Error(error.message);
+
+    return (data || []).map((r: any) => ({
+      ...r,
+      learner_count: Number(r.learner_count ?? 0),
+      fee_amount: Number(r.fee_amount ?? 0),
+      paid_amount: Number(r.paid_amount ?? 0),
+      balance_amount: Number(r.balance_amount ?? 0),
     }));
   }
 
