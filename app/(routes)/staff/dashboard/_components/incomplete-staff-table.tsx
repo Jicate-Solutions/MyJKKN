@@ -22,6 +22,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { AlertCircle, ExternalLink } from 'lucide-react';
 import { fetchIncompleteStaffProfiles, useIncompleteStaffFilterOptions } from '@/hooks/staff/use-staff';
@@ -71,6 +72,7 @@ export function IncompleteStaffTable({ filters }: IncompleteStaffTableProps) {
   const [fieldFilters, setFieldFilters] = useState<IncompleteStaffFilterState>(
     DEFAULT_INCOMPLETE_STAFF_FILTERS
   );
+  const [totalCount, setTotalCount] = useState<number | null>(null);
 
   // The table's own pickers narrow the scope inherited from the dashboard bar.
   // "All institutions" here means "whatever the dashboard already allows" — not
@@ -166,6 +168,10 @@ export function IncompleteStaffTable({ filters }: IncompleteStaffTableProps) {
         sortOrder: (params.sort_order as 'asc' | 'desc') || undefined,
       });
 
+      // Headline count: the page must answer "how many?" without the reader
+      // having to find the pager's summary line.
+      setTotalCount(response.total);
+
       return {
         success: true,
         data: response.profiles,
@@ -202,9 +208,17 @@ export function IncompleteStaffTable({ filters }: IncompleteStaffTableProps) {
       <CardHeader>
         <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
           <div className='min-w-0'>
-            <CardTitle className='flex items-center gap-2'>
+            <CardTitle className='flex flex-wrap items-center gap-2'>
               <AlertCircle className='h-5 w-5 text-orange-600' />
               Employees with Incomplete Profiles
+              {totalCount !== null && (
+                <Badge
+                  variant='outline'
+                  className='border-orange-300 text-orange-700 dark:text-orange-300'
+                >
+                  {totalCount.toLocaleString()}
+                </Badge>
+              )}
             </CardTitle>
             <CardDescription className='mt-1'>
               Individual employees and the tracked fields they are missing.
