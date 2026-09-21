@@ -62,6 +62,11 @@ function rupees(value: number | null | undefined): string {
   return formatCurrency(value, { showDecimals: false, minimumFractionDigits: 0, maximumFractionDigits: 0 })
 }
 
+/** Share of `whole` as "42.5%"; a dash when nothing is billed yet. */
+function percent(part: number, whole: number): string {
+  return whole > 0 ? `${((part / whole) * 100).toFixed(1)}%` : '—'
+}
+
 /** 2026 → "2026-2027", the way admission years are named everywhere else. */
 function yearLabel(year: number): string {
   return `${year}-${year + 1}`
@@ -119,6 +124,12 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
     enabled: !!consultantId && year != null,
   })
 
+  const { data: feeCollection, isLoading: feeLoading } = useQuery({
+    queryKey: ['commission-first-year-fees', consultantId, year],
+    queryFn: () => ConsultantService.getConsultantFirstYearFeeCollection(consultantId, year!),
+    enabled: !!consultantId && year != null,
+  })
+
   // Payment dialog. `dialogKey` remounts it per open so its form re-initialises
   // from the row that opened it instead of keeping the previous entry's values.
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -168,19 +179,44 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
   // Totals are over ALL institutions for the year, not the filtered/searched
   // view — the cards answer "what does this consultant earn and owe", which a
   // table filter must never shrink.
-  const totals = useMemo(
+  //
+  // Balance and excess are netted across institutions: excess in one
+  // institution (a paid-for learner went Rejected) is first taken off the
+  // balance still owed in the others, and only what is left over shows as
+  // Excess. Rows keep their own per-institution figures.
+  const totals = useMemo(() => {
+    const t = rows.reduce(
+      (t, r) => ({
+        students: t.students + r.qualifying_count,
+        earned: t.earned + (r.total_amount ?? 0),
+        paid: t.paid + r.paid_amount,
+        rowBalance: t.rowBalance + r.balance_amount,
+        rowExcess: t.rowExcess + r.excess_amount,
+      }),
+      { students: 0, earned: 0, paid: 0, rowBalance: 0, rowExcess: 0 }
+    )
+    const net = t.earned - t.paid
+    return {
+      ...t,
+      balance: Math.max(net, 0),
+      excess: Math.max(-net, 0),
+      // Excess absorbed by balance owed elsewhere.
+      adjusted: Math.min(t.rowBalance, t.rowExcess),
+    }
+  }, [rows])
+
+  const feeTotals = useMemo(
     () =>
-      rows.reduce(
+      (feeCollection || []).reduce(
         (t, r) => ({
-          students: t.students + r.qualifying_count,
-          earned: t.earned + (r.total_amount ?? 0),
+          learners: t.learners + r.learner_count,
+          fee: t.fee + r.fee_amount,
           paid: t.paid + r.paid_amount,
           balance: t.balance + r.balance_amount,
-          excess: t.excess + r.excess_amount,
         }),
-        { students: 0, earned: 0, paid: 0, balance: 0, excess: 0 }
+        { learners: 0, fee: 0, paid: 0, balance: 0 }
       ),
-    [rows]
+    [feeCollection]
   )
 
   const earningColumns = useMemo<ColumnDef<ConsultantRateCardEarning>[]>(() => {
@@ -239,7 +275,12 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
         cell: ({ row }) => {
           switch (rowStatus(row.original)) {
             case 'excess':
-              return <Badge className="bg-red-100 text-red-800 hover:bg-red-100">To recover</Badge>
+              // Fully absorbed by balance owed in other institutions: nothing to recover.
+              return totals.excess > 0 ? (
+                <Badge className="bg-red-100 text-red-800 hover:bg-red-100">To recover</Badge>
+              ) : (
+                <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">Adjusted in balance</Badge>
+              )
             case 'balance':
               return <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">Balance due</Badge>
             case 'settled':
@@ -291,7 +332,7 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
       })
     }
     return cols
-  }, [canManage])
+  }, [canManage, totals.excess])
 
   const paymentColumns = useMemo<ColumnDef<RateCardPayment>[]>(() => {
     const cols: ColumnDef<RateCardPayment>[] = [
@@ -398,6 +439,8 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
   const handleExport = () => {
     if (year == null) return
     const sum = (pick: (r: ConsultantRateCardEarning) => number) => filteredRows.reduce((s, r) => s + pick(r), 0)
+    // Netted like the page totals: excess is taken off balance before either is shown.
+    const net = sum(r => r.total_amount ?? 0) - sum(r => r.paid_amount)
     const exportRows = [
       ...filteredRows,
       // Total line, so the downloaded sheet carries the same bottom line as the page.
@@ -407,8 +450,8 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
         rate_amount: null,
         total_amount: sum(r => r.total_amount ?? 0),
         paid_amount: sum(r => r.paid_amount),
-        balance_amount: sum(r => r.balance_amount),
-        excess_amount: sum(r => r.excess_amount),
+        balance_amount: Math.max(net, 0),
+        excess_amount: Math.max(-net, 0),
       } as ConsultantRateCardEarning,
     ]
     downloadCsv(
@@ -447,8 +490,8 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
   const summary = [
     { title: 'Total Commission', value: rupees(totals.earned), hint: year != null ? `for ${yearLabel(year)}` : '', icon: IndianRupee, tone: '' },
     { title: 'Paid', value: rupees(totals.paid), hint: 'net of recoveries', icon: Wallet, tone: 'text-green-700 dark:text-green-400' },
-    { title: 'Balance', value: rupees(totals.balance), hint: 'still to pay', icon: HandCoins, tone: 'text-amber-700 dark:text-amber-400' },
-    { title: 'Excess', value: rupees(totals.excess), hint: 'paid over earned, to recover', icon: AlertTriangle, tone: totals.excess > 0 ? 'text-red-600 dark:text-red-400' : '' },
+    { title: 'Balance', value: rupees(totals.balance), hint: totals.adjusted > 0 ? `still to pay, after ${rupees(totals.adjusted)} excess adjusted` : 'still to pay', icon: HandCoins, tone: 'text-amber-700 dark:text-amber-400' },
+    { title: 'Excess', value: rupees(totals.excess), hint: 'left after adjusting balance, to recover', icon: AlertTriangle, tone: totals.excess > 0 ? 'text-red-600 dark:text-red-400' : '' },
     { title: 'Learners Counted', value: String(totals.students), hint: 'Account, Admitted or Active', icon: Users, tone: '' },
   ]
 
@@ -478,7 +521,18 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
           <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
           <p>
             {rupees(totals.excess)} has been paid over what is earned now — usually a paid-for student
-            left Account, Admitted or Active (e.g. Rejected). Recover it and record a Recovery to clear it.
+            left Account, Admitted or Active (e.g. Rejected), and there is no balance left to adjust it
+            against. Recover it and record a Recovery to clear it.
+          </p>
+        </div>
+      )}
+
+      {totals.adjusted > 0 && (
+        <div className="flex items-start gap-3 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300">
+          <Undo2 className="h-4 w-4 mt-0.5 shrink-0" />
+          <p>
+            {rupees(totals.adjusted)} paid for learners who later left Account, Admitted or Active has
+            been taken off the balance owed for other institutions.
           </p>
         </div>
       )}
@@ -581,6 +635,63 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
                 <p className="text-xs text-muted-foreground">Excess</p>
                 <p className="font-semibold tabular-nums text-red-600 dark:text-red-400">{rupees(totals.excess)}</p>
               </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">1st Year Fee Collection</CardTitle>
+          <CardDescription>
+            How much of the counted learners&apos; 1st-year academic fees ({year != null ? yearLabel(year) : 'this year'})
+            has been paid. Transport and hostel fees are not included.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {feeLoading ? (
+            <Skeleton className="h-24 w-full" />
+          ) : !feeCollection?.length ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">No counted learners for this year.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-md border">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/40 text-xs text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-medium">Institution</th>
+                    <th className="px-3 py-2 text-right font-medium">Learners</th>
+                    <th className="px-3 py-2 text-right font-medium">1st Year Fees</th>
+                    <th className="px-3 py-2 text-right font-medium">Paid</th>
+                    <th className="px-3 py-2 text-right font-medium">Paid %</th>
+                    <th className="px-3 py-2 text-right font-medium">Balance</th>
+                    <th className="px-3 py-2 text-right font-medium">Balance %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    ...feeCollection.map(r => ({
+                      key: r.institution_id,
+                      name: r.institution_name ?? '—',
+                      learners: r.learner_count,
+                      fee: r.fee_amount,
+                      paid: r.paid_amount,
+                      balance: r.balance_amount,
+                      total: false,
+                    })),
+                    { key: 'total', name: 'Total', ...feeTotals, total: true },
+                  ].map(r => (
+                    <tr key={r.key} className={r.total ? 'border-t bg-muted/40 font-semibold' : 'border-t'}>
+                      <td className="px-3 py-2">{r.name}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{r.learners}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{rupees(r.fee)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-green-700 dark:text-green-400">{rupees(r.paid)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-green-700 dark:text-green-400">{percent(r.paid, r.fee)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-amber-700 dark:text-amber-400">{rupees(r.balance)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-amber-700 dark:text-amber-400">{percent(r.balance, r.fee)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </CardContent>

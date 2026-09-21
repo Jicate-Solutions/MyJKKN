@@ -926,6 +926,20 @@ export interface ConsultantRateCardEarning {
   excess_amount: number;
 }
 
+/**
+ * One row of fn_consultant_first_year_fee_collection — per institution, the
+ * 1st-year academic fees of the learners the rate card counts.
+ */
+export interface ConsultantFirstYearFeeCollection {
+  institution_id: string;
+  institution_name: string | null;
+  learner_count: number;
+  /** Billed 1st-year academic fees (cancelled / superseded bills excluded). */
+  fee_amount: number;
+  paid_amount: number;
+  balance_amount: number;
+}
+
 export type RateCardPaymentEntryType = 'payment' | 'recovery';
 
 /** A lump-sum payment (or recovery) against one card group for one consultant. */
