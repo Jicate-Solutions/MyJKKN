@@ -52,6 +52,14 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Opening willingness fans a notification out to the whole audience and
+    // cancelling is irreversible — RLS (is_cdc_staff) is role-based, so the
+    // permission the UI uses must be enforced here too.
+    const { data: canEdit } = await supabase.rpc('user_has_permission', { permission_name: 'cdc.drives.edit' });
+    if (canEdit !== true) {
+      return NextResponse.json({ error: 'Forbidden — cdc.drives.edit required' }, { status: 403 });
+    }
+
     const body = await request.json();
     if (!body.to_status) {
       return NextResponse.json({ error: 'to_status is required' }, { status: 400 });

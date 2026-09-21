@@ -3399,6 +3399,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "FileText",
         "children": [
           {
+            "path": "/cdc/drives/coordinating",
+            "label": "Coordinating",
+            "iconName": "ClipboardCheck",
+            "children": []
+          },
+          {
             "path": "/cdc/drives/new",
             "label": "New",
             "iconName": "Plus",
@@ -7034,6 +7040,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Paradigm Shift",
         "iconName": "FileText",
         "children": [
+          {
+            "path": "/solutions/paradigm-shift/confirmations",
+            "label": "Confirmations",
+            "iconName": "FileText",
+            "children": []
+          },
           {
             "path": "/solutions/paradigm-shift/leaderboard",
             "label": "Leaderboard",
