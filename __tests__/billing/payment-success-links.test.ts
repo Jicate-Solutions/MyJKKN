@@ -12,7 +12,7 @@ const RECEIPT = '1613b0eb-437d-4554-a542-1806c115eeca';
 const LEARNER = '43cea16f-7eda-43c1-8d94-74f69bf345fb';
 
 describe('buildPaymentSuccessLinks', () => {
-  it('sends a student to their own receipt on /learners/my-bills', () => {
+  it('sends a learner to their own receipt on /learners/my-bills', () => {
     const links = buildPaymentSuccessLinks({ isStudent: true, receiptId: RECEIPT, studentId: LEARNER });
     const url = new URL(links.receipt!, 'https://x.test');
     expect(url.pathname).toBe('/learners/my-bills');
@@ -21,19 +21,19 @@ describe('buildPaymentSuccessLinks', () => {
     expect(links.bills).toBe('/learners/my-bills');
   });
 
-  it('never sends a student to a staff billing page', () => {
+  it('never sends a learner to a team-member billing page', () => {
     const links = buildPaymentSuccessLinks({ isStudent: true, receiptId: RECEIPT, studentId: LEARNER });
     expect(links.receipt).not.toContain('/billing/');
     expect(links.bills).not.toContain('/billing/');
   });
 
-  it('keeps staff on the admin receipt and learner bill pages', () => {
+  it('keeps team members on the admin receipt and learner bill pages', () => {
     const links = buildPaymentSuccessLinks({ isStudent: false, receiptId: RECEIPT, studentId: LEARNER });
     expect(links.receipt).toBe(`/billing/receipts/${RECEIPT}`);
     expect(links.bills).toBe(`/billing/schedule/students/${LEARNER}`);
   });
 
-  it('falls back to the student list for staff when the learner is unknown', () => {
+  it('falls back to the learner list for team members when the learner is unknown', () => {
     const links = buildPaymentSuccessLinks({ isStudent: false, receiptId: RECEIPT, studentId: null });
     expect(links.bills).toBe('/billing/schedule/students');
   });
