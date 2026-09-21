@@ -109,18 +109,20 @@ export function describeStaffEmailConflict(
     const slug = syntheticSlug(staffId, phone);
     const usedStaffId = !!(staffId ?? '').trim();
     const field = usedStaffId ? 'staff_id' : 'phone';
-    const source = usedStaffId ? `Staff ID "${staffId}"` : `phone number "${phone}"`;
+    // Copy says "ID": the error sits on that field, and JKKN terminology keeps
+    // the word for team members out of user-facing text.
+    const source = usedStaffId ? `ID "${staffId}"` : `phone number "${phone}"`;
     const message = usedStaffId
       ? 'Already used by another team member.'
-      : 'Already used by another team member — give this person a Staff ID.';
+      : 'Already used by another team member — enter a unique ID for this person.';
     return {
       field,
       message,
       toast: holderText
-        ? `${source} already belongs to ${holderText}. A view-only record takes its ${label} from the Staff ID (or phone), so both records would share ${
-            slug ? `staff.${slug}.${kind}@${NOLOG_DOMAIN}` : 'the same generated address'
-          }. Use a different Staff ID, or enter a real ${label}.`
-        : `${source} is already used by another team member. A view-only record takes its ${label} from the Staff ID (or phone), so both records would share the same generated address. Use a different Staff ID, or enter a real ${label}.`
+        ? `${source} already belongs to ${holderText}. A view-only record takes its ${label} from the ID (or phone), so both records would share ${
+            slug ? generateSyntheticEmail(kind, staffId, phone) : 'the same generated address'
+          }. Use a different ID, or enter a real ${label}.`
+        : `${source} is already used by another team member. A view-only record takes its ${label} from the ID (or phone), so both records would share the same generated address. Use a different ID, or enter a real ${label}.`
     };
   }
 

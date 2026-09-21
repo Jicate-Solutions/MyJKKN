@@ -7,7 +7,7 @@ import {
 } from '@/lib/services/staff/synthetic-email';
 
 describe('syntheticSlug', () => {
-  it('prefers the staff id, normalised', () => {
+  it('prefers the ID, normalised', () => {
     expect(syntheticSlug('EMP-001', '9876543210')).toBe('emp001');
   });
 
@@ -20,7 +20,7 @@ describe('syntheticSlug', () => {
     expect(syntheticSlug(null, null)).toBeNull();
   });
 
-  it('collides for staff ids that differ only in punctuation — the reported failure', () => {
+  it('collides for IDs that differ only in punctuation — the reported failure', () => {
     expect(syntheticSlug('EMP-001', null)).toBe(syntheticSlug('emp 001', null));
     expect(generateSyntheticEmail('institution', 'EMP-001', null)).toBe(
       generateSyntheticEmail('institution', 'emp 001', null)
@@ -47,7 +47,7 @@ describe('staffEmailConflictKind', () => {
 });
 
 describe('describeStaffEmailConflict', () => {
-  it('blames the Staff ID when the address was generated, not the blank email box', () => {
+  it('blames the ID when the address was generated, not the blank email box', () => {
     const result = describeStaffEmailConflict({
       kind: 'institution',
       address: '',
@@ -60,7 +60,7 @@ describe('describeStaffEmailConflict', () => {
     expect(result.toast).not.toMatch(/^"" is already registered/);
   });
 
-  it('points at the phone when there is no Staff ID to blame', () => {
+  it('points at the phone when there is no ID to blame', () => {
     const result = describeStaffEmailConflict({
       kind: 'institution',
       address: null,
@@ -69,13 +69,13 @@ describe('describeStaffEmailConflict', () => {
     });
 
     expect(result.field).toBe('phone');
-    expect(result.message).toContain('Staff ID');
+    expect(result.message).toContain('unique ID');
   });
 
   it('treats a synthetic address the same as a blank one', () => {
     const result = describeStaffEmailConflict({
       kind: 'personal',
-      address: 'staff.emp001.personal@nolog.jkkn.local',
+      address: generateSyntheticEmail('personal', 'EMP-001', null),
       staffId: 'EMP-001',
       phone: '9876543210'
     });
