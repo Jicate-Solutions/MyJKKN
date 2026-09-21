@@ -25,7 +25,14 @@
  * this ladder and switches the day off when it is not one of the pattern's.
  * Hours are never configured per pattern.
  */
-export type ShiftStaffScope = 'teaching' | 'non_teaching' | 'category';
+export type ShiftStaffScope = 'teaching' | 'non_teaching' | 'category' | 'role' | 'staff';
+
+/**
+ * What the Override tab's builder narrows by (2026-09-21). Not a scope: a
+ * Category override still collapses into staff_scope teaching | non_teaching |
+ * category exactly as before, while 'role' and 'staff' map one-to-one.
+ */
+export type ShiftOverrideKind = 'category' | 'role' | 'staff';
 
 /**
  * What the resolvers report in `matched_by`. Wider than the writable scope:
@@ -70,6 +77,10 @@ export interface HRShiftTiming {
   staff_scope: ShiftStaffScope;
   /** Non-null iff staff_scope === 'category'. */
   employment_category_id: string | null;
+  /** custom_roles.role_key. Non-null iff staff_scope === 'role'. */
+  role_key: string | null;
+  /** Non-null iff staff_scope === 'staff'; such a row always has gender 'all'. */
+  staff_id: string | null;
   /** Defaults to 'all'. Composes with staff_scope — see ShiftApplicableGender. */
   applicable_gender: ShiftApplicableGender;
   day_of_week: IsoDayOfWeek;
@@ -244,6 +255,23 @@ export const STAFF_SCOPE_OPTIONS: ReadonlyArray<{
   { value: 'teaching', label: 'Teaching' },
   { value: 'non_teaching', label: 'Non-teaching' },
   { value: 'category', label: 'Specific category' },
+  { value: 'role', label: 'Specific role' },
+  { value: 'staff', label: 'Individual' },
+] as const;
+
+/**
+ * The Override tab's first choice. Category is first because it is the shape
+ * every existing override has; the ladder is staff > role > category, so the
+ * hint on each says what it beats.
+ */
+export const OVERRIDE_KIND_OPTIONS: ReadonlyArray<{
+  value: ShiftOverrideKind;
+  label: string;
+  hint: string;
+}> = [
+  { value: 'category', label: 'Category', hint: 'Staff type, gender and category. Beats the general week.' },
+  { value: 'role', label: 'Role', hint: 'Everyone holding a role, any category. Beats a category override.' },
+  { value: 'staff', label: 'Individual', hint: 'One team member. Beats everything else.' },
 ] as const;
 
 /**

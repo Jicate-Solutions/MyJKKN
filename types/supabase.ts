@@ -43930,12 +43930,14 @@ export type Database = {
       }
       commission_rate_card_payments: {
         Row: {
+          academic_year: number | null
+          advance_disposition: string | null
           amount: number
           consultant_id: string
           created_at: string
           created_by: string | null
           entry_type: string
-          group_id: string
+          group_id: string | null
           id: string
           notes: string | null
           paid_on: string
@@ -43945,12 +43947,14 @@ export type Database = {
           updated_by: string | null
         }
         Insert: {
+          academic_year?: number | null
+          advance_disposition?: string | null
           amount: number
           consultant_id: string
           created_at?: string
           created_by?: string | null
           entry_type?: string
-          group_id: string
+          group_id?: string | null
           id?: string
           notes?: string | null
           paid_on?: string
@@ -43960,12 +43964,14 @@ export type Database = {
           updated_by?: string | null
         }
         Update: {
+          academic_year?: number | null
+          advance_disposition?: string | null
           amount?: number
           consultant_id?: string
           created_at?: string
           created_by?: string | null
           entry_type?: string
-          group_id?: string
+          group_id?: string | null
           id?: string
           notes?: string | null
           paid_on?: string
@@ -44050,32 +44056,48 @@ export type Database = {
       commission_rate_card_slabs: {
         Row: {
           amount: number
+          consultant_id: string | null
           created_at: string
+          created_by: string | null
           group_id: string
           id: string
           max_count: number | null
           min_count: number
+          note: string | null
           updated_at: string
         }
         Insert: {
           amount: number
+          consultant_id?: string | null
           created_at?: string
+          created_by?: string | null
           group_id: string
           id?: string
           max_count?: number | null
           min_count: number
+          note?: string | null
           updated_at?: string
         }
         Update: {
           amount?: number
+          consultant_id?: string | null
           created_at?: string
+          created_by?: string | null
           group_id?: string
           id?: string
           max_count?: number | null
           min_count?: number
+          note?: string | null
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "commission_rate_card_slabs_consultant_id_fkey"
+            columns: ["consultant_id"]
+            isOneToOne: false
+            referencedRelation: "education_consultants"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "commission_rate_card_slabs_group_id_fkey"
             columns: ["group_id"]
@@ -51976,6 +51998,7 @@ export type Database = {
           external_members: Json
           id: string
           lead_id: string | null
+          lead_ids: string[]
           lead_name: string | null
           member_ids: string[] | null
           member_names: string[] | null
@@ -51990,6 +52013,7 @@ export type Database = {
           external_members?: Json
           id?: string
           lead_id?: string | null
+          lead_ids?: string[]
           lead_name?: string | null
           member_ids?: string[] | null
           member_names?: string[] | null
@@ -52004,6 +52028,7 @@ export type Database = {
           external_members?: Json
           id?: string
           lead_id?: string | null
+          lead_ids?: string[]
           lead_name?: string | null
           member_ids?: string[] | null
           member_names?: string[] | null
@@ -92240,9 +92265,11 @@ export type Database = {
           is_working_day: boolean
           notes: string | null
           required_minutes: number | null
+          role_key: string | null
           second_half_end: string | null
           second_half_start: string | null
           second_saturday_holiday: boolean
+          staff_id: string | null
           staff_scope: string
           updated_at: string
           updated_by: string | null
@@ -92265,9 +92292,11 @@ export type Database = {
           is_working_day?: boolean
           notes?: string | null
           required_minutes?: number | null
+          role_key?: string | null
           second_half_end?: string | null
           second_half_start?: string | null
           second_saturday_holiday?: boolean
+          staff_id?: string | null
           staff_scope: string
           updated_at?: string
           updated_by?: string | null
@@ -92290,9 +92319,11 @@ export type Database = {
           is_working_day?: boolean
           notes?: string | null
           required_minutes?: number | null
+          role_key?: string | null
           second_half_end?: string | null
           second_half_start?: string | null
           second_saturday_holiday?: boolean
+          staff_id?: string | null
           staff_scope?: string
           updated_at?: string
           updated_by?: string | null
@@ -92388,6 +92419,27 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_institutions_needing_admission_counselors"
             referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hr_shift_timings_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_shift_timings_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "hr_shift_timings_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_staff"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "hr_shift_timings_updated_by_fkey"
@@ -183813,6 +183865,7 @@ export type Database = {
           result: string | null
           riders_boarded: number | null
           riders_booked: number | null
+          riders_leg: string | null
           route_id: string | null
           started_at: string
           status: string
@@ -183835,6 +183888,7 @@ export type Database = {
           result?: string | null
           riders_boarded?: number | null
           riders_booked?: number | null
+          riders_leg?: string | null
           route_id?: string | null
           started_at?: string
           status?: string
@@ -183857,6 +183911,7 @@ export type Database = {
           result?: string | null
           riders_boarded?: number | null
           riders_booked?: number | null
+          riders_leg?: string | null
           route_id?: string | null
           started_at?: string
           status?: string
@@ -206841,10 +206896,12 @@ export type Database = {
       fn_consultant_rate_card_earnings: {
         Args: { p_academic_year?: number; p_consultant_id: string }
         Returns: {
+          advance_applied: number
           balance_amount: number
           excess_amount: number
           group_id: string
           group_name: string
+          is_override: boolean
           paid_amount: number
           priority: number
           qualifying_count: number
@@ -207645,6 +207702,8 @@ export type Database = {
           p_employment_category_id: string
           p_institution_id: string
           p_on?: string
+          p_role_key?: string
+          p_staff_id?: string
           p_staff_scope: string
         }
         Returns: number
@@ -213055,6 +213114,8 @@ export type Database = {
           p_effective_from: string
           p_employment_category_id: string
           p_institution_id: string
+          p_role_key?: string
+          p_staff_id?: string
           p_staff_scope: string
         }
         Returns: number
@@ -214563,6 +214624,8 @@ export type Database = {
           p_gender: string
           p_institution_id: string
           p_is_teaching: boolean
+          p_role_keys?: string[]
+          p_staff_id?: string
           p_work_pattern_id?: string
         }
         Returns: {
@@ -214583,9 +214646,11 @@ export type Database = {
           is_working_day: boolean
           notes: string | null
           required_minutes: number | null
+          role_key: string | null
           second_half_end: string | null
           second_half_start: string | null
           second_saturday_holiday: boolean
+          staff_id: string | null
           staff_scope: string
           updated_at: string
           updated_by: string | null
@@ -215076,6 +215141,7 @@ export type Database = {
           staff_id: string
         }[]
       }
+      fn_staff_role_keys: { Args: { p_staff_id: string }; Returns: string[] }
       fn_staff_teaching_institutions: {
         Args: { p_staff_id: string }
         Returns: string[]
