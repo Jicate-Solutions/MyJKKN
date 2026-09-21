@@ -256,6 +256,13 @@ COMMENT ON FUNCTION public.fn_hr_eligibility_step_approver_user_ids(uuid) IS
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Postgres grants EXECUTE to PUBLIC on every new function and Supabase grants
 -- anon directly, so both are named.
+--
+-- ci:allow-secdef-authenticated fn_is_configured_eligibility_approver,
+-- fn_is_any_eligibility_approver and hr_can_decide_eligibility take no
+-- arguments and answer only about the CALLER (auth.uid() read inside); they
+-- are the Eligibility tab's own gate, so every signed-in user may ask.
+-- fn_hr_eligibility_step_approver_user_ids is not waived: it refuses anything
+-- but service_role in its body.
 REVOKE EXECUTE ON FUNCTION public.fn_is_configured_eligibility_approver() FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_is_configured_eligibility_approver() TO authenticated, service_role;
 

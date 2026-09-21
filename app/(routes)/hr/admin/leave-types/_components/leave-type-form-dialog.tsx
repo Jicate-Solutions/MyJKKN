@@ -106,7 +106,9 @@ export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType, on
 
   // Numeric fields left blank must go to the DB as null, not '' — an empty
   // string sent for a numeric/uuid column raises 22P02.
-  const nullable = (v: number | '') => (v === '' ? null : Number(v));
+  // `string | number` because the four sto_* fields are declared that way; the
+  // conversion is the same either way.
+  const nullable = (v: string | number) => (v === '' ? null : Number(v));
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -496,7 +498,7 @@ export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType, on
               <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription className="text-xs">
-                  This leave type will disappear from Apply Leave for everyone except staff with an
+                  This leave type will disappear from Apply Leave for everyone except team members with an
                   approved eligibility. They request it once with a supporting document, the
                   approvers set under <strong>Who approves eligibility</strong> decide it (or the
                   ones under <strong>Who approves this</strong> until you set some), and

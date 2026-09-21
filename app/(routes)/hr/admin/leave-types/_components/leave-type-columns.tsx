@@ -197,7 +197,7 @@ export function getLeaveTypeColumns(
                 key={g}
                 variant="outline"
                 className="text-[10px] font-normal"
-                title={`${LEAVE_STAFF_GROUP_LABELS[g]} staff have their own approval flow for this leave type.`}
+                title={`${LEAVE_STAFF_GROUP_LABELS[g]} team members have their own approval flow for this leave type.`}
               >
                 {LEAVE_STAFF_GROUP_LABELS[g]}
               </Badge>

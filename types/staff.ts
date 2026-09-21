@@ -605,7 +605,7 @@ export type StaffEventType =
   | 'leave_approved'        // Approver approves → notify requester
   | 'leave_rejected'        // Approver rejects  → notify requester
   | 'leave_revoked'         // An APPROVED decision is taken back → notify requester
-  | 'eligibility_submitted' // Staff requests eligibility for a gated leave type → notify approver(s)
+  | 'eligibility_submitted' // A team member requests eligibility for a gated leave type → notify approver(s)
   | 'eligibility_approved'  // Eligibility granted → notify requester
   | 'eligibility_rejected'  // Eligibility refused → notify requester
   | 'schedule_assigned'     // Staff assigned to a new shift/class → notify them

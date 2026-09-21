@@ -331,3 +331,13 @@ GRANT  EXECUTE ON FUNCTION public.fn_hr_leave_pick_flow_for_group(uuid, uuid, te
 
 REVOKE EXECUTE ON FUNCTION public.fn_hr_leave_pick_flow(uuid, uuid, uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_hr_leave_pick_flow(uuid, uuid, uuid) TO authenticated, service_role;
+
+-- Re-stated for the two RPCs replaced in section 5. CREATE OR REPLACE keeps the
+-- existing ACL, but the lock has to be visible in THIS file: the CI guard reads
+-- migrations, not pg_proc, and both functions gate on hr.leave.types.manage
+-- inside their bodies.
+REVOKE EXECUTE ON FUNCTION public.fn_hr_leave_pending_chain_drift(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_leave_pending_chain_drift(uuid) TO authenticated, service_role;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_leave_resync_pending_chains(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_leave_resync_pending_chains(uuid) TO authenticated, service_role;

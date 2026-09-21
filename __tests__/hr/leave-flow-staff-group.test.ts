@@ -53,7 +53,7 @@ describe('pickLeaveFlow — the four precedence levels', () => {
     expect(pickLeaveFlow(all, CL, 'teaching')?.id).toBe('cl-teaching');
   });
 
-  it('2. leave type + all staff, when the group has no flow of its own', () => {
+  it('2. leave type + all team members, when the group has no flow of its own', () => {
     expect(pickLeaveFlow([catchAll, clAll, clTeaching], CL, 'non_teaching')?.id).toBe('cl-all');
   });
 
@@ -61,7 +61,7 @@ describe('pickLeaveFlow — the four precedence levels', () => {
     expect(pickLeaveFlow(all, ML, 'non_teaching')?.id).toBe('catch-all-non-teaching');
   });
 
-  it('4. catch-all + all staff is the last resort', () => {
+  it('4. catch-all + all team members is the last resort', () => {
     expect(pickLeaveFlow(all, ML, 'teaching')?.id).toBe('catch-all');
   });
 });

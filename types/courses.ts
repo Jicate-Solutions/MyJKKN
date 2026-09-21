@@ -393,11 +393,10 @@ export type CourseApplicantType = (typeof COURSE_APPLICANT_TYPES)[number];
  *  course_applications_identity_chk. See classifyApplicantOrigin(). */
 export type CourseApplicantOrigin = 'internal' | 'external';
 
-export interface CourseApplication extends CourseApplicationRow {
-  /** Declared explicitly because types/supabase.ts has not been regenerated
-   *  since the column was added (20260919150000) — the generated Row type does
-   *  not carry it yet, though PostgREST returns it under `*`. */
-  applicant_origin?: CourseApplicantOrigin | null;
+export interface CourseApplication extends Omit<CourseApplicationRow, 'applicant_origin' | 'jkkn_id'> {
+  /** The generated Row carries it as a plain string (regenerated 2026-09-21);
+   *  narrowed here to the two values course_applications_origin_check allows. */
+  applicant_origin: CourseApplicantOrigin;
   form?: { id: string; name: string } | null;
   package?: { id: string; name: string; total_amount: number } | null;
   decided_by_profile?: { id: string; full_name: string | null } | null;
@@ -431,6 +430,10 @@ export interface CourseApplication extends CourseApplicationRow {
    * NULL for every learner and staff row, so a reused identity would read
    * "Not issued" too. fn_jkkn_id_of is SECURITY DEFINER, open to all
    * authenticated by design, and walks all three anchors.
+   *
+   * Optional, unlike the generated Row (the computed column now appears there
+   * too since the 2026-09-21 regeneration): callers that select a narrower
+   * column list still build this type without it.
    */
   jkkn_id?: string | null;
 }

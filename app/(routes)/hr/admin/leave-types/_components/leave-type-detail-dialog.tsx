@@ -296,10 +296,10 @@ function ApprovalFlowSection({ t }: { t: HRLeaveType }) {
       </Field>
 
       {/* Only labelled once an override exists. On the 66 types that route
-          everybody the same way, "All other staff" would invent a distinction
+          everybody the same way, "All other team members" would invent a distinction
           nobody made. */}
       {hasGroupFlows && (
-        <p className="col-span-full -mb-2 text-xs font-medium">All other staff</p>
+        <p className="col-span-full -mb-2 text-xs font-medium">All other team members</p>
       )}
       <FlowChain
         flow={effective}
@@ -311,13 +311,13 @@ function ApprovalFlowSection({ t }: { t: HRLeaveType }) {
         <div className="col-span-full space-y-3">
           {teaching && (
             <div>
-              <p className="mb-1 text-xs font-medium">Teaching staff</p>
+              <p className="mb-1 text-xs font-medium">Teaching team members</p>
               <FlowChain flow={teaching} roleName={roleName} testId="approval-flow-steps-teaching" />
             </div>
           )}
           {nonTeaching && (
             <div>
-              <p className="mb-1 text-xs font-medium">Non-teaching staff</p>
+              <p className="mb-1 text-xs font-medium">Non-teaching team members</p>
               <FlowChain
                 flow={nonTeaching}
                 roleName={roleName}

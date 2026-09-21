@@ -166,7 +166,7 @@ export default function LeaveEligibilityPage() {
         <header className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-              Some leave types are not open to everyone. A member of staff sends their supporting
+              Some leave types are not open to everyone. A team member sends their supporting
               document once, the approvers set under <strong>Who approves eligibility</strong> decide
               it (the leave type&rsquo;s own approvers, if none are set), and from then on the type
               appears in their Apply Leave list and asks for no document again.
@@ -198,7 +198,7 @@ export default function LeaveEligibilityPage() {
               </div>
             ) : !ctx.hasEmployeeRecord ? (
               <p className="rounded-md border bg-muted/30 p-4 text-sm text-muted-foreground">
-                Your account is not linked to a staff record, so there is nothing to request here.
+                Your account is not linked to a team member record, so there is nothing to request here.
               </p>
             ) : mine.error ? (
               <Alert variant="destructive">
@@ -350,7 +350,7 @@ export default function LeaveEligibilityPage() {
                   <table className="w-full min-w-[820px] text-sm">
                     <thead className="bg-muted/50">
                       <tr className="text-left">
-                        <th className="px-3 py-2 font-medium">Staff</th>
+                        <th className="px-3 py-2 font-medium">Team member</th>
                         <th className="px-3 py-2 font-medium">Leave type</th>
                         <th className="px-3 py-2 font-medium">Status</th>
                         <th className="px-3 py-2 font-medium">Days</th>

@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
         ]);
         const staffName = staffRow
           ? `${staffRow.first_name}${staffRow.last_name ? ' ' + staffRow.last_name : ''}`
-          : 'A staff member';
+          : 'A team member';
         const leaveTypeName =
           (typeRow as { leave_type_name?: string } | null)?.leave_type_name ?? 'a leave type';
 

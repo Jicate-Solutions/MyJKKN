@@ -145,7 +145,7 @@ export default function ParticipantLoginPage() {
             className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-md border text-sm font-medium hover:bg-accent"
           >
             <GraduationCap className="h-4 w-4" />
-            JKKN staff or learner? Sign in with Google
+            JKKN team member or learner? Sign in with Google
           </Link>
 
           <p className="mt-2 text-center text-xs text-muted-foreground">

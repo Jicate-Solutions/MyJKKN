@@ -32,3 +32,10 @@ $function$;
 
 COMMENT ON FUNCTION public.hr_can_decide_eligibility() IS
   'Can this caller decide an eligibility request? Super admin, anyone an active leave_eligibility flow names, or anyone on the current step of a pending request. Narrower than hr_can_approve_leave() on purpose.';
+
+-- Re-stated: CREATE OR REPLACE keeps the ACL from 20261225110000, but the lock
+-- must be visible in the file that redefines the function.
+-- ci:allow-secdef-authenticated no arguments, answers only about the caller
+-- (auth.uid() read inside) — it IS the Eligibility tab gate.
+REVOKE EXECUTE ON FUNCTION public.hr_can_decide_eligibility() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.hr_can_decide_eligibility() TO authenticated, service_role;

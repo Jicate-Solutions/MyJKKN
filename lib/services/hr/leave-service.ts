@@ -444,7 +444,7 @@ export class LeaveService {
       if (eligErr) throw eligErr;
       if (eligible !== true) {
         throw new Error(
-          `${leaveType.leave_type_name} is only open to staff whose eligibility has been approved. ` +
+          `${leaveType.leave_type_name} is only open to team members whose eligibility has been approved. ` +
             'Request eligibility from the Apply Leave screen and attach the supporting document once; ' +
             'after it is approved this leave type becomes available to you.',
         );

@@ -181,7 +181,7 @@ export class LeaveApprovalFlowService {
       .is('valid_until', null)
       .order('created_at', { ascending: true });
     if (error) throw error;
-    return (data ?? []) as LeaveApprovalFlow[];
+    return (data ?? []) as unknown as LeaveApprovalFlow[];
   }
 
   /**
@@ -260,7 +260,7 @@ export class LeaveApprovalFlowService {
     // leave-approval concept. The CHECK constraint refuses the row too, but a
     // 23514 names a constraint, not the tab the admin should not have used.
     if (flowFor === 'leave_eligibility' && input.staffGroup) {
-      throw new Error('An eligibility flow applies to all staff; it cannot be split by group.');
+      throw new Error('An eligibility flow applies to all team members; it cannot be split by group.');
     }
 
     // A ROLE-LADDER FLOW HAS NO STEPS OF ITS OWN — its chain is derived per
@@ -386,7 +386,7 @@ export class LeaveApprovalFlowService {
 
     const { data, error } = await query.select(SELECT).single();
     if (error) throw error;
-    return data as LeaveApprovalFlow;
+    return data as unknown as LeaveApprovalFlow;
   }
 
   /**

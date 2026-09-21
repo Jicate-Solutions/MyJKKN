@@ -126,7 +126,7 @@ export function GrantEligibilityDialog({
           </div>
 
           <div>
-            <Label className="text-xs">Staff member</Label>
+            <Label className="text-xs">Team member</Label>
             {staffId ? (
               <div className="mt-1 flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-sm">
                 <span className="min-w-0 flex-1 truncate">{staffLabel}</span>
@@ -143,7 +143,7 @@ export function GrantEligibilityDialog({
                   <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input
                     className="pl-8"
-                    placeholder="Search by name or staff id"
+                    placeholder="Search by name or team member ID"
                     value={term}
                     onChange={(e) => setTerm(e.target.value)}
                   />

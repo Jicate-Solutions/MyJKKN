@@ -249,6 +249,10 @@ CREATE POLICY hr_leave_eligibilities_decide ON public.hr_leave_eligibilities
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 7. Locks
 -- ─────────────────────────────────────────────────────────────────────────────
+-- ci:allow-secdef-authenticated fn_hr_leave_eligibility_ok is a per-row predicate
+-- the balance view calls for the rows the caller may already see, and
+-- fn_is_designated_eligibility_approver answers only about the CALLER
+-- (auth.uid() read inside) — every signed-in user may legitimately ask both.
 GRANT SELECT, INSERT, UPDATE ON public.hr_leave_eligibilities TO authenticated;
 GRANT ALL ON public.hr_leave_eligibilities TO service_role;
 REVOKE ALL ON public.hr_leave_eligibilities FROM anon;
@@ -258,3 +262,8 @@ GRANT  EXECUTE ON FUNCTION public.fn_hr_leave_eligibility_ok(uuid, uuid) TO auth
 
 REVOKE EXECUTE ON FUNCTION public.fn_is_designated_eligibility_approver(uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_is_designated_eligibility_approver(uuid) TO authenticated, service_role;
+
+-- The wrapped view keeps its ACL through CREATE OR REPLACE (postgres +
+-- service_role only; authenticated reads the outer v_hr_leave_balance), but the
+-- lock has to be stated where the view is redefined.
+REVOKE ALL ON TABLE public.v_hr_leave_balance_src FROM anon, PUBLIC;

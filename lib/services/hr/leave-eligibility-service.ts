@@ -95,7 +95,7 @@ export class LeaveEligibilityService {
     let q = supabase
       .from(TABLE)
       .select(
-        `${SELECT}, staff:employee_id ( first_name, last_name, staff_id ), ` +
+        `${SELECT}, member:employee_id ( first_name, last_name, staff_id ), ` +
           'hr_leave_types:leave_type_id ( leave_type_name )'
       )
       .eq('hr_organization_id', hrOrgId)
@@ -107,14 +107,14 @@ export class LeaveEligibilityService {
     if (error) throw error;
 
     // `as unknown as` because PostgREST cannot infer a type for an ALIASED
-    // embed (`staff:employee_id ( … )`) and hands back GenericStringError.
+    // embed (`member:employee_id ( … )`) and hands back GenericStringError.
     // The same limitation already sits on the flow service's selects.
     return ((data ?? []) as unknown as Array<Record<string, unknown>>).map((r) => {
       // PostgREST returns an embed as an object or a one-element array
       // depending on the relationship it inferred; normalise both.
       const emb = <T,>(v: unknown): T | null =>
         (Array.isArray(v) ? (v[0] as T) : (v as T)) ?? null;
-      const s = emb<{ first_name?: string; last_name?: string; staff_id?: string }>(r.staff);
+      const s = emb<{ first_name?: string; last_name?: string; staff_id?: string }>(r.member);
       const t = emb<{ leave_type_name?: string }>(r.hr_leave_types);
       return {
         ...(r as unknown as LeaveEligibility),
@@ -135,7 +135,7 @@ export class LeaveEligibilityService {
     const { data, error } = await supabase
       .from(TABLE)
       .select(
-        `${SELECT}, staff:employee_id ( first_name, last_name, staff_id ), ` +
+        `${SELECT}, member:employee_id ( first_name, last_name, staff_id ), ` +
           'hr_leave_types:leave_type_id ( leave_type_name )'
       )
       .eq('status', 'pending')
@@ -144,12 +144,12 @@ export class LeaveEligibilityService {
     if (error) throw error;
 
     // `as unknown as` because PostgREST cannot infer a type for an ALIASED
-    // embed (`staff:employee_id ( … )`) and hands back GenericStringError.
+    // embed (`member:employee_id ( … )`) and hands back GenericStringError.
     // The same limitation already sits on the flow service's selects.
     return ((data ?? []) as unknown as Array<Record<string, unknown>>).map((r) => {
       const emb = <T,>(v: unknown): T | null =>
         (Array.isArray(v) ? (v[0] as T) : (v as T)) ?? null;
-      const s = emb<{ first_name?: string; last_name?: string; staff_id?: string }>(r.staff);
+      const s = emb<{ first_name?: string; last_name?: string; staff_id?: string }>(r.member);
       const t = emb<{ leave_type_name?: string }>(r.hr_leave_types);
       return {
         ...(r as unknown as LeaveEligibility),

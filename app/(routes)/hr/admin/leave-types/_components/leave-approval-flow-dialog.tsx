@@ -439,7 +439,7 @@ export function LeaveApprovalFlowDialog({
             ? 'Eligibility requests now use the institution eligibility flow'
             : 'Eligibility requests now go to the leave approvers'
           : slot
-            ? `${LEAVE_STAFF_GROUP_LABELS[slot]} staff now use the All staff flow`
+            ? `${LEAVE_STAFF_GROUP_LABELS[slot]} team members now use the All team members flow`
             : 'Reverted to the organization default'
       );
       onOpenChange(false);
@@ -478,7 +478,7 @@ export function LeaveApprovalFlowDialog({
   );
 
   const description = isEligibility
-    ? 'Who reads the supporting document and decides whether a member of staff may use ' +
+    ? 'Who reads the supporting document and decides whether a team member may use ' +
       'this leave type at all. Decided once per person; the leave itself then follows ' +
       '"Who approves this". The chain is copied onto a request when it is filed, so ' +
       'editing here never changes requests already in flight.'
@@ -549,7 +549,7 @@ export function LeaveApprovalFlowDialog({
                         : 'bg-background hover:bg-muted'
                     }`}
                   >
-                    {s === null ? 'All staff' : LEAVE_STAFF_GROUP_LABELS[s]}
+                    {s === null ? 'All team members' : LEAVE_STAFF_GROUP_LABELS[s]}
                     {/* A group with no flow of its own is where you ADD one, so
                         it says so. Without this marker a configured tab and an
                         empty one look identical, and the only way to tell was
@@ -565,8 +565,8 @@ export function LeaveApprovalFlowDialog({
               {slot === null
                 ? 'The default for everyone. A group with no flow of its own uses this one.'
                 : slotOwnFlow
-                  ? `${LEAVE_STAFF_GROUP_LABELS[slot]} staff have their own flow for this leave type.`
-                  : `${LEAVE_STAFF_GROUP_LABELS[slot]} staff currently use the All staff flow. Saving here creates a flow just for them.`}
+                  ? `${LEAVE_STAFF_GROUP_LABELS[slot]} team members have their own flow for this leave type.`
+                  : `${LEAVE_STAFF_GROUP_LABELS[slot]} team members currently use the All team members flow. Saving here creates a flow just for them.`}
             </p>
           </div>
         )}
@@ -747,7 +747,7 @@ export function LeaveApprovalFlowDialog({
   const footer = (
     <>
           {/* One button, two meanings, because the slot decides what "remove
-              this flow" hands the staff back to. */}
+              this flow" hands the team members back to. */}
           <Button type="button" variant="ghost" className="w-full sm:w-auto" onClick={handleClear}
             disabled={!slotOwnFlow || clear.isPending}
             title={
@@ -757,8 +757,8 @@ export function LeaveApprovalFlowDialog({
                   : 'This type has no eligibility flow of its own'
                 : slot
                   ? slotOwnFlow
-                    ? `Delete this ${LEAVE_STAFF_GROUP_LABELS[slot]} flow; those staff go back to the All staff flow`
-                    : `${LEAVE_STAFF_GROUP_LABELS[slot]} staff already use the All staff flow`
+                    ? `Delete this ${LEAVE_STAFF_GROUP_LABELS[slot]} flow; those team members go back to the All team members flow`
+                    : `${LEAVE_STAFF_GROUP_LABELS[slot]} team members already use the All team members flow`
                   : slotOwnFlow
                     ? 'Delete this type-specific flow and inherit the organization default'
                     : 'This type already inherits the organization default'
