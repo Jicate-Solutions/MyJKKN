@@ -227,8 +227,9 @@ RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS
   WHERE s.assessment_id = p_assessment_id AND s.learner_id = p_learner_id;
 $fn$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_pde_current_attempt_number(uuid, uuid) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_pde_current_attempt_number(uuid, uuid) TO authenticated;
+-- No client calls this directly: it is only ever called from inside fn_pde_submit_stage / fn_pde_get_case_stages / fn_pde_get_case_questions, which are SECURITY DEFINER and so run it as the owner.
+-- Locking it to the owner keeps it off PostgREST entirely.
+REVOKE EXECUTE ON FUNCTION public.fn_pde_current_attempt_number(uuid, uuid) FROM anon, authenticated, PUBLIC;
 
 -- May this caller attempt (or author) this case? Same predicate the answer-key
 -- RPCs use, factored out so the stage RPCs cannot drift from it.
@@ -320,8 +321,9 @@ BEGIN
   RETURN NULL;
 END; $fn$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_pde_score_clinical_answer(uuid, jsonb) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_pde_score_clinical_answer(uuid, jsonb) TO authenticated;
+-- No client calls this directly: it is only ever called from inside fn_pde_submit_stage and fn_pde_mark_clinical_answer, which are SECURITY DEFINER and so run it as the owner.
+-- Locking it to the owner keeps it off PostgREST entirely.
+REVOKE EXECUTE ON FUNCTION public.fn_pde_score_clinical_answer(uuid, jsonb) FROM anon, authenticated, PUBLIC;
 
 -- ----------------------------------------------------------------------------
 -- 6. The pass bar
@@ -351,8 +353,9 @@ BEGIN
   RETURN v_n;
 END; $fn$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_pde_stage_threshold_pct() FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_pde_stage_threshold_pct() TO authenticated;
+-- No client calls this directly: it is only ever called from inside fn_pde_submit_stage and fn_pde_get_case_stages, which are SECURITY DEFINER and so run it as the owner.
+-- Locking it to the owner keeps it off PostgREST entirely.
+REVOKE EXECUTE ON FUNCTION public.fn_pde_stage_threshold_pct() FROM anon, authenticated, PUBLIC;
 
 -- ----------------------------------------------------------------------------
 -- 7. Stage delivery — the lock lives here

@@ -225,8 +225,9 @@ BEGIN
   RETURN NULL;
 END; $fn$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_pde_score_clinical_answer(uuid, jsonb) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_pde_score_clinical_answer(uuid, jsonb) TO authenticated;
+-- No client calls this directly: it is only ever called from inside fn_pde_submit_stage and fn_pde_mark_clinical_answer, which are SECURITY DEFINER and so run it as the owner.
+-- Locking it to the owner keeps it off PostgREST entirely.
+REVOKE EXECUTE ON FUNCTION public.fn_pde_score_clinical_answer(uuid, jsonb) FROM anon, authenticated, PUBLIC;
 
 -- ----------------------------------------------------------------------------
 -- 3. Mark one objective answer — learner-callable, verdict only
