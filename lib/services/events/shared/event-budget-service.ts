@@ -7,6 +7,8 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import type {
+  BudgetLineNode,
+  EventBudgetCategory,
   MarathonBudgetItem,
   CreateMarathonBudgetItemDto,
 } from '@/types/events-marathon';
@@ -35,6 +37,48 @@ export interface EventBudgetApproval {
   institution_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * Group a flat list of budget lines into top-level lines with their sub-lines.
+ *
+ * The database allows exactly one level, so this is deliberately not recursive.
+ * Two cases have to be handled rather than assumed away:
+ *
+ *  - An ORPHAN — a row whose parent_id points at a line that is not in the
+ *    list. It happens whenever the caller filters (one type, one committee).
+ *    Dropping it would silently lose money from the totals, so an orphan is
+ *    surfaced as a top-level line instead.
+ *  - A row claiming to be its own parent. The database refuses it, but this
+ *    function also runs against unsaved drafts, and a self-referencing node
+ *    would otherwise disappear.
+ *
+ * Order is preserved exactly as given, so the caller's ORDER BY is what shows.
+ */
+export function buildBudgetTree(items: MarathonBudgetItem[]): BudgetLineNode[] {
+  const ids = new Set(items.map((i) => i.id));
+  const nodes = new Map<string, BudgetLineNode>();
+  const roots: BudgetLineNode[] = [];
+
+  for (const line of items) {
+    const parent = line.parent_id;
+    const isChild = !!parent && parent !== line.id && ids.has(parent);
+    if (!isChild) {
+      const node: BudgetLineNode = { line, children: [] };
+      nodes.set(line.id, node);
+      roots.push(node);
+    }
+  }
+  for (const line of items) {
+    const parent = line.parent_id;
+    if (!parent || parent === line.id || !ids.has(parent)) continue;
+    // A parent that is itself a child cannot exist in the database, but if one
+    // ever did, treating the row as a root keeps its amount in the totals.
+    const node = nodes.get(parent);
+    if (node) node.children.push(line);
+    else roots.push({ line, children: [] });
+  }
+  return roots;
 }
 
 export class EventBudgetService {
@@ -76,6 +120,14 @@ export class EventBudgetService {
         notes: dto.notes ?? null,
         approved_by: null,
         receipt_url: null,
+        // Drill-down substrate (migration 20270101090000). All NULL on an
+        // ordinary top-level line, which is exactly how every line behaved
+        // before these columns existed.
+        parent_id: dto.parent_id ?? null,
+        quantity: dto.quantity ?? null,
+        unit_rate: dto.unit_rate ?? null,
+        committee_id: dto.committee_id ?? null,
+        category_id: dto.category_id ?? null,
       };
       const { data, error } = await (this.supabase as any)
         .from('event_budget_items')
@@ -129,6 +181,33 @@ export class EventBudgetService {
       logger.info(MOD, 'Budget item deleted', { id });
     } catch (error) {
       logger.error(MOD, 'Unexpected error in deleteBudgetItem', error);
+      throw error;
+    }
+  }
+
+  // --- Categories ----------------------------------------------------------
+
+  /**
+   * The fixed list a budget line picks its category from. Free text produced
+   * 33 category strings across 41 lines — five spellings of one shopping list
+   * — which is why nothing could be totalled across events.
+   */
+  static async getCategories(): Promise<EventBudgetCategory[]> {
+    try {
+      const { data, error } = await (this.supabase as any)
+        .from('event_budget_categories')
+        .select('*')
+        .eq('is_active', true)
+        .order('kind', { ascending: true })
+        .order('sort_order', { ascending: true })
+        .order('name', { ascending: true });
+      if (error) {
+        logger.error(MOD, 'Failed to fetch budget categories', error);
+        throw error;
+      }
+      return (data as unknown as EventBudgetCategory[]) ?? [];
+    } catch (error) {
+      logger.error(MOD, 'Unexpected error in getCategories', error);
       throw error;
     }
   }

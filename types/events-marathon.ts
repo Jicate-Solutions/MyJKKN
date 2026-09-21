@@ -134,7 +134,15 @@ export interface MarathonBudgetItem {
   category: string;
   description: string;
   type: BudgetItemType;
+  /**
+   * On a line WITH sub-lines this is derived — the sum of its children,
+   * maintained by the database (migration 20270101090000). Do not author it
+   * there; the write is overwritten on the next child change.
+   * On a line carrying quantity AND unit_rate it is their product, likewise
+   * computed, so the figure can never contradict the arithmetic beside it.
+   */
   estimated_amount: number;
+  /** Derived on a line with sub-lines, exactly as estimated_amount is. */
   actual_amount: number;
   status: BudgetItemStatus;
   approved_by: string | null;
@@ -142,8 +150,35 @@ export interface MarathonBudgetItem {
   receipt_url: string | null;
   notes: string | null;
   institution_id: string | null;
+  /** The line this one itemises. One level only — a sub-line has no sub-lines. */
+  parent_id?: string | null;
+  /** How many, e.g. 12 referees. With unit_rate it drives estimated_amount. */
+  quantity?: number | null;
+  /** Rate per unit in rupees, e.g. 1500 per referee. */
+  unit_rate?: number | null;
+  /** The committee answerable for this spend. */
+  committee_id?: string | null;
+  /** The catalogue category. `category` stays the display string. */
+  category_id?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** A row of the fixed category list an event budget line picks from. */
+export interface EventBudgetCategory {
+  id: string;
+  name: string;
+  kind: BudgetItemType;
+  /** NULL = available to every institution. */
+  institution_id: string | null;
+  sort_order: number;
+  is_active: boolean;
+}
+
+/** A top-level budget line with the sub-lines that itemise it. */
+export interface BudgetLineNode {
+  line: MarathonBudgetItem;
+  children: MarathonBudgetItem[];
 }
 
 export interface MarathonCheckpoint {
@@ -356,9 +391,16 @@ export interface CreateMarathonBudgetItemDto {
   category: string;
   description: string;
   type: BudgetItemType;
+  /** Ignored by the database when quantity and unit_rate are both given. */
   estimated_amount: number;
   vendor?: string;
   notes?: string;
+  /** Makes this a sub-line of that line. Must be the same event and type. */
+  parent_id?: string | null;
+  quantity?: number | null;
+  unit_rate?: number | null;
+  committee_id?: string | null;
+  category_id?: string | null;
 }
 
 export interface CreateMarathonIncidentDto {
