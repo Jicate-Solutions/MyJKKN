@@ -27,6 +27,15 @@ export interface BudgetSummary {
 
 export type EventBudgetStatus = 'draft' | 'submitted' | 'approved' | 'locked';
 
+/** A budget line with no final figure yet — neither spent nor written off. */
+export interface UnsettledBudgetLine {
+  id: string;
+  type: string;
+  category: string;
+  description: string;
+  estimated_amount: number;
+}
+
 export interface EventBudgetApproval {
   event_id: string;
   status: EventBudgetStatus;
@@ -34,6 +43,9 @@ export interface EventBudgetApproval {
   submitted_at: string | null;
   approved_by: string | null;
   approved_at: string | null;
+  /** Who said, on the record, what this event actually cost. */
+  closed_by?: string | null;
+  closed_at?: string | null;
   institution_id: string | null;
   created_at: string;
   updated_at: string;
@@ -415,7 +427,11 @@ export class EventBudgetService {
   }
 
   private static async callApprovalRpc(
-    fn: 'fn_submit_event_budget' | 'fn_approve_event_budget' | 'fn_reopen_event_budget',
+    fn:
+      | 'fn_submit_event_budget'
+      | 'fn_approve_event_budget'
+      | 'fn_reopen_event_budget'
+      | 'fn_close_event_budget',
     eventId: string
   ): Promise<EventBudgetApproval> {
     const { data, error } = await (this.supabase as any).rpc(fn, { p_event_id: eventId });
@@ -441,5 +457,50 @@ export class EventBudgetService {
   /** Approver reopens an approved budget so the organizer can edit again. */
   static reopenBudget(eventId: string) {
     return this.callApprovalRpc('fn_reopen_event_budget', eventId);
+  }
+
+  // --- Closing the books ----------------------------------------------------
+
+  /**
+   * Lines with no final figure yet. The books cannot be closed while any
+   * remain, and the same function decides both the button's label and the
+   * refusal, so the two cannot disagree.
+   */
+  static async getUnsettledLines(eventId: string): Promise<UnsettledBudgetLine[]> {
+    const { data, error } = await (this.supabase as any).rpc('fn_event_budget_unsettled', {
+      p_event_id: eventId,
+    });
+    if (error) {
+      logger.error(MOD, 'Failed to fetch unsettled budget lines', { eventId, error });
+      throw error;
+    }
+    return (data ?? []) as UnsettledBudgetLine[];
+  }
+
+  /**
+   * Record what a line really cost, or that nothing was spent on it.
+   * Either way the line is answered and stops blocking the close.
+   */
+  static async settleLine(
+    itemId: string,
+    actual: number,
+    nothingSpent = false
+  ): Promise<MarathonBudgetItem> {
+    const { data, error } = await (this.supabase as any).rpc('fn_settle_event_budget_line', {
+      p_item_id: itemId,
+      p_actual: nothingSpent ? 0 : actual,
+      p_nothing_spent: nothingSpent,
+    });
+    if (error) {
+      logger.error(MOD, 'Failed to settle budget line', { itemId, error });
+      throw error;
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    return row as MarathonBudgetItem;
+  }
+
+  /** Close the books. Refuses, by name, while any line is unanswered. */
+  static closeBudget(eventId: string) {
+    return this.callApprovalRpc('fn_close_event_budget', eventId);
   }
 }

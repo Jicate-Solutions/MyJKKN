@@ -52,6 +52,9 @@ import { usePermissions } from '@/hooks/use-permissions';
 import {
   useEventBudgetItems,
   useEventBudgetCategories,
+  useEventBudgetUnsettled,
+  useSettleEventBudgetLine,
+  useCloseEventBudget,
   useEventBudgetSummary,
   useEventBudgetApproval,
   useCreateEventBudgetItem,
@@ -67,7 +70,10 @@ import type {
   BudgetItemType,
 } from '@/types/events-marathon';
 import { buildBudgetTree } from '@/lib/services/events/shared/event-budget-service';
-import type { EventBudgetStatus } from '@/lib/services/events/shared/event-budget-service';
+import type {
+  EventBudgetStatus,
+  UnsettledBudgetLine,
+} from '@/lib/services/events/shared/event-budget-service';
 
 const rupee = (n: number) => `₹${(n ?? 0).toLocaleString('en-IN')}`;
 
@@ -83,10 +89,14 @@ function ApprovalBanner({ eventId, canApprove }: { eventId: string; canApprove: 
   const submit = useSubmitEventBudget(eventId);
   const approve = useApproveEventBudget(eventId);
   const reopen = useReopenEventBudget(eventId);
+  const { data: unsettled } = useEventBudgetUnsettled(eventId);
+  const [closeOpen, setCloseOpen] = useState(false);
 
   const status: EventBudgetStatus = approval?.status ?? 'draft';
   const badge = STATUS_BADGE[status];
   const isLocked = status === 'approved' || status === 'locked';
+  const closed = status === 'locked';
+  const left = unsettled?.length ?? 0;
 
   return (
     <Card>
@@ -129,9 +139,139 @@ function ApprovalBanner({ eventId, canApprove }: { eventId: string; canApprove: 
               Reopen
             </Button>
           )}
+          {/* The asking. Shown once the plan is signed off, because that is
+              when there is something real to report against, and hidden once
+              the books are closed. */}
+          {canApprove && !closed && (
+            <Button size="sm" variant="outline" onClick={() => setCloseOpen(true)}>
+              <Wallet className="mr-1 h-3.5 w-3.5" />
+              {left > 0 ? `What did it cost? (${left})` : 'Close the books'}
+            </Button>
+          )}
         </div>
+        <CloseBooksDialog open={closeOpen} onClose={() => setCloseOpen(false)} eventId={eventId} />
       </CardContent>
     </Card>
+  );
+}
+
+// ── Close the books ──────────────────────────────────────────────────────────
+// The "Actual (₹)" box has been on the edit form all along and, across 15
+// events and 41 lines, has never once been filled in. Nobody was ever ASKED.
+// This is the asking: one screen, at the end, line by line, that will not let
+// the books close until every line has a real figure or is written off.
+
+function UnsettledRow({
+  line,
+  eventId,
+  onDone,
+}: {
+  line: UnsettledBudgetLine;
+  eventId: string;
+  onDone: () => void;
+}) {
+  const settle = useSettleEventBudgetLine(eventId);
+  // Prefilled with the estimate: usually right, and a wrong prefill is easier
+  // to correct than an empty box is to face.
+  const [amount, setAmount] = useState<number | ''>(line.estimated_amount ?? '');
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b py-2.5 text-sm last:border-0">
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-medium">{line.description}</div>
+        <div className="truncate text-xs text-muted-foreground">
+          {line.category} · planned {rupee(line.estimated_amount)}
+        </div>
+      </div>
+      <Input
+        type="number"
+        min={0}
+        inputMode="numeric"
+        className="h-8 w-28 text-sm"
+        aria-label={`What ${line.description} actually cost`}
+        value={amount}
+        onChange={(e) => setAmount(e.target.value === '' ? '' : Number(e.target.value))}
+      />
+      <Button
+        size="sm"
+        className="h-8"
+        disabled={settle.isPending || amount === ''}
+        onClick={() =>
+          settle.mutate({ itemId: line.id, actual: Number(amount) }, { onSuccess: onDone })
+        }
+      >
+        Save
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-8 text-xs"
+        disabled={settle.isPending}
+        onClick={() =>
+          settle.mutate(
+            { itemId: line.id, actual: 0, nothingSpent: true },
+            { onSuccess: onDone }
+          )
+        }
+      >
+        Nothing spent
+      </Button>
+    </div>
+  );
+}
+
+function CloseBooksDialog({
+  open,
+  onClose,
+  eventId,
+}: {
+  open: boolean;
+  onClose: () => void;
+  eventId: string;
+}) {
+  const { data: unsettled, isLoading } = useEventBudgetUnsettled(eventId);
+  const closeBooks = useCloseEventBudget(eventId);
+  const left = unsettled?.length ?? 0;
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>What did this event actually cost?</DialogTitle>
+          <DialogDescription>
+            Every line needs a real figure, or a note that nothing was spent. Until then there is
+            no record of what this event cost.
+          </DialogDescription>
+        </DialogHeader>
+        {isLoading ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : left === 0 ? (
+          <p className="py-4 text-sm text-muted-foreground">
+            Every line is answered. Closing puts this on the record as what the event cost.
+          </p>
+        ) : (
+          <div>
+            {unsettled!.map((l) => (
+              <UnsettledRow key={l.id} line={l} eventId={eventId} onDone={() => {}} />
+            ))}
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={closeBooks.isPending}>
+            Close
+          </Button>
+          <Button
+            disabled={closeBooks.isPending || left > 0}
+            onClick={() => closeBooks.mutate(undefined, { onSuccess: onClose })}
+            title={left > 0 ? `${left} line${left === 1 ? '' : 's'} still unanswered` : undefined}
+          >
+            {closeBooks.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {left > 0 ? `${left} left to answer` : 'Close the books'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

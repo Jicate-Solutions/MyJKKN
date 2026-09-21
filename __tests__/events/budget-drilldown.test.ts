@@ -240,3 +240,62 @@ describe('summariseBudget', () => {
     expect(s.total_estimated_expense).toBe(18000);
   });
 });
+
+describe('the close-the-books migration', () => {
+  const sql = readFileSync(
+    join(process.cwd(), 'supabase/migrations/20270102090000_event_budget_close_the_books.sql'),
+    'utf8'
+  )
+    .split('\n')
+    .filter((l) => !l.trimStart().startsWith('--'))
+    .join('\n');
+
+  it('asks only about leaf lines — an itemised line is answered by its items', () => {
+    const fn = sql.slice(sql.indexOf('FUNCTION public.fn_event_budget_unsettled'));
+    expect(fn.slice(0, fn.indexOf('$$;'))).toMatch(
+      /NOT EXISTS \(SELECT 1 FROM public\.event_budget_items c WHERE c\.parent_id = b\.id\)/
+    );
+  });
+
+  it('refuses to close while a line is unanswered, and NAMES the lines', () => {
+    const fn = sql.slice(sql.indexOf('FUNCTION public.fn_close_event_budget'));
+    const body = fn.slice(0, fn.indexOf('$$;'));
+    expect(body).toContain('IF open_count > 0 THEN');
+    // A refusal with no list is a wall, not an answer.
+    expect(body).toMatch(/string_agg\(description/);
+    expect(body).toMatch(/still have no final figure/);
+  });
+
+  it('will not settle a line that is made up of items', () => {
+    const fn = sql.slice(sql.indexOf('FUNCTION public.fn_settle_event_budget_line'));
+    expect(fn.slice(0, fn.indexOf('$$;'))).toContain('settle those instead');
+  });
+
+  it('records who closed the books, separately from who approved the plan', () => {
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS closed_by uuid/);
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS closed_at timestamptz/);
+    const fn = sql.slice(sql.indexOf('FUNCTION public.fn_close_event_budget'));
+    expect(fn.slice(0, fn.indexOf('$$;'))).toMatch(/closed_by = auth\.uid\(\)/);
+  });
+
+  it('locks all three new functions away from the public key', () => {
+    for (const fn of [
+      'fn_event_budget_unsettled\\(uuid\\)',
+      'fn_close_event_budget\\(uuid\\)',
+      'fn_settle_event_budget_line\\(uuid, numeric, boolean\\)',
+    ]) {
+      expect(sql, `${fn} not revoked from anon`).toMatch(
+        new RegExp(`REVOKE EXECUTE ON FUNCTION public\\.${fn} FROM anon, PUBLIC;`)
+      );
+      expect(sql, `${fn} not granted to authenticated`).toMatch(
+        new RegExp(`GRANT\\s+EXECUTE ON FUNCTION public\\.${fn} TO authenticated;`)
+      );
+    }
+  });
+
+  it('writes "nothing spent" as cancelled, not as a zero that looks unanswered', () => {
+    const fn = sql.slice(sql.indexOf('FUNCTION public.fn_settle_event_budget_line'));
+    const body = fn.slice(0, fn.indexOf('$$;'));
+    expect(body).toMatch(/status\s*=\s*CASE WHEN p_nothing_spent THEN 'cancelled' ELSE 'spent' END/);
+  });
+});
