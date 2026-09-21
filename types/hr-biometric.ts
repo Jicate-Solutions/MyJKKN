@@ -281,6 +281,8 @@ export interface BiometricShiftCoverageRow {
 
 export const SHIFT_SCOPE_LABEL: Record<string, string> = {
   category: 'Category override',
+  role: 'Role override',
+  'staff': 'Individual override',
   teaching: 'Teaching',
   non_teaching: 'Non-teaching',
 };
