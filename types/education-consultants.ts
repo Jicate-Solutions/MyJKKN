@@ -924,6 +924,13 @@ export interface ConsultantRateCardEarning {
   balance_amount: number;
   /** Paid − earned, when positive: to be recovered (e.g. a paid student went Rejected). */
   excess_amount: number;
+  /**
+   * True when this line is priced by THIS agency's own ladder rather than the
+   * standard card. Their ladder replaces the standard one for this line only —
+   * so a null rate_amount here means their ladder has no band covering their
+   * count, never that the standard rate quietly applied.
+   */
+  is_override: boolean;
 }
 
 /**
@@ -971,3 +978,31 @@ export interface RateCardPaymentInput {
 
 /** The three learner statuses that earn a service charge. Nothing else counts. */
 export const COMMISSION_QUALIFYING_STATUSES = ['account', 'admitted', 'active'] as const;
+
+
+/**
+ * One band of a rate ladder on a line of the service-charge card.
+ *
+ * `consultant_id` null is the standard card everyone is paid against. Set, it is
+ * that agency's own ladder for that line, which replaces the standard ladder for
+ * that agency alone (Director ruling, 2026-09-21).
+ */
+export interface RateCardSlab {
+  id: string;
+  group_id: string;
+  consultant_id: string | null;
+  min_count: number;
+  max_count: number | null;
+  amount: number;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One band as the ladder editor hands it back, before it has an id. */
+export interface RateCardSlabInput {
+  min_count: number;
+  max_count: number | null;
+  amount: number;
+}

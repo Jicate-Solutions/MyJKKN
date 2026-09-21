@@ -42,6 +42,7 @@ import {
   HandCoins,
   IndianRupee,
   MoreHorizontal,
+  SlidersHorizontal,
   Plus,
   Trash2,
   Undo2,
@@ -57,6 +58,7 @@ import type {
   RateCardPaymentEntryType,
 } from '@/types/education-consultants'
 import { RateCardPaymentDialog, type PaymentDialogState } from './rate-card-payment-dialog'
+import { RateCardLadderDialog, type LadderDialogState } from './rate-card-ladder-dialog'
 
 function rupees(value: number | null | undefined): string {
   return formatCurrency(value, { showDecimals: false, minimumFractionDigits: 0, maximumFractionDigits: 0 })
@@ -97,9 +99,14 @@ interface RateCardPanelProps {
 
 export function RateCardPanel({ consultantId }: RateCardPanelProps) {
   const queryClient = useQueryClient()
-  const { can } = usePermissions()
+  const { can, isSuperAdmin, userProfile } = usePermissions()
   // RLS is the real gate; this only hides buttons that would be refused.
   const canManage = can('admission.consultants.commissions.manage')
+  // Recording a payment is 'manage'. CHANGING A RATE is admin-only at the
+  // database (the slabs table's write policy), so the UI gates it the same way —
+  // otherwise the menu offers an action the save will reject.
+  const canSetRates =
+    isSuperAdmin || ['admin', 'super_admin', 'administrator'].includes(String(userProfile?.role ?? ''))
 
   const { data: years, isLoading: yearsLoading } = useQuery({
     queryKey: ['commission-rate-card-years'],
@@ -132,6 +139,36 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
 
   // Payment dialog. `dialogKey` remounts it per open so its form re-initialises
   // from the row that opened it instead of keeping the previous entry's values.
+  // The standard card, so the ladder editor can show what a tweak departs from.
+  const { data: card } = useQuery({
+    queryKey: ['rate-card', year],
+    queryFn: () => ConsultantService.getRateCard(year ?? undefined),
+    enabled: year != null && canSetRates,
+  })
+
+  const { data: ladders } = useQuery({
+    queryKey: ['consultant-ladders', consultantId],
+    queryFn: () => ConsultantService.getConsultantLadders(consultantId),
+    enabled: canSetRates,
+  })
+
+  const [ladderOpen, setLadderOpen] = useState(false)
+  const [ladderState, setLadderState] = useState<LadderDialogState | null>(null)
+
+  const openLadder = (groupId: string, groupName: string) => {
+    const bands = (ladders || []).filter(b => b.group_id === groupId)
+    const standard =
+      (card?.groups || [])
+        .find((g: any) => g.id === groupId)
+        ?.slabs?.map((sl: any) => ({
+          min_count: Number(sl.min_count),
+          max_count: sl.max_count == null ? null : Number(sl.max_count),
+          amount: Number(sl.amount),
+        })) ?? []
+    setLadderState({ groupId, groupName, bands, standard, note: bands[0]?.note ?? null })
+    setLadderOpen(true)
+  }
+
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dialogKey, setDialogKey] = useState(0)
   const [dialogState, setDialogState] = useState<PaymentDialogState>({
@@ -149,6 +186,7 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
   }
 
   const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ['consultant-ladders', consultantId] })
     queryClient.invalidateQueries({ queryKey: ['commission-rate-card-earnings', consultantId] })
     queryClient.invalidateQueries({ queryKey: ['commission-rate-card-payments', consultantId] })
   }
@@ -242,7 +280,20 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
         id: 'per_student',
         accessorFn: row => row.rate_amount ?? 0,
         header: 'Per Learner',
-        cell: ({ row }) => <MoneyCell value={row.original.rate_amount} />,
+        cell: ({ row }) => (
+          <div className="flex items-center gap-1.5">
+            <MoneyCell value={row.original.rate_amount} />
+            {row.original.is_override && (
+              <Badge
+                variant="outline"
+                className="border-blue-300 text-blue-700 dark:border-blue-700 dark:text-blue-300"
+                title="This agency is on its own ladder for this line, not the standard card."
+              >
+                Agency rate
+              </Badge>
+            )}
+          </div>
+        ),
       },
       {
         id: 'commission',
@@ -296,7 +347,9 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
       },
     ]
 
-    if (canManage) {
+    // An Administrator may change rates but may not hold commissions.manage, so the
+    // column appears for either capability and each item is gated on its own.
+    if (canManage || canSetRates) {
       cols.push({
         id: 'actions',
         header: () => null,
@@ -310,29 +363,40 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onSelect={() =>
-                  openDialog({ editing: null, groupId: row.original.group_id, entryType: 'payment' })
-                }
-              >
-                <HandCoins className="h-4 w-4 mr-2" />
-                Record Payment
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={() =>
-                  openDialog({ editing: null, groupId: row.original.group_id, entryType: 'recovery' })
-                }
-              >
-                <Undo2 className="h-4 w-4 mr-2" />
-                Record Recovery
-              </DropdownMenuItem>
+              {canManage && (
+                <>
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      openDialog({ editing: null, groupId: row.original.group_id, entryType: 'payment' })
+                    }
+                  >
+                    <HandCoins className="h-4 w-4 mr-2" />
+                    Record Payment
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      openDialog({ editing: null, groupId: row.original.group_id, entryType: 'recovery' })
+                    }
+                  >
+                    <Undo2 className="h-4 w-4 mr-2" />
+                    Record Recovery
+                  </DropdownMenuItem>
+                </>
+              )}
+              {canSetRates && (
+                <DropdownMenuItem onSelect={() => openLadder(row.original.group_id, row.original.group_name)}>
+                  <SlidersHorizontal className="h-4 w-4 mr-2" />
+                  {row.original.is_override ? 'Edit agency rate' : 'Set agency rate'}
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         ),
       })
     }
     return cols
-  }, [canManage, totals.excess])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canManage, canSetRates, totals.excess, ladders, card])
 
   const paymentColumns = useMemo<ColumnDef<RateCardPayment>[]>(() => {
     const cols: ColumnDef<RateCardPayment>[] = [
@@ -766,6 +830,15 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <RateCardLadderDialog
+        open={ladderOpen}
+        onOpenChange={setLadderOpen}
+        consultantId={consultantId}
+        state={ladderState}
+        userId={userProfile?.id ?? null}
+        onSaved={refresh}
+      />
     </div>
   )
 }
