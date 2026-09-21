@@ -81,6 +81,75 @@ export function buildBudgetTree(items: MarathonBudgetItem[]): BudgetLineNode[] {
   return roots;
 }
 
+/** The fields summariseBudget actually reads. */
+export interface SummarisableLine {
+  id: string;
+  parent_id?: string | null;
+  category: string;
+  type: string;
+  estimated_amount: number;
+  actual_amount: number;
+  status: string;
+}
+
+/**
+ * Total a budget WITHOUT counting the same money twice.
+ *
+ * Since sub-lines exist (migration 20270101090000) a parent's amount IS the sum
+ * of its children, so adding every row over-states the budget by the whole
+ * itemised part of it — silently, and by a plausible-looking amount.
+ *
+ * Only LEAVES are added: a row that is nobody's parent. A line with no
+ * sub-lines is its own leaf, so a budget that has never been itemised totals
+ * exactly as it always did. Leaves also give the better category breakdown —
+ * "trophies 40,000" rather than the parent's "sports materials 1,52,300".
+ *
+ * Cancelled lines are excluded, as they always were.
+ */
+export function summariseBudget(rows: SummarisableLine[]): BudgetSummary {
+  const parents = new Set(rows.map((r) => r.parent_id).filter((p): p is string => !!p));
+  let total_estimated_income = 0;
+  let total_actual_income = 0;
+  let total_estimated_expense = 0;
+  let total_actual_expense = 0;
+  const categoryMap = new Map<
+    string,
+    { category: string; type: string; estimated: number; actual: number }
+  >();
+
+  for (const row of rows) {
+    if (row.status === 'cancelled') continue;
+    if (parents.has(row.id)) continue; // itemised — its children carry the money
+    const estimated = Number(row.estimated_amount) || 0;
+    const actual = Number(row.actual_amount) || 0;
+    if (row.type === 'income') {
+      total_estimated_income += estimated;
+      total_actual_income += actual;
+    } else {
+      total_estimated_expense += estimated;
+      total_actual_expense += actual;
+    }
+    const key = `${row.category}||${row.type}`;
+    const existing = categoryMap.get(key);
+    if (existing) {
+      existing.estimated += estimated;
+      existing.actual += actual;
+    } else {
+      categoryMap.set(key, { category: row.category, type: row.type, estimated, actual });
+    }
+  }
+
+  return {
+    total_estimated_income,
+    total_actual_income,
+    total_estimated_expense,
+    total_actual_expense,
+    estimated_balance: total_estimated_income - total_estimated_expense,
+    actual_balance: total_actual_income - total_actual_expense,
+    by_category: Array.from(categoryMap.values()),
+  };
+}
+
 export class EventBudgetService {
   private static supabase = createClientSupabaseClient();
 
@@ -181,6 +250,53 @@ export class EventBudgetService {
       logger.info(MOD, 'Budget item deleted', { id });
     } catch (error) {
       logger.error(MOD, 'Unexpected error in deleteBudgetItem', error);
+      throw error;
+    }
+  }
+
+  // --- Categories ----------------------------------------------------------
+
+  /**
+   * The fixed list a budget line picks its category from. Free text produced
+   * 33 category strings across 41 lines — five spellings of one shopping list
+   * — which is why nothing could be totalled across events.
+   */
+  static async getCategories(): Promise<EventBudgetCategory[]> {
+    try {
+      const { data, error } = await (this.supabase as any)
+        .from('event_budget_categories')
+        .select('*')
+        .eq('is_active', true)
+        .order('kind', { ascending: true })
+        .order('sort_order', { ascending: true })
+        .order('name', { ascending: true });
+      if (error) {
+        logger.error(MOD, 'Failed to fetch budget categories', error);
+        throw error;
+      }
+      return (data as unknown as EventBudgetCategory[]) ?? [];
+    } catch (error) {
+      logger.error(MOD, 'Unexpected error in getCategories', error);
+      throw error;
+    }
+  }
+
+  // --- Summary -------------------------------------------------------------
+
+  static async getBudgetSummary(eventId: string): Promise<BudgetSummary> {
+    try {
+      const { data, error } = await (this.supabase as any)
+        .from('event_budget_items')
+        // id and parent_id are what tell a total apart from its own itemisation.
+        .select('id, parent_id, category, type, estimated_amount, actual_amount, status')
+        .eq('event_id', eventId);
+      if (error) {
+        logger.error(MOD, 'Failed to fetch items for summary', error);
+        throw error;
+      }
+      return summariseBudget((data ?? []) as SummarisableLine[]);
+    } catch (error) {
+      logger.error(MOD, 'Unexpected error in getBudgetSummary', error);
       throw error;
     }
   }

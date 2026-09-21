@@ -8,11 +8,16 @@ import toast from 'react-hot-toast';
 import { EventBudgetService } from '@/lib/services/events/shared/event-budget-service';
 import type { MarathonBudgetItem, CreateMarathonBudgetItemDto } from '@/types/events-marathon';
 
+const KEYS_ROOT = ['event-budget'] as const;
+
 const KEYS = {
   all: ['event-budget'] as const,
   items: (eventId: string) => [...KEYS.all, 'items', eventId] as const,
   summary: (eventId: string) => [...KEYS.all, 'summary', eventId] as const,
   approval: (eventId: string) => [...KEYS.all, 'approval', eventId] as const,
+  // The catalogue is the same list for everyone and changes rarely — not keyed
+  // by event, and cached for the session.
+  categories: [...KEYS_ROOT, 'categories'] as const,
 };
 
 export function useEventBudgetItems(eventId: string) {
@@ -28,6 +33,18 @@ export function useEventBudgetSummary(eventId: string) {
     queryKey: KEYS.summary(eventId),
     queryFn: () => EventBudgetService.getBudgetSummary(eventId),
     enabled: !!eventId,
+  });
+}
+
+/**
+ * The fixed category list a budget line picks from. Free text produced 33
+ * category strings across 41 lines, so nothing could be totalled across events.
+ */
+export function useEventBudgetCategories() {
+  return useQuery({
+    queryKey: KEYS.categories,
+    queryFn: () => EventBudgetService.getCategories(),
+    staleTime: 10 * 60_000,
   });
 }
 

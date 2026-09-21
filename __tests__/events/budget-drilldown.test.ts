@@ -29,7 +29,11 @@ vi.mock('@/lib/supabase/client', () => ({
   getSupabaseClient: () => ({}),
 }));
 
-import { buildBudgetTree } from '@/lib/services/events/shared/event-budget-service';
+import {
+  buildBudgetTree,
+  summariseBudget,
+  type SummarisableLine,
+} from '@/lib/services/events/shared/event-budget-service';
 import type { MarathonBudgetItem } from '@/types/events-marathon';
 
 const line = (over: Partial<MarathonBudgetItem> & { id: string }): MarathonBudgetItem =>
@@ -165,5 +169,74 @@ describe('the drill-down migration', () => {
     const added = sql.slice(sql.indexOf('ALTER TABLE public.event_budget_items\n  ADD COLUMN'));
     const decl = added.slice(0, added.indexOf(';'));
     expect(decl).not.toMatch(/NOT NULL/);
+  });
+});
+
+describe('summariseBudget', () => {
+  const row = (over: Partial<SummarisableLine> & { id: string }): SummarisableLine => ({
+    parent_id: null,
+    category: 'Miscellaneous',
+    type: 'expense',
+    estimated_amount: 0,
+    actual_amount: 0,
+    status: 'planned',
+    ...over,
+  });
+
+  it('does NOT count an itemised line and its items twice', () => {
+    // The whole reason this function exists. A parent equals the sum of its
+    // children, so adding every row over-states the budget by the itemised
+    // part of it — silently, and by a plausible-looking number.
+    const s = summariseBudget([
+      row({ id: 'chess', estimated_amount: 58000 }),
+      row({ id: 'trophies', parent_id: 'chess', estimated_amount: 40000 }),
+      row({ id: 'referees', parent_id: 'chess', estimated_amount: 18000 }),
+    ]);
+    expect(s.total_estimated_expense).toBe(58000);
+  });
+
+  it('totals a budget that has never been itemised exactly as before', () => {
+    const s = summariseBudget([
+      row({ id: 'a', estimated_amount: 50000, type: 'income', category: 'Registration fees' }),
+      row({ id: 'b', estimated_amount: 152300, category: 'Sports & event materials' }),
+    ]);
+    expect(s.total_estimated_income).toBe(50000);
+    expect(s.total_estimated_expense).toBe(152300);
+    expect(s.estimated_balance).toBe(-102300);
+  });
+
+  it('breaks down by the items, not by the line that holds them', () => {
+    // "trophies 40,000" is a useful figure across events. "sports materials
+    // 1,52,300" is the thing the organisers were already trying to escape.
+    const s = summariseBudget([
+      row({ id: 'chess', category: 'Sports & event materials', estimated_amount: 58000 }),
+      row({ id: 't', parent_id: 'chess', category: 'Prizes, trophies & mementos', estimated_amount: 40000 }),
+      row({ id: 'r', parent_id: 'chess', category: 'Officials & honorarium', estimated_amount: 18000 }),
+    ]);
+    expect(s.by_category.map((c) => c.category).sort()).toEqual([
+      'Officials & honorarium',
+      'Prizes, trophies & mementos',
+    ]);
+  });
+
+  it('rolls actuals up without double counting either', () => {
+    const s = summariseBudget([
+      row({ id: 'p', estimated_amount: 100, actual_amount: 90 }),
+      row({ id: 'c', parent_id: 'p', estimated_amount: 100, actual_amount: 90 }),
+    ]);
+    expect(s.total_actual_expense).toBe(90);
+  });
+
+  it('still ignores a cancelled line', () => {
+    const s = summariseBudget([
+      row({ id: 'a', estimated_amount: 1000 }),
+      row({ id: 'b', estimated_amount: 9999, status: 'cancelled' }),
+    ]);
+    expect(s.total_estimated_expense).toBe(1000);
+  });
+
+  it('counts an item whose parent is not in the list rather than dropping it', () => {
+    const s = summariseBudget([row({ id: 'orphan', parent_id: 'gone', estimated_amount: 18000 })]);
+    expect(s.total_estimated_expense).toBe(18000);
   });
 });
