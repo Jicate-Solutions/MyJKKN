@@ -117,7 +117,8 @@ export function RateCardAdvanceDialog({
         <DialogHeader>
           <DialogTitle>Record an advance{consultantName ? ` — ${consultantName}` : ''}</DialogTitle>
           <DialogDescription>
-            An advance is against the {yearLabel(year)} intake as a whole, not against one college. It
+            An advance is against the {yearLabel(year)}{' '}
+            intake as a whole, not against one college. It
             is used up automatically as that year&apos;s admissions come in, starting at the top of the
             card and working down.
           </DialogDescription>

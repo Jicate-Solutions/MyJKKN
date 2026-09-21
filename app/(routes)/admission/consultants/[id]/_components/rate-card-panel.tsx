@@ -790,8 +790,8 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
           <div>
             <CardTitle className="text-base">Advances</CardTitle>
             <CardDescription>
-              Money given to this agency against the {year != null ? yearLabel(year) : 'current'} intake as
-              a whole, with no college named. It is used up automatically as that year&apos;s admissions
+              Money given to this agency against the {year != null ? yearLabel(year) : 'current'}{' '}
+              intake as a whole, with no college named. It is used up automatically as that year&apos;s admissions
               come in, starting at the top of the card and working down.
             </CardDescription>
           </div>
