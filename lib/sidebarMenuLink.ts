@@ -3053,10 +3053,11 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/leave/my-applications', label: 'My Leave Applications', active: pathname === '/hr/leave/my-applications' },
             { href: '/hr/leave/balance', label: 'My Leave Balance', active: pathname === '/hr/leave/balance' },
             { href: '/hr/leave/encashment', label: 'Leave Encashment', active: pathname === '/hr/leave/encashment' },
+            // Regularize Attendance is deliberately NOT listed here (2026-09-21):
+            // it is reached from the My Attendance page's own chips
+            // (app/(routes)/hr/nav-config.ts), which is also what keeps it in
+            // the reachability manifest.
             { href: '/hr/attendance', label: 'My Attendance', active: pathname === '/hr/attendance' },
-            { href: '/hr/attendance/regularize', label: 'Regularize Attendance', active: pathname.startsWith('/hr/attendance/regularize') },
-            // HR-ops, not self-service: gated on hr.attendance.period.view so it
-            // is invisible to the 22 roles that hold only view_self.
             { href: '/hr/performance-reviews', label: 'My Appraisal', active: pathname === '/hr/performance-reviews' },
             { href: '/hr/training', label: 'My Training', active: pathname.startsWith('/hr/training') },
             { href: '/hr/fdp', label: 'My FDP', active: pathname.startsWith('/hr/fdp') },
