@@ -594,6 +594,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Deleting any line here does not merely hide a menu item; it re-blocks the
   // page.
   '/hr/attendance': 'hr.attendance.view_self',
+  // The Attendance & Time row's "All Attendance" entry (2026-09-21): the same
+  // page, opened on the staff picker. Keyed on view_all — held by the two HR
+  // roles — so the entry never shows to the 76 roles holding only view_self.
+  // Same query-string trick as '/hr/recruitment/approvals?view=all'.
+  '/hr/attendance?view=all': 'hr.attendance.view_all',
   '/hr/attendance/regularize': 'hr.attendance.regularize_self',
   // Biometric punch import — an HR-ops surface, NOT self-service. Without this
   // line it inherited '/hr/attendance' -> hr.attendance.view_self and rendered
@@ -3221,6 +3226,10 @@ export function GetPages(pathname: string): MenuGroup[] {
             || pathname.startsWith('/hr/admin/work-patterns'),
           icon: Clock,
           submenus: [
+            // Opens /hr/attendance on the team-member picker for view_all
+            // holders. `active: false` because the pathname carries no query
+            // and /hr/attendance itself belongs to Self Service.
+            { href: '/hr/attendance?view=all', label: 'All Attendance', active: false },
             { href: '/hr/attendance/close', label: 'Attendance · Month Close', active: pathname.startsWith('/hr/attendance/close') },
             { href: '/hr/admin/shift-timings', label: 'Shift Timings', active: pathname.startsWith('/hr/admin/shift-timings') },
             { href: '/hr/admin/work-patterns', label: 'Work Patterns', active: pathname.startsWith('/hr/admin/work-patterns') },
