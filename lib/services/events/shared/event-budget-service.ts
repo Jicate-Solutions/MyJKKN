@@ -36,6 +36,37 @@ export interface UnsettledBudgetLine {
   estimated_amount: number;
 }
 
+/** What an event cost, and what it cost per registered head. */
+export interface EventBudgetOutcome {
+  estimated_income: number;
+  actual_income: number;
+  estimated_expense: number;
+  actual_expense: number;
+  registrations: number;
+  /** NULL when nobody registered — never 0, which would read as free. */
+  estimated_per_head: number | null;
+  actual_per_head: number | null;
+  books_closed: boolean;
+}
+
+export interface CommitteeSpend {
+  committee_id: string | null;
+  committee_name: string;
+  lines: number;
+  estimated: number;
+  actual: number;
+}
+
+export interface CategoryBenchmark {
+  category_id: string;
+  category_name: string;
+  this_estimated: number;
+  this_actual: number;
+  /** How many OTHER events with closed books this average is drawn from. */
+  other_events: number;
+  typical_per_head: number | null;
+}
+
 export interface EventBudgetApproval {
   event_id: string;
   status: EventBudgetStatus;
@@ -502,5 +533,49 @@ export class EventBudgetService {
   /** Close the books. Refuses, by name, while any line is unanswered. */
   static closeBudget(eventId: string) {
     return this.callApprovalRpc('fn_close_event_budget', eventId);
+  }
+
+  // --- Measuring the spend against what it bought ---------------------------
+
+  /** Totals, registrations, and cost per head — planned against actual. */
+  static async getOutcome(eventId: string): Promise<EventBudgetOutcome | null> {
+    const { data, error } = await (this.supabase as any).rpc('fn_event_budget_outcome', {
+      p_event_id: eventId,
+    });
+    if (error) {
+      logger.error(MOD, 'Failed to fetch budget outcome', { eventId, error });
+      throw error;
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    return (row as EventBudgetOutcome) ?? null;
+  }
+
+  /** What each committee is answerable for. */
+  static async getSpendByCommittee(eventId: string): Promise<CommitteeSpend[]> {
+    const { data, error } = await (this.supabase as any).rpc('fn_event_budget_by_committee', {
+      p_event_id: eventId,
+    });
+    if (error) {
+      logger.error(MOD, 'Failed to fetch spend by committee', { eventId, error });
+      throw error;
+    }
+    return (data ?? []) as CommitteeSpend[];
+  }
+
+  /**
+   * What each category on this event typically costs per head elsewhere.
+   * Drawn only from events whose books are closed, so it is a real figure or
+   * it is absent — never an average dragged toward zero by open events.
+   */
+  static async getCategoryBenchmark(eventId: string): Promise<CategoryBenchmark[]> {
+    const { data, error } = await (this.supabase as any).rpc(
+      'fn_event_budget_category_benchmark',
+      { p_event_id: eventId }
+    );
+    if (error) {
+      logger.error(MOD, 'Failed to fetch category benchmark', { eventId, error });
+      throw error;
+    }
+    return (data ?? []) as CategoryBenchmark[];
   }
 }

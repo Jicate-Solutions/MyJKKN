@@ -299,3 +299,83 @@ describe('the close-the-books migration', () => {
     expect(body).toMatch(/status\s*=\s*CASE WHEN p_nothing_spent THEN 'cancelled' ELSE 'spent' END/);
   });
 });
+
+describe('the measurement migration', () => {
+  const sql = readFileSync(
+    join(process.cwd(), 'supabase/migrations/20270103090000_event_budget_outcome_measures.sql'),
+    'utf8'
+  )
+    .split('\n')
+    .filter((l) => !l.trimStart().startsWith('--'))
+    .join('\n');
+
+  const fnBody = (name: string) => {
+    const from = sql.indexOf(`FUNCTION public.${name}`);
+    expect(from, `${name} missing`).toBeGreaterThan(-1);
+    return sql.slice(from, sql.indexOf('$$;', from));
+  };
+
+  it('never divides by nobody and calls the answer zero', () => {
+    // A cost-per-head of ₹0 reads as "this event was free" and gets quoted
+    // back as fact. NULL says "we do not know", which is the truth.
+    const body = fnBody('fn_event_budget_outcome');
+    expect(body).toMatch(/CASE WHEN heads > 0 THEN round\(t\.ee \/ heads, 2\) END/);
+    expect(body).toMatch(/CASE WHEN heads > 0 THEN round\(t\.ae \/ heads, 2\) END/);
+  });
+
+  it('counts leaves only, in all three functions', () => {
+    for (const fn of [
+      'fn_event_budget_outcome',
+      'fn_event_budget_by_committee',
+      'fn_event_budget_category_benchmark',
+    ]) {
+      expect(fnBody(fn), `${fn} may double-count an itemised line`).toMatch(
+        /NOT EXISTS \(SELECT 1 FROM public\.event_budget_items [cx] WHERE [cx]\.parent_id = /
+      );
+    }
+  });
+
+  it('benchmarks only against events whose books are CLOSED', () => {
+    // An open event's actuals are mostly zero. Averaging those in drags every
+    // benchmark toward nothing and produces a wrong number that looks real.
+    const body = fnBody('fn_event_budget_category_benchmark');
+    expect(body).toMatch(/FROM public\.event_budget_approvals a\s*\n\s*WHERE a\.status = 'locked'/);
+    expect(body).toContain('a.event_id <> p_event_id');
+  });
+
+  it('compares per head, not by raw total', () => {
+    const body = fnBody('fn_event_budget_category_benchmark');
+    expect(body).toMatch(/avg\(o\.act \/ h\.n\)/);
+    expect(body).toContain('h.n > 0');
+  });
+
+  it('shows spend nobody has claimed rather than dropping it', () => {
+    const body = fnBody('fn_event_budget_by_committee');
+    expect(body).toContain('LEFT JOIN public.event_committees');
+    expect(body).toContain("'No committee named'");
+  });
+
+  it('checks the caller may read the event before answering', () => {
+    for (const fn of [
+      'fn_event_budget_outcome',
+      'fn_event_budget_by_committee',
+      'fn_event_budget_category_benchmark',
+    ]) {
+      expect(fnBody(fn), `${fn} answers without checking access`).toContain(
+        'fn_can_read_event_tasks(p_event_id)'
+      );
+    }
+  });
+
+  it('locks all three away from the public key', () => {
+    for (const fn of [
+      'fn_event_budget_outcome',
+      'fn_event_budget_by_committee',
+      'fn_event_budget_category_benchmark',
+    ]) {
+      expect(sql).toMatch(
+        new RegExp(`REVOKE EXECUTE ON FUNCTION public\\.${fn}\\(uuid\\) FROM anon, PUBLIC;`)
+      );
+    }
+  });
+});

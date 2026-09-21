@@ -53,6 +53,9 @@ import {
   useEventBudgetItems,
   useEventBudgetCategories,
   useEventBudgetUnsettled,
+  useEventBudgetOutcome,
+  useEventSpendByCommittee,
+  useEventCategoryBenchmark,
   useSettleEventBudgetLine,
   useCloseEventBudget,
   useEventBudgetSummary,
@@ -773,6 +776,114 @@ function BudgetSection({ nodes, a }: { nodes: BudgetLineNode[]; a: RowActions })
   );
 }
 
+// ── What it cost ─────────────────────────────────────────────────────────────
+// The measuring half of the ask. Three figures, all read from what is already
+// recorded — nobody is asked to type anything new, which is the only reason
+// any of it will get used.
+
+function WhatItCostPanel({ eventId }: { eventId: string }) {
+  const { data: outcome } = useEventBudgetOutcome(eventId);
+  const { data: byCommittee } = useEventSpendByCommittee(eventId);
+  const { data: benchmark } = useEventCategoryBenchmark(eventId);
+
+  // Nothing to say until somebody has recorded a real figure. A panel of
+  // zeroes reads as "this event was free", which is worse than no panel.
+  if (!outcome || (outcome.actual_expense ?? 0) === 0) return null;
+
+  const overspend = outcome.actual_expense - outcome.estimated_expense;
+  const named = (byCommittee ?? []).filter((c) => (c.actual ?? 0) > 0);
+  const compared = (benchmark ?? []).filter((b) => b.typical_per_head != null);
+
+  return (
+    <Card>
+      <CardContent className="space-y-4 py-4">
+        <div>
+          <h4 className="text-sm font-semibold">What it cost</h4>
+          <p className="text-xs text-muted-foreground">
+            {outcome.books_closed
+              ? 'Books closed — this is on the record.'
+              : 'From the figures recorded so far.'}
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div>
+            <p className="text-xs text-muted-foreground">Spent</p>
+            <p className="text-lg font-semibold tabular-nums">{rupee(outcome.actual_expense)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Against a plan of</p>
+            <p className="text-lg font-semibold tabular-nums">{rupee(outcome.estimated_expense)}</p>
+            {overspend !== 0 && (
+              <p
+                className={`text-[11px] tabular-nums ${
+                  overspend > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'
+                }`}
+              >
+                {overspend > 0 ? 'Over by ' : 'Under by '}
+                {rupee(Math.abs(overspend))}
+              </p>
+            )}
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">People</p>
+            <p className="text-lg font-semibold tabular-nums">{outcome.registrations}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Cost per person</p>
+            <p className="text-lg font-semibold tabular-nums">
+              {/* NULL, not zero, when nobody registered — see the RPC. */}
+              {outcome.actual_per_head == null ? '—' : rupee(outcome.actual_per_head)}
+            </p>
+            {outcome.actual_per_head == null && (
+              <p className="text-[11px] text-muted-foreground">Nobody registered yet</p>
+            )}
+          </div>
+        </div>
+
+        {named.length > 0 && (
+          <div>
+            <p className="mb-1 text-xs font-medium text-muted-foreground">Who spent it</p>
+            {named.map((c) => (
+              <div
+                key={c.committee_id ?? 'none'}
+                className="flex items-center justify-between gap-2 border-b py-1.5 text-sm last:border-0"
+              >
+                <span className="min-w-0 truncate">{c.committee_name}</span>
+                <span className="shrink-0 tabular-nums">{rupee(c.actual)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {compared.length > 0 && (
+          <div>
+            <p className="mb-1 text-xs font-medium text-muted-foreground">
+              Against what these usually cost
+            </p>
+            {compared.map((b) => (
+              <div key={b.category_id} className="border-b py-1.5 text-sm last:border-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 truncate">{b.category_name}</span>
+                  <span className="shrink-0 tabular-nums">{rupee(b.this_actual)}</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground tabular-nums">
+                  Usually {rupee(b.typical_per_head!)} a head across {b.other_events} other event
+                  {b.other_events === 1 ? '' : 's'}
+                  {outcome.registrations > 0 &&
+                    ` — about ${rupee(
+                      Math.round(b.typical_per_head! * outcome.registrations)
+                    )} at this size`}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function BudgetBoard({ eventId, canManage = true }: { eventId: string; canManage?: boolean }) {
   const { can } = usePermissions();
   const canApprove = can('events.budget.approve');
@@ -851,6 +962,8 @@ export function BudgetBoard({ eventId, canManage = true }: { eventId: string; ca
       </div>
 
       <SummaryCards eventId={eventId} />
+
+      <WhatItCostPanel eventId={eventId} />
 
       {isLoading ? (
         <div className="flex items-center justify-center py-10">

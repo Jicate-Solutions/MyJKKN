@@ -179,3 +179,30 @@ export function useCloseEventBudget(eventId: string) {
     onError: (e: Error) => toast.error(e.message || 'Could not close the books'),
   });
 }
+
+/** What the event cost and what it cost per head. */
+export function useEventBudgetOutcome(eventId: string) {
+  return useQuery({
+    queryKey: [...KEYS_ROOT, 'outcome', eventId] as const,
+    queryFn: () => EventBudgetService.getOutcome(eventId),
+    enabled: !!eventId,
+  });
+}
+
+export function useEventSpendByCommittee(eventId: string) {
+  return useQuery({
+    queryKey: [...KEYS_ROOT, 'by-committee', eventId] as const,
+    queryFn: () => EventBudgetService.getSpendByCommittee(eventId),
+    enabled: !!eventId,
+  });
+}
+
+/** What each category usually costs per head, across events with closed books. */
+export function useEventCategoryBenchmark(eventId: string) {
+  return useQuery({
+    queryKey: [...KEYS_ROOT, 'benchmark', eventId] as const,
+    queryFn: () => EventBudgetService.getCategoryBenchmark(eventId),
+    enabled: !!eventId,
+    staleTime: 5 * 60_000,
+  });
+}
