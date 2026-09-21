@@ -294,7 +294,18 @@ export class ServiceRequestService {
       .select('learner_id')
       .eq('id', userId)
       .maybeSingle();
-    if (me?.learner_id) return; // learner: approval path
+    if (me?.learner_id) {
+      // A learner link alone is not enough: a graduate who joined as staff
+      // keeps their old learner_id. An active staff record makes them a team
+      // member — the same rule issue_gate_pass_for_service_request applies.
+      const { data: activeStaff } = await supabase
+        .from('staff')
+        .select('id')
+        .eq('profile_id', userId)
+        .eq('is_active', true)
+        .limit(1);
+      if ((activeStaff ?? []).length === 0) return; // learner: approval path
+    }
     const { error } = await supabase.rpc('issue_gate_pass_for_service_request', {
       p_request_id: requestId,
     });
