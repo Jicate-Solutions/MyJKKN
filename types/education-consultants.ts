@@ -924,6 +924,19 @@ export interface ConsultantRateCardEarning {
   balance_amount: number;
   /** Paid − earned, when positive: to be recovered (e.g. a paid student went Rejected). */
   excess_amount: number;
+  /**
+   * True when this line is priced by THIS agency's own ladder rather than the
+   * standard card. Their ladder replaces the standard one for this line only —
+   * so a null rate_amount here means their ladder has no band covering their
+   * count, never that the standard rate quietly applied.
+   */
+  is_override: boolean;
+  /**
+   * How much of this year's advance this line consumed. Advances are spread down
+   * the card in its printed order, filling each line's outstanding balance until
+   * the advance runs out, so this is already deducted from balance_amount.
+   */
+  advance_applied: number;
 }
 
 /**
@@ -971,3 +984,66 @@ export interface RateCardPaymentInput {
 
 /** The three learner statuses that earn a service charge. Nothing else counts. */
 export const COMMISSION_QUALIFYING_STATUSES = ['account', 'admitted', 'active'] as const;
+
+
+/**
+ * One band of a rate ladder on a line of the service-charge card.
+ *
+ * `consultant_id` null is the standard card everyone is paid against. Set, it is
+ * that agency's own ladder for that line, which replaces the standard ladder for
+ * that agency alone (Director ruling, 2026-09-21).
+ */
+export interface RateCardSlab {
+  id: string;
+  group_id: string;
+  consultant_id: string | null;
+  min_count: number;
+  max_count: number | null;
+  amount: number;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One band as the ladder editor hands it back, before it has an id. */
+export interface RateCardSlabInput {
+  min_count: number;
+  max_count: number | null;
+  amount: number;
+}
+
+
+/** What happens to the unused part of an advance — decided per agency when it is recorded. */
+export type AdvanceDisposition = 'carry_forward' | 'recoverable';
+
+/**
+ * An advance paid to an agency against one intake year's card.
+ *
+ * It carries no college line — with no line there is nothing else to say which
+ * card it belongs to, which is why the year is required (Director, 2026-09-21).
+ */
+export interface RateCardAdvanceInput {
+  consultant_id: string;
+  entry_type: 'advance';
+  amount: number;
+  paid_on: string;
+  academic_year: number;
+  advance_disposition: AdvanceDisposition;
+  payment_mode?: string | null;
+  reference?: string | null;
+  notes?: string | null;
+}
+
+export interface RateCardAdvance {
+  id: string;
+  consultant_id: string;
+  amount: number;
+  paid_on: string;
+  academic_year: number;
+  advance_disposition: AdvanceDisposition;
+  payment_mode: string | null;
+  reference: string | null;
+  notes: string | null;
+  created_at: string;
+}

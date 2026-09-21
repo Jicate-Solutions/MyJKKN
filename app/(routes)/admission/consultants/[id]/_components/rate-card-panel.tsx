@@ -42,6 +42,7 @@ import {
   HandCoins,
   IndianRupee,
   MoreHorizontal,
+  SlidersHorizontal,
   Plus,
   Trash2,
   Undo2,
@@ -57,6 +58,8 @@ import type {
   RateCardPaymentEntryType,
 } from '@/types/education-consultants'
 import { RateCardPaymentDialog, type PaymentDialogState } from './rate-card-payment-dialog'
+import { RateCardLadderDialog, type LadderDialogState } from './rate-card-ladder-dialog'
+import { RateCardAdvanceDialog } from './rate-card-advance-dialog'
 
 function rupees(value: number | null | undefined): string {
   return formatCurrency(value, { showDecimals: false, minimumFractionDigits: 0, maximumFractionDigits: 0 })
@@ -97,9 +100,14 @@ interface RateCardPanelProps {
 
 export function RateCardPanel({ consultantId }: RateCardPanelProps) {
   const queryClient = useQueryClient()
-  const { can } = usePermissions()
+  const { can, isSuperAdmin, userProfile } = usePermissions()
   // RLS is the real gate; this only hides buttons that would be refused.
   const canManage = can('admission.consultants.commissions.manage')
+  // Recording a payment is 'manage'. CHANGING A RATE is admin-only at the
+  // database (the slabs table's write policy), so the UI gates it the same way —
+  // otherwise the menu offers an action the save will reject.
+  const canSetRates =
+    isSuperAdmin || ['admin', 'super_admin', 'administrator'].includes(String(userProfile?.role ?? ''))
 
   const { data: years, isLoading: yearsLoading } = useQuery({
     queryKey: ['commission-rate-card-years'],
@@ -132,6 +140,44 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
 
   // Payment dialog. `dialogKey` remounts it per open so its form re-initialises
   // from the row that opened it instead of keeping the previous entry's values.
+  // The standard card, so the ladder editor can show what a tweak departs from.
+  const { data: card } = useQuery({
+    queryKey: ['rate-card', year],
+    queryFn: () => ConsultantService.getRateCard(year ?? undefined),
+    enabled: year != null && canSetRates,
+  })
+
+  const { data: ladders } = useQuery({
+    queryKey: ['consultant-ladders', consultantId],
+    queryFn: () => ConsultantService.getConsultantLadders(consultantId),
+    enabled: canSetRates,
+  })
+
+  const { data: advances } = useQuery({
+    queryKey: ['rate-card-advances', consultantId, year],
+    queryFn: () => ConsultantService.getRateCardAdvances(consultantId, year as number),
+    enabled: year != null,
+  })
+
+  const [advanceOpen, setAdvanceOpen] = useState(false)
+
+  const [ladderOpen, setLadderOpen] = useState(false)
+  const [ladderState, setLadderState] = useState<LadderDialogState | null>(null)
+
+  const openLadder = (groupId: string, groupName: string) => {
+    const bands = (ladders || []).filter(b => b.group_id === groupId)
+    const standard =
+      (card?.groups || [])
+        .find((g: any) => g.id === groupId)
+        ?.slabs?.map((sl: any) => ({
+          min_count: Number(sl.min_count),
+          max_count: sl.max_count == null ? null : Number(sl.max_count),
+          amount: Number(sl.amount),
+        })) ?? []
+    setLadderState({ groupId, groupName, bands, standard, note: bands[0]?.note ?? null })
+    setLadderOpen(true)
+  }
+
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dialogKey, setDialogKey] = useState(0)
   const [dialogState, setDialogState] = useState<PaymentDialogState>({
@@ -149,6 +195,8 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
   }
 
   const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ['consultant-ladders', consultantId] })
+    queryClient.invalidateQueries({ queryKey: ['rate-card-advances', consultantId, year] })
     queryClient.invalidateQueries({ queryKey: ['commission-rate-card-earnings', consultantId] })
     queryClient.invalidateQueries({ queryKey: ['commission-rate-card-payments', consultantId] })
   }
@@ -192,10 +240,13 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
         paid: t.paid + r.paid_amount,
         rowBalance: t.rowBalance + r.balance_amount,
         rowExcess: t.rowExcess + r.excess_amount,
+        advanceUsed: t.advanceUsed + (r.advance_applied ?? 0),
       }),
-      { students: 0, earned: 0, paid: 0, rowBalance: 0, rowExcess: 0 }
+      { students: 0, earned: 0, paid: 0, rowBalance: 0, rowExcess: 0, advanceUsed: 0 }
     )
-    const net = t.earned - t.paid
+    // An advance is money already with the agency, so it reduces what is still
+    // owed exactly as a line payment does. Leaving it out would overstate Balance.
+    const net = t.earned - t.paid - t.advanceUsed
     return {
       ...t,
       balance: Math.max(net, 0),
@@ -204,6 +255,11 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
       adjusted: Math.min(t.rowBalance, t.rowExcess),
     }
   }, [rows])
+
+  const advanceGiven = useMemo(
+    () => (advances || []).reduce((sum, a) => sum + a.amount, 0),
+    [advances]
+  )
 
   const feeTotals = useMemo(
     () =>
@@ -242,7 +298,20 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
         id: 'per_student',
         accessorFn: row => row.rate_amount ?? 0,
         header: 'Per Learner',
-        cell: ({ row }) => <MoneyCell value={row.original.rate_amount} />,
+        cell: ({ row }) => (
+          <div className="flex items-center gap-1.5">
+            <MoneyCell value={row.original.rate_amount} />
+            {row.original.is_override && (
+              <Badge
+                variant="outline"
+                className="border-blue-300 text-blue-700 dark:border-blue-700 dark:text-blue-300"
+                title="This agency is on its own ladder for this line, not the standard card."
+              >
+                Agency rate
+              </Badge>
+            )}
+          </div>
+        ),
       },
       {
         id: 'commission',
@@ -255,6 +324,12 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
         accessorFn: row => row.paid_amount,
         header: 'Paid',
         cell: ({ row }) => <MoneyCell value={row.original.paid_amount} className="text-green-700 dark:text-green-400" />,
+      },
+      {
+        id: 'advance',
+        accessorFn: row => row.advance_applied ?? 0,
+        header: 'Advance Used',
+        cell: ({ row }) => <MoneyCell value={row.original.advance_applied} className="text-blue-700 dark:text-blue-400" />,
       },
       {
         id: 'balance',
@@ -296,7 +371,9 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
       },
     ]
 
-    if (canManage) {
+    // An Administrator may change rates but may not hold commissions.manage, so the
+    // column appears for either capability and each item is gated on its own.
+    if (canManage || canSetRates) {
       cols.push({
         id: 'actions',
         header: () => null,
@@ -310,29 +387,40 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onSelect={() =>
-                  openDialog({ editing: null, groupId: row.original.group_id, entryType: 'payment' })
-                }
-              >
-                <HandCoins className="h-4 w-4 mr-2" />
-                Record Payment
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={() =>
-                  openDialog({ editing: null, groupId: row.original.group_id, entryType: 'recovery' })
-                }
-              >
-                <Undo2 className="h-4 w-4 mr-2" />
-                Record Recovery
-              </DropdownMenuItem>
+              {canManage && (
+                <>
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      openDialog({ editing: null, groupId: row.original.group_id, entryType: 'payment' })
+                    }
+                  >
+                    <HandCoins className="h-4 w-4 mr-2" />
+                    Record Payment
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      openDialog({ editing: null, groupId: row.original.group_id, entryType: 'recovery' })
+                    }
+                  >
+                    <Undo2 className="h-4 w-4 mr-2" />
+                    Record Recovery
+                  </DropdownMenuItem>
+                </>
+              )}
+              {canSetRates && (
+                <DropdownMenuItem onSelect={() => openLadder(row.original.group_id, row.original.group_name)}>
+                  <SlidersHorizontal className="h-4 w-4 mr-2" />
+                  {row.original.is_override ? 'Edit agency rate' : 'Set agency rate'}
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         ),
       })
     }
     return cols
-  }, [canManage, totals.excess])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canManage, canSetRates, totals.excess, ladders, card])
 
   const paymentColumns = useMemo<ColumnDef<RateCardPayment>[]>(() => {
     const cols: ColumnDef<RateCardPayment>[] = [
@@ -698,6 +786,65 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
       </Card>
 
       <Card>
+        <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
+          <div>
+            <CardTitle className="text-base">Advances</CardTitle>
+            <CardDescription>
+              Money given to this agency against the {year != null ? yearLabel(year) : 'current'}{' '}
+              intake as a whole, with no college named. It is used up automatically as that year&apos;s admissions
+              come in, starting at the top of the card and working down.
+            </CardDescription>
+          </div>
+          {canManage && year != null && (
+            <Button size="sm" onClick={() => setAdvanceOpen(true)}>
+              <HandCoins className="h-4 w-4 mr-2" />
+              Record Advance
+            </Button>
+          )}
+        </CardHeader>
+        <CardContent>
+          {!advances?.length ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">No advance given for this year.</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2 rounded-md border bg-muted/40 px-4 py-3 text-sm sm:grid-cols-3">
+                <div>
+                  <p className="text-xs text-muted-foreground">Advance given</p>
+                  <p className="font-medium tabular-nums">{rupees(advanceGiven)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Used by admissions so far</p>
+                  <p className="font-medium tabular-nums text-blue-700 dark:text-blue-400">
+                    {rupees(totals.advanceUsed)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Not yet used</p>
+                  <p className="font-medium tabular-nums">{rupees(Math.max(advanceGiven - totals.advanceUsed, 0))}</p>
+                </div>
+              </div>
+              <div className="mt-3 space-y-2">
+                {advances.map(a => (
+                  <div key={a.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium tabular-nums">{rupees(a.amount)}</span>
+                      <span className="text-muted-foreground">{format(new Date(a.paid_on), 'd MMM yyyy')}</span>
+                      {a.reference && <span className="text-muted-foreground">{a.reference}</span>}
+                    </div>
+                    <Badge variant="outline">
+                      {a.advance_disposition === 'carry_forward'
+                        ? 'Unused part carries forward'
+                        : 'Unused part is recoverable'}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
         <CardHeader>
           <CardTitle className="text-base">Payment History</CardTitle>
           <CardDescription>
@@ -766,6 +913,27 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {year != null && (
+        <RateCardAdvanceDialog
+          open={advanceOpen}
+          onOpenChange={setAdvanceOpen}
+          consultantId={consultantId}
+          year={year}
+          outstanding={totals.balance}
+          userId={userProfile?.id ?? null}
+          onSaved={refresh}
+        />
+      )}
+
+      <RateCardLadderDialog
+        open={ladderOpen}
+        onOpenChange={setLadderOpen}
+        consultantId={consultantId}
+        state={ladderState}
+        userId={userProfile?.id ?? null}
+        onSaved={refresh}
+      />
     </div>
   )
 }
