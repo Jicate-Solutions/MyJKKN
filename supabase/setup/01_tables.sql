@@ -7950,6 +7950,14 @@ CREATE TABLE IF NOT EXISTS public.course_applications (
   applicant_name          text NOT NULL,
   applicant_email         text,
   applicant_phone         text NOT NULL,
+  -- Added 2026-09-19 (migration 20260919150000). Where the applicant came from,
+  -- judged purely from the email domain at submission: @jkkn.ac.in is internal,
+  -- anything else external. A SEPARATE question from applicant_type above,
+  -- which records which identity the row points at and is pinned by
+  -- course_applications_identity_chk to 'external' for every public submission
+  -- (a public applicant has no profile_id or learner_id until approval).
+  applicant_origin        text NOT NULL DEFAULT 'external'
+                            CHECK (applicant_origin IN ('internal','external')),
   custom_fields           jsonb NOT NULL DEFAULT '{}'::jsonb,
   status                  text NOT NULL DEFAULT 'pending'
                             CHECK (status IN ('pending','shortlisted','approved','rejected','withdrawn')),
@@ -10174,3 +10182,26 @@ CREATE INDEX IF NOT EXISTS idx_reservation_communications_institution
   ON public.reservation_communications (institution_id);
 
 -- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- Leave eligibility approval flow (flow_for = 'leave_eligibility') — 2026-09-21
+-- Mirror of supabase/migrations/20261225110000_leave_eligibility_approval_flow.sql
+-- ---------------------------------------------------------------------------
+ALTER TABLE public.hr_approval_flows
+  DROP CONSTRAINT IF EXISTS hr_approval_flows_eligibility_no_group_chk;
+
+ALTER TABLE public.hr_approval_flows
+  ADD CONSTRAINT hr_approval_flows_eligibility_no_group_chk CHECK (
+    flow_for <> 'leave_eligibility'
+    OR conditions ->> 'staff_group' IS NULL
+  );
+
+-- COALESCE to '' so the catch-all (no leave_type_id) occupies a slot too;
+-- a NULL in a unique index never collides with anything.
+DROP INDEX IF EXISTS public.hr_approval_flows_eligibility_slot_uniq;
+CREATE UNIQUE INDEX hr_approval_flows_eligibility_slot_uniq
+  ON public.hr_approval_flows (
+    hr_organization_id,
+    (COALESCE(conditions ->> 'leave_type_id', ''))
+  )
+  WHERE flow_for = 'leave_eligibility' AND is_active AND valid_until IS NULL;
