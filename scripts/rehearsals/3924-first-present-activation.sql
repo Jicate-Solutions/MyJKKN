@@ -60,12 +60,17 @@ DECLARE
   v_status_b   text;
   v_template   public.learners_profiles;
   v_row        public.learners_profiles;
+  v_date       date;
+  v_date_b     date;
 BEGIN
   -- Borrow real-but-arbitrary scope ids so no FK anywhere can complain. These
   -- are READ ONLY; nothing about them is modified.
-  SELECT id INTO v_inst      FROM public.institutions       ORDER BY created_at LIMIT 1;
-  SELECT id INTO v_section   FROM public.sections           ORDER BY created_at LIMIT 1;
-  SELECT id INTO v_timetable FROM public.timetables         ORDER BY created_at LIMIT 1;
+  -- 2026-09-22: scope ids are taken FROM THE CLONED LEARNER'S OWN INSTITUTION,
+  -- not from the oldest institution. Production runs
+  -- validate_learner_admission_year_scope(), which refuses a learner whose
+  -- admission_year_id belongs to another institution — and the clone keeps the
+  -- template's admission_year_id. Picking the institution first (first rehearsal,
+  -- 2026-09-22 05:22 IST, rolled back) raised 23514 before any of A/B/C could run.
   SELECT id INTO v_marker    FROM public.profiles WHERE is_active ORDER BY created_at LIMIT 1;
 
   -- ── Two throwaway learners at `admitted` ─────────────────────────────────
@@ -75,7 +80,40 @@ BEGIN
   SELECT * INTO v_template
     FROM public.learners_profiles
    WHERE lifecycle_status::text = 'admitted'
+     AND institution_id IS NOT NULL
+     AND section_id IS NOT NULL
+     AND EXISTS (SELECT 1 FROM public.timetables tx WHERE tx.institution_id = learners_profiles.institution_id)
    ORDER BY created_at LIMIT 1;
+
+  -- The learner keeps its OWN institution and section. validate_learner_semester_year_scope()
+  -- also refuses a section that belongs to another programme, so overriding either field on the
+  -- clone is what breaks, not the change under test (second rehearsal, 2026-09-22, rolled back).
+  v_inst    := v_template.institution_id;
+  -- A free date for this section. student_attendance carries
+  -- idx_unique_consolidated_attendance_record (institution, timetable, section, date),
+  -- so CURRENT_DATE collides with the real register whenever attendance was taken today
+  -- (fourth rehearsal, 2026-09-22, rolled back: 23505). Walk back from today until free.
+  v_section := v_template.section_id;
+  SELECT id INTO v_timetable FROM public.timetables WHERE section_id = v_section ORDER BY created_at LIMIT 1;
+  IF v_timetable IS NULL THEN
+    SELECT id INTO v_timetable FROM public.timetables WHERE institution_id = v_inst ORDER BY created_at LIMIT 1;
+  END IF;
+
+  v_date := CURRENT_DATE;
+  WHILE EXISTS (SELECT 1 FROM public.student_attendance
+                 WHERE institution_id = v_inst AND timetable_id = v_timetable
+                   AND section_id = v_section AND attendance_date = v_date) LOOP
+    v_date := v_date - 1;
+  END LOOP;
+
+  -- The B/C cases write a SECOND consolidated row for the same section, so it
+  -- needs its own free date under the same unique index.
+  v_date_b := v_date - 1;
+  WHILE EXISTS (SELECT 1 FROM public.student_attendance
+                 WHERE institution_id = v_inst AND timetable_id = v_timetable
+                   AND section_id = v_section AND attendance_date = v_date_b) LOOP
+    v_date_b := v_date_b - 1;
+  END LOOP;
 
   IF v_template.id IS NULL THEN
     RAISE EXCEPTION 'REPORT %', jsonb_build_object(
@@ -86,6 +124,11 @@ BEGIN
     to_jsonb(v_template) || jsonb_build_object(
       'id',               k_learner_a,
       'application_id',   NULL,
+      -- learners_profiles carries two UNIQUE columns: application_id and
+      -- college_email. Both are nullable, so the clone drops them rather than
+      -- inventing a value that could collide with a real learner
+      -- (third rehearsal, 2026-09-22, rolled back: 23505 on college_email).
+      'college_email',    NULL,
       'register_number',  NULL,
       'roll_number',      NULL,
       'activated_at',     NULL,
@@ -107,7 +150,7 @@ BEGIN
   INSERT INTO public.student_attendance
     (attendance_date, institution_id, timetable_id, section_id, attendance_data)
   VALUES
-    (CURRENT_DATE, v_inst, v_timetable, v_section,
+    (v_date, v_inst, v_timetable, v_section,
      jsonb_build_object('P1', jsonb_build_object(
        -- The marker lives HERE, in the payload — student_attendance has no
        -- marked_by column. This is the shape the marking screens write.
@@ -129,7 +172,7 @@ BEGIN
   INSERT INTO public.student_attendance
     (attendance_date, institution_id, timetable_id, section_id, attendance_data)
   VALUES
-    (CURRENT_DATE, v_inst, v_timetable, v_section,
+    (v_date_b, v_inst, v_timetable, v_section,
      jsonb_build_object('P1', jsonb_build_object(
        'marked_by_details', jsonb_build_object('marker_id', v_marker::text),
        'students',

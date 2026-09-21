@@ -228,7 +228,14 @@ AS $function$
         '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
 $function$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_present_learner_ids(jsonb) FROM anon, PUBLIC;
+-- 2026-09-22: `authenticated` is revoked EXPLICITLY on every function below, not just
+-- anon + PUBLIC. Supabase ships `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON
+-- FUNCTIONS TO anon, authenticated`, so a new function is born with a DIRECT grant to
+-- authenticated that revoking PUBLIC does not touch — it would be callable by any signed-in
+-- client through PostgREST. A local database has no such default privileges, which is why
+-- the local suite passed; section 9's own guard caught it on the first production rehearsal
+-- (rolled back, 2026-09-22 05:20 IST).
+REVOKE EXECUTE ON FUNCTION public.fn_present_learner_ids(jsonb) FROM anon, authenticated, PUBLIC;
 
 COMMENT ON FUNCTION public.fn_present_learner_ids(jsonb) IS
   'The distinct learners_profiles.id values marked Present anywhere in one student_attendance.attendance_data payload. Case-insensitive on the status token (production holds a lowercase absent). Not granted to anybody: called only from SECURITY DEFINER code that owns it.';
@@ -287,7 +294,7 @@ AS $function$
   LIMIT 1;
 $function$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_attendance_marker_for_learner(jsonb, uuid) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_attendance_marker_for_learner(jsonb, uuid) FROM anon, authenticated, PUBLIC;
 
 COMMENT ON FUNCTION public.fn_attendance_marker_for_learner(jsonb, uuid) IS
   'The profiles.id of whoever marked this learner Present on one student_attendance payload, read from attendance_data -> <period> -> marked_by_details ->> marker_id. There is NO marked_by column on student_attendance; the marking screens and AttendanceCoreService write the marker into the payload. Returns NULL for a missing, empty or non-uuid value rather than raising — it runs inside an attendance save.';
@@ -402,7 +409,7 @@ END;
 $function$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_activate_learners_for_first_present(
-  uuid[], uuid, date, uuid, uuid, uuid, uuid, uuid, text, text, text) FROM anon, PUBLIC;
+  uuid[], uuid, date, uuid, uuid, uuid, uuid, uuid, text, text, text) FROM anon, authenticated, PUBLIC;
 
 COMMENT ON FUNCTION public.fn_activate_learners_for_first_present(
   uuid[], uuid, date, uuid, uuid, uuid, uuid, uuid, text, text, text) IS
@@ -556,7 +563,7 @@ BEGIN
 END;
 $function$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_activate_learner_on_first_present() FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_activate_learner_on_first_present() FROM anon, authenticated, PUBLIC;
 
 COMMENT ON FUNCTION public.fn_activate_learner_on_first_present() IS
   'Moves a reserved/admitted learner to active on their FIRST Present mark (Director ruling 2026-08-11). Gated by platform policy learners.activate_on_first_present.enabled. Activates only learners who BECOME present on this write — an UPDATE that does not move somebody into Present activates nobody. Cannot reject the attendance save: every failure is caught and written to public.learner_activation_failures.';
