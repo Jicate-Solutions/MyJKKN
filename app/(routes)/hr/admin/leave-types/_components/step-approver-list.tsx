@@ -117,7 +117,14 @@ export function StepApproverList({
               </Button>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            {/* TWO LAYOUTS, BECAUSE THE TWO MODES ARE DIFFERENT SHAPES.
+                "Anyone holding a role" is one select, so it sits beside the
+                mode picker comfortably. "One named person" is a search box, a
+                role filter AND a scrolling result list — nesting that inside a
+                half-width column squeezed its own two columns to ~180px each
+                and left a tall empty gap under the mode picker. It gets the
+                full width and stacks instead. */}
+            <div className={a.mode === 'role' ? 'grid gap-3 sm:grid-cols-2' : 'space-y-3'}>
               <div>
                 <Label className="text-xs">Approver is</Label>
                 <Select
@@ -154,8 +161,10 @@ export function StepApproverList({
                   </>
                 ) : (
                   <>
-                    <Label className="text-xs">Person</Label>
-                    <div className="mt-1">
+                    {/* No label here: ApproverPersonPicker labels its own
+                        search field "Person", and printing it twice read as
+                        two separate controls. */}
+                    <div>
                       <ApproverPersonPicker
                         hrOrgId={hrOrgId}
                         roles={roles}

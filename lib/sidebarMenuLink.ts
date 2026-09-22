@@ -577,6 +577,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // whose authority comes from an approval flow rather than a permission key
   // are not blocked at the route layer. See app/(routes)/hr/leave/approvals/page.tsx.
   '/hr/leave/approvals': 'hr.leave.apply',
+  // Eligibility: same reasoning as Approvals above. An approver's authority
+  // here comes from the leave type's approval flow, not from a permission key,
+  // so the static gate is the permissive self-service one and the page itself
+  // shows only what RLS returns — the HR-only half is gated on
+  // hr.leave.types.manage inside the page.
+  '/hr/leave/eligibility': 'hr.leave.apply',
   '/hr/leave/[id]': 'hr.leave.apply',
   // ── Employee Self Service (2026-07-21) ───────────────────────────────────
   // These entries are LOAD-BEARING beyond the sidebar. app/(routes)/hr/layout.tsx
@@ -588,6 +594,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Deleting any line here does not merely hide a menu item; it re-blocks the
   // page.
   '/hr/attendance': 'hr.attendance.view_self',
+  // The Attendance & Time row's "All Attendance" entry (2026-09-21): the same
+  // page, opened on the staff picker. Keyed on view_all — held by the two HR
+  // roles — so the entry never shows to the 76 roles holding only view_self.
+  // Same query-string trick as '/hr/recruitment/approvals?view=all'.
+  '/hr/attendance?view=all': 'hr.attendance.view_all',
   '/hr/attendance/regularize': 'hr.attendance.regularize_self',
   // Biometric punch import — an HR-ops surface, NOT self-service. Without this
   // line it inherited '/hr/attendance' -> hr.attendance.view_self and rendered
@@ -683,6 +694,16 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/events': 'events.view',
   '/courses': 'courses.view',
   '/courses/new': 'courses.create',
+  // The participant's own portal — their enrolment, instalment bills and
+  // receipts. NOT courses.view: that is the admin console's key, and the people
+  // this page is for (an external participant, or a team member/learner whose
+  // identity an approval reused) hold none of the courses.* admin keys. Mapped
+  // deliberately rather than left out, because an unmapped href is hidden by
+  // default from every non-super-admin (see the "hide by default" branch in
+  // GetRoleBasedPages). The key gates no RLS anywhere — the page is self-scoped
+  // by profile_id = auth.uid() — so it is granted to every role and Role
+  // Management is the switch.
+  '/my-courses': 'courses.participant.self',
   '/projects': 'projects.view',
   // Campus Walk — the Director photographs a physical campus condition while
   // walking and it routes as a project_task under CAMPUS-OPS. Same module, so
@@ -1808,6 +1829,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/cdc/drives/new': 'cdc.drives.create',
   '/cdc/drives/[id]': 'cdc.drives.view',
   '/cdc/drives/[id]/responses': 'cdc.drives.view',
+  '/cdc/drives/[id]/participants': 'cdc.drives.view',
+  '/cdc/drives/[id]/selected': 'cdc.drives.view',
+  '/cdc/drives/[id]/documents/bulk-upload': 'cdc.drives.edit',
+  '/cdc/drives/[id]/attendance': 'cdc.drives.view',
+  '/cdc/drives/coordinating': 'cdc.drives.view',
   '/cdc/drives/[id]/notifications': 'cdc.drives.view',
   '/cdc/drives/[id]/edit': 'cdc.drives.edit',
   // Staff view = assigned-learner willingness tracker; learners reach the same
@@ -3032,11 +3058,11 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/leave/my-applications', label: 'My Leave Applications', active: pathname === '/hr/leave/my-applications' },
             { href: '/hr/leave/balance', label: 'My Leave Balance', active: pathname === '/hr/leave/balance' },
             { href: '/hr/leave/encashment', label: 'Leave Encashment', active: pathname === '/hr/leave/encashment' },
+            // Regularize Attendance is deliberately NOT listed here (2026-09-21):
+            // it is reached from the My Attendance page's own chips
+            // (app/(routes)/hr/nav-config.ts), which is also what keeps it in
+            // the reachability manifest.
             { href: '/hr/attendance', label: 'My Attendance', active: pathname === '/hr/attendance' },
-            { href: '/hr/attendance/regularize', label: 'Regularize Attendance', active: pathname.startsWith('/hr/attendance/regularize') },
-            // HR-ops, not self-service: gated on hr.attendance.period.view so it
-            // is invisible to the 22 roles that hold only view_self.
-            { href: '/hr/attendance/close', label: 'Attendance · Month Close', active: pathname.startsWith('/hr/attendance/close') },
             { href: '/hr/performance-reviews', label: 'My Appraisal', active: pathname === '/hr/performance-reviews' },
             { href: '/hr/training', label: 'My Training', active: pathname.startsWith('/hr/training') },
             { href: '/hr/fdp', label: 'My FDP', active: pathname.startsWith('/hr/fdp') },
@@ -3046,29 +3072,180 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/memos/my', label: 'My Memos', active: pathname.startsWith('/hr/memos/my') },
           ]
         },
+        // ── HR Management, grouped BY MODULE (2026-09-21) ────────────────
+        // Until now the group had one "HR" row (leave inbox + payroll mixed)
+        // and one "Admin" row listing 26 pages alphabetically — the salary
+        // register sat under HR while payroll setup sat under Admin, and leave
+        // types were two rows away from the leave inbox. Only Recruitment read
+        // as a module. Every row below is now one module, in the order the
+        // work happens: people → hiring → time off → hours → pay → growth →
+        // comms → setup.
+        //
+        // THE RULE: a page joins the row of its MODULE, never the row of its
+        // URL prefix. /hr/admin/leave-types belongs to Leave; /hr/admin/payroll
+        // belongs to Payroll. No href was added or removed in the regroup and
+        // every one keeps its MENU_PERMISSIONS key, so what a role can see is
+        // unchanged — only where it is listed.
+        //
+        // Row anchors are landings or 307 routes (/hr/leave → requests,
+        // /hr/payroll → organisation), so clicking a row title always lands
+        // somewhere. Each row's `active` is the union of ITS OWN children's
+        // tests, so two accordions never highlight at once; HR Setup keeps the
+        // chip-only pages under /hr (employees, intelligence) that the old HR
+        // row used to claim.
+        //
+        // components/Navbar/menu.tsx anchors a row with hand-authored submenus
+        // on its full href, which is what lets ten rows share the /hr slug.
+        // lib/sidebar-validator.ts warns above 8 rows per group (Academic and
+        // CDC sit at 14); ten was agreed as the right trade for findability.
         {
-          href: '/hr',
-          label: 'HR',
-          // Recruitment and Admin live under /hr/ but have their own menu rows.
-          // /hr/employees is NOT excluded from `active` — it has no sidebar
-          // submenu of its own (product decision 2026-07-21: the employee list
-          // belongs to the Employee row below, which owns the record). It
-          // surfaces as an AutoTabNav chip under /hr and highlights this row.
-          active: pathname === '/hr' || (pathname.startsWith('/hr/') && !pathname.startsWith('/hr/recruitment') && !pathname.startsWith('/hr/admin')),
-          icon: Building,
+          // Employee — people-records row, merged in from the retired
+          // 'Employee Management' group (2026-07-20).
+          //
+          // This is the ONLY employee-list entry in the sidebar (2026-07-21).
+          // It stays on '/staff/list' — the WRITE surface, owning the record
+          // (create/edit/bulk upload/photos). The read-only '/hr/employees'
+          // lens deliberately has no sidebar entry of its own; it reads the
+          // same `staff` table and is reachable as an AutoTabNav chip under
+          // /hr. Repointing this href there would strand the only entry point
+          // for creating and editing staff records.
+          //
+          // Visibility note: GetRoleBasedPages shows this row only if SOME
+          // submenu is permitted. '/staff/list' gates on `staff.view`, held by
+          // 61 roles — so this row is effectively universal. Do not narrow it
+          // to an HR-tier key without checking that count first. The record
+          // setup pages beside it gate on hr.dashboard.view, so the 61 see one
+          // child and HR sees five.
+          //
+          // The parent href stays '/staff' (NOT '/staff/list') so the rest of
+          // the subtree — dashboard, category, class-incharges — remains
+          // reachable as manifest-derived AutoTabNav chips. staff has no
+          // nav-config.ts, so this seed is their only reachability source.
+          href: '/staff',
+          label: 'Employee',
+          active:
+            pathname === '/staff'
+            || pathname.startsWith('/staff/')
+            || pathname.startsWith('/hr/staff-photos')
+            || pathname.startsWith('/hr/admin/designation-mapping')
+            || pathname.startsWith('/hr/admin/required-documents')
+            || pathname.startsWith('/hr/admin/sanctioned-posts'),
+          icon: Users,
           submenus: [
-            // Apply / My Applications / Balance / Encashment moved to the Self
-            // Service row above (2026-07-21). What stays here is the shared and
-            // approver-facing half — duplicating the self-service entries in
-            // both rows would put the same label twice in one group, the exact
-            // confusion the Employee List rename fixed a day earlier.
-            { href: '/hr', label: 'HR Command Center', active: pathname === '/hr' },
-            { href: '/hr/policies', label: 'Policies', active: pathname.startsWith('/hr/policies') },
-            { href: '/hr/leave', label: 'Leave Overview', active: pathname === '/hr/leave' },
-            { href: '/hr/leave/approve', label: 'Leave · Approve Inbox', active: pathname === '/hr/leave/approve' },
-            { href: '/hr/leave/calendar', label: 'Leave · Calendar', active: pathname === '/hr/leave/calendar' },
+            { href: '/staff/list', label: 'Employee List', active: pathname === '/staff/list' },
+            // Approving a photograph is what makes it printable on an identity
+            // card, so it sits with the people records rather than with leave.
+            // Gated on hr.staff_photo.review in MENU_PERMISSIONS, so the 61
+            // roles holding staff.view do not all see it — only reviewers do.
+            { href: '/hr/staff-photos', label: 'Team Member Photographs', active: pathname.startsWith('/hr/staff-photos') },
+            { href: '/hr/admin/designation-mapping', label: 'Designation Mapping', active: pathname.startsWith('/hr/admin/designation-mapping') },
+            { href: '/hr/admin/required-documents', label: 'Required Documents', active: pathname.startsWith('/hr/admin/required-documents') },
+            { href: '/hr/admin/sanctioned-posts', label: 'Sanctioned Posts', active: pathname.startsWith('/hr/admin/sanctioned-posts') },
+          ]
+        },
+        {
+          // Lifecycle — what happens to a record between joining and leaving.
+          href: '/hr/admin/onboarding-checklists',
+          label: 'Lifecycle',
+          active:
+            pathname.startsWith('/hr/admin/onboarding-checklists')
+            || pathname.startsWith('/hr/admin/offboarding')
+            || pathname.startsWith('/hr/admin/terminations')
+            || pathname.startsWith('/hr/admin/disciplinary')
+            || pathname.startsWith('/hr/admin/promotions'),
+          icon: UserCog,
+          submenus: [
+            { href: '/hr/admin/onboarding-checklists', label: 'Onboarding Checklists', active: pathname.startsWith('/hr/admin/onboarding-checklists') },
+            { href: '/hr/admin/offboarding', label: 'Offboarding', active: pathname.startsWith('/hr/admin/offboarding') },
+            { href: '/hr/admin/terminations', label: 'Terminations', active: pathname.startsWith('/hr/admin/terminations') },
+            { href: '/hr/admin/disciplinary', label: 'Disciplinary', active: pathname.startsWith('/hr/admin/disciplinary') },
+            { href: '/hr/admin/promotions', label: 'Promotions', active: pathname.startsWith('/hr/admin/promotions') },
+          ]
+        },
+        {
+          // Recruitment — the hiring pipeline as one unit: need → posting →
+          // submit → approve → interview, with its own setup pages last.
+          href: '/hr/recruitment',
+          label: 'Recruitment',
+          active:
+            pathname.startsWith('/hr/recruitment')
+            || pathname.startsWith('/hr/admin/recruitment-need')
+            || pathname.startsWith('/hr/admin/recruitment-approval-flows')
+            || pathname.startsWith('/hr/admin/recruitment-maintenance'),
+          icon: UserSearch,
+          submenus: [
+            { href: '/hr/recruitment', label: 'Dashboard', active: pathname === '/hr/recruitment' },
+            { href: '/hr/recruitment/jobs', label: 'Job Postings', active: pathname.startsWith('/hr/recruitment/jobs') },
+            { href: '/hr/recruitment/submit', label: 'Apply for Jobs', active: pathname === '/hr/recruitment/submit' },
+            { href: '/hr/recruitment/my', label: 'My Submissions', active: pathname === '/hr/recruitment/my' },
+            { href: '/hr/recruitment/approvals', label: 'Approvals', active: pathname === '/hr/recruitment/approvals' },
+            { href: '/hr/recruitment/interviews', label: 'Interviews', active: pathname.startsWith('/hr/recruitment/interviews') },
+            { href: '/hr/recruitment/approvals?view=all', label: 'All Approvals', active: false },
+            { href: '/hr/admin/recruitment-need', label: 'Recruitment Need', active: pathname.startsWith('/hr/admin/recruitment-need') },
+            { href: '/hr/admin/recruitment-approval-flows', label: 'Recruitment Approval Flows', active: pathname.startsWith('/hr/admin/recruitment-approval-flows') },
+            { href: '/hr/admin/recruitment-maintenance', label: 'Recruitment Maintenance', active: pathname.startsWith('/hr/admin/recruitment-maintenance') },
+          ]
+        },
+        {
+          // Leave — the shared and approver-facing half plus its setup. The
+          // SELF-SERVICE half (apply, my applications, balance, encashment)
+          // lives in the Self Service row above and is excluded from `active`
+          // here so the two rows never highlight together.
+          href: '/hr/leave',
+          label: 'Leave',
+          active:
+            (pathname.startsWith('/hr/leave')
+              && !pathname.startsWith('/hr/leave/apply')
+              && !pathname.startsWith('/hr/leave/my-applications')
+              && !pathname.startsWith('/hr/leave/balance')
+              && !pathname.startsWith('/hr/leave/encashment'))
+            || pathname.startsWith('/hr/admin/leave-types')
+            || pathname.startsWith('/hr/admin/leave-balances')
+            || pathname.startsWith('/hr/admin/academic-years'),
+          icon: CalendarDays,
+          submenus: [
+            { href: '/hr/leave', label: 'Leave Overview', active: pathname === '/hr/leave' || pathname === '/hr/leave/requests' },
+            { href: '/hr/leave/approve', label: 'Approve Inbox', active: pathname === '/hr/leave/approve' },
+            { href: '/hr/leave/calendar', label: 'Calendar', active: pathname === '/hr/leave/calendar' },
+            { href: '/hr/admin/leave-types', label: 'Leave Types', active: pathname.startsWith('/hr/admin/leave-types') },
+            { href: '/hr/admin/leave-balances', label: 'Leave Balances', active: pathname.startsWith('/hr/admin/leave-balances') },
+            // The leave year (Jun 1 → May 31) is what balances reset on, so it
+            // is leave setup rather than institution setup.
+            { href: '/hr/admin/academic-years', label: 'HR Academic Years', active: pathname.startsWith('/hr/admin/academic-years') },
+          ]
+        },
+        {
+          // Attendance & Time — the rules a punch is judged against and the
+          // month that closes them. My Attendance / Regularize stay in Self
+          // Service: they are a person's own record, these are the institution's.
+          href: '/hr/attendance/close',
+          label: 'Attendance & Time',
+          active:
+            pathname.startsWith('/hr/attendance/close')
+            || pathname.startsWith('/hr/admin/shift-timings')
+            || pathname.startsWith('/hr/admin/work-patterns'),
+          icon: Clock,
+          submenus: [
+            // Opens /hr/attendance on the team-member picker for view_all
+            // holders. `active: false` because the pathname carries no query
+            // and /hr/attendance itself belongs to Self Service.
+            { href: '/hr/attendance?view=all', label: 'All Attendance', active: false },
+            { href: '/hr/attendance/close', label: 'Attendance · Month Close', active: pathname.startsWith('/hr/attendance/close') },
+            { href: '/hr/admin/shift-timings', label: 'Shift Timings', active: pathname.startsWith('/hr/admin/shift-timings') },
+            { href: '/hr/admin/work-patterns', label: 'Work Patterns', active: pathname.startsWith('/hr/admin/work-patterns') },
+          ]
+        },
+        {
+          // Payroll — in the order the register needs them filled: who pays,
+          // what they earn, the bands the TDS column derives from, where it
+          // is paid, then the register that reads all four.
+          href: '/hr/payroll',
+          label: 'Payroll',
+          active: pathname.startsWith('/hr/payroll') || pathname.startsWith('/hr/admin/payroll'),
+          icon: Wallet,
+          submenus: [
             // Gates on hr.payroll.institution.view, held by hr_admin / hr_head /
-            // hr_manager only — so this row is invisible to the rest of the HR
+            // hr_manager only — so this entry is invisible to the rest of the HR
             // group rather than visible-and-denied.
             { href: '/hr/payroll/organisation', label: 'Payroll Organisation', active: pathname.startsWith('/hr/payroll/organisation') },
             // Gates on hr.payroll.salary.view — held by hr_head ALONE, plus the
@@ -3084,101 +3261,73 @@ export function GetPages(pathname: string): MenuGroup[] {
             // Administrator via is_super_admin().
             { href: '/hr/payroll/bank-accounts', label: 'Bank Accounts', active: pathname.startsWith('/hr/payroll/bank-accounts') },
             // Gates on hr.payroll.register.view — hr_head alone, plus the Super
-            // Administrator. Last in the group because it is the step AFTER the
-            // three above are populated: the register reads the payer directory,
-            // the salary and the bank account, and reports whichever is missing.
+            // Administrator. After the four above because it is the step AFTER
+            // they are populated: the register reads the payer directory, the
+            // salary and the bank account, and reports whichever is missing.
             { href: '/hr/payroll/register', label: 'Salary Register', active: pathname.startsWith('/hr/payroll/register') },
+            // The /hr/admin/payroll hub (periods, preview) — payroll setup,
+            // listed with payroll rather than under an "Admin" row.
+            { href: '/hr/admin/payroll', label: 'Payroll Setup', active: pathname.startsWith('/hr/admin/payroll') },
           ]
         },
         {
-          // Employee — people-records row, merged in from the retired
-          // 'Employee Management' group (2026-07-20).
-          //
-          // ONE submenu by product decision (2026-07-20): a single employee
-          // list, not five entries.
-          //
-          // This is the ONLY employee-list entry in the sidebar (2026-07-21).
-          // It stays on '/staff/list' — the WRITE surface, owning the record
-          // (create/edit/bulk upload/photos). The read-only '/hr/employees'
-          // lens deliberately has no sidebar entry of its own; it reads the
-          // same `staff` table and is reachable as an AutoTabNav chip under
-          // /hr. Repointing this href there would strand the only entry point
-          // for creating and editing staff records.
-          //
-          // Visibility note: GetRoleBasedPages (~:3100) shows this row only if
-          // SOME submenu is permitted. '/staff/list' gates on `staff.view`,
-          // held by 61 roles — so this row is effectively universal. Do not
-          // narrow it to an HR-tier key without checking that count first.
-          //
-          // The parent href stays '/staff' (NOT '/staff/list') so the rest of
-          // the subtree — dashboard, category, class-incharges — remains
-          // reachable as manifest-derived AutoTabNav chips. staff has no
-          // nav-config.ts, so this seed is their only reachability source.
-          href: '/staff',
-          label: 'Employee',
-          active: pathname === '/staff' || pathname.startsWith('/staff/'),
-          icon: Users,
+          // Development — appraisal and learning, the HR-facing side. The
+          // person's own appraisal / training / FDP stay in Self Service.
+          href: '/hr/admin/performance-reviews',
+          label: 'Development',
+          active:
+            pathname.startsWith('/hr/admin/performance-reviews')
+            || pathname.startsWith('/hr/admin/training')
+            || pathname.startsWith('/hr/admin/fdp'),
+          icon: Award,
           submenus: [
-            { href: '/staff/list', label: 'Employee List', active: pathname === '/staff/list' },
-            // Approving a photograph is what makes it printable on an identity
-            // card, so it sits with the people records rather than with leave.
-            // Gated on hr.staff_photo.review in MENU_PERMISSIONS, so the 61
-            // roles holding staff.view do not all see it — only reviewers do.
-            { href: '/hr/staff-photos', label: 'Team Member Photographs', active: pathname.startsWith('/hr/staff-photos') },
+            { href: '/hr/admin/performance-reviews', label: 'Performance Reviews', active: pathname.startsWith('/hr/admin/performance-reviews') },
+            { href: '/hr/admin/training', label: 'Training', active: pathname.startsWith('/hr/admin/training') },
+            { href: '/hr/admin/fdp', label: 'FDP', active: pathname.startsWith('/hr/admin/fdp') },
           ]
         },
         {
-          // Recruitment — own top-level menu (moved out of the HR dropdown so the
-          // hiring pipeline reads as one unit: screen → submit → approve → interview).
-          href: '/hr/recruitment',
-          label: 'Recruitment',
-          active: pathname.startsWith('/hr/recruitment'),
-          icon: UserSearch,
+          // Engagement — what HR publishes to everyone: policies to read,
+          // memos to send, forms to fill. My Memos stays in Self Service.
+          href: '/hr/policies',
+          label: 'Engagement',
+          active:
+            pathname.startsWith('/hr/policies')
+            || pathname.startsWith('/hr/admin/policies')
+            || pathname.startsWith('/hr/admin/memos')
+            || pathname.startsWith('/hr/admin/forms'),
+          icon: Megaphone,
           submenus: [
-            { href: '/hr/recruitment', label: 'Dashboard', active: pathname === '/hr/recruitment' },
-            { href: '/hr/recruitment/jobs', label: 'Job Postings', active: pathname.startsWith('/hr/recruitment/jobs') },
-            { href: '/hr/recruitment/submit', label: 'Apply for Jobs', active: pathname === '/hr/recruitment/submit' },
-            { href: '/hr/recruitment/my', label: 'My Submissions', active: pathname === '/hr/recruitment/my' },
-            { href: '/hr/recruitment/approvals', label: 'Approvals', active: pathname === '/hr/recruitment/approvals' },
-            { href: '/hr/recruitment/interviews', label: 'Interviews', active: pathname.startsWith('/hr/recruitment/interviews') },
-            { href: '/hr/recruitment/approvals?view=all', label: 'All Approvals', active: false },
+            { href: '/hr/policies', label: 'Policies', active: pathname.startsWith('/hr/policies') },
+            { href: '/hr/admin/policies', label: 'Manage Policies', active: pathname.startsWith('/hr/admin/policies') },
+            { href: '/hr/admin/memos', label: 'Memos', active: pathname.startsWith('/hr/admin/memos') },
+            { href: '/hr/admin/forms', label: 'Forms', active: pathname.startsWith('/hr/admin/forms') },
           ]
         },
         {
-          // HR Admin cluster (/hr/admin) — one submenu per top-level admin
-          // section. All entries gate on hr.dashboard.view, matching the strict
-          // core-HR-only guard on the /hr/admin landing (Director decision, see
-          // app/(routes)/hr/admin/page.tsx); each page still self-gates deeper.
-          href: '/hr/admin',
-          label: 'Admin',
-          active: pathname.startsWith('/hr/admin'),
+          // HR Setup — the two dashboards and the institution-level switches.
+          // Also claims the chip-only pages under /hr that have no row of
+          // their own (/hr/employees, /hr/intelligence), as the old HR row did.
+          // /hr/employees is deliberately NOT a sidebar entry (product decision
+          // 2026-07-21: the employee list belongs to the Employee row, which
+          // owns the record); it surfaces as an AutoTabNav chip under /hr.
+          href: '/hr',
+          label: 'HR Setup',
+          active:
+            pathname === '/hr'
+            || pathname === '/hr/admin'
+            || pathname.startsWith('/hr/admin/automation-rules')
+            || pathname.startsWith('/hr/admin/institutions')
+            || pathname.startsWith('/hr/employees')
+            || pathname.startsWith('/hr/intelligence'),
           icon: Settings,
           submenus: [
-            { href: '/hr/admin', label: 'Dashboard', active: pathname === '/hr/admin' },
+            { href: '/hr', label: 'HR Command Center', active: pathname === '/hr' },
+            // Gates on hr.dashboard.view, matching the strict core-HR-only guard
+            // on the /hr/admin landing (Director decision, see
+            // app/(routes)/hr/admin/page.tsx).
+            { href: '/hr/admin', label: 'Admin Dashboard', active: pathname === '/hr/admin' },
             { href: '/hr/admin/automation-rules', label: 'Automation Rules', active: pathname.startsWith('/hr/admin/automation-rules') },
-            { href: '/hr/admin/designation-mapping', label: 'Designation Mapping', active: pathname.startsWith('/hr/admin/designation-mapping') },
-            { href: '/hr/admin/disciplinary', label: 'Disciplinary', active: pathname.startsWith('/hr/admin/disciplinary') },
-            { href: '/hr/admin/fdp', label: 'FDP', active: pathname.startsWith('/hr/admin/fdp') },
-            { href: '/hr/admin/forms', label: 'Forms', active: pathname.startsWith('/hr/admin/forms') },
-            { href: '/hr/admin/memos', label: 'Memos', active: pathname.startsWith('/hr/admin/memos') },
-            { href: '/hr/admin/offboarding', label: 'Offboarding', active: pathname.startsWith('/hr/admin/offboarding') },
-            { href: '/hr/admin/onboarding-checklists', label: 'Onboarding Checklists', active: pathname.startsWith('/hr/admin/onboarding-checklists') },
-            { href: '/hr/admin/payroll', label: 'Payroll', active: pathname.startsWith('/hr/admin/payroll') },
-            { href: '/hr/admin/performance-reviews', label: 'Performance Reviews', active: pathname.startsWith('/hr/admin/performance-reviews') },
-            { href: '/hr/admin/policies', label: 'Policies', active: pathname.startsWith('/hr/admin/policies') },
-            { href: '/hr/admin/promotions', label: 'Promotions', active: pathname.startsWith('/hr/admin/promotions') },
-            { href: '/hr/admin/recruitment-approval-flows', label: 'Recruitment Approval Flows', active: pathname.startsWith('/hr/admin/recruitment-approval-flows') },
-            { href: '/hr/admin/recruitment-maintenance', label: 'Recruitment Maintenance', active: pathname.startsWith('/hr/admin/recruitment-maintenance') },
-            { href: '/hr/admin/recruitment-need', label: 'Recruitment Need', active: pathname.startsWith('/hr/admin/recruitment-need') },
-            { href: '/hr/admin/required-documents', label: 'Required Documents', active: pathname.startsWith('/hr/admin/required-documents') },
-            { href: '/hr/admin/shift-timings', label: 'Shift Timings', active: pathname.startsWith('/hr/admin/shift-timings') },
-            { href: '/hr/admin/work-patterns', label: 'Work Patterns', active: pathname.startsWith('/hr/admin/work-patterns') },
-            { href: '/hr/admin/terminations', label: 'Terminations', active: pathname.startsWith('/hr/admin/terminations') },
-            { href: '/hr/admin/training', label: 'Training', active: pathname.startsWith('/hr/admin/training') },
-            { href: '/hr/admin/leave-types', label: 'Leave Types', active: pathname.startsWith('/hr/admin/leave-types') },
-            { href: '/hr/admin/leave-balances', label: 'Leave Balances', active: pathname.startsWith('/hr/admin/leave-balances') },
-            { href: '/hr/admin/academic-years', label: 'HR Academic Years', active: pathname.startsWith('/hr/admin/academic-years') },
-            { href: '/hr/admin/sanctioned-posts', label: 'Sanctioned Posts', active: pathname.startsWith('/hr/admin/sanctioned-posts') },
             { href: '/hr/admin/institutions', label: 'Institutions in HR', active: pathname.startsWith('/hr/admin/institutions') },
           ]
         }
@@ -3936,6 +4085,19 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             { href: '/courses', label: 'All Courses', active: pathname === '/courses' },
             { href: '/courses/new', label: 'Create a Course', active: pathname === '/courses/new' },
+            // The participant's own portal, and the ONLY click path to it — it
+            // lives at app/my-courses (outside app/(routes)) so that it does not
+            // mount the admin shell, which also means the route manifest never
+            // discovers it and nothing else in the nav can surface it.
+            //
+            // A submenu rather than its own top-level row on purpose: the parent
+            // "Courses" row is gated on courses.view, which a participating
+            // faculty member or learner does not hold — but GetRoleBasedPages
+            // keeps a parent visible when ANY submenu is accessible ("Show
+            // parent if any submenu is accessible"), so they get the Courses
+            // group containing only this leaf, while a course admin sees all
+            // three.
+            { href: '/my-courses', label: 'My Courses', active: pathname.startsWith('/my-courses') },
           ]
         }
       ]

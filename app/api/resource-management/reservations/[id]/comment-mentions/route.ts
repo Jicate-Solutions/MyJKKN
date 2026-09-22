@@ -35,6 +35,7 @@ import {
 import { grantAndNotifyTags } from '@/lib/services/shared/comment-mention-alerts';
 import { commentWriteMessage } from '@/lib/services/shared/comment-threads';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
 
 const MOD = 'resource-management/reservation-comment-mentions';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -172,6 +173,15 @@ export async function POST(
       };
     },
   });
+
+  // Adoption loop: count the use only when this call created a tag — repeats
+  // and reminders create nothing, and a new tag counts even if its alert is
+  // still to be retried. Recorded BEFORE the error branch: a tag that was
+  // saved and then failed its read-back is still a tag, and a retry would
+  // create nothing to count. `db` is the session client; the helper never throws.
+  if (outcome.created.length > 0) {
+    await recordFeatureUse(db, FEATURE_KEYS.RESOURCES_TAG_COLLEAGUE);
+  }
 
   if (outcome.grantError) {
     logger.error(MOD, 'Tag insert refused', {

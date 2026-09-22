@@ -23,6 +23,7 @@ import {
   isIsoDate,
   isResolvedDateMode,
   monthRange,
+  OTHERS_RESOLVER_KEY,
   tabForStatus,
   type BugStatusTab,
   type ResolvedDateMode
@@ -507,12 +508,18 @@ function AdminBugReportsContent() {
   /** Filter the Resolved tab to one person (or clear it when already active). */
   const toggleResolverFilter = useCallback(
     (resolverId: string | null) => {
+      // Read before setFilters, which updates filtersRef synchronously.
+      const selecting = !!resolverId && filtersRef.current.resolved_by !== resolverId;
       setFilters((prev) => ({
         ...prev,
-        resolved_by:
-          !resolverId || prev.resolved_by === resolverId ? undefined : resolverId,
+        resolved_by: selecting ? resolverId : undefined,
+        // Picking a person means "show me their bugs". A search left in the box
+        // (usually one Bug ID) almost never belongs to the person just clicked,
+        // so the list came back empty and read as a broken person filter.
+        search: selecting ? undefined : prev.search,
         page: 1
       }));
+      if (selecting) setSearchInput('');
       setSelectedReports([]);
     },
     [setFilters]
@@ -1674,6 +1681,11 @@ function AdminBugReportsContent() {
                               type='button'
                               onClick={() => toggleResolverFilter(resolver.resolved_by)}
                               disabled={!resolver.resolved_by}
+                              title={
+                                resolver.resolved_by === OTHERS_RESOLVER_KEY
+                                  ? 'Closed by the reporter answering "No, it works now"'
+                                  : undefined
+                              }
                               aria-pressed={isActive}
                               className={`rounded-full border px-3 py-1 text-xs transition-colors ${
                                 isActive

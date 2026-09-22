@@ -22,6 +22,12 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { CdcWillingnessService } from '@/lib/services/cdc/willingness-service';
+import { getLearnerParticipation } from '@/lib/services/cdc/drive-day';
+
+import { getLearnerOutcome } from '@/lib/services/cdc/drive-selection';
+
+type LearnerParticipation = Awaited<ReturnType<typeof getLearnerParticipation>>;
+type LearnerOutcome = Awaited<ReturnType<typeof getLearnerOutcome>>;
 import { createServiceRoleClient } from '@/lib/supabase/server';
 
 async function getClient() {
@@ -90,7 +96,22 @@ export async function GET(
     if (includeAcademic) {
       return NextResponse.json({ academic: snapshot.academic }, { headers: { 'Cache-Control': 'no-store' } });
     }
-    return NextResponse.json(snapshot, { headers: { 'Cache-Control': 'no-store' } });
+    // The learner's OWN shortlist + attendance state (drive-day slice). Never
+    // blocks the page: a missing table (migration not applied) reads as "nothing yet".
+    let participation: LearnerParticipation = { finalized: false, is_participant: false, attendance_status: null };
+    try {
+      participation = await getLearnerParticipation(createServiceRoleClient(), snapshot.drive, learner.id);
+    } catch (err) {
+      console.warn('[cdc/drives/[id]/willingness] participation lookup skipped:', err);
+    }
+    // Result + own letters, only once the drive has announced results.
+    let outcome: LearnerOutcome = { decision: null, documents: [] };
+    try {
+      outcome = await getLearnerOutcome(createServiceRoleClient(), snapshot.drive, learner.id);
+    } catch (err) {
+      console.warn('[cdc/drives/[id]/willingness] outcome lookup skipped:', err);
+    }
+    return NextResponse.json({ ...snapshot, participation, outcome }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (err) {
     console.error('[cdc/drives/[id]/willingness] GET error', err);
     return NextResponse.json(

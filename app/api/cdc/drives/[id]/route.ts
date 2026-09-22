@@ -52,6 +52,17 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Full detail (history, recruiter, counts, notification summary) is team-member
+    // data. Learners read their own view through ../willingness; assigned
+    // coordinators through ../attendance.
+    const [{ data: canView }, { data: canTrack }] = await Promise.all([
+      supabase.rpc('user_has_permission', { permission_name: 'cdc.drives.view' }),
+      supabase.rpc('user_has_permission', { permission_name: 'cdc.drives.willingness.view' }),
+    ]);
+    if (canView !== true && canTrack !== true) {
+      return NextResponse.json({ error: 'Forbidden — cdc.drives.view required' }, { status: 403 });
+    }
+
     const detail = await CdcDriveService.getDriveDetail(supabase, id);
     if (!detail) {
       return NextResponse.json({ error: 'Drive not found' }, { status: 404 });
