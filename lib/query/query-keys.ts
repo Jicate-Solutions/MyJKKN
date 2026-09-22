@@ -147,5 +147,10 @@ export const queryKeys = {
      *  not what was submitted. */
     match: (email: string, phone: string) =>
       [...queryKeys.courseApplications.all, 'match', email, phone] as const,
+    /** Aggregates for the statistics card. Under `.all`, so the existing
+     *  invalidation after an approve/reject moves the tiles with the table —
+     *  nothing in this app self-refreshes. */
+    stats: (courseEventId: string) =>
+      [...queryKeys.courseApplications.all, 'stats', courseEventId] as const,
   },
 } as const;

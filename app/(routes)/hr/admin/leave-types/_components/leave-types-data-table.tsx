@@ -46,6 +46,7 @@ interface LeaveTypesDataTableProps {
   onAssign: (t: HRLeaveType) => void;
   /** Opens the approval-chain editor for this type. */
   onApprovalFlow: (t: HRLeaveType) => void;
+  onEligibilityFlow: (t: HRLeaveType) => void;
   /** Asks the page to open its archive confirmation. */
   onArchive: (t: HRLeaveType) => void;
   onActivate: (t: HRLeaveType) => Promise<void> | void;
@@ -75,6 +76,7 @@ export function LeaveTypesDataTable({
   onEdit,
   onAssign,
   onApprovalFlow,
+  onEligibilityFlow,
   onArchive,
   onActivate,
   onDelete,
@@ -93,8 +95,8 @@ export function LeaveTypesDataTable({
   const { orgNameById } = useHrOrgMappings();
 
   const columns = useMemo(
-    () => getLeaveTypeColumns({ canManage, onView, onAssign, onEdit, onApprovalFlow, onArchive, onActivate, onDelete, orgNameById, flowCoverage }),
-    [canManage, onView, onAssign, onEdit, onApprovalFlow, onArchive, onActivate, onDelete, orgNameById, flowCoverage]
+    () => getLeaveTypeColumns({ canManage, onView, onAssign, onEdit, onApprovalFlow, onEligibilityFlow, onArchive, onActivate, onDelete, orgNameById, flowCoverage }),
+    [canManage, onView, onAssign, onEdit, onApprovalFlow, onEligibilityFlow, onArchive, onActivate, onDelete, orgNameById, flowCoverage]
   );
 
   const fetchData = useCallback(
@@ -212,6 +214,7 @@ export function LeaveTypesDataTable({
                 onAssign={onAssign}
                 onEdit={onEdit}
                 onApprovalFlow={onApprovalFlow}
+                onEligibilityFlow={onEligibilityFlow}
                 onArchive={onArchive}
                 onActivate={onActivate}
                 onDelete={onDelete}

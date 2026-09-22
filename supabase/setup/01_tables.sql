@@ -7950,6 +7950,14 @@ CREATE TABLE IF NOT EXISTS public.course_applications (
   applicant_name          text NOT NULL,
   applicant_email         text,
   applicant_phone         text NOT NULL,
+  -- Added 2026-09-19 (migration 20260919150000). Where the applicant came from,
+  -- judged purely from the email domain at submission: @jkkn.ac.in is internal,
+  -- anything else external. A SEPARATE question from applicant_type above,
+  -- which records which identity the row points at and is pinned by
+  -- course_applications_identity_chk to 'external' for every public submission
+  -- (a public applicant has no profile_id or learner_id until approval).
+  applicant_origin        text NOT NULL DEFAULT 'external'
+                            CHECK (applicant_origin IN ('internal','external')),
   custom_fields           jsonb NOT NULL DEFAULT '{}'::jsonb,
   status                  text NOT NULL DEFAULT 'pending'
                             CHECK (status IN ('pending','shortlisted','approved','rejected','withdrawn')),
@@ -10175,6 +10183,86 @@ CREATE INDEX IF NOT EXISTS idx_reservation_communications_institution
 
 -- ---------------------------------------------------------------------------
 
+-- ---------------------------------------------------------------------------
+-- Leave eligibility approval flow (flow_for = 'leave_eligibility') — 2026-09-21
+-- Mirror of supabase/migrations/20261225110000_leave_eligibility_approval_flow.sql
+-- ---------------------------------------------------------------------------
+ALTER TABLE public.hr_approval_flows
+  DROP CONSTRAINT IF EXISTS hr_approval_flows_eligibility_no_group_chk;
+
+ALTER TABLE public.hr_approval_flows
+  ADD CONSTRAINT hr_approval_flows_eligibility_no_group_chk CHECK (
+    flow_for <> 'leave_eligibility'
+    OR conditions ->> 'staff_group' IS NULL
+  );
+
+-- COALESCE to '' so the catch-all (no leave_type_id) occupies a slot too;
+-- a NULL in a unique index never collides with anything.
+DROP INDEX IF EXISTS public.hr_approval_flows_eligibility_slot_uniq;
+CREATE UNIQUE INDEX hr_approval_flows_eligibility_slot_uniq
+  ON public.hr_approval_flows (
+    hr_organization_id,
+    (COALESCE(conditions ->> 'leave_type_id', ''))
+  )
+  WHERE flow_for = 'leave_eligibility' AND is_active AND valid_until IS NULL;
+
+-- ---------------------------------------------------------------------------
+-- Shift timings: role and individual overrides — 2026-09-21
+-- Mirror of supabase/migrations/20260921120000_shift_timing_role_and_person_overrides.sql
+-- ---------------------------------------------------------------------------
+ALTER TABLE public.hr_shift_timings
+  ADD COLUMN IF NOT EXISTS role_key text,
+  ADD COLUMN IF NOT EXISTS staff_id uuid REFERENCES public.staff(id) ON DELETE CASCADE;
+
+COMMENT ON COLUMN public.hr_shift_timings.role_key IS
+  'custom_roles.role_key this week applies to. Non-null iff staff_scope = ''role''.';
+COMMENT ON COLUMN public.hr_shift_timings.staff_id IS
+  'The one team member this week applies to. Non-null iff staff_scope = ''staff''; such a row always has applicable_gender = ''all''.';
+
+ALTER TABLE public.hr_shift_timings
+  DROP CONSTRAINT IF EXISTS hr_shift_timings_staff_scope_check;
+ALTER TABLE public.hr_shift_timings
+  ADD CONSTRAINT hr_shift_timings_staff_scope_check
+  CHECK (staff_scope = ANY (ARRAY['teaching','non_teaching','category','role','staff']));
+
+-- One discriminator per scope, and none for the general weeks.
+ALTER TABLE public.hr_shift_timings
+  DROP CONSTRAINT IF EXISTS hr_shift_timings_scope_category_chk;
+ALTER TABLE public.hr_shift_timings
+  DROP CONSTRAINT IF EXISTS hr_shift_timings_scope_shape_chk;
+ALTER TABLE public.hr_shift_timings
+  ADD CONSTRAINT hr_shift_timings_scope_shape_chk CHECK (
+       (staff_scope = 'category'
+          AND employment_category_id IS NOT NULL AND role_key IS NULL AND staff_id IS NULL)
+    OR (staff_scope = 'role'
+          AND role_key IS NOT NULL AND employment_category_id IS NULL AND staff_id IS NULL)
+    OR (staff_scope = 'staff'
+          AND staff_id IS NOT NULL AND employment_category_id IS NULL AND role_key IS NULL
+          AND applicable_gender = 'all')
+    OR (staff_scope IN ('teaching','non_teaching')
+          AND employment_category_id IS NULL AND role_key IS NULL AND staff_id IS NULL)
+  );
+
+-- The current-row unique index must carry BOTH new discriminators, or a role
+-- week and a category week for the same weekday collide and the second save is
+-- refused (the gender rollout hit exactly this).
+DROP INDEX IF EXISTS public.hr_shift_timings_current_uq;
+CREATE UNIQUE INDEX hr_shift_timings_current_uq
+  ON public.hr_shift_timings (
+    institution_id,
+    staff_scope,
+    COALESCE(employment_category_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    COALESCE(role_key, ''),
+    COALESCE(staff_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    applicable_gender,
+    day_of_week
+  )
+  WHERE effective_until IS NULL AND is_active;
+
+CREATE INDEX IF NOT EXISTS hr_shift_timings_staff
+  ON public.hr_shift_timings (staff_id) WHERE staff_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS hr_shift_timings_role
+  ON public.hr_shift_timings (role_key) WHERE role_key IS NOT NULL;
 
 -- ---------------------------------------------------------------------------
 -- learner_activation_failures

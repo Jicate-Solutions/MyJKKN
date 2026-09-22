@@ -18,8 +18,8 @@
 import { truncateAddressForCard, truncateForCard } from './render-data';
 
 /** Average advance per character, in em, for the bundled sans-serif. */
-export const CHAR_RATIO_MIXED = 0.56;
-export const CHAR_RATIO_UPPER = 0.68;
+export const CHAR_RATIO_MIXED = 0.6;
+export const CHAR_RATIO_UPPER = 0.76;
 /** Bold glyphs are a touch wider. */
 export const BOLD_RATIO_BONUS = 0.03;
 /** Wide tracking (letterSpacing) is added on top by the caller via `extraPerChar`. */

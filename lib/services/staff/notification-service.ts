@@ -212,6 +212,61 @@ export class StaffNotificationService {
   }
 
   /**
+   * eligibility_submitted → notify everyone on the current step of an
+   * eligibility request for a gated leave type (2026-09-21).
+   *
+   * Deep-links to the Eligibility page rather than a per-row page: that page
+   * IS the approver's queue, and there is no detail route for one request.
+   */
+  static async notifyEligibilitySubmitted(
+    supabase: SupabaseClient,
+    eligibilityId: string,
+    approverUserIds: string[],
+    staffName: string,
+    leaveTypeName: string
+  ): Promise<number> {
+    return this.dispatch(supabase, {
+      title: 'Leave Eligibility Request Awaiting Approval',
+      message: `${staffName} has requested eligibility for ${leaveTypeName} and attached the supporting document. Please review and decide.`,
+      userIds: approverUserIds,
+      eventType: 'eligibility_submitted',
+      url: '/hr/leave/eligibility',
+      metadata: { reference_id: eligibilityId, staff_name: staffName, leave_type: leaveTypeName },
+    });
+  }
+
+  /**
+   * eligibility_approved | eligibility_rejected → notify the requester.
+   *
+   * Links to Apply Leave either way: on approval the type is now in their
+   * picker, on rejection the "Request again" control sits under it.
+   */
+  static async notifyEligibilityDecided(
+    supabase: SupabaseClient,
+    eligibilityId: string,
+    applicantUserId: string,
+    leaveTypeName: string,
+    approved: boolean,
+    note?: string | null
+  ): Promise<number> {
+    const tail = note ? ` Note: ${note}` : '';
+    return this.dispatch(supabase, {
+      title: approved ? 'Leave Eligibility Approved' : 'Leave Eligibility Rejected',
+      message: approved
+        ? `You are now eligible for ${leaveTypeName}. It appears in your Apply Leave list and needs no document.${tail}`
+        : `Your eligibility request for ${leaveTypeName} was not approved.${tail} You can request again with the document asked for.`,
+      userIds: [applicantUserId],
+      eventType: approved ? 'eligibility_approved' : 'eligibility_rejected',
+      url: '/hr/leave/apply',
+      metadata: {
+        reference_id: eligibilityId,
+        leave_type: leaveTypeName,
+        decision_note: note ?? undefined,
+      },
+    });
+  }
+
+  /**
    * schedule_assigned → notify the staff member assigned to a new shift/class.
    */
   static async notifyScheduleAssigned(

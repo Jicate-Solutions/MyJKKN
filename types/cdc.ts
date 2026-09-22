@@ -163,6 +163,9 @@ export interface CdcDrive {
   circular_size_bytes: number | null;
   circular_uploaded_at: string | null;
   circular_uploaded_by: string | null;
+  /** Set when CDC finalizes the participant list (20260919110000). */
+  participants_finalized_at: string | null;
+  participants_finalized_by: string | null;
   title: string;
   description: string | null;
   status: CdcDriveStatus;
@@ -466,9 +469,12 @@ export const CDC_DRIVE_STATUS_LABELS: Record<CdcDriveStatus, string> = {
   draft: 'Draft',
   announced: 'Announced',
   willingness_open: 'Willingness Open',
-  eligibility_locked: 'Eligibility Locked',
-  attendance_day: 'Attendance Day',
-  results_announced: 'Results Announced',
+  // Workflow labels (2026-09-19). The enum values are unchanged; only what people read:
+  // eligibility_locked = participants finalized, attendance_day = the drive is running,
+  // results_announced = selection finalized.
+  eligibility_locked: 'Participants Finalized',
+  attendance_day: 'Drive In Progress',
+  results_announced: 'Selection Finalized',
   closed: 'Closed',
   cancelled: 'Cancelled',
 };
@@ -575,6 +581,8 @@ export interface CdcDriveAssignedRow {
   institution_id: string | null;
   institution_name: string | null;
   department_name: string | null;
+  program_id: string | null;
+  program_name: string | null;
   semester_order: number | null;
   semester_label: string | null;
   /** Profile contact — released only when the caller may view learner profiles, or the learner consented at submission. */
@@ -619,4 +627,156 @@ export interface CdcLookupsResponse {
   industry_sectors: CdcIndustrySector[];
   offer_types: CdcOfferType[];
   recruiters: CdcRecruiter[];
+}
+
+// =====================================================================================
+// Drive-day slice (20260919110000): participants, coordinators, attendance
+// =====================================================================================
+
+export type CdcDriveAttendanceStatus = 'present' | 'absent' | 'late' | 'excused' | 'not_attended';
+
+export interface CdcDriveAttendanceSummary {
+  total: number;
+  present: number;
+  absent: number;
+  late: number;
+  excused: number;
+  not_attended: number;
+  unmarked: number;
+}
+
+/** An audience row plus its participation state (participants screen). */
+export interface CdcDriveParticipantRow extends CdcDriveAssignedRow {
+  is_participant: boolean;
+  /** Pre-ticked on the screen: Willing before finalization, the saved list after. */
+  proposed: boolean;
+  participant_source: 'willing' | 'added' | null;
+  participant_status: 'active' | 'removed' | null;
+  participant_remarks: string | null;
+  participant_added_at: string | null;
+  participant_notified_at: string | null;
+}
+
+/** A finalized participant plus drive-day attendance (attendance screen). */
+export interface CdcDriveAttendanceRow extends CdcDriveAssignedRow {
+  attendance_status: CdcDriveAttendanceStatus | null;
+  attendance_marked_at: string | null;
+  attendance_marked_by: string | null;
+  attendance_remarks: string | null;
+}
+
+export interface CdcDriveCoordinator {
+  id: string;
+  drive_id: string;
+  staff_id: string;
+  user_id: string | null;
+  assigned_at: string;
+  notified_at: string | null;
+  name: string;
+  staff_code: string | null;
+  designation: string | null;
+  email: string | null;
+  /** false = the staff record has no linked login, so they cannot open the attendance page. */
+  has_login: boolean;
+}
+
+export interface CdcDriveDayAccess {
+  canManage: boolean;
+  canView: boolean;
+  isCoordinator: boolean;
+  canMark: boolean;
+  markBlockedReason: string | null;
+}
+
+// =====================================================================================
+// Drive documents + bulk upload (20260919111000)
+// =====================================================================================
+
+export type CdcDocumentType =
+  | 'offer_letter'
+  | 'appointment_letter'
+  | 'joining_letter'
+  | 'internship_letter'
+  | 'training_letter'
+  | 'salary_letter'
+  | 'other';
+
+/** What to do when the learner already has a current document of this type. */
+export type CdcBulkExistingMode = 'skip' | 'replace' | 'new_version';
+
+export type CdcBulkPreviewStatus =
+  | 'matched'
+  | 'existing'
+  | 'no_match'
+  | 'multiple_match'
+  | 'duplicate_in_batch'
+  | 'invalid';
+
+export interface CdcBulkPreviewRow {
+  file_name: string;
+  size_bytes: number;
+  status: CdcBulkPreviewStatus;
+  learner_id: string | null;
+  learner_name: string | null;
+  register_number: string | null;
+  roll_number: string | null;
+  match_kind: 'register_exact' | 'roll_exact' | 'register_contained' | 'roll_contained' | null;
+  /** Candidates when status = multiple_match. */
+  options: Array<{ learner_id: string; name: string; register_number: string | null }>;
+  existing: { document_id: string; version: number; file_name: string; uploaded_at: string } | null;
+  reason: string | null;
+}
+
+export interface CdcDocumentBatch {
+  id: string;
+  batch_code: string;
+  drive_id: string;
+  document_type: CdcDocumentType;
+  status: 'in_progress' | 'completed' | 'completed_with_errors' | 'abandoned';
+  total_files: number;
+  matched: number;
+  uploaded: number;
+  failed: number;
+  no_match: number;
+  multiple_match: number;
+  existing_found: number;
+  skipped: number;
+  uploaded_by: string | null;
+  uploaded_by_name?: string | null;
+  started_at: string;
+  completed_at: string | null;
+}
+
+// =====================================================================================
+// Selection decisions (20260919112000)
+// =====================================================================================
+
+export type CdcSelectionDecision = 'selected' | 'waitlisted' | 'rejected' | 'hold';
+
+/** A finalized participant with attendance, decision and current documents. */
+export interface CdcDriveSelectionRow extends CdcDriveAttendanceRow {
+  decision: CdcSelectionDecision | null;
+  decision_remarks: string | null;
+  decided_at: string | null;
+  decided_by_name: string | null;
+  documents: Array<{
+    id: string;
+    document_type: CdcDocumentType;
+    file_name: string;
+    version: number;
+    status: string;
+    uploaded_at: string;
+  }>;
+}
+
+export interface CdcDriveSelectionSummary {
+  participants: number;
+  attended: number;
+  selected: number;
+  waitlisted: number;
+  rejected: number;
+  hold: number;
+  undecided: number;
+  offer_uploaded: number;
+  offer_pending: number;
 }

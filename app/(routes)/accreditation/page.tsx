@@ -18,12 +18,14 @@ import { BodyScoreboardCard } from '@/components/accreditation/body-scoreboard-c
 import { coverageBasisNote } from '@/lib/services/accreditation/coverage-measure';
 import { useAccreditationScoreboard } from '@/hooks/accreditation/use-accreditation-scoreboard';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionBodyScope } from '@/hooks/accreditation/use-institution-bodies';
 import { isBodyInScope, appliesToNobody } from './_lib/institution-body-scope';
 
 export default function AccreditationLandingPage() {
   const { data: scoreboard, isLoading } = useAccreditationScoreboard();
   const { profile } = useAuth();
+  const { hasAllInstitutionsScope } = usePermissions();
 
   // The hub is cluster-wide, but the person reading it belongs to one college.
   // Showing a dental card to an engineering HOD is the same wrong-denominator
@@ -36,7 +38,11 @@ export default function AccreditationLandingPage() {
   // Someone sitting in an office or a company answers to no body at all, and
   // for them the hub is the cluster view — narrowing it to nothing would leave
   // a page with no content and no explanation. They see everything, labelled.
-  const narrowing = scope.kind === 'known' && !appliesToNobody(scope);
+  // A reader whose role reaches every institution (super admin, ceo,
+  // managing_director, accreditation_officer — institution_scope 'all') is
+  // never narrowed to their own campus: they answer for every body.
+  const narrowing =
+    !hasAllInstitutionsScope && scope.kind === 'known' && !appliesToNobody(scope);
   const visibleBodies = narrowing
     ? ACCREDITATION_BODIES.filter((meta) => isBodyInScope(scope, meta.code))
     : ACCREDITATION_BODIES;

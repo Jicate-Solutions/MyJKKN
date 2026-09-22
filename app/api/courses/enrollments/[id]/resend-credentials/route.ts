@@ -82,7 +82,7 @@ export const POST = withAuth(
         {
           ok: false,
           error:
-            'Only external participants sign in with a JKKN ID and password. Staff and learners use Google sign-in.',
+            'This person signs in with their own MyJKKN account at /auth/login ("Continue with Google"), not with a JKKN ID and password, so there are no course credentials to reissue. Resetting a password here would lock them out of their own account.',
         },
         { status: 400 },
       );
