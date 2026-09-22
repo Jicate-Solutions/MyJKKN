@@ -382,3 +382,41 @@ export function assessDivisionRosterScope(
     )
   };
 }
+
+/**
+ * Should the teacher be told this roster was never narrowed? (BUG-006034)
+ *
+ * `narrowsNothing` catches only one shape: a division that names nobody AND
+ * shares its sections with a sibling. Two more shapes list the whole host
+ * section just as silently — a division that is the only one on its period
+ * (`sole_division`), and one whose section set happens to be unique
+ * (`narrowed_by_section`) — because a section filter that selects the host
+ * section narrows nothing either. BUG-006034's "Sericulture Batch C" is the
+ * second shape: it names nobody, its own estimated count says 3, and 51 were
+ * listed.
+ *
+ * For those two the section filter cannot be SHOWN to have reduced anything,
+ * so the honest test is the one the teacher can see with their own eyes: the
+ * timetable says how many it expects, and the roster listed more. Without an
+ * expected count there is nothing to compare, and we stay quiet rather than
+ * warn on the 96 practical batches and 32 groups that narrow legitimately.
+ */
+export function shouldWarnUnfilteredRoster(
+  verdict: Pick<RosterDivisionVerdict, 'outcome' | 'narrowsNothing' | 'expectedCount'> | null | undefined,
+  listed: number | null | undefined
+): boolean {
+  if (!verdict) return false;
+  // A division that names its learners has narrowed the roster by definition,
+  // and 'unknown' means no division was chosen at all.
+  if (verdict.outcome === 'narrowed_by_learners' || verdict.outcome === 'unknown') {
+    return false;
+  }
+  if (verdict.narrowsNothing) return true;
+
+  const expected = verdict.expectedCount;
+  if (typeof expected !== 'number' || !Number.isFinite(expected) || expected <= 0) {
+    return false;
+  }
+  if (typeof listed !== 'number' || !Number.isFinite(listed)) return false;
+  return listed > expected;
+}

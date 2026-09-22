@@ -52,7 +52,8 @@ import { logger } from '@/lib/utils/enhanced-logger';
 import {
   verifySectionInTimetableScope,
   resolveAttendanceSaveScope,
-  assessDivisionRosterScope
+  assessDivisionRosterScope,
+  shouldWarnUnfilteredRoster
 } from '@/lib/utils/academic/attendance-section-scope';
 import type {
   RosterDivision,
@@ -1203,7 +1204,11 @@ export default function AttendanceMarkPage() {
             ? assessDivisionRosterScope(chosenDivisionKey, divisions)
             : null;
 
-        if (divisionVerdict?.narrowsNothing) {
+        // Updated: 2026-09-22 (BUG-006034) - a division that names nobody
+        // lists the whole host section whether or not a sibling shares its
+        // sections. shouldWarnUnfilteredRoster adds the two shapes
+        // narrowsNothing misses, using the timetable's own expected count.
+        if (shouldWarnUnfilteredRoster(divisionVerdict, filteredStudents.length)) {
           const divisionKind: RosterDivisionKind = isPractical
             ? 'practical_batch'
             : 'subdivision_group';
@@ -1213,13 +1218,14 @@ export default function AttendanceMarkPage() {
 
           logger.warn(
             'academic/attendance/mark',
-            'Division names no learners and shares its sections with a sibling - the whole section is listed',
+            'Division names no learners - the whole host section is listed',
             {
               periodId,
               timetableId,
               kind: divisionKind,
               divisionKey: chosenDivisionKey,
               divisionLabel,
+              outcome: divisionVerdict.outcome,
               sharesScopeWith: divisionVerdict.sharesScopeWith,
               siblingTeachesAnotherCourse:
                 divisionVerdict.siblingTeachesAnotherCourse,

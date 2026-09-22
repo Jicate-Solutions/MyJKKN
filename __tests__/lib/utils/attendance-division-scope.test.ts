@@ -41,7 +41,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   assessDivisionRosterScope,
-  type RosterDivision
+  shouldWarnUnfilteredRoster,
+  type RosterDivision,
+  type RosterDivisionVerdict
 } from '@/lib/utils/academic/attendance-section-scope';
 
 // Real production identifiers from the two reports.
@@ -413,5 +415,50 @@ describe('the reported production slots, through the page mapping', () => {
     expect(assessDivisionRosterScope('2', namedSubSlots).narrowsNothing).toBe(
       false
     );
+  });
+});
+
+describe('shouldWarnUnfilteredRoster — the shapes narrowsNothing misses (BUG-006034)', () => {
+  const v = (
+    outcome: RosterDivisionVerdict['outcome'],
+    expectedCount: number | null,
+    narrowsNothing = false,
+  ) => ({ outcome, expectedCount, narrowsNothing });
+
+  it('warns for the sibling-sharing case exactly as before', () => {
+    expect(shouldWarnUnfilteredRoster(v('narrows_nothing', null, true), 51)).toBe(true);
+    // ...even with no count to compare, which is what narrowsNothing is for.
+    expect(shouldWarnUnfilteredRoster(v('narrows_nothing', null, true), null)).toBe(true);
+  });
+
+  it('warns for a sole division that names nobody and lists more than it expects', () => {
+    // BUG-006034: Sericulture Batch C, estimated_count 3, 51 listed.
+    expect(shouldWarnUnfilteredRoster(v('sole_division', 3), 51)).toBe(true);
+  });
+
+  it('warns for a uniquely-scoped division that names nobody and lists more than it expects', () => {
+    expect(shouldWarnUnfilteredRoster(v('narrowed_by_section', 3), 51)).toBe(true);
+  });
+
+  it('stays quiet when the roster matches or undercuts the expected count', () => {
+    expect(shouldWarnUnfilteredRoster(v('sole_division', 30), 30)).toBe(false);
+    expect(shouldWarnUnfilteredRoster(v('sole_division', 30), 28)).toBe(false);
+  });
+
+  it('stays quiet when there is no count to compare — the 96 batches that narrow legitimately', () => {
+    expect(shouldWarnUnfilteredRoster(v('sole_division', null), 51)).toBe(false);
+    expect(shouldWarnUnfilteredRoster(v('narrowed_by_section', null), 51)).toBe(false);
+    expect(shouldWarnUnfilteredRoster(v('sole_division', 0), 51)).toBe(false);
+  });
+
+  it('never warns when the division named its learners, or none was chosen', () => {
+    expect(shouldWarnUnfilteredRoster(v('narrowed_by_learners', 3), 51)).toBe(false);
+    expect(shouldWarnUnfilteredRoster(v('unknown', 3), 51)).toBe(false);
+    expect(shouldWarnUnfilteredRoster(null, 51)).toBe(false);
+  });
+
+  it('is not fooled by a missing or non-numeric listed count', () => {
+    expect(shouldWarnUnfilteredRoster(v('sole_division', 3), null)).toBe(false);
+    expect(shouldWarnUnfilteredRoster(v('sole_division', 3), Number.NaN)).toBe(false);
   });
 });
