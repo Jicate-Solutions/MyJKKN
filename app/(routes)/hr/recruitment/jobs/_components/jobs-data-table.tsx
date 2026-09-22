@@ -55,7 +55,7 @@ const STATUS_OPTIONS: ReadonlyArray<EnumOption> = (
   label: JOB_STATUS_LABELS[value],
   hint:
     value === 'open'
-      ? 'Visible to interviewers; flip "Public on /careers" on to also expose it externally.'
+      ? 'Visible to interviewers; turn "Show on website" on to also list it on jkkn.ac.in.'
       : value === 'on_hold'
       ? 'Hidden from public; existing applications stay attached.'
       : value === 'closed'
@@ -173,7 +173,7 @@ function buildFormSchema(
     {
       name: 'is_public',
       kind: 'toggle',
-      englishLabel: 'Public on /careers',
+      englishLabel: 'Show on website',
       englishHint:
         'When on, this job is visible on the public careers page. Best paired with status "Open".',
     },

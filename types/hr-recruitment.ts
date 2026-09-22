@@ -673,6 +673,9 @@ export const JOB_APPLICATION_STATUS_LABELS: Record<JobApplicationStatus, string>
   promoted: 'In Approval Pipeline',
 };
 
+/** 'external_website' = applied anonymously through /api/public/careers (jkkn.ac.in). */
+export type JobApplicationSource = 'internal' | 'external_website';
+
 export interface HRJobApplication {
   id: string;
   job_id: string;
@@ -703,6 +706,11 @@ export interface HRJobApplication {
   applicant_user_id: string | null;
   /** Set when a shortlisted application is promoted into the approval pipeline. */
   promoted_candidate_id: string | null;
+  source: JobApplicationSource;
+  consent_at: string | null;
+  utm_source: string | null;
+  confirmation_email_sent_at: string | null;
+  confirmation_email_error: string | null;
   submitted_at: string;
   created_at: string;
   updated_at: string;
@@ -866,7 +874,7 @@ export interface JobAnalytics {
   by_application_status: Record<JobApplicationStatus, number>;
   by_candidate_status: Partial<Record<CandidateStatus, number>>;
   /** Applications submitted by a logged-in account vs anonymous careers-page. */
-  source_split: { with_account: number; anonymous: number };
+  source_split: { internal: number; website: number };
   /** Mean days from application submit to first screening decision. */
   avg_days_to_screen: number | null;
   /** Mean days a promoted candidate spent (or has spent) in the approval chain. */
