@@ -9,9 +9,20 @@
  *
  * The bucket URLs are public by design (buckets `bug-screenshots` and
  * `bug-reports` are public=true), so no signed-URL work is needed — but the
- * value still has to look like one of ours. Every one of the stored values is a
- * Supabase public-object URL, so that shape is the allowlist: anything else
- * simply renders no image, which is a harmless outcome.
+ * value still has to be one of OURS.
+ *
+ * The path shape alone is not an allowlist. `/storage/v1/object/public/` can be
+ * served by any host, so a value like
+ * `https://evil.example.com/storage/v1/object/public/a.png` satisfies it, and so
+ * does `https://xyz.supabase.co.evil.com/...` — the suffix only LOOKS like ours.
+ * The origin is therefore pinned to the configured Supabase project, and an
+ * unset or unparseable NEXT_PUBLIC_SUPABASE_URL rejects everything rather than
+ * falling open. Rejection renders no image, which is a harmless outcome.
+ *
+ * Not exploitable today — screenshot_url is always server-derived from
+ * getPublicUrl() and /mine returns only the viewer's own rows — so this is
+ * depth, not a live hole. It is here because THIS change is what promotes the
+ * value from an `<img src>` into an `<a href>`.
  *
  * Pure function, no I/O.
  */
@@ -40,5 +51,21 @@ export function safeScreenshotUrl(screenshotUrl: string | null): string | null {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
   if (!parsed.pathname.includes(PUBLIC_OBJECT_PATH)) return null;
 
+  // Pin to our own project. Compared as a parsed origin, never a string suffix:
+  // `xyz.supabase.co.evil.com` ends with nothing we trust once parsed.
+  const expected = supabaseOrigin();
+  if (!expected || parsed.origin !== expected) return null;
+
   return raw;
+}
+
+/** The configured Supabase origin, or null when it is absent or unparseable. */
+function supabaseOrigin(): string | null {
+  const configured = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!configured) return null;
+  try {
+    return new URL(configured).origin;
+  } catch {
+    return null;
+  }
 }
