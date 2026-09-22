@@ -40,6 +40,7 @@ import {
   type RoundRobinCandidate,
   type Slot,
 } from './native-slot-engine';
+import { hostAnyTimeSlotInput } from './host-any-time';
 
 const LOG_PREFIX = '[native-scheduling]';
 
@@ -517,6 +518,8 @@ export class NativeSchedulingService {
     fromIso: string,
     toIso: string,
     excludeOwnGroupBookings: boolean,
+    /** The host is looking at their own diary and asked to see everything. */
+    hostAnyTime = false,
   ): Promise<Slot[]> {
     let busy = await this.loadBusy(supabase, hostProfileId, fromIso, toIso);
     if (excludeOwnGroupBookings) {
@@ -545,6 +548,8 @@ export class NativeSchedulingService {
       fromDate,
       toDate,
       now,
+      // Hours, day-closures and notice replaced; bookings and buffers untouched.
+      ...(hostAnyTime ? hostAnyTimeSlotInput() : {}),
     });
   }
 
@@ -563,7 +568,17 @@ export class NativeSchedulingService {
   static async listSlots(
     supabase: SupabaseClient,
     meetingTypeId: string,
-    opts: { days?: number; now?: Date; displayTimeZone?: string } = {},
+    opts: {
+      days?: number;
+      now?: Date;
+      displayTimeZone?: string;
+      /**
+       * Show the host every time in the day, not only their published hours.
+       * SOLO only, and only from a caller that has already proved the viewer
+       * hosts this booking — it must never widen what a visitor is offered.
+       */
+      hostAnyTime?: boolean;
+    } = {},
   ): Promise<{
     days: Record<string, Slot[]>;
     durationMin: number;
@@ -636,9 +651,13 @@ export class NativeSchedulingService {
       };
     }
 
-    // ── SOLO (default): unchanged ─────────────────────────────────────────────
+    // ── SOLO (default) ────────────────────────────────────────────────────────
+    // The only kind that honours hostAnyTime: group, collective and round-robin
+    // are other people's diaries as much as this host's, and "I may take any
+    // time" is not a claim one host can make over a pool.
     const slots = await this.computeHostSlots(
       supabase, mt.host_profile_id, mt, sched, fromDate, toDate, now, fromIso, toIso, false,
+      opts.hostAnyTime === true,
     );
     return { days: groupSlotsByDate(slots, displayTz), durationMin: mt.duration_min, kind: mt.kind };
   }
@@ -1271,7 +1290,17 @@ export class NativeSchedulingService {
     uid: string,
     auth: { cancelToken?: string; actorProfileId?: string },
     newStart: string,
-    opts: { now?: Date; reason?: PastRescheduleReason } = {},
+    opts: {
+      now?: Date;
+      reason?: PastRescheduleReason;
+      /**
+       * The HOST is moving their own meeting and asked for any time, so the
+       * candidate is judged against the same widened rule the picker showed
+       * them. NEVER set from the public reschedule route: an attendee is still
+       * held to the published hours.
+       */
+      hostAnyTime?: boolean;
+    } = {},
   ): Promise<NativeBookingResult> {
     const { data: booking, error } = await supabase
       .from('meeting_bookings')
@@ -1363,6 +1392,10 @@ export class NativeSchedulingService {
       fromDate: candidateDate,
       toDate: candidateDate,
       now,
+      // Judged by the SAME rule the host was shown. Without this, the picker
+      // would offer times this check then refuses — a grid of buttons that all
+      // fail is worse than not offering them.
+      ...(opts.hostAnyTime === true ? hostAnyTimeSlotInput() : {}),
     });
     const startIso = startDate.toISOString();
     if (!offered.some((s) => s.start === startIso)) {
