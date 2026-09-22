@@ -420,3 +420,45 @@ export function shouldWarnUnfilteredRoster(
   if (typeof listed !== 'number' || !Number.isFinite(listed)) return false;
   return listed > expected;
 }
+
+/**
+ * Who goes in the save payload when the roster was never narrowed (BUG-006034).
+ *
+ * Director ruling 2026-09-22, by tap: when the roster is known to be
+ * unfiltered, nobody is pre-ticked — the teacher ticks only the learners who
+ * actually attended. That is only half the change: both save paths read
+ * `attendanceData[id] || 'Present'`, so an untouched learner would still be
+ * SAVED as present and the empty tick boxes would be cosmetic.
+ *
+ * So on an unfiltered roster an untouched learner is omitted from the payload
+ * entirely (returns null) rather than defaulted. On every ordinary period the
+ * old default stands, because 1,024 marked practical and 150 marked subdivided
+ * periods in the last 90 days rely on it and this ruling was about the elective
+ * case only.
+ */
+export function attendanceStatusForSave(
+  entry: string | null | undefined,
+  rosterUnfiltered: boolean
+): 'Present' | 'Absent' | 'OnDuty' | null {
+  if (entry === 'Present' || entry === 'Absent' || entry === 'OnDuty') {
+    return entry;
+  }
+  // Anything else (undefined, '', an unknown value) is "not marked".
+  return rosterUnfiltered ? null : 'Present';
+}
+
+/** The save rows for one roster, dropping the learners nobody marked. */
+export function attendanceRowsForSave<T extends { id: string }>(
+  roster: readonly T[],
+  attendanceData: Readonly<Record<string, string | undefined>>,
+  rosterUnfiltered: boolean,
+  toRow: (learner: T, status: 'Present' | 'Absent' | 'OnDuty') => Record<string, unknown>
+): Record<string, unknown>[] {
+  const rows: Record<string, unknown>[] = [];
+  for (const learner of roster) {
+    const status = attendanceStatusForSave(attendanceData[learner.id], rosterUnfiltered);
+    if (status === null) continue;
+    rows.push(toRow(learner, status));
+  }
+  return rows;
+}

@@ -42,6 +42,8 @@ import { describe, it, expect } from 'vitest';
 import {
   assessDivisionRosterScope,
   shouldWarnUnfilteredRoster,
+  attendanceStatusForSave,
+  attendanceRowsForSave,
   type RosterDivision,
   type RosterDivisionVerdict
 } from '@/lib/utils/academic/attendance-section-scope';
@@ -460,5 +462,50 @@ describe('shouldWarnUnfilteredRoster — the shapes narrowsNothing misses (BUG-0
   it('is not fooled by a missing or non-numeric listed count', () => {
     expect(shouldWarnUnfilteredRoster(v('sole_division', 3), null)).toBe(false);
     expect(shouldWarnUnfilteredRoster(v('sole_division', 3), Number.NaN)).toBe(false);
+  });
+});
+
+describe('attendanceStatusForSave — nobody pre-ticked must reach the payload (BUG-006034)', () => {
+  it('keeps the old default on every ordinary period', () => {
+    // 1,024 marked practical + 150 marked subdivided periods in 90 days rely on it.
+    expect(attendanceStatusForSave(undefined, false)).toBe('Present');
+    expect(attendanceStatusForSave('', false)).toBe('Present');
+    expect(attendanceStatusForSave('Present', false)).toBe('Present');
+    expect(attendanceStatusForSave('Absent', false)).toBe('Absent');
+    expect(attendanceStatusForSave('OnDuty', false)).toBe('OnDuty');
+  });
+
+  it('drops an untouched learner on an unfiltered roster instead of saving them Present', () => {
+    expect(attendanceStatusForSave(undefined, true)).toBeNull();
+    expect(attendanceStatusForSave('', true)).toBeNull();
+  });
+
+  it('still saves everyone the teacher did tick on an unfiltered roster', () => {
+    expect(attendanceStatusForSave('Present', true)).toBe('Present');
+    expect(attendanceStatusForSave('Absent', true)).toBe('Absent');
+    expect(attendanceStatusForSave('OnDuty', true)).toBe('OnDuty');
+  });
+
+  it('builds the payload for the reported elective: 3 ticked of 51 listed', () => {
+    // BUG-006033: only Elavarasi, Preethi and Rubikasri took zoology as a
+    // non-major; the other 48 must not be in the save at all.
+    const roster = Array.from({ length: 51 }, (_, i) => ({ id: `s${i}` }));
+    const marked = { s0: 'Present', s1: 'Present', s2: 'Absent' } as Record<string, string>;
+
+    const rows = attendanceRowsForSave(roster, marked, true, (l, status) => ({
+      student_id: l.id,
+      status,
+    }));
+    expect(rows).toEqual([
+      { student_id: 's0', status: 'Present' },
+      { student_id: 's1', status: 'Present' },
+      { student_id: 's2', status: 'Absent' },
+    ]);
+
+    // The same roster on an ordinary period still records all 51.
+    expect(attendanceRowsForSave(roster, marked, false, (l, status) => ({
+      student_id: l.id,
+      status,
+    }))).toHaveLength(51);
   });
 });

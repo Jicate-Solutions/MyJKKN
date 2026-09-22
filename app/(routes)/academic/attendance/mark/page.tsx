@@ -53,7 +53,8 @@ import {
   verifySectionInTimetableScope,
   resolveAttendanceSaveScope,
   assessDivisionRosterScope,
-  shouldWarnUnfilteredRoster
+  shouldWarnUnfilteredRoster,
+  attendanceStatusForSave
 } from '@/lib/utils/academic/attendance-section-scope';
 import type {
   RosterDivision,
@@ -75,7 +76,7 @@ import { ProvisionalLearnerIndicatorCompact } from './_components/provisional-le
 import { isProvisionalAttendanceStatus } from '@/lib/constants/provisional-access';
 import type { ApprovedLeaveInfo } from '@/lib/services/academic/leave-onduty-attendance-check-service';
 // Updated: 2026-09-07 - Per-learner attendance history, opened from the roster.
-import { History } from 'lucide-react';
+import { History, Minus } from 'lucide-react';
 import { LearnerAttendanceHistoryDialog } from './components/learner-attendance-history-dialog';
 
 export default function AttendanceMarkPage() {
@@ -163,6 +164,11 @@ export default function AttendanceMarkPage() {
   // being marked names no learners AND covers the same sections as a sibling,
   // so picking it narrows the roster by nothing and the whole host section is
   // listed. Rendered above the roster; see assessDivisionRosterScope.
+  // Added: 2026-09-22 (BUG-006034) - true when the listed roster was never
+  // narrowed, which is what makes "nobody pre-ticked" and "do not default an
+  // untouched learner to Present" apply. Set in the same place as the notice.
+  const [rosterUnfiltered, setRosterUnfiltered] = useState(false);
+
   const [divisionScopeNotice, setDivisionScopeNotice] = useState<{
     kind: RosterDivisionKind;
     label: string;
@@ -1208,7 +1214,11 @@ export default function AttendanceMarkPage() {
         // lists the whole host section whether or not a sibling shares its
         // sections. shouldWarnUnfilteredRoster adds the two shapes
         // narrowsNothing misses, using the timetable's own expected count.
-        if (shouldWarnUnfilteredRoster(divisionVerdict, filteredStudents.length)) {
+        const rosterUnfiltered = shouldWarnUnfilteredRoster(
+          divisionVerdict,
+          filteredStudents.length
+        );
+        if (rosterUnfiltered) {
           const divisionKind: RosterDivisionKind = isPractical
             ? 'practical_batch'
             : 'subdivision_group';
@@ -1246,11 +1256,19 @@ export default function AttendanceMarkPage() {
           setDivisionScopeNotice(null);
         }
 
-        // Initialize attendance data (all present by default)
+        // Initialize attendance data. All present by default — EXCEPT when the
+        // roster was never narrowed (BUG-006034, Director ruling 2026-09-22 by
+        // tap): there the whole host section is listed for an elective only a
+        // few learners took, so nobody is pre-ticked and the teacher ticks who
+        // actually attended. attendanceStatusForSave keeps the untouched ones
+        // out of the payload instead of defaulting them to Present.
         const initialAttendance: Record<string, 'Present' | 'Absent'> = {};
-        filteredStudents.forEach((student: any) => {
-          initialAttendance[student.id] = 'Present';
-        });
+        if (!rosterUnfiltered) {
+          filteredStudents.forEach((student: any) => {
+            initialAttendance[student.id] = 'Present';
+          });
+        }
+        setRosterUnfiltered(rosterUnfiltered);
 
         setStudents(filteredStudents);
         setAttendanceData(initialAttendance);
@@ -1758,16 +1776,25 @@ export default function AttendanceMarkPage() {
                   ? group.student_ids.includes(student.id)
                   : true
               )
-              .map((student) => ({
-                student_id: student.id,
-                section_id:
-                  student.section_id ||
-                  contextData?.section_id ||
-                  effectiveSectionId ||
-                  '',
-                status: attendanceData[student.id] || 'Present',
-                marked_at: new Date().toISOString()
-              }))
+              // flatMap, not map: on an unfiltered roster an untouched learner
+              // is DROPPED, not defaulted to Present (BUG-006034).
+              .flatMap((student) => {
+                const status = attendanceStatusForSave(
+                  attendanceData[student.id],
+                  rosterUnfiltered
+                );
+                if (status === null) return [];
+                return [{
+                  student_id: student.id,
+                  section_id:
+                    student.section_id ||
+                    contextData?.section_id ||
+                    effectiveSectionId ||
+                    '',
+                  status,
+                  marked_at: new Date().toISOString()
+                }];
+              })
           }))
         : [];
 
@@ -1837,16 +1864,25 @@ export default function AttendanceMarkPage() {
           // addition to it — it cannot double-count.
           students: isSubdividedSlot
             ? subdivisionRosterMirror
-            : students.map((student) => ({
-                student_id: student.id,
-                section_id:
-                  student.section_id ||
-                  contextData?.section_id ||
-                  effectiveSectionId ||
-                  '', // Updated: 2025-10-09 - Ensure section_id is always provided
-                status: attendanceData[student.id] || 'Present',
-                marked_at: new Date().toISOString()
-              }))
+            : students.flatMap((student) => {
+                // See above: an untouched learner on an unfiltered roster is
+                // dropped rather than saved as Present (BUG-006034).
+                const status = attendanceStatusForSave(
+                  attendanceData[student.id],
+                  rosterUnfiltered
+                );
+                if (status === null) return [];
+                return [{
+                  student_id: student.id,
+                  section_id:
+                    student.section_id ||
+                    contextData?.section_id ||
+                    effectiveSectionId ||
+                    '', // Updated: 2025-10-09 - Ensure section_id is always provided
+                  status,
+                  marked_at: new Date().toISOString()
+                }];
+              })
         }
       };
 
@@ -2903,7 +2939,11 @@ export default function AttendanceMarkPage() {
                   key={learner.id}
                   className={cn(
                     'border-0 shadow-lg transition-all duration-200 hover:shadow-xl hover:-translate-y-1 cursor-pointer',
-                    attendanceData[learner.id] === 'Present'
+                    // Three states, not two (BUG-006034): an unmarked learner on
+                    // an unfiltered roster must not look "absent".
+                    !attendanceData[learner.id]
+                      ? 'bg-gradient-to-br from-gray-50 to-slate-50 border-l-4 border-l-gray-400 dark:from-gray-900/20 dark:to-slate-900/20'
+                      : attendanceData[learner.id] === 'Present'
                       ? 'bg-gradient-to-br from-green-50 to-emerald-50 border-l-4 border-l-green-500 dark:from-green-900/20 dark:to-emerald-900/20'
                       : 'bg-gradient-to-br from-red-50 to-rose-50 border-l-4 border-l-red-500 dark:from-red-900/20 dark:to-rose-900/20'
                   )}
@@ -2932,12 +2972,16 @@ export default function AttendanceMarkPage() {
                         <div
                           className={cn(
                             'absolute -bottom-1 -right-1 h-6 w-6 rounded-full border-2 border-white flex items-center justify-center shadow-md',
-                            attendanceData[learner.id] === 'Present'
+                            !attendanceData[learner.id]
+                              ? 'bg-gray-400'
+                              : attendanceData[learner.id] === 'Present'
                               ? 'bg-green-500'
                               : 'bg-red-500'
                           )}
                         >
-                          {attendanceData[learner.id] === 'Present' ? (
+                          {!attendanceData[learner.id] ? (
+                            <Minus className='h-3 w-3 text-white' />
+                          ) : attendanceData[learner.id] === 'Present' ? (
                             <Check className='h-3 w-3 text-white' />
                           ) : (
                             <X className='h-3 w-3 text-white' />
@@ -3002,14 +3046,18 @@ export default function AttendanceMarkPage() {
                       {/* Attendance Status */}
                       <Button
                         variant={
-                          attendanceData[learner.id] === 'Present'
+                          !attendanceData[learner.id]
+                            ? 'outline'
+                            : attendanceData[learner.id] === 'Present'
                             ? 'default'
                             : 'destructive'
                         }
                         size='sm'
                         className={cn(
                           'w-full h-8 text-xs font-medium transition-all duration-200',
-                          attendanceData[learner.id] === 'Present'
+                          !attendanceData[learner.id]
+                            ? 'border-dashed text-gray-600 dark:text-gray-300'
+                            : attendanceData[learner.id] === 'Present'
                             ? 'bg-green-600 hover:bg-green-700 shadow-lg shadow-green-200'
                             : 'bg-red-600 hover:bg-red-700 shadow-lg shadow-red-200',
                           existingAttendance &&
@@ -3024,7 +3072,12 @@ export default function AttendanceMarkPage() {
                         }}
                         disabled={existingAttendance && !isEditMode}
                       >
-                        {attendanceData[learner.id] === 'Present' ? (
+                        {!attendanceData[learner.id] ? (
+                          <>
+                            <Minus className='h-3 w-3 mr-1' />
+                            Not marked
+                          </>
+                        ) : attendanceData[learner.id] === 'Present' ? (
                           <>
                             <UserCheck className='h-3 w-3 mr-1' />
                             Present
