@@ -23,11 +23,13 @@ const ROW = {
 };
 
 describe('isJobVisible', () => {
-  it('is visible when public, open and not expired', () => {
+  it('is visible when open and not expired', () => {
     expect(isJobVisible(ROW, NOW)).toBe(true);
   });
+  it('is visible even when the per-job website switch is off — every open job is listed', () => {
+    expect(isJobVisible({ ...ROW, is_public: false }, NOW)).toBe(true);
+  });
   it.each([
-    ['not public', { is_public: false }],
     ['draft', { status: 'draft' }],
     ['closed', { status: 'closed' }],
     ['expired', { closes_at: '2026-09-20T00:00:00Z' }],

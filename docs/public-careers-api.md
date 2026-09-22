@@ -6,7 +6,7 @@ without any login or API key. Three endpoints, JSON in/out, CORS-enabled for
 
 Base URL: `https://<myjkkn-host>/api/public/careers` (ask HR/IT for the production host).
 
-Only jobs HR has marked **Show on website (jkkn.ac.in)** with status **Open** appear.
+Every job with status **Open** (and not past its closing date) appears.
 
 ## 1. List jobs
 
@@ -61,7 +61,7 @@ This endpoint is safe to call from your server (ISR/SSR) or the browser.
 GET /jobs/{id}
 ```
 
-`200 { "data": PublicJob }` or `404` when the job is not public / not open / expired.
+`200 { "data": PublicJob }` or `404` when the job is not open / expired.
 
 ## 3. Apply
 

@@ -43,8 +43,10 @@ const num = (v: unknown): number | null =>
 const strArr = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '') : [];
 
+// Every open job is on the website (HR asked for this 2026-09-22 — 16 of 34 open
+// jobs were hidden behind the per-job switch). `is_public` no longer gates listing.
 export function isJobVisible(row: PublicJobRow, now: Date): boolean {
-  if (row.is_public !== true || row.status !== 'open') return false;
+  if (row.status !== 'open') return false;
   const closes = str(row.closes_at);
   return !closes || new Date(closes).getTime() > now.getTime();
 }

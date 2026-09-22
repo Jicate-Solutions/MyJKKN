@@ -225,9 +225,6 @@ export function JobDetailDialog({
           <Row label="Positions">
             {job.positions_filled} filled / {job.positions_open} open
           </Row>
-          <Row label="Show on website">
-            {job.is_public ? 'Yes' : 'No'}
-          </Row>
           <Row label="Posted">
             {fmtDate(job.posted_at) ?? (
               <span className="text-muted-foreground">Not posted yet</span>
