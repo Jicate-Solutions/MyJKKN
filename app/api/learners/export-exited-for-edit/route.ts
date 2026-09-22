@@ -19,6 +19,7 @@ import { NextRequest, NextResponse , connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { BulkLearnerEditService } from '@/lib/services/bulk-learner-edit-service';
 import { buildBulkEditWorkbook } from '@/lib/services/bulk-learner-edit-workbook';
+import { ID_CARD_TEMPLATE, buildIdCardWorkbook } from '@/lib/services/bulk-learner-id-card-template';
 
 /**
  * GET /api/learners/export-exited-for-edit
@@ -110,6 +111,8 @@ export async function GET(request: NextRequest) {
     // 3. Parse query parameters
     const { searchParams } = new URL(request.url);
     const includeComplete = searchParams.get('include_complete') === 'true';
+    // `template=id_card` → the reduced ID Card Data sheet (same rows, fewer columns).
+    const isIdCard = searchParams.get('template') === ID_CARD_TEMPLATE;
 
     // 4. Get institution filter (non-super-admins can only see their institution)
     const institutionId = profile.is_super_admin
@@ -165,12 +168,14 @@ export async function GET(request: NextRequest) {
     }
 
     // 6. Generate Excel file
-    const workbook = buildBulkEditWorkbook(learners, referenceResolvers);
+    const workbook = isIdCard
+      ? buildIdCardWorkbook(learners)
+      : buildBulkEditWorkbook(learners, referenceResolvers);
     const arrayBuffer = await workbook.xlsx.writeBuffer();
     const buffer = Buffer.from(arrayBuffer as ArrayBuffer);
 
     // Set response headers for file download
-    const filename = `active-learners-${new Date().toISOString().split('T')[0]}.xlsx`;
+    const filename = `${isIdCard ? 'id-card-data' : 'active-learners'}-${new Date().toISOString().split('T')[0]}.xlsx`;
 
     return new NextResponse(buffer, {
       status: 200,

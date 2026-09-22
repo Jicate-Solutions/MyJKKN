@@ -493,6 +493,44 @@ export function canTransition(
   return false;
 }
 
+/**
+ * Moving back (2026-09-22). Every non-terminal stage — and Closed — can step
+ * back exactly one stage along the main path; Cancelled stays final. Nothing
+ * recorded in the later stage is deleted: the stage is simply open for
+ * corrections again. A reason is mandatory (enforced by transitionDrive).
+ */
+export const CDC_DRIVE_PREVIOUS_STATUS: Partial<Record<CdcDriveStatus, CdcDriveStatus>> = {
+  announced: 'draft',
+  willingness_open: 'announced',
+  eligibility_locked: 'willingness_open',
+  attendance_day: 'eligibility_locked',
+  results_announced: 'attendance_day',
+  closed: 'results_announced',
+};
+
+export function previousDriveStatus(from: CdcDriveStatus): CdcDriveStatus | null {
+  return CDC_DRIVE_PREVIOUS_STATUS[from] ?? null;
+}
+
+export function isRollback(from: CdcDriveStatus, to: CdcDriveStatus): boolean {
+  return CDC_DRIVE_PREVIOUS_STATUS[from] === to;
+}
+
+/**
+ * Assigned coordinators (no cdc.drives.edit) may only step back within the
+ * three drive-day stages they work in: Drive In Progress → Participants
+ * Finalized, and Selection Finalized → Drive In Progress. They never move a
+ * drive forward, and Closed is the CDC office's to reopen.
+ */
+export const CDC_COORDINATOR_ROLLBACK_FROM: ReadonlySet<CdcDriveStatus> = new Set<CdcDriveStatus>([
+  'attendance_day',
+  'results_announced',
+]);
+
+export function canCoordinatorRollback(from: CdcDriveStatus, to: CdcDriveStatus): boolean {
+  return CDC_COORDINATOR_ROLLBACK_FROM.has(from) && isRollback(from, to);
+}
+
 // =====================================================================================
 // API response shapes
 // =====================================================================================

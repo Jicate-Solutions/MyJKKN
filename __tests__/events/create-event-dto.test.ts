@@ -20,7 +20,10 @@ import {
   emptyCategoryDraft,
   emptyChiefGuestDraft,
   emptyEventCreateForm,
+  FORM_TAB_ORDER,
+  nextFormTab,
   numOrUndef,
+  prevFormTab,
   orUndef,
   resolveVisibility,
   toIso,
@@ -405,5 +408,28 @@ describe('validateEventForm', () => {
       formWith({ categories: [{ ...emptyCategoryDraft(), name: 'Junior', min_age: '18', max_age: '15' }] }),
     );
     expect(errors.categories).toBeTruthy();
+  });
+});
+
+describe('detail-tab walk (Save & Next)', () => {
+  it('walks Basics → … → Evidence and ends on Evidence', () => {
+    expect(FORM_TAB_ORDER).toEqual([
+      'basics',
+      'schedule',
+      'venue',
+      'people',
+      'registration',
+      'categories',
+      'evidence',
+    ]);
+    expect(nextFormTab('basics')).toBe('schedule');
+    expect(nextFormTab('categories')).toBe('evidence');
+    expect(nextFormTab('evidence')).toBeNull();
+  });
+
+  it('Back walks the tabs in reverse and leaves the step from Basics', () => {
+    expect(prevFormTab('evidence')).toBe('categories');
+    expect(prevFormTab('schedule')).toBe('basics');
+    expect(prevFormTab('basics')).toBeNull();
   });
 });

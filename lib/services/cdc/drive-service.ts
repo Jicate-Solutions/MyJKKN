@@ -26,7 +26,7 @@ import type {
   CdcDriveUpdate,
   CdcRecruiter,
 } from '@/types/cdc';
-import { canTransition, CDC_DRIVE_STATUS_LABELS } from '@/types/cdc';
+import { canTransition, isRollback, CDC_DRIVE_STATUS_LABELS } from '@/types/cdc';
 import {
   CdcEligibilityService,
   ELIGIBILITY_REQUIRED_MESSAGE,
@@ -511,7 +511,16 @@ export class CdcDriveService {
     if (dtErr) throw dtErr;
     const skipStates = (driveType?.skip_states as string[] | null) ?? null;
 
-    if (!canTransition(drive.status, payload.to_status, skipStates)) {
+    // Moving back one stage (2026-09-22): allowed from any non-cancelled stage,
+    // keeps every record of the later stage, and must carry a reason for the
+    // status history. Who may do it is decided by the route (CDC editors, or an
+    // assigned coordinator within the drive-day stages).
+    const rollback = isRollback(drive.status, payload.to_status);
+    if (rollback && !payload.reason?.trim()) {
+      throw new Error('A reason is required to move a drive back to its previous state.');
+    }
+
+    if (!rollback && !canTransition(drive.status, payload.to_status, skipStates)) {
       throw new Error(
         `Invalid transition: ${CDC_DRIVE_STATUS_LABELS[drive.status]} → ${CDC_DRIVE_STATUS_LABELS[payload.to_status]} not allowed`
       );
@@ -569,7 +578,7 @@ export class CdcDriveService {
         transitioned_by: transitionedBy,
         transitioned_at: now,
         reason: payload.reason ?? null,
-        metadata: payload.metadata ?? null,
+        metadata: rollback ? { ...(payload.metadata ?? {}), rollback: true } : (payload.metadata ?? null),
       });
     if (insErr) {
       // Non-fatal: state already changed; surface but don't roll back

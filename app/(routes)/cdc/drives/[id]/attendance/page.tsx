@@ -38,7 +38,9 @@ import {
   useMarkCdcDriveAttendance,
 } from '@/hooks/cdc/use-cdc-drive-day';
 import type { CdcDriveAttendanceStatus } from '@/types/cdc';
+import { CDC_COORDINATOR_ROLLBACK_FROM } from '@/types/cdc';
 import { DriveStatusBadge } from '../../_components/drive-status-badge';
+import { MoveBackButton } from '../../_components/move-back-dialog';
 
 const STATUS_LABEL: Record<CdcDriveAttendanceStatus, string> = {
   present: 'Present',
@@ -266,13 +268,19 @@ export default function CdcDriveAttendancePage({ params }: { params: Promise<{ i
               {drive.venue_label ? <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{drive.venue_label}</span> : null}
             </div>
           </div>
-          {summary.total > 0 ? (
-            <Button asChild variant="outline">
-              <a href={cdcDriveAttendanceExportUrl(id, filter, { institution_id: institution, program_id: program, semester_order: semester })}>
-                <Download className="h-4 w-4 mr-2" /> Download Excel
-              </a>
-            </Button>
-          ) : null}
+          <div className="flex flex-wrap gap-2">
+            {/* Editors may step back from any stage; a coordinator only within the drive-day stages. */}
+            {access.canManage || (access.isCoordinator && CDC_COORDINATOR_ROLLBACK_FROM.has(drive.status)) ? (
+              <MoveBackButton driveId={id} status={drive.status} size="default" />
+            ) : null}
+            {summary.total > 0 ? (
+              <Button asChild variant="outline">
+                <a href={cdcDriveAttendanceExportUrl(id, filter, { institution_id: institution, program_id: program, semester_order: semester })}>
+                  <Download className="h-4 w-4 mr-2" /> Download Excel
+                </a>
+              </Button>
+            ) : null}
+          </div>
         </div>
 
         <div className="grid gap-2 grid-cols-2 md:grid-cols-6">
