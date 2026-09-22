@@ -466,7 +466,15 @@ export class SF100Service extends BaseService {
    * withAuth before reaching here, and this method is read-only.
    */
   static async getEnrollment(enrollmentId: string): Promise<SF100Enrollment | null> {
-    const { data, error } = await createServiceRoleClient()
+    // Read as the CALLER. `sf100_enrollments` is deliberately readable by any
+    // authenticated user (20260331000002, "full transparency"), but the
+    // embedded `registration` row — team name, members, submission — is
+    // limited by `event_registrations_select` to the team owner, admins and
+    // SF100 permission holders (20260706150000). The Director confirmed on
+    // 2026-09-22 that that rule STANDS, so this query is not bypassed: an
+    // owner or admin still gets the whole embed, everyone else gets
+    // `registration: null`.
+    const { data, error } = await this.supabase
       .from('sf100_enrollments')
       .select(ENROLLMENT_DETAIL_SELECT)
       .eq('id', enrollmentId)
@@ -476,7 +484,36 @@ export class SF100Service extends BaseService {
       if (error.code === 'PGRST116') return null;
       throw new Error('Failed to fetch enrollment: ' + error.message);
     }
-    return data as SF100Enrollment;
+
+    const enrollment = data as SF100Enrollment;
+    if (enrollment?.registration) return enrollment;
+
+    // BUG-003233/003234/003235 — "Team details not shown". Three people
+    // reported the team detail page reached from the public leaderboard as
+    // blank, because everything identifying the team lives behind that RLS
+    // rule. Director ruling 2026-09-22, by tap (AskUserQuestion, he was
+    // present): show the TEAM NAME to every signed-in person; members and
+    // submissions stay private.
+    //
+    // So exactly one column is read with elevated rights, for an enrollment
+    // the caller is already allowed to see. Nothing else from
+    // event_registrations is selected here — not the members, not the
+    // submission, not the owner, not the institution — so widening this later
+    // has to be a deliberate edit to this list.
+    if (!enrollment?.registration_id) return enrollment;
+
+    const { data: publicName } = await createServiceRoleClient()
+      .from('event_registrations')
+      .select('team_name')
+      .eq('id', enrollment.registration_id)
+      .maybeSingle();
+
+    if (!publicName?.team_name) return enrollment;
+
+    return {
+      ...enrollment,
+      registration: { team_name: publicName.team_name },
+    } as SF100Enrollment;
   }
 
   /**
@@ -2497,7 +2534,9 @@ export class SF100Service extends BaseService {
       .in('role', ['judge', 'evaluator', 'panel_chair']);
 
     const judgeIds = [
-      ...new Set((assignments || []).map((a: { staff_id: string }) => a.staff_id)),
+      ...new Set<string>(
+        (assignments || []).map((a: { staff_id: string }) => a.staff_id)
+      ),
     ];
 
     if (judgeIds.length === 0) return;
@@ -2561,7 +2600,7 @@ export class SF100Service extends BaseService {
       .in('role', ['judge', 'evaluator', 'panel_chair']);
 
     const judgeIds = [
-      ...new Set(
+      ...new Set<string>(
         (judgeAssignments || []).map((a: { staff_id: string }) => a.staff_id)
       ),
     ];
