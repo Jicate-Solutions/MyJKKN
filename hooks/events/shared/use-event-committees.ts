@@ -87,6 +87,32 @@ export function useAddInternalMembers(eventId: string) {
   });
 }
 
+export function useSetCommitteeLeads(eventId: string) {
+  const invalidate = useInvalidate(eventId);
+  return useMutation({
+    mutationFn: ({
+      committee,
+      people,
+    }: {
+      committee: MarathonCommittee;
+      /** member_id null = no MyJKKN login; kept in the printed name, not in lead_ids. */
+      people: { member_id: string | null; name: string }[];
+    }) => EventCommitteeService.setLeads(committee, people),
+    onSuccess: (_data, { people }) => {
+      invalidate();
+      const noLogin = people.filter((p) => !p.member_id).length;
+      if (noLogin > 0) {
+        toast.success(
+          `Leads updated — ${noLogin} of them has no MyJKKN login, so they are named but cannot add tasks`
+        );
+      } else {
+        toast.success('Leads updated');
+      }
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to update leads'),
+  });
+}
+
 export function useRemoveInternalMember(eventId: string) {
   const invalidate = useInvalidate(eventId);
   return useMutation({

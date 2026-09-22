@@ -4627,6 +4627,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/hr/leave/eligibility",
+            "label": "Eligibility",
+            "iconName": "CalendarOff",
+            "children": []
+          },
+          {
             "path": "/hr/leave/encashment",
             "label": "Encashment",
             "iconName": "CalendarOff",

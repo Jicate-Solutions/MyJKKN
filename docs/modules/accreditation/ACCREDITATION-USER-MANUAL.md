@@ -474,8 +474,7 @@ NAAC is the primary body. It is the only tab with its own sub-menu, because it c
 2. **Four tiles**: **Marks earned** (of 900) · **Coverage (marks-weighted)** · **Metrics earning marks** (N of M) · **Evidence rows**.
    - In cluster view a caveat appears: "Cluster view is a union, not an average… Pick a college above for a score that college could actually claim."
 3. **Buttons**: Coverage matrix · IQAC committees · DCF 2025 / AQAR export · Survey consent · 8.4 Survey export.
-4. **Ten attribute cards** — Attr 1 Curriculum · 2 Faculty Resources · 3 Infrastructure · 4 Financial · 5 Learning & Teaching · 6 Extended Curricular · 7 Governance (incl. IQAC + grievance) · 8 Student Outcomes · 9 Research & Innovation · 10 Sustainability.
-   Each shows "X / Y marks", a percentage bar, evidence rows, and an expandable list of metrics with "earned / possible".
+4. **Ten attribute cards** — Attr 1 Curriculum · 2 Faculty Resources · 3 Infrastructure · 4 Financial · 5 Learning & Teaching · 6 Extended Curricular · 7 Governance (incl. IQAC + grievance) · 8 Student Outcomes · 9 Research & Innovation · 10 Sustainability. Each shows "X / Y marks", a percentage bar, evidence rows, and an expandable list of metrics with "earned / possible".
    - A metric with marks available but no evidence reads **"0 earned — no evidence yet (N marks available)"**.
    - Some metrics carry zero possible marks by design and say why: **"Shares metric X's marks"** (facet rows such as 7.3.d → 7.3.1), **"Affiliated-only — not scored against the Autonomous ceiling"** (⚑ 8.2.2), or **"Superseded starter row"** (9.1.1 → use 9.2; 10.1.1 → use 10.4).
 5. **"Marks by college"** table — **College | Type | Marks (of 900) | % | Evidence**.
@@ -772,7 +771,7 @@ Each card's list opens automatically when it contains a gap. Per metric you see 
 
 **Buttons.** Coverage matrix · SAR generator (soon).
 
-**Ten criterion cards (points).** 1 Vision, Mission & PEOs (50) · 2 POs & COs (150) · 3 Curriculum & Syllabus (100) · 4 Teaching-Learning Processes (100) · 5 Students’ Performance (150) · 6 Faculty Information & Contributions (200) · 7 Facilities & Technical Support (80) · 8 Continuous Improvement (50) · 9 First-year Academics (50) · 10 Student Support Systems (50). Each has a **View N metrics** list.
+**Ten criterion cards (points).** 1 Vision, Mission & PEOs (50) · 2 POs & COs (150) · 3 Curriculum & Syllabus (100) · 4 Teaching-Learning Processes (100) · 5 Students' Performance (150) · 6 Faculty Information & Contributions (200) · 7 Facilities & Technical Support (80) · 8 Continuous Improvement (50) · 9 First-year Academics (50) · 10 Student Support Systems (50). Each has a **View N metrics** list.
 
 **Extra section.** **Uncategorised NBA metrics** appears when a metric matched no criterion.
 
@@ -786,9 +785,7 @@ Each card's list opens automatically when it contains a gap. Per metric you see 
 
 **What it is for.** A **placeholder** for the QS World University Rankings. Nothing is computed. The banner reads "Scaffolding placeholder. Deep QS ranking integration lands in Phase 2 … after Jan 2027."
 
-**Six indicator cards.** AR Academic Reputation (40%) · ER Employer Reputation (10%) · FSR Faculty/Student Ratio (20%) · CIT Citations per Faculty (20%) · ISF International Faculty (5%) · ISS International Students (5%).
-
-Badges: **Seeded** (a catalogue row exists — AR and CIT today) or **Coming Phase 2+** (dimmed). A seeded card shows "— / <max> pts" — nothing is scored.
+**Six indicator cards.** AR Academic Reputation (40%) · ER Employer Reputation (10%) · FSR Faculty/Student Ratio (20%) · CIT Citations per Faculty (20%) · ISF International Faculty (5%) · ISS International Students (5%). Badges: **Seeded** (a catalogue row exists — AR and CIT today) or **Coming Phase 2+** (dimmed). A seeded card shows "— / <max> pts" — nothing is scored.
 
 **Workflow.** Informational only. Expect no change until Phase 2.
 
@@ -804,9 +801,7 @@ Badges: **Seeded** (a catalogue row exists — AR and CIT today) or **Coming Pha
 
 **Tiles.** Metrics seeded · Max score tracked · Evidence rows · Cycle = Annual inspection ("Next: Annual (schedule TBD)").
 
-**Six category cards.** Infrastructure · Faculty · Patient Load · Clinical Exposure · Research & Publications · Ethics & Compliance.
-
-Metrics are bucketed by keywords in their category (e.g. "patient", "opd", "ipd" → Patient Load). Uncategorised metrics are hidden until re-tagged.
+**Six category cards.** Infrastructure · Faculty · Patient Load · Clinical Exposure · Research & Publications · Ethics & Compliance. Metrics are bucketed by keywords in their category (e.g. "patient", "opd", "ipd" → Patient Load). Uncategorised metrics are hidden until re-tagged.
 
 **Warnings.** "JKKN Dental College not found" if the institution row is missing its IQAC code. The DCI catalogue today holds only placeholder entries, so coverage figures describe the catalogue, not DCI's full schedule.
 
@@ -852,7 +847,7 @@ Metrics are bucketed by keywords in their category (e.g. "patient", "opd", "ipd"
 
 **What it is for.** Teacher-education compliance, fixed to **JKKN College of Education** (IQAC code `EDUC`).
 
-**Header.** **NCTE — Teacher Education Compliance** with a **Scope (auto-detected)** box and badge **Fixed scope — 1 college**.
+**Header.** "NCTE — Teacher Education Compliance" with a **Scope (auto-detected)** box and badge "Fixed scope — 1 college".
 
 **Tiles.** Metrics seeded · Max score tracked · Evidence rows · Cycle = Periodic.
 
@@ -892,7 +887,7 @@ Metrics are bucketed by keywords in their category (e.g. "patient", "opd", "ipd"
 
 **Live-evidence card (red).** "Anti-ragging evidence is LIVE on production" — every anti-ragging affidavit recorded in the Anti-ragging module automatically becomes UGC evidence (and NAAC Attr 7, NIRF Outreach, NBA 1.2.2). The card shows the current count for your scope.
 
-**Six domain cards.** 2(f) / 12(B) Status · **Anti-Ragging** (red border, **Live** badge) · Grievance Redressal (UGC Regulations 2023 §5 — fed by NAAC → Grievance resolutions) · Fee Structures · Faculty Recruitment · Student Welfare.
+**Six domain cards.** 2(f) / 12(B) Status · **Anti-Ragging** (red border, "Live" badge) · Grievance Redressal (UGC Regulations 2023 §5 — fed by NAAC → Grievance resolutions) · Fee Structures · Faculty Recruitment · Student Welfare.
 
 **Workflow.** Pick your college → confirm the anti-ragging count matches the affidavits you have collected → resolve grievances in the register to feed Grievance Redressal.
 

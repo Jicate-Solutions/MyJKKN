@@ -114,6 +114,11 @@ AS $$
     WHERE c.drive_id = p_drive_id AND c.user_id = auth.uid()
   );
 $$;
+-- ci:allow-secdef-authenticated Every signed-in user may call this: the RLS read
+-- policies on cdc_drive_participants and cdc_drive_attendance below evaluate it
+-- as the querying user, so authenticated must hold EXECUTE. It answers only about
+-- the CALLER (c.user_id = auth.uid()) - it cannot be asked about anyone else, and
+-- it returns a bare boolean, so there is nothing to disclose beyond "am I one".
 REVOKE ALL ON FUNCTION public.is_cdc_drive_coordinator(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.is_cdc_drive_coordinator(uuid) TO authenticated, service_role;
 
@@ -141,3 +146,14 @@ CREATE POLICY "cdc_drive_attendance_coordinator_read" ON public.cdc_drive_attend
     public.is_cdc_drive_coordinator(drive_id)
     OR learner_id IN (SELECT p.learner_id FROM public.profiles p WHERE p.id = auth.uid())
   );
+
+-- 6. Grants -------------------------------------------------------------------
+-- Updated: 2026-09-19 - explicit anon lock (Supabase's default privileges grant
+-- anon ALL on every new public table; RLS alone is not the lock). Reads go
+-- through the RLS policies above; every write goes through the service role.
+REVOKE ALL ON TABLE public.cdc_drive_participants FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.cdc_drive_coordinators FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.cdc_drive_activity_log FROM anon, PUBLIC;
+GRANT SELECT ON TABLE public.cdc_drive_participants TO authenticated;
+GRANT SELECT ON TABLE public.cdc_drive_coordinators TO authenticated;
+GRANT SELECT ON TABLE public.cdc_drive_activity_log TO authenticated;

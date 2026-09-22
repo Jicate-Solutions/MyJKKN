@@ -387,7 +387,16 @@ export type CourseApplicationStatus = (typeof COURSE_APPLICATION_STATUSES)[numbe
 export const COURSE_APPLICANT_TYPES = ['learner', 'staff', 'external'] as const;
 export type CourseApplicantType = (typeof COURSE_APPLICANT_TYPES)[number];
 
-export interface CourseApplication extends CourseApplicationRow {
+/** Where an applicant came from, from the email domain alone: @jkkn.ac.in is
+ *  internal, anything else external. Distinct from CourseApplicantType, which
+ *  says which identity the row points at and is constrained by
+ *  course_applications_identity_chk. See classifyApplicantOrigin(). */
+export type CourseApplicantOrigin = 'internal' | 'external';
+
+export interface CourseApplication extends Omit<CourseApplicationRow, 'applicant_origin' | 'jkkn_id'> {
+  /** The generated Row carries it as a plain string (regenerated 2026-09-21);
+   *  narrowed here to the two values course_applications_origin_check allows. */
+  applicant_origin: CourseApplicantOrigin;
   form?: { id: string; name: string } | null;
   package?: { id: string; name: string; total_amount: number } | null;
   decided_by_profile?: { id: string; full_name: string | null } | null;
@@ -402,6 +411,11 @@ export interface CourseApplication extends CourseApplicationRow {
     total_payable?: number | null;
     total_paid?: number | null;
     balance?: number | null;
+    /** Decides whether reissuing sign-in details is even possible. Only an
+     *  'external' participant signs in with a JKKN ID and a password; a reused
+     *  learner or team member signs in with their own MyJKKN account, and
+     *  resetting that password from here would be a takeover of it. */
+    participant_type?: CourseParticipantType | null;
   } | null;
   /**
    * The applicant's JKKN ID once they have been provisioned, null while the
@@ -416,6 +430,10 @@ export interface CourseApplication extends CourseApplicationRow {
    * NULL for every learner and staff row, so a reused identity would read
    * "Not issued" too. fn_jkkn_id_of is SECURITY DEFINER, open to all
    * authenticated by design, and walks all three anchors.
+   *
+   * Optional, unlike the generated Row (the computed column now appears there
+   * too since the 2026-09-21 regeneration): callers that select a narrower
+   * column list still build this type without it.
    */
   jkkn_id?: string | null;
 }
@@ -423,8 +441,47 @@ export interface CourseApplication extends CourseApplicationRow {
 export interface CourseApplicationFilters {
   status?: CourseApplicationStatus;
   applicant_type?: CourseApplicantType;
+  applicant_origin?: CourseApplicantOrigin;
   /** Matches name, phone or email. */
   search?: string;
+}
+
+/**
+ * Everything the Applications tab's statistics card shows, from
+ * fn_course_application_stats — one RPC rather than four table scans in the
+ * browser, and one gate rather than four RLS predicates that could each
+ * silently under-report a figure.
+ */
+export interface CourseApplicationStats {
+  ok: true;
+  /** Counts by status and by origin. Every key present, 0 rather than absent. */
+  applications: Record<CourseApplicationStatus, number> & {
+    total: number;
+    internal: number;
+    external: number;
+  };
+  /** Summed from course_enrollments, which fn_course_recompute_balances keeps
+   *  current — summing the bills instead would drift the moment a payment
+   *  landed. collection_pct is computed in SQL with a zero-guard. */
+  fees: {
+    enrollments: number;
+    payable: number;
+    collected: number;
+    outstanding: number;
+    collection_pct: number;
+  };
+  health: {
+    overdue_bills: number;
+    overdue_amount: number;
+    /** Payments that never reached 'success'. NOT proof of a lost sale — a
+     *  webhook may simply not have landed — so this is a prompt to look. */
+    stalled_payments: number;
+    stalled_amount: number;
+  };
+  /** `total` is null when the course sets no capacity, which means unlimited.
+   *  `taken` counts the same enrolment statuses the self-service seat check
+   *  uses, so the card and registration can never disagree. */
+  seats: { total: number | null; taken: number };
 }
 
 /** Per-status counts for the panel's summary row. Every status is present with

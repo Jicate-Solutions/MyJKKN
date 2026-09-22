@@ -20,14 +20,18 @@
 // Rate limit + honeypot copied from app/api/public/forms/[slug]/submit/route.ts.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { isWindowOpen } from '@/lib/services/courses/application-window';
 import {
   EMAIL_KEYS,
   NAME_KEYS,
   PHONE_KEYS,
+  classifyApplicantOrigin,
   pickAnswer,
 } from '@/lib/services/courses/applicant-identity';
+import { generateTemporaryPassword } from '@/lib/utils/temporary-password';
+import { CourseWelcomeEmailService } from '@/lib/services/email/course-welcome-email-service';
+import type { CourseApplicantMatch } from '@/types/courses';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,6 +60,184 @@ function serviceClient() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } },
   );
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Provision the applicant the moment they submit: a login, a JKKN ID, the
+ * enrolment, its instalment bills, and the welcome email carrying the
+ * credentials.
+ *
+ * NEVER throws into the caller and never fails the request. The application row
+ * is already saved as 'pending' before this runs, so anything that goes wrong
+ * here simply leaves a normal application for an admin to approve by hand.
+ * Losing somebody's registration would be far worse than losing the automation.
+ *
+ * Runs through the SERVICE-ROLE client, which is the whole reason migration
+ * 20260919140000 gave fn_course_resolve_applicant, fn_course_approve_application
+ * and fn_issue_jkkn_id a service-role branch: an anonymous request carries no
+ * auth.uid() for their permission gates to read.
+ */
+async function autoProvision(opts: {
+  admin: SupabaseClient;
+  applicationId: string;
+  courseEventId: string;
+  packageId: string | null;
+  totalSeats: number | null;
+  email: string | null;
+  phone: string;
+}): Promise<{ autoApproved: boolean; emailSent: boolean }> {
+  const NO = { autoApproved: false, emailSent: false };
+  const { admin } = opts;
+
+  // 1. There has to be somewhere to send the credentials.
+  const email = (opts.email ?? '').trim().toLowerCase();
+  if (!email || !EMAIL_RE.test(email)) return NO;
+
+  // 2. An enrolment cannot exist without a package to price it, and no bills
+  //    can be raised without an instalment schedule. The RPC refuses both.
+  if (!opts.packageId) return NO;
+  const { count: instalments } = await admin
+    .from('course_package_installments')
+    .select('id', { count: 'exact', head: true })
+    .eq('package_id', opts.packageId);
+  if (!instalments) return NO;
+
+  // 3. Capacity. total_seats was enforced nowhere before self-service, because
+  //    the admin's judgement was the control — and removing the admin removes
+  //    it. NULL still means unlimited. This runs outside the approval
+  //    transaction, so two simultaneous submissions could both take the last
+  //    seat; deliberate, since moving it inside would also stop an admin
+  //    deliberately over-filling a course.
+  if (opts.totalSeats != null) {
+    const { count: taken } = await admin
+      .from('course_enrollments')
+      .select('id', { count: 'exact', head: true })
+      .eq('course_event_id', opts.courseEventId)
+      .in('status', ['active', 'confirmed', 'payment_overdue', 'completed']);
+    if ((taken ?? 0) >= opts.totalSeats) return NO;
+  }
+
+  // 4. WHO is this? Nobody has proved they own this address, so an applicant
+  //    who resolves to somebody holding an INSTITUTIONAL identity — a learner,
+  //    a team member, an associate — is never auto-enrolled. Otherwise a
+  //    stranger could type a published staff address and raise instalment bills
+  //    in that person's name. A prior COURSE PARTICIPANT is a different case:
+  //    they are a returning customer, and their identity is reused rather than
+  //    reissued, so a second course still completes without a human.
+  //    Ambiguous — one address, two people — never auto-approves either.
+  const { data: resolved, error: resolveError } = await admin.rpc(
+    'fn_course_resolve_applicant',
+    { p_email: email, p_phone: opts.phone } as never,
+  );
+  if (resolveError) {
+    console.error('[courses/selfserve] resolve failed:', resolveError.message);
+    return NO;
+  }
+  const match = (resolved ?? null) as unknown as CourseApplicantMatch | null;
+  if (match?.ambiguous) return NO;
+  if (match?.matched && match.person_kind !== 'external_participant') return NO;
+
+  // 5. The login. A returning participant already has one and keeps their
+  //    password — overwriting it would lock them out of their own account.
+  const reusedProfileId = match?.matched ? (match.profile_id ?? null) : null;
+  let authUserId: string | null = reusedProfileId;
+  let tempPassword: string | null = null;
+  let createdAuthUser = false;
+
+  if (!authUserId) {
+    const password = generateTemporaryPassword();
+    const { data: created, error: createError } = await admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { role: 'course_participant' },
+    });
+    if (createError || !created?.user?.id) {
+      // Usually the address already has an auth user with no profile row. An
+      // admin can sort that out; guessing here is how one human ends up with
+      // two logins.
+      console.error('[courses/selfserve] createUser failed:', createError?.message);
+      return NO;
+    }
+    authUserId = created.user.id;
+    tempPassword = password;
+    createdAuthUser = true;
+  }
+
+  // 6. The transaction: profile, JKKN ID, portal role, enrolment, bills.
+  const { data: result, error: rpcError } = await admin.rpc(
+    'fn_course_approve_application',
+    {
+      p_application_id: opts.applicationId,
+      p_auth_user_id: authUserId,
+      p_email: email,
+      p_package_id: opts.packageId,
+      p_decision_note: 'Auto-approved on submission (self-service registration).',
+    } as never,
+  );
+
+  if (rpcError) {
+    // Undo the only thing that lives outside the transaction. Left behind, it
+    // is an auth user with no profile: a login that authenticates and then
+    // resolves to nobody.
+    if (createdAuthUser && authUserId) {
+      const { error: cleanupError } = await admin.auth.admin.deleteUser(authUserId);
+      if (cleanupError) {
+        console.error(
+          '[courses/selfserve] ORPHANED auth user %s after a failed provision: %s',
+          authUserId, cleanupError.message,
+        );
+      }
+    }
+    console.error('[courses/selfserve] approve rpc failed:', rpcError.message);
+    return NO;
+  }
+
+  // 7. The credentials leave here by EMAIL and no other way. They are
+  //    deliberately not returned to the browser: the caller is anonymous and
+  //    unverified, and a password in a public page's network tab is a password
+  //    in somebody's log.
+  const approved = (result ?? {}) as Record<string, unknown>;
+  const [{ data: courseRow }, { data: billRows }] = await Promise.all([
+    admin.from('course_events')
+      .select('title, start_date, end_date, mode, venue_text')
+      .eq('id', opts.courseEventId).maybeSingle(),
+    admin.from('course_bills')
+      .select('installment_no, label, total_amount, due_date')
+      .eq('enrollment_id', String(approved.enrollment_id))
+      .order('installment_no', { ascending: true }),
+  ]);
+  const course = (courseRow ?? {}) as Record<string, string | null>;
+
+  const emailResult = await CourseWelcomeEmailService.sendApprovedEmail({
+    to: email,
+    participantName: String(approved.matched_name ?? '') || 'there',
+    jkknId: String(approved.jkkn_id ?? ''),
+    tempPassword,
+    courseTitle: course.title ?? String(approved.package_name ?? 'your course'),
+    courseStartDate: course.start_date ?? null,
+    courseEndDate: course.end_date ?? null,
+    courseMode: course.mode ?? null,
+    venueText: course.venue_text ?? null,
+    packageName: String(approved.package_name ?? ''),
+    totalPayable: Number(approved.total_payable ?? 0),
+    enrollmentNumber: String(approved.enrollment_no ?? ''),
+    instalments: (billRows ?? []) as never,
+    participantType: (approved.participant_type ?? 'external') as never,
+  });
+
+  if (!emailResult.success) {
+    // They now hold credentials they cannot read. The applicant is told to
+    // contact the institution, which can reissue from the Applications tab.
+    console.error(
+      '[courses/selfserve] provisioned %s but the email did not send: %s',
+      approved.jkkn_id, emailResult.error ?? emailResult.skipReason,
+    );
+  }
+
+  return { autoApproved: true, emailSent: emailResult.success };
 }
 
 /** Digits only, so "+91 98765 43210" and "9876543210" are the same person. */
@@ -108,7 +290,7 @@ export async function POST(
     // ── the course must be published and inside its window ──────────────────
     const { data: course } = await supabase
       .from('course_events')
-      .select('id, institution_id, application_opens_at, application_closes_at')
+      .select('id, institution_id, application_opens_at, application_closes_at, total_seats')
       .eq('slug', slug)
       .eq('status', 'published')
       .maybeSingle();
@@ -302,6 +484,11 @@ export async function POST(
         applicant_name: applicantName,
         applicant_email: applicantEmail,
         applicant_phone: applicantPhone,
+        // Where they came from, from the address alone. applicant_type above
+        // stays 'external' because course_applications_identity_chk ties it to
+        // which identity row this points at, and a public applicant has neither
+        // a profile_id nor a learner_id until approval creates one.
+        applicant_origin: classifyApplicantOrigin(applicantEmail),
         custom_fields: customFields,
         status: 'pending',
       } as any)
@@ -316,8 +503,31 @@ export async function POST(
       );
     }
 
-    // Only the reference. Never the row, never an internal id.
-    return NextResponse.json({ ok: true, reference: reference((application as any).id) });
+    // ── provision immediately ───────────────────────────────────────────────
+    // The pending row above is the durable record; this is the automation on
+    // top of it. It cannot throw, and anything it declines to do leaves a
+    // normal application for an admin to approve exactly as before.
+    const applicationId = (application as any).id as string;
+    const { autoApproved, emailSent } = await autoProvision({
+      admin: supabase,
+      applicationId,
+      courseEventId: c.id,
+      packageId: resolvedPackageId,
+      totalSeats: (c as any).total_seats ?? null,
+      email: applicantEmail,
+      phone: applicantPhone,
+    });
+
+    // The reference, and whether they should go and look at their inbox. Never
+    // the password, and never the JKKN ID: the caller is anonymous, and
+    // returning an id would turn this endpoint into an oracle for whether an
+    // address belongs to somebody.
+    return NextResponse.json({
+      ok: true,
+      reference: reference(applicationId),
+      autoApproved,
+      emailSent,
+    });
   } catch (e) {
     console.error('[api/public/courses/apply] unexpected:', e);
     return NextResponse.json(

@@ -8,6 +8,7 @@ import { getErrorMessage } from '@/lib/utils';
 import type {
   CourseApplicantMatch,
   CourseApplicationFilters,
+  CourseApplicationStats,
   CourseApprovalResult,
   CourseCredentialsResult,
 } from '@/types/courses';
@@ -38,6 +39,22 @@ export function useCourseApplication(id: string) {
     queryKey: queryKeys.courseApplications.detail(id),
     queryFn: () => CourseApplicationService.getById(id),
     enabled: Boolean(id),
+  });
+}
+
+/**
+ * Aggregates for the Applications tab statistics card.
+ *
+ * Keyed under courseApplications.all, so useInvalidateApplications() — which
+ * every approve and reject already calls — moves the tiles with the table. A
+ * card that keeps showing "1 pending" after you approved the last one is worse
+ * than no card.
+ */
+export function useCourseApplicationStats(courseEventId: string) {
+  return useQuery<CourseApplicationStats>({
+    queryKey: queryKeys.courseApplications.stats(courseEventId),
+    queryFn: () => CourseApplicationService.statsByCourse(courseEventId),
+    enabled: Boolean(courseEventId),
   });
 }
 
