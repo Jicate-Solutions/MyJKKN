@@ -37,6 +37,10 @@ interface RoomRow {
   is_reservable: boolean | null;
   caretaker_user_id: string | null;
   caretaker_user_ids: string[] | null;
+  approval_config: {
+    enabled?: boolean;
+    approvers?: { user_id?: string | null; level?: number | null }[] | null;
+  } | null;
 }
 
 /** One day's occupancy window — the grain the room is actually held at. */
@@ -153,11 +157,31 @@ export interface HoldEventVenueResult {
 }
 
 /** Caretaker user-ids (single + array columns), de-duped, as approver records. */
+/** The room's configured approval chain (resource-form levels), in level order. */
+function configApprovers(room: RoomRow): { user_id: string; level?: number }[] {
+  const cfg = room.approval_config;
+  if (!cfg || cfg.enabled === false) return [];
+  const seen = new Set<string>();
+  return (cfg.approvers ?? [])
+    .filter((a): a is { user_id: string; level?: number | null } => {
+      if (!a?.user_id || seen.has(a.user_id)) return false;
+      seen.add(a.user_id);
+      return true;
+    })
+    .sort((a, b) => (a.level ?? 0) - (b.level ?? 0))
+    .map((a) => ({ user_id: a.user_id, level: a.level ?? undefined }));
+}
+
+// Fallback for rooms with no configured chain.
+// One level per caretaker, NOT all at level 1: resource_approvals has
+// UNIQUE (reservation_id, approval_level), so a room with two or more
+// caretakers used to fail the whole chain insert (23505) — the reservation sat
+// 'pending' with no approval rows, invisible to every approver.
 function caretakerApprovers(room: RoomRow): { user_id: string; level?: number }[] {
   const ids = new Set<string>();
   if (room.caretaker_user_id) ids.add(room.caretaker_user_id);
   for (const id of room.caretaker_user_ids ?? []) if (id) ids.add(id);
-  return [...ids].map((user_id) => ({ user_id, level: 1 }));
+  return [...ids].map((user_id, i) => ({ user_id, level: i + 1 }));
 }
 
 /**
@@ -237,7 +261,9 @@ export async function holdEventVenue(args: HoldEventVenueArgs): Promise<HoldEven
 
   const { data: room, error } = await supabase
     .from('resources')
-    .select('name, institution_id, booking_type, is_reservable, caretaker_user_id, caretaker_user_ids')
+    .select(
+      'name, institution_id, booking_type, is_reservable, caretaker_user_id, caretaker_user_ids, approval_config',
+    )
     .eq('id', args.resourceId)
     .maybeSingle();
 
@@ -253,13 +279,23 @@ export async function holdEventVenue(args: HoldEventVenueArgs): Promise<HoldEven
   const sameCollege =
     !!r.institution_id && !!args.eventInstitutionId && r.institution_id === args.eventInstitutionId;
   const approvalMode: 'auto' | 'require' = sameCollege ? 'auto' : 'require';
-  const approvers = sameCollege ? [] : caretakerApprovers(r);
 
-  // Cross-college rooms need the owning college's caretaker to approve. If the
-  // room has NO resolvable approver, don't create a 'pending' reservation that
-  // no one can ever approve (a stuck hold + a false "they'll approve it" promise).
-  // Refuse honestly instead. (Caretaker ids are profiles.id == auth.uid(), which
-  // is exactly what the approval RPC checks — verified live, all 55 rooms.)
+  // Cross-college rooms are released by the room's OWN approval chain — the
+  // levels the owning college configured on the resource (e.g. COO → CAO) —
+  // exactly as a direct booking in Resource Management would be. That is also
+  // the only list approve_reservation() authorizes against, so seeding anyone
+  // else (this used to seed every caretaker) produces chain entries that can
+  // never act. Caretakers are the fallback only when no chain is configured.
+  const configuredApprovers = configApprovers(r);
+  const approvers = sameCollege
+    ? []
+    : configuredApprovers.length > 0
+      ? configuredApprovers
+      : caretakerApprovers(r);
+
+  // If the room has NO resolvable approver, don't create a 'pending' reservation
+  // that no one can ever approve (a stuck hold + a false "they'll approve it"
+  // promise). Refuse honestly instead.
   if (!sameCollege && approvers.length === 0) {
     return {
       held: false,
