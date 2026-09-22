@@ -600,3 +600,119 @@ describe('registerBasisFor — scheduled_days is the divisor for everyone', () =
     expect(r.net_pay).toBe(12000);
   });
 });
+
+/**
+ * THE PAID-LEAVE BREAKDOWN (2026-09-22).
+ *
+ * The register detail table shows Casual leave, Comp off and Other paid leave
+ * as their own columns, so the three have to be a real partition of
+ * paid_leave_days — never a re-derivation on the screen that can drift, and
+ * never a pair that quietly loses a Clinical day.
+ *
+ * OD- and CD-typed leave stays OUT of the split: it is already moved into the
+ * On Duty column, so it is outside paid_leave_days to begin with.
+ */
+describe('computeRegisterLine — the paid-leave breakdown', () => {
+  it('splits CL out of a leave_by_type that also carries CD', () => {
+    // COP019, Pharmacy August 2026: CL 1 + CD 3, 17.5 worked, 21.5 paid.
+    const r = computeRegisterLine({
+      monthlyGross: 23000,
+      workingDaysBasis: 23,
+      summary: summary({
+        present_days: 17.5,
+        leave_days: 4,
+        leave_by_type: { CL: 1, CD: 3 },
+        payable_days: 21.5,
+      }),
+    });
+
+    expect(r.casual_leave_days).toBe(1);
+    expect(r.comp_off_days).toBe(0);
+    expect(r.other_paid_leave_days).toBe(0);
+    // Unchanged by the breakdown: CD is on duty, and the total is still 1.
+    expect(r.on_duty_days).toBe(3);
+    expect(r.paid_leave_days).toBe(1);
+  });
+
+  it('gives comp-off its own column, inside the paid-leave total', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 23000,
+      workingDaysBasis: 23,
+      summary: summary({
+        present_days: 20,
+        leave_days: 1,
+        comp_off_days: 2,
+        leave_by_type: { CL: 1 },
+        payable_days: 23,
+      }),
+    });
+
+    expect(r.casual_leave_days).toBe(1);
+    expect(r.comp_off_days).toBe(2);
+    expect(r.other_paid_leave_days).toBe(0);
+    expect(r.paid_leave_days).toBe(3);
+  });
+
+  it('catches Clinical and PH.D in other paid leave rather than losing them', () => {
+    // The case the third column exists for: 30 paid day-leave types exist and
+    // Clinical already appears on real summaries.
+    const r = computeRegisterLine({
+      monthlyGross: 23000,
+      workingDaysBasis: 23,
+      summary: summary({
+        present_days: 19,
+        leave_days: 4,
+        leave_by_type: { CL: 1, Clinical: 2, PHD: 1 },
+        payable_days: 23,
+      }),
+    });
+
+    expect(r.casual_leave_days).toBe(1);
+    expect(r.comp_off_days).toBe(0);
+    expect(r.other_paid_leave_days).toBe(3);
+    expect(r.paid_leave_days).toBe(4);
+  });
+
+  it('partitions paid leave exactly, and the row still closes', () => {
+    // payable_days stays <= the basis on every case: a person credited MORE
+    // than a full month has paid_days capped at the basis on purpose, and a
+    // capped row cannot add up by definition (covered by the cross-institution
+    // case above). Each fixture is internally consistent — payable is
+    // present + every paid leave day + on duty + comp-off.
+    const cases: Array<Parameters<typeof computeRegisterLine>[0]['summary']> = [
+      summary({ present_days: 21, leave_days: 2, leave_by_type: { CL: 1, OD: 1 }, payable_days: 23 }),
+      summary({ present_days: 18, leave_days: 4, comp_off_days: 1, leave_by_type: { CL: 1, Clinical: 2, CD: 1 }, payable_days: 23 }),
+      summary({ present_days: 23, payable_days: 23 }),
+      summary({ present_days: 0, payable_days: 0 }),
+    ];
+
+    for (const s of cases) {
+      const r = computeRegisterLine({ monthlyGross: 23000, workingDaysBasis: 23, summary: s });
+
+      expect(r.casual_leave_days + r.comp_off_days + r.other_paid_leave_days).toBe(r.paid_leave_days);
+      expect(r.paid_days).toBe(
+        r.worked_days + r.casual_leave_days + r.comp_off_days + r.other_paid_leave_days + r.on_duty_days,
+      );
+      expect(r.other_paid_leave_days).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('leaves the money alone — a breakdown is not a recalculation', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 15000,
+      workingDaysBasis: 22,
+      summary: summary({
+        present_days: 18,
+        leave_days: 1,
+        on_duty_days: 2,
+        leave_by_type: { CL: 1 },
+        payable_days: 21,
+      }),
+    });
+
+    // MANIKANDAN P from the hand-kept register, unchanged to the paisa.
+    expect(r.unpaid_leave_deduction).toBe(681.82);
+    expect(r.net_pay).toBe(14318);
+    expect(r.paid_leave_days).toBe(1);
+  });
+});

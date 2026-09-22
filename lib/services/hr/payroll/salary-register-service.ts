@@ -67,6 +67,20 @@ import type {
  */
 const ON_DUTY_LEAVE_CODES = new Set(['OD', 'CD']);
 
+/**
+ * Leave-type codes that are CASUAL LEAVE, the one type the register names.
+ *
+ * Matched on hr_leave_types.leave_type_code, which is 'CL' at all 14
+ * institutions (one Casual Leave type each, verified 2026-09-22 — CL is 163 of
+ * the 219 leave days ever recorded on a summary). A second casual type under
+ * another code would land in Other paid leave: visible and still inside the
+ * total, never lost, and this set is one line to extend.
+ *
+ * Presentation only, like ON_DUTY_LEAVE_CODES: it decides which of three PAID
+ * columns a day prints in and cannot move a rupee.
+ */
+const CASUAL_LEAVE_CODES = new Set(['CL']);
+
 /** PostgREST returns numeric as a string. Every figure is coerced through this. */
 /**
  * The most common value, smallest on a tie — the answer Postgres' mode() gives,
@@ -258,7 +272,12 @@ export function registerBasisFor(
 /** The computed half of a register row — everything that is not identity. */
 export interface RegisterLineFigures {
   business_working_days: number;
+  /** The paid-leave TOTAL. The three columns below partition it exactly. */
   paid_leave_days: number;
+  casual_leave_days: number;
+  comp_off_days: number;
+  /** Clinical, PH.D, WFH — every paid type that is neither of the two above. */
+  other_paid_leave_days: number;
   unpaid_leave_days: number;
   on_duty_days: number;
   worked_days: number;
@@ -294,6 +313,9 @@ export interface RegisterLineFigures {
 export const ZERO_FIGURES: RegisterLineFigures = {
   business_working_days: 0,
   paid_leave_days: 0,
+  casual_leave_days: 0,
+  comp_off_days: 0,
+  other_paid_leave_days: 0,
   unpaid_leave_days: 0,
   on_duty_days: 0,
   worked_days: 0,
@@ -321,6 +343,10 @@ export const ZERO_FIGURES: RegisterLineFigures = {
  *   Paid Days   = Business Working Days - Unpaid
  *   Paid Days   = Worked + Paid Leave + On Duty
  *   Worked      = Business Working Days - Paid Leave - Unpaid - On Duty
+ *
+ * and, since the detail table prints the paid-leave columns separately
+ * (2026-09-22), a fourth that makes that row close:
+ *   Paid Leave  = Casual + Comp Off + Other Paid Leave
  *
  * HOLIDAYS ARE OUTSIDE THE BUSINESS WORKING DAYS AND ARE NOT PAID DAYS (HR,
  * 2026-09-22): the basis is calendar minus week-offs minus holidays, and the
@@ -365,11 +391,26 @@ export function computeRegisterLine(input: {
   // them across so the On Duty column means on duty. Both are paid, so this
   // cannot change net pay — it decides which column a day is printed in.
   let odLeaveDays = 0;
+  let casualLeaveDays = 0;
   for (const [code, days] of Object.entries(s.leave_by_type ?? {})) {
     if (ON_DUTY_LEAVE_CODES.has(code)) odLeaveDays += num(days);
+    else if (CASUAL_LEAVE_CODES.has(code)) casualLeaveDays += num(days);
   }
 
   const paidLeaveDays = Math.max(0, s.leave_days - odLeaveDays) + s.comp_off_days;
+
+  /**
+   * The paid-leave total, taken apart for the detail table's columns.
+   *
+   * DERIVED BY SUBTRACTION, not by summing the named types. leave_by_type is
+   * keyed per leave-type code and paid_leave_days is computed from leave_days,
+   * so adding up the codes the app happens to know would drop any type it does
+   * not — silently, on the register that decides pay. Taking the remainder
+   * makes the partition exact by construction: whatever is neither casual nor
+   * comp-off is Other, including a type created tomorrow.
+   */
+  const compOffDays = Math.max(0, s.comp_off_days);
+  const otherPaidLeaveDays = Math.max(0, paidLeaveDays - casualLeaveDays - compOffDays);
   const onDutyDays = s.on_duty_days + odLeaveDays;
   const workedDays = s.present_days;
 
@@ -436,6 +477,9 @@ export function computeRegisterLine(input: {
   return {
     business_working_days: basis,
     paid_leave_days: paidLeaveDays,
+    casual_leave_days: casualLeaveDays,
+    comp_off_days: compOffDays,
+    other_paid_leave_days: otherPaidLeaveDays,
     unpaid_leave_days: unpaidLeaveDays,
     on_duty_days: onDutyDays,
     worked_days: workedDays,
@@ -1596,6 +1640,9 @@ export class SalaryRegisterService {
       serial_no: num(l.serial_no),
       business_working_days: num(l.business_working_days),
       paid_leave_days: num(l.paid_leave_days),
+      casual_leave_days: num(l.casual_leave_days),
+      comp_off_days: num(l.comp_off_days),
+      other_paid_leave_days: num(l.other_paid_leave_days),
       unpaid_leave_days: num(l.unpaid_leave_days),
       on_duty_days: num(l.on_duty_days),
       worked_days: num(l.worked_days),

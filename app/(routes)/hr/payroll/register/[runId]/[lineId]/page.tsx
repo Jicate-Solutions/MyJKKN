@@ -328,7 +328,12 @@ export default function SalaryRegisterLinePage({
                       label="Business working days"
                       value={days(line.business_working_days)}
                     />
+                    {/* The total first, then the three columns that partition
+                        it — the same figures the register table now prints. */}
                     <Row label="Paid leave" value={days(line.paid_leave_days)} />
+                    <Row label="— Casual leave" muted value={days(line.casual_leave_days)} />
+                    <Row label="— Comp off" muted value={days(line.comp_off_days)} />
+                    <Row label="— Other paid leave" muted value={days(line.other_paid_leave_days)} />
                     <Row
                       label="Unpaid leave"
                       value={

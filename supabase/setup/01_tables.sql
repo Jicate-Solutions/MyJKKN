@@ -8896,7 +8896,14 @@ CREATE TABLE IF NOT EXISTS public.hr_salary_register_lines (
   -- a mid-month joiner has no records before their start date, so lop_days is 0
   -- and paying on it would hand them a full month's gross for half a month.
   business_working_days  numeric(5,1) NOT NULL DEFAULT 0,
+  -- The paid-leave TOTAL, and the three columns that partition it exactly
+  -- (casual + comp_off + other = paid_leave_days, 2026-09-22). "Other" is
+  -- derived by subtraction so a paid type nobody has enumerated still lands
+  -- in a column instead of vanishing from the register row.
   paid_leave_days        numeric(5,1) NOT NULL DEFAULT 0,
+  casual_leave_days      numeric(5,1) NOT NULL DEFAULT 0,
+  comp_off_days          numeric(5,1) NOT NULL DEFAULT 0,
+  other_paid_leave_days  numeric(5,1) NOT NULL DEFAULT 0,
   unpaid_leave_days      numeric(5,1) NOT NULL DEFAULT 0,
   on_duty_days           numeric(5,1) NOT NULL DEFAULT 0,
   worked_days            numeric(5,1) NOT NULL DEFAULT 0,

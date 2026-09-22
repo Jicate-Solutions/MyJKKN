@@ -340,7 +340,16 @@ export interface HRSalaryRegisterLine {
   paid_by_name: string | null;
 
   business_working_days: number;
+  /**
+   * The paid-leave TOTAL. The three below partition it exactly
+   * (casual + comp_off + other = paid_leave_days), which is what lets the
+   * detail table print them as columns and still add up.
+   */
   paid_leave_days: number;
+  casual_leave_days: number;
+  comp_off_days: number;
+  /** Clinical, PH.D, WFH — every paid type that is neither of the two above. */
+  other_paid_leave_days: number;
   unpaid_leave_days: number;
   on_duty_days: number;
   worked_days: number;

@@ -91958,6 +91958,8 @@ export type Database = {
           bank_account_number: string | null
           basic_pay: number
           business_working_days: number
+          casual_leave_days: number
+          comp_off_days: number
           created_at: string
           date_of_joining: string | null
           department_name: string | null
@@ -91970,6 +91972,7 @@ export type Database = {
           is_included: boolean
           net_pay: number
           on_duty_days: number
+          other_paid_leave_days: number
           paid_by_name: string | null
           paid_by_organization_id: string | null
           paid_days: number
@@ -91995,6 +91998,8 @@ export type Database = {
           bank_account_number?: string | null
           basic_pay?: number
           business_working_days?: number
+          casual_leave_days?: number
+          comp_off_days?: number
           created_at?: string
           date_of_joining?: string | null
           department_name?: string | null
@@ -92007,6 +92012,7 @@ export type Database = {
           is_included?: boolean
           net_pay?: number
           on_duty_days?: number
+          other_paid_leave_days?: number
           paid_by_name?: string | null
           paid_by_organization_id?: string | null
           paid_days?: number
@@ -92032,6 +92038,8 @@ export type Database = {
           bank_account_number?: string | null
           basic_pay?: number
           business_working_days?: number
+          casual_leave_days?: number
+          comp_off_days?: number
           created_at?: string
           date_of_joining?: string | null
           department_name?: string | null
@@ -92044,6 +92052,7 @@ export type Database = {
           is_included?: boolean
           net_pay?: number
           on_duty_days?: number
+          other_paid_leave_days?: number
           paid_by_name?: string | null
           paid_by_organization_id?: string | null
           paid_days?: number
