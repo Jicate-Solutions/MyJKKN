@@ -277,6 +277,10 @@ const PUBLIC_PATH_PREFIXES = [
   //        course tables REVOKE from anon, so these routes are the only public
   //        path to that data and they project columns explicitly — no tenant ids
   //        reach the browser.
+  '/api/public/careers/', // Public job listings + external apply for jkkn.ac.in
+  //        (spec 2026-09-21-public-careers-api-design). Service-role routes with a
+  //        column whitelist, an origin allowlist and a per-IP limit; the HR tables
+  //        themselves stay closed to anon.
 ];
 
 // Regex for static assets - single check instead of multiple endsWith
