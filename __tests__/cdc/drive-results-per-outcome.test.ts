@@ -2,7 +2,7 @@
  * Every learner who declared hears their result - selected or not.
  *
  * Behavioural proof for
- * supabase/migrations/20260918173000_cdc_drive_results_reach_every_learner.sql
+ * supabase/migrations/20270205090000_cdc_drive_results_reach_every_learner.sql
  *
  * WHAT MAKES THIS A PROOF AND NOT A RESTATEMENT
  * ---------------------------------------------
@@ -11,14 +11,23 @@
  * back the `notifications` rows PostgreSQL actually wrote - who each row
  * targets, what it says, where it sends them, and under which idempotency key.
  *
- * NON-VACUITY IS PROVED, NOT ASSERTED
+ * TWO CONTROLS, AND WHY THERE ARE TWO
  * -----------------------------------
- * The control is not a hand-built wrong shape. It is production's own
- * definition, read from the live catalogue on 2026-09-18 and installed beside
- * the fix under another name (_fixtures/...live-2026-09-18.sql). Against the
- * SAME fixture it writes ONE generic row to everybody, at the coordinator page.
- * If the shipped function ever regressed to that shape, the control tests would
- * stop distinguishing them and fail.
+ * Neither control is a hand-built wrong shape; both are real bodies from this
+ * repository's history, installed beside the fix under other names.
+ *
+ *   MAIN     _fixtures/...live-2026-09-22.sql - the body jicate/main carries
+ *            today (20260919100000). It differs from the shipped function in
+ *            exactly ONE branch: results_announced, where it still writes one
+ *            generic row to everybody. Every other branch must behave
+ *            identically, and the tests below assert that.
+ *
+ *   REGRESSED _fixtures/...regressed-2026-09-15.sql - the body 20260915100000
+ *            left running: no attendance_day branch at all, learner links
+ *            pointing at the coordinator page. This regression has now happened
+ *            twice. The REGRESSION GUARD block asserts the shipped function has
+ *            those behaviours AND that this control does not, so the guard
+ *            cannot pass vacuously.
  *
  * RUNNING IT
  * ----------
@@ -38,11 +47,17 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 const REPO = path.resolve(__dirname, '..', '..');
 const MIGRATION = path.join(
   REPO,
-  'supabase/migrations/20260918173000_cdc_drive_results_reach_every_learner.sql'
+  'supabase/migrations/20270205090000_cdc_drive_results_reach_every_learner.sql'
 );
-const CONTROL = path.join(
+/** What jicate/main carries today - the body this migration is rebuilt on. */
+const CONTROL_MAIN = path.join(
   __dirname,
-  '_fixtures/fn_cdc_emit_drive_notification.live-2026-09-18.sql'
+  '_fixtures/fn_cdc_emit_drive_notification.live-2026-09-22.sql'
+);
+/** The body 20260915100000 left running - no attendance_day, coordinator URLs. */
+const CONTROL_REGRESSED = path.join(
+  __dirname,
+  '_fixtures/fn_cdc_emit_drive_notification.regressed-2026-09-15.sql'
 );
 
 const PGHOST = process.env.CDCRES_TEST_PGHOST ?? 'localhost';
@@ -248,7 +263,8 @@ beforeAll(async () => {
 
   await db.query(SCHEMA);
   await db.query(readFileSync(MIGRATION, 'utf8')); // VERBATIM
-  await db.query(readFileSync(CONTROL, 'utf8')); // production's own body, renamed
+  await db.query(readFileSync(CONTROL_MAIN, 'utf8')); // main's body, renamed
+  await db.query(readFileSync(CONTROL_REGRESSED, 'utf8')); // the regressed body
 }, 60_000);
 
 afterAll(async () => {
@@ -439,12 +455,6 @@ describe('every other transition is untouched', () => {
     expect(ids(rows[0])).toEqual([TEAM.head]);
   });
 
-  it('cancelled is unchanged by this migration - still one row, both audiences', async () => {
-    const rows = await emit('willingness_open', 'cancelled');
-    expect(rows).toHaveLength(1);
-    expect(rows[0].idempotency_key).toBe(`cdc.drive.${DRIVE}.cancelled`);
-  });
-
   it('willingness_open is still the application-owned no-op', async () => {
     const rows = await emit('announced', 'willingness_open');
     expect(rows).toHaveLength(0);
@@ -463,6 +473,81 @@ describe('every other transition is untouched', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// REGRESSION GUARD - the behaviours that keep getting dropped.
+//
+// Twice now a PR has rebuilt this function from an OLDER copy of its body and
+// silently deleted work that was already live:
+//   20260915100000 dropped what 20260914210000 added, and
+//   PR #3892's first cut would have dropped what 20260919100000 restored.
+// Neither showed up as a failing test, because no test asserted the behaviours
+// existed. These do. If a future rebuild of this function loses the
+// attendance_day branch, or sends a learner to the coordinator page, or
+// re-merges the cancelled split, the suite goes red here.
+//
+// Every case is paired with the same assertion against CONTROL_REGRESSED - the
+// body that actually lost these behaviours - so the guard cannot pass because
+// it asks nothing.
+// ---------------------------------------------------------------------------
+describe('regression guard - behaviours 20260919100000 restored and this file carries over', () => {
+  const REGRESSED = 'fn_ctl_regressed_emit_2026_09_15';
+
+  it('attendance_day notifies the willing learners - the branch that went missing', async () => {
+    const rows = await emit('eligibility_locked', 'attendance_day');
+    expect(rows).toHaveLength(1);
+    expect(ids(rows[0])).toEqual(allDeclared);
+    expect(rows[0].category).toBe('cdc.drive.attendance_day');
+  });
+
+  it('...and the regressed body writes NOTHING on that transition', async () => {
+    const rows = await emit('eligibility_locked', 'attendance_day', REGRESSED);
+    expect(rows).toHaveLength(0);
+  });
+
+  it('attendance_day sends the learners to their own page', async () => {
+    const rows = await emit('eligibility_locked', 'attendance_day');
+    expect(rows[0].url).toBe(LEARNER_URL);
+    expect(rows[0].url).not.toBe(COORD_URL);
+  });
+
+  it('results_announced sends both audiences to the learner page', async () => {
+    const rows = await emit('attendance_day', 'results_announced');
+    expect(rows).toHaveLength(2);
+    for (const row of rows) expect(row.url).toBe(LEARNER_URL);
+  });
+
+  it('...and the regressed body sends them to the coordinator page they cannot open', async () => {
+    const rows = await emit('attendance_day', 'results_announced', REGRESSED);
+    expect(rows[0].url).toBe(COORD_URL);
+  });
+
+  it('cancelled writes a SEPARATE learner row at the learner page', async () => {
+    const rows = await emit('willingness_open', 'cancelled');
+    expect(rows).toHaveLength(2);
+
+    const team = byAudience(rows, 'team')!;
+    const learners = byAudience(rows, 'learners')!;
+    expect(team.url).toBe(COORD_URL);
+    expect(team.idempotency_key).toBe(`cdc.drive.${DRIVE}.cancelled`);
+    expect(ids(team)).toEqual([TEAM.coordinator, TEAM.head].sort());
+
+    expect(learners.url).toBe(LEARNER_URL);
+    expect(learners.idempotency_key).toBe(`cdc.drive.${DRIVE}.cancelled.learners`);
+    expect(ids(learners)).toEqual(allDeclared);
+  });
+
+  it('...and the regressed body writes ONE combined row at the coordinator page', async () => {
+    const rows = await emit('willingness_open', 'cancelled', REGRESSED);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].url).toBe(COORD_URL);
+  });
+
+  it('willingness_open stays the application-owned no-op', async () => {
+    const rows = await emit('announced', 'willingness_open');
+    expect(rows).toHaveLength(0);
+  });
+});
+
 describe('the emitter is not reachable by a signed-in user', () => {
   it('grants EXECUTE to neither anon nor authenticated', async () => {
     const sig = 'public.fn_cdc_emit_drive_notification(uuid,text,text,uuid)';
@@ -475,11 +560,13 @@ describe('the emitter is not reachable by a signed-in user', () => {
 });
 
 // ---------------------------------------------------------------------------
-// CONTROL - production's own definition, read 2026-09-18, installed beside the
-// fix. These are the tests that prove the suite can tell old from new.
+// CONTROL - main's own definition (20260919100000), installed beside the fix.
+// These are the tests that prove the suite can tell main from this PR. The only
+// branch that may differ is results_announced; if a future edit to this file
+// changed anything else, the "identical to main" cases below would go red.
 // ---------------------------------------------------------------------------
-describe('control - what production does today', () => {
-  const CTL = 'fn_ctl_live_emit_2026_09_18';
+describe('control - what main does today', () => {
+  const CTL = 'fn_ctl_main_emit_2026_09_22';
 
   it('writes ONE generic row to everyone who declared, selected or not', async () => {
     const rows = await emit('attendance_day', 'results_announced', CTL);
@@ -494,12 +581,6 @@ describe('control - what production does today', () => {
     expect(rows[0].body).not.toContain('not been selected');
   });
 
-  it('sends every learner to the coordinator page they cannot open', async () => {
-    const rows = await emit('attendance_day', 'results_announced', CTL);
-    expect(rows[0].url).toBe(COORD_URL);
-    expect(rows[0].url).not.toBe(LEARNER_URL);
-  });
-
   it('says nothing different when nobody was selected - the reported gap', async () => {
     await db.query(`DELETE FROM public.cdc_placements`);
     const rows = await emit('attendance_day', 'results_announced', CTL);
@@ -507,5 +588,22 @@ describe('control - what production does today', () => {
     // and the page it points at shows an unselected learner nothing.
     expect(rows).toHaveLength(1);
     expect(rows[0].body).not.toContain('not been selected');
+  });
+
+  it('already sends learners to their own page - this PR must not undo that', async () => {
+    const rows = await emit('attendance_day', 'results_announced', CTL);
+    expect(rows[0].url).toBe(LEARNER_URL);
+  });
+
+  it('already has the attendance_day branch - this PR must not undo that', async () => {
+    const rows = await emit('eligibility_locked', 'attendance_day', CTL);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].url).toBe(LEARNER_URL);
+  });
+
+  it('already splits cancelled in two - this PR must not undo that', async () => {
+    const rows = await emit('willingness_open', 'cancelled', CTL);
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.metadata.audience).sort()).toEqual(['learners', 'team']);
   });
 });

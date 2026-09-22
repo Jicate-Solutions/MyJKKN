@@ -1,15 +1,25 @@
--- The production definition of fn_cdc_emit_drive_notification as read from the
--- live catalogue (pg_get_functiondef) on 2026-09-18, renamed so it can be
--- installed beside the fixed version as a CONTROL. Do not edit; it exists to
--- prove the test can tell the old behaviour from the new.
+-- THE REGRESSED BODY. This is the definition of fn_cdc_emit_drive_notification
+-- that 20260915100000_cdc_drives_semester_targeting_circular_willingness.sql
+-- left running - read from the live catalogue (pg_get_functiondef) on
+-- 2026-09-18 - renamed so it can be installed beside the fixed version as a
+-- CONTROL. Do not edit.
 --
--- NOTE FOR THE READER: this is NOT the same body as
--- fn_cdc_emit_drive_notification.live-2026-09-14.sql's source migration.
--- 20260915100000 replaced the function from an older copy and dropped
--- 20260914210000's learner-URL and cancelled-split work in production. That
--- regression is reported in the PR; this file records what production really
--- runs today, which is what the control has to be.
-CREATE OR REPLACE FUNCTION public.fn_ctl_live_emit_2026_09_18(p_drive_id uuid, p_from_state text, p_to_state text, p_actor uuid)
+-- WHY IT IS KEPT, under a new name. 20260915100000 re-issued CREATE OR REPLACE
+-- from an OLDER copy of the body and so silently dropped three things
+-- 20260914210000 had added:
+--   1. the attendance_day branch ENTIRELY - that transition notified nobody,
+--   2. the learner URL '/cdc/drives/<id>/willingness' on learner-facing
+--      branches - links went back to the coordinator page learners cannot open,
+--   3. the cancelled team/learner split - one combined row again.
+-- jicate/main fixed all three in
+-- 20260919100000_cdc_drive_notification_emitter_restore.sql.
+--
+-- This file is therefore no longer "what main does" - that is
+-- _fixtures/fn_cdc_emit_drive_notification.live-2026-09-22.sql. Its job now is
+-- to prove the regression cases in drive-results-per-outcome.test.ts are NOT
+-- vacuous: the same assertions that pass against the shipped function FAIL
+-- against this body. It was named ...live-2026-09-18.sql until 2026-09-22.
+CREATE OR REPLACE FUNCTION public.fn_ctl_regressed_emit_2026_09_15(p_drive_id uuid, p_from_state text, p_to_state text, p_actor uuid)
  RETURNS void
  LANGUAGE plpgsql
  SECURITY DEFINER
