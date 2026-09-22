@@ -136,7 +136,7 @@ export interface MarathonBudgetItem {
   type: BudgetItemType;
   /**
    * On a line WITH sub-lines this is derived — the sum of its children,
-   * maintained by the database (migration 20270101090000). Do not author it
+   * maintained by the database (migration 20270201090000). Do not author it
    * there; the write is overwritten on the next child change.
    * On a line carrying quantity AND unit_rate it is their product, likewise
    * computed, so the figure can never contradict the arithmetic beside it.

@@ -1,5 +1,5 @@
 -- ─── The budget lock protects the PLAN, not the reporting of what was spent ──
--- 2026-09-21 · follows 20270101090000 / 20270102090000 / 20270103090000
+-- 2026-09-21 · follows 20270201090000 / 20270202090000 / 20270203090000
 --
 -- fn_guard_event_budget_locked refuses ANY write to a budget line once the
 -- approval status is 'approved' or 'locked', unless the caller is a super
@@ -16,7 +16,7 @@
 --   plan signed off        -> "This budget is approved and locked."
 --
 -- That is how the "Actual (₹)" box stayed empty for 41 lines across 15 events.
--- Closing the books (20270102090000) would have shipped unusable by anyone but
+-- Closing the books (20270202090000) would have shipped unusable by anyone but
 -- finance, which is the group furthest from the spending.
 --
 -- ── The distinction this migration draws ───────────────────────────────────
@@ -37,7 +37,7 @@
 -- change a single planned figure. The only thing that opens is the true-cost
 -- box, to the people who know the true cost.
 --
--- Depends on 20270101090000 for quantity, unit_rate, parent_id, committee_id
+-- Depends on 20270201090000 for quantity, unit_rate, parent_id, committee_id
 -- and category_id, which this function now names.
 --
 -- ci:allow-secdef-authenticated SELF-SCOPED: a row trigger on one table,

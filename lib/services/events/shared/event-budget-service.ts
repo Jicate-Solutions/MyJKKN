@@ -138,7 +138,7 @@ export interface SummarisableLine {
 /**
  * Total a budget WITHOUT counting the same money twice.
  *
- * Since sub-lines exist (migration 20270101090000) a parent's amount IS the sum
+ * Since sub-lines exist (migration 20270201090000) a parent's amount IS the sum
  * of its children, so adding every row over-states the budget by the whole
  * itemised part of it — silently, and by a plausible-looking amount.
  *
@@ -232,7 +232,7 @@ export class EventBudgetService {
         notes: dto.notes ?? null,
         approved_by: null,
         receipt_url: null,
-        // Drill-down substrate (migration 20270101090000). All NULL on an
+        // Drill-down substrate (migration 20270201090000). All NULL on an
         // ordinary top-level line, which is exactly how every line behaved
         // before these columns existed.
         parent_id: dto.parent_id ?? null,

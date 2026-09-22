@@ -1,5 +1,5 @@
 -- ─── Measuring an expense against its outcome ───────────────────────────────
--- 2026-09-21 · follows 20270101090000 and 20270102090000
+-- 2026-09-21 · follows 20270201090000 and 20270202090000
 --
 -- "Able to measure each expense and its outcome" was the ask. Until now there
 -- was no field of any kind tying a spend to what it bought or who it served —

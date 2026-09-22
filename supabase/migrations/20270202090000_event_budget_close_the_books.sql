@@ -1,5 +1,5 @@
 -- ─── Closing an event's books: the moment that demands the real figure ──────
--- 2026-09-21 · follows 20270101090000
+-- 2026-09-21 · follows 20270201090000
 --
 -- The "Actual (₹)" box has been on the budget edit form all along. Across the
 -- 15 events that have a budget, over 41 lines, it has been filled in ZERO
@@ -22,7 +22,7 @@
 -- new vocabulary is invented.
 --
 -- Only LEAF lines count. An itemised line's amounts are the sum of its items
--- (20270101090000), so asking for it separately would be asking the same
+-- (20270201090000), so asking for it separately would be asking the same
 -- question twice and inviting two different answers.
 --
 -- Nothing here changes an existing budget. Every event is `draft` or

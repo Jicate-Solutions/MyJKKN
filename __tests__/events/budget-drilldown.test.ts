@@ -138,7 +138,7 @@ describe('the drill-down migration', () => {
   // The prose above the SQL quotes the very strings and guards being asserted,
   // so strip comments before searching or the commentary passes for the code.
   const sql = readFileSync(
-    join(process.cwd(), 'supabase/migrations/20270101090000_event_budget_drilldown_substrate.sql'),
+    join(process.cwd(), 'supabase/migrations/20270201090000_event_budget_drilldown_substrate.sql'),
     'utf8'
   )
     .split('\n')
@@ -265,7 +265,7 @@ describe('summariseBudget', () => {
 
 describe('the close-the-books migration', () => {
   const sql = readFileSync(
-    join(process.cwd(), 'supabase/migrations/20270102090000_event_budget_close_the_books.sql'),
+    join(process.cwd(), 'supabase/migrations/20270202090000_event_budget_close_the_books.sql'),
     'utf8'
   )
     .split('\n')
@@ -324,7 +324,7 @@ describe('the close-the-books migration', () => {
 
 describe('the measurement migration', () => {
   const sql = readFileSync(
-    join(process.cwd(), 'supabase/migrations/20270103090000_event_budget_outcome_measures.sql'),
+    join(process.cwd(), 'supabase/migrations/20270203090000_event_budget_outcome_measures.sql'),
     'utf8'
   )
     .split('\n')
@@ -406,7 +406,7 @@ describe('the budget lock, narrowed', () => {
   const sql = readFileSync(
     join(
       process.cwd(),
-      'supabase/migrations/20270104090000_budget_lock_allows_reporting_actuals.sql'
+      'supabase/migrations/20270204090000_budget_lock_allows_reporting_actuals.sql'
     ),
     'utf8'
   )
