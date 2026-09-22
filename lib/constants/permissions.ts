@@ -2274,6 +2274,14 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.fees.waive', label: 'Waive Fee' },
       { key: 'campus_living.fees.refund', label: 'Refund Fee' },
 
+      // Billing Audit — hostel-learner bill coverage, fee-band and upgrade
+      // audit (/campus-living/billing-audit). Granted by migration
+      // 20260922120000 to hostel_office, chief_warden, executive_admin_officer,
+      // ceo, managing_director and accounts. Wardens deliberately excluded —
+      // this reads every hostel learner's band fee and outstanding balance.
+      { key: 'campus_living.billing_audit.view', label: 'View Hostel Billing Audit' },
+      { key: 'campus_living.billing_audit.export', label: 'Export Hostel Billing Audit' },
+
       // Deposits
       { key: 'campus_living.deposits.view', label: 'View Deposits' },
       { key: 'campus_living.deposits.record', label: 'Record Deposit' },
