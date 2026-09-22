@@ -47,21 +47,23 @@ export function UnlockNotice() {
           <>
             <p>
               Your application is with the admissions team. The rest of MyJKKN —
-              timetable, attendance, feedback and more — opens once your
-              admission is confirmed.
+              timetable, attendance, feedback and more — opens after you are
+              admitted and the college activates your account.
             </p>
             <p className="mt-1">
-              Nothing here is missing or broken, and there is nothing you need to
+              You are not missing a setting and there is nothing here for you to
               fix. For anything about your application, talk to the admissions
-              office.
+              office; if you believe you are already a current learner, tell
+              your class coordinator so your account can be checked.
             </p>
           </>
         ) : (
           <>
             <p>
               You are admitted. The rest of MyJKKN — timetable, attendance,
-              feedback and more — opens once your onboarding is completed and
-              your account is activated by the college.
+              feedback and more — opens once the college finishes your
+              onboarding and activates your account. Being admitted is not the
+              last step on its own.
             </p>
             <p className="mt-1">
               If your onboarding finished more than a few days ago and this

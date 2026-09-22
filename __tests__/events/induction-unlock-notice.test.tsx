@@ -87,13 +87,16 @@ describe('UnlockNotice', () => {
         await screen.findByText(/until you are admitted/i)
       ).toBeInTheDocument();
       expect(
-        screen.getByText(/opens once your\s+admission is confirmed/i)
+        screen.getByText(/opens after you are\s+admitted and the college activates your account/i)
       ).toBeInTheDocument();
       // 454 of the 729 learners in these statuses have not been admitted at all
       // (production, 22 Sep). Telling them to complete onboarding sends them to
       // fix something that is not theirs to fix.
       expect(screen.queryByText(/onboarding is complete/i)).not.toBeInTheDocument();
-      expect(screen.queryByText(/class coordinator/i)).not.toBeInTheDocument();
+      // A learner whose status is wrongly stuck still needs a route to a human,
+      // so the copy must NOT claim flatly that nothing is wrong.
+      expect(screen.queryByText(/nothing is missing or broken/i)).not.toBeInTheDocument();
+      expect(screen.getByText(/class coordinator/i)).toBeInTheDocument();
       expect(screen.getByText(/admissions office/i)).toBeInTheDocument();
       expect(rpc).toHaveBeenCalledWith('fn_my_lifecycle_status');
     }
@@ -110,7 +113,12 @@ describe('UnlockNotice', () => {
       ).toBeInTheDocument();
       expect(screen.getByText(/You are admitted\./i)).toBeInTheDocument();
       expect(
-        screen.getByText(/activated by the college/i)
+        screen.getByText(/activates your account/i)
+      ).toBeInTheDocument();
+      // "Admitted" is itself an induction-only status — full access needs
+      // activation, so the notice must not present admission as the last step.
+      expect(
+        screen.getByText(/Being admitted is not the last step on its own/i)
       ).toBeInTheDocument();
       // The way out if the gate is genuinely stuck — a learner with no route to
       // a human is back to filing the same bug report.
