@@ -384,11 +384,11 @@ export function EditJobForm({ job }: { job: HRRecruitmentJob }) {
               </div>
 
               <div className="flex items-center justify-between">
-                <Label className="text-xs text-muted-foreground">Public on /careers</Label>
+                <Label className="text-xs text-muted-foreground">Show on website (jkkn.ac.in)</Label>
                 <Switch
                   checked={isPublic}
                   onCheckedChange={setIsPublic}
-                  aria-label="Public on careers page"
+                  aria-label="Show on website"
                 />
               </div>
             </div>
@@ -939,12 +939,12 @@ export function EditJobForm({ job }: { job: HRRecruitmentJob }) {
                 </div>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-sm">Public on /careers</Label>
+                <Label className="text-sm">Show on website (jkkn.ac.in)</Label>
                 <div className="flex items-center h-10">
                   <Switch
                     checked={isPublic}
                     onCheckedChange={setIsPublic}
-                    aria-label="Public on careers page"
+                    aria-label="Show on website"
                   />
                 </div>
               </div>

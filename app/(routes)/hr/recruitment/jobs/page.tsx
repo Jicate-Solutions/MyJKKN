@@ -29,8 +29,9 @@ const EXPLAINER = (
     </p>
     <p className="mt-2">
       Set status to <strong>Open</strong> and turn on{' '}
-      <strong>Public on /careers</strong> to expose the role on the
-      unauthenticated careers page. Setting status to <strong>Closed</strong> or{' '}
+      <strong>Show on website (jkkn.ac.in)</strong> to list the role on the JKKN
+      website, where anyone can apply without a login. Only jobs with this switch
+      on appear there. Setting status to <strong>Closed</strong> or{' '}
       <strong>Filled</strong> hides it again.
     </p>
   </>
