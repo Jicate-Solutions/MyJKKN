@@ -14,12 +14,18 @@ import toast from 'react-hot-toast';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { useInvalidateBiometricBatches } from '@/hooks/hr/use-biometric-import-purge';
 import { BiometricImportDialog } from '../_components/biometric-import-dialog';
 import { BiometricPurgePanel } from '../_components/biometric-purge-panel';
 
 export default function ImportBiometricPage() {
   const [open, setOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
+
+  // The importer and the imported-months table below are siblings with no
+  // shared state, so the table showed a month-old list until the page was
+  // reloaded. The dialog has always offered this callback; nobody passed it.
+  const refreshImportedMonths = useInvalidateBiometricBatches();
 
   const downloadTemplate = useCallback(async () => {
     setDownloading(true);
@@ -108,7 +114,11 @@ export default function ImportBiometricPage() {
         </div>
       </div>
 
-      <BiometricImportDialog open={open} onOpenChange={setOpen} />
+      <BiometricImportDialog
+        open={open}
+        onOpenChange={setOpen}
+        onImportComplete={refreshImportedMonths}
+      />
     </ContentLayout>
   );
 }

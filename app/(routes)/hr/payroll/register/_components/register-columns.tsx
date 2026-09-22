@@ -116,7 +116,7 @@ export function getRegisterColumns(
   return [
     {
       accessorKey: 'serial_no',
-      size: 64,
+      size: 20,
       header: ({ column }) => <DataTableColumnHeader column={column} title="S.No" />,
       cell: ({ row }) => (
         <span className="block text-center text-sm tabular-nums text-muted-foreground">
@@ -126,7 +126,7 @@ export function getRegisterColumns(
     },
     {
       accessorKey: 'employee_code',
-      size: 120,
+      size: 90,
       header: ({ column }) => <DataTableColumnHeader column={column} title="Employee ID" />,
       cell: ({ row }) => (
         <span className="truncate font-mono text-xs">{row.original.employee_code ?? '—'}</span>

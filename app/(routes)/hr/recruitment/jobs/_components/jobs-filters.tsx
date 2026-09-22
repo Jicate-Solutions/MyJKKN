@@ -154,7 +154,7 @@ function JobsFiltersComponent({
         }
       >
         <SelectTrigger>
-          <SelectValue placeholder='Public on /careers' />
+          <SelectValue placeholder='Show on website' />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value={ALL}>Public &amp; hidden</SelectItem>

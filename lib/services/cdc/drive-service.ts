@@ -89,6 +89,43 @@ export function driveCircularOf(
  * Inverse of driveCircularOf: the column set to write for a create/update payload.
  * `undefined` → no change (empty object); `null` → clear every column; object → set all.
  */
+/**
+ * Notification audit totals for one drive, computed by the database (HEAD count
+ * queries) — the detail page is opened constantly and used to download every
+ * log row just to add them up.
+ */
+async function notificationSummaryOf(supabase: SupabaseClient, driveId: string) {
+  const base = () =>
+    supabase
+      .from('cdc_drive_notification_log')
+      .select('id', { count: 'exact', head: true })
+      .eq('drive_id', driveId)
+      .eq('notification_type', 'cdc.drive.willingness_open');
+  const [sent, noProfile, delivered, failed, noSub, last] = await Promise.all([
+    base().eq('status', 'sent'),
+    base().eq('status', 'no_profile'),
+    base().eq('push_status', 'delivered'),
+    base().in('push_status', ['failed', 'stale_removed']),
+    base().in('push_status', ['no_subscription', 'opted_out']),
+    supabase
+      .from('cdc_drive_notification_log')
+      .select('sent_at')
+      .eq('drive_id', driveId)
+      .eq('notification_type', 'cdc.drive.willingness_open')
+      .order('sent_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  return {
+    sent: sent.count ?? 0,
+    no_profile: noProfile.count ?? 0,
+    push_delivered: delivered.count ?? 0,
+    push_failed: failed.count ?? 0,
+    no_subscription: noSub.count ?? 0,
+    last_sent_at: ((last.data as { sent_at?: string } | null)?.sent_at ?? null) as string | null,
+  };
+}
+
 function circularColumns(
   circular: CdcDriveCircular | null | undefined,
   actorId: string | null | undefined
@@ -216,32 +253,10 @@ export class CdcDriveService {
         .eq('id', drive.drive_type_id)
         .maybeSingle(),
       supabase.from('cdc_drive_eligibility').select('*').eq('drive_id', id).maybeSingle(),
-      supabase
-        .from('cdc_drive_notification_log')
-        .select('status, push_status, sent_at')
-        .eq('drive_id', id)
-        .eq('notification_type', 'cdc.drive.willingness_open')
-        .limit(50000),
+      notificationSummaryOf(supabase, id),
     ]);
 
-    const notification_summary = {
-      sent: 0,
-      no_profile: 0,
-      push_delivered: 0,
-      push_failed: 0,
-      no_subscription: 0,
-      last_sent_at: null as string | null,
-    };
-    for (const r of (logRes.data ?? []) as Array<{ status: string; push_status: string | null; sent_at: string }>) {
-      if (r.status === 'sent') notification_summary.sent += 1;
-      if (r.status === 'no_profile') notification_summary.no_profile += 1;
-      if (r.push_status === 'delivered') notification_summary.push_delivered += 1;
-      if (r.push_status === 'failed' || r.push_status === 'stale_removed') notification_summary.push_failed += 1;
-      if (r.push_status === 'no_subscription' || r.push_status === 'opted_out') notification_summary.no_subscription += 1;
-      if (!notification_summary.last_sent_at || r.sent_at > notification_summary.last_sent_at) {
-        notification_summary.last_sent_at = r.sent_at;
-      }
-    }
+    const notification_summary = logRes;
 
     const institution_names: Record<string, string> = {};
     for (const row of (institutionsRes.data ?? []) as Array<{ id: string; name: string }>) {
@@ -357,10 +372,22 @@ export class CdcDriveService {
         payload.institution_semesters ?? drive.institution_semesters,
         institutions
       );
+      // Compare as SETS: the picker re-appends the entry you touched, so the same
+      // audience in a different order used to read as "changed" and ran a whole
+      // notification pass for nothing.
+      const canonical = (t: ReturnType<typeof normalizeInstitutionSemesters>) =>
+        JSON.stringify(
+          [...t]
+            .map((e) => ({
+              institution_id: e.institution_id,
+              semester_orders: [...(e.semester_orders ?? [])].sort((a, b) => a - b),
+              program_ids: [...((e as { program_ids?: string[] }).program_ids ?? [])].sort(),
+            }))
+            .sort((a, b) => a.institution_id.localeCompare(b.institution_id))
+        );
       targeting_changed =
         JSON.stringify([...institutions].sort()) !== JSON.stringify([...drive.institutions].sort()) ||
-        JSON.stringify(nextTargeting) !==
-          JSON.stringify(normalizeInstitutionSemesters(drive.institution_semesters, drive.institutions));
+        canonical(nextTargeting) !== canonical(normalizeInstitutionSemesters(drive.institution_semesters, drive.institutions));
       update.institutions = institutions;
       update.institution_semesters = nextTargeting;
     }

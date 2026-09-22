@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense } from 'react';
+import { Suspense, useSyncExternalStore } from 'react';
 import { SheetMenu } from './sheet-menu';
 import { useAuth } from '@/hooks/use-auth';
 import { usePathname, useSearchParams } from 'next/navigation';
@@ -55,9 +55,16 @@ function TabAwareFavoriteStar({ pathname }: { pathname: string }) {
   );
 }
 
+// false while React is hydrating the server HTML, true afterwards.
+const subscribeNever = () => () => {};
+function useHydrated(): boolean {
+  return useSyncExternalStore(subscribeNever, () => true, () => false);
+}
+
 export function Navbar({ title }: NavbarProps) {
   const { profile } = useAuth();
   const pathname = usePathname();
+  const hydrated = useHydrated();
   // Adapt the header title to the institution type (e.g. "Degrees" → "Streams"
   // for schools), keeping the navbar consistent with the sidebar and page body.
   const { institutionType } = useInstitutionType();
@@ -93,7 +100,19 @@ export function Navbar({ title }: NavbarProps) {
       <div className='mx-2 sm:mx-8 flex h-14 items-center justify-between gap-2'>
         <div className='flex min-w-0 flex-1 items-center space-x-2 sm:space-x-4 lg:space-x-0'>
           <SheetMenu />
+          {/*
+            The title is derived from the CURRENT pathname, but this header sits
+            inside a Suspense boundary that React may hydrate late (slow network /
+            dev compile). If the user has already navigated by then, the server
+            HTML says "… · Selected" while the client pathname says "… · Drives",
+            and React reports a hydration mismatch and throws the tree away.
+            suppressHydrationWarning accepts the server text for the hydration
+            pass; the key flip right after remounts the <h1> with the client's
+            title, so the heading is never left stale.
+          */}
           <h1
+            key={hydrated ? 'client-title' : 'server-title'}
+            suppressHydrationWarning
             className={cn(
               'font-bold text-foreground text-sm sm:text-base truncate min-w-0 max-w-[180px] sm:max-w-[300px] md:max-w-none',
               hideVisibleTitle && 'sr-only'

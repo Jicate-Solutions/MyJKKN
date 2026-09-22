@@ -240,6 +240,12 @@ export function useUpdateCdcDrive() {
       qc.invalidateQueries({ queryKey: ['cdc-drives'] });
       qc.invalidateQueries({ queryKey: ['cdc-drive', result.data.id] });
       qc.invalidateQueries({ queryKey: ['cdc-drive-notifications', result.data.id] });
+      qc.invalidateQueries({ queryKey: ['cdc-drive-eligibility', result.data.id] });
+      if (result.targeting_changed) {
+        qc.invalidateQueries({ queryKey: ['cdc-drive-assigned', result.data.id] });
+        qc.invalidateQueries({ queryKey: ['cdc-drive-participants', result.data.id] });
+        qc.invalidateQueries({ queryKey: ['cdc-drive-attendance', result.data.id] });
+      }
     },
   });
 }

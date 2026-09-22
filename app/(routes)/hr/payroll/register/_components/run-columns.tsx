@@ -34,6 +34,10 @@ import {
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { salaryRegisterExportUrl } from '@/hooks/hr/payroll/use-salary-register';
 import type { HRSalaryRegisterRun } from '@/types/hr-payroll';
+import { Tooltip } from '@/components/ui/tooltip';
+import { TooltipTrigger } from '@/components/ui/tooltip';
+import { TooltipContent } from '@/components/ui/tooltip';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 export const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -66,12 +70,15 @@ export function getRunColumns(
     {
       id: 'institution',
       accessorFn: nameOf,
-      size: 460,
+      size: 560,
       header: ({ column }) => <DataTableColumnHeader column={column} title="Institution" />,
       cell: ({ row }) => {
         const r = row.original;
         return (
-          <Link
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger>
+                <Link
             href={`/hr/payroll/register/${r.id}`}
             className={`block truncate text-sm font-medium hover:underline${
               r.superseded_at ? ' text-muted-foreground' : ''
@@ -79,6 +86,12 @@ export function getRunColumns(
           >
             {nameOf(r)}
           </Link>
+          </TooltipTrigger>
+          <TooltipContent>
+            {nameOf(r)}
+          </TooltipContent>
+          </Tooltip>
+          </TooltipProvider>
         );
       },
     },

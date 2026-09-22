@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/card';
 import { RefreshCw, X } from 'lucide-react';
 import { armReloadOnControllerChange } from './sw-reload';
+import { safeServiceWorkerUpdate } from './sw-update';
 
 export function UpdatePrompt() {
   const [showPrompt, setShowPrompt] = useState(false);
@@ -71,11 +72,16 @@ export function UpdatePrompt() {
 
     checkForUpdates();
 
-    // Check for updates periodically (every 30 minutes)
+    // Check for updates periodically (every 30 minutes).
+    // The poll stays: a tab left open all day is exactly the tab that never
+    // learns a new version shipped. What changed (2026-09-18) is that the
+    // promise is no longer left floating — `registration.update()` used to be
+    // called bare here, so every failed check (offline tab, deploy mid-flight,
+    // registration replaced by another tab) surfaced as an unhandled rejection
+    // and was reported to Sentry as a user-facing error. See sw-update.ts for
+    // the guards and the Sentry group ids.
     const interval = setInterval(() => {
-      if (registration) {
-        registration.update();
-      }
+      void safeServiceWorkerUpdate(registration);
     }, 30 * 60 * 1000);
 
     return () => {

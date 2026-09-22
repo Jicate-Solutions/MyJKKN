@@ -295,4 +295,46 @@ export const LOOP_GOVERNANCE_ROUTINES: AIRoutine[] = [
     notes:
       "Fires via the AI-routine dispatcher (ai_routine_schedules row 'counselor-briefing-measure', migration 20261210071700), NOT vercel.json. Auth: CRON_SECRET Bearer header only — no ?secret= query form. Idempotent: same-day re-runs refresh the same (counselor, week) rows. Named leads are read back from the structured action items the briefing generator persists (admission_daily_briefings.content->'action_items', id = 'hot-<lead id>'); briefings that name nobody count as briefings but cannot be acted on. Returns {measured, with_delta, flagged_changed_nothing} (counts only); a failed RPC is HTTP 500 so the dispatcher records it. The weekly known-delta regress (fn_loops_regress_counselor_briefing_effect via /api/cron/loops-regress) proves the SAME measurer this route runs. Safe no-op (500, not a crash) while 20261210071700 is unapplied.",
   },
+  {
+    id: 'consultants-measure',
+    name: 'Consultant Effectiveness — Weekly Conversion Measure (the consultants loop\'s only clock)',
+    category: 'misc-ai',
+    type: 'cron',
+    schedule: 'Weekly Mondays 11:23 IST (dispatcher-managed, after Sunday 07:53 loops-regress)',
+    triggerPath: '/api/cron/consultants-measure',
+    callsClaude: false,
+    featureKey: null,
+    featureKeyNote:
+      'Rules-based SQL — one RPC to fn_consultants_measure_conversion; no model is resolved and nothing is enqueued.',
+    whatItDoes:
+      "Gives the consultants loop the scheduled run it never had. The measurer has existed since 2026-08-26 (fn_consultants_measure_conversion, migration 20261003010000) and a weekly known-delta regress proves it, but nothing ever called it — consultant_conversion_measurements has stayed empty, so the loop produced no reading of its own. Each Monday this route makes one RPC, which reads the consultant attribution ledger once and, per consultant, rates the 30-day WINDOW against that consultant's OWN pre-window baseline with the SAME estimator (conversion = current_stage IN ('enrolled','confirmed'); rate = conversions/attributions*100, 2 dp), NULLing either side that sits below the de-noise floor. It upserts one row per (consultant, window) into consultant_conversion_measurements and returns them. The route then averages the window conversion rates of the consultants that cleared the floor into the run's headline number and records it against the loop's bar. EXPECT 0.00: the conversion rule is current_stage IN ('enrolled','confirmed') and no attributed lead has ever reached that stage — live, all 1,857 consultant_lead_attributions sit at lead_registered / application_started / new / contacted — so the headline reads 0.00 on every run until admissions actually moves leads to enrolled/confirmed. Director ruling 2026-09-19 (\"Keep 'enrolled', show zero\"): KEEP this rule and record the 0.00 honestly; do NOT relabel the estimator to application-started, which would move the number without moving the outcome. Such a run carries a `note` saying so.",
+    configKnobs:
+      "platform_policies consultants.loop.min_attributions_k (5 — de-noise floor; the route reads the SAME row the fn reads, so the headline and the fn's own NULLing agree). Window (30 days) and as-of date are the fn's defaults (migration 20261003010000); the route passes no arguments. Schedule editable on /admin/ai-routines.",
+    sideEffects:
+      "DB writes only, via the SECDEF fn: upserts consultant_conversion_measurements rows on (consultant_id, window_start, window_end), plus one loop_measurements row written by fn_loop_record_measurement. MEASUREMENT ONLY — never writes consultant_lead_attributions, education_consultants, admission_leads, referral commissions or anything money-adjacent (the loop's feed-forward leg is gates f:'off' by design, Director-gated territory). No notifications, no emails, no model calls.",
+    safeToManualTrigger: true,
+    notes:
+      "Fires via the AI-routine dispatcher (ai_routine_schedules row 'consultants-measure', migration 20261226020000), NOT vercel.json. Auth: CRON_SECRET Bearer header only — no ?secret= query form. Idempotent: the fn upserts on (consultant_id, window_start, window_end), so a same-day re-run refreshes the same rows. Returns {measured, above_floor, min_attributions_k, headline, note, bar_recorded, bar_met, bar_error}; an RPC error or a non-array payload is HTTP 500 so the dispatcher records the failure — never a silent 200. An EMPTY result is a legitimate reading (no consultant has an attribution yet), and a headline of null means nobody cleared the floor — never a 0 that would read as a real 0% rate. A headline of 0.00 over real attributions is the EXPECTED steady state (see whatItDoes) and is recorded as 0 against the bar, with `note` carrying the reason: no attributed lead has reached the 'enrolled'/'confirmed' stage. The note rides on the response only — fn_loop_record_measurement derives its own gap from the loop's bar and takes no caller-supplied reason, and runId is a run trace, not a comment box. The weekly known-delta regress (fn_loops_regress_consultants via /api/cron/loops-regress) proves the SAME measurer this route runs. Safe no-op (500, not a crash) while 20261003010000 is unapplied.",
+  },
+  {
+    id: 'top-numbers',
+    name: 'The Two Top Numbers — weekly T1 (defect hours) and T2 (adoption share)',
+    category: 'misc-ai',
+    type: 'cron',
+    schedule: 'Weekly · Mondays 09:11 IST (dispatcher-managed)',
+    triggerPath: '/api/cron/top-numbers',
+    callsClaude: false,
+    featureKey: null,
+    featureKeyNote:
+      'Rules-based: one Sentry read plus SQL counts, then two calls to fn_loop_record_measurement. No model is resolved and nothing is enqueued.',
+    whatItDoes:
+      "Director rulings 2026-09-18 (06:24, 06:27): every loop in MyJKKN serves one of exactly TWO numbers, so a loop's bar can be judged by whether the top actually moved. Once a week, for the ISO week that just ENDED (never a half-finished one), it computes both and records them against the registry rows top-defect-hours and top-adoption-share. T1 — hours real users lose to defects — is the unresolved user-facing Sentry groups on vercel-production (level error or fatal, cron routes excluded) counted as users_affected x 2 min, plus open bug_reports at least a day old counted as reporters x 5 min, expressed in hours. T2 — share of shipped features actually used — is the proportion of live, usage-wired features shipped 14+ days ago whose weekly reach clears 20% of an intended role. The minute-constants are a first honest guess and are written INSIDE each measurement's run_id, so a later recalibration changes the next reading and rewrites no past one.",
+    configKnobs:
+      'Constants live in lib/services/loops/top-numbers.ts and are recorded with every measurement: T1_MINUTES_PER_AFFECTED_USER=2, T1_MINUTES_PER_REPORTER=5, T1_BUG_MIN_AGE_DAYS=1, T2_USED_SHARE_PCT=20, T2_MIN_AGE_DAYS=14. Env: SENTRY_READ_TOKEN (falls back to the existing SENTRY_AUTH_TOKEN), SENTRY_ORG / SENTRY_ORG_SLUG, SENTRY_PROJECT / SENTRY_PROJECT_SLUG, SENTRY_ENVIRONMENT (default vercel-production). Schedule editable on /admin/ai-routines with no deploy.',
+    sideEffects:
+      "DB writes only: two loop_measurements rows via fn_loop_record_measurement, both with bar_value NULL and met NULL (neither top number has an approved bar, and NULL is neither a hit nor a miss, so no miss streak moves and no 'bar may be wrong' card can be raised by this route). Writes nothing else — no loop_registry edit, no notifications, no emails, no model calls. Reads Sentry read-only.",
+    safeToManualTrigger: true,
+    notes:
+      "Fires via the AI-routine dispatcher (ai_routine_schedules row 'top-numbers', migration 20261226010100), NOT vercel.json. Auth: CRON_SECRET Bearer header only — no ?secret= query form. NEVER a silent skip and never a fake number: when the Sentry token is unset or the call fails, T1 is still RECORDED with value NULL and gap 'insufficient — …', because a missing row would read on /admin/loops exactly like a week nobody measured; likewise T2 records 'insufficient — usage record not live' until something records usage. Re-running in the same week appends a second reading for that week rather than replacing the first — the table is an append-only log. Returns {week, results[]}; a failed RPC is HTTP 500 so the dispatcher records it. Needs the registry rows from 20261226010000 (fn_loop_record_measurement raises if a loop_key is absent) and loop_measurements from 20261225070000; while either is unapplied the route answers 500, never a crash.",
+  },
 ];
