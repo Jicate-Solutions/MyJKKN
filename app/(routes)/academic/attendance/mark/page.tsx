@@ -54,7 +54,8 @@ import {
   resolveAttendanceSaveScope,
   assessDivisionRosterScope,
   shouldWarnUnfilteredRoster,
-  attendanceStatusForSave
+  attendanceStatusForSave,
+  withUrlNarrowing
 } from '@/lib/utils/academic/attendance-section-scope';
 import type {
   RosterDivision,
@@ -1194,21 +1195,27 @@ export default function AttendanceMarkPage() {
           ? practicalDivisions
           : (contextData.sub_slot_divisions as RosterDivision[]) || [];
 
-        // A group's learners can arrive on the URL even when the stored sub-slot
-        // names none; that IS a narrowing (applied above), so do not re-judge it.
-        const urlNarrowedTheGroup =
-          !isPractical && isSubdividedFromUrl && !!subdivisionStudentIds;
-
         const chosenDivisionKey = isPractical
           ? practicalSelection?.batch_id ?? null
           : isSubdividedFromUrl && subdivisionGroupOrder
             ? subdivisionGroupOrder
             : null;
 
-        const divisionVerdict =
-          chosenDivisionKey && !urlNarrowedTheGroup
-            ? assessDivisionRosterScope(chosenDivisionKey, divisions)
-            : null;
+        // Updated: 2026-09-22 (BUG-006033) - judge the chosen GROUP by the
+        // learner list the roster actually filtered on, which for a
+        // non-practical subdivided period is the URL's subdivisionStudentIds,
+        // not the stored sub-slot's. Reading the stored list made the warning
+        // go silent as soon as a coordinator named the group's learners, while
+        // an older bookmarked URL still loaded the whole host section.
+        // Practical batches are unaffected: their roster IS filtered by the
+        // stored batch, so their own studentIds are the right source.
+        const divisionsForVerdict = isPractical
+          ? divisions
+          : withUrlNarrowing(divisions, chosenDivisionKey, subdivisionStudentIds);
+
+        const divisionVerdict = chosenDivisionKey
+          ? assessDivisionRosterScope(chosenDivisionKey, divisionsForVerdict)
+          : null;
 
         // Updated: 2026-09-22 (BUG-006034) - a division that names nobody
         // lists the whole host section whether or not a sibling shares its

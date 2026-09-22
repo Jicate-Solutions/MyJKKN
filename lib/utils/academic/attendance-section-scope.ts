@@ -462,3 +462,38 @@ export function attendanceRowsForSave<T extends { id: string }>(
   }
   return rows;
 }
+
+/**
+ * Judge a subdivision group by what actually narrowed the roster (BUG-006033).
+ *
+ * For a non-practical subdivided period the roster is filtered by
+ * `subdivisionStudentIds` from the URL, but the stored sub-slot carries its own
+ * `student_ids`. Those two disagree the moment a coordinator fixes the data:
+ * the stored group names its learners, an older bookmarked URL does not, and a
+ * verdict read off the stored list then says "narrowed by learners" while the
+ * whole host section is on screen. The warning would go silent exactly when
+ * the office did the right thing.
+ *
+ * So the chosen group is re-stated with the learner list the ROSTER used. Every
+ * other group is left alone — only the chosen one decides this verdict.
+ */
+export function withUrlNarrowing(
+  divisions: readonly RosterDivision[] | null | undefined,
+  chosenKey: string | null | undefined,
+  urlStudentIds: string | null | undefined
+): RosterDivision[] {
+  const all = Array.isArray(divisions) ? [...divisions] : [];
+  if (!chosenKey) return all;
+  // Trimmed here, not in cleanDivisionIds (which the stored path shares): the
+  // URL is untrusted text, and the roster filter compares raw ids with
+  // `includes`, so a whitespace-only entry matches NO learner. Treating it as a
+  // real id would claim a narrowing the roster never performed.
+  const fromUrl = cleanDivisionIds(
+    typeof urlStudentIds === 'string'
+      ? urlStudentIds.split(',').map((id) => id.trim())
+      : []
+  );
+  return all.map((d) =>
+    d.key === chosenKey ? { ...d, studentIds: fromUrl } : d
+  );
+}

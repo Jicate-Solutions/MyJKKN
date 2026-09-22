@@ -44,6 +44,7 @@ import {
   shouldWarnUnfilteredRoster,
   attendanceStatusForSave,
   attendanceRowsForSave,
+  withUrlNarrowing,
   type RosterDivision,
   type RosterDivisionVerdict
 } from '@/lib/utils/academic/attendance-section-scope';
@@ -507,5 +508,45 @@ describe('attendanceStatusForSave — nobody pre-ticked must reach the payload (
       student_id: l.id,
       status,
     }))).toHaveLength(51);
+  });
+});
+
+describe('withUrlNarrowing — the warning must not go silent when the office fixes the data (BUG-006033)', () => {
+  const stored: RosterDivision[] = [
+    { key: '1', label: 'Group A', studentIds: ['a', 'b'], sectionIds: ['sec1'], courseId: 'c1', expectedCount: 3 },
+    { key: '2', label: 'Group B', studentIds: ['x', 'y', 'z'], sectionIds: ['sec1'], courseId: 'c2', expectedCount: 3 },
+  ];
+
+  it('uses the URL learner list for the chosen group and leaves the others alone', () => {
+    const out = withUrlNarrowing(stored, '2', 'x,y');
+    expect(out.find((d) => d.key === '2')?.studentIds).toEqual(['x', 'y']);
+    expect(out.find((d) => d.key === '1')?.studentIds).toEqual(['a', 'b']);
+  });
+
+  it('empties the chosen group when the URL names nobody, even though the stored slot does', () => {
+    // The exact regression: coordinator fills in Group B, teacher reopens the
+    // old bookmarked URL with no subdivisionStudentIds. The roster is NOT
+    // filtered, so the verdict must not read "narrowed by learners".
+    const out = withUrlNarrowing(stored, '2', null);
+    expect(out.find((d) => d.key === '2')?.studentIds).toEqual([]);
+
+    const verdict = assessDivisionRosterScope('2', out);
+    expect(verdict.outcome).not.toBe('narrowed_by_learners');
+    expect(shouldWarnUnfilteredRoster(verdict, 51)).toBe(true);
+  });
+
+  it('stays quiet when the URL really did narrow the group', () => {
+    const out = withUrlNarrowing(stored, '2', 'x,y,z');
+    const verdict = assessDivisionRosterScope('2', out);
+    expect(verdict.outcome).toBe('narrowed_by_learners');
+    expect(shouldWarnUnfilteredRoster(verdict, 3)).toBe(false);
+  });
+
+  it('ignores blank and whitespace-only ids in the URL list', () => {
+    expect(withUrlNarrowing(stored, '2', ' , ,')?.find((d) => d.key === '2')?.studentIds).toEqual([]);
+  });
+
+  it('is a no-op when no group was chosen', () => {
+    expect(withUrlNarrowing(stored, null, 'x')).toEqual(stored);
   });
 });
