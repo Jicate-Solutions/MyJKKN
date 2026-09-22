@@ -13,19 +13,16 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { resend } from '@/lib/resend';
 import { buildApplicationConfirmationEmail } from '@/lib/hr/recruitment/application-confirmation-email';
 import type { CreatedApplication } from './public-careers-service';
+import { withTimeout as raceTimeout } from './with-timeout';
+
+function withTimeout<T>(what: string, p: PromiseLike<T>): Promise<T> {
+  return raceTimeout(what, p, AFTER_APPLY_TIMEOUT_MS);
+}
 
 /** Upper bound on any single after-apply side effect. A hung Resend or Supabase
  *  call would otherwise hold the invocation until the platform kills it — before
  *  the outcome is written to the row, which is exactly the record we want. */
 export const AFTER_APPLY_TIMEOUT_MS = 20_000;
-
-function withTimeout<T>(what: string, p: PromiseLike<T>, ms = AFTER_APPLY_TIMEOUT_MS): Promise<T> {
-  let t: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    t = setTimeout(() => reject(new Error(`${what} timed out after ${ms} ms`)), ms);
-  });
-  return Promise.race([Promise.resolve(p), timeout]).finally(() => clearTimeout(t));
-}
 
 export async function notifyHrOfApplication(
   db: SupabaseClient, app: CreatedApplication, applicantName: string,

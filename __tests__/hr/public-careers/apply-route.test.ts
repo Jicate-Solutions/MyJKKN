@@ -27,8 +27,9 @@ function req(fields: Record<string, string | File>, opts: { origin?: string; ip?
   const headers: Record<string, string> = {
     origin: opts.origin ?? 'https://jkkn.ac.in',
     'x-forwarded-for': opts.ip ?? `10.0.0.${++ipSeq}`,
+    // A browser always declares the multipart length; the test Request does not.
+    'content-length': opts.contentLength ?? '2048',
   };
-  if (opts.contentLength) headers['content-length'] = opts.contentLength;
   return new Request(`https://my.jkkn.ac.in/api/public/careers/jobs/${JOB_ID}/apply`, {
     method: 'POST', body: fd, headers,
   }) as never;
@@ -56,6 +57,12 @@ describe('POST /api/public/careers/jobs/[id]/apply', () => {
   it('rejects an oversized body by content-length before reading it', async () => {
     const res = await POST(req(VALID, { contentLength: String(MAX_BODY_BYTES + 1) }), params);
     expect(res.status).toBe(413);
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('refuses a body with no usable Content-Length (411) before reading it', async () => {
+    const res = await POST(req(VALID, { contentLength: 'abc' }), params);
+    expect(res.status).toBe(411);
     expect(submit).not.toHaveBeenCalled();
   });
 

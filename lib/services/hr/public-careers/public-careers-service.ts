@@ -99,7 +99,7 @@ async function existingApplicationId(db: SupabaseClient, jobId: string, email: s
     .from('hr_job_applications')
     .select('id')
     .eq('job_id', jobId)
-    .eq('email', email)
+    .eq('email', email.toLowerCase())
     .limit(1);
   if (error) throw error;
   const row = (data ?? [])[0] as { id: string } | undefined;

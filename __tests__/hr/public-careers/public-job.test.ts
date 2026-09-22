@@ -9,7 +9,7 @@ import { isJobVisible, toPublicJob } from '@/lib/services/hr/public-careers/publ
 
 const NOW = new Date('2026-09-21T10:00:00Z');
 const ROW = {
-  id: 'j1', job_code: 'JOB-001', title: 'Pharmacology Facilitator', role_category: 'teaching_faculty',
+  id: 'j1', job_code: 'JOB-001', title: 'Senior Learner - Pharmacology', role_category: 'teaching_faculty',
   job_type: 'full_time', description: 'Teach', institution_id: 'i1',
   city: 'Komarapalayam', state: 'Tamil Nadu', country: 'India', education_level: 'masters',
   min_experience_years: 1, max_experience_years: 5,

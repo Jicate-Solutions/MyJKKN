@@ -19,6 +19,7 @@ import { preflight, resolveAllowedOrigin, withCors } from '@/lib/services/hr/pub
 import { clientIp, createRateLimiter } from '@/lib/services/hr/public-careers/rate-limit';
 import { submitExternalApplication } from '@/lib/services/hr/public-careers/public-careers-service';
 import { notifyHrOfApplication, sendApplicantConfirmation } from '@/lib/services/hr/public-careers/after-apply';
+import { withTimeout } from '@/lib/services/hr/public-careers/with-timeout';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -27,6 +28,8 @@ export const runtime = 'nodejs';
 export const MAX_BODY_BYTES = MAX_RESUME_BYTES + 256 * 1024;
 
 const HOUR = 60 * 60 * 1000;
+/** Drive upload + insert. Drive is normally ~1-2 s; anything near this is an outage. */
+const SUBMIT_TIMEOUT_MS = 30_000;
 /** Any request that costs us a body read — malformed ones included. */
 const coarsePerIp = createRateLimiter({ limit: 30, windowMs: HOUR });
 /** Submissions that passed validation and reached the service. */
@@ -49,8 +52,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return reply({ error: 'Origin not allowed.' }, 403);
   }
 
-  const declared = Number(request.headers.get('content-length') ?? '0');
-  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+  // Browsers always send Content-Length for a FormData body; a request without
+  // one (or with junk) is not a browser form, and we won't buffer it to find out.
+  const declared = Number(request.headers.get('content-length'));
+  if (!Number.isFinite(declared) || declared <= 0) return reply({ error: 'Content-Length required.' }, 411);
+  if (declared > MAX_BODY_BYTES) {
     return reply({ error: 'Application is too large. Resume must be under 2 MB.' }, 413);
   }
 
@@ -79,16 +85,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   if (!isDriveConfigured()) return reply({ error: 'Applications are temporarily unavailable.' }, 503);
 
-  const { id } = await params;
+  const { id: rawId } = await params;
+  const id = rawId.toLowerCase();
   if (!strictPerIp(ip) || !perJobEmail(`${id}:${parsed.value.email}`)) return tooMany();
 
   const db = createServiceRoleClient();
 
   try {
-    const result = await submitExternalApplication(
-      { db, upload: uploadResumeToJobFolder, deleteFile: deleteDriveFile },
-      id,
-      parsed.value,
+    // Bounded like the after() work: a hung Drive upload must not pin the
+    // invocation until the platform kills it.
+    const result = await withTimeout(
+      'application submit',
+      submitExternalApplication({ db, upload: uploadResumeToJobFolder, deleteFile: deleteDriveFile }, id, parsed.value),
+      SUBMIT_TIMEOUT_MS,
     );
     if (result.kind === 'not_found') return reply({ error: 'This job is no longer accepting applications.' }, 404);
     // A repeat application answers exactly like a first one. Distinguishing them
@@ -104,6 +113,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return reply({ reference: application.reference }, 201);
   } catch (err) {
     console.error('[public/careers] apply failed', err);
+    if (err instanceof Error && /timed out/.test(err.message)) {
+      return reply({ error: 'Applications are temporarily unavailable. Please try again in a few minutes.' }, 503);
+    }
     return reply({ error: 'Something went wrong. Please try again.' }, 500);
   }
 }

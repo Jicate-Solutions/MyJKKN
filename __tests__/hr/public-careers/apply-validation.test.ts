@@ -35,7 +35,7 @@ describe('parseApplyForm', () => {
   it('normalises a valid submission', async () => {
     const r = await parseApplyForm(form({ worked_cities: 'Salem, Erode ,', utm_source: 'jkkn.ac.in' }));
     expect(r.ok).toBe(true);
-    if (!r.ok) return;
+    if (r.ok !== true) return;
     expect(r.value.first_name).toBe('Priya');
     expect(r.value.email).toBe('priya@example.com');
     expect(r.value.phone).toBe('+91 98765-43210');
@@ -57,7 +57,7 @@ describe('parseApplyForm', () => {
   ])('flags %s', async (field, patch) => {
     const r = await parseApplyForm(form(patch as Record<string, string | File | null>));
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.fields).toHaveProperty(field);
+    if (r.ok === false) expect(r.fields).toHaveProperty(field);
   });
 
   it('rejects an oversize resume', async () => {
@@ -65,6 +65,6 @@ describe('parseApplyForm', () => {
     big.set(PDF);
     const r = await parseApplyForm(form({ resume: new File([big], 'cv.pdf') }));
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.fields.resume).toMatch(/2 MB/);
+    if (r.ok === false) expect(r.fields.resume).toMatch(/2 MB/);
   });
 });

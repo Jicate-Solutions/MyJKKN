@@ -23,6 +23,16 @@ export function createRateLimiter(opts: { limit: number; windowMs: number }) {
   };
 }
 
+/**
+ * The client's IP as the platform saw it. Vercel overwrites both x-real-ip and
+ * x-forwarded-for with the connecting address, so on the deployed host both are
+ * trusted. Elsewhere the RIGHTMOST x-forwarded-for hop is the one appended by
+ * the nearest proxy — the leftmost is whatever the client chose to send, which
+ * is why it must never be the limiter key.
+ */
 export function clientIp(request: Request): string {
-  return request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+  const real = request.headers.get('x-real-ip')?.trim();
+  if (real) return real;
+  const hops = (request.headers.get('x-forwarded-for') ?? '').split(',').map((h) => h.trim()).filter(Boolean);
+  return hops.length > 0 ? hops[hops.length - 1] : 'unknown';
 }

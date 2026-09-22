@@ -35,7 +35,7 @@ Response `200` (cache it on your side, e.g. `next: { revalidate: 300 }`):
 {
   "id": "uuid",
   "job_code": "JOB-001",
-  "title": "Pharmacology Facilitator",
+  "title": "Senior Learner - Pharmacology",
   "role_category": "teaching_faculty",
   "job_type": "full_time",
   "description": "…",
@@ -96,6 +96,7 @@ Responses:
 | `400` | `{ "error", "fields": { "email": "…" } }` | validation — show `fields` next to inputs |
 | `403` | `{ "error" }` | origin not allowed (wrong domain) |
 | `404` | `{ "error" }` | job no longer open |
+| `411` | `{ "error" }` | no `Content-Length` — only happens if you stream the body; a normal `fetch(..., { body: formData })` always sends it |
 | `413` | `{ "error" }` | body over ~2.25 MB (resume must be under 2 MB) |
 | `429` | `{ "error" }` | too many applications: 5 accepted / IP / hour, 3 / (job, email) / hour, 30 requests / IP / hour |
 | `500`, `503` | `{ "error" }` | show the message, let them retry |

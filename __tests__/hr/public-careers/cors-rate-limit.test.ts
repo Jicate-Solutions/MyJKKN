@@ -43,8 +43,9 @@ describe('rate limiter', () => {
     expect(hit('other', 20)).toBe(true);
     expect(hit('ip', 1001)).toBe(true);
   });
-  it('reads the first x-forwarded-for hop', () => {
-    expect(clientIp(new Request('https://x', { headers: { 'x-forwarded-for': '1.2.3.4, 10.0.0.1' } }))).toBe('1.2.3.4');
+  it('keys on the proxy-appended (rightmost) hop, never the client-supplied leftmost one', () => {
+    expect(clientIp(new Request('https://x', { headers: { 'x-forwarded-for': 'spoofed, 1.2.3.4' } }))).toBe('1.2.3.4');
+    expect(clientIp(new Request('https://x', { headers: { 'x-real-ip': '5.6.7.8', 'x-forwarded-for': 'spoofed' } }))).toBe('5.6.7.8');
     expect(clientIp(new Request('https://x'))).toBe('unknown');
   });
 });
