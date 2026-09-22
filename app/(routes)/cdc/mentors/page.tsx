@@ -165,6 +165,35 @@ export default function MentorPairingsPage() {
                 })
               )}
             </div>
+            {(data?.total ?? 0) > (filters.limit ?? 20) ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+                <span className="text-gray-500">
+                  {((filters.page ?? 1) - 1) * (filters.limit ?? 20) + 1}–
+                  {Math.min((filters.page ?? 1) * (filters.limit ?? 20), data?.total ?? 0)} of {data?.total ?? 0}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={(filters.page ?? 1) <= 1}
+                    onClick={() => setFilters((f) => ({ ...f, page: Math.max(1, (f.page ?? 1) - 1) }))}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-gray-500">
+                    Page {filters.page ?? 1} / {Math.max(1, Math.ceil((data?.total ?? 0) / (filters.limit ?? 20)))}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={(filters.page ?? 1) * (filters.limit ?? 20) >= (data?.total ?? 0)}
+                    onClick={() => setFilters((f) => ({ ...f, page: (f.page ?? 1) + 1 }))}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </>
         )}
       </div>

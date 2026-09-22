@@ -35,9 +35,18 @@ export interface CharterProposalRow {
   proposed: Record<string, unknown>;
   rationale: string | null;
   status: 'proposed' | 'approved' | 'rejected' | 'insufficient';
+  /**
+   * charter = the MetaLoop's 5-leg draft (every row before 20261225070000) ·
+   * bar = a proposed bar for a loop that has none · bar-review = "this loop
+   * missed its bar 4 runs in a row, the bar may be wrong". The two bar kinds
+   * are decided through fn_loop_bar_decide, not fn_loop_apply_charter_proposal.
+   */
+  kind: 'charter' | 'bar' | 'bar-review';
   decided_at: string | null;
   decision_note: string | null;
   created_at: string;
+  /** Bar cards only: the loop's last recorded headline numbers, newest first — the scale a typed bar lives on. */
+  recent_values?: (number | null)[];
 }
 
 const FIELD_LABELS: Array<{ key: string; label: string }> = [
@@ -75,6 +84,10 @@ export function CharterProposalsPanel({ rows: initialRows }: { rows: CharterProp
   );
   const [rows, setRows] = useState<CharterProposalRow[]>(initialRows);
   const [notes, setNotes] = useState<Record<string, string>>({});
+  // The Director's own bar text, per card. The machine only ever proposes prose;
+  // a plain number typed here is the ONLY way a numeric bar reaches the
+  // registry — and a numeric bar is what arms the four-miss alarm.
+  const [barValues, setBarValues] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const markDecided = (id: string, status: 'approved' | 'rejected', note: string | null) =>
@@ -153,18 +166,76 @@ export function CharterProposalsPanel({ rows: initialRows }: { rows: CharterProp
     }
   }
 
-  const open = rows.filter((r) => r.status === 'proposed');
-  const decided = rows.filter((r) => r.status === 'approved' || r.status === 'rejected');
+  // Bars decided here go through fn_loop_bar_decide (SECURITY DEFINER,
+  // re-checks is_super_admin() server-side; it REFUSES a charter proposal, so
+  // the two paths can never cross).
+  async function decideBar(row: CharterProposalRow, decision: 'approved' | 'rejected') {
+    setBusyId(row.id);
+    try {
+      const note = (notes[row.id] ?? '').trim() || null;
+      const override = decision === 'approved' ? (barValues[row.id] ?? '').trim() || null : null;
+      const { error } = await supabase.rpc('fn_loop_bar_decide', {
+        p_proposal_id: row.id,
+        p_decision: decision,
+        p_note: note,
+        p_bar_override: override,
+      });
+      if (error) {
+        toast.error(
+          /not authorized/i.test(error.message)
+            ? 'Not authorized — only super administrators can set a loop’s bar.'
+            : /already decided/i.test(error.message)
+              ? 'This was already decided elsewhere — reload the page.'
+              : `Failed for ${row.loop_key}: ${error.message}`
+        );
+        return;
+      }
+      markDecided(row.id, decision, note);
+      toast.success(
+        row.kind === 'bar-review'
+          ? decision === 'approved'
+            ? override
+              ? `Re-set the bar on “${row.loop_name}” to “${override}” — the miss count starts again from zero.`
+              : `Cleared the bar on “${row.loop_name}” — a fresh one is proposed on the next run.`
+            : `Kept the bar on “${row.loop_name}” — the miss count starts again from zero.`
+          : decision === 'approved'
+            ? override
+              ? `“${row.loop_name}” is now judged against “${override}”.`
+              : `“${row.loop_name}” is now judged against this bar.`
+            : `Rejected the proposed bar for “${row.loop_name}” — it will not be proposed again unless its charter changes.`
+      );
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const charters = rows.filter((r) => r.kind === 'charter');
+  const bars = rows.filter((r) => r.kind === 'bar' || r.kind === 'bar-review');
+
+  const open = charters.filter((r) => r.status === 'proposed');
+  const decided = charters.filter((r) => r.status === 'approved' || r.status === 'rejected');
+  const barsOpen = bars.filter((r) => r.status === 'proposed');
+  const barsDecided = bars.filter((r) => r.status === 'approved' || r.status === 'rejected');
   // Honest abstentions — the machine read the evidence and declined to draft.
   // Latest per loop only (history stays in the table); newest-first.
   const insufficient = useMemo(() => {
     const latest = new Map<string, CharterProposalRow>();
-    for (const r of rows.filter((x) => x.status === 'insufficient')) {
+    for (const r of rows.filter((x) => x.status === 'insufficient' && x.kind === 'charter')) {
       const prev = latest.get(r.loop_key);
       if (!prev || r.created_at > prev.created_at) latest.set(r.loop_key, r);
     }
     return [...latest.values()].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
   }, [rows]);
+  // Loops the machine could not bar at all — a standing note, one per loop.
+  const barsInsufficient = useMemo(
+    () =>
+      [
+        ...new Set(
+          rows.filter((r) => r.kind === 'bar' && r.status === 'insufficient').map((r) => r.loop_name)
+        ),
+      ].sort(),
+    [rows]
+  );
 
   const card = (row: CharterProposalRow) => {
     const busy = busyId === row.id;
@@ -234,8 +305,178 @@ export function CharterProposalsPanel({ rows: initialRows }: { rows: CharterProp
     );
   };
 
+  const barCard = (row: CharterProposalRow) => {
+    const busy = busyId === row.id;
+    const isReview = row.kind === 'bar-review';
+    const last4 = Array.isArray(row.proposed.last_4_values)
+      ? (row.proposed.last_4_values as unknown[])
+      : null;
+    return (
+      <article key={row.id} className="rounded-xl border border-border">
+        <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border bg-muted/30 px-4 py-3">
+          <div className="flex flex-col gap-0.5">
+            <h3 className="text-sm font-semibold tracking-tight">
+              {isReview ? 'Bar may be wrong: ' : 'Bar: '}
+              {row.loop_name}
+            </h3>
+            <span className="font-mono text-[11px] text-muted-foreground">
+              {row.loop_key} · raised {row.created_at.slice(0, 10)}
+              {row.decided_at ? ` · decided ${row.decided_at.slice(0, 10)}` : ''}
+            </span>
+          </div>
+          <span
+            className={`inline-block rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide ${STATUS_BADGE[row.status]}`}
+          >
+            {row.status}
+          </span>
+        </header>
+
+        <dl className="grid gap-x-6 gap-y-2 px-4 py-3">
+          <div>
+            <dt className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              {isReview ? 'The bar it has been missing' : 'Proposed bar'}
+            </dt>
+            <dd className="text-sm">
+              {fieldText(row.proposed, isReview ? 'current_bar' : 'bar')}
+            </dd>
+          </div>
+          {!isReview && (
+            <div>
+              <dt className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                Bar kind
+              </dt>
+              <dd className="text-sm">{fieldText(row.proposed, 'bar_kind')}</dd>
+            </div>
+          )}
+          {isReview && last4 && (
+            <div>
+              <dt className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                Last four misses (newest first)
+              </dt>
+              <dd className="font-mono text-sm tabular-nums">
+                {last4.length > 0 ? last4.map((v) => (v == null ? '—' : String(v))).join(' · ') : '—'}
+              </dd>
+            </div>
+          )}
+          {row.status === 'proposed' && (
+            <div>
+              <dt className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                Recent readings of this loop (newest first)
+              </dt>
+              <dd className="font-mono text-sm tabular-nums">
+                {row.recent_values && row.recent_values.length > 0
+                  ? row.recent_values.map((v) => (v == null ? '—' : String(v))).join(' · ')
+                  : 'no final readings on record for this loop'}
+              </dd>
+            </div>
+          )}
+          {row.rationale && (
+            <div>
+              <dt className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                Why
+              </dt>
+              <dd className="text-sm text-muted-foreground">{row.rationale}</dd>
+            </div>
+          )}
+          {row.status !== 'proposed' && row.decision_note && (
+            <div>
+              <dt className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                Decision note
+              </dt>
+              <dd className="text-sm text-muted-foreground">{row.decision_note}</dd>
+            </div>
+          )}
+        </dl>
+
+        {row.status === 'proposed' && (
+          <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-3">
+            <Input
+              aria-label={`Bar value for ${row.loop_name}`}
+              value={barValues[row.id] ?? ''}
+              onChange={(e) => setBarValues((b) => ({ ...b, [row.id]: e.target.value }))}
+              placeholder={
+                isReview
+                  ? 'New bar (optional) — a plain number re-sets it instead of clearing'
+                  : 'Bar value (optional) — a plain number, e.g. 85, arms the four-miss alarm'
+              }
+              inputMode="decimal"
+              className="h-8 w-full text-xs sm:w-80"
+              disabled={busy}
+            />
+            <Input
+              aria-label={`Decision note for ${row.loop_name}`}
+              value={notes[row.id] ?? ''}
+              onChange={(e) => setNotes((n) => ({ ...n, [row.id]: e.target.value }))}
+              placeholder="Decision note (optional; kept with the record)"
+              className="h-8 w-full text-xs sm:w-80"
+              disabled={busy}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => decideBar(row, 'rejected')}
+            >
+              {busy ? 'Working…' : isReview ? 'The bar is fine — keep it' : 'Reject'}
+            </Button>
+            <Button size="sm" disabled={busy} onClick={() => decideBar(row, 'approved')}>
+              {busy
+                ? 'Working…'
+                : isReview
+                  ? (barValues[row.id] ?? '').trim()
+                    ? 'The bar was wrong — re-set it to this'
+                    : 'The bar was wrong — clear it'
+                  : (barValues[row.id] ?? '').trim()
+                    ? 'Approve — use my bar value'
+                    : 'Approve — make this the loop’s bar'}
+            </Button>
+          </footer>
+        )}
+      </article>
+    );
+  };
+
   return (
     <div className="flex flex-col gap-6">
+      <section className="flex flex-col gap-3">
+        <div className="flex items-baseline justify-between gap-2">
+          <h2 className="text-sm font-semibold tracking-tight">Bars</h2>
+          <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+            {barsOpen.length} waiting
+          </span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          One concrete bar per loop. The machine proposes; approving is what
+          sets it. A loop that misses its bar four runs in a row raises a
+          &ldquo;bar may be wrong&rdquo; card here instead of going quietly red
+          — nothing is ever paused automatically.
+        </p>
+        {barsOpen.length === 0 ? (
+          <div className="rounded-xl border border-border p-6 text-center text-sm text-muted-foreground">
+            No bars are waiting on you.
+          </div>
+        ) : (
+          barsOpen.map(barCard)
+        )}
+        {barsInsufficient.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            No bar could be proposed for{' '}
+            <span className="tabular-nums">{barsInsufficient.length}</span> loop
+            {barsInsufficient.length === 1 ? '' : 's'} — needs an owner
+            interview: {barsInsufficient.join(', ')}.
+          </p>
+        )}
+        {barsDecided.length > 0 && (
+          <details className="rounded-xl border border-border px-4 py-3">
+            <summary className="cursor-pointer text-xs text-muted-foreground">
+              {barsDecided.length} decided bar record
+              {barsDecided.length === 1 ? '' : 's'}
+            </summary>
+            <div className="mt-3 flex flex-col gap-3">{barsDecided.map(barCard)}</div>
+          </details>
+        )}
+      </section>
+
       <section className="flex flex-col gap-3">
         <div className="flex items-baseline justify-between gap-2">
           <h2 className="text-sm font-semibold tracking-tight">Awaiting decision</h2>

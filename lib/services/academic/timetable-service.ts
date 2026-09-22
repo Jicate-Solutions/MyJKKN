@@ -585,11 +585,6 @@ That timetable does not declare which sections it covers, so it is treated as co
         section_ids,
         timetable_name,
         is_active,
-        is_template,
-        template_name,
-        template_description,
-        template_category,
-        template_tags,
         created_from_template_id,
         start_date,
         end_date,
@@ -597,6 +592,17 @@ That timetable does not declare which sections it covers, so it is treated as co
         timetable_format,
         timetable_data,
         periods,
+        // Updated: 2026-09-10 - num_cycles was accepted by the form and by
+        // updateTimetable but never destructured here, so every cycle timetable
+        // created through this path was inserted with num_cycles NULL.
+        // get_cycle_for_date returns NULL for a NULL cycle count, so the grid
+        // rendered but no date ever resolved to a cycle and faculty were told
+        // "no classes scheduled" for the whole term. Two live timetables in JKKN
+        // College of Arts and Science (Aided) were in that state when BUG-006085
+        // was investigated.
+        num_cycles,
+        // Updated: 2026-09-10 (BUG-006085) - day order of the first working day.
+        start_cycle,
         // Updated: 2026-06-10 - School day-wise attendance support
         attendance_mode,
         class_incharge_id
@@ -627,16 +633,25 @@ That timetable does not declare which sections it covers, so it is treated as co
         timetable_name,
         timetable_type, // New field
         is_active: is_active ?? true,
-        is_template: is_template ?? false,
-        template_name: template_name || null,
-        template_description: template_description || null,
-        template_category: template_category || null,
-        template_tags: template_tags || null,
+        // BUG-006045 (2026-09-15): a timetable created here is a live schedule,
+        // never a template. The form's "Save as Template" checkbox used to land
+        // here as is_template=true on the real row, and every template-excluding
+        // surface (Pending dropdown, dashboard, AQS) then hid the class. Templates
+        // are made only by saveTimetableAsTemplate, which inserts a copy.
+        is_template: false,
+        template_name: null,
+        template_description: null,
+        template_category: null,
+        template_tags: null,
         created_from_template_id: created_from_template_id || null,
         start_date: start_date || null,
         end_date: end_date || null,
         selected_dates: selected_dates || null,
         timetable_format: timetable_format || 'regular',
+        // Only meaningful for the cycle format; null everywhere else so a
+        // regular timetable is not left carrying a stale rotation count.
+        num_cycles: timetable_format === 'cycle' ? (num_cycles ?? null) : null,
+        start_cycle: timetable_format === 'cycle' ? (start_cycle ?? null) : null,
         timetable_data: timetable_data || {}, // Provide empty object as default
         periods: periods || [], // Provide empty array as default for periods
         // Updated: 2026-06-10 - Attendance behaviour, authoritative on the row.
@@ -731,6 +746,13 @@ That timetable does not declare which sections it covers, so it is treated as co
         'end_date',
         'periods',
         'num_cycles',
+        // Updated: 2026-09-10 (BUG-006085) - start_cycle is the correction lever
+        // for a rotation anchored out of phase with the institution. Gating it
+        // behind "no attendance yet" would mean a timetable discovered to be on
+        // the wrong day order could never be put right, which is the whole
+        // problem it exists to solve. It shifts which cycle each FUTURE date
+        // reads; attendance already recorded stays bound to its own slot ids.
+        'start_cycle',
         'is_active',
         'is_template',
         'template_name',
@@ -911,6 +933,10 @@ That timetable does not declare which sections it covers, so it is treated as co
         'selected_days',
         'periods',
         'num_cycles',
+        // Updated: 2026-09-10 - start_cycle (BUG-006085): the day order the
+        // first working day carries, so a programme starting mid-term can
+        // rotate in step with the rest of its institution.
+        'start_cycle',
         'institution_id',
         'academic_year_id',
         'degree_id',
@@ -2632,27 +2658,48 @@ That timetable does not declare which sections it covers, so it is treated as co
     templateDescription?: string
   ): Promise<void> {
     try {
-      // Check if the current timetable exists
-      const { error: fetchError } = await this.supabase
+      // BUG-006045 (2026-09-15): this used to UPDATE the live row to
+      // is_template=true. A template is excluded from the Pending dropdown,
+      // fn_timetable_scheduled_sections and the AQS attendance RPCs, so the
+      // running schedule vanished from them while faculty were still marking it
+      // (18 such timetables on 2026-09-15). Copy the structure into a new,
+      // inactive template row instead; the live timetable is never touched.
+      const { data: source, error: fetchError } = (await this.supabase
         .from('timetables')
         .select('*')
         .eq('id', timetableId)
-        .single();
+        .single()) as { data: any | null; error: any };
 
       if (fetchError) throw fetchError;
+      if (!source) throw new Error('Timetable not found');
 
-      // Update the timetable to mark it as a template
-      const { error: updateError } = await (this.supabase as any)
+      const {
+        id: _id,
+        created_at: _createdAt,
+        updated_at: _updatedAt,
+        usage_count: _usageCount,
+        created_from_template_id: _fromTemplate,
+        migrated_from_old_structure: _migrated,
+        migration_timestamp: _migratedAt,
+        ...structure
+      } = source;
+
+      const { error: insertError } = await (this.supabase as any)
         .from('timetables')
-        .update({
-          is_template: true,
-          template_name: templateName,
-          template_description: templateDescription || null,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', timetableId);
+        .insert([
+          {
+            ...structure,
+            is_template: true,
+            // Inactive so it can never be picked up as a running schedule.
+            is_active: false,
+            template_name: templateName,
+            template_description: templateDescription || null,
+            usage_count: 0,
+            created_by: (await this.supabase.auth.getUser()).data.user?.id ?? source.created_by
+          }
+        ]);
 
-      if (updateError) throw updateError;
+      if (insertError) throw insertError;
 
       toast.success('Timetable saved as template successfully!', {
         duration: 3000,

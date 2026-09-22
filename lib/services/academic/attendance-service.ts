@@ -98,6 +98,19 @@ export class AttendanceService {
     return AttendanceCoreService.getAttendanceAuditLog(...args)
   }
 
+  // Added: 2026-09-17 — BUG-006133 (undo a mis-marked period)
+  static deletePeriodAttendance(
+    ...args: Parameters<typeof AttendanceCoreService.deletePeriodAttendance>
+  ) {
+    return AttendanceCoreService.deletePeriodAttendance(...args)
+  }
+
+  static canDeletePeriodAttendance(
+    ...args: Parameters<typeof AttendanceCoreService.canDeletePeriodAttendance>
+  ) {
+    return AttendanceCoreService.canDeletePeriodAttendance(...args)
+  }
+
   // =====================
   // NEW CONSOLIDATED ATTENDANCE METHODS
   // Forwarding stubs — moved to AttendanceRosterService (Task 5.2)
@@ -1403,6 +1416,18 @@ export class AttendanceService {
                   // Add staff members from staffMap
                   staff_members: (subSlot.staff_ids || [])
                     .map((id: string) => staffMap.get(id))
+                    .filter(Boolean),
+                  // Added: BUG-003246 - Resolve the sub-slot's OWN section from its
+                  // section_ids, same as the parent slot below. Combined/subdivided
+                  // slots routinely carry empty section_ids on the PARENT (real
+                  // scope lives per sub-slot), so without this a subdivided group's
+                  // `sections` stayed empty, which made the "already marked" list
+                  // check (available-periods-cards.tsx -> checkExistingAttendanceForPeriods)
+                  // treat it as a section-less period and always skip the check —
+                  // the Mark Attendance button never flipped to Already Marked no
+                  // matter how many times the group was actually marked.
+                  sections: (subSlot.section_ids || [])
+                    .map((id: string) => sectionsMap.get(id))
                     .filter(Boolean)
                 })
               );
@@ -1745,6 +1770,17 @@ export class AttendanceService {
                 : period.course,
               // Updated: 2025-10-13 - Override section_name to include group info for better identification
               section_name: `${period.section_name} - ${groupName}`,
+              // Added: BUG-003246 - Prefer the sub-slot's own resolved sections
+              // over the parent's (often empty on combined/subdivided slots).
+              // See the enhancedSubSlots comment above for why this matters.
+              sections:
+                subSlot.sections && subSlot.sections.length > 0
+                  ? subSlot.sections
+                  : period.sections,
+              section_ids:
+                subSlot.section_ids && subSlot.section_ids.length > 0
+                  ? subSlot.section_ids
+                  : period.section_ids,
               // Use sub-slot's staff members instead of main slot's staff
               staff_members: subSlot.staff_members || [],
               // Add subdivision metadata for identification

@@ -35,6 +35,7 @@ import { GeographicDistribution } from './_components/geographic-distribution';
 import { DemographicAnalytics } from './_components/demographic-analytics';
 import { TenureAnalytics } from './_components/tenure-analytics';
 import { ProfileAnalytics } from './_components/profile-analytics';
+import { IncompleteStaffTable } from './_components/incomplete-staff-table';
 import { useTabParam } from '@/hooks/use-tab-param';
 
 const STAFF_DASHBOARD_TABS = [
@@ -409,8 +410,11 @@ function StaffDashboardPageInner() {
               <ProfileAnalytics
                 data={dashboardData?.profileAnalytics}
                 isLoading={isLoading}
-                filters={filters}
               />
+
+              {/* The who-is-incomplete list sits at tab level, like the learners
+                  dashboard — buried in a chart's sub-tab, nobody found it. */}
+              <IncompleteStaffTable filters={filters} />
             </div>
           </TabsContent>
         </Tabs>

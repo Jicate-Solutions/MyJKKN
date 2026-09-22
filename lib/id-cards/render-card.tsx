@@ -82,23 +82,29 @@ const VALUE_LINE_HEIGHT = 1.15;
 const VALUE_MIN_FONT = 17;
 const ADDRESS_MIN_FONT = 16;
 /** Ideal sizes for template-placed VALUE elements when the author set a smaller one. */
+// ONE value size on both faces (2026-09-19): front and back used to mix
+// 16 / 18 / 24 / 27 / 36 px. Every value is now VALUE_FONT; only the name is
+// larger and the small print (valid-until, wrapped address, college contact
+// lines) one step smaller. Authored element sizes no longer override these —
+// fitText still shrinks a value that would not fit its box.
+const VALUE_FONT = 26;
 const PREFERRED_VALUE_FONT: Record<string, number> = {
-  name_line_1: 32,
-  roll_number: 26,
-  course: 26,
-  department: 26,
-  study_period: 26,
-  staff_id: 26,
-  valid_until: 22,
-  blood_group: 34,
-  date_of_birth: 27,
-  guardian: 24,
-  address: 24,
-  contact_phone: 27,
-  institution_email: 20,
-  institution_phone: 20,
-  institution_address: 20,
-  institution_website: 20
+  name_line_1: 34,
+  roll_number: VALUE_FONT,
+  course: VALUE_FONT,
+  department: VALUE_FONT,
+  study_period: VALUE_FONT,
+  staff_id: VALUE_FONT,
+  valid_until: VALUE_FONT,
+  blood_group: VALUE_FONT,
+  date_of_birth: VALUE_FONT,
+  guardian: VALUE_FONT,
+  address: VALUE_FONT,
+  contact_phone: VALUE_FONT,
+  institution_email: VALUE_FONT,
+  institution_phone: VALUE_FONT,
+  institution_address: VALUE_FONT,
+  institution_website: VALUE_FONT
 };
 /** Fields that read as key identity data — bold unless the template says otherwise. */
 const BOLD_VALUE_FIELDS = new Set([
@@ -176,9 +182,14 @@ function fitElementText(
   canvasHeight: number
 ): { text: string; fontSize: number; fontWeight: number; width: number; lines: number } {
   const box = elementBox(element, all, canvasWidth, canvasHeight);
-  const preferred = Math.max(element.font_size ?? 26, PREFERRED_VALUE_FONT[element.field] ?? 26);
-  const fontWeight = element.font_weight ?? (BOLD_VALUE_FIELDS.has(element.field) ? 700 : 400);
+  const preferred = PREFERRED_VALUE_FONT[element.field] ?? VALUE_FONT;
+  // ONE weight for every value: authored 600 / 700 / 800 mixes read as different
+  // fonts on the printed card. The name keeps its heavier weight.
+  const fontWeight = element.field === 'name_line_1' ? 800 : BOLD_VALUE_FIELDS.has(element.field) ? 700 : 400;
   const isAddress = element.field === 'address' || element.field === 'institution_address';
+  // "NAGAR,KUMARAPALAYAM,NAMAKKAL," has no break opportunity and ran off the
+  // card: a space after every comma lets the line wrap where it should.
+  if (isAddress) value = value.replace(/,(?=[^ ])/g, ', ');
   const fit = fitText(value, {
     maxWidth: box.width,
     maxHeight: box.height,
@@ -764,8 +775,8 @@ function identityLine(person: CardPersonData): string {
 /** School vocabulary for authored heading text: "COURSE :" -> "CLASS :" etc. */
 export function schoolHeading(text: string): string {
   const swaps: Array<[RegExp, string]> = [
-    [/\bROLL\s*NO\.?\b/g, 'ADMISSION NUMBER'],
-    [/\bRoll\s*No\.?\b/g, 'Admission Number'],
+    [/\bROLL\s*NO\.?\b/g, 'ADM. NO.'],
+    [/\bRoll\s*No\.?\b/g, 'Adm. No.'],
     [/\bCOURSES\b/g, 'SUBJECTS'],
     [/\bCOURSE\b/g, 'CLASS'],
     [/\bDEPARTMENT\b/g, 'WING'],
@@ -794,8 +805,9 @@ function qrIdLine(person: CardPersonData, width: number): ReactElement | null {
   const text = person.qrId;
   const fit = fitText(text, {
     maxWidth: width,
-    maxFontSize: 16,
-    minFontSize: 11,
+    // Same value size as every other field; shrinks only to stay under the QR.
+    maxFontSize: VALUE_FONT,
+    minFontSize: 12,
     maxLines: 1,
     lineHeight: VALUE_LINE_HEIGHT,
     bold: true
@@ -808,7 +820,7 @@ function qrIdLine(person: CardPersonData, width: number): ReactElement | null {
         width,
         marginTop: 0,
         fontSize: fit.fontSize,
-        lineHeight: VALUE_LINE_HEIGHT,
+        lineHeight: 1.05,
         fontWeight: 700,
         letterSpacing: 1,
         color: '#111827'
@@ -883,7 +895,7 @@ function defaultDesign(input: CardRenderInput, headerOverrides?: FrontLayout['he
         backgroundColor: backgroundDataUrl
           ? 'transparent'
           : (input.layout?.background_color ?? '#ffffff'),
-        fontFamily: 'sans-serif'
+        fontFamily: 'Poppins, sans-serif'
       }}
     >
       {backgroundDataUrl ? (
@@ -1255,7 +1267,12 @@ function customDesign(
     }
     if (element.field === 'qr_code') {
       if (!qrDataUrl) return;
-      const size = element.width ?? 150;
+      const box = element.width ?? 150;
+      // The MyJKKN ID prints UNDER the QR inside the QR's own authored box: the
+      // code shrinks by one value line so the pair never grows into the footer
+      // band (the earlier overlap) and never moves the authored top-left.
+      const idLineH = person.qrId ? Math.round(VALUE_FONT * 1.05) : 0;
+      const size = box - idLineH;
       children.push(
         <img
           key={key}
@@ -1280,13 +1297,13 @@ function customDesign(
             style={{
               display: 'flex',
               position: 'absolute',
-              left: element.x - 20,
-              top: element.y + size - 2,
-              width: size + 40,
+              left: element.x - 30,
+              top: element.y + size,
+              width: size + 60,
               justifyContent: 'center'
             }}
           >
-            {qrIdLine(person, size + 40)}
+            {qrIdLine(person, size + 60)}
           </div>
         );
       }
@@ -1368,7 +1385,7 @@ function customDesign(
         backgroundColor: backgroundDataUrl
           ? 'transparent'
           : (layout.background_color ?? '#ffffff'),
-        fontFamily: 'sans-serif'
+        fontFamily: 'Poppins, sans-serif'
       }}
     >
       {children}
@@ -1447,7 +1464,7 @@ function portraitDefaultDesign(input: CardRenderInput): ReactElement {
   if (person.kind === 'learner') {
     if (person.rollNumber)
       fieldRows.push(
-        portraitFieldRow('roll', person.isSchool ? 'ADMISSION NUMBER' : 'ROLL NO', person.rollNumber)
+        portraitFieldRow('roll', person.isSchool ? 'ADM. NO.' : 'ROLL NO', person.rollNumber)
       );
     // A school's "programme" IS a class (Standard 12), so a school card that
     // printed "COURSE: Standard 12" read as nonsense. The value is right either
@@ -1480,7 +1497,7 @@ function portraitDefaultDesign(input: CardRenderInput): ReactElement {
         backgroundColor: backgroundDataUrl
           ? 'transparent'
           : (input.layout?.background_color ?? '#ffffff'),
-        fontFamily: 'sans-serif'
+        fontFamily: 'Poppins, sans-serif'
       }}
     >
       {backgroundDataUrl ? (
@@ -1969,7 +1986,7 @@ export function buildBackElement(input: BackRenderInput, options: BuildOptions =
         // First row: no gap above — it sits at the top of the info block.
         topGap: 0,
         valueSize: 34,
-        valueColor: BRAND_GREEN,
+        valueColor: '#111827',
         valueWeight: 800
       })
     );
@@ -2035,10 +2052,13 @@ export function buildBackElement(input: BackRenderInput, options: BuildOptions =
     }
     return best;
   };
-  const anchorFor = (el: BackLayoutElement, fontSize: number, lines: number): number | null => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const anchorFor = (el: BackLayoutElement, fontSize: number, _lines: number): number | null => {
     const best = headingAbove(el);
     return best
-      ? Math.round(best.y + ICON_HALF - (fontSize * VALUE_LINE_HEIGHT * Math.max(1, lines)) / 2)
+      ? // FIRST line level with the icon; a wrapped address flows DOWN from there
+        // (2026-09-19 — block-centring pushed its first line above the icon).
+        Math.round(best.y + ICON_HALF - (fontSize * VALUE_LINE_HEIGHT) / 2)
       : null;
   };
 
@@ -2118,7 +2138,7 @@ export function buildBackElement(input: BackRenderInput, options: BuildOptions =
           fontSize: sized.fontSize,
           lineHeight: VALUE_LINE_HEIGHT,
           fontWeight: sized.fontWeight,
-          color: element.color ?? '#111827'
+          color: element.field === 'blood_group' ? '#111827' : (element.color ?? '#111827')
         }}
       >
         {sized.text}
@@ -2137,7 +2157,7 @@ export function buildBackElement(input: BackRenderInput, options: BuildOptions =
         backgroundColor: backgroundDataUrl
           ? 'transparent'
           : (layout.background_color ?? '#ffffff'),
-        fontFamily: 'sans-serif'
+        fontFamily: 'Poppins, sans-serif'
       }}
     >
       {backgroundDataUrl ? (

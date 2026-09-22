@@ -47,6 +47,8 @@ import {
   type SolutionDepartmentStatus,
 } from '@/lib/services/solutions/societal-service';
 import { RecordEngagementDialog } from './record-engagement-dialog';
+import { EngagementParticipantsList } from './engagement-participants-list';
+import { participantsSupport } from './engagement-participants';
 
 interface CommunityEngagementsPanelProps {
   departmentId: string;
@@ -130,6 +132,11 @@ export function CommunityEngagementsPanel({
   // this register" over rows RLS would have handed them. `user_has_permission()`
   // does not close the gap either — it bypasses only `is_super_admin = true`.
   const adminBypass = hasDbAdminBypass(userProfile?.role, isSuperAdmin);
+
+  // Whether this build can read the departments that ran each initiative. The
+  // substrate ships separately, so the panel says so once rather than showing a
+  // blank line under every entry.
+  const jointSupport = participantsSupport();
 
   /**
    * FOUR CAPABILITIES, NOT ONE GATE.
@@ -354,6 +361,23 @@ export function CommunityEngagementsPanel({
         )}
 
         {/*
+          Said ONCE, at the top. An entry with no participants line and an entry
+          in a build that cannot read them look identical, and they mean
+          completely different things — CLAUDE.md rule 27.
+        */}
+        {!jointSupport.canList && engagements.length > 0 && (
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertDescription>
+              This version of the application cannot yet read which departments ran each
+              initiative, so no entry below names one. That is <strong>not</strong> the same as
+              each having been run by {departmentName} alone. The part that reads them is still
+              being rolled out; nothing here is lost in the meantime.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/*
           Gated on `canView`, not on the array being non-empty. Without `view`
           this list is what RLS let through for one person, and totalling it into
           "Approved · Approved hours · People reached" would present one
@@ -459,6 +483,18 @@ export function CommunityEngagementsPanel({
                     {ENGAGEMENT_STATUS_LABELS[engagement.approval_status]}
                   </span>
                 </div>
+
+                {/*
+                  Which departments ran it, each with where it stands. Never a
+                  count: a named department has been claimed, not credited, and
+                  once the two are added together the difference is gone — which
+                  is the whole mechanism that stops a lead naming departments
+                  that did nothing.
+                */}
+                <EngagementParticipantsList
+                  engagementId={engagement.id}
+                  supported={jointSupport.canList}
+                />
 
                 {engagement.description && (
                   <p className="text-sm text-muted-foreground">{engagement.description}</p>

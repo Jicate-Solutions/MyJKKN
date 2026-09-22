@@ -58,6 +58,7 @@ import {
   CARD_HEIGHT
 } from '@/lib/id-cards/render-card';
 import { makeCode39SvgDataUrl } from '@/lib/id-cards/barcode';
+import { loadCardFonts } from '@/lib/id-cards/card-fonts';
 import { buildFieldReport } from '@/lib/id-cards/field-report';
 import type { ReactElement } from 'react';
 
@@ -221,6 +222,10 @@ export async function GET(
     // number / team member's staff id (pure, no I/O) + optional back artwork
     // through the SAME id-card-assets allowlist as the front. Shared by
     // side=back and side=both.
+    // Poppins Regular / SemiBold / Bold — without these every fontWeight
+    // rendered at the built-in font's single regular weight.
+    const fonts = await loadCardFonts();
+
     const renderBack = async (): Promise<ArrayBuffer> => {
       const backLayout = parseBackLayout(templateRow.back_layout_json) ?? {};
       const barcodeDataUrl =
@@ -240,7 +245,7 @@ export async function GET(
         buildOptions
       );
       const size = backCanvasSize(backLayout, buildOptions);
-      return new ImageResponse(backElement, { width: size.width, height: size.height }).arrayBuffer();
+      return new ImageResponse(backElement, { width: size.width, height: size.height, fonts }).arrayBuffer();
     };
 
     if (side === 'back') {
@@ -299,7 +304,8 @@ export async function GET(
 
     const image = new ImageResponse(element, {
       width: canvas.width,
-      height: canvas.height
+      height: canvas.height,
+      fonts
     });
     const backConfiguredEarly =
       templateRow.back_layout_json !== null && templateRow.back_layout_json !== undefined;

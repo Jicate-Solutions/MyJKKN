@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { AlertCircle } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useCreateHRLeaveType, useUpdateHRLeaveType } from '@/hooks/hr/use-hr-leave-types';
 import { ACCRUAL_TYPE_LABELS, APPLICABLE_GENDER_LABELS } from '@/types/hr-leave-types';
@@ -58,6 +60,10 @@ const EMPTY = {
   requires_approval: true, is_paid: true,
   min_advance_notice_days: 0, max_continuous_days: '' as number | '' ,
   requires_documents: false, document_required_after_days: '' as number | '',
+  // Hides the type from Apply Leave until a staff member's eligibility is
+  // approved, and moves its document from every application to that one
+  // request. Off for every existing type.
+  requires_eligibility: false,
   default_entitled_days: 0,
   allow_carry_forward: false, max_carry_forward_days: '' as number | '',
   is_encashable: false, max_encashable_days: '' as number | '',
@@ -100,7 +106,9 @@ export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType, on
 
   // Numeric fields left blank must go to the DB as null, not '' — an empty
   // string sent for a numeric/uuid column raises 22P02.
-  const nullable = (v: number | '') => (v === '' ? null : Number(v));
+  // `string | number` because the four sto_* fields are declared that way; the
+  // conversion is the same either way.
+  const nullable = (v: string | number) => (v === '' ? null : Number(v));
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -472,7 +480,34 @@ export function LeaveTypeFormDialog({ open, onOpenChange, hrOrgId, leaveType, on
                 <Checkbox checked={form.requires_documents} onCheckedChange={(c) => set('requires_documents', !!c)} />
                 Requires documents
               </label>
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={form.requires_eligibility}
+                  onCheckedChange={(c) => set('requires_eligibility', !!c)}
+                />
+                Requires eligibility
+              </label>
             </div>
+
+            {/* TICKING THIS TAKES THE TYPE AWAY FROM EVERYONE, at once, and the
+                only way back for a given person is an approved eligibility. It
+                is the one setting on this form whose blast radius is measured
+                in people rather than in rules, so it says the number out loud
+                before it is saved rather than after. */}
+            {form.requires_eligibility && (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription className="text-xs">
+                  This leave type will disappear from Apply Leave for everyone except team members with an
+                  approved eligibility. They request it once with a supporting document, the
+                  approvers set under <strong>Who approves eligibility</strong> decide it (or the
+                  ones under <strong>Who approves this</strong> until you set some), and
+                  afterwards applying for this leave needs no document at all.
+                  {' '}Grant it directly to anyone already using it from{' '}
+                  <strong>HR → Leave → Eligibility</strong> <em>before</em> saving this.
+                </AlertDescription>
+              </Alert>
+            )}
           </section>
 
           <section className="space-y-3">
