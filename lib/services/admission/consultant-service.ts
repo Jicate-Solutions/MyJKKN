@@ -18,8 +18,13 @@ import type {
   UpdateCommissionStructureInput,
   CommissionRateCard,
   ConsultantRateCardEarning,
+  ConsultantFirstYearFeeCollection,
   RateCardPayment,
   RateCardPaymentInput,
+  RateCardSlab,
+  RateCardSlabInput,
+  RateCardAdvance,
+  RateCardAdvanceInput,
   ConsultantLeadAttribution,
   CreateLeadAttributionInput,
   LeadAttributionFilters,
@@ -781,6 +786,10 @@ export class ConsultantService {
       .select(
         `*, groups:commission_rate_card_groups(*, slabs:commission_rate_card_slabs(*))`
       )
+      // The standard card only. Agency-specific ladders live in the same table
+      // with consultant_id set; without this filter they would render as extra
+      // bands of the printed card, overlapping its own.
+      .is('groups.slabs.consultant_id', null)
       .eq('is_active', true);
     if (year != null) query = query.eq('academic_year', year);
 
@@ -857,6 +866,34 @@ export class ConsultantService {
       paid_amount: Number(r.paid_amount ?? 0),
       balance_amount: Number(r.balance_amount ?? 0),
       excess_amount: Number(r.excess_amount ?? 0),
+      is_override: r.is_override === true,
+      advance_applied: Number(r.advance_applied ?? 0),
+    }));
+  }
+
+  /**
+   * Per institution, how much of the counted learners' 1st-year academic fees
+   * has been collected. Same learner set as getConsultantRateCardEarnings.
+   */
+  static async getConsultantFirstYearFeeCollection(
+    consultantId: string,
+    year: number
+  ): Promise<ConsultantFirstYearFeeCollection[]> {
+    const supabase = createClientSupabaseClient();
+
+    const { data, error } = await (supabase as any).rpc(
+      'fn_consultant_first_year_fee_collection',
+      { p_consultant_id: consultantId, p_academic_year: year }
+    );
+
+    if (error) throw new Error(error.message);
+
+    return (data || []).map((r: any) => ({
+      ...r,
+      learner_count: Number(r.learner_count ?? 0),
+      fee_amount: Number(r.fee_amount ?? 0),
+      paid_amount: Number(r.paid_amount ?? 0),
+      balance_amount: Number(r.balance_amount ?? 0),
     }));
   }
 
@@ -873,6 +910,10 @@ export class ConsultantService {
       .select(
         `*, group:commission_rate_card_groups!inner(id, name, card:commission_rate_cards!inner(academic_year))`
       )
+      // Line payments and recoveries only. The !inner join already excludes
+      // advances, which carry no group — they are listed on their own, because a
+      // payment answers "which college" and an advance answers "which year".
+      .in('entry_type', ['payment', 'recovery'])
       .eq('consultant_id', consultantId)
       .eq('group.card.academic_year', year)
       .order('paid_on', { ascending: false })
@@ -2909,6 +2950,164 @@ export class ConsultantService {
         updated_at: new Date().toISOString(),
       } as any)
       .eq('id', consultantId);
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Agency rate ladders
+  //
+  // A tweak is THIS agency's own ladder on ONE line of the card. It replaces the
+  // standard ladder for that line and that agency; every other line and every
+  // other agency stays on the standard card (Director ruling, 2026-09-21).
+  //
+  // Writing these is admin-only at the database, the same gate as the standard
+  // card's rates and deliberately stricter than recording a payment.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /** Every agency-specific band this consultant has, across all lines of the card. */
+  static async getConsultantLadders(consultantId: string): Promise<RateCardSlab[]> {
+    const supabase = createClientSupabaseClient();
+
+    const { data, error } = await (supabase as any)
+      .from('commission_rate_card_slabs')
+      .select('*')
+      .eq('consultant_id', consultantId)
+      .order('group_id')
+      .order('min_count');
+
+    if (error) throw new Error(error.message);
+    return (data || []).map((r: any) => ({
+      ...r,
+      min_count: Number(r.min_count),
+      max_count: r.max_count == null ? null : Number(r.max_count),
+      amount: Number(r.amount),
+    })) as RateCardSlab[];
+  }
+
+  /**
+   * Replace this agency's whole ladder on one line of the card.
+   *
+   * Replace, not merge: the bands passed in become the agency's entire ladder for
+   * that line, because a half-updated ladder is a rate nobody can explain. An
+   * empty list puts the agency back on the standard card for that line.
+   *
+   * The delete and the insert are separate calls, so a failed insert leaves the
+   * agency on the standard card rather than on half a ladder — the safe side of
+   * the two, and visibly different on screen rather than quietly wrong.
+   */
+  static async saveConsultantLadder(
+    consultantId: string,
+    groupId: string,
+    bands: RateCardSlabInput[],
+    note?: string | null,
+    userId?: string | null
+  ): Promise<void> {
+    const supabase = createClientSupabaseClient();
+
+    const clean = bands
+      .filter(b => b.amount != null && b.min_count != null)
+      .sort((a, b) => a.min_count - b.min_count);
+
+    for (const b of clean) {
+      if (b.min_count < 1) throw new Error('A band must start at 1 learner or more.');
+      if (b.max_count != null && b.max_count < b.min_count) {
+        throw new Error('A band cannot end before it starts.');
+      }
+      if (b.amount < 0) throw new Error('A rate cannot be negative.');
+    }
+    for (let i = 1; i < clean.length; i++) {
+      const prev = clean[i - 1];
+      if (prev.max_count == null || clean[i].min_count <= prev.max_count) {
+        throw new Error(
+          'Two bands cover the same number of learners. Change the ranges so they do not overlap.'
+        );
+      }
+    }
+
+    const { error: delError } = await (supabase as any)
+      .from('commission_rate_card_slabs')
+      .delete()
+      .eq('group_id', groupId)
+      .eq('consultant_id', consultantId);
+    if (delError) throw new Error(delError.message);
+
+    if (clean.length === 0) return;
+
+    const { error: insError } = await (supabase as any)
+      .from('commission_rate_card_slabs')
+      .insert(
+        clean.map(b => ({
+          group_id: groupId,
+          consultant_id: consultantId,
+          min_count: b.min_count,
+          max_count: b.max_count,
+          amount: b.amount,
+          note: note ?? null,
+          created_by: userId ?? null,
+        }))
+      );
+    if (insError) throw new Error(insError.message);
+
+    await recordFeatureUse(supabase, 'admission.consultant_rate_card');
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Advances
+  //
+  // An advance is money given to the agency against ONE intake year, with no
+  // college line. It is consumed automatically as that year's admissions come in,
+  // spread down the card in its printed order by fn_consultant_rate_card_earnings.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /** The advances held against one intake year for this agency, newest first. */
+  static async getRateCardAdvances(consultantId: string, year: number): Promise<RateCardAdvance[]> {
+    const supabase = createClientSupabaseClient();
+
+    const { data, error } = await (supabase as any)
+      .from('commission_rate_card_payments')
+      .select('*')
+      .eq('consultant_id', consultantId)
+      .eq('entry_type', 'advance')
+      .eq('academic_year', year)
+      .order('paid_on', { ascending: false })
+      .order('created_at', { ascending: false });
+
+    if (error) throw new Error(error.message);
+    return (data || []).map((a: any) => ({ ...a, amount: Number(a.amount) })) as RateCardAdvance[];
+  }
+
+  /**
+   * Record an advance. The year is required and the college line is deliberately
+   * absent; the database refuses either mistake, and this refuses it earlier so
+   * the person sees a sentence rather than a constraint name.
+   */
+  static async createRateCardAdvance(input: RateCardAdvanceInput, userId?: string | null): Promise<void> {
+    if (!input.academic_year) {
+      throw new Error('An advance has to say which intake year it is against.');
+    }
+    if (!(input.amount > 0)) {
+      throw new Error('An advance has to be more than zero.');
+    }
+    if (input.advance_disposition !== 'carry_forward' && input.advance_disposition !== 'recoverable') {
+      throw new Error('Say what happens to the unused part: carry it forward, or recover it.');
+    }
+
+    const supabase = createClientSupabaseClient();
+    const { error } = await (supabase as any)
+      .from('commission_rate_card_payments')
+      .insert({
+        ...input,
+        group_id: null,
+        entry_type: 'advance',
+        created_by: userId ?? null,
+        updated_by: userId ?? null,
+      });
+    if (error) throw new Error(error.message);
+    await recordFeatureUse(supabase, 'admission.consultant_rate_card');
+  }
+
+  /** Put this agency back on the standard card for one line. */
+  static async clearConsultantLadder(consultantId: string, groupId: string): Promise<void> {
+    await ConsultantService.saveConsultantLadder(consultantId, groupId, []);
   }
 }
 

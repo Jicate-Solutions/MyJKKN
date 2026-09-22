@@ -91,7 +91,7 @@ export function buildFieldReport(input: FieldReportInput): CardFieldReport[] {
   const front: CardFieldReport[] = [
     { key: 'name', label: 'Name', side: 'front', value: present(person.fullName) },
     isLearner
-      ? { key: 'roll_number', label: 'Roll Number', side: 'front', value: present(person.rollNumber) }
+      ? { key: 'roll_number', label: person.isSchool ? 'Adm. No.' : 'Roll Number', side: 'front', value: present(person.rollNumber) }
       : { key: 'staff_id', label: 'Team member ID', side: 'front', value: present(person.staffId) },
     isLearner
       ? { key: 'course', label: courseLabel, side: 'front', value: present(person.courseName) }

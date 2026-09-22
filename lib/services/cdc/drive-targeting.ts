@@ -176,24 +176,27 @@ export async function resolveTargetLearners(
   // 1. Resolve semester ids per institution for the requested orders.
   const semesterIdsByInst = new Map<string, string[] | 'ALL'>();
   const orderBySemesterId = new Map<string, number>();
-  for (const entry of targeting) {
-    if (!entry.semester_orders || entry.semester_orders.length === 0) {
-      semesterIdsByInst.set(entry.institution_id, 'ALL');
-      continue;
-    }
-    const { data, error } = await service
-      .from('semesters')
-      .select('id, semester_order')
-      .eq('institution_id', entry.institution_id)
-      .in('semester_order', entry.semester_orders)
-      .limit(5000);
-    if (error) throw error;
-    const ids = (data ?? []).map((s) => {
-      orderBySemesterId.set(s.id as string, s.semester_order as number);
-      return s.id as string;
-    });
-    semesterIdsByInst.set(entry.institution_id, ids);
-  }
+  // One semesters query per institution, all at once (they are independent).
+  await Promise.all(
+    targeting.map(async (entry) => {
+      if (!entry.semester_orders || entry.semester_orders.length === 0) {
+        semesterIdsByInst.set(entry.institution_id, 'ALL');
+        return;
+      }
+      const { data, error } = await service
+        .from('semesters')
+        .select('id, semester_order')
+        .eq('institution_id', entry.institution_id)
+        .in('semester_order', entry.semester_orders)
+        .limit(5000);
+      if (error) throw error;
+      const ids = (data ?? []).map((s) => {
+        orderBySemesterId.set(s.id as string, s.semester_order as number);
+        return s.id as string;
+      });
+      semesterIdsByInst.set(entry.institution_id, ids);
+    })
+  );
 
   // 2. Learners per institution (optionally restricted to the entry's programs).
   const programIdsByInst = new Map<string, string[]>();
@@ -201,45 +204,52 @@ export async function resolveTargetLearners(
     if (entry.program_ids && entry.program_ids.length > 0) programIdsByInst.set(entry.institution_id, entry.program_ids);
   }
   const learners: Array<{ id: string; institution_id: string; semester_id: string | null }> = [];
+  // Every (institution × semester-chunk) read is independent → one parallel wave.
+  const learnerJobs: Array<Promise<Array<{ id: string; institution_id: string; semester_id: string | null }>>> = [];
   for (const [institutionId, semesterIds] of semesterIdsByInst) {
     if (semesterIds !== 'ALL' && semesterIds.length === 0) continue;
     const groups = semesterIds === 'ALL' ? [null] : chunk(semesterIds, IN_CHUNK);
     const programIds = programIdsByInst.get(institutionId) ?? null;
     for (const group of groups) {
-      let q = service
-        .from('learners_profiles')
-        .select('id, institution_id, semester_id')
-        .eq('institution_id', institutionId)
-        .in('lifecycle_status', TARGET_LIFECYCLE)
-        .limit(20000);
-      if (group) q = q.in('semester_id', group);
-      if (programIds) q = q.in('program_id', programIds);
-      const { data, error } = await q;
-      if (error) throw error;
-      for (const row of data ?? []) {
-        learners.push({
-          id: row.id as string,
-          institution_id: row.institution_id as string,
-          semester_id: (row.semester_id as string | null) ?? null,
-        });
-      }
+      learnerJobs.push(
+        (async () => {
+          let q = service
+            .from('learners_profiles')
+            .select('id, institution_id, semester_id')
+            .eq('institution_id', institutionId)
+            .in('lifecycle_status', TARGET_LIFECYCLE)
+            .limit(20000);
+          if (group) q = q.in('semester_id', group);
+          if (programIds) q = q.in('program_id', programIds);
+          const { data, error } = await q;
+          if (error) throw error;
+          return (data ?? []).map((row) => ({
+            id: row.id as string,
+            institution_id: row.institution_id as string,
+            semester_id: (row.semester_id as string | null) ?? null,
+          }));
+        })()
+      );
     }
   }
+  for (const batch of await Promise.all(learnerJobs)) learners.push(...batch);
   if (learners.length === 0) return empty;
 
   // 3. learners_profiles.id → profiles.id (the notifiable auth user).
   const userByLearner = new Map<string, string>();
-  for (const ids of chunk(learners.map((l) => l.id), IN_CHUNK)) {
-    const { data, error } = await service
-      .from('profiles')
-      .select('id, learner_id')
-      .in('learner_id', ids)
-      .eq('is_active', true);
-    if (error) throw error;
-    for (const p of data ?? []) {
-      if (p.learner_id && p.id) userByLearner.set(p.learner_id as string, p.id as string);
-    }
-  }
+  await Promise.all(
+    chunk(learners.map((l) => l.id), IN_CHUNK).map(async (ids) => {
+      const { data, error } = await service
+        .from('profiles')
+        .select('id, learner_id')
+        .in('learner_id', ids)
+        .eq('is_active', true);
+      if (error) throw error;
+      for (const p of data ?? []) {
+        if (p.learner_id && p.id) userByLearner.set(p.learner_id as string, p.id as string);
+      }
+    })
+  );
 
   const rows: TargetLearnerRow[] = [];
   const unlinked: UnlinkedLearnerRow[] = [];

@@ -51,7 +51,7 @@ export default function IndustryMentorDetailPage(props: Props) {
 
 function IndustryMentorDetailContent({ params }: Props) {
   const { id } = use(params);
-  const { mentor, loading, error } = useIndustryMentor(id);
+  const { mentor, loading, error, refetch } = useIndustryMentor(id);
   const { updateMentor, loading: saving, error: saveError } = useUpdateIndustryMentor(id);
   const [editing, setEditing] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -76,6 +76,7 @@ function IndustryMentorDetailContent({ params }: Props) {
 
   async function handleSave() {
     await updateMentor(form);
+    refetch(); // show what was saved, not the pre-edit copy
     setSaved(true);
     setEditing(false);
   }
