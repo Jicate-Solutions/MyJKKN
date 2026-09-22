@@ -19,11 +19,13 @@ export const dynamic = 'force-dynamic';
 // alert are one resumable step (grantAndNotifyTags): a tag whose alert failed
 // is finished by the next request for that person — the author's Resend.
 //
-// Tagging grants the tagged person read access to this booking's thread, and
-// only people of the booking's institution can be tagged. Untagging is a
-// direct, RLS-checked delete from the browser (no notification to send). See
-// supabase/migrations/20261224090000_resource_reservation_comment_mentions.sql
-// and 20261224103700_reservation_comment_mentions_same_institution_untag.sql.
+// Tagging grants the tagged person read access to this booking's thread. Only
+// people of the booking's institution — or the person who raised the booking,
+// whatever their college — can be tagged. Untagging is a direct, RLS-checked
+// delete from the browser (no notification to send). See
+// supabase/migrations/20261224090000_resource_reservation_comment_mentions.sql,
+// 20261224103700_reservation_comment_mentions_same_institution_untag.sql and
+// 20270206090100_reservation_comment_tag_booker_any_institution.sql.
 // ============================================================================
 
 import { NextResponse, type NextRequest } from 'next/server';
@@ -117,7 +119,8 @@ export async function POST(
     return NextResponse.json(
       {
         success: false,
-        error: "Only team members of this booking's institution can be tagged.",
+        error:
+          "Only the person who raised this booking or team members of its institution can be tagged.",
         skipped: ineligible.map((uid) => names.get(uid) ?? 'Unknown'),
       },
       { status: 400 },
