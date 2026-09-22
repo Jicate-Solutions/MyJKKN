@@ -8,8 +8,6 @@ import { getPublicJob } from '@/lib/services/hr/public-careers/public-careers-se
 
 export const dynamic = 'force-dynamic';
 
-const CACHE = 'public, s-maxage=300, stale-while-revalidate=600';
-
 export function OPTIONS(request: NextRequest) {
   return preflight(request);
 }
@@ -19,7 +17,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const job = await getPublicJob(createServiceRoleClient(), id);
     if (!job) return withCors(NextResponse.json({ error: 'Job not found.' }, { status: 404 }), request);
-    return withCors(NextResponse.json({ data: job }, { headers: { 'Cache-Control': CACHE } }), request);
+    return withCors(NextResponse.json({ data: job }), request);
   } catch (err) {
     console.error('[public/careers] detail failed', err);
     return withCors(NextResponse.json({ error: 'Something went wrong. Please try again.' }, { status: 500 }), request);

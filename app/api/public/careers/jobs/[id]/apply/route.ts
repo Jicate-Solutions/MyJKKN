@@ -45,12 +45,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return reply({ error: 'Too many applications from this connection. Please try again later.' }, 429);
   }
 
-  if (!isDriveConfigured()) return reply({ error: 'Applications are temporarily unavailable.' }, 503);
-
   const parsed = await parseApplyForm(form);
   if (parsed.ok === false) {
     return reply({ error: 'Please correct the highlighted fields.', fields: parsed.fields }, 400);
   }
+
+  if (!isDriveConfigured()) return reply({ error: 'Applications are temporarily unavailable.' }, 503);
 
   const { id } = await params;
   const db = createServiceRoleClient();

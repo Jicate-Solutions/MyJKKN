@@ -20,7 +20,7 @@ GET /jobs?institution_id=<uuid>&q=<text>&job_type=<type>
 | `q` | yes | title search, ≤100 chars |
 | `job_type` | yes | `full_time` · `part_time` · `contract` · `internship` · `freelance` |
 
-Response `200` (cached 5 min):
+Response `200` (cache it on your side, e.g. `next: { revalidate: 300 }`):
 
 ```json
 {
