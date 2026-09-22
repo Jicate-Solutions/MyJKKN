@@ -65,8 +65,8 @@ CREATE SCHEMA IF NOT EXISTS auth;
 -- machine that also runs a local Supabase.
 DO $roles$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon; END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated; END IF;
+  BEGIN CREATE ROLE anon; EXCEPTION WHEN duplicate_object THEN NULL; END;
+  BEGIN CREATE ROLE authenticated; EXCEPTION WHEN duplicate_object THEN NULL; END;
 END $roles$;
 
 CREATE FUNCTION auth.uid() RETURNS uuid

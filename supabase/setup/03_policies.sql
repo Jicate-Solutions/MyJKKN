@@ -11083,3 +11083,46 @@ CREATE POLICY hr_approval_flows_leave_read
     flow_for IN ('leave_approval', 'leave_eligibility')
     AND hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids()))
   );
+
+-- ── Config seed: learners.activate_on_first_present.enabled — ships ON ──────
+-- Row created by 20260821030000_attendance_activates_learner.sql (OFF) and
+-- switched ON by 20260919010000_enable_activate_learner_on_first_present.sql
+-- after the Director's decision of 2026-09-18 23:48. Seeded here 2026-09-19
+-- because setup/ never carried the row: a database rebuilt from these files
+-- would have had the trigger (04_triggers.sql) with no switch to read, so
+-- fn_get_policy_bool would fall back to its `false` default and the 2026-08-11
+-- rule would be silently off in every fresh environment.
+--
+-- ON CONFLICT DO NOTHING, so a re-apply can never switch OFF a switch somebody
+-- deliberately turned off on a given database.
+INSERT INTO platform_policies
+  (policy_key, scope_type, scope_id, value, description, data_type, enum_options, is_system) VALUES
+('learners.activate_on_first_present.enabled', 'global', NULL, 'true'::jsonb,
+  'MASTER SWITCH — ON since 2026-09-18. A learner sitting at `reserved` or `admitted` is moved to `active` the FIRST time they are marked PRESENT (Director ruling 2026-08-11, chosen again on 2026-09-18 over the induction-completion alternative). NOT RETROACTIVE: the trigger fires on an attendance write, so Present marks already recorded activate nobody — a learner activates at their NEXT one. Turning this OFF stops all future automatic activation and reverses nothing already done. While ON, a `reserved` learner can reach `active` WITHOUT clearing the 30% / 60% fee thresholds in admission_statuses; every activation is audited to learners_profile_status_history with reason_code first_present_attendance and fee_thresholds_bypassed: true.',
+  'boolean', NULL, true)
+ON CONFLICT (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)) DO NOTHING;
+
+
+-- ── learner_activation_failures — admin-gated read, no client write path ────
+-- Updated: 2026-09-19 - Added with the table (01_tables.sql) in repair round 1
+-- of PR #3924. Migration: 20260919005000_harden_first_present_activation.sql.
+--
+-- Same gate that already guards `learners_profile_status_history`: whoever can
+-- read a learner's status history can read the activations that did NOT happen.
+-- No INSERT/UPDATE/DELETE policy — rows are written by SECURITY DEFINER only,
+-- from inside the attendance trigger's exception handler.
+ALTER TABLE public.learner_activation_failures ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS learner_activation_failures_select ON public.learner_activation_failures;
+CREATE POLICY learner_activation_failures_select
+  ON public.learner_activation_failures
+  FOR SELECT
+  TO authenticated
+  USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('learners.profiles.view')
+        AND role_has_institution_access(institution_id))
+  );
+
+REVOKE ALL    ON public.learner_activation_failures FROM anon, PUBLIC;
+GRANT  SELECT ON public.learner_activation_failures TO authenticated;
