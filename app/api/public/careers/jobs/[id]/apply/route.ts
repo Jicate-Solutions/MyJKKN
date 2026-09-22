@@ -48,7 +48,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!isDriveConfigured()) return reply({ error: 'Applications are temporarily unavailable.' }, 503);
 
   const parsed = await parseApplyForm(form);
-  if (!parsed.ok) return reply({ error: 'Please correct the highlighted fields.', fields: parsed.fields }, 400);
+  if (parsed.ok === false) {
+    return reply({ error: 'Please correct the highlighted fields.', fields: parsed.fields }, 400);
+  }
 
   const { id } = await params;
   const db = createServiceRoleClient();
