@@ -54,7 +54,7 @@
 --
 -- Behavioural proof: __tests__/cdc/drive-results-per-outcome.test.ts applies
 -- this file VERBATIM to a throwaway PostgreSQL 16 beside two controls -
--- _fixtures/...main-2026-09-22.sql (main's current body) and
+-- _fixtures/...live-2026-09-22.sql (main's current body) and
 -- _fixtures/...regressed-2026-09-15.sql (the body that dropped attendance_day).
 -- =============================================================================
 
