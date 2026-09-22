@@ -27,6 +27,18 @@ export function useEventCommittees(eventId: string) {
   });
 }
 
+/**
+ * event_tasks.assigned_to is an FK to profiles(id) (marathon_tasks_assigned_to_fkey).
+ * A committee slot written before BUG-006132 may hold a learner/staff ROW id instead
+ * of a login id; assigning a task to it fails with 23503 on that constraint.
+ */
+function isAssigneeLoginMissing(e: unknown): boolean {
+  const err = e as { code?: string; message?: string; details?: string } | null;
+  return (
+    err?.code === '23503' && /assigned_to/.test(`${err.message ?? ''} ${err.details ?? ''}`)
+  );
+}
+
 function useInvalidate(eventId: string) {
   const qc = useQueryClient();
   return () => qc.invalidateQueries({ queryKey: KEYS.list(eventId) });
@@ -64,13 +76,40 @@ export function useAddInternalMembers(eventId: string) {
       people,
     }: {
       committee: MarathonCommittee;
-      people: { member_id: string; name: string }[];
+      /** member_id null = no MyJKKN login, added as a roster name only. */
+      people: { member_id: string | null; name: string }[];
     }) => EventCommitteeService.addInternalMembers(committee, people),
     onSuccess: (_data, { people }) => {
       invalidate();
       toast.success(`${people.length} member${people.length === 1 ? '' : 's'} added`);
     },
     onError: (e: Error) => toast.error(e.message || 'Failed to add members'),
+  });
+}
+
+export function useSetCommitteeLeads(eventId: string) {
+  const invalidate = useInvalidate(eventId);
+  return useMutation({
+    mutationFn: ({
+      committee,
+      people,
+    }: {
+      committee: MarathonCommittee;
+      /** member_id null = no MyJKKN login; kept in the printed name, not in lead_ids. */
+      people: { member_id: string | null; name: string }[];
+    }) => EventCommitteeService.setLeads(committee, people),
+    onSuccess: (_data, { people }) => {
+      invalidate();
+      const noLogin = people.filter((p) => !p.member_id).length;
+      if (noLogin > 0) {
+        toast.success(
+          `Leads updated — ${noLogin} of them has no MyJKKN login, so they are named but cannot add tasks`
+        );
+      } else {
+        toast.success('Leads updated');
+      }
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to update leads'),
   });
 }
 
@@ -115,7 +154,15 @@ export function useCreateEventTask(eventId: string) {
       invalidate();
       toast.success('Task added');
     },
-    onError: (e: Error) => toast.error(e.message || 'Failed to add task'),
+    onError: (e: Error, dto) => {
+      if (isAssigneeLoginMissing(e) && dto.assigned_to) {
+        toast.error(
+          `${dto.assigned_to_name || 'This member'} has no MyJKKN login, so a task can't be assigned to them — assign it by name or to another member`
+        );
+        return;
+      }
+      toast.error(e.message || 'Failed to add task');
+    },
   });
 }
 

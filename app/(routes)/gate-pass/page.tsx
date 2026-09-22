@@ -82,6 +82,32 @@ function useIsTeamMember() {
   });
 }
 
+/**
+ * Does the signed-in person hold an ACTIVE staff record? Only asked when the
+ * profile also carries a learner link: a graduate who joined as staff keeps
+ * their old learner_id, and must still get the team-member (instant QR) flow —
+ * the same rule issue_gate_pass_for_service_request applies.
+ */
+function useHasActiveStaffRecord(enabled: boolean) {
+  const { profile } = useAuth();
+  return useQuery<boolean>({
+    queryKey: ['gate-pass', 'has-active-staff', profile?.id],
+    enabled: enabled && !!profile?.id,
+    staleTime: 10 * 60 * 1000,
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('staff')
+        .select('id')
+        .eq('profile_id', profile!.id)
+        .eq('is_active', true)
+        .limit(1);
+      if (error) return false;
+      return (data ?? []).length > 0;
+    },
+  });
+}
+
 function LearnerView() {
   const { data } = useMyServiceRequests({ page: 1, limit: 10 });
   const mine = (data?.data ?? []) as unknown as Array<{
@@ -252,8 +278,12 @@ function StaffView() {
 }
 
 export default function MyGatePassPage() {
-  const { profile, isLoading } = useAuth();
-  const isLearner = !!(profile as { learner_id?: string | null } | null)?.learner_id;
+  const { profile, isLoading: authLoading } = useAuth();
+  const hasLearnerLink = !!(profile as { learner_id?: string | null } | null)?.learner_id;
+  const activeStaff = useHasActiveStaffRecord(hasLearnerLink);
+  // Resolving until we know whether a learner link belongs to someone now on staff.
+  const isLoading = authLoading || (hasLearnerLink && activeStaff.isLoading);
+  const isLearner = hasLearnerLink && activeStaff.data !== true;
   const teamMember = useIsTeamMember();
 
   return (

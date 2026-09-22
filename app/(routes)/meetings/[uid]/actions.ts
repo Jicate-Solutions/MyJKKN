@@ -190,7 +190,11 @@ export interface HostSlotsResult {
  * meeting_type_id, so without this guard any signed-in user could enumerate any
  * host's free/busy pattern by guessing a booking uid.
  */
-export async function getMyBookingSlots(uid: string): Promise<HostSlotsResult> {
+export async function getMyBookingSlots(
+  uid: string,
+  /** Show every time in the day, not just the host's published hours. */
+  anyTime?: boolean,
+): Promise<HostSlotsResult> {
   const session = await createClient();
   const { data: { user }, error: authError } = await session.auth.getUser();
   if (authError || !user) {
@@ -223,7 +227,7 @@ export async function getMyBookingSlots(uid: string): Promise<HostSlotsResult> {
   const slots = await NativeSchedulingService.listSlots(
     service,
     booking.meeting_type_id as string,
-    { days: 14 },
+    { days: 14, hostAnyTime: anyTime === true },
   );
   if (!slots) return { success: false, error: 'Could not load available times.' };
 
@@ -247,6 +251,13 @@ export async function rescheduleMyBooking(
    * closed and create a successor linked back to it.
    */
   reason?: PastRescheduleReason,
+  /**
+   * The host asked to see times outside their published hours and picked one
+   * (Director, 22 Sep). Safe to accept from the client: this action has
+   * already proved the caller hosts this booking before it reaches the
+   * service, and the flag only ever widens the HOST's own options.
+   */
+  anyTime?: boolean,
 ): Promise<CancelResult> {
   const session = await createClient();
   const { data: { user }, error: authError } = await session.auth.getUser();
@@ -274,7 +285,7 @@ export async function rescheduleMyBooking(
     uid,
     { actorProfileId: user.id },
     startIso,
-    reason ? { reason } : {},
+    { ...(reason ? { reason } : {}), ...(anyTime ? { hostAnyTime: true } : {}) },
   );
 
   if (!result.success) {

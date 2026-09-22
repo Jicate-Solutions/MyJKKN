@@ -1036,8 +1036,8 @@ export default function GeneralEventDetailPage() {
 
         {/* Review comments — LAST on the page by request: the reviewing
             authority reads the whole console, then writes what is still wrong
-            at the foot of it. The card gates itself (super admin, admin /
-            administrator / event_coordinator with institution access, the
+            at the foot of it. The card gates itself (super admin, the
+            events.review_comments.view permission with institution access, the
             in-charge, the creator) and renders nothing for anyone else, so no
             props decide who sees it — see
             hooks/events/shared/use-event-review-comment-access.ts. */}

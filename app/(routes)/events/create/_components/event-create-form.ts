@@ -403,6 +403,29 @@ export type FormTabKey =
   | 'categories'
   | 'evidence';
 
+/** Detail tabs in the order the organizer walks them with "Save & Next". */
+export const FORM_TAB_ORDER: FormTabKey[] = [
+  'basics',
+  'schedule',
+  'venue',
+  'people',
+  'registration',
+  'categories',
+  'evidence',
+];
+
+/** The tab after `key`, or null on the last one (where "Create event" lives). */
+export function nextFormTab(key: FormTabKey): FormTabKey | null {
+  const i = FORM_TAB_ORDER.indexOf(key);
+  return i >= 0 && i < FORM_TAB_ORDER.length - 1 ? FORM_TAB_ORDER[i + 1] : null;
+}
+
+/** The tab before `key`, or null on the first one (where Back leaves the step). */
+export function prevFormTab(key: FormTabKey): FormTabKey | null {
+  const i = FORM_TAB_ORDER.indexOf(key);
+  return i > 0 ? FORM_TAB_ORDER[i - 1] : null;
+}
+
 export function validateEventForm(form: EventCreateForm): Partial<Record<FormTabKey, string>> {
   const errors: Partial<Record<FormTabKey, string>> = {};
 

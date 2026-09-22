@@ -191,6 +191,18 @@ export function CourseLanding({
           )}
         </section>
 
+        {/* Already accepted? — rendered UNCONDITIONALLY, outside the
+            applicationsOpen branch above. A participant who was accepted returns
+            to this link most often after applications have closed, which is
+            exactly when that branch stops rendering. */}
+        <p className="mt-6 text-sm text-muted-foreground">
+          Already accepted?{' '}
+          <Link href="/auth/participant-login" className="underline">
+            Sign in with your JKKN ID
+          </Link>
+          .
+        </p>
+
         <footer className="mt-10 border-t pt-5 text-xs text-muted-foreground">
           JKKN Institutions · This page is public. Do not enter payment details here — you
           will only ever be asked to pay after signing in with a JKKN ID.

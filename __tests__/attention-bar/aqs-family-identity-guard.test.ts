@@ -321,8 +321,7 @@ beforeAll(async () => {
 
   for (const role of ['anon', 'authenticated', 'service_role']) {
     await db.query(
-      `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='${role}')
-         THEN CREATE ROLE ${role} NOLOGIN; END IF;
+      `DO $$ BEGIN CREATE ROLE ${role} NOLOGIN;
        EXCEPTION WHEN duplicate_object THEN NULL; END $$;`,
     );
   }
