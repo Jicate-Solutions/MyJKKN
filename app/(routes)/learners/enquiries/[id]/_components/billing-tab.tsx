@@ -14,7 +14,10 @@ import {
   Receipt,
 } from 'lucide-react';
 import { formatDateTimeDMY } from '@/lib/utils/date-format';
-import { StudentBillService } from '@/lib/services/billing/schedule/student-bill-service';
+import {
+  StudentBillService,
+  type BillInstalmentState,
+} from '@/lib/services/billing/schedule/student-bill-service';
 import type { StudentBill, BillStatus } from '@/types/billing-schedule';
 
 interface BillingTabProps {
@@ -63,6 +66,9 @@ function formatCurrency(amount: number): string {
 
 export function BillingTab({ learnerId }: BillingTabProps) {
   const [bills, setBills] = useState<StudentBill[]>([]);
+  const [instalments, setInstalments] = useState<Map<string, BillInstalmentState[]>>(
+    new Map(),
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,8 +78,17 @@ export function BillingTab({ learnerId }: BillingTabProps) {
     setError(null);
 
     StudentBillService.getStudentBillsByStudent(learnerId)
-      .then((data) => {
-        if (!cancelled) setBills(data);
+      .then(async (data) => {
+        if (cancelled) return;
+        setBills(data);
+        // A fee collectable in tranches is edited as ONE bill split across
+        // several due dates. Without this, an edit to the payment schedule
+        // (e.g. from the billing module) has nowhere to show here — the bill
+        // row only ever carries its next unsettled due date.
+        const byBill = await StudentBillService.getInstalmentsForBills(
+          data.map((b) => b.id),
+        );
+        if (!cancelled) setInstalments(byBill);
       })
       .catch((err) => {
         if (!cancelled) setError(err?.message ?? 'Failed to load bills');
@@ -153,57 +168,99 @@ export function BillingTab({ learnerId }: BillingTabProps) {
               const config = STATUS_CONFIG[bill.status] ?? STATUS_CONFIG.unpaid;
               const StatusIcon = config.icon;
               const paid = Number(bill.final_amount) - Number(bill.balance_amount);
+              const schedule = instalments.get(bill.id) ?? [];
 
               return (
-                <div key={bill.id} className="flex items-start gap-3 px-4 py-3 sm:items-center">
-                  <div
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${config.className}`}
-                  >
-                    <StatusIcon className="h-4 w-4" />
+                <div key={bill.id} className="px-4 py-3">
+                  <div className="flex items-start gap-3 sm:items-center">
+                    <div
+                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${config.className}`}
+                    >
+                      <StatusIcon className="h-4 w-4" />
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-medium truncate">
+                          {bill.bill_description ||
+                            (bill as any).item_category?.category_name ||
+                            'Fee Item'}
+                        </p>
+                        <Badge variant="outline" className={`text-[10px] ${config.className}`}>
+                          {config.label}
+                        </Badge>
+                      </div>
+                      <div className="mt-0.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
+                        {bill.due_date && (
+                          <span>Due: {formatDateTimeDMY(bill.due_date)}</span>
+                        )}
+                        {bill.payment_date && (
+                          <span>Paid on: {formatDateTimeDMY(bill.payment_date)}</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="shrink-0 text-right">
+                      <p className="text-sm font-bold tabular-nums">
+                        {formatCurrency(Number(bill.final_amount))}
+                      </p>
+                      {bill.status === 'partially_paid' && (
+                        <p className="text-[11px] text-muted-foreground tabular-nums">
+                          Paid: {formatCurrency(paid)} · Bal: {formatCurrency(Number(bill.balance_amount))}
+                        </p>
+                      )}
+                      {bill.status === 'unpaid' && Number(bill.balance_amount) > 0 && (
+                        <p className="text-[11px] text-orange-600 tabular-nums">
+                          Balance: {formatCurrency(Number(bill.balance_amount))}
+                        </p>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-medium truncate">
-                        {bill.bill_description ||
-                          (bill as any).item_category?.category_name ||
-                          'Fee Item'}
-                      </p>
-                      <Badge variant="outline" className={`text-[10px] ${config.className}`}>
-                        {config.label}
-                      </Badge>
-                    </div>
-                    <div className="mt-0.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
-                      {bill.due_date && (
-                        <span>Due: {formatDateTimeDMY(bill.due_date)}</span>
-                      )}
-                      {bill.payment_date && (
-                        <span>Paid on: {formatDateTimeDMY(bill.payment_date)}</span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="shrink-0 text-right">
-                    <p className="text-sm font-bold tabular-nums">
-                      {formatCurrency(Number(bill.final_amount))}
-                    </p>
-                    {bill.status === 'partially_paid' && (
-                      <p className="text-[11px] text-muted-foreground tabular-nums">
-                        Paid: {formatCurrency(paid)} · Bal: {formatCurrency(Number(bill.balance_amount))}
-                      </p>
-                    )}
-                    {bill.status === 'unpaid' && Number(bill.balance_amount) > 0 && (
-                      <p className="text-[11px] text-orange-600 tabular-nums">
-                        Balance: {formatCurrency(Number(bill.balance_amount))}
-                      </p>
-                    )}
-                  </div>
+                  {/* A fee collectable in tranches is one bill split across
+                      several due dates — without this, the row above only ever
+                      shows the NEXT unsettled due date, so an edit to the
+                      schedule (adding/changing tranches) had nowhere to appear. */}
+                  {schedule.length > 1 && <BillSchedule rows={schedule} />}
                 </div>
               );
             })}
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+/** The per-bill payment schedule — one row per tranche, oldest first. */
+function BillSchedule({ rows }: { rows: BillInstalmentState[] }) {
+  const settled = rows.filter((r) => r.is_settled).length;
+
+  return (
+    <div className="mt-2 ml-11 rounded-md border bg-muted/30">
+      <div className="flex items-center gap-2 border-b px-3 py-1.5 text-xs">
+        <span className="font-medium">Payment schedule</span>
+        <span className="text-muted-foreground">
+          {rows.length} instalments{settled > 0 ? ` · ${settled} settled` : ''}
+        </span>
+      </div>
+      <div className="divide-y">
+        {rows.map((r) => (
+          <div
+            key={r.instalment_id}
+            className={`flex flex-wrap items-center justify-between gap-x-4 gap-y-0.5 px-3 py-1.5 text-xs ${
+              r.is_settled ? 'text-muted-foreground' : ''
+            }`}
+          >
+            <span className="tabular-nums">#{r.sequence_no}</span>
+            <span className="tabular-nums">{formatDateTimeDMY(r.due_date)}</span>
+            <span className="font-medium tabular-nums">{formatCurrency(r.amount)}</span>
+            <span className="tabular-nums">
+              {r.is_settled ? 'Settled' : `Outstanding: ${formatCurrency(r.outstanding)}`}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
