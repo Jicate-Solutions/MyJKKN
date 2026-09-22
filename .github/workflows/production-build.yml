@@ -317,7 +317,10 @@ jobs:
     # A real build here is 3-7 minutes. 30 is deliberately generous: a timeout
     # reports `cancelled`, which reads as neither pass nor fail, so a clock that
     # is merely tight turns this gate into a source of unreadable verdicts.
-    timeout-minutes: 60
+    # 2026-09-20: 60 -> 90. The 2-vCPU runner varies almost 2x run to run: the last six GREEN builds took 47, 58, 31,
+    # 29, 33 and 35 min, and run 35458979644 was cancelled by this clock at exactly 60 min while still compiling with
+    # memory fine (swap 12.4 G of 24 G, no OOM). The same branch had built green in 58 min earlier. Advice only (R16).
+    timeout-minutes: 90
 
     # NOTE: deliberately NO `if: ${{ !github.event.pull_request.draft }}`.
     #
