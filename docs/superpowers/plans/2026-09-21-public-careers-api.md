@@ -1,6 +1,6 @@
 # Public Careers API Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic team members:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let external candidates on jkkn.ac.in (and its subdomains) list public MyJKKN jobs and apply without a login, landing in HR's existing application-screening pipeline.
 
@@ -27,7 +27,7 @@
 
 | File | Status | Responsibility |
 |---|---|---|
-| `supabase/migrations/20261228090000_hr_job_applications_public_careers.sql` | create | columns, partial unique index, recipient RPC |
+| `supabase/migrations/20260922000646_hr_job_applications_public_careers.sql` | create | columns, partial unique index, recipient RPC |
 | `lib/services/hr/public-careers/public-job.ts` | create | `PublicJob`, `PUBLIC_JOB_SELECT`, `isJobVisible`, `toPublicJob` |
 | `lib/services/hr/public-careers/apply-validation.ts` | create | `sniffResumeType`, `parseApplyForm` |
 | `lib/services/hr/public-careers/cors.ts` | create | `resolveAllowedOrigin`, `corsHeaders`, `withCors`, `preflight` |
@@ -60,7 +60,7 @@
 
 ### Task 1: Migration — columns, partial unique index, recipient RPC
 
-**Files:** Create `supabase/migrations/20261228090000_hr_job_applications_public_careers.sql`
+**Files:** Create `supabase/migrations/20260922000646_hr_job_applications_public_careers.sql`
 
 **Interfaces — Produces:** columns `source`, `consent_at`, `utm_source`, `confirmation_email_sent_at`, `confirmation_email_error` on `hr_job_applications`; RPC `hr_recruitment_application_recipient_ids(p_institution_id uuid) RETURNS SETOF uuid` (service_role only).
 
@@ -189,7 +189,7 @@ where i.id in (select distinct institution_id from hr_recruitment_jobs)
 ```
 Expected: (c) every row n ≥ 1 (Main Office via fallback = 5), (d) zero rows.
 
-- [ ] **Step 5: Commit** `git add supabase/migrations/20261228090000_hr_job_applications_public_careers.sql && git commit -m "feat(hr/careers): application source columns + screener recipient RPC"`
+- [ ] **Step 5: Commit** `git add supabase/migrations/20260922000646_hr_job_applications_public_careers.sql && git commit -m "feat(hr/careers): application source columns + screener recipient RPC"`
 
 ---
 
@@ -218,7 +218,7 @@ import { isJobVisible, toPublicJob } from '@/lib/services/hr/public-careers/publ
 
 const NOW = new Date('2026-09-21T10:00:00Z');
 const ROW = {
-  id: 'j1', job_code: 'JOB-001', title: 'Assistant Professor', role_category: 'teaching_faculty',
+  id: 'j1', job_code: 'JOB-001', title: 'Pharmacology Facilitator', role_category: 'teaching_faculty',
   job_type: 'full_time', description: 'Teach', institution_id: 'i1',
   city: 'Komarapalayam', state: 'Tamil Nadu', country: 'India', education_level: 'masters',
   min_experience_years: 1, max_experience_years: 5,
@@ -777,7 +777,7 @@ import type { ApplyInput } from '@/lib/services/hr/public-careers/apply-validati
 const JOB_ID = '11111111-1111-4111-8111-111111111111';
 const NOW = new Date('2026-09-21T10:00:00Z');
 const JOB = {
-  id: JOB_ID, job_code: 'JOB-007', title: 'Lab Assistant', role_category: 'non_teaching', status: 'open',
+  id: JOB_ID, job_code: 'JOB-007', title: 'Store Keeper', role_category: 'non_teaching', status: 'open',
   is_public: true, closes_at: null, display_salary: false, institution_id: 'inst-1',
   institution: { id: 'inst-1', name: 'JKKN College of Pharmacy' }, department: null, requirements: {},
 };
@@ -1075,7 +1075,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildApplicationConfirmationEmail } from '@/lib/hr/recruitment/application-confirmation-email';
 import { notifyHrOfApplication, sendApplicantConfirmation } from '@/lib/services/hr/public-careers/after-apply';
 
-const APP = { applicationId: 'app-1', reference: 'JOB-007-AAAAAAAA', jobTitle: 'Lab <Assistant>', institutionId: 'inst-1', institutionName: 'JKKN College of Pharmacy' };
+const APP = { applicationId: 'app-1', reference: 'JOB-007-AAAAAAAA', jobTitle: 'Store <Keeper>', institutionId: 'inst-1', institutionName: 'JKKN College of Pharmacy' };
 
 function fakeDb(recipients: string[]) {
   const writes: { table: string; payload: unknown }[] = [];
@@ -1100,11 +1100,11 @@ function fakeDb(recipients: string[]) {
 
 describe('buildApplicationConfirmationEmail', () => {
   it('escapes HTML and includes the reference', () => {
-    const m = buildApplicationConfirmationEmail({ firstName: 'Priya', jobTitle: 'Lab <Assistant>', institutionName: 'X', reference: 'R-1' });
-    expect(m.html).toContain('Lab &lt;Assistant&gt;');
-    expect(m.html).not.toContain('<Assistant>');
+    const m = buildApplicationConfirmationEmail({ firstName: 'Priya', jobTitle: 'Store <Keeper>', institutionName: 'X', reference: 'R-1' });
+    expect(m.html).toContain('Store &lt;Keeper&gt;');
+    expect(m.html).not.toContain('<Keeper>');
     expect(m.text).toContain('R-1');
-    expect(m.subject).toContain('Lab <Assistant>');
+    expect(m.subject).toContain('Store <Keeper>');
   });
 });
 
@@ -1580,7 +1580,7 @@ const BASE = {
   id: 'app-1', status: 'shortlisted', promoted_candidate_id: null, institution_id: 'i1',
   first_name: 'Priya', last_name: 'R', email: 'p@x.com', phone: '9876543210', resume_url: 'u',
   qualification: 'M.Pharm', experience_months: 24,
-  job: { id: 'j1', title: 'Lab Assistant', role_category: 'non_teaching', institution_id: 'i1', hr_organization_id: 'o1' },
+  job: { id: 'j1', title: 'Store Keeper', role_category: 'non_teaching', institution_id: 'i1', hr_organization_id: 'o1' },
 };
 
 describe('promoteJobApplication — candidate source', () => {

@@ -35,7 +35,7 @@ Response `200` (cache it on your side, e.g. `next: { revalidate: 300 }`):
 {
   "id": "uuid",
   "job_code": "JOB-001",
-  "title": "Assistant Professor",
+  "title": "Pharmacology Facilitator",
   "role_category": "teaching_faculty",
   "job_type": "full_time",
   "description": "…",
@@ -86,18 +86,18 @@ share one IP and get blocked after five.
 | `current_job_duration_months` | no | whole number 0–720 |
 | `worked_cities` | no | comma-separated, up to 10 |
 | `utm_source` | no | ≤100 chars — send `window.location.hostname` so HR sees which site referred them |
-| `website` | **must be empty** | honeypot; render it hidden and never fill it |
+| `company_fax` | **must be empty** | honeypot; render it hidden (`tabIndex={-1} autoComplete="off"`) and never fill it |
 
 Responses:
 
 | status | body | meaning |
 |---|---|---|
-| `201` | `{ "reference": "JOB-001-AB12CD34" }` | saved; show the reference to the applicant |
+| `201` | `{ "reference": "JOB-001-AB12CD34" }` | accepted; show the reference. A repeat application from the same email returns the SAME reference and sends no second email — deliberately indistinguishable, so nobody can probe who has applied. |
 | `400` | `{ "error", "fields": { "email": "…" } }` | validation — show `fields` next to inputs |
 | `403` | `{ "error" }` | origin not allowed (wrong domain) |
 | `404` | `{ "error" }` | job no longer open |
-| `409` | `{ "error" }` | this email already applied for this job |
-| `429` | `{ "error" }` | too many applications from this connection (5 / hour) |
+| `413` | `{ "error" }` | body over ~2.25 MB (resume must be under 2 MB) |
+| `429` | `{ "error" }` | too many applications: 5 accepted / IP / hour, 3 / (job, email) / hour, 30 requests / IP / hour |
 | `500`, `503` | `{ "error" }` | show the message, let them retry |
 
 The applicant receives a confirmation email; the college's HR team gets an in-app
@@ -127,7 +127,7 @@ async function apply(jobId: string, form: HTMLFormElement) {
 }
 
 // Honeypot — keep it out of sight and out of the tab order:
-// <input name="website" tabIndex={-1} autoComplete="off" className="hidden" aria-hidden />
+// <input name="company_fax" tabIndex={-1} autoComplete="off" className="hidden" aria-hidden />
 ```
 
 ## Local development

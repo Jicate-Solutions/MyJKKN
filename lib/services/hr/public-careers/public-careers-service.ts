@@ -21,33 +21,37 @@ export interface InstitutionFacet { id: string; name: string; open_jobs: number 
 export async function listPublicJobs(
   db: SupabaseClient, filters: ListFilters, now: Date = new Date(),
 ): Promise<{ data: PublicJob[]; institutions: InstitutionFacet[] }> {
-  let query = db
+  // One unfiltered read of everything visible (a few dozen rows in practice;
+  // the cap is a safety net, not pagination), then filter in memory so the
+  // institution facets describe the whole board, not the filtered page.
+  const { data, error } = await db
     .from('hr_recruitment_jobs')
     .select(PUBLIC_JOB_SELECT)
     .eq('is_public', true)
     .eq('status', 'open')
     .or(`closes_at.is.null,closes_at.gt.${now.toISOString()}`)
     .order('posted_at', { ascending: false, nullsFirst: false })
-    .limit(200);
-
-  if (filters.institution_id && isUuid(filters.institution_id)) query = query.eq('institution_id', filters.institution_id);
-  if (filters.job_type && (JOB_TYPES as readonly string[]).includes(filters.job_type)) query = query.eq('job_type', filters.job_type);
-  const q = (filters.q ?? '').replace(/[%_,()\\]/g, ' ').trim().slice(0, 100);
-  if (q) query = query.ilike('title', `%${q}%`);
-
-  const { data, error } = await query;
+    .limit(500);
   if (error) throw error;
 
-  const rows = ((data ?? []) as unknown as PublicJobRow[]).filter((r) => isJobVisible(r, now));
-  const jobs = rows.map(toPublicJob);
+  const all = ((data ?? []) as unknown as PublicJobRow[]).filter((r) => isJobVisible(r, now)).map(toPublicJob);
 
   const facets = new Map<string, InstitutionFacet>();
-  for (const j of jobs) {
+  for (const j of all) {
     if (!j.institution) continue;
     const f = facets.get(j.institution.id) ?? { ...j.institution, open_jobs: 0 };
     f.open_jobs += 1;
     facets.set(j.institution.id, f);
   }
+
+  const q = (filters.q ?? '').trim().slice(0, 100).toLowerCase();
+  const jobType = filters.job_type && (JOB_TYPES as readonly string[]).includes(filters.job_type) ? filters.job_type : null;
+  const inst = filters.institution_id && isUuid(filters.institution_id) ? filters.institution_id : null;
+  const jobs = all.filter((j) =>
+    (!inst || j.institution?.id === inst)
+    && (!jobType || j.job_type === jobType)
+    && (!q || j.title.toLowerCase().includes(q)));
+
   return { data: jobs, institutions: [...facets.values()].sort((a, b) => a.name.localeCompare(b.name)) };
 }
 
@@ -82,7 +86,25 @@ export interface CreatedApplication {
 export type SubmitResult =
   | { kind: 'created'; application: CreatedApplication }
   | { kind: 'not_found' }
-  | { kind: 'duplicate' };
+  /** Already applied (any source). Carries a reference of the SAME shape as a
+   *  fresh one so the response can't be used to probe who has applied. */
+  | { kind: 'duplicate'; reference: string };
+
+const referenceFor = (jobCode: string | null, id: string) =>
+  `${jobCode ?? 'JOB'}-${id.replace(/-/g, '').slice(0, 8).toUpperCase()}`;
+
+async function existingApplicationId(db: SupabaseClient, jobId: string, email: string): Promise<string | null> {
+  // Both write paths lower-case the email, so equality on the lower-cased input is exact.
+  const { data, error } = await db
+    .from('hr_job_applications')
+    .select('id')
+    .eq('job_id', jobId)
+    .eq('email', email)
+    .limit(1);
+  if (error) throw error;
+  const row = (data ?? [])[0] as { id: string } | undefined;
+  return row?.id ?? null;
+}
 
 export async function submitExternalApplication(
   deps: SubmitDeps, jobId: string, input: ApplyInput,
@@ -91,21 +113,15 @@ export async function submitExternalApplication(
   const job = await loadVisibleJobRow(deps.db, jobId, now);
   if (!job) return { kind: 'not_found' };
 
-  // Pre-check across ALL sources: someone HR already keyed in gets "already applied".
-  // ilike = case-insensitive equality here; escape its wildcards so an email
-  // containing % or _ can't match someone else's row.
-  const { data: existing, error: dupErr } = await deps.db
-    .from('hr_job_applications')
-    .select('id')
-    .eq('job_id', jobId)
-    .ilike('email', input.email.replace(/[\\%_]/g, (c) => `\\${c}`))
-    .limit(1);
-  if (dupErr) throw dupErr;
-  if ((existing ?? []).length > 0) return { kind: 'duplicate' };
+  const jobCode = (job.job_code as string | null) ?? null;
+
+  // Pre-check across ALL sources: someone HR already keyed in is "already applied" too.
+  const existing = await existingApplicationId(deps.db, jobId, input.email);
+  if (existing) return { kind: 'duplicate', reference: referenceFor(jobCode, existing) };
 
   const uploaded = await deps.upload({
     jobTitle: String(job.title),
-    jobCode: (job.job_code as string | null) ?? null,
+    jobCode,
     jobId,
     file: input.resume,
   });
@@ -139,20 +155,28 @@ export async function submitExternalApplication(
     .single();
 
   if (error) {
-    // The file is orphaned either way; don't leave a stranger's resume in Drive.
-    await deps.deleteFile(uploaded.driveFileId).catch(() => false);
-    if ((error as { code?: string }).code === '23505') return { kind: 'duplicate' };
+    if ((error as { code?: string }).code === '23505') {
+      // Lost a concurrent-submit race: the other row is committed, ours never
+      // was, so the upload is a definite orphan. Any OTHER error (timeout,
+      // network) may have committed — keep the file; a dangling resume beats
+      // an application whose resume_url points at nothing.
+      await deps.deleteFile(uploaded.driveFileId).catch(() => false);
+      const winner = await existingApplicationId(deps.db, jobId, input.email).catch(() => null);
+      return { kind: 'duplicate', reference: referenceFor(jobCode, winner ?? 'RECEIVED0') };
+    }
+    console.error('[public/careers] insert failed after upload; Drive file kept for reconciliation', {
+      driveFileId: uploaded.driveFileId, jobId, code: (error as { code?: string }).code,
+    });
     throw error;
   }
 
   const id = String((row as { id: string }).id);
-  const code = (job.job_code as string | null) ?? 'JOB';
   const inst = job.institution as { id?: string; name?: string } | null;
   return {
     kind: 'created',
     application: {
       applicationId: id,
-      reference: `${code}-${id.replace(/-/g, '').slice(0, 8).toUpperCase()}`,
+      reference: referenceFor(jobCode, id),
       jobTitle: String(job.title),
       institutionId: (job.institution_id as string | null) ?? null,
       institutionName: inst?.name ?? null,

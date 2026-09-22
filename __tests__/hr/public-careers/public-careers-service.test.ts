@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { getPublicJob, isUuid, submitExternalApplication } from '@/lib/services/hr/public-careers/public-careers-service';
+import { getPublicJob, isUuid, listPublicJobs, submitExternalApplication } from '@/lib/services/hr/public-careers/public-careers-service';
 import type { ApplyInput } from '@/lib/services/hr/public-careers/apply-validation';
 
 const JOB_ID = '11111111-1111-4111-8111-111111111111';
 const NOW = new Date('2026-09-21T10:00:00Z');
 const JOB = {
-  id: JOB_ID, job_code: 'JOB-007', title: 'Lab Assistant', role_category: 'non_teaching', status: 'open',
+  id: JOB_ID, job_code: 'JOB-007', title: 'Store Keeper', role_category: 'non_teaching', status: 'open',
   is_public: true, closes_at: null, display_salary: false, institution_id: 'inst-1',
   institution: { id: 'inst-1', name: 'JKKN College of Pharmacy' }, department: null, requirements: {},
 };
@@ -70,6 +70,26 @@ describe('getPublicJob', () => {
   });
 });
 
+describe('listPublicJobs', () => {
+  const INST2 = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const JOB2 = { ...JOB, id: '22222222-2222-4222-8222-222222222222', title: 'Store Keeper', institution_id: INST2,
+    institution: { id: INST2, name: 'JKKN Dental College and Hospital' } };
+
+  it('computes the institution facets from ALL visible jobs, not the filtered page', async () => {
+    const { db } = fakeDb({ job: [JOB, JOB2] });
+    const r = await listPublicJobs(db, { institution_id: INST2 }, NOW);
+    expect(r.data.map((j) => j.id)).toEqual([JOB2.id]);
+    expect(r.institutions.map((i) => i.id).sort()).toEqual([INST2, 'inst-1']);
+  });
+
+  it('drops rows that fail the visibility re-check even if the query returned them', async () => {
+    const { db } = fakeDb({ job: [JOB, { ...JOB2, is_public: false }] });
+    const r = await listPublicJobs(db, {}, NOW);
+    expect(r.data).toHaveLength(1);
+    expect(r.institutions).toHaveLength(1);
+  });
+});
+
 describe('submitExternalApplication', () => {
   it('uploads then inserts an external_website row', async () => {
     const { db, inserted } = fakeDb({ job: JOB });
@@ -92,17 +112,29 @@ describe('submitExternalApplication', () => {
     expect(d.upload).not.toHaveBeenCalled();
   });
 
-  it('returns duplicate when the email already applied (any source) and never uploads', async () => {
-    const { db } = fakeDb({ job: JOB, existing: [{ id: 'old' }] });
+  it('returns duplicate with the EXISTING reference when the email already applied (any source) and never uploads', async () => {
+    const { db, inserted } = fakeDb({ job: JOB, existing: [{ id: 'bbbbbbbb-0000-4000-8000-000000000000' }] });
     const d = deps(db);
-    expect((await submitExternalApplication(d, JOB_ID, INPUT)).kind).toBe('duplicate');
+    const r = await submitExternalApplication(d, JOB_ID, INPUT);
+    expect(r.kind).toBe('duplicate');
+    // Same shape as a fresh reference so an anonymous caller can't tell "new" from "already applied".
+    if (r.kind === 'duplicate') expect(r.reference).toBe('JOB-007-BBBBBBBB');
     expect(d.upload).not.toHaveBeenCalled();
+    expect(inserted).toHaveLength(0);
   });
 
   it('cleans up the Drive file when the insert races into the unique index', async () => {
-    const { db } = fakeDb({ job: JOB, insertError: { code: '23505' } });
+    const { db } = fakeDb({ job: JOB, insertError: { code: '23505' }, existing: [] });
     const d = deps(db);
-    expect((await submitExternalApplication(d, JOB_ID, INPUT)).kind).toBe('duplicate');
+    const r = await submitExternalApplication(d, JOB_ID, INPUT);
+    expect(r.kind).toBe('duplicate');
     expect(d.deleteFile).toHaveBeenCalledWith('drive-1');
+  });
+
+  it('keeps the Drive file on an insert error that may have committed', async () => {
+    const { db } = fakeDb({ job: JOB, insertError: { code: '57014' } });
+    const d = deps(db);
+    await expect(submitExternalApplication(d, JOB_ID, INPUT)).rejects.toBeTruthy();
+    expect(d.deleteFile).not.toHaveBeenCalled();
   });
 });

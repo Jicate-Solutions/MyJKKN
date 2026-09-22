@@ -102,18 +102,28 @@ malformed id). Same cache headers.
 | `resume` | required file, ≤2 MB, PDF/DOC/DOCX by **magic bytes** (`%PDF`, `D0CF11E0`, `PK\x03\x04`) |
 | `consent` | required, must be `true` |
 | `utm_source` | optional, ≤100 |
-| `website` | honeypot — must be empty |
+| `company_fax` | honeypot — must be empty (same trap as the CDC employer form; `website` autofills) |
 
-Processing order (cheap and reversible first, Drive upload last):
-1. Honeypot filled → `201` with a fake reference, nothing persisted.
-2. Per-IP rate limit (5 / hour, in-memory, same as `/api/public/courses/[slug]/apply`) → `429`.
-3. Job visible? else `404`; visible-but-closed race → `422`.
-4. Validate fields + file → `400 { error, fields: { name: message } }`.
-5. Duplicate (job, lower(email)) → `409 "You have already applied for this job."`
-6. Upload resume to Drive (existing `uploadResumeToJobFolder`).
-7. INSERT; on unique violation (race) → best-effort delete the Drive file, `409`.
-8. `201 { reference: "<job_code>-<first 8 of application id>" }`.
-9. `after()`: notify HR, email applicant (never affects the response).
+Processing order (cheap and least-trusting first, Drive upload last; revised after
+the 2026-09-22 deep review):
+1. Origin allowlist → `403`.
+2. `Content-Length` > resume cap + 256 KB → `413` (before the body is read).
+3. Coarse per-IP limit, 30 requests / hour → `429`.
+4. Read body. Honeypot filled → `201` with a fake reference, nothing persisted, hit logged.
+5. Validate fields + file → `400 { error, fields: { name: message } }`.
+6. Drive not configured → `503`.
+7. Strict limits — 5 accepted / IP / hour and 3 / (job, email) / hour — counted only
+   here, so a typo never burns a slot → `429`.
+8. Job visible? else `404`.
+9. Duplicate (job, lower(email), any source) → **`201` with the EXISTING row's reference,
+   nothing written, no email.** Indistinguishable from a fresh accept, so the endpoint
+   can't be used to probe whether a named person applied.
+10. Upload resume to Drive (existing `uploadResumeToJobFolder`).
+11. INSERT. On `23505` (lost a concurrent-submit race) delete the Drive file and answer
+    as in 9. On any other error keep the file (the row may have committed) and `500`.
+12. `201 { reference: "<job_code>-<first 8 of application id>" }`.
+13. `after()`: notify HR, email applicant — each step capped at 20 s, outcome recorded on
+    the row; never affects the response.
 
 ### CORS
 Allowed origins: `https://jkkn.ac.in`, `https://*.jkkn.ac.in` (single label), plus
@@ -136,7 +146,7 @@ Reflect the matched origin, `Vary: Origin`, methods `GET, POST, OPTIONS`, header
   — partial, because prod already holds one internal duplicate (job `91f6a2b9…`, same
   email twice, keyed by HR) and internal re-keying must stay possible. The route's
   step-5 pre-check still looks across **all** sources, so a candidate HR already keyed in
-  gets `409` rather than a second row; the partial index only closes the
+  gets the neutral duplicate `201` rather than a second row; the partial index only closes the
   concurrent-submit race among website rows.
 
 New RPC `hr_recruitment_application_recipient_ids(p_institution_id uuid) RETURNS SETOF uuid`,
@@ -191,8 +201,8 @@ The internal `/hr/recruitment/submit` flow is untouched; its rows keep
   `sniffResumeType` (real PDF/DOCX/DOC headers vs renamed `.exe`/text); `resolveAllowedOrigin`
   (`jkkn.ac.in`, `x.jkkn.ac.in`, rejects `evil-jkkn.ac.in`, `jkkn.ac.in.evil.com`,
   `a.b.jkkn.ac.in`, `http://jkkn.ac.in`); rate limiter window.
-- Route tests: honeypot → 201 nothing written; duplicate → 409; closed → 422/404;
-  disallowed origin POST → 403.
+- Route tests: honeypot → 201 nothing written; duplicate → neutral 201; closed → 404;
+  oversize → 413; disallowed origin POST → 403; strict limit ignores validation failures.
 - DB: recipient RPC returns no user outside the job's institution scope and ≥1 user for
   every institution with an open public job.
 - Live: from `http://localhost:3000` (extra origin) list jobs, apply with a real PDF to a

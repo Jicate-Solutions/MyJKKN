@@ -175,7 +175,7 @@ function buildFormSchema(
       kind: 'toggle',
       englishLabel: 'Show on website',
       englishHint:
-        'When on, this job is visible on the public careers page. Best paired with status "Open".',
+        'When on, this job is listed on jkkn.ac.in, where anyone can apply without a login. Best paired with status "Open".',
     },
   ];
 }

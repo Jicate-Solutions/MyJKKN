@@ -873,7 +873,7 @@ export interface JobAnalytics {
   applications_total: number;
   by_application_status: Record<JobApplicationStatus, number>;
   by_candidate_status: Partial<Record<CandidateStatus, number>>;
-  /** Applications submitted by a logged-in account vs anonymous careers-page. */
+  /** Applications keyed in inside MyJKKN vs submitted from the public website (source column). */
   source_split: { internal: number; website: number };
   /** Mean days from application submit to first screening decision. */
   avg_days_to_screen: number | null;

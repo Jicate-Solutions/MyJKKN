@@ -25,7 +25,7 @@ const BASE = {
   id: 'app-1', status: 'shortlisted', promoted_candidate_id: null, institution_id: 'i1',
   first_name: 'Priya', last_name: 'R', email: 'p@x.com', phone: '9876543210', resume_url: 'u',
   qualification: 'M.Pharm', experience_months: 24,
-  job: { id: 'j1', title: 'Lab Assistant', role_category: 'non_teaching', institution_id: 'i1', hr_organization_id: 'o1' },
+  job: { id: 'j1', title: 'Store Keeper', role_category: 'non_teaching', institution_id: 'i1', hr_organization_id: 'o1' },
 };
 
 describe('promoteJobApplication — candidate source', () => {

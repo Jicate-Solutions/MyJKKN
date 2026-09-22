@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildApplicationConfirmationEmail } from '@/lib/hr/recruitment/application-confirmation-email';
-import { notifyHrOfApplication, sendApplicantConfirmation } from '@/lib/services/hr/public-careers/after-apply';
+import { AFTER_APPLY_TIMEOUT_MS, notifyHrOfApplication, sendApplicantConfirmation } from '@/lib/services/hr/public-careers/after-apply';
 
 const APP = {
-  applicationId: 'app-1', reference: 'JOB-007-AAAAAAAA', jobTitle: 'Lab <Assistant>',
+  applicationId: 'app-1', reference: 'JOB-007-AAAAAAAA', jobTitle: 'Store <Keeper>',
   institutionId: 'inst-1', institutionName: 'JKKN College of Pharmacy',
 };
 
@@ -33,11 +33,11 @@ function fakeDb(recipients: string[]) {
 
 describe('buildApplicationConfirmationEmail', () => {
   it('escapes HTML and includes the reference', () => {
-    const m = buildApplicationConfirmationEmail({ firstName: 'Priya', jobTitle: 'Lab <Assistant>', institutionName: 'X', reference: 'R-1' });
-    expect(m.html).toContain('Lab &lt;Assistant&gt;');
-    expect(m.html).not.toContain('<Assistant>');
+    const m = buildApplicationConfirmationEmail({ firstName: 'Priya', jobTitle: 'Store <Keeper>', institutionName: 'X', reference: 'R-1' });
+    expect(m.html).toContain('Store &lt;Keeper&gt;');
+    expect(m.html).not.toContain('<Keeper>');
     expect(m.text).toContain('R-1');
-    expect(m.subject).toContain('Lab <Assistant>');
+    expect(m.subject).toContain('Store <Keeper>');
   });
 });
 
@@ -68,6 +68,20 @@ describe('sendApplicantConfirmation', () => {
     expect(send).toHaveBeenCalledOnce();
     expect(writes[0].payload).toHaveProperty('confirmation_email_sent_at');
   });
+  it('records a timeout instead of hanging when the sender never resolves', async () => {
+    vi.useFakeTimers();
+    try {
+      const { db, writes } = fakeDb([]);
+      const send = vi.fn(() => new Promise<{ error: unknown }>(() => {}));
+      const p = sendApplicantConfirmation(db, APP, 'priya@example.com', 'Priya', send);
+      await vi.advanceTimersByTimeAsync(AFTER_APPLY_TIMEOUT_MS + 1);
+      await p;
+      expect((writes[0].payload as Record<string, unknown>).confirmation_email_error).toMatch(/timed out/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('records the error and does not throw on failure', async () => {
     const { db, writes } = fakeDb([]);
     const send = vi.fn(async () => ({ error: { message: 'bad domain' } }));

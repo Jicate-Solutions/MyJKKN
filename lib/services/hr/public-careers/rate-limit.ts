@@ -5,7 +5,13 @@
  */
 export function createRateLimiter(opts: { limit: number; windowMs: number }) {
   const hits = new Map<string, { count: number; resetAt: number }>();
+  let lastSweep = 0;
   return (key: string, now: number = Date.now()): boolean => {
+    // Drop expired keys now and then so the map can't grow one entry per IP forever.
+    if (now - lastSweep > opts.windowMs) {
+      lastSweep = now;
+      for (const [k, e] of hits) if (now >= e.resetAt) hits.delete(k);
+    }
     const entry = hits.get(key);
     if (!entry || now >= entry.resetAt) {
       hits.set(key, { count: 1, resetAt: now + opts.windowMs });
