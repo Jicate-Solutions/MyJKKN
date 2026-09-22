@@ -68,6 +68,25 @@ const ON_DUTY_LEAVE_CODES = new Set(['OD', 'CD']);
 
 /** PostgREST returns numeric as a string. Every figure is coerced through this. */
 function num(v: unknown): number {
+/**
+ * The most common value, smallest on a tie — the answer Postgres' mode() gives,
+ * which is what the close writes. Empty input yields 0 so a month with no
+ * projection rows divides by nothing rather than by NaN.
+ */
+function modeOf(values: number[]): number {
+  const counts = new Map<number, number>();
+  for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
+  let best = 0;
+  let bestCount = 0;
+  for (const [v, c] of counts) {
+    if (c > bestCount || (c === bestCount && v < best)) {
+      best = v;
+      bestCount = c;
+    }
+  }
+  return best;
+}
+
   if (v === null || v === undefined) return 0;
   return typeof v === 'number' ? v : Number(v) || 0;
 }
@@ -195,36 +214,41 @@ export interface AttendanceSummaryRow {
   leave_by_type: Record<string, number>;
   unprocessed_days: number;
   /**
-   * Days the resolver expected this person to work in the month, pattern-aware
-   * (2026-09-04). NULL on months closed before the column existed.
+   * Days the resolver expected this person to work in the month: calendar
+   * days minus week-offs minus holidays, pattern/role/person aware, NOT
+   * clamped to joining. The register's Business Working Days and this line's
+   * divisor (2026-09-22). NULL only on rows frozen before 2026-09-04 that the
+   * backfill could not resolve.
    */
   scheduled_days: number | null;
-  /**
-   * The work pattern held on any day of the month. When set, the day rate
-   * divides by scheduled_days — the person's own week — instead of the
-   * institution standard. See registerBasisFor.
-   */
+  /** The work pattern held on any day of the month. Informational since 2026-09-22. */
   work_pattern_id: string | null;
 }
 
 /**
  * The divisor for one register line.
  *
- * A person on a work pattern (a 3-day or 5-day week at an institution that
- * otherwise runs six) is paid on THEIR scheduled days, not the institution's
- * month standard — dividing a Tue/Wed/Thu person's salary by 26 would charge
- * them ~13 unpaid days every month. Everyone else keeps the period basis.
+ * scheduled_days is the resolver's FULL-MONTH expectation for this person —
+ * calendar days minus week-offs minus holidays, pattern-aware — frozen at
+ * close. It is NOT the person's recorded working days: a mid-month joiner is
+ * unpaid for the days before they joined, not paid a full month for half of
+ * one. A 3-day-week pattern member gets their own 13, not the institution's
+ * 23; everyone else's scheduled_days IS the institution's 23.
  *
- * scheduled_days is the resolver's full-month expectation, NOT the person's
- * recorded working days, for the same reason the institution basis is used for
- * everyone else: a mid-month joiner is unpaid for the days before they joined,
- * not paid a full month for half of one.
+ * WHY NOT THE PERIOD'S working_days_count. Until 2026-09-22 that column was
+ * MAX(working_days) over every summary in the month, and working_days was
+ * counted from RECORDS. One person whose 23-day leave had been stamped over
+ * three Sundays and three holidays counted 29 working days, and all 50 people
+ * on the Pharmacy August register were divided by 29 while being credited at
+ * most 23 — six unpaid days each, on a month nobody missed. The period figure
+ * is now the MODE of scheduled_days and is only the fallback for months
+ * closed before the column existed.
  */
 export function registerBasisFor(
-  summary: Pick<AttendanceSummaryRow, 'scheduled_days' | 'work_pattern_id'>,
+  summary: Pick<AttendanceSummaryRow, 'scheduled_days'>,
   periodBasis: number,
 ): number {
-  if (summary.work_pattern_id && (summary.scheduled_days ?? 0) > 0) {
+  if ((summary.scheduled_days ?? 0) > 0) {
     return summary.scheduled_days as number;
   }
   return periodBasis;
@@ -297,6 +321,11 @@ export const ZERO_FIGURES: RegisterLineFigures = {
  *   Paid Days   = Worked + Paid Leave + On Duty
  *   Worked      = Business Working Days - Paid Leave - Unpaid - On Duty
  */
+ *
+ * HOLIDAYS ARE OUTSIDE THE BUSINESS WORKING DAYS AND ARE NOT PAID DAYS (HR,
+ * 2026-09-22): the basis is calendar minus week-offs minus holidays, and the
+ * attendance page's cards print the same unit, so the two screens agree on
+ * every figure for the same person.
 export function computeRegisterLine(input: {
   monthlyGross: number;
   /** The month standard for the calendar this person actually worked. */
@@ -819,12 +848,12 @@ export class SalaryRegisterService {
       });
     }
 
-    // The month standard, derived exactly as the close derives it: the largest
-    // working_days across the projection is what it writes into
-    // hr_attendance_periods.working_days_count.
-    const periodBasis = rows.reduce(
-      (max, r) => Math.max(max, Number(r.working_days ?? 0)),
-      0,
+    // The month standard, derived exactly as the close derives it: the MODE of
+    // scheduled_days across the projection is what it writes into
+    // hr_attendance_periods.working_days_count. A display figure and the
+    // fallback divisor only — each line divides by its own scheduled_days.
+    const periodBasis = modeOf(
+      rows.map((r) => Number(r.scheduled_days ?? 0)).filter((n) => n > 0),
     );
 
     const payable: SalaryClosePreviewRow[] = [];
