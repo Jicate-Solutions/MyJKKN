@@ -37,7 +37,7 @@ import { DayFeedbackCard } from './_components/day-feedback-card';
 import { ProgramFeedbackCard } from './_components/program-feedback-card';
 import { MentorMonthFeedbackCard } from './_components/mentor-month-feedback-card';
 import { MyMentorCard } from './_components/my-mentor-card';
-import { UnlockNotice } from './_components/unlock-notice';
+import { UnlockNotice } from '@/components/learners/unlock-notice';
 
 const BRAND = '#0b6d41';
 

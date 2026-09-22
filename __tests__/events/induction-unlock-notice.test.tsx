@@ -22,6 +22,8 @@
 // notice keys off the same fn_my_lifecycle_status signal as the sidebar and the
 // bottom nav. Mocking useIsInductionOnly would have tested the mock.
 import '@testing-library/jest-dom';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -31,8 +33,11 @@ vi.mock('@/lib/supabase/client', () => ({
   createClientSupabaseClient: () => ({ rpc: (...args: unknown[]) => rpc(...args) }),
 }));
 
-import { INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES } from '@/lib/constants/induction-access';
-import { UnlockNotice } from '@/app/(routes)/learners/my-induction/_components/unlock-notice';
+import {
+  INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES,
+  inductionWaitFor,
+} from '@/lib/constants/induction-access';
+import { UnlockNotice } from '@/components/learners/unlock-notice';
 
 /** A fresh client per test: the hook's queryKey is a constant and staleTime is
  *  5 minutes, so a shared client would serve test 1's status to test 2. */
@@ -51,8 +56,51 @@ beforeEach(() => { rpc.mockReset(); });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe('UnlockNotice', () => {
-  it.each([...INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES])(
-    'tells a %s learner that the rest of MyJKKN unlocks after onboarding',
+  // Every eligible status must land in one of the two waits — a status added
+  // to the constant and forgotten here would be unexplained again, which is
+  // the whole bug.
+  const AWAITING_ADMISSION = INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES.filter(
+    (st) => inductionWaitFor(st) === 'awaiting_admission'
+  );
+  const AWAITING_ACTIVATION = INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES.filter(
+    (st) => inductionWaitFor(st) === 'awaiting_activation'
+  );
+
+  it('sorts every eligible status into exactly one wait, and nothing else into either', () => {
+    expect(AWAITING_ADMISSION.length + AWAITING_ACTIVATION.length).toBe(
+      INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES.length
+    );
+    expect(AWAITING_ADMISSION.length).toBeGreaterThan(0);
+    expect(AWAITING_ACTIVATION.length).toBeGreaterThan(0);
+    for (const st of ['active', 'graduated', 'rejected', 'inactive', 'exited', '', null, undefined]) {
+      expect(inductionWaitFor(st as string | null)).toBeNull();
+    }
+  });
+
+  it.each([...AWAITING_ADMISSION])(
+    'tells a %s learner the college has to admit them — never that they must finish something',
+    async (status) => {
+      rpc.mockResolvedValue({ data: status, error: null });
+      renderNotice();
+
+      expect(
+        await screen.findByText(/until you are admitted/i)
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(/opens once your\s+admission is confirmed/i)
+      ).toBeInTheDocument();
+      // 454 of the 729 learners in these statuses have not been admitted at all
+      // (production, 22 Sep). Telling them to complete onboarding sends them to
+      // fix something that is not theirs to fix.
+      expect(screen.queryByText(/onboarding is complete/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/class coordinator/i)).not.toBeInTheDocument();
+      expect(screen.getByText(/admissions office/i)).toBeInTheDocument();
+      expect(rpc).toHaveBeenCalledWith('fn_my_lifecycle_status');
+    }
+  );
+
+  it.each([...AWAITING_ACTIVATION])(
+    'tells a %s learner they are admitted and waiting on activation',
     async (status) => {
       rpc.mockResolvedValue({ data: status, error: null });
       renderNotice();
@@ -60,8 +108,10 @@ describe('UnlockNotice', () => {
       expect(
         await screen.findByText(/You can see only the induction pages for now/i)
       ).toBeInTheDocument();
-      expect(screen.getByText(/unlocks\s+automatically once your onboarding is complete/i))
-        .toBeInTheDocument();
+      expect(screen.getByText(/You are admitted\./i)).toBeInTheDocument();
+      expect(
+        screen.getByText(/activated by the college/i)
+      ).toBeInTheDocument();
       // The way out if the gate is genuinely stuck — a learner with no route to
       // a human is back to filing the same bug report.
       expect(screen.getByText(/tell your class coordinator/i)).toBeInTheDocument();
@@ -96,5 +146,24 @@ describe('UnlockNotice', () => {
     const { container } = renderNotice();
     await waitFor(() => expect(rpc).toHaveBeenCalled());
     expect(container).toBeEmptyDOMElement();
+  });
+
+  // Placement. Both pages an induction-only learner can actually open and then
+  // report from must carry the notice: BUG-005941 and BUG-005945 were filed
+  // from /learners/my-profile, not My Induction. Checked at the source because
+  // both are server components. Comments stripped so a mention in prose cannot
+  // satisfy it.
+  it('is rendered on My Induction AND on My Profile', () => {
+    const strip = (src: string) =>
+      src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, '').replace(/^\s*\/\/.*$/gm, '');
+
+    for (const page of [
+      'app/(routes)/learners/my-induction/page.tsx',
+      'app/(routes)/learners/my-profile/page.tsx',
+    ]) {
+      const src = strip(readFileSync(join(process.cwd(), page), 'utf8'));
+      expect(src, page).toMatch(/import \{ UnlockNotice \} from '@\/components\/learners\/unlock-notice';/);
+      expect(src, page).toMatch(/<UnlockNotice \/>/);
+    }
   });
 });
