@@ -41,6 +41,7 @@ import { getErrorMessage } from '@/lib/utils';
 import { resolveTds } from '@/lib/hr/payroll/tds-slabs';
 import { TdsSlabService } from '@/lib/services/hr/payroll/tds-slab-service';
 import type {
+  HRSalaryRegisterDeletedRun,
   HRSalaryRegisterLine,
   HRSalaryRegisterRun,
   SalaryClosePreview,
@@ -67,7 +68,6 @@ import type {
 const ON_DUTY_LEAVE_CODES = new Set(['OD', 'CD']);
 
 /** PostgREST returns numeric as a string. Every figure is coerced through this. */
-function num(v: unknown): number {
 /**
  * The most common value, smallest on a tie — the answer Postgres' mode() gives,
  * which is what the close writes. Empty input yields 0 so a month with no
@@ -87,6 +87,7 @@ function modeOf(values: number[]): number {
   return best;
 }
 
+function num(v: unknown): number {
   if (v === null || v === undefined) return 0;
   return typeof v === 'number' ? v : Number(v) || 0;
 }
@@ -320,12 +321,12 @@ export const ZERO_FIGURES: RegisterLineFigures = {
  *   Paid Days   = Business Working Days - Unpaid
  *   Paid Days   = Worked + Paid Leave + On Duty
  *   Worked      = Business Working Days - Paid Leave - Unpaid - On Duty
- */
  *
  * HOLIDAYS ARE OUTSIDE THE BUSINESS WORKING DAYS AND ARE NOT PAID DAYS (HR,
  * 2026-09-22): the basis is calendar minus week-offs minus holidays, and the
  * attendance page's cards print the same unit, so the two screens agree on
  * every figure for the same person.
+ */
 export function computeRegisterLine(input: {
   monthlyGross: number;
   /** The month standard for the calendar this person actually worked. */
@@ -1310,6 +1311,105 @@ export class SalaryRegisterService {
     }
 
     return { run_id: runId, included, excluded };
+  }
+
+  /**
+   * Remove one register and every line on it. SUPER ADMIN ONLY, and
+   * irreversible — a frozen register is payroll history, and this is the one
+   * path that rewrites it.
+   *
+   * The route checks is_super_admin() before calling; the DELETE policies on
+   * both tables (migration 20260922072528) refuse everyone else at the
+   * database, so a forged request cannot get past a missing check here.
+   *
+   * ZERO ROWS BACK IS A REFUSAL, NOT A SUCCESS. An RLS-denied DELETE returns
+   * no error and no rows — the same shape as "already gone". The snapshot is
+   * loaded first so the two can be told apart (P0002 vs 42501) and so the
+   * receipt can name the register after the row no longer exists.
+   *
+   * A predecessor this run superseded STAYS superseded (its superseded_by
+   * FK is SET NULL by the cascade; superseded_at is left alone): the month
+   * then has no live register until someone generates again. Nothing ever
+   * silently becomes "in force" because something else was deleted.
+   */
+  static async deleteRun(
+    supabase: SupabaseClient,
+    runId: string,
+    actorId: string,
+  ): Promise<HRSalaryRegisterDeletedRun> {
+    const { data: run, error: loadErr } = await (supabase as any)
+      .from('hr_salary_register_runs')
+      .select(
+        'id, hr_organization_id, institution_id, period_year, period_month, staff_total, included_count, total_net, generated_at, superseded_at, hr_organizations:hr_organization_id(name)'
+      )
+      .eq('id', runId)
+      .maybeSingle();
+
+    if (loadErr) throw new Error(`Failed to load the register: ${getErrorMessage(loadErr)}`);
+    if (!run) {
+      throw Object.assign(new Error('This register no longer exists.'), { code: 'P0002' });
+    }
+
+    const receipt: HRSalaryRegisterDeletedRun = {
+      id: run.id,
+      hr_organization_id: run.hr_organization_id,
+      organisation_name: run.hr_organizations?.name ?? 'Unknown institution',
+      institution_id: run.institution_id,
+      period_year: run.period_year,
+      period_month: run.period_month,
+      staff_total: num(run.staff_total),
+      included_count: num(run.included_count),
+      total_net: num(run.total_net),
+      generated_at: run.generated_at,
+      was_superseded: run.superseded_at != null,
+    };
+
+    const { data: deleted, error: delErr } = await (supabase as any)
+      .from('hr_salary_register_runs')
+      .delete()
+      .eq('id', runId)
+      .select('id');
+
+    if (delErr) throw new Error(`Failed to delete the register: ${getErrorMessage(delErr)}`);
+    if (!deleted || deleted.length === 0) {
+      throw Object.assign(
+        new Error('Only a super admin can delete a salary register.'),
+        { code: '42501' },
+      );
+    }
+
+    // After the delete, never before: a log line for a delete that then failed
+    // would be the worse lie. logActivity swallows its own errors, so a logging
+    // fault cannot undo or mask a delete that has already happened.
+    //
+    // IMPORTED HERE, NOT AT THE TOP. activity-logger reaches ActivityService ->
+    // BaseService -> the browser Supabase client, which is constructed at import
+    // time and throws without env — and this module's pure pay arithmetic is
+    // unit-tested with no env at all. A top-level import broke every register
+    // test at load.
+    const { logActivity } = await import('@/lib/utils/activity-logger');
+    await logActivity({
+      userId: actorId,
+      actionType: 'delete',
+      resourceType: 'hr_salary_register_run',
+      resourceId: receipt.id,
+      resourceName: `${receipt.organisation_name} · ${monthLabel(receipt.period_year, receipt.period_month)}`,
+      description: `Deleted the salary register for ${receipt.organisation_name}, ${monthLabel(receipt.period_year, receipt.period_month)} (${receipt.included_count} payable lines, net ${receipt.total_net.toFixed(2)})`,
+      metadata: {
+        institution_id: receipt.institution_id,
+        hr_organization_id: receipt.hr_organization_id,
+        period_year: receipt.period_year,
+        period_month: receipt.period_month,
+        staff_total: receipt.staff_total,
+        included_count: receipt.included_count,
+        total_net: receipt.total_net,
+        generated_at: receipt.generated_at,
+        was_superseded: receipt.was_superseded,
+      },
+      institutionId: receipt.institution_id,
+    });
+
+    return receipt;
   }
 
   // ───────────────────────────────────────────────────────────────────────
