@@ -44,6 +44,33 @@ SELECT fn_adoption_register('BAD KEY','x','y');
 SELECT fn_adoption_ask_why('unwired.thing') AS unwired_ask;
 DO $$ DECLARE r jsonb; BEGIN r := fn_adoption_ask_why('unwired.thing');
   IF (r->>'success')::boolean THEN RAISE EXCEPTION 'FAIL: asked about an unwired feature'; END IF; END $$;
+\echo '--- the sign-in line: EXPECT ask refused, however old, wired and unused'
+-- app.login is the app-wide denominator (ruling 1c), not a feature, and the
+-- question refutes itself: it arrives on a blocking screen a person can only
+-- reach BY signing in. Measured on production 2026-09-23, one unguarded call
+-- would have messaged 6,643 people, against 458 with a recorded sign-in, because
+-- sign-in recording had begun five days earlier. The adoption PAGE cannot offer
+-- this (fn_adoption_metrics filters the key out, and groupByFeature filters it
+-- again), but /api/admin/adoption/ask-why passes whatever feature_key the caller
+-- sends, so the database is the only layer where this refusal is reachable.
+DO $$ DECLARE r jsonb; BEGIN
+  r := fn_adoption_ask_why('app.login');
+  IF (r->>'success')::boolean THEN RAISE EXCEPTION 'FAIL: asked 6,643 people why they never sign in'; END IF;
+  IF r->>'error' NOT LIKE '%app-wide measure%' THEN
+    RAISE EXCEPTION 'FAIL: refused for the wrong reason: %', r->>'error';
+  END IF;
+  RAISE NOTICE 'sign-in ask refused ok';
+END $$;
+-- The control. Without it the assertion above would also pass if ask_why were
+-- broken and refused everything: this proves the refusal is keyed on the KEY.
+DO $$ DECLARE r jsonb; BEGIN
+  r := fn_adoption_ask_why('old.other');
+  IF r->>'error' LIKE '%app-wide measure%' THEN
+    RAISE EXCEPTION 'FAIL: the sign-in refusal is firing on an ordinary feature';
+  END IF;
+  RAISE NOTICE 'control ok: an ordinary feature is not refused as the sign-in line';
+END $$;
+
 \echo '--- bridge: a feature measured from the existing usage log'
 SELECT fn_adoption_register('attendance.mark','Mark attendance','mark attendance for a class','{hod,faculty}','academic/attendance',NULL, now() - interval '60 days', false, 'academic/attendance','mark_attendance','create');
 INSERT INTO usage_events (user_id, event_type, module, feature, institution_id, role, source, created_at) VALUES
