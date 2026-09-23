@@ -563,31 +563,13 @@ export class AttendanceRosterService {
         .eq('institution_id', studentFilters.institution_id)
         .eq('section_id', section_id);
 
-      // Apply other filters if provided
-      if (studentFilters.degree_id) {
-        studentsQuery = studentsQuery.eq('degree_id', studentFilters.degree_id);
-      }
-
-      if (studentFilters.program_id) {
-        studentsQuery = studentsQuery.eq(
-          'program_id',
-          studentFilters.program_id
-        );
-      }
-
-      if (studentFilters.department_id) {
-        studentsQuery = studentsQuery.eq(
-          'department_id',
-          studentFilters.department_id
-        );
-      }
-
-      if (studentFilters.semester_id) {
-        studentsQuery = studentsQuery.eq(
-          'semester_id',
-          studentFilters.semester_id
-        );
-      }
+      // section_id (always supplied here) is AUTHORITATIVE — degree_id/program_id/
+      // department_id/semester_id are redundant denormalized copies from the
+      // timetable/search context and, if any has drifted from a learner's own
+      // learners_profiles value, ANDing them in would silently drop matching-section
+      // learners from the roster. Same root cause and fix as fn_attendance_roster's
+      // section-authoritative CASE (BUG-003249/003250) — this query path was missed
+      // by that fix.
 
       studentsQuery = studentsQuery.order('roll_number', { ascending: true });
 

@@ -55,6 +55,8 @@ export default function CdcInternshipsPage() {
     error,
     fetchInternships,
     updateFilters,
+    goToPage,
+    limit,
   } = useCdcInternships({ internship_type: 'corporate_internship' });
 
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -131,7 +133,7 @@ export default function CdcInternshipsPage() {
         </div>
 
         {/* Content */}
-        {loading && <Loading />}
+        {loading && <Loading title="Corporate Internships" />}
 
         {!loading && error && (
           <Card>
@@ -213,11 +215,22 @@ export default function CdcInternshipsPage() {
           </div>
         )}
 
-        {/* Pagination hint */}
-        {total > 20 && (
-          <p className="text-xs text-gray-400 text-center">
-            Showing {internships.length} of {total} results.
-          </p>
+        {/* Pagination — rows past the first page used to be unreachable */}
+        {total > (limit || 20) && (
+          <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+            <span className="text-gray-500">
+              {(page - 1) * (limit || 20) + 1}–{Math.min(page * (limit || 20), total)} of {total}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" disabled={page <= 1 || loading} onClick={() => goToPage(page - 1)}>
+                Previous
+              </Button>
+              <span className="text-gray-500">Page {page} / {Math.max(1, Math.ceil(total / (limit || 20)))}</span>
+              <Button variant="outline" size="sm" disabled={page * (limit || 20) >= total || loading} onClick={() => goToPage(page + 1)}>
+                Next
+              </Button>
+            </div>
+          </div>
         )}
       </div>
     </ContentLayout>

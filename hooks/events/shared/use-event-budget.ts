@@ -8,11 +8,17 @@ import toast from 'react-hot-toast';
 import { EventBudgetService } from '@/lib/services/events/shared/event-budget-service';
 import type { MarathonBudgetItem, CreateMarathonBudgetItemDto } from '@/types/events-marathon';
 
+const KEYS_ROOT = ['event-budget'] as const;
+
 const KEYS = {
   all: ['event-budget'] as const,
   items: (eventId: string) => [...KEYS.all, 'items', eventId] as const,
   summary: (eventId: string) => [...KEYS.all, 'summary', eventId] as const,
   approval: (eventId: string) => [...KEYS.all, 'approval', eventId] as const,
+  unsettled: (eventId: string) => [...KEYS_ROOT, 'unsettled', eventId] as const,
+  // The catalogue is the same list for everyone and changes rarely — not keyed
+  // by event, and cached for the session.
+  categories: [...KEYS_ROOT, 'categories'] as const,
 };
 
 export function useEventBudgetItems(eventId: string) {
@@ -28,6 +34,18 @@ export function useEventBudgetSummary(eventId: string) {
     queryKey: KEYS.summary(eventId),
     queryFn: () => EventBudgetService.getBudgetSummary(eventId),
     enabled: !!eventId,
+  });
+}
+
+/**
+ * The fixed category list a budget line picks from. Free text produced 33
+ * category strings across 41 lines, so nothing could be totalled across events.
+ */
+export function useEventBudgetCategories() {
+  return useQuery({
+    queryKey: KEYS.categories,
+    queryFn: () => EventBudgetService.getCategories(),
+    staleTime: 10 * 60_000,
   });
 }
 
@@ -112,5 +130,79 @@ export function useReopenEventBudget(eventId: string) {
       toast.success('Budget reopened for editing');
     },
     onError: (e: Error) => toast.error(e.message || 'Failed to reopen budget'),
+  });
+}
+
+/**
+ * Lines with no final figure yet. Drives both the "Close the books" button's
+ * label and the dialog that answers them.
+ */
+export function useEventBudgetUnsettled(eventId: string) {
+  return useQuery({
+    queryKey: KEYS.unsettled(eventId),
+    queryFn: () => EventBudgetService.getUnsettledLines(eventId),
+    enabled: !!eventId,
+  });
+}
+
+export function useSettleEventBudgetLine(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      itemId,
+      actual,
+      nothingSpent,
+    }: {
+      itemId: string;
+      actual: number;
+      nothingSpent?: boolean;
+    }) => EventBudgetService.settleLine(itemId, actual, nothingSpent ?? false),
+    onSuccess: () => {
+      invalidateAll(qc, eventId);
+      qc.invalidateQueries({ queryKey: KEYS.unsettled(eventId) });
+    },
+    onError: (e: Error) => toast.error(e.message || 'Could not save that figure'),
+  });
+}
+
+export function useCloseEventBudget(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => EventBudgetService.closeBudget(eventId),
+    onSuccess: () => {
+      invalidateAll(qc, eventId);
+      qc.invalidateQueries({ queryKey: KEYS.unsettled(eventId) });
+      toast.success('Books closed — this is now on the record as what the event cost');
+    },
+    // The database refuses by NAMING the unanswered lines, so show that rather
+    // than a generic failure.
+    onError: (e: Error) => toast.error(e.message || 'Could not close the books'),
+  });
+}
+
+/** What the event cost and what it cost per head. */
+export function useEventBudgetOutcome(eventId: string) {
+  return useQuery({
+    queryKey: [...KEYS_ROOT, 'outcome', eventId] as const,
+    queryFn: () => EventBudgetService.getOutcome(eventId),
+    enabled: !!eventId,
+  });
+}
+
+export function useEventSpendByCommittee(eventId: string) {
+  return useQuery({
+    queryKey: [...KEYS_ROOT, 'by-committee', eventId] as const,
+    queryFn: () => EventBudgetService.getSpendByCommittee(eventId),
+    enabled: !!eventId,
+  });
+}
+
+/** What each category usually costs per head, across events with closed books. */
+export function useEventCategoryBenchmark(eventId: string) {
+  return useQuery({
+    queryKey: [...KEYS_ROOT, 'benchmark', eventId] as const,
+    queryFn: () => EventBudgetService.getCategoryBenchmark(eventId),
+    enabled: !!eventId,
+    staleTime: 5 * 60_000,
   });
 }

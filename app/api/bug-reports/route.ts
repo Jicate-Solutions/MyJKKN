@@ -9,7 +9,10 @@ import { logger } from '@/lib/utils/enhanced-logger';
 import {
   isIsoDate,
   parseStatusList,
-  resolvedAtBounds
+  resolvedAtBounds,
+  REPORTER_CONFIRMED_MARKER,
+  OTHERS_RESOLVER_KEY,
+  OTHERS_RESOLVER_LABEL
 } from '@/lib/utils/bug-reports/status-tabs';
 import { isMissingResolvedByColumn } from '@/lib/api/bug-reports/resolved-by';
 
@@ -25,7 +28,7 @@ async function attachResolvers(supabase: any, bugs: any[]): Promise<any[]> {
 
   const { data: rows, error } = await supabase
     .from('bug_reports')
-    .select('id, resolved_by')
+    .select('id, resolved_by, resolution_marker:metadata->>resolved_by')
     .in('id', bugs.map((bug) => bug.id));
 
   if (error || !rows) {
@@ -38,8 +41,19 @@ async function attachResolvers(supabase: any, bugs: any[]): Promise<any[]> {
   const resolverIdByBug = new Map<string, string | null>(
     rows.map((row: any) => [row.id, row.resolved_by ?? null])
   );
+  // Closed by the reporter's own "No, it works now" — shown as Others, not by name.
+  const reporterConfirmed = new Set<string>(
+    rows
+      .filter((row: any) => row.resolution_marker === REPORTER_CONFIRMED_MARKER)
+      .map((row: any) => row.id)
+  );
   const resolverIds = Array.from(
-    new Set(rows.map((row: any) => row.resolved_by).filter(Boolean))
+    new Set(
+      rows
+        .filter((row: any) => !reporterConfirmed.has(row.id))
+        .map((row: any) => row.resolved_by)
+        .filter(Boolean)
+    )
   ) as string[];
 
   const resolverById = new Map<string, { full_name: string | null; email: string | null }>();
@@ -55,6 +69,14 @@ async function attachResolvers(supabase: any, bugs: any[]): Promise<any[]> {
 
   return bugs.map((bug) => {
     const resolverId = resolverIdByBug.get(bug.id) ?? null;
+    if (reporterConfirmed.has(bug.id)) {
+      return {
+        ...bug,
+        resolved_by: resolverId,
+        resolved_by_name: OTHERS_RESOLVER_LABEL,
+        resolved_by_email: null
+      };
+    }
     const resolver = resolverId ? resolverById.get(resolverId) : undefined;
     return {
       ...bug,
@@ -492,12 +514,22 @@ export const GET = withAuth(async (request) => {
     // resolved_by lives on the table, not on this view, so filtering by it
     // means resolving the id set first. RESOLVER_ID_CAP guards the URL length;
     // a breach is logged rather than silently truncating the listing.
+    // "others" = every bug its reporter closed via "No, it works now"; a person's
+    // id = what they resolved themselves, so those same bugs are left out.
     if (resolved_by) {
-      const { data: owned, error: ownedError } = await supabase
-        .from('bug_reports')
-        .select('id')
-        .eq('resolved_by', resolved_by)
-        .range(0, RESOLVER_ID_CAP - 1);
+      let ownedQuery = supabase.from('bug_reports').select('id');
+      ownedQuery =
+        resolved_by === OTHERS_RESOLVER_KEY
+          ? ownedQuery.eq('metadata->>resolved_by', REPORTER_CONFIRMED_MARKER)
+          : ownedQuery
+              .eq('resolved_by', resolved_by)
+              .or(
+                `metadata->>resolved_by.is.null,metadata->>resolved_by.neq.${REPORTER_CONFIRMED_MARKER}`
+              );
+      const { data: owned, error: ownedError } = await ownedQuery.range(
+        0,
+        RESOLVER_ID_CAP - 1
+      );
 
       if (ownedError && !isMissingResolvedByColumn(ownedError)) throw ownedError;
 

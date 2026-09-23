@@ -27,6 +27,10 @@ export const FEATURE_KEYS = {
   APP_LOGIN: 'app.login',
   /** Someone reported a bug through the in-app reporter. */
   BUG_REPORT_SUBMIT: 'bug_reports.submit',
+  /** A message reached at least one booked person (#3867). */
+  RESOURCES_MESSAGE_BOOKED_USERS: 'resources.message_booked_users',
+  /** Someone tagged a team member on a booking comment (#3863). */
+  RESOURCES_TAG_COLLEAGUE: 'resources.tag_colleague',
 } as const;
 
 export type FeatureKey = (typeof FEATURE_KEYS)[keyof typeof FEATURE_KEYS] | (string & {});
