@@ -45,7 +45,7 @@ interface FeatureActionsProps {
   pendingProposal: PendingProposal | null;
   /** How the feature is judged. A seasonal one is only asked near the end of
    *  its term, so the reason the button is off differs from a new feature's. */
-  cadence: 'weekly' | 'term';
+  cadence: 'weekly' | 'term' | 'event';
 }
 
 /** Why the ask button is off for a seasonal feature. The database sends the
@@ -112,9 +112,11 @@ export function FeatureActions({
     ? null
     : tooNew
       ? `Too new to ask — ${daysToWait} more ${daysToWait === 1 ? 'day' : 'days'}.`
-      : cadence === 'term'
-        ? `Asked only in the last two weeks of the term.`
-        : null;
+      : cadence === 'event'
+        ? `Used only when the occasion arises — a low share is not evidence, so there is nothing to ask.`
+        : cadence === 'term'
+          ? `Asked only in the last two weeks of the term.`
+          : null;
 
   async function run(label: string, work: () => Promise<void>) {
     setBusy(label);
