@@ -91,6 +91,8 @@ export default function DepartmentsHoDPage() {
             full_name: fullName || '(unnamed)',
             institution_id: row.institution_id,
             institution_name: row.institutions?.name ?? '—',
+            department_id: row.department_id ?? null,
+            designation: row.designation ?? null,
           };
         });
       setHodOptions(candidates);
