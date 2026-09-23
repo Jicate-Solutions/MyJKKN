@@ -15,10 +15,16 @@
  * These drive the real script as a subprocess with --files (exactly how CI
  * invokes it, minus the git diff) and assert on the exit code AND on which
  * function / parameter the report names — the exit code alone cannot say why.
+ *
+ * Repair round 1 (2026-09-23) adds a block per reviewer finding / orchestrator
+ * decision: the widened parameter names, the row-scoped WARNING, ALTER FUNCTION
+ * … SECURITY DEFINER, unnamed parameters, overload-by-signature matching, the
+ * computed-but-never-enforced check, and renamed-and-edited migrations. The
+ * reviewer's probes (p2, p4, p5, p6) and fixtures are carried as tests.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -28,17 +34,33 @@ const PROBLEM_HEADER = 'a lookup takes an institution id from the caller and nev
 
 let dir: string;
 
-function runFile(file: string): { code: number; out: string } {
+function run(args: string[], opts: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): { code: number; out: string } {
   try {
-    const out = execFileSync('node', [SCRIPT, '--verbose', '--files', file], {
+    const out = execFileSync('node', [SCRIPT, ...args], {
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: opts.cwd,
+      env: opts.env ?? { ...process.env, GITHUB_ACTIONS: '' },
     });
     return { code: 0, out: strip(out) };
   } catch (e: unknown) {
     const err = e as { status?: number; stdout?: string; stderr?: string };
     return { code: err.status ?? 1, out: strip(`${err.stdout ?? ''}${err.stderr ?? ''}`) };
   }
+}
+
+function runFile(file: string): { code: number; out: string } {
+  return run(['--verbose', '--files', file]);
+}
+
+/** Several files, read in this order — the way the gate reads a PR's changed migrations. */
+function runSqlFiles(files: Array<{ name: string; sql: string }>) {
+  const paths = files.map(f => {
+    const p = path.join(dir, f.name);
+    writeFileSync(p, f.sql, 'utf8');
+    return p;
+  });
+  return run(['--verbose', '--files', ...paths]);
 }
 
 function runSql(sql: string, name = 'fixture.sql') {
@@ -74,6 +96,18 @@ function flagged(out: string, fn: string, param?: string): boolean {
   if (!block) return false;
   return param ? block.includes(`Parameter: ${param}\n`) : true;
 }
+
+/** The `⚠ WARNING` lines (the job stays green; these name what the gate could not confirm). */
+function warnings(out: string): string[] {
+  return out.split('\n').filter(l => l.includes('⚠ WARNING'));
+}
+
+/** True when a WARNING line names this function (and contains `text`, if given). */
+function warned(out: string, fn: string, text?: string): boolean {
+  return warnings(out).some(l => l.includes(` — ${fn} — `) && (!text || l.includes(text)));
+}
+
+const ROW_SCOPED = (param: string) => `${param}: passes because some rows are scoped`;
 
 const DEFINER = (name: string, params: string, body: string, grants = true) => `
 CREATE OR REPLACE FUNCTION public.${name}(${params})
@@ -368,5 +402,428 @@ RETURNS text LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
 $$;`);
     expect(code).toBe(0);
     expect(checked(out)).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Repair round 1 (2026-09-23)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const LEAK = (param: string) =>
+  `  SELECT count(*) INTO v_n FROM learners_profiles WHERE institution_id = ${param};`;
+const CHECKED = (param: string) =>
+  `  IF NOT public.role_has_institution_access(${param}) THEN RAISE EXCEPTION 'no access'; END IF;
+${LEAK(param)}`;
+
+describe('repair round 1 — decision 1: the widened parameter names', () => {
+  // The names the reviewer found on main: p_institution (fn_preview/apply_hostel_fee_categories),
+  // p_institutions_id (is_board_chairman_for_programme), p_inst (fn_vsr_*_core), plus
+  // p_inst_id and p_college_id (fn_internship_get_active_policy_keys).
+  const NEW_NAMES = ['p_institution', 'p_institutions_id', 'p_inst', 'p_inst_id', 'p_college_id'];
+
+  it.each(NEW_NAMES)('FAILS a leaking lookup whose parameter is named %s', name => {
+    const fn = `fn_probe_named_${name}`;
+    const { code, out } = runSql(DEFINER(fn, `${name} uuid`, LEAK(name)), `leak-${name}.sql`);
+    expect(code).toBe(1);
+    expect(checked(out)).toBe(1);
+    expect(flagged(out, fn, name)).toBe(true);
+  });
+
+  it.each(NEW_NAMES)('PASSES the same lookup once %s is checked with role_has_institution_access()', name => {
+    const { code, out } = runSql(DEFINER(`fn_probe_named_${name}`, `${name} uuid`, CHECKED(name)), `ok-${name}.sql`);
+    expect(code).toBe(0);
+    expect(checked(out)).toBe(1);
+    expect(warnings(out)).toEqual([]);
+  });
+
+  it('FAILS reviewer probe p4: p_inst_id in a plain SQL body with no check', () => {
+    const { code, out } = runSql(`
+CREATE OR REPLACE FUNCTION public.fn_probe_p4(p_inst_id uuid)
+RETURNS bigint LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT count(*) FROM learners_profiles WHERE institution_id = p_inst_id;
+$$;
+GRANT EXECUTE ON FUNCTION public.fn_probe_p4(uuid) TO authenticated;`, 'p4.sql');
+    expect(code).toBe(1);
+    expect(flagged(out, 'fn_probe_p4', 'p_inst_id')).toBe(true);
+  });
+
+  it('does NOT match look-alike names (instance, installment, instrument, boolean flags, a bare inst_id)', () => {
+    const { code, out } = runSql(DEFINER(
+      'fn_probe_lookalikes',
+      'p_instance_id uuid, p_installment_id uuid, p_instrument_id uuid, p_include_non_billing_institutions boolean, p_within_college boolean, inst_id uuid',
+      '  SELECT count(*) INTO v_n FROM learners_profiles WHERE institution_id = inst_id AND id = p_instance_id;'
+    ), 'lookalikes.sql');
+    expect(code).toBe(0);
+    expect(checked(out)).toBe(0);
+  });
+});
+
+describe('repair round 1 — decision 2: a pass through row scoping only is WARNED', () => {
+  it('reviewer probe p2 (a partial fix): PASSES, and the WARNING names the file, function and parameter', () => {
+    const { code, out } = runSql(DEFINER(
+      'fn_probe_p2',
+      'p_institution_id uuid',
+      `${LEAK('p_institution_id')}
+  SELECT count(*) INTO v_n FROM academic_years ay
+   WHERE ay.is_current AND public.role_has_institution_access(ay.institution_id);`
+    ), 'p2-partial-fix.sql');
+    expect(code).toBe(0);
+    expect(checked(out)).toBe(1);
+    expect(warned(out, 'fn_probe_p2', ROW_SCOPED('p_institution_id'))).toBe(true);
+    expect(warnings(out)[0]).toContain('p2-partial-fix.sql');
+    expect(out).toContain('check every query that uses p_institution_id is scoped too');
+  });
+
+  it('reviewer decoys (item 8) — the leaked body plus a check on the caller\'s OWN college, or a scoped dropdown — PASS with the WARNING (decided: warn, not fail)', () => {
+    const text = fixtureText('institution-param-unguarded-coalesce.sql');
+    const decoy = text.replace(
+      '  v_inst_id := COALESCE(p_institution_id, v_profile.institution_id);',
+      `  IF NOT public.role_has_institution_access(v_profile.institution_id) THEN RAISE EXCEPTION 'no'; END IF;
+  v_inst_id := COALESCE(p_institution_id, v_profile.institution_id);`
+    );
+    expect(decoy).not.toBe(text);
+    const own = runSql(decoy, 'decoy-own-college.sql');
+    expect(own.code).toBe(0);
+    expect(warned(own.out, 'fn_probe_learner_count', ROW_SCOPED('p_institution_id'))).toBe(true);
+
+    const dropdown = runSql(DEFINER(
+      'fn_probe_dropdown',
+      'p_institution_id uuid',
+      `  SELECT array_agg(i.id) INTO v_set FROM institutions i WHERE public.role_has_institution_access(i.id);
+${LEAK('p_institution_id')}`
+    ), 'decoy-dropdown.sql');
+    expect(dropdown.code).toBe(0);
+    expect(warned(dropdown.out, 'fn_probe_dropdown', ROW_SCOPED('p_institution_id'))).toBe(true);
+  });
+
+  it('prints NO warning when the parameter itself is checked — the guarded fixture and #3983', () => {
+    const guarded = runFixture('institution-param-guarded.sql');
+    expect(guarded.code).toBe(0);
+    expect(warnings(guarded.out)).toEqual([]);
+
+    const pr3983 = runFixture('institution-param-pr3983-ai-rpc-scope-guards.sql');
+    expect(pr3983.code).toBe(0);
+    expect(checked(pr3983.out)).toBe(5);
+    expect(pr3983.out).toContain('5 guarded');
+    expect(warnings(pr3983.out)).toEqual([]);
+  });
+
+  it('prints NO warning for a variable that holds the parameter — v := COALESCE(<param>, own) — once that is checked', () => {
+    const { code, out } = runSql(DEFINER(
+      'fn_probe_alias',
+      'p_institution_id uuid',
+      `  v_inst := COALESCE(p_institution_id, public.get_current_user_institution_id());
+  IF NOT public.role_has_institution_access(v_inst) THEN RAISE EXCEPTION 'no access'; END IF;
+  SELECT count(*) INTO v_n FROM learners_profiles WHERE institution_id = v_inst;`
+    ).replace('v_set uuid[];', 'v_set uuid[]; v_inst uuid;'), 'alias.sql');
+    expect(code).toBe(0);
+    expect(warnings(out)).toEqual([]);
+  });
+
+  it('non-vacuity: with the caller\'s own college FIRST in the COALESCE the variable never holds the parameter → WARNED', () => {
+    const { code, out } = runSql(DEFINER(
+      'fn_probe_alias_wrong_way',
+      'p_institution_id uuid',
+      `  v_inst := COALESCE(public.get_current_user_institution_id(), p_institution_id);
+  IF NOT public.role_has_institution_access(v_inst) THEN RAISE EXCEPTION 'no access'; END IF;
+${LEAK('p_institution_id')}`
+    ).replace('v_set uuid[];', 'v_set uuid[]; v_inst uuid;'), 'alias-wrong-way.sql');
+    expect(code).toBe(0);
+    expect(warned(out, 'fn_probe_alias_wrong_way', ROW_SCOPED('p_institution_id'))).toBe(true);
+  });
+
+  it('prints NO warning for the parameter tested against the caller\'s set, a caller UIA read naming it, or an array checked per element', () => {
+    const inSet = runSql(DEFINER(
+      'fn_probe_in_set',
+      'p_institution_id uuid',
+      `  IF NOT (p_institution_id = ANY(public.ai_get_accessible_institutions(auth.uid()))) THEN RAISE EXCEPTION 'no'; END IF;
+${LEAK('p_institution_id')}`
+    ), 'in-set.sql');
+    expect(inSet.code).toBe(0);
+    expect(warnings(inSet.out)).toEqual([]);
+
+    const uia = runSql(DEFINER(
+      'fn_probe_uia_tied',
+      'p_institution_id uuid',
+      `  IF NOT EXISTS (SELECT 1 FROM user_institution_access
+                  WHERE user_id = auth.uid() AND institution_id = p_institution_id AND is_active) THEN
+    RAISE EXCEPTION 'no access';
+  END IF;
+${LEAK('p_institution_id')}`
+    ), 'uia-tied.sql');
+    expect(uia.code).toBe(0);
+    expect(warnings(uia.out)).toEqual([]);
+
+    const perElement = runSql(DEFINER(
+      'fn_probe_many_tied',
+      'p_institution_ids uuid[]',
+      `  IF EXISTS (SELECT 1 FROM unnest(p_institution_ids) x WHERE NOT public.role_has_institution_access(x)) THEN
+    RAISE EXCEPTION 'no access';
+  END IF;
+  SELECT count(*) INTO v_n FROM learners_profiles WHERE institution_id = ANY(p_institution_ids);`
+    ), 'many-tied.sql');
+    expect(perElement.code).toBe(0);
+    expect(warnings(perElement.out)).toEqual([]);
+  });
+
+  it('the caller\'s accessible set used only as a row filter (pattern C) PASSES with the WARNING', () => {
+    const { code, out } = runSql(DEFINER(
+      'fn_probe_row_filter',
+      'p_institution_id uuid',
+      `  v_set := ai_get_accessible_institutions(auth.uid());
+  SELECT count(*) INTO v_n FROM departments d
+   WHERE (p_institution_id IS NULL OR d.institution_id = p_institution_id)
+     AND d.institution_id = ANY(v_set);`
+    ), 'row-filter.sql');
+    expect(code).toBe(0);
+    expect(warned(out, 'fn_probe_row_filter', 'pattern C')).toBe(true);
+  });
+
+  it('on GitHub Actions each warning is also a ::warning annotation on the file and line', () => {
+    const file = path.join(dir, 'annotated.sql');
+    writeFileSync(file, DEFINER(
+      'fn_probe_annotated',
+      'p_institution_id uuid',
+      `${LEAK('p_institution_id')}
+  SELECT count(*) INTO v_n FROM academic_years ay WHERE public.role_has_institution_access(ay.institution_id);`
+    ), 'utf8');
+    const { code, out } = run(['--files', file], { env: { ...process.env, GITHUB_ACTIONS: 'true' } });
+    expect(code).toBe(0);
+    expect(out).toMatch(/^::warning file=[^,]*annotated\.sql,line=2,title=Institution-id parameter guard::fn_probe_annotated — p_institution_id: passes because some rows are scoped/m);
+  });
+});
+
+describe('repair round 1 — decision 3: ALTER FUNCTION … SECURITY DEFINER', () => {
+  const INVOKER_LEAK = (fn: string) => `
+CREATE OR REPLACE FUNCTION public.${fn}(p_institution_id uuid)
+RETURNS bigint LANGUAGE sql STABLE SET search_path = public AS $$
+  SELECT count(*) FROM learners_profiles WHERE institution_id = p_institution_id;
+$$;
+`;
+
+  it('FAILS reviewer probe p5: a function made SECURITY DEFINER by ALTER, body unguarded', () => {
+    const { code, out } = runSql(`${INVOKER_LEAK('leak5')}
+ALTER FUNCTION public.leak5(uuid) SECURITY DEFINER;
+GRANT EXECUTE ON FUNCTION public.leak5(uuid) TO authenticated;`, 'p5.sql');
+    expect(code).toBe(1);
+    expect(checked(out)).toBe(1);
+    expect(flagged(out, 'leak5', 'p_institution_id')).toBe(true);
+    expect(out).toContain('made SECURITY DEFINER by the ALTER FUNCTION on this line');
+  });
+
+  it('non-vacuity: without the ALTER the same function is SECURITY INVOKER and is not checked', () => {
+    const { code, out } = runSql(`${INVOKER_LEAK('leak5')}
+GRANT EXECUTE ON FUNCTION public.leak5(uuid) TO authenticated;`, 'p5-no-alter.sql');
+    expect(code).toBe(0);
+    expect(checked(out)).toBe(0);
+  });
+
+  it('PASSES an ALTERed function whose body checks the parameter, and accepts the hatch above the ALTER line', () => {
+    const guarded = runSql(`
+CREATE OR REPLACE FUNCTION public.fn_probe_alter_ok(p_institution_id uuid)
+RETURNS bigint LANGUAGE plpgsql STABLE SET search_path = public AS $$
+BEGIN
+  IF NOT public.role_has_institution_access(p_institution_id) THEN RAISE EXCEPTION 'no access'; END IF;
+  RETURN (SELECT count(*) FROM learners_profiles WHERE institution_id = p_institution_id);
+END;
+$$;
+ALTER FUNCTION public.fn_probe_alter_ok(p_institution_id uuid) SECURITY DEFINER;`, 'alter-ok.sql');
+    expect(guarded.code).toBe(0);
+    expect(checked(guarded.out)).toBe(1);
+
+    const hatched = runSql(`${INVOKER_LEAK('fn_probe_alter_hatch')}
+-- institution-param-guard: allow super-admin reporting job; server calls only through a service key
+ALTER FUNCTION public.fn_probe_alter_hatch(uuid) SECURITY DEFINER;`, 'alter-hatch.sql');
+    expect(hatched.code).toBe(0);
+    expect(checked(hatched.out)).toBe(1);
+    expect(hatched.out).toContain('super-admin reporting job');
+  });
+
+  it('reads the PR\'s files in order: CREATE in one file, ALTER in a later one → FAILS, reported at the ALTER', () => {
+    const { code, out } = runSqlFiles([
+      { name: '20990101000000_create.sql', sql: INVOKER_LEAK('fn_probe_two_files') },
+      { name: '20990101000001_alter.sql', sql: 'ALTER FUNCTION public.fn_probe_two_files(uuid) SECURITY DEFINER;\n' },
+    ]);
+    expect(code).toBe(1);
+    expect(flagged(out, 'fn_probe_two_files', 'p_institution_id')).toBe(true);
+    expect(out).toMatch(/File: +\S*20990101000001_alter\.sql \(line 1\)/);
+    expect(out).toContain('20990101000000_create.sql:2');
+  });
+
+  it('an ALTER whose body is not in the PR PASSES with a WARNING that it could not be checked', () => {
+    const { code, out } = runSql('ALTER FUNCTION public.fn_defined_elsewhere(uuid, text) SECURITY DEFINER;\n', 'alter-only.sql');
+    expect(code).toBe(0);
+    expect(warned(out, 'fn_defined_elsewhere', 'its body is not in this PR')).toBe(true);
+  });
+
+  it('an ALTER that comes BEFORE the only CREATE applies to the old body: WARNED, and the INVOKER CREATE is not checked', () => {
+    const { code, out } = runSqlFiles([
+      { name: '20990101000002_alter_first.sql', sql: 'ALTER FUNCTION public.fn_probe_order(uuid) SECURITY DEFINER;\n' },
+      { name: '20990101000003_create_later.sql', sql: INVOKER_LEAK('fn_probe_order') },
+    ]);
+    expect(code).toBe(0);
+    expect(checked(out)).toBe(0);
+    expect(warned(out, 'fn_probe_order', 'its body is not in this PR')).toBe(true);
+  });
+});
+
+describe('repair round 1 — decision 4: unnamed (positional) parameters are WARNED, not failed', () => {
+  it('reviewer probe p6: an unnamed uuid read as $1 → PASSES with a WARNING that the gate cannot check it', () => {
+    const { code, out } = runSql(`
+CREATE OR REPLACE FUNCTION public.leak6(uuid)
+RETURNS bigint LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT count(*) FROM learners_profiles WHERE institution_id = $1;
+$$;
+GRANT EXECUTE ON FUNCTION public.leak6(uuid) TO authenticated;
+CREATE OR REPLACE FUNCTION public.leak7(double precision, timestamp with time zone, uuid)
+RETURNS bigint LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT count(*) FROM learners_profiles WHERE institution_id = $3;
+$$;`, 'p6.sql');
+    expect(code).toBe(0);
+    expect(checked(out)).toBe(0);
+    expect(warned(out, 'leak6', '1 unnamed parameter(s)')).toBe(true);
+    // Multi-word type names are one parameter each, not "a parameter named double".
+    expect(warned(out, 'leak7', '3 unnamed parameter(s)')).toBe(true);
+  });
+
+  it('no warning when the function is revoked from anon, authenticated and PUBLIC', () => {
+    const { code, out } = runSql(`
+CREATE OR REPLACE FUNCTION public.leak6(uuid)
+RETURNS bigint LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT count(*) FROM learners_profiles WHERE institution_id = $1;
+$$;
+REVOKE EXECUTE ON FUNCTION public.leak6(uuid) FROM anon, authenticated, PUBLIC;`, 'p6-revoked.sql');
+    expect(code).toBe(0);
+    expect(warnings(out)).toEqual([]);
+  });
+});
+
+describe('repair round 1 — decision 5: GRANT/REVOKE matched by signature, not by name', () => {
+  const OVERLOADS = `
+CREATE OR REPLACE FUNCTION public.ai_rpc_t(p_institution_id uuid, p_x int)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_n integer;
+BEGIN
+  SELECT count(*) INTO v_n FROM learners_profiles WHERE institution_id = p_institution_id;
+  RETURN v_n;
+END;
+$$;
+CREATE OR REPLACE FUNCTION public.ai_rpc_t(p_x int)
+RETURNS integer LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$ SELECT p_x; $$;
+`;
+
+  it('reviewer item 9: revoking the (int) overload leaves the unguarded (uuid, int) one in scope → FAILS', () => {
+    const { code, out } = runSql(`${OVERLOADS}
+REVOKE ALL ON FUNCTION public.ai_rpc_t(int) FROM anon, authenticated, PUBLIC;`, 'overload-other-revoked.sql');
+    expect(code).toBe(1);
+    expect(checked(out)).toBe(1);
+    expect(flagged(out, 'ai_rpc_t', 'p_institution_id')).toBe(true);
+  });
+
+  it('revoking the SAME signature, spelled differently (integer for int), takes it out of scope', () => {
+    const { code, out } = runSql(`${OVERLOADS}
+REVOKE ALL ON FUNCTION public.ai_rpc_t(uuid, integer) FROM anon, authenticated, PUBLIC;`, 'overload-same-revoked.sql');
+    expect(code).toBe(0);
+    expect(checked(out)).toBe(0);
+    expect(warnings(out)).toEqual([]);
+  });
+
+  it('normalises type spellings (uuid[] = _uuid, timestamp with time zone = timestamptz, integer = int4) and keeps a real mismatch in scope', () => {
+    const fn = `
+CREATE OR REPLACE FUNCTION public.fn_probe_sig(p_institution_ids uuid[], p_from timestamp with time zone, p_n integer)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_n integer;
+BEGIN
+  SELECT count(*) INTO v_n FROM learners_profiles WHERE institution_id = ANY(p_institution_ids);
+  RETURN v_n;
+END;
+$$;`;
+    const same = runSql(`${fn}
+REVOKE EXECUTE ON FUNCTION public.fn_probe_sig(_uuid, timestamptz, int4) FROM anon, authenticated, PUBLIC;`, 'sig-same.sql');
+    expect(same.code).toBe(0);
+    expect(checked(same.out)).toBe(0);
+
+    const other = runSql(`${fn}
+REVOKE EXECUTE ON FUNCTION public.fn_probe_sig(uuid[], timestamptz, bigint) FROM anon, authenticated, PUBLIC;`, 'sig-other.sql');
+    expect(other.code).toBe(1);
+    expect(flagged(other.out, 'fn_probe_sig', 'p_institution_ids')).toBe(true);
+  });
+
+  it('a REVOKE with no argument list is matched by name, and WARNED when that is what takes the function out of scope', () => {
+    const { code, out } = runSql(`${DEFINER('fn_probe_name_only', 'p_institution_id uuid', LEAK('p_institution_id'), false)}
+REVOKE EXECUTE ON FUNCTION public.fn_probe_name_only FROM anon, authenticated, PUBLIC;`, 'name-only.sql');
+    expect(code).toBe(0);
+    expect(checked(out)).toBe(0);
+    expect(warned(out, 'fn_probe_name_only', 'matched by name only')).toBe(true);
+  });
+});
+
+describe('repair round 1 — reviewer item 10: a check computed but never enforced does not count', () => {
+  it('FAILS COALESCE(role_has_institution_access(p), false) that is only returned as a value', () => {
+    const { code, out } = runSql(`
+CREATE OR REPLACE FUNCTION public.fn_probe_computed(p_institution_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  RETURN jsonb_build_object('allowed', COALESCE(public.role_has_institution_access(p_institution_id), false),
+    'rows', (SELECT count(*) FROM learners_profiles WHERE institution_id = p_institution_id));
+END;
+$$;
+GRANT EXECUTE ON FUNCTION public.fn_probe_computed(uuid) TO authenticated;`, 'computed.sql');
+    expect(code).toBe(1);
+    expect(flagged(out, 'fn_probe_computed', 'p_institution_id')).toBe(true);
+  });
+
+  it('still PASSES the same COALESCE when it decides: IF NOT COALESCE(…, false) THEN RAISE', () => {
+    const { code, out } = runSql(DEFINER(
+      'fn_probe_coalesce_decides',
+      'p_institution_id uuid',
+      `  IF NOT COALESCE(public.role_has_institution_access(p_institution_id), false) THEN RAISE EXCEPTION 'no'; END IF;
+${LEAK('p_institution_id')}`
+    ), 'coalesce-decides.sql');
+    expect(code).toBe(0);
+    expect(checked(out)).toBe(1);
+    expect(warnings(out)).toEqual([]);
+  });
+});
+
+describe('repair round 1 — reviewer item 15: which files a PR changed', () => {
+  it('checks a migration that is renamed AND edited (git status R < 100), and skips a pure rename', () => {
+    const repo = mkdtempSync(path.join(tmpdir(), 'institution-param-git-'));
+    try {
+      const git = (...args: string[]) => execFileSync('git', [
+        '-c', 'user.name=gate-test', '-c', 'user.email=gate-test@example.invalid',
+        '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args,
+      ], { cwd: repo, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+      const MIG = 'supabase/migrations';
+      const padding = Array.from({ length: 30 }, (_, i) => `-- unchanged context line ${i}`).join('\n');
+      const guarded = `${padding}\n${DEFINER('fn_probe_renumbered', 'p_institution_id uuid', CHECKED('p_institution_id'))}`;
+      git('init', '-q', '-b', 'main');
+      mkdirSync(path.join(repo, MIG), { recursive: true });
+      writeFileSync(path.join(repo, MIG, '20990101000000_probe.sql'), guarded, 'utf8');
+      git('add', '.');
+      git('commit', '-q', '-m', 'base');
+
+      git('checkout', '-q', '-b', 'pure-rename');
+      git('mv', `${MIG}/20990101000000_probe.sql`, `${MIG}/20990102000000_probe.sql`);
+      git('commit', '-q', '-m', 'renumber only');
+      expect(git('diff', '--name-status', '-M', 'main...HEAD')).toMatch(/^R100\t/);
+      const pure = run(['--base', 'main'], { cwd: repo });
+      expect(pure.code).toBe(0);
+      expect(pure.out).toContain('No added or changed migration files');
+
+      git('checkout', '-q', 'main');
+      git('checkout', '-q', '-b', 'rename-and-edit');
+      git('mv', `${MIG}/20990101000000_probe.sql`, `${MIG}/20990102000000_probe.sql`);
+      writeFileSync(path.join(repo, MIG, '20990102000000_probe.sql'),
+        guarded.replace(`  IF NOT public.role_has_institution_access(p_institution_id) THEN RAISE EXCEPTION 'no access'; END IF;\n`, ''), 'utf8');
+      git('commit', '-q', '-am', 'renumber and drop the check');
+      // Non-vacuity: git really reports this as a rename with edits, which --diff-filter=AM skipped.
+      expect(git('diff', '--name-status', '-M', 'main...HEAD')).toMatch(/^R0[0-9]{2}\t/);
+      const edited = run(['--base', 'main'], { cwd: repo });
+      expect(edited.code).toBe(1);
+      expect(flagged(edited.out, 'fn_probe_renumbered', 'p_institution_id')).toBe(true);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 });

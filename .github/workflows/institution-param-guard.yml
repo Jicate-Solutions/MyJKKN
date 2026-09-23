@@ -1,12 +1,24 @@
 name: Institution-id parameter guard
 
 # Every NEW or CHANGED SECURITY DEFINER function that takes an institution id
-# from its caller (p_institution_id, p_institution_ids, *_institution_id) and is
-# callable by a signed-in user must CHECK that the caller may see that
-# institution — role_has_institution_access(<param>) or one of the accepted
-# equivalents listed in the script header — or carry, directly above
-# CREATE FUNCTION,
+# from its caller (any *_institution_id / *_institution_ids, p_institution,
+# p_institutions_id, p_inst, p_inst_id, p_college_id) and is callable by a
+# signed-in user must CHECK that the caller may see that institution —
+# role_has_institution_access(<param>) or one of the accepted equivalents
+# listed in the script header — or carry, directly above CREATE FUNCTION,
 #     -- institution-param-guard: allow <reason>
+#
+# WARNINGS never fail the job; they print in the log and as ::warning
+# annotations: a parameter that passes only because some rows are scoped, an
+# unnamed parameter, an ALTER FUNCTION … SECURITY DEFINER whose body is not in
+# the PR, and a GRANT/REVOKE matched by name only.
+#
+# NOT a required check. To make it one, an admin adds the job name
+# "SECURITY DEFINER lookups check institution access" to main's branch
+# protection — but only after the `paths:` filter below is removed: a required
+# check that a paths filter skips never reports, and every PR without a
+# migration would wait on it forever (see migration-version-collision.yml,
+# "WHY THERE IS NO `paths:` FILTER").
 #
 # WHY (measured live 2026-09-23): ai_rpc_students_summary and two siblings took
 # p_institution_id, COALESCEd it with the caller's own college, and filtered only
