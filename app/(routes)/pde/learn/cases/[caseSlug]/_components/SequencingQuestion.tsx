@@ -159,7 +159,7 @@ export function SequencingQuestion({
         <legend className="sr-only">Arrange in order</legend>
         {order.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            This question has no answer options. Please contact your faculty.
+            This question has no answer options. Please contact your Senior Learner.
           </p>
         ) : null}
         {order.map((item, index) => (

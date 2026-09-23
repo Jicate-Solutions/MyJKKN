@@ -145,7 +145,7 @@ export function MatchingQuestion({
         <legend className="sr-only">Match each item to an option</legend>
         {pairs.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            This question has no answer options. Please contact your faculty.
+            This question has no answer options. Please contact your Senior Learner.
           </p>
         ) : null}
         {pairs.map((pair) => {

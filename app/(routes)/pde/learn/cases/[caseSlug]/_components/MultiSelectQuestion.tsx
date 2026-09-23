@@ -139,7 +139,7 @@ export function MultiSelectQuestion({
         <legend className="sr-only">Select all that apply</legend>
         {options.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            This question has no answer options. Please contact your faculty.
+            This question has no answer options. Please contact your Senior Learner.
           </p>
         ) : null}
         {options.map((o) => {
