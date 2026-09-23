@@ -43,6 +43,8 @@ interface HoDCandidate {
   full_name: string | null;
   institution_id: string;
   institution_name: string;
+  department_id: string | null;
+  designation: string | null;
 }
 
 export default function DepartmentsHoDPage() {
