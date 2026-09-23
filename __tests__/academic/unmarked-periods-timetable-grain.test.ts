@@ -368,7 +368,7 @@ beforeAll(async () => {
   // The migration REVOKEs from these, so they must exist.
   for (const role of ['anon', 'authenticated', 'service_role']) {
     await db.query(
-      `DO $$ BEGIN CREATE ROLE ${role} NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;`,
+      `DO $$ BEGIN CREATE ROLE ${role} NOLOGIN; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$;`,
     );
   }
 

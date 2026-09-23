@@ -23,6 +23,7 @@
 // institution_id. The gate lives in row-actions.tsx (canAccess) so the check
 // runs per row; this component only owns the mutation and the in-flight row id.
 
+import { formatIstDate } from '@/lib/utils/date-format';
 import { useCallback, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -269,11 +270,7 @@ export function EventsDataTable() {
             {date && (
               <span className="flex items-center gap-1">
                 <CalendarDays className="h-3 w-3" />
-                {new Date(date).toLocaleDateString('en-IN', {
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric',
-                })}
+                {formatIstDate(date)}
               </span>
             )}
             {venue && (

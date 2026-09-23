@@ -91,6 +91,8 @@ export interface SaveFormFieldPayload {
    * image would vanish on an unrelated label change.
    */
   media_url: string | null;
+  /** Same rule as media_url: carried on every save or the RPC wipes it. */
+  prefill_source: string | null;
 }
 
 /** One section in a bulk-save payload. */
