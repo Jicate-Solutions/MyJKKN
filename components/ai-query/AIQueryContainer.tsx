@@ -7,7 +7,6 @@
 
 import { useState, useRef, useEffect, useCallback, Suspense } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
 import { useAIQuery } from '@/hooks/use-ai-query';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
@@ -39,33 +38,18 @@ import { SuggestedQueries } from './SuggestedQueries';
 import { ChatHistorySheet } from './ChatHistorySheet';
 import { DrainHealthBanner } from './DrainHealthBanner';
 import { ArtifactPanel } from './ArtifactPanel';
+import { ConversationLinkWatcher } from './ConversationLinkWatcher';
 import type { ActionDefinition } from '@/types/ai-query';
 import type { AskPageContext } from './AskAssistantRules';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/**
- * Reports ?conversation=<id> on arrival AND on every later change of the query
- * string. A bell link to /ai-query?conversation=<id> clicked while already on
- * /ai-query is a same-route navigation that remounts nothing, so reading the
- * URL once on mount would miss it. Rendered inside its own Suspense boundary so
- * useSearchParams never forces the whole page into client-only rendering.
- */
-function ConversationLinkWatcher({ onLink }: { onLink: (id: string) => void }) {
-  const params = useSearchParams();
-  const id = params?.get('conversation') ?? null;
-  useEffect(() => {
-    if (id) onLink(id);
-  }, [id, onLink]);
-  return null;
-}
-
 interface AIQueryContainerProps {
   className?: string;
   /** 'full' = the /ai-query page. 'compact' = the Ask panel on every page. */
   variant?: 'full' | 'compact';
-  /** The page the Ask panel was opened on (compact only). Sent with the
-   *  first question of a conversation as a short note for the AI. */
+  /** The page the Ask panel was opened on (compact only). Sent as a short note
+   *  for the AI whenever it differs from the last page this chat was told about. */
   pageContext?: AskPageContext | null;
   /** Reopen this conversation on mount (the panel reopening its last chat). */
   initialConversationId?: string | null;
