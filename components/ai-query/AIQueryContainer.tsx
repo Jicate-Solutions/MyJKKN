@@ -13,6 +13,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import {
   Tooltip,
   TooltipContent,
@@ -28,6 +30,7 @@ import {
   Clock,
   AlertCircle,
   Settings2,
+  Maximize2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MessageBubble } from './MessageBubble';
@@ -36,13 +39,33 @@ import { ChatHistorySheet } from './ChatHistorySheet';
 import { DrainHealthBanner } from './DrainHealthBanner';
 import { ArtifactPanel } from './ArtifactPanel';
 import type { ActionDefinition } from '@/types/ai-query';
+import type { AskPageContext } from './AskAssistantRules';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface AIQueryContainerProps {
   className?: string;
+  /** 'full' = the /ai-query page. 'compact' = the Ask panel on every page. */
+  variant?: 'full' | 'compact';
+  /** The page the Ask panel was opened on (compact only). Sent with the
+   *  first question of a conversation as a short note for the AI. */
+  pageContext?: AskPageContext | null;
+  /** Reopen this conversation on mount (the panel reopening its last chat). */
+  initialConversationId?: string | null;
+  /** Told whenever the active conversation changes (null after Clear). */
+  onConversationChange?: (conversationId: string | null) => void;
 }
 
-export function AIQueryContainer({ className }: AIQueryContainerProps) {
+export function AIQueryContainer({
+  className,
+  variant = 'full',
+  pageContext = null,
+  initialConversationId = null,
+  onConversationChange,
+}: AIQueryContainerProps) {
+  const compact = variant === 'compact';
   const [inputValue, setInputValue] = useState('');
+  const [background, setBackground] = useState(false);
   const [openArtifactId, setOpenArtifactId] = useState<string | null>(null);
   const [artifactOpen, setArtifactOpen] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -61,14 +84,34 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
     error,
     rateLimit,
     suggestions,
+    conversationId,
     sendMessage,
     clearMessages,
     loadConversation,
   } = useAIQuery({
+    pageContext: compact ? pageContext : null,
     onError: (err) => {
       console.warn('[AIQueryContainer] Error:', err);
     },
   });
+
+  // Reopen a conversation on arrival: the panel passes its last chat; the full
+  // page reads ?conversation=<id>, the link an "answer ready" notice carries.
+  // window.location (not useSearchParams) so the page needs no Suspense edge.
+  const openedRef = useRef(false);
+  useEffect(() => {
+    if (openedRef.current) return;
+    openedRef.current = true;
+    let target = initialConversationId;
+    if (!target && !compact && typeof window !== 'undefined') {
+      target = new URLSearchParams(window.location.search).get('conversation');
+    }
+    if (target && UUID_RE.test(target)) void loadConversation(target);
+  }, [compact, initialConversationId, loadConversation]);
+
+  useEffect(() => {
+    onConversationChange?.(conversationId);
+  }, [conversationId, onConversationChange]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -91,13 +134,13 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
 
     const message = inputValue.trim();
     setInputValue('');
-    await sendMessage(message);
+    await sendMessage(message, { background });
   };
 
   const handleSuggestionClick = async (suggestion: string) => {
     if (isLoading) return;
     setInputValue('');
-    await sendMessage(suggestion);
+    await sendMessage(suggestion, { background });
   };
 
   const handleActionClick = async (action: ActionDefinition, messageId: string) => {
@@ -111,16 +154,24 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
       <DrainHealthBanner />
 
       {/* Header - Responsive */}
-      <div className="flex items-center justify-between px-3 sm:px-4 py-2 sm:py-3 border-b gap-2">
+      {/* compact: pr-12 keeps the header clear of the sheet's own close button */}
+      <div
+        className={cn(
+          'flex items-center justify-between px-3 sm:px-4 py-2 sm:py-3 border-b gap-2',
+          compact && 'pr-12 sm:pr-12',
+        )}
+      >
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <div className="p-1.5 sm:p-2 bg-primary/10 rounded-lg flex-shrink-0">
             <Sparkles className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
           </div>
           <div className="min-w-0">
             <h1 className="text-base sm:text-lg font-semibold truncate">AI Assistant</h1>
-            <p className="text-[10px] sm:text-xs text-muted-foreground hidden sm:block">
-              Ask questions about learners, learning participation, billing, and more
-            </p>
+            {!compact && (
+              <p className="text-[10px] sm:text-xs text-muted-foreground hidden sm:block">
+                Ask questions about learners, learning participation, billing, and more
+              </p>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
@@ -142,8 +193,19 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
           </Button>
           {/* Your past chats — visible to every user; tap one to reopen + continue */}
           <ChatHistorySheet onSelect={loadConversation} />
+          {/* compact: open this chat on the full assistant page */}
+          {compact && (
+            <Button variant="ghost" size="sm" asChild className="h-8 px-2" title="Open the full AI Assistant">
+              <Link
+                href={conversationId ? `/ai-query?conversation=${conversationId}` : '/ai-query'}
+                aria-label="Open the full AI Assistant"
+              >
+                <Maximize2 className="h-4 w-4" />
+              </Link>
+            </Button>
+          )}
           {/* Super Admin Only - AI Query Tools Link */}
-          {isSuperAdmin && (
+          {isSuperAdmin && !compact && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -171,13 +233,20 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
       {/* Messages Area - Responsive padding */}
       <ScrollArea ref={scrollAreaRef} className="flex-1 px-3 sm:px-4 py-3 sm:py-4">
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full min-h-[300px] sm:min-h-[400px] text-center px-2">
+          <div
+            className={cn(
+              'flex flex-col items-center justify-center h-full text-center px-2',
+              compact ? 'min-h-[240px]' : 'min-h-[300px] sm:min-h-[400px]',
+            )}
+          >
             <div className="p-3 sm:p-4 bg-primary/5 rounded-full mb-3 sm:mb-4">
               <Bot className="h-8 w-8 sm:h-12 sm:w-12 text-primary/60" />
             </div>
             <h2 className="text-lg sm:text-xl font-semibold mb-2">How can I help you today?</h2>
             <p className="text-sm sm:text-base text-muted-foreground mb-4 sm:mb-6 max-w-md">
-              Ask me about learners, learning participation, billing, team members, or any other data in the system.
+              {compact
+                ? 'Ask me anything about MyJKKN. I know which page you are on.'
+                : 'Ask me about learners, learning participation, billing, team members, or any other data in the system.'}
             </p>
 
             {/* Suggested Queries */}
@@ -212,7 +281,13 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
       )}
 
       {/* Input Area - Responsive */}
-      <div className="p-3 sm:p-4 border-t bg-background">
+      <div
+        className={cn(
+          'p-3 sm:p-4 border-t bg-background',
+          // compact is full screen on phones: clear the iOS home indicator.
+          compact && 'pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:pb-4',
+        )}
+      >
         <form onSubmit={handleSubmit} className="flex gap-2">
           <Input
             ref={inputRef}
@@ -234,6 +309,22 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
             )}
           </Button>
         </form>
+
+        {/* Hand a longer question off: the answer arrives as an in-app notice. */}
+        <div className="flex items-center gap-2 mt-2">
+          <Switch
+            id={compact ? 'ai-background-compact' : 'ai-background'}
+            checked={background}
+            onCheckedChange={setBackground}
+            disabled={isLoading}
+          />
+          <Label
+            htmlFor={compact ? 'ai-background-compact' : 'ai-background'}
+            className="text-xs text-muted-foreground font-normal cursor-pointer"
+          >
+            Do it in the background — I’ll get a notification when it’s ready
+          </Label>
+        </div>
 
         {/* Quick Suggestions when typing - scrollable on mobile */}
         {messages.length > 0 && suggestions.length > 0 && (

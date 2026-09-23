@@ -10,15 +10,24 @@ import type {
   AIQueryResponse,
   RateLimitResult,
   ActionDefinition,
+  AIQueryBackgroundAccepted,
   ArtifactRef,
   SuggestedQuery,
   DEFAULT_SUGGESTED_QUERIES,
 } from '@/types/ai-query';
+import { stripPageNote, type AskPageContext } from '@/components/ai-query/AskAssistantRules';
 
 interface UseAIQueryOptions {
   onError?: (error: { code: string; message: string }) => void;
   onMessage?: (message: AIQueryMessage) => void;
+  /** The page the Ask panel was opened on. Sent with the FIRST question of a
+   *  conversation only; the route turns it into a short note for the AI. */
+  pageContext?: AskPageContext | null;
 }
+
+/** What the panel says when a question is handed off to the background. */
+export const BACKGROUND_ACCEPTED_TEXT =
+  'I’m working on this in the background. I’ll send you a notification when the answer is ready — you can keep using MyJKKN.';
 
 interface UseAIQueryReturn {
   messages: AIQueryMessage[];
@@ -27,7 +36,7 @@ interface UseAIQueryReturn {
   rateLimit: RateLimitResult | null;
   suggestions: SuggestedQuery[];
   conversationId: string | null;
-  sendMessage: (message: string) => Promise<void>;
+  sendMessage: (message: string, opts?: { background?: boolean }) => Promise<void>;
   clearMessages: () => void;
   executeAction: (action: ActionDefinition, params?: Record<string, unknown>) => Promise<void>;
   loadConversation: (conversationId: string) => Promise<void>;
@@ -78,7 +87,7 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
           {
             id: `${r.id}-q`,
             role: 'user' as const,
-            content: r.message,
+            content: stripPageNote(r.message ?? ''),
             timestamp: new Date(r.completed_at),
           },
           {
@@ -92,7 +101,12 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
             ],
           },
         ]);
-        setMessages((prev) => [...restored, ...prev]);
+        // De-duplicate by id: a conversation reopened from a notification link
+        // (loadConversation) may already hold these turns.
+        setMessages((prev) => [
+          ...restored.filter((m) => !prev.some((p) => p.id === m.id)),
+          ...prev,
+        ]);
         // Rendered — acknowledge so these don't re-show. Best-effort: a lost
         // ack means one harmless duplicate next load, never a lost answer.
         void fetch('/api/ai-query', {
@@ -106,8 +120,11 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
     })();
   }, []);
 
-  const sendMessage = useCallback(async (message: string) => {
+  const sendMessage = useCallback(async (message: string, opts?: { background?: boolean }) => {
     if (!message.trim()) return;
+    const background = opts?.background === true;
+    // The page note rides only on the first question of a conversation.
+    const isFirstTurn = !conversationIdRef.current;
 
     // Stamp a stable conversation_id from the VERY first turn so every job in
     // this thread shares it — this is what lets the Max drain rebuild memory of
@@ -145,6 +162,8 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
         body: JSON.stringify({
           message,
           conversation_id: conversationIdRef.current,
+          ...(isFirstTurn && options.pageContext ? { page_context: options.pageContext } : {}),
+          ...(background ? { background: true } : {}),
         }),
       });
 
@@ -164,6 +183,29 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
               id: crypto.randomUUID(),
               role: 'assistant',
               content: `**Error:** ${errorData.message}`,
+              timestamp: new Date(),
+            },
+          ];
+        });
+        return;
+      }
+
+      // Background hand-off: the route returned at once with the job id. No
+      // answer yet, and NO ack — the answer is delivered later through the
+      // in-app notice and the "while you were away" inbox.
+      if ((data as { background?: unknown }).background === true) {
+        const accepted = data as AIQueryBackgroundAccepted;
+        if (typeof accepted.conversation_id === 'string') {
+          conversationIdRef.current = accepted.conversation_id;
+        }
+        setMessages(prev => {
+          const filtered = prev.filter(m => m.id !== loadingMessage.id);
+          return [
+            ...filtered,
+            {
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              content: BACKGROUND_ACCEPTED_TEXT,
               timestamp: new Date(),
             },
           ];
@@ -299,7 +341,7 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
           {
             id: `${t.id}-q`,
             role: 'user' as const,
-            content: t.question ?? '',
+            content: stripPageNote(t.question ?? ''),
             timestamp: new Date(t.asked_at),
           },
         ];

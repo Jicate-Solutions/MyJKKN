@@ -18,6 +18,7 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { AIQueryService } from '@/lib/services/ai-query-service';
 import type { AIQueryRequest, ArtifactRef, ArtifactType } from '@/types/ai-query';
+import { sanitizePageContext, withPageNote } from '@/components/ai-query/AskAssistantRules';
 
 const ARTIFACT_TYPES: ArtifactType[] = ['chart', 'report', 'spreadsheet', 'slides'];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -85,6 +86,44 @@ type ChatResult = {
   artifacts?: ArtifactRef[];
 };
 
+/** jobId on success; otherwise why not (with { cap, used } for 'capped'). */
+type EnqueueResult = { jobId?: string; miss?: MaxLaneMiss; cap?: number; used?: number };
+
+/**
+ * Put one question on the scoped ai_jobs chat lane. fn_ai_enqueue enforces
+ * access, the daily cap and the in-flight cap. `background` rides in the
+ * payload: it tells the completion trigger (20270304090000) to send the asker
+ * an in-app notice when the answer lands.
+ */
+async function enqueueChat(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  message: string,
+  conversationId: string | undefined,
+  background = false,
+): Promise<EnqueueResult> {
+  const { data: enq, error: enqError } = await supabase.rpc('fn_ai_enqueue', {
+    p_job_type: 'ai_query.chat',
+    p_payload: {
+      message,
+      conversation_id:
+        conversationId && UUID_RE.test(conversationId) ? conversationId : null,
+      ...(background ? { background: true } : {}),
+    },
+  });
+  if (enqError || !enq?.ok || typeof enq?.job_id !== 'string') {
+    const errText = typeof enq?.error === 'string' ? enq.error : '';
+    // Feature off (ai_query.chat disabled) — treat as "unavailable, try later".
+    if (errText === 'unknown or disabled job_type') return { miss: 'offline' };
+    if (errText === 'not allowed for this job_type') return { miss: 'forbidden' };
+    if (errText === 'daily limit reached') {
+      return { miss: 'capped', cap: enq?.cap, used: enq?.used };
+    }
+    if (errText === 'too many in-flight jobs of this type') return { miss: 'busy' };
+    return { miss: 'error' };
+  }
+  return { jobId: enq.job_id };
+}
+
 /** One enqueue + poll attempt on the scoped ai_jobs chat lane. */
 async function scopedChatOnce(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -92,28 +131,12 @@ async function scopedChatOnce(
   conversationId: string | undefined,
 ): Promise<ChatResult> {
   try {
-    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const { data: enq, error: enqError } = await supabase.rpc('fn_ai_enqueue', {
-      p_job_type: 'ai_query.chat',
-      p_payload: {
-        message,
-        conversation_id:
-          conversationId && uuidRe.test(conversationId) ? conversationId : null,
-      },
-    });
-    if (enqError || !enq?.ok || typeof enq?.job_id !== 'string') {
-      const errText = typeof enq?.error === 'string' ? enq.error : '';
-      // Feature off (ai_query.chat disabled) — treat as "unavailable, try later".
-      if (errText === 'unknown or disabled job_type') return { answer: null, miss: 'offline' };
-      if (errText === 'not allowed for this job_type') return { answer: null, miss: 'forbidden' };
-      if (errText === 'daily limit reached') {
-        return { answer: null, miss: 'capped', cap: enq?.cap, used: enq?.used };
-      }
-      if (errText === 'too many in-flight jobs of this type') return { answer: null, miss: 'busy' };
-      return { answer: null, miss: 'error' };
+    const enq = await enqueueChat(supabase, message, conversationId);
+    if (!enq.jobId) {
+      return { answer: null, miss: enq.miss ?? 'error', cap: enq.cap, used: enq.used };
     }
 
-    const jobId = enq.job_id;
+    const jobId = enq.jobId;
     const startedAt = Date.now();
     while (Date.now() - startedAt < MAX_LANE_TOTAL_DEADLINE_MS) {
       await sleep(MAX_LANE_POLL_MS);
@@ -167,6 +190,36 @@ async function tryScopedChat(
   }
   if (r.answer !== null) r.elapsedMs = Date.now() - t0;
   return r;
+}
+
+/** The HTTP answer for a question the lane did not answer. Pre-flight
+ *  rejections (access / daily cap) carry their own status. */
+function missResponse(miss: MaxLaneMiss | undefined, cap?: number, used?: number) {
+  if (miss === 'forbidden') {
+    return NextResponse.json(
+      { error: { code: 'FORBIDDEN', message: 'You don’t have access to the AI Assistant. Ask an administrator to grant it.' } },
+      { status: 403 }
+    );
+  }
+  if (miss === 'capped') {
+    const capMsg =
+      typeof cap === 'number'
+        ? `You’ve reached today’s limit of ${cap} questions. Please try again tomorrow.`
+        : 'You’ve reached today’s question limit. Please try again tomorrow.';
+    return NextResponse.json(
+      { error: { code: 'RATE_LIMITED', message: capMsg, cap, used } },
+      { status: 429 }
+    );
+  }
+
+  const errorMessage =
+    miss && miss in MAX_LANE_MISS_NOTE
+      ? MAX_LANE_MISS_NOTE[miss as 'offline' | 'busy' | 'slow' | 'error']
+      : 'The AI Assistant is currently unavailable.';
+  return NextResponse.json(
+    { error: { code: 'SERVER_ERROR', message: errorMessage } },
+    { status: 500 }
+  );
 }
 
 /**
@@ -373,6 +426,7 @@ export async function POST(request: NextRequest) {
 
     const body: AIQueryRequest = await request.json();
     const { message, conversation_id } = body;
+    const background = body.background === true;
 
     if (!message || typeof message !== 'string') {
       return NextResponse.json(
@@ -405,8 +459,29 @@ export async function POST(request: NextRequest) {
 
     await AIQueryService.incrementQueryCount(user.id);
 
+    // The Ask panel sends the page it was opened on with the FIRST question of
+    // a conversation. The AI gets a short note naming that page; the person's
+    // own bubble (client-side) shows only what they typed. No field → no note.
+    const aiMessage = withPageNote(message, sanitizePageContext(body.page_context));
+
+    // "Do it in the background": enqueue and return at once — no long-poll.
+    // A conversation id is required here, because the completion notice links
+    // back to this conversation.
+    if (background) {
+      const conversationId =
+        conversation_id && UUID_RE.test(conversation_id) ? conversation_id : crypto.randomUUID();
+      const enq = await enqueueChat(supabase, aiMessage, conversationId, true);
+      if (enq.jobId) {
+        return NextResponse.json(
+          { background: true, job_id: enq.jobId, conversation_id: conversationId },
+          { status: 202 },
+        );
+      }
+      return missResponse(enq.miss ?? 'error', enq.cap, enq.used);
+    }
+
     const { answer: maxAnswer, miss, requestId: maxRequestId, cap, used, elapsedMs, artifacts: maxArtifacts } =
-      await tryScopedChat(supabase, message, conversation_id);
+      await tryScopedChat(supabase, aiMessage, conversation_id);
 
     if (maxAnswer !== null) {
       toolsCalled.push('max_lane');
@@ -439,32 +514,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Pre-flight rejections carry their own HTTP status.
-    if (miss === 'forbidden') {
-      return NextResponse.json(
-        { error: { code: 'FORBIDDEN', message: 'You don’t have access to the AI Assistant. Ask an administrator to grant it.' } },
-        { status: 403 }
-      );
-    }
-    if (miss === 'capped') {
-      const capMsg =
-        typeof cap === 'number'
-          ? `You’ve reached today’s limit of ${cap} questions. Please try again tomorrow.`
-          : 'You’ve reached today’s question limit. Please try again tomorrow.';
-      return NextResponse.json(
-        { error: { code: 'RATE_LIMITED', message: capMsg, cap, used } },
-        { status: 429 }
-      );
-    }
-
-    const errorMessage =
-      miss && miss in MAX_LANE_MISS_NOTE
-        ? MAX_LANE_MISS_NOTE[miss as 'offline' | 'busy' | 'slow' | 'error']
-        : 'The AI Assistant is currently unavailable.';
-    return NextResponse.json(
-      { error: { code: 'SERVER_ERROR', message: errorMessage } },
-      { status: 500 }
-    );
+    return missResponse(miss, cap, used);
 
   } catch (error) {
     console.error('[ai-query] Route error:', error);

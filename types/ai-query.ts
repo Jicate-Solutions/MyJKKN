@@ -305,6 +305,18 @@ export interface AIQueryRequest {
   message: string;
   conversation_id?: string;
   context_override?: Partial<AIUserContext>;
+  /** Sent only by the Ask panel, on the first question of a conversation:
+   *  the page it was asked from. The route adds a short note for the AI. */
+  page_context?: { path: string; title?: string };
+  /** true = enqueue and return at once; an in-app notice follows the answer. */
+  background?: boolean;
+}
+
+/** What POST /api/ai-query returns for a background question. */
+export interface AIQueryBackgroundAccepted {
+  background: true;
+  job_id: string;
+  conversation_id: string;
 }
 
 export interface AIQueryResponse {
