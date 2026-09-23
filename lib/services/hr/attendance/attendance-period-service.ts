@@ -25,6 +25,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getErrorMessage } from '@/lib/utils';
+import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
 
 /** One institution's state for a month, as the console lists it. */
 export interface AttendancePeriodConsoleRow {
@@ -226,6 +227,11 @@ export class AttendancePeriodService {
     });
 
     if (error) throw new Error(getErrorMessage(error));
+
+    // Adoption loop: HR froze this institution-month. Once per college per
+    // month by design, so a low count is the correct count.
+    await recordFeatureUse(supabase, FEATURE_KEYS.HR_ATTENDANCE_MONTH_CLOSE);
+
     return data as AttendancePeriod;
   }
 

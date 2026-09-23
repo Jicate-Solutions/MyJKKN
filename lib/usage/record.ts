@@ -31,6 +31,22 @@ export const FEATURE_KEYS = {
   RESOURCES_MESSAGE_BOOKED_USERS: 'resources.message_booked_users',
   /** Someone tagged a team member on a booking comment (#3863). */
   RESOURCES_TAG_COLLEAGUE: 'resources.tag_colleague',
+  /** A service request was raised — created already submitted, or a draft submitted. */
+  SERVICE_REQUESTS_RAISE: 'service_requests.raise',
+  /** A role was saved onto someone's account. */
+  USERS_ASSIGN_ROLE: 'users.assign_role',
+  /** A hostel learner applied for leave. */
+  CAMPUS_LIVING_LEAVE_APPLY: 'campus_living.leave_apply',
+  /** A hostel learner asked for a gate pass. */
+  CAMPUS_LIVING_GATE_PASS_REQUEST: 'campus_living.gate_pass_request',
+  /** A learner said YES to a drive in its willingness window (a decline is not this). */
+  CDC_DECLARE_INTEREST: 'cdc.declare_interest',
+  /** A staff member applied for leave. */
+  HR_LEAVE_APPLY: 'hr.leave_apply',
+  /** An approver decided a staff leave application — approve and reject both count. */
+  HR_LEAVE_DECIDE: 'hr.leave_decide',
+  /** HR froze an institution's attendance month. */
+  HR_ATTENDANCE_MONTH_CLOSE: 'hr.attendance_month_close',
 } as const;
 
 export type FeatureKey = (typeof FEATURE_KEYS)[keyof typeof FEATURE_KEYS] | (string & {});
