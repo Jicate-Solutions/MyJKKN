@@ -331,7 +331,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         { '* Accommodation Type (Required)': 'HOSTEL  |  DAY SCHOLAR  |  HOME' },
         { '* Scholarship Type (Required)': 'FIRST GRADUATE  |  PMS SCHOLARSHIP  |  7.5% SCHOLARSHIP  |  NOT APPLICABLE' },
         { '': '' },
-        { 'Blood Group (Optional)': 'A+  |  A-  |  B+  |  B-  |  AB+  |  AB-  |  O+  |  O-  |  A1+  |  A1B' },
+        { 'Blood Group (Optional)': 'A+  |  A-  |  B+  |  B-  |  AB+  |  AB-  |  O+  |  O-  |  A1+  |  A1-  |  A1B+  |  A1B-  |  A2+  |  A2-  |  A2B+  |  A2B-  |  A1B' },
         { 'Quota (Optional)': 'GOVERNMENT  |  MANAGEMENT' },
         { 'Bus Required (Optional)': 'YES  |  NO  (Day Scholars only)' },
         { 'Counseling Applied (Optional)': 'TRUE  |  FALSE  |  YES  |  NO  |  1  |  0' },

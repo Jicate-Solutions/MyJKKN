@@ -226,6 +226,10 @@ export async function GET(
     // rendered at the built-in font's single regular weight.
     const fonts = await loadCardFonts();
 
+    // The Windows print bridge fetches side=back&format=png; that (and only
+    // that) gets the duplex-corrected back. JSON callers are previews.
+    const printerBack = side === 'back' && format === 'png';
+
     const renderBack = async (): Promise<ArrayBuffer> => {
       const backLayout = parseBackLayout(templateRow.back_layout_json) ?? {};
       const barcodeDataUrl =
@@ -242,7 +246,7 @@ export async function GET(
           mappings: parseFieldMappings(templateRow.field_mappings),
           validUntilLabel
         },
-        buildOptions
+        { ...buildOptions, printerBack }
       );
       const size = backCanvasSize(backLayout, buildOptions);
       return new ImageResponse(backElement, { width: size.width, height: size.height, fonts }).arrayBuffer();
