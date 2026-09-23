@@ -90,6 +90,10 @@ begin
 end;
 $$;
 
+-- ci:allow-secdef-authenticated self-scoped: the function reads auth.uid() itself, takes no
+-- arguments, and returns only the caller's own notice (their learners_profiles rows via
+-- profiles.learner_id / learners_profiles.profile_id), or NULL. Every signed-in learner
+-- needs it for the MyJKKN countdown banner; nobody can read another learner's notice.
 revoke all on function public.fn_my_fee_payment_notice() from public, anon;
 grant execute on function public.fn_my_fee_payment_notice() to authenticated;
 
