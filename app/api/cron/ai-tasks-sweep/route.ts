@@ -806,12 +806,12 @@ export async function GET(request: NextRequest) {
           if (r.ok) {
             enqueued++;
             submittedIds.push(req.customId);
-          } else if (r.reason === 'in_flight') {
+          } else if ('reason' in r && r.reason === 'in_flight') {
             // Already queued/claimed on the free lane — treat as handled so the
             // task is not requeued into a duplicate.
             inFlight++;
             submittedIds.push(req.customId);
-          } else {
+          } else if ('reason' in r) {
             // Could not enqueue (unknown/disabled job type, no seat owner, error).
             // Requeue below so the next sweep retries rather than losing the click.
             enqueueFailed++;
