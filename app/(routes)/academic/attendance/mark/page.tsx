@@ -63,6 +63,7 @@ import type {
 } from '@/lib/utils/academic/attendance-section-scope';
 import { narrowRosterToPracticalBatch } from '@/lib/utils/academic/practical-batch-roster';
 import type { PracticalBatchRosterResult } from '@/lib/utils/academic/practical-batch-roster';
+import { periodMarkedForLearners } from '@/lib/utils/practical-period-sections';
 import { AttendanceSummaryModal } from './components/attendance-summary-modal';
 import { FacultySyncIndicator } from '../_components/faculty-sync-indicator';
 import { SubdividedAttendanceGrid } from './_components/subdivided-attendance-grid';
@@ -755,14 +756,34 @@ export default function AttendanceMarkPage() {
 
     const checkExisting = async () => {
       if (!timetableId) return;
+      // Added: 2026-09-23 (BUG-006204) - Every batch of a practical slot saves
+      // under one attendance_data[periodId] key, so "already marked" depends on
+      // WHICH batch. Wait for the batch pick, then count the period as marked
+      // only if that batch's learners are stored — Batch B's save used to lock
+      // Batch A's faculty into a read-only page.
+      const practicalBatches = (practicalConfig as any)?.batches;
+      const isBatchPractical = Array.isArray(practicalBatches) && practicalBatches.length > 0;
+      if (isBatchPractical && !practicalSelection) {
+        setExistingAttendance(null);
+        return;
+      }
+      const batchLearners = practicalSelection?.student_ids?.length ? practicalSelection.student_ids : null;
       try {
         setLoadingExistingAttendance(true);
-        const existingRecord = await AttendanceService.getConsolidatedAttendance(
+        let existingRecord = await AttendanceService.getConsolidatedAttendance(
           timetableId,
           contextData.section_id,
           date,
           periodId || undefined
         );
+        if (
+          existingRecord &&
+          periodId &&
+          batchLearners &&
+          !periodMarkedForLearners(existingRecord.attendance_data?.[periodId], batchLearners)
+        ) {
+          existingRecord = null;
+        }
         if (existingRecord) {
           setExistingAttendance(existingRecord);
           if (isSuperAdmin || profile?.role === 'hod') {
