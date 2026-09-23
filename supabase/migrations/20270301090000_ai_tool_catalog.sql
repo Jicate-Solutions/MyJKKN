@@ -291,7 +291,7 @@ INSERT INTO public.ai_tool_catalog (name, kind, target, description, params, is_
    '{"type":"object","properties":{"p_staff_id":{"type":"string","format":"uuid","description":"Team member id."}},"additionalProperties":false,"required":["p_staff_id"],"x-self-arg":"p_user_id"}'::jsonb,
    false, ARRAY['assistant','door']::text[], NULL),
   ('staff_plans', 'rpc', 'ai_rpc_staff_plans',
-   'Staff (teaching load) plans, filtered by department or timetable.',
+   'Team member (teaching load) plans, filtered by department or timetable.',
    '{"type":"object","properties":{"p_department_id":{"type":"string","format":"uuid","description":"Department id."},"p_timetable_id":{"type":"string","format":"uuid","description":"Timetable id."},"p_limit":{"type":"integer","description":"Most rows to return.","default":100},"p_offset":{"type":"integer","description":"Rows to skip, for paging.","default":0}},"additionalProperties":false,"x-self-arg":"p_user_id"}'::jsonb,
    false, ARRAY['assistant','door']::text[], NULL),
   ('student_bills', 'rpc', 'ai_rpc_student_bills',
@@ -527,10 +527,14 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_personal_owner
 -- checks only permissions.read), turn a turned-off key back on, or push
 -- expires_at past 90 days. This trigger makes the answer the same either way.
 --
---   1. A DIRECT write from a client (PostgREST runs it as the role
---      authenticated or anon) may not create or change a personal row at all.
---      The fn_ai_personal_key_* functions are SECURITY DEFINER, so their own
---      writes run as the function owner and are allowed through.
+--   1. A DIRECT insert from a client (PostgREST runs it as the role
+--      authenticated or anon) may not create a personal row. The
+--      fn_ai_personal_key_* functions are SECURITY DEFINER, so their own
+--      writes run as the function owner and are allowed through. Direct
+--      UPDATEs are NOT refused here (repair round 2): the administrator API
+--      Keys screen turns keys off as the role authenticated, and decision 6
+--      says an administrator can turn a personal key off. Block 2 governs
+--      every UPDATE instead.
 --      current_user is read in THIS function, which is SECURITY INVOKER on
 --      purpose: here it names the role running the statement. (Inside a
 --      SECURITY DEFINER function current_user would always be the owner.)
@@ -551,10 +555,10 @@ BEGIN
       RAISE EXCEPTION 'Personal keys are made only on the Connect an outside AI page'
         USING ERRCODE = '42501';
     END IF;
-    IF TG_OP = 'UPDATE' AND (OLD.key_kind = 'personal' OR NEW.key_kind = 'personal') THEN
-      RAISE EXCEPTION 'Personal keys are turned off only on the Connect an outside AI page'
-        USING ERRCODE = '42501';
-    END IF;
+    -- No UPDATE refusal here (repair round 2): the administrator API Keys
+    -- screen turns keys off through a cookie session, i.e. as the role
+    -- authenticated. Block 2 below already limits every caller, that screen
+    -- included, to renaming, shortening or turning a personal key off.
   END IF;
 
   IF TG_OP = 'UPDATE' AND (OLD.key_kind = 'personal' OR NEW.key_kind = 'personal') THEN

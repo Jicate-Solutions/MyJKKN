@@ -16,6 +16,9 @@
  *   trigger stops an owner (even with the update_own / insert_own policies
  *   that supabase/setup/03_policies.sql declares) and an administrator from
  *   re-kinding, re-enabling or extending a personal key.
+ *   repair round 2 — the administrator API Keys screen (which writes as the
+ *   role authenticated, through the admin's cookie session) can still rename
+ *   a personal key and turn it off, but cannot re-kind, re-enable or extend it.
  *
  * REQUIRES a PostgreSQL (CI's postgres:16 service; locally
  * `brew services start postgresql@16`). Fails loudly rather than skipping.
@@ -374,7 +377,10 @@ describe('personal keys', () => {
   });
 });
 
-describe('freeze trigger — administrators and the service role', () => {
+// The superuser here stands in for the service role (no RLS, not the role
+// authenticated). The administrator SCREEN path runs as authenticated and is
+// proved separately below.
+describe('freeze trigger — the service role', () => {
   const pick = async (name: string) =>
     (await db.query(`SELECT id FROM public.api_keys WHERE name = $1 AND user_id = $2`, [name, A])).rows[0].id as string;
 
@@ -434,7 +440,7 @@ describe('freeze trigger — an owner writing directly (if the *_own policies ar
       `UPDATE public.api_keys SET key_kind = 'admin', permissions = '{"read": true, "write": false}' WHERE id = $1`,
       [k.rows[0].id]
     );
-    expect(r.error).toMatch(/turned off only on the Connect an outside AI page/);
+    expect(r.error).toMatch(/cannot be changed, extended or turned back on/);
     const still = await db.query(`SELECT key_kind, permissions FROM public.api_keys WHERE id = $1`, [k.rows[0].id]);
     expect(still.rows[0]).toEqual({ key_kind: 'personal', permissions: { read: false, write: false } });
   });
@@ -442,7 +448,13 @@ describe('freeze trigger — an owner writing directly (if the *_own policies ar
   it('cannot turn a turned-off key back on', async () => {
     const off = await db.query(`SELECT id FROM public.api_keys WHERE name = 'one' AND user_id = $1`, [A]);
     const r = await as(A, `UPDATE public.api_keys SET is_active = true WHERE id = $1`, [off.rows[0].id]);
-    expect(r.error).toMatch(/turned off only on the Connect an outside AI page/);
+    expect(r.error).toMatch(/cannot be changed, extended or turned back on/);
+  });
+
+  it('cannot push the end date past what it was', async () => {
+    const k = await db.query(`SELECT id FROM public.api_keys WHERE name = 'four' AND user_id = $1 AND is_active`, [A]);
+    const r = await as(A, `UPDATE public.api_keys SET expires_at = expires_at + interval '1 day' WHERE id = $1`, [k.rows[0].id]);
+    expect(r.error).toMatch(/cannot be changed, extended or turned back on/);
   });
 
   it('cannot insert a personal key directly (skipping the permission check and the 3-key limit)', async () => {
@@ -460,5 +472,87 @@ describe('freeze trigger — an owner writing directly (if the *_own policies ar
     expect(made.error).toBeUndefined();
     const off = await as(S, `SELECT public.fn_ai_personal_key_revoke($1) AS r`, [made.rows[0].k.id]);
     expect(off.rows[0].r.status).toBe('turned_off');
+  });
+});
+
+describe('freeze trigger — the administrator API Keys screen (runs as the role authenticated)', () => {
+  // app/api/system/api-keys/[id]/route.ts builds its client from the ANON key
+  // and the admin's cookie session, so its UPDATE runs as authenticated. Give
+  // the super admin an all-rows policy, the way an admin screen needs one.
+  beforeAll(async () => {
+    await db.query(`GRANT DELETE ON public.api_keys TO authenticated`);
+    await db.query(
+      `CREATE POLICY api_keys_admin_all ON public.api_keys FOR ALL TO authenticated USING (public.is_super_admin()) WITH CHECK (public.is_super_admin())`
+    );
+  });
+
+  const livePersonal = async () => {
+    const made = await as(A, `SELECT public.fn_ai_personal_key_create('admin screen probe', 30) AS k`);
+    if (made.error) {
+      // free a slot: turn off one of A's working keys through the page function
+      const any = await db.query(
+        `SELECT id FROM public.api_keys WHERE key_kind = 'personal' AND user_id = $1 AND is_active AND expires_at > now() LIMIT 1`,
+        [A]
+      );
+      await as(A, `SELECT public.fn_ai_personal_key_revoke($1)`, [any.rows[0].id]);
+      const again = await as(A, `SELECT public.fn_ai_personal_key_create('admin screen probe', 30) AS k`);
+      expect(again.error).toBeUndefined();
+      return again.rows[0].k.id as string;
+    }
+    return made.rows[0].k.id as string;
+  };
+
+  it('can turn somebody’s personal key off — exactly the PATCH {is_active:false} the screen sends', async () => {
+    const id = await livePersonal();
+    const r = await as(S, `UPDATE public.api_keys SET is_active = false, updated_at = now() WHERE id = $1 RETURNING is_active`, [id]);
+    expect(r.error).toBeUndefined();
+    expect(r.rows).toEqual([{ is_active: false }]);
+    const row = await db.query(`SELECT is_active FROM public.api_keys WHERE id = $1`, [id]);
+    expect(row.rows[0].is_active).toBe(false);
+  });
+
+  it('can rename it', async () => {
+    const id = await livePersonal();
+    const r = await as(S, `UPDATE public.api_keys SET name = 'renamed by admin' WHERE id = $1 RETURNING name`, [id]);
+    expect(r.error).toBeUndefined();
+    expect(r.rows).toEqual([{ name: 'renamed by admin' }]);
+  });
+
+  it('cannot give it read access, re-kind it, extend it or turn it back on', async () => {
+    const id = await livePersonal();
+    for (const set of [
+      `permissions = '{"read": true, "write": false}'`,
+      `key_kind = 'admin', permissions = '{"read": true, "write": false}'`,
+      `expires_at = expires_at + interval '1 day'`,
+    ]) {
+      const r = await as(S, `UPDATE public.api_keys SET ${set} WHERE id = $1`, [id]);
+      expect(r.error, set).toMatch(/cannot be changed, extended or turned back on/);
+    }
+    await as(S, `UPDATE public.api_keys SET is_active = false WHERE id = $1`, [id]);
+    const back = await as(S, `UPDATE public.api_keys SET is_active = true WHERE id = $1`, [id]);
+    expect(back.error).toMatch(/cannot be changed, extended or turned back on/);
+  });
+
+  it('can still delete it', async () => {
+    const id = await livePersonal();
+    const r = await as(S, `DELETE FROM public.api_keys WHERE id = $1 RETURNING id`, [id]);
+    expect(r.error).toBeUndefined();
+    expect(r.rows).toHaveLength(1);
+  });
+
+  it('still cannot create a personal key directly', async () => {
+    const r = await as(
+      S,
+      `INSERT INTO public.api_keys (name, key_value, created_by, user_id, key_kind, permissions, created_at, expires_at)
+       VALUES ('admin forged', 'h', $1, $1, 'personal', '{"read": false, "write": false}', now(), now() + interval '30 days')`,
+      [A]
+    );
+    expect(r.error).toMatch(/made only on the Connect an outside AI page/);
+  });
+
+  it('the legacy administrator key still toggles as before', async () => {
+    const r = await as(S, `UPDATE public.api_keys SET is_active = false WHERE name = 'legacy admin key' RETURNING is_active`);
+    expect(r.error).toBeUndefined();
+    expect(r.rows).toEqual([{ is_active: false }]);
   });
 });
