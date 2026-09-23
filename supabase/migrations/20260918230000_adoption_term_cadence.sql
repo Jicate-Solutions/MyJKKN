@@ -385,6 +385,17 @@ BEGIN
   IF v_feat.skip_reason IS NOT NULL THEN
     RETURN jsonb_build_object('success', false, 'error', 'this feature is skipped on purpose: ' || v_feat.skip_reason);
   END IF;
+  IF p_feature_key = 'app.login' THEN
+    -- The sign-in line is the app-wide denominator (ruling 1c), not a feature,
+    -- and asking about it refutes itself twice over. The question arrives on a
+    -- blocking screen that a person can only reach BY signing in, so every
+    -- recipient has just done the thing they are being asked why they never do.
+    -- And the recipient list is not a population of non-users: sign-in recording
+    -- began on 2026-09-18, so "no row" means "we had not started counting", not
+    -- "never signed in". Measured 2026-09-23: one call would have messaged 6,643
+    -- people, against 458 with a recorded sign-in.
+    RETURN jsonb_build_object('success', false, 'error', 'the sign-in line is the app-wide measure, not a feature — it is never asked about');
+  END IF;
   IF NOT v_feat.usage_wired THEN
     RETURN jsonb_build_object('success', false, 'error', 'no usage recording for this feature yet — it cannot be judged dead');
   END IF;
