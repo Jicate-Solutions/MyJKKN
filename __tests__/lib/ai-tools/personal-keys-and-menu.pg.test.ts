@@ -288,6 +288,19 @@ describe('personal keys', () => {
     expect(r.error).toMatch(/Key not found/);
   });
 
+  it('deleting the owner’s account still works (user_id is ON DELETE SET NULL) and leaves a dead key', async () => {
+    const D = 'eeeeeeee-0000-4000-8000-000000000005';
+    await db.query(`INSERT INTO auth.users VALUES ($1)`, [D]);
+    await db.query(`INSERT INTO public.profiles VALUES ($1, NULL, false)`, [D]);
+    await db.query(`INSERT INTO public.test_perms VALUES ($1, 'ai_query.view')`, [D]);
+    const made = await as(D, `SELECT public.fn_ai_personal_key_create('leaver', 30) AS k`);
+    expect(made.error).toBeUndefined();
+    await expect(db.query(`DELETE FROM auth.users WHERE id = $1`, [D])).resolves.toBeDefined();
+    const row = await db.query(`SELECT user_id, permissions FROM public.api_keys WHERE id = $1`, [made.rows[0].k.id]);
+    expect(row.rows[0].user_id).toBeNull();
+    expect(row.rows[0].permissions).toEqual({ read: false, write: false });
+  });
+
   it('a personal row can never become a read/write key or outlive 90 days (CHECK)', async () => {
     const k = await db.query(`SELECT id FROM public.api_keys WHERE name = 'three' AND user_id = $1`, [A]);
     await expect(

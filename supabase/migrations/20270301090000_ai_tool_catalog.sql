@@ -406,8 +406,12 @@ BEGIN
       ADD CONSTRAINT api_keys_personal_shape_check CHECK (
         key_kind <> 'personal'
         OR (
-              user_id IS NOT NULL
-          AND created_by = user_id
+          -- user_id is NOT required here: api_keys.user_id is ON DELETE SET
+          -- NULL, and requiring it would make deleting the owner's account
+          -- fail. An ownerless personal key is dead anyway — the door refuses
+          -- a personal key with no user_id, and read/write stay false.
+          -- (created_by = user_id is NULL, i.e. passes, once user_id is nulled.)
+              created_by = user_id
           AND user_role IS NULL
           AND created_at IS NOT NULL
           AND expires_at IS NOT NULL
