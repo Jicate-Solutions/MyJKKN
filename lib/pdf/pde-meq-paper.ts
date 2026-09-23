@@ -141,7 +141,7 @@ function paintFooters(doc: jsPDF, model: MeqPaperModel, chrome: DocChrome): void
     doc.setTextColor(MUTED_TEXT.r, MUTED_TEXT.g, MUTED_TEXT.b);
 
     const left = chrome.confidential
-      ? 'Faculty copy — not to be issued to learners.'
+      ? 'Senior Learner copy — not to be issued to learners.'
       : `Case v${model.version}`;
     doc.text(toWinAnsi(left), MARGIN_X, PAGE_H - 9);
     doc.text(`Page ${p} of ${pages}`, PAGE_W - MARGIN_X, PAGE_H - 9, { align: 'right' });
@@ -442,7 +442,7 @@ export function renderMeqQuestionPaper(model: MeqPaperModel): jsPDF {
 export function renderMeqAnswerKey(model: MeqPaperModel): jsPDF {
   const chrome: DocChrome = {
     documentTitle: 'Answer Key',
-    confidential: 'CONFIDENTIAL - FACULTY COPY. Do not circulate to learners.',
+    confidential: 'CONFIDENTIAL - SENIOR LEARNER COPY. Do not circulate to learners.',
   };
   const { doc, cursor } = newDoc(model, chrome);
 

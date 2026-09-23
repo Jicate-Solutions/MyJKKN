@@ -99,7 +99,7 @@ function fixtureCase(overrides: Partial<ClinicalCaseWithQuestions> = {}): Clinic
       patient_name: 'Fixture Patient',
       age: 48,
       gender: 'female',
-      occupation: 'school teacher',
+      occupation: 'school administrator',
       chief_complaint: 'Severe oral burning pain for three weeks.',
       hopi: 'Widespread painful erosions with irregular boundaries on buccal mucosa and soft palate.',
       medical_history: 'No known systemic illness.',

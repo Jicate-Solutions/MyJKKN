@@ -60,7 +60,7 @@ const DOCUMENTS: Array<{
   {
     kind: 'answer-key',
     title: 'Answer key',
-    blurb: 'Model answer and key concepts for each question. Faculty copy — never issued to learners.',
+    blurb: 'Model answer and key concepts for each question. Senior Learner copy — never issued to learners.',
     icon: KeyRound,
     facultyOnly: true,
   },
