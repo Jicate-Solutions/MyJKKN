@@ -13,6 +13,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { AIQueryMessage, ActionDefinition, ArtifactRef, ArtifactType } from '@/types/ai-query';
 import { AnswerFeedback } from './AnswerFeedback';
+import { PendingActionCards } from './PendingActionCards';
 import { markdownComponents } from './markdown-components';
 
 interface MessageBubbleProps {
@@ -145,6 +146,9 @@ export function MessageBubble({ message, onActionClick, onOpenArtifact }: Messag
             ))}
           </div>
         )}
+
+        {/* Proposed actions (message / email / task) — sent only after the person clicks Confirm */}
+        {!isUser && !isStreaming && message.jobId && <PendingActionCards jobId={message.jobId} />}
 
         {/* Tool Calls Indicator - Enhanced */}
         {message.toolCalls && message.toolCalls.length > 0 && (
