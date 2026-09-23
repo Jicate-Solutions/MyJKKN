@@ -5,6 +5,7 @@ import { AttendanceService } from './attendance-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { isTimetableOnApprovedLeave } from '@/lib/utils/academic/approved-leave-scope';
 import { fillPeriodSectionNames, sectionIdsNeedingNames } from '@/lib/utils/academic/fill-period-section-names';
+import { practicalSectionIdsForStaff } from '@/lib/utils/practical-period-sections';
 import type {
   TimetableWithRelations,
   TimetableDataStructure,
@@ -677,6 +678,14 @@ export class FacultyAttendanceService {
             }
             if (practicalCourseId) courseIds.add(practicalCourseId);
 
+            // Updated: 2026-09-23 (BUG-006198) - Carry the sections of this staff's
+            // batches. With sections: [] the My Classes pre-check had no section to
+            // look up, so a marked practical kept showing as pending.
+            const practicalSectionIds = practicalSectionIdsForStaff(practicalBatches, staffId);
+            if (practicalSectionIds.length === 0 && timetable.section_id) {
+              practicalSectionIds.push(timetable.section_id);
+            }
+
             facultyPeriods.push({
               id: timetableSlotId,
               timetable_slot_id: timetableSlotId,
@@ -689,8 +698,8 @@ export class FacultyAttendanceService {
               period_mode: 'practical',
               practical_config: slot.practical_config,
               course: practicalCourseId ? { id: practicalCourseId } : undefined,
-              sections: [],
-              section_ids: [],
+              sections: practicalSectionIds.map((sid) => ({ id: sid, name: '' })),
+              section_ids: practicalSectionIds,
               degree_name: (timetable.degrees as any)?.degree_name,
               program_name: (timetable.programs as any)?.program_name,
               department_name: (timetable.departments as any)?.department_name,
