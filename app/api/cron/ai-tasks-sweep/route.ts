@@ -906,5 +906,16 @@ export async function GET(request: NextRequest) {
     maxlaneRestarts = { checked: false, error: restartErr instanceof Error ? restartErr.message : 'restart alerts failed' };
   }
 
+  // ── 7) CHAT ANSWERERS DOWN (AI Assistant backup, 2026-09-23) ──────────────
+  // Pages every super-admin ONCE per outage when BOTH the Windows chat drain and
+  // the Mac backup answerer have been silent > 10 min. Self-contained on purpose
+  // (own import, own try/catch, never throws into the host sweep).
+  try {
+    const { chatAnswererOutageAlert } = await import('@/lib/services/platform/chat-answerer-health');
+    await chatAnswererOutageAlert(admin);
+  } catch (answererErr) {
+    console.error('[ai-tasks-sweep] chat-answerer outage alert failed:', answererErr);
+  }
+
   return NextResponse.json({ ok: true, features, reclaim, health, loop_lane: loopLane, learner_note_drafts: learnerNoteDrafts, maxlane_restarts: maxlaneRestarts, elapsed_ms: Date.now() - started });
 }
