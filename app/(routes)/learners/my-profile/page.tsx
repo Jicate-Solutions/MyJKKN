@@ -5,6 +5,7 @@ import { StudentValidationService } from '@/lib/services/auth/student-validation
 import ProfilePageContent from './_components/profile-page-content';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
+import { UnlockNotice } from '@/components/learners/unlock-notice';
 
 export const metadata = {
   title: 'My Profile',
@@ -146,6 +147,10 @@ export default async function MyProfilePage() {
       />
 
       <div className="space-y-6 mt-6">
+        {/* BUG-005941, BUG-005945: two of the "only three options" reports were
+            filed from THIS page, not My Induction, so the explanation has to be
+            here too. Renders nothing for an activated learner. */}
+        <UnlockNotice />
         <ProfilePageContent learner={learnerProfile} userId={user.id} />
       </div>
     </ContentLayout>

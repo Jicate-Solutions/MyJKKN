@@ -1,6 +1,12 @@
 // =====================================================================
 // Call Analysis Pipeline Sweeper — every 15 min
 // =====================================================================
+// RETIRED 2026-09-18 (BUG-006180, Director ruling by tap): no longer scheduled
+// in vercel.json, and institution_call_settings.auto_transcribe_enabled is
+// false, so runPipeline() submits nothing to ExoVoiceAnalyze. Exotel refused
+// every submission (401) — 4,660 calls, none ever analysed. The route stays
+// only so the pipeline can be switched back on if ExoVoice is ever enabled.
+//
 // Wires the existing `CallPipelineService.runPipeline()` substrate to
 // fresh `admission_call_logs` rows that have not yet had AI analysis
 // (transcription / sentiment / summary / category) populated.

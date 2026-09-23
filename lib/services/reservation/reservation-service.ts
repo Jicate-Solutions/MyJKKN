@@ -1240,14 +1240,35 @@ export class ReservationService {
   ): Promise<void> {
     const supabase = createClientSupabaseClient();
 
-    const approvalRecords = approvers
-      .filter((a) => a.user_id)
-      .map((approver) => ({
+    // resource_approvals is UNIQUE (reservation_id, approval_level) — one row
+    // per level. Dedupe approvers and give any level collision the next free
+    // level (chain order preserved) so a caller-supplied list can never make
+    // the whole batch insert fail with 23505.
+    const seenUsers = new Set<string>();
+    const usedLevels = new Set<number>();
+    const approvalRecords: {
+      reservation_id: string;
+      approver_user_id: string;
+      approval_level: number;
+      status: string;
+    }[] = [];
+
+    for (const approver of approvers) {
+      if (!approver?.user_id || seenUsers.has(approver.user_id)) continue;
+      seenUsers.add(approver.user_id);
+
+      let level = Number(approver.level);
+      if (!Number.isFinite(level) || level < 1) level = 1;
+      while (usedLevels.has(level)) level++;
+      usedLevels.add(level);
+
+      approvalRecords.push({
         reservation_id: reservationId,
         approver_user_id: approver.user_id,
-        approval_level: approver.level ?? 1,
+        approval_level: level,
         status: 'pending'
-      }));
+      });
+    }
 
     if (approvalRecords.length === 0) return;
 
@@ -1256,7 +1277,13 @@ export class ReservationService {
       .insert(approvalRecords);
 
     if (error) {
+      // A 'pending' reservation with no chain is stuck: no approver can see it
+      // (their SELECT policy is is_reservation_approver) and nobody is asked to
+      // act. Surface it rather than return a booking that looks submitted.
       console.error('Error seeding approval chain:', error);
+      throw new Error(
+        `Reservation was created but its approval chain could not be set up: ${error.message}`
+      );
     }
   }
 
