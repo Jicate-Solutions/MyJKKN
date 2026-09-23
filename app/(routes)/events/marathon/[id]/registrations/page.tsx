@@ -64,7 +64,7 @@ import {
   Download,
 } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
-import { format } from 'date-fns';
+import { formatIstDate, formatIstTime } from '@/lib/utils/date-format';
 import { BulkImportDialog } from './_components/bulk-import-dialog';
 import { ExportService } from '@/lib/services/export-service';
 import type {
@@ -812,8 +812,8 @@ export default function MarathonRegistrationsPage() {
             const date = new Date(d);
             return (
               <div className="text-sm">
-                <div className="text-foreground">{format(date, 'dd MMM yyyy')}</div>
-                <div className="text-xs text-muted-foreground">{format(date, 'hh:mm a')}</div>
+                <div className="text-foreground">{formatIstDate(date, { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+                <div className="text-xs text-muted-foreground">{formatIstTime(date, { hour: '2-digit', minute: '2-digit', hour12: true })}</div>
               </div>
             );
           } catch {
@@ -929,8 +929,8 @@ export default function MarathonRegistrationsPage() {
         emergency_contact_name: (custom.emergency_contact_name as string) ?? '',
         emergency_contact_phone: (custom.emergency_contact_phone as string) ?? '',
         checked_in: r.checked_in ? 'Yes' : 'No',
-        checked_in_at: r.checked_in_at ? format(new Date(r.checked_in_at), 'dd MMM yyyy hh:mm a') : '',
-        registered_at: r.created_at ? format(new Date(r.created_at), 'dd MMM yyyy hh:mm a') : '',
+        checked_in_at: r.checked_in_at ? `${formatIstDate(r.checked_in_at, { day: '2-digit', month: 'short', year: 'numeric' })} ${formatIstTime(r.checked_in_at, { hour: '2-digit', minute: '2-digit', hour12: true })}` : '',
+        registered_at: r.created_at ? `${formatIstDate(r.created_at, { day: '2-digit', month: 'short', year: 'numeric' })} ${formatIstTime(r.created_at, { hour: '2-digit', minute: '2-digit', hour12: true })}` : '',
       };
     });
 

@@ -54,6 +54,7 @@ import toast from 'react-hot-toast';
 import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
 import { MarathonAccessDenied } from '../_components/marathon-access-denied';
 import type { EventCategory } from '@/types/events';
+import { istLocalInputToIso, isoToIstLocalInput } from '@/lib/utils/date-format';
 
 // ============================================================================
 // Hero Image Upload Component
@@ -1037,34 +1038,14 @@ function RouteTab({ event }: { event: any }) {
 // Registration Tab
 // ============================================================================
 
-// Convert ISO timestamp to datetime-local format (YYYY-MM-DDTHH:mm)
+// Convert ISO timestamp to datetime-local format (YYYY-MM-DDTHH:mm), pinned to IST.
 function toDatetimeLocal(iso: string | null | undefined): string {
-  if (!iso) return '';
-  try {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return '';
-    // Format as local time for the input
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    const hours = String(d.getHours()).padStart(2, '0');
-    const minutes = String(d.getMinutes()).padStart(2, '0');
-    return `${year}-${month}-${day}T${hours}:${minutes}`;
-  } catch {
-    return '';
-  }
+  return isoToIstLocalInput(iso);
 }
 
-// Convert datetime-local value to ISO string for Supabase
+// Convert datetime-local value to ISO string for Supabase, read as IST wall-clock.
 function toISOString(datetimeLocal: string): string | undefined {
-  if (!datetimeLocal) return undefined;
-  try {
-    const d = new Date(datetimeLocal);
-    if (isNaN(d.getTime())) return undefined;
-    return d.toISOString();
-  } catch {
-    return undefined;
-  }
+  return istLocalInputToIso(datetimeLocal) ?? undefined;
 }
 
 function RegistrationTab({ event }: { event: any }) {
