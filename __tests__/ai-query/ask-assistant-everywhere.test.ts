@@ -14,6 +14,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import {
+  lastNotedPathOf,
+  notedPath,
+  pageContextToSend,
   pageTitleFromCrumbs,
   sanitizePageContext,
   shouldShowAskButton,
@@ -28,6 +31,7 @@ import {
 type RpcCall = { fn: string; args: Record<string, any> };
 let rpcCalls: RpcCall[] = [];
 let enqueueReply: Record<string, unknown> = { ok: true, job_id: 'job-1' };
+let enqueueError: { message: string } | null = null;
 
 vi.mock('next/server', async (orig) => {
   const actual = await orig<typeof import('next/server')>();
@@ -40,7 +44,9 @@ vi.mock('@/lib/supabase/server', () => ({
       auth: { getUser: () => Promise.resolve({ data: { user: { id: 'user-1' } }, error: null }) },
       rpc: (fn: string, args: Record<string, any>) => {
         rpcCalls.push({ fn, args });
-        if (fn === 'fn_ai_enqueue') return Promise.resolve({ data: enqueueReply, error: null });
+        if (fn === 'fn_ai_enqueue') {
+          return Promise.resolve(enqueueError ? { data: null, error: enqueueError } : { data: enqueueReply, error: null });
+        }
         if (fn === 'fn_ai_job_status') {
           return Promise.resolve({ data: { status: 'done', result: { answer: 'forty-two' } }, error: null });
         }
@@ -78,6 +84,7 @@ const enqueuedPayload = () => rpcCalls.find((c) => c.fn === 'fn_ai_enqueue')?.ar
 beforeEach(() => {
   rpcCalls = [];
   enqueueReply = { ok: true, job_id: 'job-1' };
+  enqueueError = null;
 });
 
 // ---------------------------------------------------------------------------
@@ -186,5 +193,91 @@ describe('POST /api/ai-query — background returns at once', () => {
     expect((await res.json()).message.content).toBe('forty-two');
     expect(enqueuedPayload()).not.toHaveProperty('background');
     expect(rpcCalls.some((c) => c.fn === 'fn_ai_job_status')).toBe(true);
+  });
+});
+
+describe('page note — sent again whenever the page changes', () => {
+  const RECEIPTS = { path: '/billing/receipts', title: 'Receipts' };
+  const ATTENDANCE = { path: '/academic/attendance', title: 'Attendance' };
+
+  it('reads back the page a note names', () => {
+    expect(notedPath(withPageNote('hi', RECEIPTS))).toBe('/billing/receipts');
+    expect(notedPath(withPageNote('hi', { path: '/a, b', title: 'Odd, name' }))).toBe('/a, b');
+    expect(notedPath('hi')).toBeNull();
+    expect(notedPath('hi\n\n(Asked from the X page, /x) and more')).toBeNull();
+  });
+
+  it('sends the note on the first question, not again on the same page, and again on a new page', () => {
+    expect(pageContextToSend(RECEIPTS, null)).toEqual(RECEIPTS);
+    expect(pageContextToSend(RECEIPTS, '/billing/receipts')).toBeNull();
+    expect(pageContextToSend(ATTENDANCE, '/billing/receipts')).toEqual(ATTENDANCE);
+    expect(pageContextToSend(null, null)).toBeNull();
+  });
+
+  it('a reopened conversation remembers the LAST page it was told about', () => {
+    const turns = [
+      withPageNote('first', RECEIPTS),
+      'follow-up with no note',
+      withPageNote('later', ATTENDANCE),
+      null,
+    ];
+    expect(lastNotedPathOf(turns)).toBe('/academic/attendance');
+    expect(lastNotedPathOf(['no notes here', null])).toBeNull();
+  });
+
+  it('strips only a note at the very end — the same rule the SQL notice uses', () => {
+    const note = withPageNote('', RECEIPTS);
+    expect(stripPageNote(`Receipts (today)${note}`)).toBe('Receipts (today)');
+    expect(stripPageNote(`q${withPageNote('', { path: '/' })}${note}`)).toBe('q\n\n(Asked from the / page, /)');
+    expect(stripPageNote('a\n\n(Asked from the X page, /x) and more')).toBe(
+      'a\n\n(Asked from the X page, /x) and more',
+    );
+  });
+});
+
+describe('POST /api/ai-query — background refusals and ids', () => {
+  const bodyOf = async (res: Response) => (await res.json()) as { error: { code: string; message: string } };
+
+  it('too many questions in flight → 500 with the "wait for those" note, nothing polled', async () => {
+    enqueueReply = { ok: false, error: 'too many in-flight jobs of this type' };
+    const res = await post({ message: 'Big report', conversation_id: CONV, background: true });
+    expect(res.status).toBe(500);
+    expect((await bodyOf(res)).error.message).toContain('You already have questions in progress');
+    expect(rpcCalls.map((c) => c.fn)).toEqual(['fn_ai_enqueue']);
+  });
+
+  it('no access → 403', async () => {
+    enqueueReply = { ok: false, error: 'not allowed for this job_type' };
+    const res = await post({ message: 'Big report', conversation_id: CONV, background: true });
+    expect(res.status).toBe(403);
+    expect((await bodyOf(res)).error.code).toBe('FORBIDDEN');
+  });
+
+  it('assistant switched off → 500 with the offline note', async () => {
+    enqueueReply = { ok: false, error: 'unknown or disabled job_type' };
+    const res = await post({ message: 'Big report', conversation_id: CONV, background: true });
+    expect(res.status).toBe(500);
+    expect((await bodyOf(res)).error.message).toContain('temporarily offline');
+  });
+
+  it('a database error on enqueue → 500, never a 202', async () => {
+    enqueueError = { message: 'boom' };
+    const res = await post({ message: 'Big report', conversation_id: CONV, background: true });
+    expect(res.status).toBe(500);
+    expect((await bodyOf(res)).error.code).toBe('SERVER_ERROR');
+  });
+
+  it('replaces a malformed conversation id with a fresh one, and uses it for the job', async () => {
+    const res = await post({ message: 'Big report', conversation_id: 'not-a-uuid', background: true });
+    expect(res.status).toBe(202);
+    const body = await res.json();
+    expect(body.conversation_id).not.toBe('not-a-uuid');
+    expect(body.conversation_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(enqueuedPayload().conversation_id).toBe(body.conversation_id);
+  });
+
+  it('never cancels or acknowledges a background job (the notice and the sweep own its end)', async () => {
+    await post({ message: 'Big report', conversation_id: CONV, background: true });
+    expect(rpcCalls.some((c) => c.fn === 'fn_ai_job_cancel' || c.fn === 'fn_ai_job_ack')).toBe(false);
   });
 });
