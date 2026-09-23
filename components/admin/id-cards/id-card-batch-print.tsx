@@ -21,12 +21,15 @@
 // estimate counts real printable cards, not raw matches. Learners without an
 // account are reported and excluded up front.
 //
-// Photo policy (Director 2026-07-25): a card without a photo prints an
-// initials box and wastes a ribbon panel, so learners with NO photo are
-// excluded by default and reported as a copyable follow-up list. "Has a
-// photo" mirrors the render engine's fallback chain (lib/id-cards/
-// render-data.ts): learners_profiles.student_photo_url OR profiles.avatar_url
-// non-empty. A checkbox restores the old include-everyone behavior.
+// Photo policy (Director 2026-09-03, superseding 2026-07-25): a card is NOT
+// printed at all for anyone without an institutional photograph, and there is
+// NO override. Learners with no photo are excluded here and reported as a
+// copyable follow-up list so the office can collect photos. "Has a photo"
+// mirrors GUARD 3 on POST /api/id-cards/jobs: learners_profiles
+// .student_photo_url only — a login-account picture does not qualify.
+// An "include learners without photos" checkbox lived here until 2026-09-23;
+// it was removed because the endpoint refused every card it queued, so the
+// screen was offering an outcome the server had already withdrawn.
 // (student_photo_url is an existing DB identifier — terminology-exempt.)
 //
 // Preview is the gate (Director 2026-09-07): "Preview & print" opens the
@@ -45,7 +48,6 @@ import toast from 'react-hot-toast';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -310,8 +312,6 @@ export function IdCardBatchPrint() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogLearners, setDialogLearners] = useState<BulkPrintLearner[]>([]);
   const [skippedNoAccount, setSkippedNoAccount] = useState(0);
-  // Photo policy: default OFF = skip learners without photos (ribbon saver).
-  const [includeNoPhoto, setIncludeNoPhoto] = useState(false);
   const [skippedNoPhoto, setSkippedNoPhoto] = useState<NoPhotoLearner[]>([]);
 
   const statuses = useMemo<LifecycleStatus[]>(
@@ -580,8 +580,8 @@ export function IdCardBatchPrint() {
 
       // Two separate skip reasons, two separate reports:
       //   • no account  — a card is impossible until the account is activated.
-      //   • no photo    — a card WOULD print, but as an initials box; skipped
-      //     by default to save ribbon (checkbox overrides).
+      //   • no photo    — GUARD 3 refuses the card outright; excluded here so
+      //     the office gets a chaseable list instead of a wall of refusals.
       const printable: BulkPrintLearner[] = [];
       const noPhoto: NoPhotoLearner[] = [];
       let noAccount = 0;
@@ -594,10 +594,7 @@ export function IdCardBatchPrint() {
           noAccount += 1;
           continue;
         }
-        if (
-          !includeNoPhoto &&
-          !hasPrintablePhoto(l.student_photo_url)
-        ) {
+        if (!hasPrintablePhoto(l.student_photo_url)) {
           noPhoto.push({ name, rollNumber: l.roll_number });
           continue;
         }
@@ -618,7 +615,7 @@ export function IdCardBatchPrint() {
       if (printable.length === 0) {
         if (noPhoto.length > 0) {
           toast.error(
-            `No cards to print: ${noPhoto.length} learner${noPhoto.length === 1 ? ' has' : 's have'} no photo yet${noAccount > 0 ? ` and ${noAccount} ${noAccount === 1 ? 'has' : 'have'} no account` : ''}. Collect photos (list below), or tick "Include learners without photos" to print initials-box cards anyway.`
+            `No cards to print: ${noPhoto.length} learner${noPhoto.length === 1 ? ' has' : 's have'} no photo yet${noAccount > 0 ? ` and ${noAccount} ${noAccount === 1 ? 'has' : 'have'} no account` : ''}. Collect photos first — the list is below.`
           );
         } else {
           toast.error(
@@ -824,24 +821,11 @@ export function IdCardBatchPrint() {
           </Select>
         </div>
 
-        <div className="flex items-start gap-2">
-          <Checkbox
-            id="include-no-photo"
-            checked={includeNoPhoto}
-            onCheckedChange={(v) => setIncludeNoPhoto(v === true)}
-            className="mt-0.5"
-          />
-          <div className="space-y-0.5">
-            <Label htmlFor="include-no-photo" className="cursor-pointer">
-              Include learners without photos (prints an initials box)
-            </Label>
-            <p className="text-xs text-muted-foreground">
-              Left unticked, learners with no photo on record are skipped and
-              listed so photos can be collected first — each card uses one
-              ribbon panel either way.
-            </p>
-          </div>
-        </div>
+        <p className="text-xs text-muted-foreground">
+          Learners with no institutional photograph on record are left out and
+          listed below, so photos can be collected first. There is no way to
+          print a card without one.
+        </p>
         </CardContent>
       </Card>
 

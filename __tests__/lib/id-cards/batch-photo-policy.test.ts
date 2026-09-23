@@ -20,6 +20,9 @@ import {
   hasPrintablePhoto
 } from '@/components/admin/id-cards/id-card-batch-print';
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 describe('DEFAULT_STATUS_CHOICE', () => {
   it('defaults to Active + newly admitted (Director 2026-07-25)', () => {
     expect(DEFAULT_STATUS_CHOICE).toBe('active_admitted');
@@ -88,5 +91,54 @@ describe('hasPrintablePhoto', () => {
   it('accepts scheme case-insensitively, matching the engine regex', () => {
     expect(hasPrintablePhoto('HTTPS://cdn.example/p.jpg')).toBe(true);
     expect(hasPrintablePhoto('http://cdn.example/p.jpg')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regression guard — the withdrawn override must not come back
+// ---------------------------------------------------------------------------
+//
+// Until 2026-09-23 this screen carried an "include learners without photos"
+// checkbox. GUARD 3 on POST /api/id-cards/jobs had already been made
+// no-override (Director 2026-09-03), so every card the checkbox queued came
+// back 422: the screen offered an outcome the server refused. Three earlier
+// surfaces had the same defect (#3262, #3264); this one was missed.
+//
+// Comments are STRIPPED before matching — the component's own header records
+// the removal in prose, and a structural test that reads its own explanation
+// proves nothing.
+describe('no include-learners-without-photos override (Director 2026-09-03)', () => {
+  const source = readFileSync(
+    join(
+      process.cwd(),
+      'components/admin/id-cards/id-card-batch-print.tsx'
+    ),
+    'utf8'
+  );
+
+  /** Strip block and line comments so prose cannot satisfy or trip the test. */
+  const code = source
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^[ \t]*\/\/.*$/gm, '');
+
+  it('strips comments but keeps real code (test is not vacuous)', () => {
+    expect(code).toContain('hasPrintablePhoto');
+    expect(source).toContain('checkbox lived here until');
+    expect(code).not.toContain('checkbox lived here until');
+  });
+
+  it('carries no include-no-photo state or control', () => {
+    expect(code).not.toMatch(/includeNoPhoto/i);
+    expect(code).not.toMatch(/include-no-photo/i);
+    expect(code).not.toMatch(/<Checkbox/);
+  });
+
+  it('never tells the office to tick a box to print anyway', () => {
+    expect(code).not.toMatch(/tick "Include learners without photos"/i);
+    expect(code).not.toMatch(/initials-box cards anyway/i);
+  });
+
+  it('skips a learner with no photo unconditionally', () => {
+    expect(code).toContain('if (!hasPrintablePhoto(l.student_photo_url)) {');
   });
 });
