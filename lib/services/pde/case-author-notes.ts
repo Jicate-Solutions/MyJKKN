@@ -15,7 +15,7 @@
 // parseDraft() in case-author-draft.ts, so both AI paths share one validator
 // (weight normalization, ground_truth requirement, MCQ degradation, the ≥3
 // question floor). Only the parts this path introduces — the case_scenario the
-// model must now invent, the optional facilitator guide, and the sequential
+// model must now invent, the optional Senior Learner guide, and the sequential
 // parts breakdown — are parsed here.
 //
 // No Next/Supabase imports → importable by scripts/verify-pde-case-author-parse.ts
@@ -34,8 +34,8 @@ export interface NotesAuthorInput {
   caseSheetTemplate: string;
   /** Raw clinical notes / guidelines / facts the Senior Learner pasted. */
   sourceNotes: string;
-  /** Produce teaching notes for the tutor, kept out of the learner-facing case. */
-  facilitatorGuide: boolean;
+  /** Produce teaching notes for the Senior Learner, kept out of the learner-facing case. */
+  seniorLearnerGuide: boolean;
   depth: NotesDraftDepth;
   /** Free-text discipline label, e.g. "Nursing". Shown to the model as context. */
   discipline?: string;
@@ -57,8 +57,8 @@ export interface NotesDraft {
   case_scenario: ClinicalCaseScenario;
   domain_weights: ParsedDraft['domain_weights'];
   questions: CreateClinicalQuestionInput[];
-  /** Tutor-only teaching notes. null when the author did not ask for them. */
-  facilitator_guide: string | null;
+  /** Senior-Learner-only teaching notes. null when the author did not ask for them. */
+  senior_learner_guide: string | null;
   /** Empty for a comprehensive draft. */
   parts: NotesDraftPart[];
 }
@@ -108,12 +108,12 @@ export function buildNotesAuthorPrompt(input: NotesAuthorInput): string {
         `"domain_weights":{"data_gathering":<int>,"hypothesis_generation":<int>,"management_planning":<int>,"patient_communication":<int>,"professionalism":<int>},` +
         `"parts":[{"part_number":<int>,"part_title":"<short title>","scenario_update":"<what this part reveals to the learner before its questions>",` +
         `"questions":[${QUESTION_SHAPE}]}]` +
-        (input.facilitatorGuide ? `,"facilitator_guide":"<tutor-only teaching notes>"` : '') +
+        (input.seniorLearnerGuide ? `,"senior_learner_guide":"<Senior-Learner-only teaching notes>"` : '') +
         `}`
       : `{"suggested_title":"<title>",${SCENARIO_SHAPE},` +
         `"domain_weights":{"data_gathering":<int>,"hypothesis_generation":<int>,"management_planning":<int>,"patient_communication":<int>,"professionalism":<int>},` +
         `"questions":[${QUESTION_SHAPE}]` +
-        (input.facilitatorGuide ? `,"facilitator_guide":"<tutor-only teaching notes>"` : '') +
+        (input.seniorLearnerGuide ? `,"senior_learner_guide":"<Senior-Learner-only teaching notes>"` : '') +
         `}`;
 
   const depthRule =
@@ -134,8 +134,8 @@ export function buildNotesAuthorPrompt(input: NotesAuthorInput): string {
     `domain_weights are integers that sum to exactly 100. ${depthRule}\n` +
     `Every question MUST include a non-empty metadata.ground_truth grounded in the source notes. Keep questions answerable from the notes given — never from outside knowledge the learner was not shown.\n` +
     `The "mcq_warmup" question MUST carry an "options" array of 3–5 entries with EXACTLY ONE marked "is_correct":true, and its question_text must contain ONLY the question — never inline the choices as "A) …" "B) …" text. Omit "options" entirely (or set it to null) for every "free_text_socratic" question.` +
-    (input.facilitatorGuide
-      ? `\n"facilitator_guide" is written for the TUTOR, never shown to the learner: the teaching points to draw out, the common misconceptions to expect, the prompts to use when the discussion stalls, and how to debrief. Plain text with short "## " headings. Never put an answer key in any learner-facing field.`
+    (input.seniorLearnerGuide
+      ? `\n"senior_learner_guide" is written for the SENIOR LEARNER, never shown to the learner: the teaching points to draw out, the common misconceptions to expect, the prompts to use when the discussion stalls, and how to debrief. Plain text with short "## " headings. Never put an answer key in any learner-facing field.`
       : '')
   );
 }
@@ -289,7 +289,7 @@ export function parseNotesDraft(text: string): NotesDraft | null {
     case_scenario: scenario,
     domain_weights: parsed.domain_weights,
     questions: parsed.questions,
-    facilitator_guide: str(raw.facilitator_guide, 20_000) || null,
+    senior_learner_guide: str(raw.senior_learner_guide, 20_000) || null,
     parts,
   };
 }

@@ -3,7 +3,7 @@
 // The THIRD "→ PDE teaching case" authoring path: pasted notes + the author's
 // own case-sheet headings.
 //
-//   POST { case_sheet_template, source_notes, facilitator_guide?, depth?,
+//   POST { case_sheet_template, source_notes, senior_learner_guide?, depth?,
 //          discipline?, course_id? }
 //     → draft the case on the ₹0 Max lane (pde.case_author) and RETURN the
 //       assembled CreateClinicalCaseInput for the faculty form builder.
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
 
   const caseSheetTemplate = typeof body.case_sheet_template === 'string' ? body.case_sheet_template.trim() : '';
   const sourceNotes = typeof body.source_notes === 'string' ? body.source_notes.trim() : '';
-  const facilitatorGuide = body.facilitator_guide === true;
+  const seniorLearnerGuide = body.senior_learner_guide === true;
   const depth: NotesDraftDepth = body.depth === 'sequential' ? 'sequential' : 'comprehensive';
   const discipline = typeof body.discipline === 'string' ? body.discipline.trim().slice(0, 100) : '';
   const courseId = typeof body.course_id === 'string' && UUID_RE.test(body.course_id) ? body.course_id : undefined;
@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
   const prompt = buildNotesAuthorPrompt({
     caseSheetTemplate,
     sourceNotes,
-    facilitatorGuide,
+    seniorLearnerGuide,
     depth,
     discipline: discipline || undefined,
   });
@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
   // (a double-click, an impatient retry) must not occupy two of the three
   // in-flight slots this job type allows.
   const digest = createHash('sha256')
-    .update(`${depth}|${facilitatorGuide ? 1 : 0}|${caseSheetTemplate}|${sourceNotes}`)
+    .update(`${depth}|${seniorLearnerGuide ? 1 : 0}|${caseSheetTemplate}|${sourceNotes}`)
     .digest('hex')
     .slice(0, 32);
 
@@ -165,9 +165,9 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({
     data: assembled,
-    // Tutor-only. Deliberately NOT folded into the case: nothing here reaches a
+    // Senior-Learner-only. Deliberately NOT folded into the case: nothing here reaches a
     // learner, because it never enters the learner-facing record at all.
-    facilitator_guide: draft.facilitator_guide,
+    senior_learner_guide: draft.senior_learner_guide,
     // Structured sequential output. Binds to the staged-case model once it lands.
     parts: draft.parts,
     identifier_warnings: identifierWarnings,

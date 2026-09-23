@@ -89,7 +89,7 @@ export function DraftFromNotesTab({ onApply }: Props) {
         body: JSON.stringify({
           case_sheet_template: template,
           source_notes: notes,
-          facilitator_guide: wantsGuide,
+          senior_learner_guide: wantsGuide,
           depth,
           discipline: discipline.trim() || undefined,
         }),
@@ -99,7 +99,7 @@ export function DraftFromNotesTab({ onApply }: Props) {
         setError(data?.error || 'Drafting failed.');
         return;
       }
-      setGuide(typeof data?.facilitator_guide === 'string' ? data.facilitator_guide : null);
+      setGuide(typeof data?.senior_learner_guide === 'string' ? data.senior_learner_guide : null);
       setParts(Array.isArray(data?.parts) ? (data.parts as DraftPart[]) : []);
       setIdentifierWarnings(Array.isArray(data?.identifier_warnings) ? data.identifier_warnings : []);
       onApply(data.data as Partial<CreateClinicalCaseInput>);
@@ -232,9 +232,9 @@ export function DraftFromNotesTab({ onApply }: Props) {
               className="mt-0.5"
             />
             <Label htmlFor="notes-guide" className="text-xs font-normal leading-snug">
-              <span className="font-medium">Also write a facilitator guide</span>
+              <span className="font-medium">Also write a Senior Learner guide</span>
               <span className="block text-muted-foreground">
-                Teaching notes for the tutor — shown here only, never added to the case the learner opens.
+                Teaching notes for the Senior Learner — shown here only, never added to the case the learner opens.
               </span>
             </Label>
           </div>
@@ -341,8 +341,8 @@ export function DraftFromNotesTab({ onApply }: Props) {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-medium flex items-center gap-2">
               <BookOpen className="h-4 w-4" />
-              Facilitator guide
-              <Badge variant="outline">Tutor only</Badge>
+              Senior Learner guide
+              <Badge variant="outline">Senior Learner only</Badge>
             </h3>
             <Button
               type="button"
