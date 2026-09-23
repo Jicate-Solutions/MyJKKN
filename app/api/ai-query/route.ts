@@ -459,8 +459,10 @@ export async function POST(request: NextRequest) {
 
     await AIQueryService.incrementQueryCount(user.id);
 
-    // The Ask panel sends the page it was opened on with the FIRST question of
-    // a conversation. The AI gets a short note naming that page; the person's
+    // The Ask panel sends the page it was opened on whenever that page differs
+    // from the last one this conversation was told about (the first question,
+    // and again after a move to another page). The AI gets a short note naming
+    // that page; the person's
     // own bubble (client-side) shows only what they typed. No field → no note.
     const aiMessage = withPageNote(message, sanitizePageContext(body.page_context));
 
