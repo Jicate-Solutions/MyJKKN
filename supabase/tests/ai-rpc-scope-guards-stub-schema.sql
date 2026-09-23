@@ -20,7 +20,11 @@
 -- same way it fails live. The helper functions are copied from their newest
 -- definitions: role_has_institution_access from
 -- 20261201110000_counselling_code_blank_sibling_guard.sql, is_super_admin /
--- is_admin / get_current_user_institution_id from supabase/setup/02_functions.sql.
+-- is_admin / get_current_user_institution_id from supabase/setup/02_functions.sql,
+-- user_has_permission(text) from 20260927020000_user_has_permission_guard_is_active.sql
+-- WITHOUT its is_active / login-disabled guard and its Director-handover last
+-- resort (the stub has neither the columns nor the handover table; neither
+-- changes who these fixtures resolve to).
 -- ============================================================================
 
 DO $$ BEGIN
@@ -89,14 +93,29 @@ BEGIN
     RETURN false;
 END;
 $function$;
+CREATE OR REPLACE FUNCTION public.user_has_permission(permission_name text)
+ RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+BEGIN
+    IF permission_name IS NULL OR permission_name = '' THEN RETURN false; END IF;
+    IF EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_super_admin = true) THEN RETURN true; END IF;
+    IF EXISTS (SELECT 1 FROM user_roles ur INNER JOIN custom_roles cr ON ur.role_id = cr.id
+               WHERE ur.user_id = auth.uid() AND (cr.permissions->>permission_name)::boolean = true) THEN RETURN true; END IF;
+    IF EXISTS (SELECT 1 FROM profiles p JOIN custom_roles cr ON p.role = cr.role_key
+               WHERE p.id = auth.uid() AND (cr.permissions->>permission_name)::boolean = true) THEN RETURN true; END IF;
+    RETURN false;
+END;
+$function$;
 GRANT EXECUTE ON FUNCTION public.role_has_institution_access(uuid), public.is_super_admin(), public.is_admin(uuid),
-  public.get_current_user_institution_id() TO anon, authenticated;
+  public.get_current_user_institution_id(), public.user_has_permission(text) TO anon, authenticated;
 
 -- ── Fixture ────────────────────────────────────────────────────────────────
 -- Institution A (Dental)     : 3 learners, 1 department, 1 referrer
 -- Institution B (Allied Hlth): 5 learners, 2 departments, 2 referrers
 -- Institution C (inactive-free, reached only by a grant): 2 learners, 1 department
---   low      — faculty at A, no grants, no scope-all role
+--   low      — faculty at A, no grants, no scope-all role; holds learners.view and
+--              learners.admissions.dashboard, so a foreign id meets the INSTITUTION refusal
+--   learner  — a learner account at A: no permissions at all (the direct-RPC caller)
 --   granted  — faculty at A with an active user_institution_access grant to C
 --   scopeall — at A, holds a role with institution_scope = 'all'
 --   noinst   — no institution, no grants, no scope-all role, not an admin
@@ -106,19 +125,22 @@ INSERT INTO institutions VALUES
   ('bbbbbbbb-0000-0000-0000-00000000000b','Allied Health',true,'H02'),
   ('cccccccc-0000-0000-0000-00000000000c','Nursing',true,NULL);
 INSERT INTO custom_roles VALUES
-  ('99999999-0000-0000-0000-000000000001','faculty','own',true,'{}'),
-  ('99999999-0000-0000-0000-000000000002','admission','all',true,'{}');
+  ('99999999-0000-0000-0000-000000000001','faculty','own',true,'{"learners.view":true,"learners.admissions.dashboard":true}'),
+  ('99999999-0000-0000-0000-000000000002','admission','all',true,'{"learners.view":true,"learners.admissions.dashboard":true}'),
+  ('99999999-0000-0000-0000-000000000003','student','own',true,'{}');
 INSERT INTO profiles VALUES
   ('11111111-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-00000000000a',false,'faculty'),
   ('11111111-0000-0000-0000-000000000002','aaaaaaaa-0000-0000-0000-00000000000a',false,'faculty'),
   ('11111111-0000-0000-0000-000000000003','aaaaaaaa-0000-0000-0000-00000000000a',false,'faculty'),
   ('11111111-0000-0000-0000-000000000004',NULL,false,'faculty'),
-  ('11111111-0000-0000-0000-000000000005','aaaaaaaa-0000-0000-0000-00000000000a',true,'super_admin');
+  ('11111111-0000-0000-0000-000000000005','aaaaaaaa-0000-0000-0000-00000000000a',true,'super_admin'),
+  ('11111111-0000-0000-0000-000000000006','aaaaaaaa-0000-0000-0000-00000000000a',false,'student');
 INSERT INTO user_roles VALUES
   ('11111111-0000-0000-0000-000000000001','99999999-0000-0000-0000-000000000001'),
   ('11111111-0000-0000-0000-000000000002','99999999-0000-0000-0000-000000000001'),
   ('11111111-0000-0000-0000-000000000003','99999999-0000-0000-0000-000000000002'),
-  ('11111111-0000-0000-0000-000000000004','99999999-0000-0000-0000-000000000001');
+  ('11111111-0000-0000-0000-000000000004','99999999-0000-0000-0000-000000000001'),
+  ('11111111-0000-0000-0000-000000000006','99999999-0000-0000-0000-000000000003');
 INSERT INTO user_institution_access VALUES
   ('11111111-0000-0000-0000-000000000002','cccccccc-0000-0000-0000-00000000000c',true);
 INSERT INTO departments VALUES
@@ -141,3 +163,6 @@ INSERT INTO learners_profiles (id, institution_id, department_id, program_id, li
   ('b1000000-0000-0000-0000-000000000005','bbbbbbbb-0000-0000-0000-00000000000b','d0000000-0000-0000-0000-0000000000b2',NULL,'active','Male',NULL,NULL,NULL),
   ('c1000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-00000000000c','d0000000-0000-0000-0000-0000000000c1',NULL,'active','Female',NULL,NULL,NULL),
   ('c1000000-0000-0000-0000-000000000002','cccccccc-0000-0000-0000-00000000000c','d0000000-0000-0000-0000-0000000000c1',NULL,'active','Female',NULL,NULL,NULL);
+INSERT INTO academic_years VALUES
+  ('ac000000-0000-0000-0000-0000000000a1','aaaaaaaa-0000-0000-0000-00000000000a','2026-27','2026-06-01','2027-05-31',true),
+  ('ac000000-0000-0000-0000-0000000000b1','bbbbbbbb-0000-0000-0000-00000000000b','2026-27','2026-06-01','2027-05-31',true);
