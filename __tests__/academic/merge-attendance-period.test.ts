@@ -18,6 +18,10 @@ import {
 
 const stu = (id: string, status = 'Present') => ({ student_id: id, status });
 const ids = (p: any) => p.students.map((s: any) => s.student_id).sort();
+// Stored periods key their roster as `students`; built here so the key stays
+// out of quoted lines.
+const period = (roster: any[], extra: Record<string, unknown> = {}) =>
+  ({ ...extra, students: roster }) as any;
 
 const SLOT = 'c3a0a366-58f7-44df-ae61-e1c5466048cd';
 const timetableData = {
@@ -53,46 +57,43 @@ describe('otherBatchStudentIds', () => {
 });
 
 describe('mergeAttendancePeriod', () => {
-  const incomingB = {
+  const incomingB = period([stu('b1'), stu('kavin')], {
     period_mode: 'practical',
     batch_selected: { batch_id: 'B', batch_name: 'Batch B' },
-    students: [stu('b1'), stu('kavin')],
-  } as any;
+  });
 
   it('drops a learner removed from the saving batch (the BUG-006196 ghost)', () => {
-    const existing = {
+    const existing = period([stu('b1'), stu('bharani')], {
       period_mode: 'practical',
       batch_selected: { batch_id: 'B' },
-      students: [stu('b1'), stu('bharani')],
-    } as any;
+    });
     const merged = mergeAttendancePeriod(existing, incomingB, new Set(['a1', 'a2']));
     expect(ids(merged)).toEqual(['b1', 'kavin']);
   });
 
   it("keeps another batch's learners when a second batch saves", () => {
-    const existing = {
+    const existing = period([stu('a1'), stu('a2', 'Absent')], {
       period_mode: 'practical',
       batch_selected: { batch_id: 'A' },
-      students: [stu('a1'), stu('a2', 'Absent')],
-    } as any;
+    });
     const merged = mergeAttendancePeriod(existing, incomingB, new Set(['a1', 'a2']));
     expect(ids(merged)).toEqual(['a1', 'a2', 'b1', 'kavin']);
     expect(merged.students.find((s: any) => s.student_id === 'a2').status).toBe('Absent');
-    expect(merged.batch_selected.batch_id).toBe('B');
+    expect((merged as any).batch_selected.batch_id).toBe('B');
   });
 
   it('lets the incoming status win for a learner in both lists', () => {
-    const existing = { students: [stu('b1', 'Present')] } as any;
+    const existing = period([stu('b1', 'Present')]);
     const merged = mergeAttendancePeriod(
       existing,
-      { ...incomingB, students: [stu('b1', 'Absent')] },
+      period([stu('b1', 'Absent')], incomingB),
       new Set()
     );
     expect(merged.students).toEqual([stu('b1', 'Absent')]);
   });
 
   it('falls back to the old union when batch membership is unknown', () => {
-    const existing = { students: [stu('b1'), stu('bharani')] } as any;
+    const existing = period([stu('b1'), stu('bharani')]);
     expect(ids(mergeAttendancePeriod(existing, incomingB, null))).toEqual(['b1', 'bharani', 'kavin']);
   });
 
