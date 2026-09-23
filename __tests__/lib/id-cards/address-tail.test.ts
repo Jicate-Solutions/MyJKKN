@@ -2,7 +2,7 @@
 //
 // The card back must never print an address that has lost its district, state
 // or PIN code — those are the parts that make it deliverable, and they sit at
-// the END of the joined string (street → taluk → district → state → PIN).
+// the END of the joined string (street → district → state - PIN).
 //
 // MEASURED ON PRODUCTION, 2026-08-14 (787 active Engineering learners):
 //   • average joined address 83 chars, p90 111, p99 149, max 214
@@ -22,6 +22,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildBackElement,
   buildCardElement,
+  prepareAddressForCard,
   type BackLayout,
   type BackLayoutElement,
   type BackRenderInput,
@@ -147,6 +148,57 @@ function renderAddressElement(address: string, element: BackLayoutElement): stri
   expect(strings).toHaveLength(1);
   return strings[0];
 }
+
+describe('the STATE - PIN tail never splits across lines', () => {
+  it('glues the final "STATE - PIN" segment with non-breaking spaces', () => {
+    const address = '061/7, KALINKARAYAN NAGAR, R.N.PUDHUR, ERODE, TAMIL NADU - 638005';
+    const printed = renderAddressElement(address, LIVE_ADDRESS_ELEMENT);
+    expect(printed).toContain('ERODE, TAMIL NADU - 638005');
+    // Only the tail is glued; the rest still wraps at ordinary spaces.
+    expect(printed.startsWith('061/7, KALINKARAYAN NAGAR, R.N.PUDHUR, ERODE, ')).toBe(true);
+  });
+
+  it('leaves an address without a "- PIN" tail untouched', () => {
+    expect(renderAddressElement(SHORT_ADDRESS, LIVE_ADDRESS_ELEMENT)).toBe(SHORT_ADDRESS);
+  });
+});
+
+describe('a "(DT)"-style qualifier never starts a line', () => {
+  // Seen on a printed school card (2026-09-23): the box wrapped as
+  //   "3/569-5, JAIHIND NAGAR , THATTANKUTTAI SALEM, SALEM"
+  //   "(DT), TAMIL NADU - 638186"
+  // The qualifier must travel with "SALEM" so the break lands before it.
+  const address = '3/569-5, JAIHIND NAGAR , THATTANKUTTAI SALEM, SALEM (DT), TAMIL NADU - 638186';
+
+  it('glues the qualifier to the word before it with U+00A0', () => {
+    const out = prepareAddressForCard(address);
+    expect(out).toContain('SALEM (DT),');
+    expect(out).not.toContain(' (DT)');
+    // The STATE - PIN tail is still glued as before.
+    expect(out.endsWith('TAMIL NADU - 638186')).toBe(true);
+    // Ordinary spaces elsewhere are untouched.
+    expect(out.startsWith('3/569-5, JAIHIND NAGAR , THATTANKUTTAI SALEM, ')).toBe(true);
+  });
+
+  it('handles the common Tamil Nadu qualifiers and dotted forms', () => {
+    for (const q of ['(DT)', '(TK)', '(PO)', '(Dt)', '(Tk.)', '(EAST)']) {
+      expect(prepareAddressForCard(`X ${q}, Y`)).toBe(`X ${q}, Y`);
+    }
+  });
+
+  it('reaches the card through the template-element path', () => {
+    const printed = renderAddressElement(address, LIVE_ADDRESS_ELEMENT);
+    expect(printed).toContain('SALEM (DT)');
+  });
+
+  it('reaches the card through the default back address row too', () => {
+    const tree = buildBackElement(
+      backInput({ person: { ...person, address }, layout: { footer_text: 'ZZFOOTER' } })
+    );
+    const rendered = collectText(tree).find((s) => s.startsWith('3/569-5'));
+    expect(rendered).toContain('SALEM (DT)');
+  });
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // truncateAddressForCard — the helper on its own

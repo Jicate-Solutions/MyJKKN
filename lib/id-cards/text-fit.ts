@@ -92,7 +92,9 @@ export function charsPerLine(
  */
 export function countWrappedLines(text: string, perLine: number): number {
   if (perLine <= 0) return Number.POSITIVE_INFINITY;
-  const words = text.split(/\s+/).filter((w) => w.length > 0);
+  // U+00A0 is glue, not a break opportunity — keep it inside its "word" so the
+  // estimate matches what the renderer really does with a glued address tail.
+  const words = text.split(/[^\S ]+/).filter((w) => w.length > 0);
   if (words.length === 0) return 1;
   let lines = 1;
   let used = 0;

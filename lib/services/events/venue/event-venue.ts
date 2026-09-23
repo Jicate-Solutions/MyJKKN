@@ -26,6 +26,7 @@
 // day 3 taken) is worse than no hold: it looks reserved on the calendar and
 // strands two rooms. If any day fails, the days already taken are released.
 
+import { istDateTimeToIso } from '@/lib/utils/date-format';
 import { ReservationService } from '@/lib/services/reservation/reservation-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -73,10 +74,10 @@ const pad = (n: number) => String(n).padStart(2, '0');
  *
  * `firstDay`/`lastDay` are 'yyyy-MM-dd' (an <input type="date"> value) and
  * `startTime`/`endTime` are 'HH:mm' (an <input type="time"> value). They are
- * combined as LOCAL wall time — `new Date('2026-08-20T09:00')` is 09:00 where the
- * organizer is sitting — and converted to UTC by toISOString for storage. Handing
- * Postgres the naive string instead would shift every hold by the timezone offset
- * (a 5:30h drift in this deployment).
+ * combined as IST wall time (09:00 India, whatever zone the organizer's browser
+ * is in) and converted to a UTC instant for storage. Handing Postgres the naive
+ * string instead would shift every hold by the timezone offset (a 5:30h drift
+ * in this deployment).
  *
  * Day stepping is done on local date parts, never by adding 24h to a timestamp.
  */
@@ -99,10 +100,11 @@ export function buildDaySlots(
   const slots: EventVenueSlot[] = [];
   while (cursor <= last && slots.length < MAX_EVENT_DAYS) {
     const day = `${cursor.getFullYear()}-${pad(cursor.getMonth() + 1)}-${pad(cursor.getDate())}`;
-    const start = new Date(`${day}T${startTime}`);
-    const end = new Date(`${day}T${endTime}`);
-    if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && end > start) {
-      slots.push({ startIso: start.toISOString(), endIso: end.toISOString() });
+    // Read as IST, not the browser's zone — see lib/utils/date-format.ts.
+    const startIso = istDateTimeToIso(day, startTime);
+    const endIso = istDateTimeToIso(day, endTime);
+    if (startIso && endIso && new Date(endIso) > new Date(startIso)) {
+      slots.push({ startIso, endIso });
     }
     cursor.setDate(cursor.getDate() + 1);
   }
