@@ -49,6 +49,23 @@ describe('buildRpcArgs', () => {
     const t = tool({ type: 'object', properties: { p_staff_id: { type: 'string' } }, required: ['p_staff_id'] });
     expect(() => buildRpcArgs(t, {}, OWNER)).toThrow(ToolArgsError);
   });
+
+  it('drops empty-string arguments, as the in-app assistant does (a "" would fail a ::uuid cast)', () => {
+    const t = tool({
+      type: 'object',
+      properties: { p_department_id: { type: 'string' }, p_date_from: { type: 'string' }, p_status: { type: 'string' } },
+      'x-self-arg': 'p_user_id',
+    });
+    expect(buildRpcArgs(t, { p_department_id: '', p_date_from: '   ', p_status: 'active' }, OWNER)).toEqual({
+      p_status: 'active',
+      p_user_id: OWNER,
+    });
+  });
+
+  it('treats an empty string for a required argument as missing', () => {
+    const t = tool({ type: 'object', properties: { p_staff_id: { type: 'string' } }, required: ['p_staff_id'] });
+    expect(() => buildRpcArgs(t, { p_staff_id: '' }, OWNER)).toThrow(ToolArgsError);
+  });
 });
 
 describe('publicInputSchema', () => {

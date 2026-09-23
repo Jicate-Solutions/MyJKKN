@@ -8,7 +8,10 @@
  *     client is used only to look the key up, and never has .rpc called on it;
  *   - p_user_id is always the owner, whatever the caller sends;
  *   - every call is audit-logged without its arguments or data;
- *   - bad keys get 401, a busy key gets 429.
+ *   - bad keys get 401, a busy key gets 429;
+ *   - repair round 1: p_limit is capped at 500 (500 when left out), and a
+ *     p_institution_id the owner cannot access is refused BEFORE the tool
+ *     runs — checked AS the owner through role_has_institution_access.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createHash } from 'crypto';
@@ -53,6 +56,19 @@ const MENU = [
     is_write: false,
   },
   {
+    name: 'college_summary',
+    kind: 'rpc',
+    target: 'ai_rpc_students_summary',
+    description: 'Learner summary for a college',
+    params: {
+      type: 'object',
+      properties: { p_institution_id: { type: 'string', format: 'uuid' } },
+      additionalProperties: false,
+      'x-self-arg': 'p_user_id',
+    },
+    is_write: false,
+  },
+  {
     // must never reach an outside AI even if the menu carried it
     name: 'send_notification',
     kind: 'rpc',
@@ -70,8 +86,10 @@ const MENU = [
     is_write: false,
   },
 ];
-const userRpc = vi.fn(async (fn: string, _args?: Record<string, unknown>) => {
+let ownerMaySee: (id: unknown) => boolean = () => true;
+const userRpc = vi.fn(async (fn: string, args?: Record<string, unknown>) => {
   if (fn === 'fn_ai_tool_menu') return { data: MENU, error: null };
+  if (fn === 'role_has_institution_access') return { data: ownerMaySee(args?.check_institution_id), error: null };
   return { data: { rows: [{ id: 1 }] }, error: null };
 });
 const getUserSessionClient = vi.fn(async (_userId: string) => ({ rpc: userRpc }));
@@ -127,8 +145,16 @@ beforeEach(() => {
   vi.clearAllMocks();
   lookupCalls.length = 0;
   keyRow = liveKey();
+  ownerMaySee = () => true;
   resetRateLimiter();
 });
+
+function callTool(name: string, args: Record<string, unknown>) {
+  return handlePersonalKeyRequest(
+    rpcRequest({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name, arguments: args } }),
+    KEY
+  );
+}
 
 describe('personal key recognition', () => {
   it('only jkkn_pk_ tokens take the personal path', () => {
@@ -149,7 +175,7 @@ describe('personal key recognition', () => {
 describe('the door menu', () => {
   it('doorTools drops write tools and non-rpc tools', () => {
     const names = doorTools(MENU as CatalogTool[]).map((t) => t.name);
-    expect(names).toEqual(['learner_list']);
+    expect(names).toEqual(['learner_list', 'college_summary']);
   });
 
   it('tools/list offers catalog tools only, never a write, never p_user_id or vendor keywords', async () => {
@@ -157,7 +183,7 @@ describe('the door menu', () => {
     expect(res.status).toBe(200);
     const body = await readRpc(res);
     const tools = body.result.tools as Array<{ name: string; inputSchema: Record<string, any> }>;
-    expect(tools.map((t) => t.name)).toEqual(['learner_list']);
+    expect(tools.map((t) => t.name)).toEqual(['learner_list', 'college_summary']);
     const schema = tools[0].inputSchema;
     expect(schema.properties).not.toHaveProperty('p_user_id');
     expect(schema).not.toHaveProperty('x-self-arg');
@@ -184,8 +210,9 @@ describe('running a tool', () => {
 
     const call = userRpc.mock.calls.find(([fn]) => fn === 'ai_rpc_students');
     expect(call).toBeDefined();
-    // the forged id is replaced by the owner's; undeclared arguments are dropped
-    expect(call![1]).toEqual({ p_status: 'active', p_user_id: OWNER });
+    // the forged id is replaced by the owner's; undeclared arguments are
+    // dropped; p_limit is filled with the door's cap when left out
+    expect(call![1]).toEqual({ p_status: 'active', p_limit: 500, p_user_id: OWNER });
   });
 
   it('refuses a write tool named directly, and does not run it', async () => {
@@ -222,6 +249,63 @@ describe('running a tool', () => {
     const flat = JSON.stringify(entry);
     expect(flat).not.toContain('secret-filter');
     expect(flat).not.toContain('rows');
+  });
+});
+
+describe('row limit (repair round 1)', () => {
+  it('caps a large p_limit at 500 and keeps a small one', async () => {
+    await readRpc(await callTool('learner_list', { p_limit: 10000 }));
+    await readRpc(await callTool('learner_list', { p_limit: 20 }));
+    const limits = userRpc.mock.calls.filter(([fn]) => fn === 'ai_rpc_students').map(([, a]) => a!.p_limit);
+    expect(limits).toEqual([500, 20]);
+  });
+
+  it('adds no p_limit to a tool that does not take one', async () => {
+    await readRpc(await callTool('college_summary', {}));
+    const call = userRpc.mock.calls.find(([fn]) => fn === 'ai_rpc_students_summary');
+    expect(call![1]).toEqual({ p_user_id: OWNER });
+  });
+});
+
+describe('college guard (repair round 1)', () => {
+  const OTHER_COLLEGE = '9a9a9a9a-0000-4000-8000-00000000000a';
+  const OWN_COLLEGE = '1b1b1b1b-0000-4000-8000-00000000000b';
+
+  it('refuses a college the owner cannot access, before the tool runs, asked AS the owner', async () => {
+    ownerMaySee = (id) => id === OWN_COLLEGE;
+    const body = await readRpc(await callTool('college_summary', { p_institution_id: OTHER_COLLEGE }));
+    expect(body.result.isError).toBe(true);
+    expect(body.result.content[0].text).toMatch(/do not have access to that college/);
+    expect(userRpc).toHaveBeenCalledWith('role_has_institution_access', { check_institution_id: OTHER_COLLEGE });
+    expect(userRpc.mock.calls.some(([fn]) => fn === 'ai_rpc_students_summary')).toBe(false);
+    expect(serviceRpc).not.toHaveBeenCalled();
+    expect(logApiUsage.mock.calls[0][0]).toMatchObject({ endpoint: 'mcp:college_summary', statusCode: 403 });
+  });
+
+  it('runs for a college the owner can access', async () => {
+    ownerMaySee = (id) => id === OWN_COLLEGE;
+    const body = await readRpc(await callTool('college_summary', { p_institution_id: OWN_COLLEGE }));
+    expect(body.result.isError).toBeFalsy();
+    const call = userRpc.mock.calls.find(([fn]) => fn === 'ai_rpc_students_summary');
+    expect(call![1]).toEqual({ p_institution_id: OWN_COLLEGE, p_user_id: OWNER });
+  });
+
+  it('refuses when the access check itself fails', async () => {
+    userRpc.mockImplementationOnce(async (fn: string) =>
+      fn === 'fn_ai_tool_menu' ? { data: MENU, error: null } : { data: null, error: null }
+    );
+    userRpc.mockImplementationOnce(async () => ({ data: null, error: { message: 'boom' } }) as never);
+    const body = await readRpc(await callTool('college_summary', { p_institution_id: OWN_COLLEGE }));
+    expect(body.result.isError).toBe(true);
+    expect(userRpc.mock.calls.some(([fn]) => fn === 'ai_rpc_students_summary')).toBe(false);
+  });
+
+  it('an empty p_institution_id is not checked and not sent (the tool falls back to the own college)', async () => {
+    const body = await readRpc(await callTool('college_summary', { p_institution_id: '' }));
+    expect(body.result.isError).toBeFalsy();
+    expect(userRpc.mock.calls.some(([fn]) => fn === 'role_has_institution_access')).toBe(false);
+    const call = userRpc.mock.calls.find(([fn]) => fn === 'ai_rpc_students_summary');
+    expect(call![1]).toEqual({ p_user_id: OWNER });
   });
 });
 
