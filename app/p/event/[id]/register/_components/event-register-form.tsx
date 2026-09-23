@@ -18,6 +18,10 @@ import { Label } from '@/components/ui/label';
 import { EventRazorpayHostedRedirect } from '@/components/events/event-razorpay-hosted-redirect';
 import { DynamicFieldInput, isFieldVisible } from '@/components/events/dynamic-field-input';
 import {
+  applyRegistrationPrefill,
+  type RegistrationPrefill,
+} from '@/lib/services/events/registration/form-prefill';
+import {
   asFormUpload,
   isAnswerableField,
   UPLOAD_FIELD_TYPES,
@@ -49,6 +53,7 @@ export function EventRegisterForm({
   feeLabel,
   signedInName,
   signedInEmail,
+  prefill,
   full = false,
   claimOnly = false,
   sections,
@@ -61,6 +66,8 @@ export function EventRegisterForm({
   feeLabel: string | null;
   signedInName: string | null;
   signedInEmail: string | null;
+  /** The signed-in person's profile values, keyed by prefill source; {} for a guest. */
+  prefill?: RegistrationPrefill;
   /**
    * The event has no places left AND its cap_behavior is 'waitlist', so this
    * form is still open on purpose for a signed-in person: sending it joins the
@@ -76,8 +83,15 @@ export function EventRegisterForm({
 }) {
   const [name, setName] = useState(signedInName ?? '');
   const [email, setEmail] = useState(signedInEmail ?? '');
-  const [phone, setPhone] = useState('');
-  const [customFields, setCustomFields] = useState<Record<string, unknown>>({});
+  const [phone, setPhone] = useState(prefill?.phone ?? '');
+  // Seed once from the profile; the person can change anything afterwards.
+  const [customFields, setCustomFields] = useState<Record<string, unknown>>(() =>
+    applyRegistrationPrefill(
+      sections.flatMap((s) => s.fields ?? []),
+      prefill ?? {},
+      {},
+    ),
+  );
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

@@ -62,3 +62,28 @@ describe('school vocabulary on ID cards', () => {
     expect(schoolClassLabel('', 'A')).toBeNull();
   });
 });
+
+describe('learner front rows: FATHER above ROLL NO, no VALID UPTO', () => {
+  it('rewrites the Engineering-style layout for any learner card', async () => {
+    const { learnerFrontRows } = await import('@/lib/id-cards/render-card');
+    const rows = learnerFrontRows([
+      { x: 60, y: 618, text: 'ROLL NO :', align: 'right', field: 'static_text', width: 185, font_size: 22 },
+      { x: 258, y: 616, field: 'roll_number', width: 340, font_size: 24 },
+      { x: 60, y: 666, text: 'COURSE :', align: 'right', field: 'static_text', width: 185, font_size: 22 },
+      { x: 258, y: 664, field: 'course', width: 360, font_size: 16 },
+      { x: 60, y: 714, text: 'YEAR :', align: 'right', field: 'static_text', width: 185, font_size: 22 },
+      { x: 258, y: 712, field: 'study_period', width: 340, font_size: 24 },
+      { x: 200, y: 815, text: 'VALID UPTO', field: 'static_text', font_size: 15 },
+      { x: 200, y: 838, field: 'valid_until', font_size: 22 }
+    ]);
+    const fields = rows.map((r) => (r.field === 'static_text' ? r.text : r.field));
+    expect(fields).toEqual(['FATHER :', 'father_name', 'ROLL NO :', 'roll_number', 'COURSE :', 'course', 'YEAR :', 'study_period']);
+    const father = rows.find((r) => r.field === 'father_name')!;
+    const roll = rows.find((r) => r.field === 'roll_number')!;
+    const year = rows.find((r) => r.field === 'study_period')!;
+    expect(roll.y - father.y).toBe(48); // one row pitch above ROLL NO
+    expect(father.y).toBeGreaterThan(590); // clear of the name at y=560
+    expect(year.y).toBeLessThan(778); // clear of the QR at y=778
+    expect(rows.some((r) => r.field === 'valid_until')).toBe(false);
+  });
+});

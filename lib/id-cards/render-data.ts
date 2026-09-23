@@ -22,6 +22,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import QRCode from 'qrcode';
+import { joinPrintableAddress } from '@/lib/id-cards/address-quality';
 
 // Mirrors CardField in app/(routes)/admin/id-cards/_types.ts (Agent B's local
 // contract). Kept as a lib-side mirror so lib/ does not import from app/;
@@ -47,7 +48,10 @@ export type CardField =
   | 'principal_name'
   | 'institution_email'
   | 'institution_phone'
-  | 'institution_address';
+  | 'institution_address'
+  // Learner's father (learners_profiles.father_name) — printed above ROLL NO /
+  // ADM. NO. on every learner card (2026-09-23).
+  | 'father_name';
 
 export const CARD_FIELDS: readonly CardField[] = [
   'name_line_1',
@@ -64,7 +68,8 @@ export const CARD_FIELDS: readonly CardField[] = [
   'principal_name',
   'institution_email',
   'institution_phone',
-  'institution_address'
+  'institution_address',
+  'father_name'
 ] as const;
 
 export type FieldMapping = { card_field: CardField; db_column: string };
@@ -704,7 +709,7 @@ export function truncateForCard(value: string | null | undefined, max: number): 
 
 /**
  * How many characters at the END of an address are reserved as the
- * DELIVERABLE TAIL. The address is joined street → taluk → district → state →
+ * DELIVERABLE TAIL. The address is joined street → district → state →
  * PIN, so the parts that decide where a letter actually goes sit LAST.
  * Measured over the 787 active Engineering learners on 2026-08-14: the
  * district+state+PIN tail is at most 35 characters (p99 = 34), so 40 covers
@@ -1202,17 +1207,15 @@ export async function assembleCardData(
       dateOfBirthLabel = formatDateDMY(learner.date_of_birth) || null;
       guardianName = learner.father_name?.trim() || learner.mother_name?.trim() || null;
       guardianPhone = learner.father_mobile?.trim() || learner.mother_mobile?.trim() || null;
+      // Printed as `Street, Taluk, District, State - PIN` (final, 2026-09-23).
+      // Keep in step with joinPrintableAddress (lib/id-cards/address-quality.ts).
       address =
-        [
-          learner.permanent_address_street,
-          learner.permanent_address_taluk,
-          learner.permanent_address_district,
-          learner.permanent_address_state,
-          learner.permanent_address_pin_code
-        ]
-          .map((part) => (part ?? '').trim())
-          .filter(Boolean)
-          .join(', ') || null;
+        joinPrintableAddress({
+          street: learner.permanent_address_street,
+          district: learner.permanent_address_district,
+          state: learner.permanent_address_state,
+          pinCode: learner.permanent_address_pin_code
+        }) || null;
       addressParts = {
         street: learner.permanent_address_street ?? null,
         taluk: learner.permanent_address_taluk ?? null,
