@@ -36,7 +36,7 @@ export function FeePaymentNoticeBanner() {
   const state = feeNoticeState(notice, left);
   if (state === 'hidden') return null;
 
-  // Always an alert: solid red in every state. The icon pulses once the
+  // Always an alert: light red in every state. The icon pulses once the
   // urgent window starts so the last hours still read as more pressing.
   const pulse = state === 'urgent' || state === 'processing';
   const Icon = state === 'fined' ? AlertTriangle : Timer;
@@ -45,7 +45,7 @@ export function FeePaymentNoticeBanner() {
     <div
       role='status'
       aria-live='off'
-      className='w-full border-b border-red-700 bg-red-600 px-4 py-2 text-sm text-white md:px-8 dark:border-red-900 dark:bg-red-800'
+      className='w-full border-b border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800 md:px-8 dark:border-red-900 dark:bg-red-950/50 dark:text-red-200'
     >
       <div className='flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1'>
         <Icon className={`h-4 w-4 shrink-0 ${pulse ? 'animate-pulse' : ''}`} aria-hidden />
@@ -64,7 +64,7 @@ export function FeePaymentNoticeBanner() {
         </p>
         <Link
           href='/learners/my-bills'
-          className='inline-flex h-11 shrink-0 items-center rounded-md bg-green-600 px-4 font-semibold text-white shadow-sm ring-1 ring-white/40 transition-colors hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white md:h-7'
+          className='inline-flex h-11 shrink-0 items-center rounded-md bg-green-600 px-4 font-semibold text-white shadow-sm transition-colors hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-800 focus-visible:ring-offset-2 md:h-7'
         >
           {state === 'fined' ? 'View fees' : 'Pay now'}
         </Link>
