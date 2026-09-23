@@ -45,6 +45,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // cdc_drives RLS lets ANY signed-in user read every drive (the learner page
+    // needs single rows), so this LIST must gate itself: drafts, packages and
+    // cancelled drives are team-member data. Learners use /api/cdc/drives/mine.
+    const [{ data: canView }, { data: canTrack }] = await Promise.all([
+      supabase.rpc('user_has_permission', { permission_name: 'cdc.drives.view' }),
+      supabase.rpc('user_has_permission', { permission_name: 'cdc.drives.willingness.view' }),
+    ]);
+    if (canView !== true && canTrack !== true) {
+      return NextResponse.json({ error: 'Forbidden — cdc.drives.view required' }, { status: 403 });
+    }
+
     const url = new URL(request.url);
     const statuses = url.searchParams.getAll('status') as CdcDriveStatus[];
     const result = await CdcDriveService.listDrives(supabase, {
@@ -78,6 +89,11 @@ export async function POST(request: NextRequest) {
     } = await supabase.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { data: canCreate } = await supabase.rpc('user_has_permission', { permission_name: 'cdc.drives.create' });
+    if (canCreate !== true) {
+      return NextResponse.json({ error: 'Forbidden — cdc.drives.create required' }, { status: 403 });
     }
 
     const body = await request.json();

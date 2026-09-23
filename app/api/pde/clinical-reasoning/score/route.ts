@@ -4,7 +4,7 @@
  *
  * Server endpoint called after the final question of a clinical-reasoning
  * attempt is submitted. Computes the OSCE score across all rubric domains and
- * writes the four downstream effects:
+ * writes the five downstream effects:
  *
  *   1. UPDATE pde_submissions (auto_score / final_score / passed / osce_score)
  *      — via the SERVICE-ROLE client: the table has no RLS UPDATE policy, so a
@@ -13,6 +13,9 @@
  *   3. INSERT pde_engagement_events (event_type='clinical_case_completed')
  *   4. If score ≥ clinical_reasoning.evidence_threshold_pct (default 60):
  *      INSERT quality_evidence_mappings (DCI Criterion 2.3 evidence)
+ *   5. If that attempt used up the learner's cap: notify their Senior Learner
+ *      (pde-clinical-cap-notice — idempotent per learner per case), so nobody
+ *      is left stuck without the person who can unstick them knowing.
  *
  * Auth: cookie SSR getUser; learner_id resolved from profiles.learner_id.
  * Anyone can score their own attempt (RLS on pde_submissions limits visibility
@@ -29,7 +32,8 @@
  *      from the submission row)
  *
  * Response: { osce_score: OsceScore, passed: boolean, evidence_created: boolean,
- *             already_scored: boolean, warnings: {...} }
+ *             already_scored: boolean, faculty_notified_of_cap: boolean,
+ *             warnings: {...} }
  *
  * Spec: specs/aicbl-as-pde-clinical-reasoning-2026-05-21.md (Agent E, step 3-6)
  */
@@ -53,6 +57,9 @@ import {
   finalizeAiuTrailsForSubmission,
   AIU_SURFACE_PDE_CLINICAL_COACH,
 } from '@/lib/services/aiu/prompt-trail-service';
+import { notifyFacultyOfCapReached } from '@/lib/services/pde-clinical-cap-notice';
+import { resolveEffectiveAttemptsCap } from '@/lib/services/pde-clinical-attempt-cap';
+import { DEFAULT_CLINICAL_PASSING_THRESHOLD_PCT } from '@/types/pde-clinical-reasoning';
 
 interface RequestBody {
   submissionId: string;
@@ -87,23 +94,119 @@ async function getEvidenceThresholdPct(
   }
 }
 
+/**
+ * The pass mark. 80 since 2026-09-18 (Director) — see
+ * supabase/migrations/20260918140400_clinical_reasoning_pass_mark_80.sql, which
+ * moves the platform_policies row this reads.
+ *
+ * The fallbacks below moved 60 -> 80 with it deliberately. They are what decides
+ * `passed` when the policy RPC is unreachable, so leaving them at 60 would mean
+ * a transient RPC failure quietly graded that learner against the old, easier
+ * bar and wrote the result to pde_submissions as if it were the real one.
+ *
+ * Not to be confused with evidence_threshold_pct just above, which stays at 60:
+ * generating accreditation evidence is a separate judgement from passing.
+ *
+ * Imported rather than declared here: the attempt page's client needs the same
+ * number for its provisional stamp, and two copies is exactly how the old 60
+ * survived on one side after the other moved.
+ */
+const DEFAULT_PASSING_THRESHOLD_PCT = DEFAULT_CLINICAL_PASSING_THRESHOLD_PCT;
+
 async function getPassingThresholdPct(
   supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
 ): Promise<number> {
   try {
     const { data, error } = await supabase.rpc(
       'fn_get_policy_clinical_reasoning',
-      { p_key: 'scoring.passing_threshold_pct', p_default: 60 },
+      {
+        p_key: 'scoring.passing_threshold_pct',
+        p_default: DEFAULT_PASSING_THRESHOLD_PCT,
+      },
     );
-    if (error) return 60;
+    if (error) return DEFAULT_PASSING_THRESHOLD_PCT;
     if (typeof data === 'number') return data;
     if (typeof data === 'string') {
       const n = Number(data);
-      return Number.isFinite(n) ? n : 60;
+      return Number.isFinite(n) ? n : DEFAULT_PASSING_THRESHOLD_PCT;
     }
-    return 60;
+    return DEFAULT_PASSING_THRESHOLD_PCT;
   } catch {
-    return 60;
+    return DEFAULT_PASSING_THRESHOLD_PCT;
+  }
+}
+
+/** null unless `value` is a positive whole number — 0, NULL and junk all fall back. */
+function positiveIntOrNull(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/**
+ * Has this attempt used the learner up on this case? If so, tell their Senior
+ * Learner.
+ *
+ * The cap is resolved exactly as /pde/learn/cases/[caseSlug] resolves it —
+ * pde_assessments.max_attempts first, the clinical_reasoning policy second, 5
+ * last — because the learner's screen and this alert must never disagree about
+ * how many attempts a case allows. (The coach service reads the policy only;
+ * that older asymmetry is untouched here.)
+ *
+ * Counting is done with the service-role client: pde_submissions RLS scopes a
+ * session read to the caller, which is right for the learner but would silently
+ * undercount if a faculty re-score ever reached this line.
+ *
+ * Never throws — every failure returns false and is logged by the notice
+ * helper itself.
+ */
+async function notifyIfAttemptsExhausted(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  service: any,
+  params: {
+    learnerId: string;
+    assessmentId: string;
+    caseTitle: string | null;
+    perCaseMaxAttempts: unknown;
+  },
+): Promise<boolean> {
+  try {
+    const perCase = positiveIntOrNull(params.perCaseMaxAttempts);
+    let baseCap = perCase;
+    if (baseCap === null) {
+      const { data, error } = await supabase.rpc('fn_get_policy_clinical_reasoning', {
+        p_key: 'lifetime_attempts_per_case',
+        p_default: 5,
+      });
+      baseCap = error ? 5 : (positiveIntOrNull(data) ?? 5);
+    }
+    // Grants count toward the cap the learner is actually held to, so the alert
+    // fires at the real number rather than at the ungranted one.
+    const { effectiveCap: cap } = await resolveEffectiveAttemptsCap(service, {
+      assessmentId: params.assessmentId,
+      learnerId: params.learnerId,
+      baseCap,
+    });
+
+    const { count, error: countErr } = await service
+      .from('pde_submissions')
+      .select('id', { count: 'exact', head: true })
+      .eq('learner_id', params.learnerId)
+      .eq('assessment_id', params.assessmentId);
+    if (countErr) return false;
+
+    const used = count ?? 0;
+    if (used < cap) return false;
+
+    const outcome = await notifyFacultyOfCapReached(service, {
+      learnerId: params.learnerId,
+      assessmentId: params.assessmentId,
+      attemptsUsed: used,
+      attemptsCap: cap,
+      caseTitle: params.caseTitle,
+    });
+    return outcome.delivered;
+  } catch {
+    return false;
   }
 }
 
@@ -184,9 +287,10 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  // max_attempts joins the select for the cap check at the end of this handler.
   const { data: assessment, error: aErr } = await supabase
     .from('pde_assessments')
-    .select('id, title, rubric, lesson_id, course_id')
+    .select('id, title, rubric, lesson_id, course_id, max_attempts')
     .eq('id', submission.assessment_id)
     .maybeSingle();
   if (aErr || !assessment) {
@@ -497,6 +601,23 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // ---- Side effect 5: tell the Senior Learner if that was the last attempt --
+  // The attempt just scored may have been the learner's last one. This is the
+  // moment they run out, so it is the moment the person who can grant more is
+  // told — rather than waiting for the learner to come back, find the wall and
+  // chase someone down. Idempotent per (learner, case): the attempt page and
+  // the coach's own cap gate share this notice's key, so the three together
+  // still produce exactly one bell item.
+  //
+  // Best-effort by contract and deliberately last: a notification problem must
+  // never cost the learner the score that was just committed above.
+  const capNotified = await notifyIfAttemptsExhausted(supabase, svc, {
+    learnerId: submission.learner_id as string,
+    assessmentId: submission.assessment_id as string,
+    caseTitle: (assessment.title as string | null) ?? null,
+    perCaseMaxAttempts: assessment.max_attempts,
+  });
+
   // A question no rubric domain claims is scored by nothing. Surface it on the
   // response AND in the server log — it is an authoring gap on the assessment,
   // invisible in the score itself.
@@ -512,6 +633,10 @@ export async function POST(request: NextRequest) {
     passed,
     evidence_created: evidenceCreated,
     already_scored: false,
+    // True when that attempt exhausted the learner's cap AND their Senior
+    // Learner now has a notice about it. False covers both "attempts left" and
+    // "we could not tell anyone" — the caller must not read it as "no cap".
+    faculty_notified_of_cap: capNotified,
     warnings: {
       learner_capability_error: learnerCapErrorMsg,
       evidence_error: evidenceErrorMsg,

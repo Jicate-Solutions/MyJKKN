@@ -50,6 +50,7 @@ import {
 import { resolveLearnerInstitutions } from '@/lib/services/id-cards/card-preview-client';
 import { pickTemplateForInstitution } from '@/lib/services/id-cards/institution-template';
 import { distinctPurposes, type TemplateAudience } from '@/lib/id-cards/template-purpose';
+import { IdCardPreviewDialog } from './id-card-preview-dialog';
 
 // TWO empty states, two remedies. "No template exists" and "templates exist but
 // none is switched on" used to share one message, and the shared one pointed at
@@ -292,6 +293,11 @@ export function PrintCardButton({
     };
   }, [canManageJobs, profileId, learnerId, lookupEmail]);
 
+  // Print = preview first (2026-09-23): the button opens the card exactly as
+  // the printer will receive it; "Queue to card printer" in that dialog is the
+  // confirmation that actually enqueues.
+  const [previewOpen, setPreviewOpen] = useState(false);
+
   const handlePrint = async () => {
     if (!resolvedProfileId || submitting) return;
     // Institution → assigned template; the picker's value is only the fallback.
@@ -333,7 +339,7 @@ export function PrintCardButton({
       : null;
 
   const button = (
-    <Button variant="outline" onClick={handlePrint} disabled={disabled}>
+    <Button variant="outline" onClick={() => (learnerId ? setPreviewOpen(true) : void handlePrint())} disabled={disabled}>
       {submitting ? (
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
       ) : (
@@ -345,6 +351,18 @@ export function PrintCardButton({
 
   return (
     <div className="flex items-center gap-2">
+      {learnerId && (
+        <IdCardPreviewDialog
+          open={previewOpen}
+          onOpenChange={setPreviewOpen}
+          learners={[{ learnerId, name: personName }]}
+          title="Print ID Card"
+          onSendToPrinter={() => {
+            setPreviewOpen(false);
+            void handlePrint();
+          }}
+        />
+      )}
       {!noTemplates && !noAccount && (
         <>
           <PurposeSelect

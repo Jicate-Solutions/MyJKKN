@@ -42,6 +42,7 @@ export function BasicsTab({
   institutionId,
   institutionsLoading,
   onHostChange,
+  showRequired = false,
 }: {
   form: EventCreateForm;
   set: <K extends keyof EventCreateForm>(field: K, value: EventCreateForm[K]) => void;
@@ -49,7 +50,13 @@ export function BasicsTab({
   institutionId: string;
   institutionsLoading: boolean;
   onHostChange: (id: string) => void;
+  /** Set after "Save & Next" / "Create event" was pressed with this tab incomplete —
+   *  turns the missing mandatory fields red with an inline message. */
+  showRequired?: boolean;
 }) {
+  const nameMissing = showRequired && !form.name.trim();
+  const hostMissing = showRequired && !institutionId;
+
   // Show what an unset visibility will actually be saved as, rather than an
   // empty select that reads as "nothing will be written".
   const derivedVisibility = resolveVisibility(form.scope, '');
@@ -66,7 +73,10 @@ export function BasicsTab({
           value={form.name}
           onChange={(e) => set('name', e.target.value)}
           required
+          aria-invalid={nameMissing || undefined}
+          className={nameMissing ? 'border-destructive focus-visible:ring-destructive' : undefined}
         />
+        {nameMissing && <p className="text-xs text-destructive">Event name is required.</p>}
       </div>
 
       {/* Host institution — it decides whether picking a room is a same-college
@@ -76,7 +86,11 @@ export function BasicsTab({
           Host Institution <span className="text-destructive">*</span>
         </Label>
         <Select value={institutionId} onValueChange={onHostChange}>
-          <SelectTrigger id="host_institution">
+          <SelectTrigger
+            id="host_institution"
+            aria-invalid={hostMissing || undefined}
+            className={hostMissing ? 'border-destructive' : undefined}
+          >
             <SelectValue
               placeholder={
                 institutionsLoading ? 'Loading institutions…' : 'Select host institution'
@@ -91,6 +105,9 @@ export function BasicsTab({
             ))}
           </SelectContent>
         </Select>
+        {hostMissing && (
+          <p className="text-xs text-destructive">Pick the host institution.</p>
+        )}
         <p className="text-xs text-muted-foreground">
           The college this event is filed under. Booking a room owned by a different
           college needs that college&apos;s approval, and registration fees settle into

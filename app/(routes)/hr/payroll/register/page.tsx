@@ -34,7 +34,7 @@
  * the URL.
  */
 
-import { Suspense, useMemo, useState } from 'react';
+import { Suspense, useCallback, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { FileSpreadsheet, Plus, ShieldAlert } from 'lucide-react';
@@ -52,10 +52,13 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getErrorMessage } from '@/lib/utils';
+import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useHrOrgMappings } from '@/hooks/hr/use-hr-org-mappings';
 import { useSalaryRegisterRuns } from '@/hooks/hr/payroll/use-salary-register';
+import type { HRSalaryRegisterRun } from '@/types/hr-payroll';
 
+import { DeleteRunDialog } from './_components/delete-run-dialog';
 import { GenerateRegisterDialog } from './_components/generate-register-dialog';
 import { RunsDataTable } from './_components/runs-data-table';
 import {
@@ -91,6 +94,12 @@ function SalaryRegisterIndex() {
   const { canAccess, isLoading: permsLoading } = usePermissions();
   const canView = canAccess('hr.payroll.register', 'view');
   const canManage = canAccess('hr.payroll.register', 'manage');
+  // profile.is_super_admin ALONE — the exact predicate is_super_admin() reads
+  // on the server. usePermissions().isSuperAdmin also accepts role ===
+  // 'super_admin', which the DELETE policies do not; gating on it would show
+  // an action the server then refuses.
+  const { profile } = useAuth();
+  const canDelete = profile?.is_super_admin === true;
 
   const { mappings, orgNameById } = useHrOrgMappings();
 
@@ -107,6 +116,17 @@ function SalaryRegisterIndex() {
 
   const [filters, setFilters] = useState<RunFilterState>(DEFAULT_RUN_FILTERS);
   const [generateOpen, setGenerateOpen] = useState(false);
+  const [deleteTargets, setDeleteTargets] = useState<HRSalaryRegisterRun[]>([]);
+  // The table's "clear checkboxes" for the selection being deleted. A ref, not
+  // state: it is called once, after the delete, and never rendered.
+  const resetSelectionRef = useRef<(() => void) | undefined>(undefined);
+  const requestDelete = useCallback(
+    (runs: HRSalaryRegisterRun[], resetSelection?: () => void) => {
+      resetSelectionRef.current = resetSelection;
+      setDeleteTargets(runs);
+    },
+    [],
+  );
 
   // includeSuperseded is a QUERY argument, not a client-side predicate:
   // listRuns() filters superseded_at IS NULL in Postgres and caps at 200 rows,
@@ -212,7 +232,12 @@ function SalaryRegisterIndex() {
               filters={filters}
               onChange={setFilters}
             />
-            <RunsDataTable runs={rows} filters={filters} orgNameById={orgNameById} />
+            <RunsDataTable
+              runs={rows}
+              filters={filters}
+              orgNameById={orgNameById}
+              onDelete={canDelete ? requestDelete : undefined}
+            />
           </div>
         )}
 
@@ -222,6 +247,18 @@ function SalaryRegisterIndex() {
           canManage={canManage}
           initial={generateInitial}
         />
+
+        {canDelete && (
+          <DeleteRunDialog
+            runs={deleteTargets}
+            orgNameById={orgNameById}
+            onClose={() => setDeleteTargets([])}
+            onDeleted={() => {
+              resetSelectionRef.current?.();
+              resetSelectionRef.current = undefined;
+            }}
+          />
+        )}
       </div>
     </ContentLayout>
   );

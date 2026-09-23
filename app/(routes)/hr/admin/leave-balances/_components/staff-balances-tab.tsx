@@ -498,6 +498,12 @@ export function StaffBalancesTab({ year }: { year: string | null }) {
                                 ))}
                               </div>
                             )}
+                            {/* editable: the month editor is the everyday
+                                correction since the 2026-09-22 reset charged
+                                everyone one day for June, July and August.
+                                The component hides every control from anyone
+                                without super admin / hr.leave.balance.adjust,
+                                mirroring hr_leave_month_entry_set. */}
                             <LeaveMonthlyLedger
                               staffId={s.employee_id}
                               leaveTypeId={expanded.typeId}
@@ -505,6 +511,7 @@ export function StaffBalancesTab({ year }: { year: string | null }) {
                               leaveTypeName={
                                 types.find((t) => t.id === expanded.typeId)?.name ?? 'This type'
                               }
+                              editable
                             />
                           </TableCell>
                         </TableRow>

@@ -28,10 +28,10 @@ const EXPLAINER = (
       the approval chain.
     </p>
     <p className="mt-2">
-      Set status to <strong>Open</strong> and turn on{' '}
-      <strong>Public on /careers</strong> to expose the role on the
-      unauthenticated careers page. Setting status to <strong>Closed</strong> or{' '}
-      <strong>Filled</strong> hides it again.
+      Every posting with status <strong>Open</strong> is listed on the JKKN
+      website, where anyone can apply without a login. Setting status to{' '}
+      <strong>Closed</strong> or <strong>Filled</strong>, or a past closing date,
+      hides it again.
     </p>
   </>
 );
