@@ -7,8 +7,10 @@
  * Nothing here re-implements the CASE in TypeScript: the answer is whatever
  * PostgreSQL returns.
  *
- * Also proved: the Mac heartbeat row is seeded (and forced) managed = false so
- * the cloud dispatcher can never stamp a false heartbeat on it, and the Mac's
+ * Also proved: claim evidence (a recent ai_query.chat claimed_at by that
+ * answerer's runners) counts as answering even when a heartbeat is stale or
+ * frozen; the Mac heartbeat row is seeded managed = false only when missing
+ * (an existing row, and its heartbeat, are never touched); and the Mac's
  * per-cycle stamps are kept out of ai_routine_run_log — with a CONTROL row
  * ('maxlane:some-routine') showing the trigger still logs everything else, so
  * "nothing was logged" cannot pass merely because the trigger never fires.
@@ -65,6 +67,16 @@ CREATE TABLE public.ai_routine_schedules (
   updated_at      timestamptz NOT NULL DEFAULT now(),
   max_only        boolean NOT NULL DEFAULT false,
   launch_id       text
+);
+
+-- 20260712183000 ai_jobs, reduced to the columns the health RPC reads.
+CREATE TABLE public.ai_jobs (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_type     text NOT NULL,
+  status       text NOT NULL DEFAULT 'pending',
+  claimed_by   text,
+  requested_at timestamptz NOT NULL DEFAULT now(),
+  claimed_at   timestamptz
 );
 
 -- 20260714003000 run log + the trigger that calls fn_log_maxlane_routine_run.
@@ -132,9 +144,19 @@ afterAll(async () => {
   }
 });
 
+/** Record an ai_query.chat (or other) job claimed `minutesAgo` by `runner`. */
+async function claim(runner: string, minutesAgo: number, jobType = 'ai_query.chat') {
+  await db.query(
+    `INSERT INTO public.ai_jobs (job_type, status, claimed_by, requested_at, claimed_at)
+     VALUES ($1, 'done', $2, now() - make_interval(mins => $3::int), now() - make_interval(mins => $3::int))`,
+    [jobType, runner, minutesAgo],
+  );
+}
+
 beforeEach(async () => {
   await db.query(`DELETE FROM public.ai_routine_schedules WHERE routine_id IN ($1, $2)`, [WIN, MAC]);
   await db.query(`DELETE FROM public.ai_routine_run_log`);
+  await db.query(`DELETE FROM public.ai_jobs`);
 });
 
 describe('fn_ai_chat_drain_health — every heartbeat combination', () => {
@@ -149,6 +171,8 @@ describe('fn_ai_chat_drain_health — every heartbeat combination', () => {
       last_seen: null,
       standby_online: null,
       standby_last_seen: null,
+      last_claim: null,
+      standby_last_claim: null,
       serving: 'unknown',
     });
   });
@@ -228,6 +252,49 @@ describe('fn_ai_chat_drain_health — every heartbeat combination', () => {
   });
 });
 
+describe('fn_ai_chat_drain_health — claim evidence (a heartbeat alone is not trusted)', () => {
+  it('FROZEN Windows heartbeat, but Windows picked up a question 5 min ago → windows', async () => {
+    await stamp(WIN, 13 * 24 * 60);
+    await stamp(MAC, 1);
+    await claim('Biometric-chat-11652-2yfhr3', 5);
+    const h = await health();
+    expect(h.serving).toBe('windows');
+    expect(h.online).toBe(false); // online keeps meaning "Windows heartbeat fresh"
+    expect(h.last_claim).not.toBeNull();
+  });
+
+  it('a Windows claim 11 min ago is too old → falls through to the Mac', async () => {
+    await stamp(WIN, 60);
+    await stamp(MAC, 1);
+    await claim('Biometric-chat-11652-2yfhr3', 11);
+    expect((await health()).serving).toBe('mac_standby');
+  });
+
+  it('Mac heartbeat stale but the Mac claimed a question 2 min ago → mac_standby', async () => {
+    await stamp(WIN, 60);
+    await stamp(MAC, 30);
+    await claim('mac-chat-standby-omms-MacBook-Pro-687-75129', 2);
+    const h = await health();
+    expect(h.serving).toBe('mac_standby');
+    expect(h.standby_last_claim).not.toBeNull();
+    expect(h.last_claim).toBeNull(); // a Mac claim is never counted for Windows
+  });
+
+  it('a Mac claim never makes Windows look up', async () => {
+    await stamp(WIN, 60);
+    await stamp(MAC, 60);
+    await claim('mac-chat-standby-omms-MacBook-Pro-687-75129', 1);
+    expect((await health()).serving).toBe('mac_standby');
+  });
+
+  it('a recent claim of a DIFFERENT job type is not evidence', async () => {
+    await stamp(WIN, 60);
+    await stamp(MAC, 60);
+    await claim('Biometric-chat-11652-2yfhr3', 1, 'some.loop');
+    expect((await health()).serving).toBe('none');
+  });
+});
+
 describe('grants', () => {
   it('anon cannot execute; authenticated can', async () => {
     const r = await db.query(
@@ -240,17 +307,17 @@ describe('grants', () => {
 });
 
 describe('Mac heartbeat row is never dispatcher-managed', () => {
-  it('a row the Mac created with the column defaults (managed=true) is flipped to false, heartbeat untouched', async () => {
+  it('the row the Mac already created is left EXACTLY as it is (ON CONFLICT DO NOTHING)', async () => {
     await db.query(
-      `INSERT INTO public.ai_routine_schedules (routine_id, last_fired_at) VALUES ($1, now() - interval '5 minutes')`,
+      `INSERT INTO public.ai_routine_schedules (routine_id, managed, last_fired_at, last_status, updated_at)
+       VALUES ($1, false, now() - interval '1 minute', 'ok', now() - interval '1 minute')`,
       [MAC],
     );
-    const before = await db.query(`SELECT managed, last_fired_at FROM public.ai_routine_schedules WHERE routine_id = $1`, [MAC]);
-    expect(before.rows[0].managed).toBe(true); // the control: defaults really are managed=true
+    const q = `SELECT managed, last_fired_at, last_status, updated_at FROM public.ai_routine_schedules WHERE routine_id = $1`;
+    const before = await db.query(q, [MAC]);
     await db.query(readFileSync(MIGRATION, 'utf8')); // re-apply = the operator applying it at merge
-    const after = await db.query(`SELECT managed, last_fired_at FROM public.ai_routine_schedules WHERE routine_id = $1`, [MAC]);
-    expect(after.rows[0].managed).toBe(false);
-    expect(after.rows[0].last_fired_at).toEqual(before.rows[0].last_fired_at);
+    const after = await db.query(q, [MAC]);
+    expect(after.rows[0]).toEqual(before.rows[0]);
   });
 
   it('on a database with no row, the seed creates one with managed=false and NO heartbeat', async () => {

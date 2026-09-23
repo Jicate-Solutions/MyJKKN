@@ -908,14 +908,22 @@ export async function GET(request: NextRequest) {
 
   // ── 7) CHAT ANSWERERS DOWN (AI Assistant backup, 2026-09-23) ──────────────
   // Pages every super-admin ONCE per outage when BOTH the Windows chat drain and
-  // the Mac backup answerer have been silent > 10 min. Self-contained on purpose
-  // (own import, own try/catch, never throws into the host sweep).
+  // the Mac backup answerer look down (no heartbeat AND, for Windows, no claimed
+  // question for 15 min) AND a question has waited unclaimed > 10 min.
+  // Self-contained on purpose (own import, own try/catch, never throws into the
+  // host sweep). The result goes in the JSON and a failed read is logged, so a
+  // broken pager is never silent.
+  let chatAnswerers: Record<string, unknown> = { checked: false };
   try {
     const { chatAnswererOutageAlert } = await import('@/lib/services/platform/chat-answerer-health');
-    await chatAnswererOutageAlert(admin);
+    chatAnswerers = await chatAnswererOutageAlert(admin);
+    if (chatAnswerers.checked === false || chatAnswerers.error) {
+      console.warn('[ai-tasks-sweep] chat-answerer outage check incomplete:', chatAnswerers);
+    }
   } catch (answererErr) {
     console.error('[ai-tasks-sweep] chat-answerer outage alert failed:', answererErr);
+    chatAnswerers = { checked: false, error: answererErr instanceof Error ? answererErr.message : 'chat-answerer alert failed' };
   }
 
-  return NextResponse.json({ ok: true, features, reclaim, health, loop_lane: loopLane, learner_note_drafts: learnerNoteDrafts, maxlane_restarts: maxlaneRestarts, elapsed_ms: Date.now() - started });
+  return NextResponse.json({ ok: true, features, reclaim, health, loop_lane: loopLane, learner_note_drafts: learnerNoteDrafts, maxlane_restarts: maxlaneRestarts, chat_answerers: chatAnswerers, elapsed_ms: Date.now() - started });
 }

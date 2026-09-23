@@ -10,13 +10,19 @@
  * know to restart the drain.
  *
  * Two answerers (Director ruling 2026-09-23): the Windows chat drain, and a
- * standby on the Director's Mac that answers when Windows is down.
+ * standby on the Director's Mac (live, stamps its heartbeat every 60 s) that
+ * answers when Windows is down.
  *
  * Driven by fn_ai_chat_drain_health (super-admin only; RAISEs otherwise —
- * so we ONLY call it when isSuperAdmin). `serving` says who is answering:
+ * so we ONLY call it when isSuperAdmin). `serving` says who is answering —
+ * a heartbeat under 3 min old OR a question picked up in the last 10 min
+ * (a heartbeat alone is not trusted; see migration 20270306090000):
  *   'windows'     → render nothing (normal)
  *   'mac_standby' → AMBER: Windows is down, the Mac backup is answering
- *   'none'        → RED: both answering computers are down
+ *   'none'        → RED: both answering computers are down. This is an early
+ *                   warning: the super-admin page (chat-answerer-health.ts)
+ *                   waits for 15 min of silence AND a question waiting
+ *                   > 10 min, so red can show before anyone is paged.
  *   'unknown'     → render nothing (INERT — neither heartbeat ever stamped,
  *                   so there is no false alarm before the first heartbeat)
  * Before migration 20270306090000 is applied the RPC has no `serving`; the
@@ -37,6 +43,9 @@ export interface DrainHealth {
   /** Mac backup: true fresh, false stale, null never stamped. */
   standby_online?: boolean | null;
   standby_last_seen?: string | null;
+  /** Last question picked up by the Windows side / by the Mac backup. */
+  last_claim?: string | null;
+  standby_last_claim?: string | null;
   serving?: AnswererServing;
 }
 
@@ -131,7 +140,7 @@ export function DrainHealthBanner() {
       <div className="text-xs sm:text-sm">
         <span className="font-semibold">Both answering computers are down. The assistant can’t answer right now.</span>{' '}
         {checkedIn('Windows', state.windowsLastSeen)}; {checkedIn('the Mac backup', state.standbyLastSeen)}.{' '}
-        Users are being asked to try again later. Restart the chat drain on the Windows computer, or start the Mac backup.
+        Users are being asked to try again later. Restart the chat drain on the Windows computer, or check that the Mac backup is running.
       </div>
     </div>
   );
