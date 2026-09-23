@@ -372,13 +372,6 @@ export function isDeadFeature(group: FeatureGroup, now: Date = new Date()): bool
  *  term why they have not made next term's timetable is a question with no
  *  honest answer. */
 export function canAskWhy(group: FeatureGroup, now: Date = new Date()): boolean {
-  // The sign-in line is the app-wide measure, not a feature. fn_adoption_ask_why
-  // refuses it outright, so the button is off before the tap rather than erroring
-  // after it — and this is the one refusal where a stray tap would have been
-  // expensive: measured on 2026-09-23 it would have put an undismissable question
-  // in front of 6,643 people, asking why they never sign in, on a screen they can
-  // only reach by signing in.
-  if (group.feature_key === APP_WIDE_FEATURE_KEY) return false;
   if (isEventFeature(group)) return false;
   // fn_adoption_ask_why refuses a skipped feature outright ("this feature is
   // skipped on purpose"), so the button is off before the tap, not after.

@@ -536,29 +536,6 @@ describe('isMeasured', () => {
 });
 
 describe('canAskWhy', () => {
-  it('never asks about the sign-in line, however old and however unused', () => {
-    // The sign-in line is the app-wide denominator, not a feature, and the
-    // question refutes itself: it arrives on a blocking screen a person can only
-    // reach BY signing in. Measured on production 2026-09-23, one tap would have
-    // put an undismissable question in front of 6,643 people — and that 6,643 was
-    // not a population of non-users, it was everyone we had not started counting,
-    // because sign-in recording began five days earlier.
-    //
-    // Every other condition here is deliberately the most permissive it can be:
-    // a year old, recording, weekly. Only the key should refuse it.
-    const login = groupByFeature([
-      row({ feature_key: 'app.login', shipped_at: shippedDaysAgo(365), usage_wired: true }),
-    ])[0];
-    const ordinary = groupByFeature([
-      row({ feature_key: 'billing.receipt_create', shipped_at: shippedDaysAgo(365), usage_wired: true }),
-    ])[0];
-    expect(canAskWhy(login, NOW)).toBe(false);
-    // The control: identical in every respect but the key, and it is askable.
-    // Without this, the assertion above would also pass if canAskWhy were broken
-    // and always returned false.
-    expect(canAskWhy(ordinary, NOW)).toBe(true);
-  });
-
   it('mirrors the database’s own 14-day refusal', () => {
     const young = groupByFeature([
       row({ shipped_at: shippedDaysAgo(ASK_WHY_MIN_AGE_DAYS - 1) }),
