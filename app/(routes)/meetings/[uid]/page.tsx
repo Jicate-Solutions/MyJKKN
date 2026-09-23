@@ -337,7 +337,13 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
   const { data: mayRecord } = happensInARoom
     ? await supabase.rpc('fn_may_record_meetings')
     : { data: false };
-  const canRecordHere = happensInARoom && !isCancelled && !isPast && mayRecord === true;
+  // NOT gated on isPast (Director, 23 Sep: "unable to see record button for past
+  // meetings"). A meeting is "past" the moment its end time passes, which is
+  // exactly when a room is still full and running over — the case the recorder
+  // was built for. It also covers recording a conversation that happened
+  // without a booking being moved, and adding audio to a meeting after the
+  // fact. Cancelled still hides it: a meeting called off is not one to record.
+  const canRecordHere = happensInARoom && !isCancelled && mayRecord === true;
 
   const { data: recordingRows } = await supabase
     .from('meeting_recordings')
