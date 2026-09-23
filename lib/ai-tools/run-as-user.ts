@@ -20,6 +20,9 @@
 //
 // CACHE: one session per person, reused for up to 5 minutes (and never past a
 // minute before the token itself expires). In-memory, per server instance.
+// The ACCOUNT is re-read on every call, cached session or not, so an account
+// that is blocked (or deleted) after a session was minted stops working at
+// once, not up to 5 minutes later.
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { createServiceRoleClient } from '@/lib/supabase/server';
@@ -42,13 +45,9 @@ export class RunAsUserError extends Error {
   }
 }
 
-async function mint(userId: string): Promise<CachedSession> {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anonKey) throw new RunAsUserError('Supabase URL or anon key is not configured');
-
+/** Reads the account by id; throws unless it exists, has an email and is not blocked. */
+async function loadActiveAccount(userId: string): Promise<{ email: string }> {
   const admin = createServiceRoleClient();
-
   const { data: found, error: findError } = await admin.auth.admin.getUserById(userId);
   const user = found?.user;
   if (findError || !user) throw new RunAsUserError('Account not found');
@@ -58,6 +57,16 @@ async function mint(userId: string): Promise<CachedSession> {
   if (bannedUntil && new Date(bannedUntil).getTime() > Date.now()) {
     throw new RunAsUserError('Account is blocked');
   }
+  return { email: user.email };
+}
+
+async function mint(userId: string): Promise<CachedSession> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anonKey) throw new RunAsUserError('Supabase URL or anon key is not configured');
+
+  const admin = createServiceRoleClient();
+  const user = await loadActiveAccount(userId);
 
   const { data: link, error: linkError } = await admin.auth.admin.generateLink({
     type: 'magiclink',
@@ -97,7 +106,15 @@ export async function getUserSessionClient(userId: string): Promise<SupabaseClie
   if (!userId) throw new RunAsUserError('No account given');
 
   const hit = cache.get(userId);
-  if (hit && hit.expiresAtMs > Date.now()) return hit.client;
+  if (hit && hit.expiresAtMs > Date.now()) {
+    try {
+      await loadActiveAccount(userId);
+    } catch (err) {
+      cache.delete(userId);
+      throw err;
+    }
+    return hit.client;
+  }
   cache.delete(userId);
 
   let pending = inFlight.get(userId);

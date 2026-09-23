@@ -5,7 +5,8 @@
  * generateLink can never create a new account); a missing or blocked account
  * mints nothing; the client handed back carries the person's own token and the
  * PUBLIC anon key, never the service-role key; sessions are cached per person
- * for at most 5 minutes.
+ * for at most 5 minutes; the account is re-read on every call, so a block
+ * applied after minting stops a cached session at once.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -113,6 +114,24 @@ describe('getUserSessionClient', () => {
     expect(generateLink).toHaveBeenCalledTimes(1);
 
     vi.setSystemTime(new Date('2026-09-23T10:05:01Z'));
+    await getUserSessionClient(OWNER);
+    expect(generateLink).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-reads the account on a cached session: an account blocked after minting stops at once', async () => {
+    happyPath();
+    await getUserSessionClient(OWNER);
+    expect(generateLink).toHaveBeenCalledTimes(1);
+
+    getUserById.mockResolvedValue({
+      data: { user: { id: OWNER, email: 'owner@jkkn.ac.in', banned_until: '2999-01-01T00:00:00Z' } },
+      error: null,
+    });
+    await expect(getUserSessionClient(OWNER)).rejects.toBeInstanceOf(RunAsUserError);
+    expect(generateLink).toHaveBeenCalledTimes(1);
+
+    // the cached session was dropped: once unblocked, a NEW session is minted
+    happyPath();
     await getUserSessionClient(OWNER);
     expect(generateLink).toHaveBeenCalledTimes(2);
   });

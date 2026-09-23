@@ -67,6 +67,10 @@ export class ToolArgsError extends Error {
  * Builds the named arguments for an rpc tool call:
  *  - keeps only arguments the tool declares (a model cannot smuggle p_user_id
  *    or anything else in),
+ *  - drops empty-string arguments, exactly as the in-app assistant does
+ *    (lib/services/ai-query-service.ts executeTool): a model often sends ""
+ *    for a filter it does not use, and "" fails a ::uuid / ::date cast, while
+ *    leaving it out lets the function's DEFAULT NULL mean "no filter",
  *  - fills the self argument with the person's OWN id,
  *  - sends x-always-send arguments as null when absent,
  *  - refuses a call missing a required argument.
@@ -81,9 +85,9 @@ export function buildRpcArgs(
   const args: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(input ?? {})) {
-    if (Object.prototype.hasOwnProperty.call(declared, key) && value !== undefined) {
-      args[key] = value;
-    }
+    if (!Object.prototype.hasOwnProperty.call(declared, key) || value === undefined) continue;
+    if (typeof value === 'string' && value.trim() === '') continue;
+    args[key] = value;
   }
 
   for (const key of params.required ?? []) {

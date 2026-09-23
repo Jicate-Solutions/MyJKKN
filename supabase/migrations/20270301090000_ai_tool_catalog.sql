@@ -18,13 +18,18 @@
 --        ai_rpc_custom_roles           manages roles / permission sets
 --        ai_rpc_institution_access     manages cross-college access grants
 --        ai_rpc_validate_permission    permission probe, not a data read
---      ai_rpc_export_data is INCLUDED: its body only SELECTs and returns rows;
---      it writes nothing.
 --      Every included function already pins identity to auth.uid()
 --      (20260712134500 confused-deputy sweep; 20260712094000 / 093000 /
---      233000 were written on auth.uid() from the start). None of them checks
---      a permission KEY — they scope rows by role / college internally — so
---      requires_permission is NULL on every row.
+--      233000 were written on auth.uid() from the start).
+--      Seeded is NOT the same as working. Section 2b (repair round 1,
+--      2026-09-23) turns 13 of the 61 OFF (enabled = false) because their
+--      latest definition fails on every call — see the list there — so 48 are
+--      offered. It also keeps ai_rpc_export_data to the in-app assistant only
+--      (whole lists are not handed to an outside AI), and fills
+--      requires_permission from lib/config/ai-query-tools-config.ts wherever
+--      that config names a key that really exists in
+--      lib/constants/permissions.ts. The functions do not check those keys
+--      themselves; the menu does, as a second lock.
 --   3. fn_ai_tool_menu(p_audience) — the menu one signed-in person may use.
 --   4. Personal keys for the outside-AI door, on the existing api_keys table:
 --      one new column key_kind ('admin' | 'personal') + a CHECK that pins the
@@ -49,13 +54,28 @@
 --   p_user_id is never offered to the model.
 --
 -- WHY PERSONAL KEYS CANNOT REACH THE SERVICE-ROLE ROUTES
---   ~40 older routes (api-management/*, with-auth.ts, reference-api-auth.ts,
---   b2a/*) accept ANY active api_keys row and then query with the service
---   role. A personal row is made harmless to all of them BY CONSTRAINT:
---   permissions must be exactly {"read": false, "write": false} (every one of
---   those verifiers refuses a key whose read/write is false), and the app's
---   B2A verifier additionally refuses the jkkn_pk_ prefix outright. An admin
---   who edits a personal key's permissions in the key screen hits the CHECK.
+--   ~40 older routes accept an api_keys row and then query with the service
+--   role. They were checked one by one (repair round 1, 2026-09-23); they fall
+--   into three groups, and a personal key is refused by each for a DIFFERENT
+--   reason — there is no single blanket rule:
+--   a. api-management/*, app/api/profiles, lib/auth/with-auth.ts,
+--      lib/services/reference/reference-api-auth.ts and lib/mcp/auth-bridge.ts
+--      hash the presented key and then refuse a row whose permissions.read is
+--      false. A personal row is pinned to {"read": false, "write": false} by
+--      the CHECK below, so these refuse it. lib/api-keys/authenticate.ts (b2a/*)
+--      additionally refuses the jkkn_pk_ prefix before looking anything up, and
+--      /api/mcp sends jkkn_pk_ keys to the personal door, never to auth-bridge.
+--   b. app/api/v1/transport-requests compares the RAW bearer text with
+--      key_value and checks no permission and no expiry. key_value holds the
+--      SHA-256 of a personal key, and the owner knows the plaintext, so the
+--      owner COULD compute that hash and send it. That route now refuses any
+--      row whose key_kind is 'personal' (same PR, with a test). Accepting the
+--      stored hash of an ADMIN key there is older behaviour, out of scope here.
+--   c. app/api/admission/leads/inbound looks up a column named "key" (and
+--      "organization_id"), which api_keys does not have, so no key of any kind
+--      authenticates there. Personal keys are refused by accident, not design.
+--   An administrator who edits a personal key's permissions hits the CHECK, and
+--   the trigger in section 4b freezes the fields that make a personal row safe.
 --
 -- FILE ONLY — NOT APPLIED. The orchestrator applies it after the Director
 -- approves the PR. No BEGIN/COMMIT in the file.
@@ -328,11 +348,84 @@ INSERT INTO public.ai_tool_catalog (name, kind, target, description, params, is_
    false, ARRAY['assistant','door']::text[], NULL)
 ON CONFLICT (name) DO UPDATE SET kind = EXCLUDED.kind, target = EXCLUDED.target, description = EXCLUDED.description, params = EXCLUDED.params, is_write = EXCLUDED.is_write, audience = EXCLUDED.audience, requires_permission = EXCLUDED.requires_permission, updated_at = now();
 
+-- ─── 2b. Repair round 1 (2026-09-23): off, assistant-only, permission keys ──
+-- (a) OFF — these 13 fail on EVERY call, for every person, in their latest
+--     definition on main. Seeded so the list stays complete; enabled = false
+--     so neither the assistant nor the door offers them. Turn each back on
+--     (UPDATE … SET enabled = true) only after its function is fixed and a
+--     call as a real person returns rows.
+--       ai_rpc_accessible_scope() exists in no migration and is missing from
+--       types/supabase.ts, so every function below that calls it fails with
+--       "function ai_rpc_accessible_scope(uuid) does not exist" (latest
+--       definition: 20260712134500). Measured failing live on 2026-09-23:
+--       academic_years, courses, degrees, periods.
+--         academic_years, attendance_summary, bug_report_details, courses,
+--         degrees, faculty_assignments, periods, staff_details, staff_plans,
+--         timetable_slots, timetables
+--     academic_context   reads academic_years.is_current; the column is
+--                        is_active, so it fails with 42703 (live: database
+--                        error, 2026-09-23). Latest: 20260712134500.
+--     admission_analytics nests COUNT(*) inside jsonb_object_agg, an
+--                        aggregate-inside-aggregate error (live, 2026-09-23).
+--                        Latest: 20261204090000.
+UPDATE public.ai_tool_catalog
+   SET enabled = false, updated_at = now()
+ WHERE kind = 'rpc'
+   AND target IN (
+     'ai_rpc_academic_years', 'ai_rpc_attendance_summary', 'ai_rpc_bug_report_details',
+     'ai_rpc_courses', 'ai_rpc_degrees', 'ai_rpc_faculty_assignments', 'ai_rpc_periods',
+     'ai_rpc_staff_details', 'ai_rpc_staff_plans', 'ai_rpc_timetable_slots', 'ai_rpc_timetables',
+     'ai_rpc_academic_context',
+     'ai_rpc_admission_analytics'
+   );
+
+-- (b) export_data returns whole lists (learners, team members, defaulters).
+--     It stays with the in-app assistant; it is never handed to an outside AI.
+UPDATE public.ai_tool_catalog
+   SET audience = ARRAY['assistant']::text[], updated_at = now()
+ WHERE name = 'export_data';
+
+-- (c) requires_permission, copied from lib/config/ai-query-tools-config.ts
+--     where that config names a key that exists in lib/constants/permissions.ts.
+--     Left NULL (the function's own role / college scoping is the only check):
+--       hierarchy_summary, kpi_summary — the config names organizations.view
+--         and analytics.view, which do not exist as permission keys;
+--       export_data — the config marks it DYNAMIC (depends on the list asked);
+--       every tool the config does not list.
+UPDATE public.ai_tool_catalog c
+   SET requires_permission = m.perm, updated_at = now()
+  FROM (VALUES
+    ('attendance',             'academic.attendance.view'),
+    ('attendance_defaulters',  'academic.attendance.view'),
+    ('student_bills',          'billing.bills.view'),
+    ('fee_defaulters',         'billing.bills.view'),
+    ('students',               'learners.view'),
+    ('student_details',        'learners.view'),
+    ('student_search',         'learners.view'),
+    ('students_by_department', 'learners.view'),
+    ('students_summary',       'learners.view'),
+    ('learners_by_location',   'learners.view'),
+    ('learners_comprehensive', 'learners.view'),
+    ('admissions',             'learners.admissions.view'),
+    ('admission_details',      'learners.admissions.view'),
+    ('admissions_by_location', 'learners.admissions.view'),
+    ('admission_statistics',   'learners.admissions.dashboard'),
+    ('admission_analytics',    'learners.admissions.dashboard'),
+    ('admission_referrers',    'learners.admissions.dashboard'),
+    ('staff',                  'staff.view'),
+    ('departments',            'organizations.departments.view'),
+    ('notifications',          'notifications.view')
+  ) AS m(name, perm)
+ WHERE c.name = m.name;
+
 -- ─── 3. The menu one signed-in person may use ──────────────────────────────
+-- Both audiences are EMPTY unless the person is a super admin or still holds
+-- ai_query.view (repair round 1: a learner without the AI Assistant must not be
+-- able to list tool names, target functions and descriptions through the API).
+-- For the door this also means taking the permission away shuts an
+-- already-issued personal key at once, not after 90 days.
 -- 'assistant': enabled rows for the assistant, filtered by requires_permission.
--- 'door':      the same, minus every is_write row, and EMPTY unless the person
---              still holds ai_query.view — so taking the permission away shuts
---              an already-issued personal key at once, not after 90 days.
+-- 'door':      the same, minus every is_write row.
 CREATE OR REPLACE FUNCTION public.fn_ai_tool_menu(p_audience text DEFAULT 'assistant')
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -349,8 +442,7 @@ BEGIN
     RAISE EXCEPTION 'Unknown audience: %', p_audience USING ERRCODE = '22023';
   END IF;
 
-  IF p_audience = 'door'
-     AND NOT (public.is_super_admin() OR public.user_has_permission('ai_query.view')) THEN
+  IF NOT (public.is_super_admin() OR public.user_has_permission('ai_query.view')) THEN
     RETURN '[]'::jsonb;
   END IF;
 
@@ -381,7 +473,7 @@ REVOKE EXECUTE ON FUNCTION public.fn_ai_tool_menu(text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_ai_tool_menu(text) TO authenticated;
 
 COMMENT ON FUNCTION public.fn_ai_tool_menu(text) IS
-  'The AI tools the signed-in person may use, for audience assistant or door. Door never lists is_write tools and is empty without ai_query.view.';
+  'The AI tools the signed-in person may use, for audience assistant or door. Empty for both audiences without ai_query.view (super admins excepted). Door never lists is_write tools.';
 
 -- ─── 4. Personal keys on api_keys ──────────────────────────────────────────
 ALTER TABLE public.api_keys
@@ -425,6 +517,73 @@ END $$;
 CREATE INDEX IF NOT EXISTS idx_api_keys_personal_owner
   ON public.api_keys (user_id)
   WHERE key_kind = 'personal';
+
+-- ─── 4b. Freeze what makes a personal row safe (repair round 1) ────────────
+-- supabase/setup/03_policies.sql declares api_keys_select_own / insert_own /
+-- update_own / delete_own on user_id = auth.uid(). Whether those are live on
+-- production was NOT confirmed when this file was written. If update_own is
+-- live, an owner could — without this trigger — switch key_kind to 'admin'
+-- with permissions {read:true} (and then pass every service-role route that
+-- checks only permissions.read), turn a turned-off key back on, or push
+-- expires_at past 90 days. This trigger makes the answer the same either way.
+--
+--   1. A DIRECT write from a client (PostgREST runs it as the role
+--      authenticated or anon) may not create or change a personal row at all.
+--      The fn_ai_personal_key_* functions are SECURITY DEFINER, so their own
+--      writes run as the function owner and are allowed through.
+--      current_user is read in THIS function, which is SECURITY INVOKER on
+--      purpose: here it names the role running the statement. (Inside a
+--      SECURITY DEFINER function current_user would always be the owner.)
+--   2. For every caller, the service role and administrators included, a
+--      personal row may never change kind, secret, owner (except to NULL when
+--      the account is deleted), creation time, role or permissions; it may
+--      only be shortened, never extended; and once turned off it stays off.
+--      Renaming it, recording last use and turning it off stay allowed.
+CREATE OR REPLACE FUNCTION public.fn_api_keys_personal_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+BEGIN
+  IF current_user IN ('authenticated', 'anon') THEN
+    IF TG_OP = 'INSERT' AND NEW.key_kind = 'personal' THEN
+      RAISE EXCEPTION 'Personal keys are made only on the Connect an outside AI page'
+        USING ERRCODE = '42501';
+    END IF;
+    IF TG_OP = 'UPDATE' AND (OLD.key_kind = 'personal' OR NEW.key_kind = 'personal') THEN
+      RAISE EXCEPTION 'Personal keys are turned off only on the Connect an outside AI page'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  IF TG_OP = 'UPDATE' AND (OLD.key_kind = 'personal' OR NEW.key_kind = 'personal') THEN
+    IF NEW.key_kind    IS DISTINCT FROM OLD.key_kind
+       OR NEW.key_value   IS DISTINCT FROM OLD.key_value
+       OR NEW.created_at  IS DISTINCT FROM OLD.created_at
+       OR NEW.user_role   IS DISTINCT FROM OLD.user_role
+       OR NEW.permissions IS DISTINCT FROM OLD.permissions
+       OR (NEW.user_id    IS DISTINCT FROM OLD.user_id    AND NEW.user_id    IS NOT NULL)
+       OR (NEW.created_by IS DISTINCT FROM OLD.created_by AND NEW.created_by IS NOT NULL)
+       OR NEW.expires_at IS NULL
+       OR NEW.expires_at > OLD.expires_at
+       OR (NEW.is_active IS TRUE AND OLD.is_active IS NOT TRUE)
+    THEN
+      RAISE EXCEPTION 'A personal key cannot be changed, extended or turned back on. Make a new key instead.'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_api_keys_personal_guard() FROM anon, PUBLIC;
+
+DROP TRIGGER IF EXISTS trg_api_keys_personal_guard ON public.api_keys;
+CREATE TRIGGER trg_api_keys_personal_guard
+  BEFORE INSERT OR UPDATE ON public.api_keys
+  FOR EACH ROW EXECUTE FUNCTION public.fn_api_keys_personal_guard();
 
 -- Create: only people holding ai_query.view; at most 3 live keys each; at
 -- most 90 days. Returns the plaintext key ONCE — only its SHA-256 is stored
@@ -617,12 +776,34 @@ BEGIN
     'public.fn_ai_tool_menu(text)',
     'public.fn_ai_personal_key_create(text, integer)',
     'public.fn_ai_personal_key_list()',
-    'public.fn_ai_personal_key_revoke(uuid)'
+    'public.fn_ai_personal_key_revoke(uuid)',
+    'public.fn_api_keys_personal_guard()'
   ] LOOP
     IF has_function_privilege('anon', v_fn, 'EXECUTE') THEN
       RAISE EXCEPTION '% is executable by anon', v_fn;
     END IF;
   END LOOP;
+
+  -- repair round 1: the 13 always-failing tools are off, export_data never
+  -- reaches the door, and the personal-key freeze trigger is in place
+  IF (SELECT count(*) FROM public.ai_tool_catalog
+       WHERE target IN ('ai_rpc_academic_years', 'ai_rpc_attendance_summary', 'ai_rpc_bug_report_details',
+                        'ai_rpc_courses', 'ai_rpc_degrees', 'ai_rpc_faculty_assignments', 'ai_rpc_periods',
+                        'ai_rpc_staff_details', 'ai_rpc_staff_plans', 'ai_rpc_timetable_slots', 'ai_rpc_timetables',
+                        'ai_rpc_academic_context', 'ai_rpc_admission_analytics')
+         AND enabled = false) <> 13 THEN
+    RAISE EXCEPTION 'ai_tool_catalog: the 13 always-failing tools are not all turned off';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM public.ai_tool_catalog WHERE name = 'export_data' AND 'door' = ANY (audience)) THEN
+    RAISE EXCEPTION 'ai_tool_catalog: export_data must not be offered through the door';
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger
+                  WHERE tgname = 'trg_api_keys_personal_guard'
+                    AND tgrelid = 'public.api_keys'::regclass) THEN
+    RAISE EXCEPTION 'api_keys personal-key guard trigger is missing';
+  END IF;
 
   IF has_table_privilege('anon', 'public.ai_tool_catalog', 'SELECT')
      OR has_table_privilege('authenticated', 'public.ai_tool_catalog', 'SELECT') THEN

@@ -15,6 +15,7 @@
 //     rate-limited, with the existing logger and limiter.
 
 import { createHash } from 'crypto';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -36,6 +37,21 @@ export const PERSONAL_KEY_PREFIX = 'jkkn_pk_';
 
 /** Largest tool answer handed back, in characters. Bigger answers are cut with a note. */
 export const MAX_RESULT_CHARS = 100_000;
+
+/**
+ * Most rows one door call may ask for. Many functions default p_limit to
+ * 10,000; the door sends at most this many (and this many when the outside AI
+ * leaves p_limit out). The character cut above stays as a second guard.
+ */
+export const DOOR_MAX_LIMIT = 500;
+
+/** A refusal the door returns to the outside AI as a tool error (never a crash). */
+export class DoorRefusal extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DoorRefusal';
+  }
+}
 
 export function isPersonalKeyToken(token: string | undefined | null): token is string {
   return typeof token === 'string' && token.startsWith(PERSONAL_KEY_PREFIX);
@@ -124,6 +140,56 @@ function capped(data: unknown): McpToolResult {
   };
 }
 
+/**
+ * Caps p_limit for any tool that takes one: min(asked, DOOR_MAX_LIMIT), and
+ * DOOR_MAX_LIMIT when the outside AI leaves it out. Other arguments pass
+ * through untouched (buildRpcArgs still decides what is kept).
+ */
+export function withDoorLimit(
+  tool: CatalogTool,
+  input: Record<string, unknown> | undefined
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...(input ?? {}) };
+  const declared = tool.params?.properties ?? {};
+  if (!Object.prototype.hasOwnProperty.call(declared, 'p_limit')) return out;
+  const asked = Number(out.p_limit);
+  out.p_limit =
+    Number.isFinite(asked) && asked >= 1 ? Math.min(Math.floor(asked), DOOR_MAX_LIMIT) : DOOR_MAX_LIMIT;
+  return out;
+}
+
+/**
+ * Several ai_rpc_* functions honour a caller-supplied p_institution_id without
+ * checking that the caller may see that college (measured live 2026-09-23:
+ * students_summary, students_by_department, admission_referrers). Until their
+ * SQL is fixed, the door refuses any p_institution_id the key OWNER cannot
+ * access — asked AS the owner, through role_has_institution_access, the same
+ * function MyJKKN's own row rules use (and the same guard the Mac standby
+ * answerer applies). A missing or empty p_institution_id is not checked: the
+ * functions then fall back to the person's own college.
+ */
+export async function assertInstitutionAllowed(
+  client: SupabaseClient,
+  tool: CatalogTool,
+  input: Record<string, unknown> | undefined
+): Promise<void> {
+  const declared = tool.params?.properties ?? {};
+  if (!Object.prototype.hasOwnProperty.call(declared, 'p_institution_id')) return;
+  const value = input?.p_institution_id;
+  if (value === undefined || value === null) return;
+  if (typeof value === 'string' && value.trim() === '') return;
+  if (typeof value !== 'string') throw new DoorRefusal('p_institution_id must be a college id.');
+
+  const { data, error } = await client.rpc('role_has_institution_access', {
+    check_institution_id: value.trim(),
+  });
+  if (error || data !== true) {
+    throw new DoorRefusal(
+      'You do not have access to that college in MyJKKN. Ask only about the colleges you can see.'
+    );
+  }
+}
+
 /** The door's tool list for this person: rpc tools only, and never a write. */
 export function doorTools(menu: CatalogTool[]): CatalogTool[] {
   return menu.filter((t) => t.kind === 'rpc' && t.is_write !== true);
@@ -203,15 +269,16 @@ export async function handlePersonalKeyRequest(req: Request, token: string): Pro
       return mcpError(`Unknown tool: ${name}`);
     }
     try {
-      const data = await callRpcTool(
-        client,
-        tool,
-        request.params.arguments as Record<string, unknown> | undefined,
-        ctx.ownerId
-      );
+      const input = withDoorLimit(tool, request.params.arguments as Record<string, unknown> | undefined);
+      await assertInstitutionAllowed(client, tool, input);
+      const data = await callRpcTool(client, tool, input, ctx.ownerId);
       audit(name, 200, startTime);
       return capped(data);
     } catch (err) {
+      if (err instanceof DoorRefusal) {
+        audit(name, 403, startTime);
+        return mcpError(err.message);
+      }
       const isArgs = err instanceof ToolArgsError;
       audit(name, isArgs ? 400 : 500, startTime);
       return mcpError(isArgs ? err.message : `MyJKKN could not run ${name}. Try different filters.`);
