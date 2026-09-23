@@ -481,7 +481,7 @@ describe('attendanceStatusForSave — nobody pre-ticked must reach the payload (
     expect(attendanceStatusForSave('', true)).toBeNull();
   });
 
-  it('still saves everyone the teacher did tick on an unfiltered roster', () => {
+  it('still saves everyone who was ticked on an unfiltered roster', () => {
     expect(attendanceStatusForSave('Present', true)).toBe('Present');
     expect(attendanceStatusForSave('Absent', true)).toBe('Absent');
     expect(attendanceStatusForSave('OnDuty', true)).toBe('OnDuty');
