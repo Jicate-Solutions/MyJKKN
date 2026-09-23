@@ -36,16 +36,19 @@ export function FeePaymentNoticeBanner() {
   const state = feeNoticeState(notice, left);
   if (state === 'hidden') return null;
 
-  const red = state === 'urgent' || state === 'processing' || state === 'fined';
-  const tone = red
-    ? 'border-red-200 bg-red-50 text-red-900 dark:border-red-900 dark:bg-red-950/50 dark:text-red-200'
-    : 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-200';
+  // Always an alert: solid red in every state. The icon pulses once the
+  // urgent window starts so the last hours still read as more pressing.
+  const pulse = state === 'urgent' || state === 'processing';
   const Icon = state === 'fined' ? AlertTriangle : Timer;
 
   return (
-    <div role='status' aria-live='off' className={`w-full border-b px-4 py-2 text-sm md:px-8 ${tone}`}>
+    <div
+      role='status'
+      aria-live='off'
+      className='w-full border-b border-red-700 bg-red-600 px-4 py-2 text-sm text-white md:px-8 dark:border-red-900 dark:bg-red-800'
+    >
       <div className='flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1'>
-        <Icon className='h-4 w-4 shrink-0' aria-hidden />
+        <Icon className={`h-4 w-4 shrink-0 ${pulse ? 'animate-pulse' : ''}`} aria-hidden />
         <p className='min-w-0 flex-1'>
           {state === 'fined' ? (
             `A Transport Fee of ${inr(notice.amount)} has been added because the maintenance fee wasn't paid in time.`
@@ -61,7 +64,7 @@ export function FeePaymentNoticeBanner() {
         </p>
         <Link
           href='/learners/my-bills'
-          className='inline-flex h-11 shrink-0 items-center rounded-md bg-white/70 px-3 font-medium underline-offset-2 hover:underline md:h-7 dark:bg-black/20'
+          className='inline-flex h-11 shrink-0 items-center rounded-md bg-green-600 px-4 font-semibold text-white shadow-sm ring-1 ring-white/40 transition-colors hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white md:h-7'
         >
           {state === 'fined' ? 'View fees' : 'Pay now'}
         </Link>
