@@ -137,6 +137,9 @@ export function scheduleLink(appUrl: string, scheduleId: string): string {
   return `${appUrl.replace(/\/+$/, '')}/ai-query?scheduled=${encodeURIComponent(scheduleId)}`;
 }
 
+/** The answer can hold what only the owner's own access lets them see. */
+export const PRIVATE_FOOTER = "From MyJKKN, sent only to you — please don't forward it.";
+
 export function buildScheduleEmail(input: ScheduleEmailInput): { subject: string; html: string } {
   const link = scheduleLink(input.appUrl, input.scheduleId);
   const charts = input.artifacts.length
@@ -153,6 +156,7 @@ ${answerToSimpleHtml(input.answer)}
 ${charts}
 <p style="margin:20px 0"><a href="${escapeHtml(link)}" style="display:inline-block;background:#0F7642;color:#ffffff;text-decoration:none;padding:8px 16px;border-radius:6px">Open in MyJKKN</a></p>
 <p style="margin-top:24px;color:#6b7280;font-size:12px">You get this because you asked the MyJKKN AI Assistant to answer this question ${escapeHtml(input.cadenceText)}. The answer uses only what your own account can see. To pause or stop it, open the AI Assistant, then History, then Scheduled.</p>
+<p style="margin-top:8px;color:#6b7280;font-size:12px">${escapeHtml(PRIVATE_FOOTER)}</p>
 </div>`;
   return { subject: input.title, html };
 }

@@ -7,12 +7,17 @@
  * one is queued:
  *
  *   1. DELIVER  fn_ai_query_schedule_claim_deliveries hands back every run whose
- *               answer is ready (or that gave up after 6 hours). A good answer
+ *               answer is ready (or that gave up after 6 hours, or got stuck
+ *               while being sent — see §12 of the migration). A good answer
  *               goes to the OWNER ONLY — in-app and/or by email to the owner's
  *               own address, never anyone else's. Then
  *               fn_ai_query_schedule_record_outcome resets or counts failures;
- *               the third failure in a row pauses the schedule and we tell the
- *               owner.
+ *               the third failure in a row pauses the schedule.
+ *               NOTHING FAILS SILENTLY: when an answer exists but no chosen
+ *               channel delivered it, the run counts as a failure AND the owner
+ *               is told on the channel that did not just fail. Whenever the
+ *               database pauses a schedule — no answer, or answer undelivered —
+ *               the owner is told in-app, plus by email if they chose email.
  *   2. ENQUEUE  every active schedule whose next_run_at has passed goes through
  *               fn_ai_enqueue_scheduled, which re-checks the owner's access and
  *               daily question limit before it asks anything.
@@ -26,7 +31,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { fanoutNotification, type FanoutNotificationOptions } from '@/lib/services/_shared/notifications/notify';
 import { resend } from '@/lib/resend';
 import { describeSchedule, formatIstDateTime } from './next-run';
-import { answerExcerpt, buildScheduleEmail, scheduleLink, type ScheduleArtifactRef } from './schedule-email';
+import { answerExcerpt, buildScheduleEmail, escapeHtml, scheduleLink, type ScheduleArtifactRef } from './schedule-email';
 import type { ScheduleCadence, ScheduleChannel } from './types';
 
 const DUE_BATCH = 50;
@@ -48,7 +53,9 @@ interface ClaimedRun {
   day_of_month: number | null;
   time_ist: string;
   channels: ScheduleChannel[];
-  job_id: string;
+  /** NULL when the run's job row no longer exists (job_status 'missing'). */
+  job_id: string | null;
+  /** an ai_jobs status, or 'timed_out' | 'undelivered' | 'missing' from the claim */
   job_status: string;
   answer: string | null;
   artifacts: unknown;
@@ -157,6 +164,61 @@ export async function runScheduledReports(
     });
   };
 
+  const ownerEmail = (run: ClaimedRun): string | null =>
+    typeof run.owner_email === 'string' && run.owner_email.includes('@') ? run.owner_email : null;
+
+  /** A short notice email: plain text, escaped, with one link back to the Scheduled tab. */
+  const noticeEmail = async (to: string, subject: string, text: string, scheduleId: string, key: string) => {
+    await sendEmail({
+      to,
+      subject,
+      html: `<p>${escapeHtml(text)}</p><p><a href="${escapeHtml(scheduleLink(appUrl, scheduleId))}">Open in MyJKKN</a></p>`,
+      idempotencyKey: key,
+    });
+    summary.emails_sent += 1;
+  };
+
+  /**
+   * Record the outcome. A failed call is LOGGED, never swallowed: the row then
+   * stays 'delivering' and the claim RPC retries it once after 30 minutes.
+   */
+  const recordOutcome = async (run: ClaimedRun, outcome: 'delivered' | 'failed'): Promise<{ paused: boolean } | null> => {
+    const { data, error } = await admin.rpc('fn_ai_query_schedule_record_outcome', {
+      p_schedule_id: run.schedule_id,
+      p_job_id: run.job_id,
+      p_outcome: outcome,
+    });
+    if (error) {
+      summary.errors.push(`record ${run.schedule_id}: ${error.message}`);
+      return null;
+    }
+    return { paused: !!(data as { paused?: boolean } | null)?.paused };
+  };
+
+  /**
+   * The database just paused this schedule after 3 failures in a row. Tell the
+   * owner in-app, and by email when they chose email — or when in-app is the
+   * channel that just failed, so the notice still has somewhere to go.
+   */
+  const announcePause = async (run: ClaimedRun, runKey: string, detail: string, emailToo: boolean) => {
+    const link = `/ai-query?scheduled=${run.schedule_id}`;
+    const body = `We paused "${run.title}" because it failed 3 times in a row (the last time, ${detail}). Open the AI Assistant, then History, then Scheduled, to run it now or resume it.`;
+    try {
+      await tell(run.owner_id, 'Scheduled question paused', body, `ai_schedule_paused:${runKey}`, link);
+    } catch (e) {
+      summary.errors.push(`notify pause ${run.schedule_id}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    const email = ownerEmail(run);
+    if (emailToo && email) {
+      try {
+        await noticeEmail(email, `Paused: ${run.title}`, body, run.schedule_id, `ai-schedule-paused-${runKey}`);
+      } catch (e) {
+        summary.email_errors += 1;
+        summary.errors.push(`email pause ${run.schedule_id}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  };
+
   // ── 1. DELIVER finished runs ────────────────────────────────────────────
   const { data: claimedData, error: claimError } = await admin.rpc('fn_ai_query_schedule_claim_deliveries', {
     p_limit: DELIVERY_BATCH,
@@ -170,19 +232,24 @@ export async function runScheduledReports(
       const answer = typeof run.answer === 'string' ? run.answer.trim() : '';
       const answered = run.job_status === 'done' && answer.length > 0;
       const link = `/ai-query?scheduled=${run.schedule_id}`;
+      // Idempotency keys are per run; a run whose job row is gone has no job id.
+      const runKey = run.job_id ?? `${run.schedule_id}:${istDay(now)}`;
+      const wantsEmail = run.channels.includes('email');
+      const email = ownerEmail(run);
 
       if (answered) {
-        const wantsEmail = run.channels.includes('email');
-        const email = typeof run.owner_email === 'string' && run.owner_email.includes('@') ? run.owner_email : null;
         // No address on file → fall back to in-app so the answer still arrives.
         const wantsInApp = run.channels.includes('in_app') || (wantsEmail && !email);
         let reached = false;
+        let inAppFailed = false;
+        let emailFailed = false;
 
         if (wantsInApp) {
           try {
-            await tell(run.owner_id, run.title, answerExcerpt(answer), `ai_schedule_answer:${run.job_id}`, link);
+            await tell(run.owner_id, run.title, answerExcerpt(answer), `ai_schedule_answer:${runKey}`, link);
             reached = true;
           } catch (e) {
+            inAppFailed = true;
             summary.errors.push(`notify ${run.schedule_id}: ${e instanceof Error ? e.message : String(e)}`);
           }
         }
@@ -198,61 +265,61 @@ export async function runScheduledReports(
           });
           try {
             // Only ever the owner's own address, read from their profile by the claim RPC.
-            await sendEmail({ to: email, subject, html, idempotencyKey: `ai-schedule-${run.job_id}` });
+            await sendEmail({ to: email, subject, html, idempotencyKey: `ai-schedule-${runKey}` });
             summary.emails_sent += 1;
             reached = true;
           } catch (e) {
+            emailFailed = true;
             summary.email_errors += 1;
             summary.errors.push(`email ${run.schedule_id}: ${e instanceof Error ? e.message : String(e)}`);
           }
         }
 
-        const outcome = reached ? 'delivered' : 'failed';
-        const { data: rec } = await admin.rpc('fn_ai_query_schedule_record_outcome', {
-          p_schedule_id: run.schedule_id,
-          p_job_id: run.job_id,
-          p_outcome: outcome,
-        });
         if (reached) {
+          await recordOutcome(run, 'delivered');
           summary.delivered += 1;
           continue;
         }
+
+        // The answer exists but NO chosen channel delivered it: a failure, and
+        // the owner hears about it on the channel that did not just fail.
+        const rec = await recordOutcome(run, 'failed');
         summary.failed += 1;
-        if ((rec as { paused?: boolean } | null)?.paused) summary.paused_after_failures += 1;
+        if (rec?.paused) {
+          summary.paused_after_failures += 1;
+          await announcePause(run, runKey, 'the answer could not be delivered', wantsEmail || inAppFailed);
+          continue;
+        }
+        const failedBy = [emailFailed ? 'email' : null, inAppFailed ? 'MyJKKN notification' : null]
+          .filter(Boolean)
+          .join(' or ');
+        const note = `Your scheduled answer to "${run.title}" could not be delivered by ${failedBy}. Open the AI Assistant, then History, then Scheduled, to read it.`;
+        if (!inAppFailed) {
+          try {
+            await tell(run.owner_id, 'Scheduled answer not delivered', note, `ai_schedule_undelivered:${runKey}`, link);
+          } catch (e) {
+            summary.errors.push(`notify undelivered ${run.schedule_id}: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        } else if (!emailFailed && email) {
+          try {
+            await noticeEmail(email, `Not delivered: ${run.title}`, note, run.schedule_id, `ai-schedule-undelivered-${runKey}`);
+          } catch (e) {
+            summary.email_errors += 1;
+            summary.errors.push(`email undelivered ${run.schedule_id}: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
         continue;
       }
 
-      // No usable answer: count the failure; the SQL pauses on the third in a row.
-      const { data: rec, error: recError } = await admin.rpc('fn_ai_query_schedule_record_outcome', {
-        p_schedule_id: run.schedule_id,
-        p_job_id: run.job_id,
-        p_outcome: 'failed',
-      });
-      if (recError) throw new Error(recError.message);
+      // No usable answer (error, timed out, missing job, or stuck twice while
+      // being sent): count the failure; the SQL pauses on the third in a row.
+      const rec = await recordOutcome(run, 'failed');
       summary.failed += 1;
-      if ((rec as { paused?: boolean } | null)?.paused) {
+      if (rec?.paused) {
         summary.paused_after_failures += 1;
-        const body = `We paused "${run.title}" because it could not be answered 3 times in a row. Open the AI Assistant, then History, then Scheduled, to run it now or resume it.`;
-        try {
-          await tell(run.owner_id, 'Scheduled question paused', body, `ai_schedule_paused:${run.job_id}`, link);
-        } catch (e) {
-          summary.errors.push(`notify pause ${run.schedule_id}: ${e instanceof Error ? e.message : String(e)}`);
-        }
-        const email = typeof run.owner_email === 'string' && run.owner_email.includes('@') ? run.owner_email : null;
-        if (run.channels.includes('email') && email) {
-          try {
-            await sendEmail({
-              to: email,
-              subject: `Paused: ${run.title}`,
-              html: `<p>${body.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p><p><a href="${scheduleLink(appUrl, run.schedule_id)}">Open in MyJKKN</a></p>`,
-              idempotencyKey: `ai-schedule-paused-${run.job_id}`,
-            });
-            summary.emails_sent += 1;
-          } catch (e) {
-            summary.email_errors += 1;
-            summary.errors.push(`email pause ${run.schedule_id}: ${e instanceof Error ? e.message : String(e)}`);
-          }
-        }
+        const detail =
+          run.job_status === 'undelivered' ? 'the answer could not be delivered' : 'no answer came back';
+        await announcePause(run, runKey, detail, wantsEmail);
       }
     } catch (e) {
       summary.errors.push(`deliver ${run.schedule_id}: ${e instanceof Error ? e.message : String(e)}`);

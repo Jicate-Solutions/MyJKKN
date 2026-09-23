@@ -21,6 +21,7 @@ const svc = vi.hoisted(() => ({
   deleteSchedule: vi.fn(),
   runScheduleNow: vi.fn(),
   getScheduleAnswer: vi.fn(),
+  getPreviousScheduleAnswer: vi.fn(),
 }));
 vi.mock('@/lib/services/ai-query/schedules/schedule-service', async (orig) => ({
   ...(await orig<typeof import('../schedule-service')>()),
@@ -57,6 +58,7 @@ function row(over: Partial<AIQuerySchedule> = {}): AIQuerySchedule {
     last_job_id: 'job-1',
     last_status: 'delivered',
     consecutive_failures: 0,
+    delivery_attempts: 1,
     created_at: '2026-09-01T00:00:00Z',
     updated_at: '2026-09-21T03:40:00Z',
     ...over,
@@ -153,6 +155,27 @@ describe('Scheduled tab', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Latest answer/ }));
     await waitFor(() => expect(svc.getScheduleAnswer).toHaveBeenCalledWith('job-1'));
     expect(await screen.findByText('42')).toBeInTheDocument();
+  });
+
+  it('while a new run is being answered, Latest answer still shows the previous answer', async () => {
+    svc.listMySchedules.mockResolvedValue([row({ last_status: 'queued', last_job_id: 'job-2' })]);
+    svc.getScheduleAnswer.mockResolvedValue({ status: 'pending', answer: null, artifacts: [], completed_at: null });
+    svc.getPreviousScheduleAnswer.mockResolvedValue({ answer: 'Last week: **40** learners', artifacts: [], completed_at: null });
+    render(<ScheduleList />);
+    fireEvent.click(await screen.findByRole('button', { name: /Latest answer/ }));
+    await waitFor(() => expect(svc.getPreviousScheduleAnswer).toHaveBeenCalledWith(row().id, 'job-2'));
+    expect(await screen.findByText('A new answer is on its way. Here is the previous one:')).toBeInTheDocument();
+    expect(screen.getByText('40')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Run now/ })).toBeDisabled();
+  });
+
+  it('with no earlier answer, a run in progress still says so', async () => {
+    svc.listMySchedules.mockResolvedValue([row({ last_status: 'queued', last_job_id: 'job-2' })]);
+    svc.getScheduleAnswer.mockResolvedValue({ status: 'running', answer: null, artifacts: [], completed_at: null });
+    svc.getPreviousScheduleAnswer.mockResolvedValue(null);
+    render(<ScheduleList />);
+    fireEvent.click(await screen.findByRole('button', { name: /Latest answer/ }));
+    expect(await screen.findByText('Still being answered.')).toBeInTheDocument();
   });
 
   it('a chart that came with the answer opens in the artifact panel', async () => {

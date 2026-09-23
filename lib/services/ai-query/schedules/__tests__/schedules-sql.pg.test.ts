@@ -590,4 +590,105 @@ describe('delivery + pause after 3 failures', () => {
     const job = (await db.query(`SELECT status FROM ai_jobs WHERE id = $1`, [q.job_id])).rows[0];
     expect(job.status).toBe('canceled');
   });
+
+  // ── Repair round 1: nothing is left stuck ──────────────────────────────────
+  async function claimAll() {
+    return (await db.query(`SELECT * FROM fn_ai_query_schedule_claim_deliveries(50, 360)`)).rows;
+  }
+  async function ageClaim(id: string, minutes: number) {
+    await db.query(`UPDATE ai_query_schedules SET updated_at = now() - make_interval(mins => $2) WHERE id = $1`, [
+      id,
+      minutes,
+    ]);
+  }
+
+  it('STUCK DELIVERING: a run left "being sent" for 30+ minutes is claimed again ONCE, then counts as a failure', async () => {
+    const id = await createWeekly(OWNER);
+    const { jobId } = await runOnce(id, 'done');
+    expect((await schedule(id)).delivery_attempts).toBe(1);
+    // the sweep died before recording. Under 30 minutes: left alone.
+    await ageClaim(id, 20);
+    expect(await claimAll()).toHaveLength(0);
+    // 30+ minutes: handed back WITH the answer (the one retry)
+    await ageClaim(id, 31);
+    const retry = await claimAll();
+    expect(retry).toHaveLength(1);
+    expect(retry[0].job_status).toBe('done');
+    expect(retry[0].answer).toBe('42 learners');
+    expect((await schedule(id)).delivery_attempts).toBe(2);
+    // stuck a second time: handed back with NO answer, so the sweep counts a failure
+    await ageClaim(id, 31);
+    const second = await claimAll();
+    expect(second).toHaveLength(1);
+    expect(second[0].job_status).toBe('undelivered');
+    expect(second[0].answer).toBeNull();
+    const rec = await record(id, jobId, 'failed');
+    expect(rec.ok).toBe(true);
+    expect(rec.consecutive_failures).toBe(1);
+    expect((await schedule(id)).last_status).toBe('failed');
+  });
+
+  it('STUCK DELIVERING: the retried run can still be recorded as delivered', async () => {
+    const id = await createWeekly(OWNER);
+    const { jobId } = await runOnce(id, 'done');
+    await ageClaim(id, 45);
+    expect(await claimAll()).toHaveLength(1);
+    expect((await record(id, jobId, 'delivered')).ok).toBe(true);
+    const s = await schedule(id);
+    expect(s.last_status).toBe('delivered');
+    expect(s.consecutive_failures).toBe(0);
+  });
+
+  it('a run being sent blocks a new run, and a new run starts with a clean attempt count', async () => {
+    const id = await createWeekly(OWNER);
+    const { jobId } = await runOnce(id, 'done');
+    await makeDue(id);
+    const blocked = await enqueue(id);
+    expect(blocked.status).toBe('in_flight');
+    expect((await schedule(id)).last_job_id).toBe(jobId); // not overwritten under the sweep
+    await record(id, jobId, 'delivered');
+    const next = await enqueue(id);
+    expect(next.status).toBe('queued');
+    expect((await schedule(id)).delivery_attempts).toBe(0);
+  });
+
+  it('MISSING JOB: a queued run whose job row was deleted counts as a failure instead of blocking for ever', async () => {
+    const id = await createWeekly(OWNER);
+    await makeDue(id);
+    const q = await enqueue(id);
+    await db.query(`DELETE FROM ai_jobs WHERE id = $1`, [q.job_id]);
+    const s0 = await schedule(id);
+    expect(s0.last_job_id).toBeNull();
+    expect(s0.last_status).toBe('queued');
+    const rows = await claimAll();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].job_status).toBe('missing');
+    expect(rows[0].job_id).toBeNull();
+    expect(rows[0].answer).toBeNull();
+    const rec = await rpc<{ ok: boolean; consecutive_failures: number }>(
+      `SELECT fn_ai_query_schedule_record_outcome($1, NULL, 'failed') AS r`,
+      [id],
+    );
+    expect(rec.ok).toBe(true);
+    expect(rec.consecutive_failures).toBe(1);
+    // unblocked: the next occurrence queues normally
+    await makeDue(id);
+    expect((await enqueue(id)).status).toBe('queued');
+  });
+
+  it('QUESTION LENGTH: the chat allows 4000 characters, so a schedule does too', async () => {
+    await as(OWNER);
+    const ok = await rpc<{ ok: boolean; error?: string }>(
+      `SELECT fn_ai_query_schedule_create('Long one', $1, 'daily', NULL, NULL, '09:00', ARRAY['email']) AS r`,
+      ['q'.repeat(4000)],
+    );
+    expect(ok.ok, ok.error).toBe(true);
+    const tooLong = await rpc<{ ok: boolean; error: string }>(
+      `SELECT fn_ai_query_schedule_create('Too long', $1, 'daily', NULL, NULL, '09:00', ARRAY['email']) AS r`,
+      ['q'.repeat(4001)],
+    );
+    await as(null);
+    expect(tooLong.ok).toBe(false);
+    expect(tooLong.error).toBe('The question must be between 1 and 4000 characters.');
+  });
 });

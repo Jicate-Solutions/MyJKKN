@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
   deleteSchedule,
+  getPreviousScheduleAnswer,
   getScheduleAnswer,
   listMySchedules,
   runNowMessage,
@@ -67,26 +68,45 @@ function channelText(s: AIQuerySchedule): string {
   return parts.filter(Boolean).join(' and ');
 }
 
-function LatestAnswer({ jobId }: { jobId: string }) {
+const IN_PROGRESS = ['pending', 'claimed', 'running'];
+
+function LatestAnswer({ jobId, scheduleId }: { jobId: string; scheduleId: string }) {
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  /** true when `text` is the previous run's answer, shown while the new run is being answered */
+  const [isPrevious, setIsPrevious] = useState(false);
   const [artifacts, setArtifacts] = useState<ArtifactRef[]>([]);
   const [openArtifact, setOpenArtifact] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
-    void getScheduleAnswer(jobId).then((r) => {
+    void (async () => {
+      const r = await getScheduleAnswer(jobId);
       if (!alive) return;
+      // A new run still being answered: show the previous answer instead of a blank.
+      if (!r?.answer && r && IN_PROGRESS.includes(r.status)) {
+        const prev = await getPreviousScheduleAnswer(scheduleId, jobId);
+        if (!alive) return;
+        if (prev) {
+          setText(prev.answer);
+          setArtifacts(prev.artifacts);
+          setIsPrevious(true);
+          setStatus(r.status);
+          setLoading(false);
+          return;
+        }
+      }
       setText(r?.answer ?? null);
       setStatus(r?.status ?? null);
       setArtifacts(r?.artifacts ?? []);
+      setIsPrevious(false);
       setLoading(false);
-    });
+    })();
     return () => {
       alive = false;
     };
-  }, [jobId]);
+  }, [jobId, scheduleId]);
 
   if (loading) {
     return (
@@ -98,7 +118,7 @@ function LatestAnswer({ jobId }: { jobId: string }) {
   if (!text) {
     return (
       <p className="py-2 text-xs text-muted-foreground">
-        {status === 'pending' || status === 'claimed' || status === 'running'
+        {status && IN_PROGRESS.includes(status)
           ? 'Still being answered.'
           : 'No answer for the last run.'}
       </p>
@@ -106,6 +126,9 @@ function LatestAnswer({ jobId }: { jobId: string }) {
   }
   return (
     <div className="max-w-none break-words text-sm text-foreground">
+      {isPrevious && (
+        <p className="mb-1 text-xs text-muted-foreground">A new answer is on its way. Here is the previous one:</p>
+      )}
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
         {text}
       </ReactMarkdown>
@@ -285,7 +308,7 @@ export function ScheduleList({
                   size="sm"
                   variant="outline"
                   className="h-7 px-2 text-xs"
-                  disabled={busy || s.last_status === 'queued'}
+                  disabled={busy || s.last_status === 'queued' || s.last_status === 'delivering'}
                   onClick={() => handleRunNow(s)}
                 >
                   <Zap className="mr-1 h-3 w-3" />
@@ -317,7 +340,7 @@ export function ScheduleList({
 
               {open && s.last_job_id && (
                 <div className="mt-2 border-t border-border pt-2">
-                  <LatestAnswer jobId={s.last_job_id} />
+                  <LatestAnswer jobId={s.last_job_id} scheduleId={s.id} />
                 </div>
               )}
             </div>

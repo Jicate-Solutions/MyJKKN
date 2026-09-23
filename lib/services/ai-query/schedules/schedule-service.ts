@@ -110,12 +110,37 @@ export async function getScheduleAnswer(jobId: string): Promise<{
   };
 }
 
+/**
+ * The most recent ANSWERED run of a schedule other than `exceptJobId` — so while
+ * a new run is still being answered, the owner can still reread the last one.
+ * The owner's own ai_jobs rows only (RLS: requested_by = auth.uid()).
+ */
+export async function getPreviousScheduleAnswer(
+  scheduleId: string,
+  exceptJobId: string,
+): Promise<{ answer: string; artifacts: ArtifactRef[]; completed_at: string | null } | null> {
+  const { data, error } = await db()
+    .from('ai_jobs')
+    .select('id, result, completed_at')
+    .eq('payload->>schedule_id', scheduleId)
+    .eq('status', 'done')
+    .neq('id', exceptJobId)
+    .order('completed_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  const row = data as { result: { answer?: unknown; artifacts?: unknown } | null; completed_at: string | null };
+  const answer = row.result && typeof row.result.answer === 'string' ? row.result.answer : null;
+  if (!answer) return null;
+  return { answer, artifacts: toArtifactRefs(row.result?.artifacts), completed_at: row.completed_at };
+}
+
 /** Plain-English message for a "Run now" that did not queue. */
 export function runNowMessage(res: ScheduleRpcResult): string {
   if (res.ok) return 'Asked. The answer will reach you within about 15 minutes.';
   switch (res.status) {
     case 'in_flight':
-      return 'The last run is still being answered. Try again once it arrives.';
+      return 'The last run is still being answered or sent. Try again once it arrives.';
     case 'busy':
       return 'You have too many questions being answered right now. Try again in a few minutes.';
     case 'skipped_limit':

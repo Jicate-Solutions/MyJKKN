@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS public.ai_query_schedules (
   last_job_id          uuid REFERENCES public.ai_jobs(id) ON DELETE SET NULL,
   last_status          text NOT NULL DEFAULT 'scheduled',
   consecutive_failures integer NOT NULL DEFAULT 0,
+  delivery_attempts    smallint NOT NULL DEFAULT 0,  -- claims of the CURRENT run; 3 = stuck twice (see §12)
   created_at           timestamptz NOT NULL DEFAULT now(),
   updated_at           timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT ai_query_schedules_cadence_chk CHECK (cadence IN ('daily','weekly','monthly')),
@@ -79,7 +80,9 @@ CREATE TABLE IF NOT EXISTS public.ai_query_schedules (
     cardinality(channels) >= 1 AND channels <@ ARRAY['in_app','email']::text[]
   ),
   CONSTRAINT ai_query_schedules_title_chk CHECK (char_length(btrim(title)) BETWEEN 1 AND 120),
-  CONSTRAINT ai_query_schedules_question_chk CHECK (char_length(btrim(question)) BETWEEN 1 AND 2000),
+  -- 4000 = the chat's own limit (fn_ai_enqueue / 20260712201500), so any question
+  -- that could be asked can be repeated.
+  CONSTRAINT ai_query_schedules_question_chk CHECK (char_length(btrim(question)) BETWEEN 1 AND 4000),
   CONSTRAINT ai_query_schedules_status_chk CHECK (last_status IN (
     'scheduled',          -- created / resumed, has not run yet
     'queued',             -- a run is waiting for its answer (last_job_id)
@@ -92,7 +95,8 @@ CREATE TABLE IF NOT EXISTS public.ai_query_schedules (
     'paused_failures',    -- paused after 3 failed runs in a row
     'paused_no_access'    -- paused: the owner lost AI Assistant access or was deactivated
   )),
-  CONSTRAINT ai_query_schedules_failures_chk CHECK (consecutive_failures >= 0)
+  CONSTRAINT ai_query_schedules_failures_chk CHECK (consecutive_failures >= 0),
+  CONSTRAINT ai_query_schedules_attempts_chk CHECK (delivery_attempts >= 0)
 );
 
 COMMENT ON TABLE public.ai_query_schedules IS
@@ -189,8 +193,8 @@ BEGIN
   IF p_title IS NULL OR char_length(btrim(p_title)) NOT BETWEEN 1 AND 120 THEN
     RETURN 'Give the schedule a name of up to 120 characters.';
   END IF;
-  IF p_question IS NULL OR char_length(btrim(p_question)) NOT BETWEEN 1 AND 2000 THEN
-    RETURN 'The question must be between 1 and 2000 characters.';
+  IF p_question IS NULL OR char_length(btrim(p_question)) NOT BETWEEN 1 AND 4000 THEN
+    RETURN 'The question must be between 1 and 4000 characters.';
   END IF;
   IF p_cadence IS NULL OR p_cadence NOT IN ('daily','weekly','monthly') THEN
     RETURN 'Choose daily, weekly or monthly.';
@@ -424,7 +428,9 @@ BEGIN
   IF NOT p_run_now AND (NOT s.active OR s.next_run_at > now()) THEN
     RETURN jsonb_build_object('ok', false, 'status', 'not_due');
   END IF;
-  IF s.last_status = 'queued' THEN
+  -- a run still waiting for its answer, or being sent, is in flight: a new run
+  -- must not overwrite last_job_id under it (§12 recovers a stuck one)
+  IF s.last_status IN ('queued','delivering') THEN
     RETURN jsonb_build_object('ok', false, 'status', 'in_flight', 'job_id', s.last_job_id);
   END IF;
 
@@ -511,7 +517,7 @@ BEGIN
 
   UPDATE public.ai_query_schedules
      SET last_run_at = now(), last_job_id = v_job, last_status = 'queued',
-         next_run_at = v_next, updated_at = now()
+         delivery_attempts = 0, next_run_at = v_next, updated_at = now()
    WHERE id = s.id;
 
   RETURN jsonb_build_object('ok', true, 'status', 'queued', 'job_id', v_job, 'next_run_at', v_next);
@@ -560,7 +566,17 @@ GRANT  EXECUTE ON FUNCTION public.fn_ai_query_schedule_run_now(uuid) TO authenti
 --      ended within p_timeout_minutes. A timed-out job still PENDING is
 --      canceled so it cannot be answered later and never delivered; a job the
 --      drain has already claimed is left alone. SKIP LOCKED + the status flip
---      make two overlapping sweeps deliver each run exactly once.
+--      stop two overlapping sweeps from claiming the same run.
+--      RECOVERY — nothing is left in 'delivering' or 'queued' for ever:
+--        • a run left in 'delivering' for 30+ minutes (the sweep died between
+--          claim and record, or the record call failed) goes back to 'queued'
+--          ONCE and is claimed again below. The sweep's idempotency keys stop a
+--          second copy of anything the first attempt already sent.
+--        • stuck in 'delivering' a SECOND time → handed to the sweep with no
+--          answer (job_status 'undelivered'), so it counts as a failure.
+--        • a 'queued' run whose job row is gone (last_job_id set NULL by the
+--          foreign key) → handed over with no answer (job_status 'missing'), so
+--          it counts as a failure instead of blocking the schedule.
 CREATE OR REPLACE FUNCTION public.fn_ai_query_schedule_claim_deliveries(
   p_limit           int DEFAULT 50,
   p_timeout_minutes int DEFAULT 360
@@ -590,16 +606,28 @@ SET statement_timeout = '20s'
 AS $fn$
 #variable_conflict use_column
 BEGIN
+  -- one retry for a run stuck in 'delivering' (claims 1 and 2 of this run)
+  UPDATE public.ai_query_schedules
+     SET last_status = 'queued', updated_at = now()
+   WHERE last_status = 'delivering'
+     AND delivery_attempts < 2
+     AND updated_at < now() - interval '30 minutes';
+
   RETURN QUERY
   WITH cand AS (
     SELECT s.id AS sid,
            j.id AS jid,
-           (j.status NOT IN ('done','error','canceled')) AS is_late
+           (s.last_status = 'delivering') AS is_stuck,
+           (s.last_status = 'queued' AND j.id IS NULL) AS is_missing,
+           (s.last_status = 'queued' AND j.id IS NOT NULL
+              AND j.status NOT IN ('done','error','canceled')) AS is_late
       FROM public.ai_query_schedules s
-      JOIN public.ai_jobs j ON j.id = s.last_job_id
-     WHERE s.last_status = 'queued'
-       AND (j.status IN ('done','error','canceled')
-            OR j.requested_at < now() - make_interval(mins => GREATEST(p_timeout_minutes, 1)))
+      LEFT JOIN public.ai_jobs j ON j.id = s.last_job_id
+     WHERE (s.last_status = 'queued'
+            AND (j.id IS NULL
+                 OR j.status IN ('done','error','canceled')
+                 OR j.requested_at < now() - make_interval(mins => GREATEST(p_timeout_minutes, 1))))
+        OR (s.last_status = 'delivering' AND s.updated_at < now() - interval '30 minutes')
      ORDER BY s.last_run_at
      LIMIT LEAST(GREATEST(p_limit, 1), 200)
      FOR UPDATE OF s SKIP LOCKED
@@ -613,21 +641,27 @@ BEGIN
   ),
   claimed AS (
     UPDATE public.ai_query_schedules s
-       SET last_status = 'delivering', updated_at = now()
+       SET last_status = 'delivering', delivery_attempts = s.delivery_attempts + 1, updated_at = now()
       FROM cand
      WHERE s.id = cand.sid
     RETURNING s.id, s.owner_id, s.title, s.question, s.cadence, s.weekday, s.day_of_month,
-              s.time_ist, s.channels, s.last_job_id, s.consecutive_failures, cand.is_late
+              s.time_ist, s.channels, s.last_job_id, s.consecutive_failures,
+              cand.is_late, cand.is_stuck, cand.is_missing
   )
   SELECT c.id, c.owner_id, p.email::text, c.title, c.question, c.cadence, c.weekday, c.day_of_month,
          c.time_ist, c.channels, c.last_job_id,
-         CASE WHEN c.is_late THEN 'timed_out' ELSE j.status END,
-         CASE WHEN c.is_late OR j.status <> 'done' THEN NULL ELSE j.result->>'answer' END,
-         CASE WHEN c.is_late OR j.status <> 'done' THEN NULL ELSE j.result->'artifacts' END,
+         CASE WHEN c.is_stuck   THEN 'undelivered'
+              WHEN c.is_missing THEN 'missing'
+              WHEN c.is_late    THEN 'timed_out'
+              ELSE j.status END,
+         CASE WHEN c.is_stuck OR c.is_missing OR c.is_late OR j.status IS DISTINCT FROM 'done' THEN NULL
+              ELSE j.result->>'answer' END,
+         CASE WHEN c.is_stuck OR c.is_missing OR c.is_late OR j.status IS DISTINCT FROM 'done' THEN NULL
+              ELSE j.result->'artifacts' END,
          c.is_late,
          c.consecutive_failures
     FROM claimed c
-    JOIN public.ai_jobs j ON j.id = c.last_job_id
+    LEFT JOIN public.ai_jobs j ON j.id = c.last_job_id
     LEFT JOIN public.profiles p ON p.id = c.owner_id;
 END;
 $fn$;
@@ -637,7 +671,8 @@ GRANT  EXECUTE ON FUNCTION public.fn_ai_query_schedule_claim_deliveries(int, int
 -- ── 13. RECORD a claimed run's outcome (service_role only).
 --      delivered → failures reset to 0.
 --      failed    → failures + 1; the THIRD failure in a row pauses the schedule.
---      Idempotent: only a row still 'delivering' this exact job is touched.
+--      Idempotent: only a row still 'delivering' this exact job is touched
+--      (a NULL job id matches the 'missing' case from §12).
 --      A delivered answer is also stamped delivered_at on its job, so the chat's
 --      "while you were away" inbox does not show it a second time.
 CREATE OR REPLACE FUNCTION public.fn_ai_query_schedule_record_outcome(
@@ -662,7 +697,7 @@ BEGIN
   IF p_outcome = 'delivered' THEN
     UPDATE public.ai_query_schedules
        SET last_status = 'delivered', consecutive_failures = 0, updated_at = now()
-     WHERE id = p_schedule_id AND last_job_id = p_job_id AND last_status = 'delivering'
+     WHERE id = p_schedule_id AND last_job_id IS NOT DISTINCT FROM p_job_id AND last_status = 'delivering'
     RETURNING consecutive_failures INTO v_failures;
     IF NOT FOUND THEN RETURN jsonb_build_object('ok', false, 'error', 'not claimed'); END IF;
     UPDATE public.ai_jobs SET delivered_at = now() WHERE id = p_job_id AND delivered_at IS NULL;
@@ -672,7 +707,7 @@ BEGIN
            active      = CASE WHEN consecutive_failures + 1 >= 3 THEN false ELSE active END,
            last_status = CASE WHEN consecutive_failures + 1 >= 3 THEN 'paused_failures' ELSE 'failed' END,
            updated_at  = now()
-     WHERE id = p_schedule_id AND last_job_id = p_job_id AND last_status = 'delivering'
+     WHERE id = p_schedule_id AND last_job_id IS NOT DISTINCT FROM p_job_id AND last_status = 'delivering'
     RETURNING consecutive_failures, (last_status = 'paused_failures') INTO v_failures, v_paused;
     IF NOT FOUND THEN RETURN jsonb_build_object('ok', false, 'error', 'not claimed'); END IF;
   END IF;

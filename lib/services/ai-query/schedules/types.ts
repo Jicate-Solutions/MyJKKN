@@ -38,6 +38,8 @@ export interface AIQuerySchedule {
   last_job_id: string | null;
   last_status: ScheduleStatus;
   consecutive_failures: number;
+  /** claims of the current run by the delivery sweep (a run stuck while being sent is retried once) */
+  delivery_attempts: number;
   created_at: string;
   updated_at: string;
 }
