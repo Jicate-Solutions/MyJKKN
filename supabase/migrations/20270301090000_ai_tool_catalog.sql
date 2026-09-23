@@ -786,13 +786,13 @@ BEGIN
 
   -- repair round 1: the 13 always-failing tools are off, export_data never
   -- reaches the door, and the personal-key freeze trigger is in place
-  IF (SELECT count(*) FROM public.ai_tool_catalog
-       WHERE target IN ('ai_rpc_academic_years', 'ai_rpc_attendance_summary', 'ai_rpc_bug_report_details',
-                        'ai_rpc_courses', 'ai_rpc_degrees', 'ai_rpc_faculty_assignments', 'ai_rpc_periods',
-                        'ai_rpc_staff_details', 'ai_rpc_staff_plans', 'ai_rpc_timetable_slots', 'ai_rpc_timetables',
-                        'ai_rpc_academic_context', 'ai_rpc_admission_analytics')
-         AND enabled = false) <> 13 THEN
-    RAISE EXCEPTION 'ai_tool_catalog: the 13 always-failing tools are not all turned off';
+  IF EXISTS (SELECT 1 FROM public.ai_tool_catalog
+              WHERE target IN ('ai_rpc_academic_years', 'ai_rpc_attendance_summary', 'ai_rpc_bug_report_details',
+                               'ai_rpc_courses', 'ai_rpc_degrees', 'ai_rpc_faculty_assignments', 'ai_rpc_periods',
+                               'ai_rpc_staff_details', 'ai_rpc_staff_plans', 'ai_rpc_timetable_slots', 'ai_rpc_timetables',
+                               'ai_rpc_academic_context', 'ai_rpc_admission_analytics')
+                AND enabled) THEN
+    RAISE EXCEPTION 'ai_tool_catalog: a tool that fails on every call is still turned on';
   END IF;
 
   IF EXISTS (SELECT 1 FROM public.ai_tool_catalog WHERE name = 'export_data' AND 'door' = ANY (audience)) THEN

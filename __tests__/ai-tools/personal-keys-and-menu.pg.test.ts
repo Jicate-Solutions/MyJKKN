@@ -8,12 +8,21 @@
  *   days · list never carries the secret · revoke only your own · the stored
  *   hash is SHA-256 of the plaintext exactly as Node computes it · a personal
  *   row cannot be edited into a read/write key (the CHECK)
- *   the menu — door never lists is_write · door is empty without
+ *   the menu — door never lists is_write · BOTH audiences are empty without
  *   ai_query.view · requires_permission is honoured · anon can run nothing and
- *   nobody reads the table directly.
+ *   nobody reads the table directly
+ *   repair round 1 — the 13 always-failing tools are off · export_data is
+ *   assistant-only · permission keys are filled from the config · the freeze
+ *   trigger stops an owner (even with the update_own / insert_own policies
+ *   that supabase/setup/03_policies.sql declares) and an administrator from
+ *   re-kinding, re-enabling or extending a personal key.
  *
  * REQUIRES a PostgreSQL (CI's postgres:16 service; locally
  * `brew services start postgresql@16`). Fails loudly rather than skipping.
+ * Lives OUTSIDE __tests__/lib/ on purpose: the required "lib unit tests pass"
+ * job (lib-unit-suite.yml) runs __tests__/lib/ with no database, while
+ * test-suite.yml's gated subset runs everything else with a postgres:16
+ * service — the same home as the other *.pg.test.ts files.
  * Override with AI_DOOR_TEST_PGHOST / _PGPORT / _PGUSER / _PGPASSWORD.
  */
 import { readFileSync } from 'fs';
@@ -22,7 +31,7 @@ import { createHash, randomUUID } from 'crypto';
 import { Client } from 'pg';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 
-const REPO = path.resolve(__dirname, '..', '..', '..');
+const REPO = path.resolve(__dirname, '..', '..');
 const MIGRATION = path.join(REPO, 'supabase/migrations/20270301090000_ai_tool_catalog.sql');
 
 const PGHOST = process.env.AI_DOOR_TEST_PGHOST ?? 'localhost';
@@ -127,9 +136,9 @@ beforeAll(async () => {
   await db.query(migrationSql);
   // a write tool another lane might add, and a permission-gated tool
   await db.query(`INSERT INTO public.ai_tool_catalog (name, kind, target, description, is_write)
-                  VALUES ('zz_write_probe', 'rpc', 'ai_rpc_courses', 'probe', true)`);
+                  VALUES ('zz_write_probe', 'rpc', 'ai_rpc_transport', 'probe', true)`);
   await db.query(`INSERT INTO public.ai_tool_catalog (name, kind, target, description, requires_permission)
-                  VALUES ('zz_gated_probe', 'rpc', 'ai_rpc_courses', 'probe', 'billing.view')`);
+                  VALUES ('zz_gated_probe', 'rpc', 'ai_rpc_transport', 'probe', 'billing.view')`);
 }, 60_000);
 
 afterAll(async () => {
@@ -191,7 +200,59 @@ describe('fn_ai_tool_menu', () => {
     expect(names(assistant.rows)).toContain('zz_write_probe');
     expect(names(door.rows)).not.toContain('zz_write_probe');
     expect((door.rows[0].m as Array<{ is_write: boolean }>).every((t) => t.is_write === false)).toBe(true);
-    expect(names(door.rows)).toHaveLength(61);
+    // 61 seeded − 13 turned off − export_data (assistant only) − the 19
+    // enabled tools that need a permission key A does not hold
+    expect(names(door.rows)).toHaveLength(28);
+  });
+
+  it('a super admin sees every working door tool: 61 − 13 off − export_data = 47', async () => {
+    const door = await as(S, `SELECT public.fn_ai_tool_menu('door') AS m`);
+    const names = (door.rows[0].m as Array<{ name: string }>).map((t) => t.name).filter((n) => !n.startsWith('zz_'));
+    expect(names).toHaveLength(47);
+    expect(names).not.toContain('export_data');
+    const assistant = await as(S, `SELECT public.fn_ai_tool_menu('assistant') AS m`);
+    const aNames = (assistant.rows[0].m as Array<{ name: string }>).map((t) => t.name);
+    expect(aNames).toContain('export_data');
+  });
+
+  it('the 13 always-failing tools are off and appear in no menu', async () => {
+    const off = [
+      'academic_years', 'attendance_summary', 'bug_report_details', 'courses', 'degrees',
+      'faculty_assignments', 'periods', 'staff_details', 'staff_plans', 'timetable_slots',
+      'timetables', 'academic_context', 'admission_analytics',
+    ];
+    const r = await db.query(`SELECT name FROM public.ai_tool_catalog WHERE NOT enabled ORDER BY name`);
+    expect(r.rows.map((x) => x.name)).toEqual([...off].sort());
+    for (const aud of ['assistant', 'door']) {
+      const m = await as(S, `SELECT public.fn_ai_tool_menu($1) AS m`, [aud]);
+      const names = (m.rows[0].m as Array<{ name: string }>).map((t) => t.name);
+      for (const n of off) expect(names, `${aud}:${n}`).not.toContain(n);
+    }
+  });
+
+  it('fills requires_permission from the config only where the key exists', async () => {
+    const r = await db.query(
+      `SELECT name, requires_permission AS p FROM public.ai_tool_catalog
+        WHERE name IN ('students_summary','admission_referrers','fee_defaulters','attendance','staff',
+                       'departments','hierarchy_summary','kpi_summary','export_data','transport')`
+    );
+    const got = Object.fromEntries(r.rows.map((x) => [x.name, x.p]));
+    expect(got).toEqual({
+      students_summary: 'learners.view',
+      admission_referrers: 'learners.admissions.dashboard',
+      fee_defaulters: 'billing.bills.view',
+      attendance: 'academic.attendance.view',
+      staff: 'staff.view',
+      departments: 'organizations.departments.view',
+      hierarchy_summary: null,
+      kpi_summary: null,
+      export_data: null,
+      transport: null,
+    });
+    const n = await db.query(
+      `SELECT count(*)::int AS n FROM public.ai_tool_catalog WHERE requires_permission IS NOT NULL AND name NOT LIKE 'zz_%'`
+    );
+    expect(n.rows[0].n).toBe(20);
   });
 
   it('honours requires_permission, with the super-admin bypass', async () => {
@@ -201,9 +262,11 @@ describe('fn_ai_tool_menu', () => {
     expect(s.rows[0].has).toBe(true);
   });
 
-  it('door is empty for a person without ai_query.view', async () => {
-    const r = await as(B, `SELECT public.fn_ai_tool_menu('door') AS m`);
-    expect(r.rows[0].m).toEqual([]);
+  it('both menus are empty for a person without ai_query.view (a learner cannot list the tools)', async () => {
+    for (const aud of ['door', 'assistant']) {
+      const r = await as(B, `SELECT public.fn_ai_tool_menu($1) AS m`, [aud]);
+      expect(r.rows[0].m, aud).toEqual([]);
+    }
   });
 
   it('refuses an unknown audience', async () => {
@@ -252,11 +315,8 @@ describe('personal keys', () => {
 
   it('an expired key does not count toward the 3', async () => {
     const t = await db.query(`SELECT id FROM public.api_keys WHERE name = 'two' AND user_id = $1`, [A]);
-    // age the key: both timestamps move back together, so the 90-day CHECK still holds
-    await db.query(
-      `UPDATE public.api_keys SET created_at = now() - interval '100 days', expires_at = now() - interval '10 days' WHERE id = $1`,
-      [t.rows[0].id]
-    );
+    // expire the key: shortening is the one change to its dates the freeze trigger allows
+    await db.query(`UPDATE public.api_keys SET expires_at = now() - interval '1 second' WHERE id = $1`, [t.rows[0].id]);
     const r = await as(A, `SELECT public.fn_ai_personal_key_create('five', 30) AS k`);
     expect(r.error).toBeUndefined();
   });
@@ -301,16 +361,105 @@ describe('personal keys', () => {
     expect(row.rows[0].permissions).toEqual({ read: false, write: false });
   });
 
-  it('a personal row can never become a read/write key or outlive 90 days (CHECK)', async () => {
+  it('a personal row can never become a read/write key or outlive 90 days (CHECK + freeze trigger)', async () => {
     const k = await db.query(`SELECT id FROM public.api_keys WHERE name = 'three' AND user_id = $1`, [A]);
     await expect(
       db.query(`UPDATE public.api_keys SET permissions = '{"read": true, "write": false}' WHERE id = $1`, [k.rows[0].id])
-    ).rejects.toThrow(/api_keys_personal_shape_check/);
+    ).rejects.toThrow(/cannot be changed, extended or turned back on/);
     await expect(
       db.query(`UPDATE public.api_keys SET expires_at = created_at + interval '91 days' WHERE id = $1`, [k.rows[0].id])
-    ).rejects.toThrow(/api_keys_personal_shape_check/);
+    ).rejects.toThrow(/cannot be changed, extended or turned back on/);
     await expect(
       db.query(`INSERT INTO public.api_keys (name, key_value, key_kind, permissions) VALUES ('forged', 'x', 'personal', '{"read": false, "write": false}')`)
     ).rejects.toThrow(/api_keys_personal_shape_check/);
+  });
+});
+
+describe('freeze trigger — administrators and the service role', () => {
+  const pick = async (name: string) =>
+    (await db.query(`SELECT id FROM public.api_keys WHERE name = $1 AND user_id = $2`, [name, A])).rows[0].id as string;
+
+  it('cannot re-kind a personal key into an administrator key', async () => {
+    const id = await pick('three');
+    await expect(
+      db.query(`UPDATE public.api_keys SET key_kind = 'admin', permissions = '{"read": true, "write": false}' WHERE id = $1`, [id])
+    ).rejects.toThrow(/cannot be changed, extended or turned back on/);
+  });
+
+  it('cannot turn a turned-off personal key back on', async () => {
+    const id = await pick('one');
+    await expect(db.query(`UPDATE public.api_keys SET is_active = true WHERE id = $1`, [id])).rejects.toThrow(
+      /cannot be changed, extended or turned back on/
+    );
+  });
+
+  it('cannot swap the stored secret or move the creation time', async () => {
+    const id = await pick('three');
+    await expect(db.query(`UPDATE public.api_keys SET key_value = 'other' WHERE id = $1`, [id])).rejects.toThrow(/cannot be changed/);
+    await expect(db.query(`UPDATE public.api_keys SET created_at = now() WHERE id = $1`, [id])).rejects.toThrow(/cannot be changed/);
+  });
+
+  it('can still rename it, record its last use and turn it off', async () => {
+    const id = await pick('three');
+    await db.query(`UPDATE public.api_keys SET name = 'three renamed', last_used_at = now() WHERE id = $1`, [id]);
+    await db.query(`UPDATE public.api_keys SET is_active = false WHERE id = $1`, [id]);
+    const r = await db.query(`SELECT name, is_active FROM public.api_keys WHERE id = $1`, [id]);
+    expect(r.rows[0]).toEqual({ name: 'three renamed', is_active: false });
+  });
+
+  it('leaves administrator keys alone', async () => {
+    await db.query(
+      `UPDATE public.api_keys SET permissions = '{"read": true, "write": true}', is_active = true WHERE name = 'legacy admin key'`
+    );
+    const r = await db.query(`SELECT permissions FROM public.api_keys WHERE name = 'legacy admin key'`);
+    expect(r.rows[0].permissions).toEqual({ read: true, write: true });
+  });
+});
+
+describe('freeze trigger — an owner writing directly (if the *_own policies are live)', () => {
+  // supabase/setup/03_policies.sql declares these on user_id = auth.uid().
+  // Whether production has them was not confirmed; recreate the worst case.
+  beforeAll(async () => {
+    await db.query(`GRANT SELECT, INSERT, UPDATE ON public.api_keys TO authenticated`);
+    await db.query(`CREATE POLICY api_keys_select_own ON public.api_keys FOR SELECT USING (user_id = auth.uid())`);
+    await db.query(`CREATE POLICY api_keys_insert_own ON public.api_keys FOR INSERT WITH CHECK (user_id = auth.uid())`);
+    await db.query(
+      `CREATE POLICY api_keys_update_own ON public.api_keys FOR UPDATE USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid())`
+    );
+  });
+
+  it('cannot flip their personal key into an administrator key with read access', async () => {
+    const k = await db.query(`SELECT id FROM public.api_keys WHERE name = 'four' AND user_id = $1 AND is_active`, [A]);
+    const r = await as(
+      A,
+      `UPDATE public.api_keys SET key_kind = 'admin', permissions = '{"read": true, "write": false}' WHERE id = $1`,
+      [k.rows[0].id]
+    );
+    expect(r.error).toMatch(/turned off only on the Connect an outside AI page/);
+    const still = await db.query(`SELECT key_kind, permissions FROM public.api_keys WHERE id = $1`, [k.rows[0].id]);
+    expect(still.rows[0]).toEqual({ key_kind: 'personal', permissions: { read: false, write: false } });
+  });
+
+  it('cannot turn a turned-off key back on', async () => {
+    const off = await db.query(`SELECT id FROM public.api_keys WHERE name = 'one' AND user_id = $1`, [A]);
+    const r = await as(A, `UPDATE public.api_keys SET is_active = true WHERE id = $1`, [off.rows[0].id]);
+    expect(r.error).toMatch(/turned off only on the Connect an outside AI page/);
+  });
+
+  it('cannot insert a personal key directly (skipping the permission check and the 3-key limit)', async () => {
+    const r = await as(
+      B,
+      `INSERT INTO public.api_keys (name, key_value, created_by, user_id, key_kind, permissions, created_at, expires_at)
+       VALUES ('sneaky', 'h', $1, $1, 'personal', '{"read": false, "write": false}', now(), now() + interval '30 days')`,
+      [B]
+    );
+    expect(r.error).toMatch(/made only on the Connect an outside AI page/);
+  });
+
+  it('the page’s own functions still work with the trigger in place', async () => {
+    const made = await as(S, `SELECT public.fn_ai_personal_key_create('via page', 10) AS k`);
+    expect(made.error).toBeUndefined();
+    const off = await as(S, `SELECT public.fn_ai_personal_key_revoke($1) AS r`, [made.rows[0].k.id]);
+    expect(off.rows[0].r.status).toBe('turned_off');
   });
 });
