@@ -52,7 +52,14 @@ const BANNERS: Record<string, { tone: Tone; text: string }> = {
     tone: 'warn',
     text: 'Disconnected. MyJKKN has deleted its key, so the assistant can no longer read your mail or Drive — but Google did not confirm removing the permission. You can remove it yourself at myaccount.google.com/permissions.',
   },
-  disconnect_failed: { tone: 'bad', text: 'Could not disconnect just now. Please try again.' },
+  disconnected_key_only: {
+    tone: 'warn',
+    text: 'Disconnected. MyJKKN has deleted its key, so the assistant can no longer read your mail or Drive. MyJKKN did not ask Google to remove the permission this time. If Google still lists MyJKKN, you can remove it yourself at myaccount.google.com/permissions.',
+  },
+  disconnect_failed: {
+    tone: 'bad',
+    text: 'Could not disconnect just now. Nothing was changed: your connection is still on. Please try again.',
+  },
 };
 
 const TONE_CLASSES: Record<Tone, string> = {
@@ -161,7 +168,10 @@ export function GoogleReadCard({
             </li>
             <li>
               <strong className="font-medium text-foreground">Disconnect any time.</strong>{' '}
-              MyJKKN deletes its key straight away.
+              MyJKKN deletes its key straight away. If your Google Calendar is
+              connected with the same Google account, Google will still list
+              MyJKKN as allowed afterwards, because removing it there would
+              disconnect your calendar too.
             </li>
             <li>
               <strong className="font-medium text-foreground">What is logged.</strong>{' '}

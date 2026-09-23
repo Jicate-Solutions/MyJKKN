@@ -21,7 +21,11 @@ import {
   signState,
   verifyState,
 } from '@/lib/services/integrations/google-calendar-service';
-import { GOOGLE_READ_SCOPES, GOOGLE_READ_STATE_PURPOSE } from './constants';
+import {
+  GOOGLE_FETCH_TIMEOUT_MS,
+  GOOGLE_READ_SCOPES,
+  GOOGLE_READ_STATE_PURPOSE,
+} from './constants';
 
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -87,6 +91,7 @@ export async function exchangeGoogleReadCode(code: string): Promise<ExchangeResu
         redirect_uri: googleReadRedirectUri(),
         grant_type: 'authorization_code',
       }),
+      signal: AbortSignal.timeout(GOOGLE_FETCH_TIMEOUT_MS),
     });
   } catch (err) {
     console.error(`${LOG_PREFIX} code exchange threw:`, (err as Error).message);
@@ -134,6 +139,7 @@ export async function revokeAtGoogle(refreshToken: string): Promise<boolean> {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ token: refreshToken }),
+      signal: AbortSignal.timeout(GOOGLE_FETCH_TIMEOUT_MS),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => '');

@@ -3,16 +3,24 @@
 // SERVER-ONLY. The person's own Gmail/Drive connection: the switch, the vaulted
 // token, the access-token exchange and the audit log.
 //
-// Every database call here goes through the CALLER's client, and every function
-// it calls is pinned to auth.uid() (20270303090000_ai_google_read.sql). There is
-// no argument anywhere that names a person, so this module cannot reach anyone
-// else's connection even if a route were written wrongly.
+// Every connection call here goes through the CALLER's client, and every
+// function it calls is pinned to auth.uid() (20270303090000_ai_google_read.sql).
+// There is no argument anywhere that names a person, so this module cannot
+// reach anyone else's connection even if a route were written wrongly.
+//
+// The ONE exception is the audit row: it is written with the service-role
+// client, for the userId the route already proved, because a signed-in person
+// must not be able to add audit rows for tool calls that never happened
+// (repair round 1: authenticated holds SELECT only on the audit table).
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 import {
   DRIVE_READONLY_SCOPE,
   GMAIL_READONLY_SCOPE,
+  GOOGLE_FETCH_TIMEOUT_MS,
   GOOGLE_READ_POLICY_KEY,
+  IDENTITY_SCOPES,
   type GoogleReadAuditTool,
 } from './constants';
 
@@ -57,17 +65,22 @@ export async function isGoogleReadEnabled(supabase: SupabaseClient): Promise<boo
   }
 }
 
-/** One audit row: who (auth.uid()), which tool, when, outcome. Never content. */
+/**
+ * One audit row: who, which tool, when, outcome. Never content.
+ *
+ * Written with the service-role client for `userId` — the id the calling route
+ * already took from the verified session or bearer token, never from the
+ * request body. Nobody signed in can write this table directly.
+ */
 export async function logGoogleRead(
-  supabase: SupabaseClient,
+  userId: string,
   tool: GoogleReadAuditTool,
   outcome: string,
 ): Promise<void> {
   try {
-    const { error } = await supabase.rpc('fn_ai_google_read_log', {
-      p_tool: tool,
-      p_outcome: outcome,
-    });
+    const { error } = await createServiceRoleClient()
+      .from('ai_google_read_audit')
+      .insert({ profile_id: userId, tool, outcome });
     if (error) console.error(`${LOG_PREFIX} audit write failed:`, error.message);
   } catch (err) {
     console.error(`${LOG_PREFIX} audit write threw:`, (err as Error).message);
@@ -80,46 +93,80 @@ export interface StoredGrant {
   scopes: string[];
 }
 
-/** The caller's own decrypted grant, or null when there is no active one. */
-export async function readOwnGrant(supabase: SupabaseClient): Promise<StoredGrant | null> {
+export type GrantRead =
+  | { kind: 'ok'; grant: StoredGrant }
+  /** No ACTIVE connection: never connected, disconnected, or marked broken. */
+  | { kind: 'none' }
+  /**
+   * The key could not be read: the vault call failed, the server secret is
+   * missing, or the stored key no longer decrypts. Nothing is known about
+   * what Google holds.
+   */
+  | { kind: 'error' };
+
+/** The caller's own decrypted grant — and, when there is none, WHY. */
+export async function readOwnGrant(supabase: SupabaseClient): Promise<GrantRead> {
   const master = env('GOOGLE_TOKEN_MASTER_SECRET');
-  if (!master) return null;
+  if (!master) return { kind: 'error' };
   const { data, error } = await supabase.rpc('fn_ai_google_read_get_token', {
     p_master_secret: master,
   });
   if (error) {
     console.error(`${LOG_PREFIX} vault read failed:`, error.message);
-    return null;
+    return { kind: 'error' };
   }
   const row = Array.isArray(data) ? (data[0] as Record<string, unknown> | undefined) : undefined;
-  if (!row || typeof row.refresh_token !== 'string' || !row.refresh_token) return null;
+  if (!row || typeof row.refresh_token !== 'string' || !row.refresh_token) return { kind: 'none' };
   return {
-    googleEmail: String(row.google_email ?? ''),
-    refreshToken: row.refresh_token,
-    scopes: Array.isArray(row.granted_scopes) ? (row.granted_scopes as string[]) : [],
+    kind: 'ok',
+    grant: {
+      googleEmail: String(row.google_email ?? ''),
+      refreshToken: row.refresh_token,
+      scopes: Array.isArray(row.granted_scopes) ? (row.granted_scopes as string[]) : [],
+    },
   };
 }
 
 export type AccessResult =
-  | { status: 'ok'; accessToken: string; scopes: string[] }
+  | { status: 'ok'; accessToken: string }
   /** Never connected, or disconnected. */
   | { status: 'not_connected' }
   /** Was connected; Google has since withdrawn it (invalid_grant). */
   | { status: 'reconnect_needed' }
+  /** Connected, but the person did not tick the box this tool needs. */
+  | { status: 'missing_scope' }
   /** Google or the vault did not answer. Try again later. */
   | { status: 'failed' };
 
-/** Refresh token → short-lived access token for the caller's own grant. */
+/** True when a token's scope list holds nothing beyond `allowed` + identity. */
+export function scopeIsOnly(scopeField: string | undefined, allowed: string): boolean {
+  if (typeof scopeField !== 'string' || !scopeField.trim()) return false;
+  const got = scopeField.split(/\s+/).filter(Boolean);
+  return got.includes(allowed) && got.every((s) => s === allowed || IDENTITY_SCOPES.includes(s));
+}
+
+/**
+ * Refresh token → short-lived access token for the caller's own grant,
+ * carrying ONLY `requiredScope` (gmail.readonly or drive.readonly).
+ *
+ * The stored refresh token may also carry the calendar scopes, including
+ * calendar.events (write), because the consent is incremental. So the refresh
+ * request names the one scope this tool needs (Google's down-scoping), and a
+ * token that comes back with anything else — or without saying what it holds —
+ * is refused, never used.
+ */
 export async function getOwnAccessToken(
   supabase: SupabaseClient,
   userId: string,
+  requiredScope: string,
 ): Promise<AccessResult> {
   const clientId = env('GOOGLE_CAL_CLIENT_ID');
   const clientSecret = env('GOOGLE_CAL_CLIENT_SECRET');
   if (!clientId || !clientSecret) return { status: 'failed' };
 
-  const grant = await readOwnGrant(supabase);
-  if (!grant) {
+  const read = await readOwnGrant(supabase);
+  if (read.kind === 'error') return { status: 'failed' };
+  if (read.kind === 'none') {
     // Tell "never connected" apart from "Google withdrew it" — the second one
     // needs a different sentence to the person.
     const { data } = await supabase
@@ -131,6 +178,8 @@ export async function getOwnAccessToken(
       ? { status: 'reconnect_needed' }
       : { status: 'not_connected' };
   }
+  const grant = read.grant;
+  if (!grant.scopes.includes(requiredScope)) return { status: 'missing_scope' };
 
   let res: Response;
   try {
@@ -142,7 +191,9 @@ export async function getOwnAccessToken(
         client_id: clientId,
         client_secret: clientSecret,
         grant_type: 'refresh_token',
+        scope: requiredScope,
       }),
+      signal: AbortSignal.timeout(GOOGLE_FETCH_TIMEOUT_MS),
     });
   } catch (err) {
     console.error(`${LOG_PREFIX} token refresh threw:`, (err as Error).message);
@@ -157,12 +208,18 @@ export async function getOwnAccessToken(
       if (error) console.error(`${LOG_PREFIX} mark broken failed:`, error.message);
       return { status: 'reconnect_needed' };
     }
+    // Google refuses to down-scope to a scope the grant no longer holds.
+    if (body.includes('invalid_scope')) return { status: 'missing_scope' };
     return { status: 'failed' };
   }
 
-  const json = (await res.json().catch(() => ({}))) as { access_token?: string };
+  const json = (await res.json().catch(() => ({}))) as { access_token?: string; scope?: string };
   if (!json.access_token) return { status: 'failed' };
-  return { status: 'ok', accessToken: json.access_token, scopes: grant.scopes };
+  if (!scopeIsOnly(json.scope, requiredScope)) {
+    console.error(`${LOG_PREFIX} refreshed token was not narrowed to ${requiredScope}; refused.`);
+    return { status: 'failed' };
+  }
+  return { status: 'ok', accessToken: json.access_token };
 }
 
 export function hasMailScope(scopes: string[]): boolean {

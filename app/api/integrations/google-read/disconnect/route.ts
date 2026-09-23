@@ -5,8 +5,8 @@ export const dynamic = 'force-dynamic';
 // "Disconnect" on the Gmail/Drive card. Works whether or not the switch is on —
 // nobody may ever be stuck connected.
 //
-// What it does, in every case: deletes MyJKKN's key (the vaulted refresh token),
-// so MyJKKN can no longer read the person's mail or Drive.
+// What it does: deletes MyJKKN's key (the vaulted refresh token), so MyJKKN can
+// no longer read the person's mail or Drive.
 //
 // Whether it ALSO withdraws the permission at Google depends on the calendar:
 // Google's revoke withdraws EVERY permission this OAuth client holds for that
@@ -15,6 +15,12 @@ export const dynamic = 'force-dynamic';
 //     Google-side permission is left in place (the calendar needs it), and the
 //     card tells the person how to remove it at Google themselves;
 //   - otherwise → the permission is also withdrawn at Google.
+//
+// Order, so the banner can only ever say what really happened (repair round 1):
+//   1. read the key; 2. if there is one, check the calendar row — if that READ
+//   fails, stop here with nothing changed (never revoke on a guess: a revoke
+//   would take the calendar down with it); 3. delete the key — if that fails,
+//   stop here with nothing changed; 4. only then ask Google, and record it.
 
 import { NextRequest, NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -48,47 +54,68 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Please sign in first.' }, { status: 401 });
   }
 
-  const grant = await readOwnGrant(supabase);
+  // 1. the key. 'none' = no active connection (never connected, already
+  //    disconnected, or Google withdrew it earlier); 'error' = the key could not
+  //    be read (vault call failed, server secret missing, key no longer
+  //    decrypts). In both, MyJKKN cannot ask Google — but the key is still
+  //    deleted, so nobody is ever stuck connected.
+  const read = await readOwnGrant(supabase);
+  const grant = read.kind === 'ok' ? read.grant : null;
 
-  let revokedAtGoogle = false;
-  let keptForCalendar = false;
+  // 2. does the calendar ride on the same Google account? Fail CLOSED.
+  let calendarRidesOnSameAccount = false;
   if (grant) {
-    const { data: cal } = await supabase
+    const { data: cal, error: calError } = await supabase
       .from('meeting_host_google_connections')
       .select('google_email, status')
       .eq('host_profile_id', user.id)
       .maybeSingle();
+    if (calError) {
+      console.error('[google-read/disconnect] calendar check failed:', calError.message);
+      await logGoogleRead(user.id, 'disconnect', 'calendar_check_failed');
+      return back('disconnect_failed');
+    }
     const calendar = cal as { google_email?: string; status?: string } | null;
-    const calendarRidesOnSameAccount =
+    calendarRidesOnSameAccount =
       calendar?.status === 'active' &&
       (calendar.google_email ?? '').toLowerCase() === grant.googleEmail.toLowerCase();
-
-    if (calendarRidesOnSameAccount) {
-      keptForCalendar = true;
-    } else {
-      revokedAtGoogle = await revokeAtGoogle(grant.refreshToken);
-    }
   }
 
+  // 3. delete the key — first, so a failure here means nothing has changed.
   const { error: clearError } = await supabase.rpc('fn_ai_google_read_clear_token', {
-    p_revoked_at_google: revokedAtGoogle,
+    p_revoked_at_google: false,
   });
   if (clearError) {
     console.error('[google-read/disconnect] clear failed:', clearError.message);
-    await logGoogleRead(supabase, 'disconnect', 'clear_failed');
+    await logGoogleRead(user.id, 'disconnect', 'clear_failed');
     return back('disconnect_failed');
   }
 
-  // The key is gone in every branch below; the flags differ only in what
-  // happened at Google, so the card can say it truthfully.
-  if (!grant || revokedAtGoogle) {
-    await logGoogleRead(supabase, 'disconnect', grant ? 'revoked_at_google' : 'key_deleted');
-    return back('disconnected');
+  // From here on the key is gone; the flags differ only in what happened at
+  // Google, so the card can say it truthfully.
+  if (!grant) {
+    await logGoogleRead(user.id, 'disconnect', read.kind === 'error' ? 'key_unreadable' : 'key_deleted');
+    return back('disconnected_key_only');
   }
-  if (keptForCalendar) {
-    await logGoogleRead(supabase, 'disconnect', 'kept_for_calendar');
+  if (calendarRidesOnSameAccount) {
+    await logGoogleRead(user.id, 'disconnect', 'kept_for_calendar');
     return back('disconnected_kept_for_calendar');
   }
-  await logGoogleRead(supabase, 'disconnect', 'revoke_failed');
-  return back('disconnected_revoke_failed');
+
+  // 4. ask Google (we still hold the token in memory), then record the answer.
+  const revokedAtGoogle = await revokeAtGoogle(grant.refreshToken);
+  if (!revokedAtGoogle) {
+    await logGoogleRead(user.id, 'disconnect', 'revoke_failed');
+    return back('disconnected_revoke_failed');
+  }
+  const { error: recordError } = await supabase.rpc('fn_ai_google_read_clear_token', {
+    p_revoked_at_google: true,
+  });
+  if (recordError) {
+    // Google did withdraw it; only our note of that failed. The banner stays
+    // true — it describes what happened, not what we recorded.
+    console.error('[google-read/disconnect] recording the revoke failed:', recordError.message);
+  }
+  await logGoogleRead(user.id, 'disconnect', 'revoked_at_google');
+  return back('disconnected');
 }

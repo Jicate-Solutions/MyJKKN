@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
   const exchanged = await exchangeGoogleReadCode(code);
   if (exchanged.ok === false) {
     console.error('[google-read/callback] connection failed:', exchanged.error);
-    await logGoogleRead(supabase, 'connect', exchanged.error);
+    await logGoogleRead(user.id, 'connect', exchanged.error);
     return back('failed');
   }
 
@@ -68,12 +68,12 @@ export async function GET(request: NextRequest) {
   });
   if (error) {
     console.error('[google-read/callback] vault store failed:', error.message);
-    await logGoogleRead(supabase, 'connect', 'vault_failed');
+    await logGoogleRead(user.id, 'connect', 'vault_failed');
     return back('failed');
   }
 
   const mail = hasMailScope(exchanged.scopes);
   const drive = hasDriveScope(exchanged.scopes);
-  await logGoogleRead(supabase, 'connect', mail && drive ? 'ok' : 'partial');
+  await logGoogleRead(user.id, 'connect', mail && drive ? 'ok' : 'partial');
   return back(mail && drive ? 'connected' : 'partial');
 }

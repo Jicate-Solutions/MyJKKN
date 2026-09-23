@@ -8,7 +8,7 @@
 // Transport: native fetch, same as google-calendar-service.ts (no googleapis
 // SDK — the surface stays small and auditable, and tests can stub fetch).
 
-import { DEFAULT_RESULTS, MAX_RESULTS, MAX_TEXT_CHARS } from './constants';
+import { DEFAULT_RESULTS, GOOGLE_FETCH_TIMEOUT_MS, MAX_RESULTS, MAX_TEXT_CHARS } from './constants';
 
 const GMAIL = 'https://gmail.googleapis.com/gmail/v1/users/me';
 const DRIVE = 'https://www.googleapis.com/drive/v3';
@@ -29,14 +29,23 @@ export class GoogleApiError extends Error {
   }
 }
 
+// A hung Google request gives up after GOOGLE_FETCH_TIMEOUT_MS; the abort
+// throws, and the endpoint turns it into ok:false "Google did not answer".
+function googleGet(url: string, accessToken: string, fetchImpl: FetchLike): Promise<Response> {
+  return fetchImpl(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(GOOGLE_FETCH_TIMEOUT_MS),
+  });
+}
+
 async function getJson<T>(url: string, accessToken: string, fetchImpl: FetchLike): Promise<T> {
-  const res = await fetchImpl(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const res = await googleGet(url, accessToken, fetchImpl);
   if (!res.ok) throw await toApiError(res);
   return (await res.json()) as T;
 }
 
 async function getText(url: string, accessToken: string, fetchImpl: FetchLike): Promise<string> {
-  const res = await fetchImpl(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const res = await googleGet(url, accessToken, fetchImpl);
   if (!res.ok) throw await toApiError(res);
   return res.text();
 }
@@ -180,15 +189,22 @@ export async function searchMyMail(
   const meta = new URLSearchParams({ format: 'metadata' });
   for (const h of ['From', 'Subject', 'Date']) meta.append('metadataHeaders', h);
 
-  const messages = await Promise.all(
+  // One GET per hit. A message deleted between the list and its GET answers
+  // 404: drop THAT hit and keep the rest. Any other failure still fails the
+  // search, so a real Google problem is never reported as "nothing found".
+  const fetched = await Promise.all(
     ids.map((id) =>
       getJson<GmailMessage>(
         `${GMAIL}/messages/${encodeURIComponent(id)}?${meta.toString()}`,
         accessToken,
         fetchImpl,
-      ),
+      ).catch((err: unknown) => {
+        if (err instanceof GoogleApiError && err.status === 404) return null;
+        throw err;
+      }),
     ),
   );
+  const messages = fetched.filter((m): m is GmailMessage => m !== null);
   return messages.map((m) => ({
     id: m.id,
     from: header(m.payload, 'From'),
@@ -274,16 +290,27 @@ export interface DriveHit {
   link: string;
 }
 
+export interface DriveSearchResult {
+  files: DriveHit[];
+  /** Google's incompleteSearch: some shared drives could not be searched. */
+  incomplete: boolean;
+}
+
 export async function searchMyDrive(
   accessToken: string,
   query: string,
   limit: number,
   fetchImpl: FetchLike = fetch,
-): Promise<DriveHit[]> {
+): Promise<DriveSearchResult> {
   const params = new URLSearchParams({
     q: buildDriveQuery(query),
     pageSize: String(clampLimit(limit, DEFAULT_RESULTS)),
-    fields: 'files(id,name,mimeType,modifiedTime,webViewLink)',
+    fields: 'incompleteSearch,files(id,name,mimeType,modifiedTime,webViewLink)',
+    // corpora=allDrives = My Drive AND every shared drive the person is a
+    // member of. The default corpus ('user') covers only files the person
+    // created, opened or was shared on directly, so shared-drive files would
+    // be silently missing. allDrives requires the two flags below.
+    corpora: 'allDrives',
     includeItemsFromAllDrives: 'true',
     supportsAllDrives: 'true',
     spaces: 'drive',
@@ -291,18 +318,21 @@ export async function searchMyDrive(
   // Drive refuses orderBy on a fullText query (results come by relevance);
   // with no words, newest first is the useful order.
   if (!query.trim()) params.set('orderBy', 'modifiedTime desc');
-  const json = await getJson<{ files?: DriveFile[] }>(
+  const json = await getJson<{ files?: DriveFile[]; incompleteSearch?: boolean }>(
     `${DRIVE}/files?${params.toString()}`,
     accessToken,
     fetchImpl,
   );
-  return (json.files ?? []).slice(0, MAX_RESULTS).map((f) => ({
-    id: f.id,
-    name: f.name ?? '',
-    type: friendlyType(f.mimeType),
-    modified: f.modifiedTime ?? '',
-    link: f.webViewLink ?? '',
-  }));
+  return {
+    files: (json.files ?? []).slice(0, MAX_RESULTS).map((f) => ({
+      id: f.id,
+      name: f.name ?? '',
+      type: friendlyType(f.mimeType),
+      modified: f.modifiedTime ?? '',
+      link: f.webViewLink ?? '',
+    })),
+    incomplete: json.incompleteSearch === true,
+  };
 }
 
 export interface DriveFileText {
