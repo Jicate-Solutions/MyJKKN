@@ -311,7 +311,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // AI Assistant
   '/ai-query': 'ai_query.view', // AI Query System access
-  '/ai-query/connect': 'ai_query.view', // Personal keys for outside AIs (Claude, ChatGPT, Gemini, Zia)
+  '/ai-query/connect': 'ai_query.view', // Personal keys for outside AIs that accept a custom MCP server with a bearer key (Claude Code, Claude Desktop, Gemini CLI, Zoho Zia)
 
   // ======================================================================
   // InstaSolver — the ONE front door for "something is wrong here".

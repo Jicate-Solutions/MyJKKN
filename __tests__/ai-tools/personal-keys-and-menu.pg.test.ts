@@ -225,7 +225,9 @@ describe('fn_ai_tool_menu', () => {
       'timetables', 'academic_context', 'admission_analytics',
     ];
     const r = await db.query(`SELECT name FROM public.ai_tool_catalog WHERE NOT enabled ORDER BY name`);
-    expect(r.rows.map((x) => x.name)).toEqual([...off].sort());
+    // Sort both sides in JS: SQL ORDER BY follows the database collation (en_US.utf8 in CI ignores '_',
+    // a local C-collation database does not), so 'timetable_slots' vs 'timetables' flipped between them.
+    expect(r.rows.map((x) => x.name).sort()).toEqual([...off].sort());
     for (const aud of ['assistant', 'door']) {
       const m = await as(S, `SELECT public.fn_ai_tool_menu($1) AS m`, [aud]);
       const names = (m.rows[0].m as Array<{ name: string }>).map((t) => t.name);
