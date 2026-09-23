@@ -31,11 +31,11 @@ const batches = [
 ];
 
 describe('practicalSectionIdsForStaff', () => {
-  it('returns the sections of the batches the staff teaches', () => {
+  it('returns the sections of the batches mapped to this id', () => {
     expect(practicalSectionIdsForStaff(batches, UMA)).toEqual([SEC]);
   });
 
-  it('ignores batches the staff does not teach', () => {
+  it('ignores batches not mapped to this id', () => {
     const X = '11111111-1111-1111-1111-111111111111';
     const mixed = [
       { section_ids: [X], staff_mapping: { c1: [OTHER] } },
