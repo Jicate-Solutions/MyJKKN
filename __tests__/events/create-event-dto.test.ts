@@ -71,7 +71,8 @@ describe('helpers', () => {
 
   it('toIso reads datetime-local as LOCAL wall time, not UTC', () => {
     const iso = toIso('2026-01-05T09:00');
-    expect(iso).toBe(new Date('2026-01-05T09:00').toISOString());
+    // Read as IST (+05:30) regardless of the machine's zone: 09:00 IST = 03:30Z.
+    expect(iso).toBe('2026-01-05T03:30:00.000Z');
     // The whole point: the raw string is NOT passed through, or Postgres would
     // read it as naive and shift it by the timezone offset.
     expect(iso).not.toBe('2026-01-05T09:00');
