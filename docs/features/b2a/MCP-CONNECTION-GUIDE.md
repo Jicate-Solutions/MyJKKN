@@ -31,7 +31,8 @@ What a personal key can do:
 - It lasts at most **90 days**, and you can have at most **3 working keys** at a time.
 - You can **turn a key off** on the same page at any time; it stops working at once. If you lose the AI Assistant permission, your keys stop working too.
 - Every tool call is recorded (which key, which tool, when, and whether it worked — never the data), and each key is limited to 60 requests a minute.
-- A personal key does **not** work on the other MyJKKN APIs (`/api/b2a/*`, `/api/api-management/*`); only here.
+- A personal key does **not** work on the other MyJKKN APIs (`/api/b2a/*`, `/api/api-management/*`, `/api/v1/transport-requests`); only here.
+- Asking about a college you cannot see is refused, and one call returns at most 500 rows.
 
 Treat it like a password: paste it only into your own AI app, never into a chat, email or document.
 
@@ -65,6 +66,14 @@ The exact menu depends on your Zoho product and plan.
 
 ## Connecting from Claude Desktop / Claude.ai
 
+> **Personal keys (`jkkn_pk_…`), checked 2026-09-23:** claude.ai custom connectors
+> sign in with OAuth, which this door does not offer yet. A fixed `Authorization`
+> header there is a beta that an organisation administrator sets once for EVERY
+> member of the organisation — never put a personal key there. Use Claude Code,
+> or Claude Desktop through the `mcp-remote` lines under "Cursor / Other MCP
+> Clients" below (with `jkkn_pk_YOUR_KEY`). The steps in this section are for
+> administrator keys and may not match your version of the app.
+
 1. Open Claude Desktop
 2. Go to **Settings > Connectors**
 3. Click **Add Connector**
@@ -80,6 +89,9 @@ You can now ask Claude questions like:
 - "List students in the Computer Science department"
 
 ## Connecting from ChatGPT
+
+> **Personal keys (`jkkn_pk_…`), checked 2026-09-23:** ChatGPT connectors sign in
+> with OAuth or with no sign-in at all, so a personal key cannot be used there yet.
 
 1. Open ChatGPT
 2. Go to **Settings > Connectors > Advanced > Developer Mode**

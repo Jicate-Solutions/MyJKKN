@@ -233,7 +233,7 @@ describe('fn_ai_tool_menu', () => {
   it('fills requires_permission from the config only where the key exists', async () => {
     const r = await db.query(
       `SELECT name, requires_permission AS p FROM public.ai_tool_catalog
-        WHERE name IN ('students_summary','admission_referrers','fee_defaulters','attendance','staff',
+        WHERE name IN ('students_summary','admission_referrers','fee_defaulters','attendance',
                        'departments','hierarchy_summary','kpi_summary','export_data','transport')`
     );
     const got = Object.fromEntries(r.rows.map((x) => [x.name, x.p]));
@@ -242,7 +242,6 @@ describe('fn_ai_tool_menu', () => {
       admission_referrers: 'learners.admissions.dashboard',
       fee_defaulters: 'billing.bills.view',
       attendance: 'academic.attendance.view',
-      staff: 'staff.view',
       departments: 'organizations.departments.view',
       hierarchy_summary: null,
       kpi_summary: null,

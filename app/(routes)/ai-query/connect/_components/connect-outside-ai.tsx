@@ -60,18 +60,16 @@ const STEPS: { title: string; steps: string[] }[] = [
   {
     title: 'Claude',
     steps: [
-      'Claude Desktop or claude.ai: open Settings, then Connectors, then add a custom connector.',
-      `Name it MyJKKN and paste this address: ${DOOR_URL}`,
-      'Where it asks how to sign in, choose a Bearer token (or a header "Authorization") and paste your key after the word Bearer.',
       'Claude Code: run  claude mcp add --transport http myjkkn ' + DOOR_URL + ' --header "Authorization: Bearer YOUR_KEY"',
+      `Claude Desktop: in its settings file, add a server named myjkkn that uses the mcp-remote helper with the address ${DOOR_URL} and the header "Authorization: Bearer YOUR_KEY". The MyJKKN connection guide shows the exact lines.`,
+      'claude.ai in the browser cannot use this key yet: its custom connectors sign in with OAuth, and a fixed key there is set by an organisation administrator for everyone in the organisation. Never put your own key there.',
     ],
   },
   {
     title: 'ChatGPT',
     steps: [
-      'Open Settings, then Connectors (Apps). Turn on Developer mode under Advanced if you do not see "Create".',
-      `Create a connector named MyJKKN with this address: ${DOOR_URL}`,
-      'For sign-in choose an API key or Bearer token and paste your key.',
+      'ChatGPT cannot use this key yet: its connectors sign in with OAuth or with no sign-in at all, and this connection needs your key.',
+      'Use Claude Code, Claude Desktop or Gemini CLI instead.',
     ],
   },
   {
@@ -172,7 +170,7 @@ export function ConnectOutsideAi() {
         </Link>
         <h1 className="text-2xl font-bold text-foreground">Connect an outside AI</h1>
         <p className="text-sm text-muted-foreground">
-          Use MyJKKN from Claude, ChatGPT, Gemini or Zoho Zia. The outside AI sees only what you can see in
+          Use MyJKKN from an outside AI such as Claude Code, Claude Desktop or Gemini CLI. The outside AI sees only what you can see in
           MyJKKN, and it can only read. It cannot change, send or delete anything.
         </p>
       </div>
@@ -290,8 +288,9 @@ export function ConnectOutsideAi() {
           <p className="text-sm text-muted-foreground">
             Every AI needs the same two things: the address{' '}
             <code className="rounded bg-muted px-1 font-mono text-xs text-foreground">{DOOR_URL}</code> and your
-            key, sent as <span className="font-medium text-foreground">Bearer</span> followed by the key. The menus
-            below may be named slightly differently in your version of the app.
+            key, sent as <span className="font-medium text-foreground">Bearer</span> followed by the key. The AI must
+            let you add that header yourself; apps that only offer OAuth sign-in cannot use it yet. The menus below
+            may be named slightly differently in your version of the app.
           </p>
         </div>
         <div className="grid gap-4 md:grid-cols-2">
