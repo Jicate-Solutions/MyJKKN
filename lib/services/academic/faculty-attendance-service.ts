@@ -267,7 +267,9 @@ export class FacultyAttendanceService {
           end_date,
           selected_dates,
           section_id,
+          section_ids,
           semester_id,
+          department_id,
           attendance_mode,
           timetable_data,
           periods,
@@ -312,6 +314,19 @@ export class FacultyAttendanceService {
 
       logger.dev('academic/faculty-attendance', 'Timetables found', { count: timetables.length });
 
+      // Added: 2026-09-23 (BUG-005985) - Approved holidays (Academic > Leaves).
+      // Only cycle timetables skipped them (via get_cycle_for_date); regular and
+      // batch timetables listed classes on a declared holiday. Same rule as the
+      // pending dashboard (BUG-006141), incl. department/semester/section scope.
+      const { data: approvedLeaves, error: approvedLeavesError } = await (this.supabase as any)
+        .from('institution_leaves')
+        .select('institution_id, start_date, end_date, department_ids, semester_ids, section_ids')
+        .in('institution_id', Array.from(new Set(timetables.map((t: any) => t.institution_id))))
+        .eq('status', 'approved')
+        .lte('start_date', targetDate)
+        .gte('end_date', targetDate);
+      if (approvedLeavesError) throw approvedLeavesError;
+
       // Fixed: 2026-08-19 - Authoritative period timings for every institution this
       // staff teaches in; overlaid onto each timetable's period snapshot below.
       const periodMaster = await this.fetchPeriodMasterMap(
@@ -337,6 +352,8 @@ export class FacultyAttendanceService {
         );
 
         if (!isDateValid) continue;
+
+        if (isTimetableOnApprovedLeave(timetable as any, targetDate, approvedLeaves)) continue;
 
         // Updated: 2026-06-11 - Day-wise (session_wise) timetables are NOT marked
         // per-period; their attendance is FN/AN day-wise (shown separately as the
@@ -670,8 +687,8 @@ export class FacultyAttendanceService {
               period_mode: 'practical',
               practical_config: slot.practical_config,
               course: practicalCourseId ? { id: practicalCourseId } : undefined,
-              sections: [],
-              section_ids: [],
+              sections: practicalSectionIds.map((sid) => ({ id: sid, name: '' })),
+              section_ids: practicalSectionIds,
               degree_name: (timetable.degrees as any)?.degree_name,
               program_name: (timetable.programs as any)?.program_name,
               department_name: (timetable.departments as any)?.department_name,
