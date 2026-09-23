@@ -175,16 +175,16 @@ async function createTask(
     return { status: 'failed', result: {}, error: 'This task is missing its project or its person.' };
   }
   const assigneeProfileId = proposal.recipient_ids[0];
-  const { data: staff, error: staffErr } = await service
+  const { data: memberRow, error: memberErr } = await service
     .from('staff')
     .select('id')
     .eq('profile_id', assigneeProfileId)
     .order('id', { ascending: true })
     .limit(1)
     .maybeSingle();
-  if (staffErr) throw staffErr;
-  if (!staff?.id) {
-    return { status: 'failed', result: {}, error: 'That person is not a staff member, so no task was created.' };
+  if (memberErr) throw memberErr;
+  if (!memberRow?.id) {
+    return { status: 'failed', result: {}, error: 'That person is not on the team list, so no task was created.' };
   }
 
   // AS the owner: the owner's session client, so RLS sees the owner.
@@ -192,7 +192,7 @@ async function createTask(
     project_id: proposal.task.project_id,
     title: proposal.title,
     description: proposal.body,
-    owner_staff_id: staff.id as string,
+    owner_staff_id: memberRow.id as string,
     due_date: proposal.task.due_date ?? null,
     metadata: { source: 'ai-assistant-action', ai_action_proposal_id: proposal.id, requested_by: owner.id },
   });
@@ -201,7 +201,7 @@ async function createTask(
   // a second task), so it is reported alongside the success instead.
   let assignError: string | null = null;
   try {
-    await TaskService.assign(userClient, task.id, staff.id as string, 'responsible', owner.id);
+    await TaskService.assign(userClient, task.id, memberRow.id as string, 'responsible', owner.id);
   } catch (e) {
     assignError = e instanceof Error ? e.message : 'Could not add the person to the task list';
   }

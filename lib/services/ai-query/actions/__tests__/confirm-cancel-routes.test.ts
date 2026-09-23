@@ -95,8 +95,8 @@ function claimed(kind: string, extra: Record<string, unknown> = {}) {
       proposal: {
         id: ID,
         kind,
-        title: 'Lab closed',
-        body: 'The lab is closed tomorrow.',
+        title: 'Library closed',
+        body: 'The library is closed tomorrow.',
         task: null,
         recipient_ids: ['p-1', 'p-2'],
         recipient_count: 2,
@@ -179,7 +179,7 @@ describe('POST /api/ai-query/actions/[id]/confirm', () => {
       expect(typeof m.to).toBe('string');
       expect(m.from).toBe('MyJKKN <noreply@jkkn.ai>');
       expect(m.replyTo).toBe('owner@jkkn.ac.in');
-      expect(m.subject).toBe('Lab closed');
+      expect(m.subject).toBe('Library closed');
       expect(m.text).toContain('Sent on behalf of Owner Person through MyJKKN');
       expect(m.html).toBeUndefined();
     }
@@ -189,7 +189,7 @@ describe('POST /api/ai-query/actions/[id]/confirm', () => {
     expect(options.idempotencyKey).toBe(`ai-action-${ID}-0`);
   });
 
-  it('task: created AS the owner (session client) and given to the staff member', async () => {
+  it('task: created AS the owner (session client) and given to the team member', async () => {
     claimResult = claimed('create_task', {
       recipient_ids: ['p-1'],
       recipient_count: 1,
@@ -208,7 +208,7 @@ describe('POST /api/ai-query/actions/[id]/confirm', () => {
     expect(createTask).toHaveBeenCalledTimes(1);
     const [client, input] = (createTask.mock.calls[0] as unknown) as [unknown, any];
     expect(client).toBe(userClient);
-    expect(input).toMatchObject({ project_id: 'proj-1', owner_staff_id: 'staff-1', title: 'Lab closed', due_date: '2026-10-01' });
+    expect(input).toMatchObject({ project_id: 'proj-1', owner_staff_id: 'staff-1', title: 'Library closed', due_date: '2026-10-01' });
     expect(assign).toHaveBeenCalledWith(userClient, 't-1', 'staff-1', 'responsible', 'owner-1');
   });
 

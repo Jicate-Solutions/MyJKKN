@@ -42,7 +42,7 @@ const INST_A = '00000000-0000-4000-8000-0000000000a1';
 const INST_B = '00000000-0000-4000-8000-0000000000a2';
 const OWNER = '00000000-0000-4000-8000-000000000101';
 const OTHER = '00000000-0000-4000-8000-000000000102';
-const STAFF_P = '00000000-0000-4000-8000-000000000201'; // staff, inst A, has email
+const STAFF_P = '00000000-0000-4000-8000-000000000201'; // team member, inst A, has email
 const LEARNER_P = '00000000-0000-4000-8000-000000000202'; // learner login, inst A
 const LEARNER_ID = '00000000-0000-4000-8000-000000000302'; // learners_profiles id
 const NOEMAIL_P = '00000000-0000-4000-8000-000000000203'; // inst A, no email
@@ -103,7 +103,7 @@ TRUNCATE public.profiles, public.staff, public.projects, public.ai_jobs, public.
 INSERT INTO public.profiles (id, full_name, email, institution_id, learner_id, is_active) VALUES
   ('${OWNER}',      'Owner Person',   'owner@jkkn.ac.in',   '${INST_A}', NULL, true),
   ('${OTHER}',      'Other Person',   'other@jkkn.ac.in',   '${INST_A}', NULL, true),
-  ('${STAFF_P}',    'Asha Staff',     'asha@jkkn.ac.in',    '${INST_A}', NULL, true),
+  ('${STAFF_P}',    'Asha Kumar',     'asha@jkkn.ac.in',    '${INST_A}', NULL, true),
   ('${LEARNER_P}',  'Bala Learner',   'bala@jkkn.ac.in',    '${INST_A}', '${LEARNER_ID}', true),
   ('${NOEMAIL_P}',  'Chitra NoEmail', NULL,                 '${INST_A}', NULL, true),
   ('${FAR_P}',      'Far Away',       'far@jkkn.ac.in',     '${INST_B}', NULL, true),
@@ -161,8 +161,8 @@ async function row(id: string) {
 
 const MESSAGE = {
   p_kind: 'in_app_message',
-  p_title: 'Lab closed tomorrow',
-  p_body: 'The chemistry lab is closed tomorrow.',
+  p_title: 'Library closed tomorrow',
+  p_body: 'The library is closed tomorrow.',
 };
 
 beforeAll(async () => {
@@ -249,7 +249,7 @@ describe('ai_rpc_propose_action', () => {
     expect(r.skipped.no_email).toBe(1);
   });
 
-  it('a task goes to one staff member in an existing project', async () => {
+  it('a task goes to one team member in an existing project', async () => {
     const noProject = await propose(OWNER, { ...MESSAGE, p_kind: 'create_task', p_profile_ids: [STAFF_P] });
     expect(noProject.error.code).toBe('PROJECT_REQUIRED');
     const notStaff = await propose(OWNER, { ...MESSAGE, p_kind: 'create_task', p_profile_ids: [LEARNER_P], p_project_id: PROJECT });
@@ -368,7 +368,7 @@ describe('access', () => {
   });
 
   it('the internal helpers are not callable by signed-in people', async () => {
-    await expect(asUser(OWNER, `SELECT public.fn_ai_action_kind_allowed('email')`)).rejects.toThrow(/permission denied/);
+    await expect(asUser(OWNER, `SELECT public.fn_ai_action_can_perform('email')`)).rejects.toThrow(/permission denied/);
     await expect(
       asUser(OWNER, `SELECT * FROM public.fn_ai_action_visible_recipients(NULL, ARRAY['${FAR_P}']::uuid[])`)
     ).rejects.toThrow(/permission denied/);

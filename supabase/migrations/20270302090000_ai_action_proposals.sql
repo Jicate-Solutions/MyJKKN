@@ -30,6 +30,17 @@
 -- FILE ONLY — applied by the orchestrator at merge time, never from a lane.
 -- Every SECURITY DEFINER function below pins identity to auth.uid(), sets
 -- search_path = public, and is revoked from anon and PUBLIC.
+--
+-- ci:allow-secdef-authenticated fn_ai_my_action_proposals and
+-- fn_ai_cancel_action_proposal are OWNER-ONLY by construction (every row they
+-- read or change is filtered on requested_by = auth.uid(); another person's id
+-- reads as NOT_FOUND), and a person must be able to see and cancel their own
+-- card even after losing the permission that created it — so a permission
+-- predicate there would be wrong. ai_rpc_propose_action and
+-- fn_ai_claim_action_proposal DO carry a permission check
+-- (fn_ai_action_can_perform → user_has_permission), which this gate recognised
+-- (2 of 4 guarded) before this marker was added; the marker is file-wide only
+-- because the scanner has no per-function form.
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
@@ -97,7 +108,7 @@ GRANT SELECT ON public.ai_action_proposals TO authenticated;
 --     admins pass through user_has_permission's own bypass)
 --   create_task           → projects.view (the gate on /projects, whose
 --     project_tasks write policy admits any signed-in person)
-CREATE OR REPLACE FUNCTION public.fn_ai_action_kind_allowed(p_kind text)
+CREATE OR REPLACE FUNCTION public.fn_ai_action_can_perform(p_kind text)
 RETURNS boolean
 LANGUAGE sql
 STABLE
@@ -114,7 +125,7 @@ AS $$
   END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_ai_action_kind_allowed(text) FROM anon, PUBLIC, authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_ai_action_can_perform(text) FROM anon, PUBLIC, authenticated;
 
 -- The people the CURRENT caller may address: learner ids resolve to their
 -- login profile through profiles.learner_id; profile ids are taken as given.
@@ -198,7 +209,7 @@ BEGIN
         'message', 'kind must be in_app_message, email or create_task.'));
   END IF;
 
-  IF NOT public.fn_ai_action_kind_allowed(v_kind) THEN
+  IF NOT public.fn_ai_action_can_perform(v_kind) THEN
     RETURN jsonb_build_object('success', false,
       'error', jsonb_build_object('code', 'PERMISSION_DENIED',
         'message', CASE v_kind
@@ -450,7 +461,7 @@ BEGIN
       'message', 'This action expired. Ask the assistant again.');
   END IF;
 
-  IF NOT public.fn_ai_action_kind_allowed(r.kind) THEN
+  IF NOT public.fn_ai_action_can_perform(r.kind) THEN
     UPDATE public.ai_action_proposals
        SET status = 'failed', error = 'You no longer have permission to do this.', updated_at = now()
      WHERE id = r.id;
@@ -656,7 +667,7 @@ BEGIN
     'public.fn_ai_my_action_proposals(uuid, uuid)',
     'public.fn_ai_claim_action_proposal(uuid)',
     'public.fn_ai_cancel_action_proposal(uuid)',
-    'public.fn_ai_action_kind_allowed(text)',
+    'public.fn_ai_action_can_perform(text)',
     'public.fn_ai_action_visible_recipients(uuid[], uuid[])'
   ] LOOP
     IF has_function_privilege('anon', v_fn, 'EXECUTE') THEN
@@ -665,7 +676,7 @@ BEGIN
   END LOOP;
 
   IF has_function_privilege('authenticated', 'public.fn_ai_action_visible_recipients(uuid[], uuid[])', 'EXECUTE')
-     OR has_function_privilege('authenticated', 'public.fn_ai_action_kind_allowed(text)', 'EXECUTE') THEN
+     OR has_function_privilege('authenticated', 'public.fn_ai_action_can_perform(text)', 'EXECUTE') THEN
     RAISE EXCEPTION 'internal ai action helpers are executable by authenticated';
   END IF;
 
