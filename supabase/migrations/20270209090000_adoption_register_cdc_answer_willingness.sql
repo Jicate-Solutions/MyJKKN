@@ -30,6 +30,20 @@
 -- the recording code deploy; it does not gate the write (fn_feature_used does not
 -- read it), so rows may legitimately appear before the flip.
 --
+-- TWO SWITCHES, ONE INDISTINGUISHABLE ZERO. A missing registry row is not the only
+-- way this records nothing. fn_feature_used is also gated on the platform policy
+-- adoption.loop.enabled, and either switch being off produces the same silent no-op
+-- with no error and nothing in any log. The policy resolves true today, so after
+-- this row lands the key is genuinely measurable — but anyone debugging a feature
+-- that "records nothing" should check both, not just the register.
+--
+-- Written as a plain INSERT rather than through fn_adoption_register on purpose:
+-- that function opens with a super-admin check, and a migration runs as the owner
+-- with no auth.uid(), so the RPC would raise rather than insert. One consequence is
+-- accepted rather than worked around: the RPC would set created_by to the caller
+-- and this row will have it NULL, which is the honest record for a row created by a
+-- migration and not by a person.
+--
 -- Idempotent: re-running changes nothing, and it will not overwrite a row created by
 -- hand through fn_adoption_register in the meantime.
 
