@@ -9966,8 +9966,23 @@ CREATE POLICY hr_salary_register_runs_select
     )
   );
 
-CREATE POLICY hr_salary_register_runs_write
-  ON public.hr_salary_register_runs FOR ALL TO authenticated
+DROP POLICY IF EXISTS hr_salary_register_runs_write  ON public.hr_salary_register_runs;
+DROP POLICY IF EXISTS hr_salary_register_runs_insert ON public.hr_salary_register_runs;
+DROP POLICY IF EXISTS hr_salary_register_runs_update ON public.hr_salary_register_runs;
+DROP POLICY IF EXISTS hr_salary_register_runs_delete ON public.hr_salary_register_runs;
+
+CREATE POLICY hr_salary_register_runs_insert
+  ON public.hr_salary_register_runs FOR INSERT TO authenticated
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (
+      (SELECT public.user_has_permission('hr.payroll.register.manage'))
+      AND (SELECT public.role_has_institution_access(institution_id))
+    )
+  );
+
+CREATE POLICY hr_salary_register_runs_update
+  ON public.hr_salary_register_runs FOR UPDATE TO authenticated
   USING (
     (SELECT public.is_super_admin())
     OR (
@@ -9982,6 +9997,10 @@ CREATE POLICY hr_salary_register_runs_write
       AND (SELECT public.role_has_institution_access(institution_id))
     )
   );
+
+CREATE POLICY hr_salary_register_runs_delete
+  ON public.hr_salary_register_runs FOR DELETE TO authenticated
+  USING ((SELECT public.is_super_admin()));
 
 CREATE POLICY hr_salary_register_runs_service_role
   ON public.hr_salary_register_runs FOR ALL TO service_role
@@ -10001,8 +10020,25 @@ CREATE POLICY hr_salary_register_lines_select
     )
   );
 
-CREATE POLICY hr_salary_register_lines_write
-  ON public.hr_salary_register_lines FOR ALL TO authenticated
+DROP POLICY IF EXISTS hr_salary_register_lines_write  ON public.hr_salary_register_lines;
+DROP POLICY IF EXISTS hr_salary_register_lines_insert ON public.hr_salary_register_lines;
+DROP POLICY IF EXISTS hr_salary_register_lines_update ON public.hr_salary_register_lines;
+DROP POLICY IF EXISTS hr_salary_register_lines_delete ON public.hr_salary_register_lines;
+
+CREATE POLICY hr_salary_register_lines_insert
+  ON public.hr_salary_register_lines FOR INSERT TO authenticated
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR EXISTS (
+      SELECT 1 FROM public.hr_salary_register_runs r
+       WHERE r.id = hr_salary_register_lines.run_id
+         AND (SELECT public.user_has_permission('hr.payroll.register.manage'))
+         AND (SELECT public.role_has_institution_access(r.institution_id))
+    )
+  );
+
+CREATE POLICY hr_salary_register_lines_update
+  ON public.hr_salary_register_lines FOR UPDATE TO authenticated
   USING (
     (SELECT public.is_super_admin())
     OR EXISTS (
@@ -10021,6 +10057,10 @@ CREATE POLICY hr_salary_register_lines_write
          AND (SELECT public.role_has_institution_access(r.institution_id))
     )
   );
+
+CREATE POLICY hr_salary_register_lines_delete
+  ON public.hr_salary_register_lines FOR DELETE TO authenticated
+  USING ((SELECT public.is_super_admin()));
 
 CREATE POLICY hr_salary_register_lines_service_role
   ON public.hr_salary_register_lines FOR ALL TO service_role

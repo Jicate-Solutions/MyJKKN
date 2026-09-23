@@ -150,7 +150,6 @@ export function CreateJobForm() {
 
   // ---- Meta ----
   const [positionsOpen, setPositionsOpen] = useState(1);
-  const [isPublic, setIsPublic] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -249,7 +248,6 @@ export function CreateJobForm() {
           department_id: departmentId || undefined,
           positions_open: positionsOpen,
           status: saveStatus as JobStatus,
-          is_public: saveStatus === 'open' ? isPublic : false,
         });
         toast.success(saveStatus === 'open' ? 'Job published!' : 'Draft saved');
         router.push('/hr/recruitment/jobs');
@@ -265,7 +263,7 @@ export function CreateJobForm() {
       title, institutionId, roleCategory, jobCode, jobType, industry, employerType,
       country, locationState, city, zipCode, educationLevel, minExpYears, maxExpYears,
       minSalary, maxSalary, salaryCurrency, salaryDuration, displaySalary,
-      description, qualifications, skills, departmentId, positionsOpen, isPublic,
+      description, qualifications, skills, departmentId, positionsOpen,
       createJob, router, scrollToSection,
     ]
   );
@@ -363,14 +361,6 @@ export function CreateJobForm() {
                   value={positionsOpen}
                   onChange={(e) => setPositionsOpen(Math.max(1, parseInt(e.target.value) || 1))}
                   className="h-8 text-sm"
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <Label className="text-xs text-muted-foreground">Show on website (jkkn.ac.in)</Label>
-                <Switch
-                  checked={isPublic}
-                  onCheckedChange={setIsPublic}
-                  aria-label="Show on website"
                 />
               </div>
             </div>
@@ -924,16 +914,6 @@ export function CreateJobForm() {
                       setPositionsOpen(Math.max(1, parseInt(e.target.value) || 1))
                     }
                   />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm">Show on website (jkkn.ac.in)</Label>
-                  <div className="flex items-center h-10">
-                    <Switch
-                      checked={isPublic}
-                      onCheckedChange={setIsPublic}
-                      aria-label="Show on website"
-                    />
-                  </div>
                 </div>
               </div>
             </CardContent>

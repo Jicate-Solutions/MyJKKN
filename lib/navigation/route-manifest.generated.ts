@@ -2581,6 +2581,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/campus-living/billing-audit",
+        "label": "Billing Audit",
+        "iconName": "Wallet",
+        "children": [
+          {
+            "path": "/campus-living/billing-audit/learners",
+            "label": "Learners",
+            "iconName": "GraduationCap",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/campus-living/blocks",
         "label": "Blocks",
         "iconName": "Building",

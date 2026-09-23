@@ -62,11 +62,15 @@ export const REGISTER_HIDDEN_COLUMNS: Record<string, boolean> = {
   department_name: false,
   date_of_joining: false,
   bank_account_number: false,
-  business_working_days: false,
+  // THE DAY BLOCK OPENS VISIBLE (2026-09-22). Working days, Casual leave,
+  // On duty, Comp off, Other paid leave, LOP, Worked and Paid days are the
+  // columns HR reconciles a register with, and having to open the column menu
+  // to see any of them is how a wrong divisor went unnoticed for a month.
+  //
+  // Only the paid-leave TOTAL stays hidden: its three parts are now on screen
+  // beside it, and total-plus-parts in one row reads as double counting. It is
+  // still one click away in the column menu, and always in the export.
   paid_leave_days: false,
-  unpaid_leave_days: false,
-  on_duty_days: false,
-  worked_days: false,
   actual_gross: false,
   basic_pay: false,
   allowance: false,
@@ -226,19 +230,51 @@ export function getRegisterColumns(
     {
       accessorKey: 'business_working_days',
       size: 110,
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Working days" />,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Business days" />,
       cell: ({ row }) => <Days value={row.original.business_working_days} />,
     },
     {
+      accessorKey: 'casual_leave_days',
+      size: 105,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Casual leave" />,
+      cell: ({ row }) => <Days value={row.original.casual_leave_days} />,
+    },
+    {
+      accessorKey: 'on_duty_days',
+      size: 95,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="On duty" />,
+      cell: ({ row }) => <Days value={row.original.on_duty_days} />,
+    },
+    {
+      accessorKey: 'comp_off_days',
+      size: 95,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Comp off" />,
+      cell: ({ row }) => <Days value={row.original.comp_off_days} />,
+    },
+    {
+      // Zero on every register today, and there on purpose: 30 paid day-leave
+      // types exist, so the first Clinical or PH.D day on a register must land
+      // in a column rather than quietly making the row not add up.
+      accessorKey: 'other_paid_leave_days',
+      size: 120,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Other paid leave" />,
+      cell: ({ row }) => <Days value={row.original.other_paid_leave_days} />,
+    },
+    {
+      // The paid-leave TOTAL — casual + comp off + other. Hidden by default now
+      // that its parts are shown; the id is unchanged so saved column state and
+      // the export key still resolve.
       accessorKey: 'paid_leave_days',
       size: 100,
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Paid leave" />,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Paid leave (total)" />,
       cell: ({ row }) => <Days value={row.original.paid_leave_days} />,
     },
     {
       accessorKey: 'unpaid_leave_days',
       size: 110,
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Unpaid leave" />,
+      // "LOP" is what HR and the attendance page call it; the column id stays
+      // unpaid_leave_days so nothing downstream moves.
+      header: ({ column }) => <DataTableColumnHeader column={column} title="LOP" />,
       cell: ({ row }) =>
         row.original.unpaid_leave_days > 0 ? (
           // The one day count that costs money, so it is the one worth spotting.
@@ -248,12 +284,6 @@ export function getRegisterColumns(
         ) : (
           <span className="block text-center text-sm tabular-nums">0</span>
         ),
-    },
-    {
-      accessorKey: 'on_duty_days',
-      size: 95,
-      header: ({ column }) => <DataTableColumnHeader column={column} title="On duty" />,
-      cell: ({ row }) => <Days value={row.original.on_duty_days} />,
     },
     {
       accessorKey: 'worked_days',

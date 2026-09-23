@@ -27,7 +27,6 @@ export async function listPublicJobs(
   const { data, error } = await db
     .from('hr_recruitment_jobs')
     .select(PUBLIC_JOB_SELECT)
-    .eq('is_public', true)
     .eq('status', 'open')
     .or(`closes_at.is.null,closes_at.gt.${now.toISOString()}`)
     .order('posted_at', { ascending: false, nullsFirst: false })

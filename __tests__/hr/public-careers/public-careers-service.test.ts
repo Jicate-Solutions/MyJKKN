@@ -64,8 +64,8 @@ describe('getPublicJob', () => {
   it('returns null for a malformed id without querying', async () => {
     expect(await getPublicJob({} as never, 'nope', NOW)).toBeNull();
   });
-  it('returns null for a non-public job even if the row exists', async () => {
-    const { db } = fakeDb({ job: { ...JOB, is_public: false } });
+  it('returns null for a closed job even if the row exists', async () => {
+    const { db } = fakeDb({ job: { ...JOB, status: 'closed' } });
     expect(await getPublicJob(db, JOB_ID, NOW)).toBeNull();
   });
 });
@@ -83,7 +83,7 @@ describe('listPublicJobs', () => {
   });
 
   it('drops rows that fail the visibility re-check even if the query returned them', async () => {
-    const { db } = fakeDb({ job: [JOB, { ...JOB2, is_public: false }] });
+    const { db } = fakeDb({ job: [JOB, { ...JOB2, status: 'filled' }] });
     const r = await listPublicJobs(db, {}, NOW);
     expect(r.data).toHaveLength(1);
     expect(r.institutions).toHaveLength(1);

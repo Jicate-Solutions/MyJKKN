@@ -47434,10 +47434,10 @@ END $function$;
 -- 'previous status -> LEAVE' for rows that are now becoming HALF_DAY.
 
 CREATE OR REPLACE FUNCTION public.fn_recompute_attendance_on_leave_approval()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
 AS $function$
 DECLARE
   v_target_status_id UUID;
@@ -47454,8 +47454,8 @@ BEGIN
   SELECT request_category INTO v_category
   FROM hr_leave_types WHERE id = NEW.leave_type_id;
 
-  -- A permission is measured in minutes, not days. It leaves the day's verdict
-  -- exactly as the biometric engine computed it.
+  -- A permission is measured in minutes, not days. Leave the day's verdict as
+  -- the biometric engine computed it. Mirrors hr_trig_update_leave_balance.
   IF v_category = 'short_time_off' OR NEW.duration_type = 'hourly' THEN
     RETURN NEW;
   END IF;
@@ -47472,6 +47472,11 @@ BEGIN
 
   IF v_target_status_id IS NULL THEN RETURN NEW; END IF;
 
+  -- WEEK-OFFS AND HOLIDAYS ARE NOT LEAVE DAYS (2026-09-22). A 23-day leave
+  -- used to turn every Sunday and holiday inside it into LEAVE, which inflated
+  -- that person's working-day count and, through MAX(), the whole
+  -- institution's pay divisor. The evaluator's WEEKLY_OFF/HOLIDAY verdict
+  -- stands; the projection never counted those days as leave anyway.
   INSERT INTO hr_attendance_audit_log (
     attendance_record_id, employee_id, institution_id, actor_id, action,
     before_state, after_state, reason, created_at
@@ -47486,17 +47491,22 @@ BEGIN
     format('Leave application approved; previous status -> %s', v_target_code),
     NOW()
   FROM hr_attendance_records r
+  JOIN hr_attendance_status_types cur ON cur.id = r.status_type_id
   WHERE r.employee_id = NEW.employee_id
     AND r.work_date BETWEEN NEW.start_date AND NEW.end_date
-    AND r.status_type_id <> v_target_status_id;
+    AND r.status_type_id <> v_target_status_id
+    AND cur.code NOT IN ('WEEKLY_OFF', 'HOLIDAY');
 
   UPDATE hr_attendance_records r
     SET status_type_id = v_target_status_id,
         recomputed_from_event_id = v_event_id,
         updated_at = NOW()
-  WHERE r.employee_id = NEW.employee_id
+  FROM hr_attendance_status_types cur
+  WHERE cur.id = r.status_type_id
+    AND r.employee_id = NEW.employee_id
     AND r.work_date BETWEEN NEW.start_date AND NEW.end_date
-    AND r.status_type_id <> v_target_status_id;
+    AND r.status_type_id <> v_target_status_id
+    AND cur.code NOT IN ('WEEKLY_OFF', 'HOLIDAY');
 
   RETURN NEW;
 END;
@@ -49016,8 +49026,6 @@ CREATE OR REPLACE FUNCTION public.fn_hr_compute_attendance_period_summary(p_peri
 AS $function$
 DECLARE
   v_period public.hr_attendance_periods;
-  v_start  date;
-  v_end    date;
   v_rows   integer;
 BEGIN
   SELECT * INTO v_period FROM public.hr_attendance_periods WHERE id = p_period_id;
@@ -49025,181 +49033,37 @@ BEGIN
     RAISE EXCEPTION 'Attendance period not found: %', p_period_id USING ERRCODE = 'P0002';
   END IF;
 
-  v_start := make_date(v_period.period_year, v_period.period_month, 1);
-  v_end   := (v_start + interval '1 month - 1 day')::date;
-
   DELETE FROM public.hr_attendance_period_summaries WHERE period_id = p_period_id;
 
-  WITH rec AS (
-    SELECT r.employee_id,
-           st.code,
-           COALESCE(r.late_minutes, 0)    AS late_minutes,
-           COALESCE(r.excused_minutes, 0) AS excused_minutes
-      FROM public.hr_attendance_records r
-      JOIN public.hr_attendance_status_types st ON st.id = r.status_type_id
-     WHERE r.institution_id = v_period.institution_id
-       AND r.work_date BETWEEN v_start AND v_end
-  ),
-  agg AS (
-    SELECT employee_id,
-           count(*)                                                   AS total_days,
-           count(*) FILTER (WHERE code = 'WEEKLY_OFF')                AS weekly_off,
-           count(*) FILTER (WHERE code = 'HOLIDAY')                   AS holiday,
-           count(*) FILTER (WHERE code IN ('PRESENT','REGULARIZED'))  AS full_present,
-           count(*) FILTER (WHERE code = 'HALF_DAY')                  AS half_day,
-           count(*) FILTER (WHERE code = 'ABSENT')                    AS absent,
-           count(*) FILTER (WHERE code IN ('ON_DUTY','on_clinical_posting')) AS on_duty,
-           -- A day the evaluator could not judge. A payslip built on top of
-           -- these should say so rather than quietly treat them as absent.
-           count(*) FILTER (WHERE code NOT IN (
-             'PRESENT','REGULARIZED','HALF_DAY','ABSENT','WEEKLY_OFF',
-             'HOLIDAY','LEAVE','ON_DUTY','on_clinical_posting'))      AS unprocessed,
-           sum(late_minutes)                                          AS late_minutes,
-           sum(excused_minutes)                                       AS excused_minutes
-      FROM rec
-     GROUP BY employee_id
-  ),
-  -- Approved requests expanded to individual dates, then INTERSECTED with the
-  -- attendance records: a leave that falls on a Sunday is not a leave day, and
-  -- counting it from the application alone would inflate the total.
-  req AS (
-    SELECT la.employee_id,
-           lt.leave_type_code,
-           lt.is_paid,
-           lt.request_category,
-           g.d::date AS dt,
-           CASE WHEN la.duration_type ILIKE '%half%' THEN 0.5 ELSE 1.0 END AS wt,
-           la.start_time, la.end_time
-      FROM public.hr_leave_applications la
-      JOIN public.hr_leave_types lt ON lt.id = la.leave_type_id
-      CROSS JOIN LATERAL generate_series(la.start_date, la.end_date, interval '1 day') g(d)
-     WHERE la.status = 'approved'
-       AND g.d::date BETWEEN v_start AND v_end
-  ),
-  req_effective AS (
-    SELECT q.*
-      FROM req q
-      JOIN public.hr_attendance_records r
-        ON r.employee_id = q.employee_id AND r.work_date = q.dt
-      JOIN public.hr_attendance_status_types st ON st.id = r.status_type_id
-     WHERE r.institution_id = v_period.institution_id
-       AND st.code NOT IN ('WEEKLY_OFF', 'HOLIDAY')
-  ),
-  req_agg AS (
-    SELECT employee_id,
-           COALESCE(sum(wt) FILTER (WHERE request_category = 'leave' AND is_paid), 0)         AS paid_leave,
-           COALESCE(sum(wt) FILTER (WHERE request_category = 'leave' AND NOT is_paid), 0)     AS unpaid_leave,
-           COALESCE(sum(wt) FILTER (WHERE request_category = 'compensatory_off'), 0)          AS comp_off,
-           COALESCE(sum(
-             GREATEST(0, EXTRACT(EPOCH FROM (end_time - start_time)) / 60)
-           ) FILTER (WHERE request_category = 'short_time_off'), 0)::int                      AS sto_minutes,
-           COALESCE(
-             jsonb_object_agg(leave_type_code, days)
-               FILTER (WHERE request_category = 'leave' AND leave_type_code IS NOT NULL),
-             '{}'::jsonb)                                                                     AS leave_by_type
-      FROM (
-        SELECT employee_id, request_category, is_paid, leave_type_code,
-               start_time, end_time, wt,
-               sum(wt) OVER (PARTITION BY employee_id, leave_type_code) AS days
-          FROM req_effective
-      ) x
-     GROUP BY employee_id
-  )
   INSERT INTO public.hr_attendance_period_summaries (
     period_id, staff_id, working_days, present_days, half_days, absent_days,
     weekly_off_days, holiday_days, leave_days, on_duty_days, comp_off_days,
     lop_days, payable_days, leave_by_type, short_time_off_minutes,
-    late_minutes, excused_minutes, unprocessed_days
+    late_minutes, excused_minutes, unprocessed_days, scheduled_days, work_pattern_id
   )
-  SELECT
-    p_period_id,
-    a.employee_id,
-    (a.total_days - a.weekly_off - a.holiday)::numeric(5,1)                  AS working_days,
-    (a.full_present + a.half_day * 0.5)::numeric(5,1)                        AS present_days,
-    a.half_day,
-    (a.absent + a.half_day * 0.5)::numeric(5,1)                              AS absent_days,
-    a.weekly_off,
-    a.holiday,
-    (COALESCE(r.paid_leave, 0) + COALESCE(r.unpaid_leave, 0))::numeric(5,1)  AS leave_days,
-    a.on_duty::numeric(5,1),
-    COALESCE(r.comp_off, 0)::numeric(5,1),
-    -- LOP: working days neither attended nor covered by a PAID absence.
-    -- Unpaid leave is deliberately not subtracted -- that is what makes it
-    -- unpaid.
-    GREATEST(0, (a.total_days - a.weekly_off - a.holiday)
-                - LEAST((a.total_days - a.weekly_off - a.holiday),
-                        (a.full_present + a.half_day * 0.5)
-                        + COALESCE(r.paid_leave, 0) + a.on_duty
-                        + COALESCE(r.comp_off, 0)))::numeric(5,1)            AS lop_days,
-    LEAST((a.total_days - a.weekly_off - a.holiday),
-          (a.full_present + a.half_day * 0.5)
-          + COALESCE(r.paid_leave, 0) + a.on_duty
-          + COALESCE(r.comp_off, 0))::numeric(5,1)                           AS payable_days,
-    COALESCE(r.leave_by_type, '{}'::jsonb),
-    COALESCE(r.sto_minutes, 0),
-    COALESCE(a.late_minutes, 0),
-    COALESCE(a.excused_minutes, 0),
-    a.unprocessed
-  FROM agg a
-  LEFT JOIN req_agg r ON r.employee_id = a.employee_id;
+  SELECT p_period_id, p.staff_id, p.working_days, p.present_days, p.half_days,
+         p.absent_days, p.weekly_off_days, p.holiday_days, p.leave_days,
+         p.on_duty_days, p.comp_off_days, p.lop_days, p.payable_days,
+         p.leave_by_type, p.short_time_off_minutes, p.late_minutes,
+         p.excused_minutes, p.unprocessed_days, p.scheduled_days, p.work_pattern_id
+    FROM public.fn_hr_attendance_period_projection(
+           v_period.institution_id, v_period.period_year, v_period.period_month) p;
 
   GET DIAGNOSTICS v_rows = ROW_COUNT;
 
-  -- Scheduled days and the pattern held, per person. See the section header.
-  WITH staff_in AS (
-    SELECT ps.staff_id, s.institution_id, s.category_id, ec.is_teaching, s.gender
-      FROM public.hr_attendance_period_summaries ps
-      JOIN public.staff s ON s.id = ps.staff_id
-      JOIN public.employment_categories ec ON ec.id = s.category_id
-     WHERE ps.period_id = p_period_id
-  ),
-  hol AS (
-    SELECT h.holiday_date
-      FROM public.fn_hr_calendar_holiday_dates(v_period.institution_id, v_start, v_end) h
-  ),
-  days AS (
-    SELECT gs::date AS d FROM generate_series(v_start, v_end, interval '1 day') gs
-  ),
-  sched AS (
-    SELECT si.staff_id,
-           count(*) FILTER (
-             WHERE COALESCE(
-                     CASE WHEN (EXTRACT(ISODOW FROM dd.d) = 6
-                                AND EXTRACT(DAY FROM dd.d) BETWEEN 8 AND 14
-                                AND t.second_saturday_holiday) THEN false
-                          ELSE t.is_working_day END,
-                     false)
-               AND NOT EXISTS (SELECT 1 FROM hol h WHERE h.holiday_date = dd.d)
-           ) AS scheduled
-      FROM staff_in si
-      CROSS JOIN days dd
-      LEFT JOIN LATERAL public.fn_shift_timing_pick(
-        si.institution_id, si.category_id, si.is_teaching, si.gender,
-        EXTRACT(ISODOW FROM dd.d)::smallint, dd.d,
-        public.fn_staff_work_pattern_id(si.staff_id, dd.d)) t ON true
-     GROUP BY si.staff_id
-  ),
-  pat AS (
-    SELECT DISTINCT ON (a.staff_id) a.staff_id, a.work_pattern_id
-      FROM public.hr_staff_work_pattern_assignments a
-     WHERE a.effective_from <= v_end
-       AND (a.effective_until IS NULL OR a.effective_until > v_start)
-     ORDER BY a.staff_id, a.effective_from DESC
-  )
-  UPDATE public.hr_attendance_period_summaries ps
-     SET scheduled_days  = sc.scheduled::numeric(5,1),
-         work_pattern_id = pat.work_pattern_id
-    FROM sched sc
-    LEFT JOIN pat ON pat.staff_id = sc.staff_id
-   WHERE ps.period_id = p_period_id
-     AND ps.staff_id  = sc.staff_id;
-
+  -- THE MONTH STANDARD IS THE MODE, NOT THE MAX (2026-09-22). MAX(working_days)
+  -- let one person whose leave had been stamped over three Sundays and three
+  -- holidays set a 29-day divisor for all fifty people on the Pharmacy August
+  -- register. The mode of the resolver's scheduled_days is the institution's
+  -- typical month; it is a display figure and the fallback divisor only — each
+  -- register line divides by its own scheduled_days.
   UPDATE public.hr_attendance_periods
      SET staff_count = v_rows,
          working_days_count = (
-           SELECT max(working_days)::int
+           SELECT mode() WITHIN GROUP (ORDER BY scheduled_days)::int
              FROM public.hr_attendance_period_summaries
             WHERE period_id = p_period_id
+              AND scheduled_days IS NOT NULL
          ),
          updated_at = now()
    WHERE id = p_period_id;
@@ -69075,6 +68939,9 @@ BEGIN
   days AS (
     SELECT gs::date AS d FROM generate_series(v_start, v_end, interval '1 day') gs
   ),
+  -- scheduled = the days the resolver expects this person to attend: calendar
+  -- days minus week-offs minus holidays, pattern/role/person aware. The
+  -- register's Business Working Days and each line's divisor (2026-09-22).
   sched AS (
     SELECT si.staff_id,
            count(*) FILTER (
@@ -69663,3 +69530,899 @@ REVOKE EXECUTE ON FUNCTION public.fn_activate_learner_on_first_present() FROM an
 
 COMMENT ON FUNCTION public.fn_activate_learner_on_first_present() IS
   'Moves a reserved/admitted learner to active on their FIRST Present mark (Director ruling 2026-08-11). Gated by platform policy learners.activate_on_first_present.enabled. Activates only learners who BECOME present on this write — an UPDATE that does not move somebody into Present activates nobody. Cannot reject the attendance save: every failure is caught and written to public.learner_activation_failures.';
+
+-- fn_restamp_leave_attendance (2026-08-29; week-off/holiday guard 2026-09-22)
+CREATE OR REPLACE FUNCTION public.fn_restamp_leave_attendance(p_institution_id uuid, p_from date, p_to date)
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_leave_id uuid;
+  v_half_id  uuid;
+  v_event_id uuid := gen_random_uuid();
+  v_actor    uuid := auth.uid();
+  v_changed  integer := 0;
+BEGIN
+  -- auth.uid() IS NULL means the service-role client. EXECUTE is revoked from
+  -- anon below, so NULL here cannot be an unauthenticated caller.
+  --
+  -- The signed-in branch mirrors app/api/hr/attendance/import/route.ts EXACTLY
+  -- (is_admin OR hr.attendance.override). Anyone allowed to run an import is
+  -- already allowed to rewrite every status_type_id in the range, so a narrower
+  -- gate here would not protect anything -- it would just fail the re-stamp for
+  -- an is_admin importer who lacks the key, silently reintroducing the very bug
+  -- this function exists to fix.
+  IF v_actor IS NOT NULL
+     AND NOT public.is_super_admin()
+     AND NOT public.is_admin()
+     AND NOT public.user_has_permission('hr.attendance.override') THEN
+    RAISE EXCEPTION 'Insufficient permission: hr.attendance.override required';
+  END IF;
+
+  IF p_institution_id IS NULL OR p_from IS NULL OR p_to IS NULL THEN
+    RETURN 0;
+  END IF;
+
+  SELECT id INTO v_leave_id
+  FROM public.hr_attendance_status_types
+  WHERE code = 'LEAVE' AND institution_id IS NULL LIMIT 1;
+
+  SELECT id INTO v_half_id
+  FROM public.hr_attendance_status_types
+  WHERE code = 'HALF_DAY' AND institution_id IS NULL LIMIT 1;
+
+  IF v_leave_id IS NULL OR v_half_id IS NULL THEN
+    RETURN 0;
+  END IF;
+
+  -- WEEK-OFFS AND HOLIDAYS ARE NOT LEAVE DAYS (2026-09-22): the evaluator's
+  -- verdict for a non-working day stands, whatever leave spans it. See
+  -- fn_recompute_attendance_on_leave_approval for the incident.
+  WITH tgt AS (
+    SELECT DISTINCT ON (r.id)
+           r.id                AS record_id,
+           r.employee_id       AS employee_id,
+           r.institution_id    AS institution_id,
+           r.status_type_id    AS old_status,
+           CASE WHEN a.duration_type IN ('first_half', 'second_half')
+                THEN v_half_id ELSE v_leave_id END AS new_status
+    FROM public.hr_attendance_records r
+    JOIN public.hr_attendance_status_types cur ON cur.id = r.status_type_id
+    JOIN public.hr_leave_applications a
+      ON a.employee_id = r.employee_id
+     AND r.work_date BETWEEN a.start_date AND a.end_date
+     AND a.status = 'approved'
+    JOIN public.hr_leave_types t ON t.id = a.leave_type_id
+    WHERE r.institution_id = p_institution_id
+      AND r.work_date BETWEEN p_from AND p_to
+      AND cur.code NOT IN ('WEEKLY_OFF', 'HOLIDAY')
+      AND t.request_category IN ('leave', 'compensatory_off')
+      AND a.duration_type <> 'hourly'
+    ORDER BY r.id,
+             CASE WHEN a.duration_type IN ('first_half', 'second_half') THEN 1 ELSE 0 END,
+             a.final_decided_at DESC NULLS LAST
+  ),
+  upd AS (
+    UPDATE public.hr_attendance_records r
+       SET status_type_id           = tgt.new_status,
+           recomputed_from_event_id = v_event_id,
+           updated_at               = now()
+      FROM tgt
+     WHERE r.id = tgt.record_id
+       AND r.status_type_id IS DISTINCT FROM tgt.new_status
+    RETURNING r.id, r.employee_id, r.institution_id,
+              tgt.old_status, tgt.new_status
+  ),
+  aud AS (
+    INSERT INTO public.hr_attendance_audit_log (
+      attendance_record_id, employee_id, institution_id, actor_id, action,
+      before_state, after_state, reason, created_at
+    )
+    SELECT u.id, u.employee_id, u.institution_id, v_actor, 'recompute',
+           jsonb_build_object('status_type_id', u.old_status),
+           jsonb_build_object('status_type_id', u.new_status,
+                              'event_id', v_event_id),
+           'Approved leave re-stamped over biometric verdict',
+           now()
+    FROM upd u
+    RETURNING 1
+  )
+  SELECT count(*) INTO v_changed FROM upd;
+
+  RETURN v_changed;
+END $function$;
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Campus Living → Billing Audit (2026-09-22, migration 20260922120000)
+-- Hostel-learner bill coverage + fee-band audit RPCs. See the migration
+-- header for the modelling rules (kind-based bill classification, fee_items
+-- structure expectation, upgrade-table expectation, integer-start-year match).
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- ─── 2. Bill classifier ─────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fn_cl_billing_audit_bill_class(
+  p_kind          text,
+  p_category_name text,
+  p_fee_source    text
+)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+SET search_path = 'public'
+AS $$
+  SELECT CASE
+    WHEN p_kind = 'hostel' THEN
+      CASE WHEN p_fee_source = 'hostel_category' OR p_category_name ILIKE '%upgrade%'
+           THEN 'room_upgrade' ELSE 'room' END
+    WHEN p_kind = 'mess' THEN
+      CASE WHEN p_fee_source = 'hostel_category' OR p_category_name ILIKE '%upgrade%'
+           THEN 'mess_upgrade' ELSE 'mess' END
+    ELSE NULL
+  END;
+$$;
+
+COMMENT ON FUNCTION public.fn_cl_billing_audit_bill_class(text, text, text) IS
+  'Billing Audit bill class: room | room_upgrade | mess | mess_upgrade | NULL. Keyed on billing_categories.kind, never fee_source (79 hostel bills are mis-tagged academic). Tighten here, not in the callers.';
+
+-- ─── 3a. Core row set ───────────────────────────────────────────────────────
+DROP FUNCTION IF EXISTS public.fn_cl_billing_audit_rows(uuid[], uuid, uuid, uuid, uuid, text, boolean);
+
+CREATE OR REPLACE FUNCTION public.fn_cl_billing_audit_rows(
+  p_institution_ids   uuid[]  DEFAULT NULL,
+  p_academic_year_id  uuid    DEFAULT NULL,
+  p_block_id          uuid    DEFAULT NULL,
+  p_room_category_id  uuid    DEFAULT NULL,
+  p_program_id        uuid    DEFAULT NULL,
+  p_gender            text    DEFAULT NULL,
+  p_allocated_only    boolean DEFAULT false
+)
+RETURNS TABLE (
+  out_learner_id                uuid,
+  out_roll_number               text,
+  out_register_number           text,
+  out_full_name                 text,
+  out_gender                    text,
+  out_institution_id            uuid,
+  out_institution_name          text,
+  out_program_name              text,
+  out_year_of_study             integer,
+  out_semester_name             text,
+  out_lifecycle_status          text,
+  out_is_allocated              boolean,
+  out_block_id                  uuid,
+  out_block_name                text,
+  out_room_number               text,
+  out_bed_number                text,
+  out_seated_category_name      text,
+  out_tagged_category_id        uuid,
+  out_tagged_category_name      text,
+  out_mess_category_name        text,
+  out_band_fee                  numeric,
+  out_entitled_category_name    text,
+  out_band_status               text,
+  out_expected_room_fee         numeric,
+  out_expected_mess_fee         numeric,
+  out_expected_upgrade_fee      numeric,
+  out_category_room_rate        numeric,
+  out_category_mess_rate        numeric,
+  out_room_billed               numeric,
+  out_room_paid                 numeric,
+  out_room_status               text,
+  out_room_due_date             date,
+  out_mess_billed               numeric,
+  out_mess_paid                 numeric,
+  out_mess_status               text,
+  out_mess_due_date             date,
+  out_upgrade_billed            numeric,
+  out_upgrade_paid              numeric,
+  out_upgrade_status            text,
+  out_upgrade_due_date          date,
+  out_total_billed              numeric,
+  out_total_paid                numeric,
+  out_total_outstanding         numeric,
+  out_overdue_amount            numeric,
+  out_overdue_count             integer,
+  out_findings                  text[],
+  out_bills                     jsonb,
+  out_target_academic_year_name text
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = 'public'
+AS $$
+DECLARE
+  v_inst            uuid[];
+  v_picked_start_yr integer;
+  v_picked_ay_name  text;
+  v_hostel_year_id  uuid;
+BEGIN
+  IF NOT public.user_has_permission('campus_living.billing_audit.view') THEN
+    RAISE EXCEPTION 'permission denied: campus_living.billing_audit.view'
+      USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN;
+  END IF;
+
+  SELECT EXTRACT(YEAR FROM ay.start_date)::integer, ay.academic_year_name::text
+    INTO v_picked_start_yr, v_picked_ay_name
+  FROM public.academic_years ay
+  WHERE ay.id = p_academic_year_id;
+
+  -- Configured fees are priced per hostel year; the current one is the
+  -- expectation regardless of which academic year the bills are measured for.
+  SELECT hy.id INTO v_hostel_year_id
+  FROM public.hostel_years hy
+  WHERE hy.is_current
+  ORDER BY hy.start_date DESC
+  LIMIT 1;
+
+  RETURN QUERY
+  WITH target AS MATERIALIZED (
+    SELECT t.institution_id,
+           ay.academic_year_name::text                 AS ay_name,
+           EXTRACT(YEAR FROM ay.start_date)::integer   AS start_yr
+    FROM public.fn_billing_coverage_target_years() t
+    JOIN public.academic_years ay ON ay.id = t.target_ay_id
+  ),
+  scope AS MATERIALIZED (
+    SELECT h.id,
+           h.roll_number::text                          AS roll_number,
+           lp.register_number::text                     AS register_number,
+           TRIM(COALESCE(h.first_name, '') || ' ' || COALESCE(h.last_name, '')) AS full_name,
+           h.gender::text                               AS gender,
+           h.institution_id,
+           i.name::text                                 AS institution_name,
+           h.program_id,
+           lp.quota_id,
+           lp.admission_year_id,
+           h.program_name::text                         AS program_name,
+           h.year_of_study,
+           h.semester_name::text                        AS semester_name,
+           h.lifecycle_status::text                     AS lifecycle_status,
+           h.current_allocation_id,
+           h.current_block_id,
+           h.current_room_id,
+           h.current_block_name::text                   AS block_name,
+           h.current_room_number::text                  AS room_number,
+           h.current_bed_number::text                   AS bed_number,
+           h.hostel_category_id,
+           h.hostel_category_name::text                 AS tagged_category_name,
+           h.mess_category_id,
+           h.mess_category_name::text                   AS mess_category_name,
+           CASE WHEN lower(h.gender) LIKE 'm%' THEN 'boys'
+                WHEN lower(h.gender) LIKE 'f%' THEN 'girls'
+                ELSE NULL END                           AS gtype,
+           COALESCE(v_picked_start_yr, t.start_yr)      AS target_yr,
+           COALESCE(v_picked_ay_name, t.ay_name)        AS target_ay_name
+    FROM public.v_learner_hostelites h
+    JOIN public.learners_profiles lp ON lp.id = h.id
+    LEFT JOIN public.institutions i ON i.id = h.institution_id
+    LEFT JOIN target t ON t.institution_id = h.institution_id
+    WHERE h.institution_id = ANY(v_inst)
+      AND (p_block_id         IS NULL OR h.current_block_id   = p_block_id)
+      AND (p_room_category_id IS NULL OR h.hostel_category_id = p_room_category_id)
+      AND (p_program_id       IS NULL OR h.program_id         = p_program_id)
+      AND (p_gender IS NULL OR UPPER(TRIM(h.gender)) = UPPER(TRIM(p_gender)))
+      AND (NOT COALESCE(p_allocated_only, false) OR h.current_allocation_id IS NOT NULL)
+  ),
+  -- Fee band input: same choice fn_learner_band_academic_fee makes, set-based.
+  adm_ay AS (
+    SELECT s.id AS learner_id, ay.id AS ay_id
+    FROM scope s
+    JOIN public.admission_years ady ON ady.id = s.admission_year_id
+    JOIN LATERAL (
+      SELECT ay.id
+      FROM public.academic_years ay
+      WHERE ay.institution_id = s.institution_id
+        AND EXTRACT(YEAR FROM ay.start_date)::integer = ady.year
+      ORDER BY ay.is_active DESC, ay.academic_year_name ASC
+      LIMIT 1
+    ) ay ON TRUE
+  ),
+  band_years AS (
+    SELECT b.student_id, b.academic_year_id, ay.start_date, SUM(b.final_amount) AS total
+    FROM public.billing_student_bills b
+    JOIN public.academic_years ay ON ay.id = b.academic_year_id
+    WHERE b.student_id IN (SELECT id FROM scope)
+      AND b.fee_source = 'academic'
+      AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+    GROUP BY b.student_id, b.academic_year_id, ay.start_date
+  ),
+  band_fee AS (
+    SELECT DISTINCT ON (byr.student_id)
+           byr.student_id AS learner_id, byr.total AS fee
+    FROM band_years byr
+    LEFT JOIN adm_ay a ON a.learner_id = byr.student_id
+    ORDER BY byr.student_id, (byr.academic_year_id IS DISTINCT FROM a.ay_id), byr.start_date ASC
+  ),
+  entitled AS (
+    SELECT s.id AS learner_id, e.category_id
+    FROM scope s
+    LEFT JOIN band_fee bf ON bf.learner_id = s.id
+    LEFT JOIN LATERAL (
+      SELECT r.category_id
+      FROM public.fn_hostel_effective_room_categories(
+             s.institution_id, s.program_id, s.quota_id, bf.fee, s.gtype) r
+      WHERE bf.fee IS NOT NULL AND s.program_id IS NOT NULL
+      LIMIT 1
+    ) e ON TRUE
+  ),
+  seated AS (
+    SELECT s.id AS learner_id, hr.category_id
+    FROM scope s
+    JOIN public.hostel_rooms hr ON hr.id = s.current_room_id
+  ),
+  cfg_room AS (
+    SELECT s.id AS learner_id, hf.amount
+    FROM scope s
+    JOIN public.hostel_categories tc ON tc.id = s.hostel_category_id
+    LEFT JOIN LATERAL (
+      SELECT f.amount
+      FROM public.hostel_fees f
+      JOIN public.hostel_categories fc ON fc.id = f.hostel_category_id
+      WHERE f.hostel_year_id = v_hostel_year_id
+        AND f.is_active
+        AND fc.name = tc.name
+        AND (fc.id = tc.id OR s.gtype IS NULL OR fc.type = s.gtype)
+      ORDER BY (fc.id = tc.id) DESC
+      LIMIT 1
+    ) hf ON TRUE
+  ),
+  -- The entitled category's configured fee, so band status can be judged by
+  -- what the categories COST rather than hostel_categories.sort_order (Deluxe
+  -- Plus carries sort_order 0, below Classic, while being priced above Deluxe).
+  cfg_entitled AS (
+    SELECT e.learner_id, hf.amount
+    FROM entitled e
+    JOIN scope s ON s.id = e.learner_id
+    JOIN public.hostel_categories ec ON ec.id = e.category_id
+    LEFT JOIN LATERAL (
+      SELECT f.amount
+      FROM public.hostel_fees f
+      JOIN public.hostel_categories fc ON fc.id = f.hostel_category_id
+      WHERE f.hostel_year_id = v_hostel_year_id
+        AND f.is_active
+        AND fc.name = ec.name
+        AND (fc.id = ec.id OR s.gtype IS NULL OR fc.type = s.gtype)
+      ORDER BY (fc.id = ec.id) DESC
+      LIMIT 1
+    ) hf ON TRUE
+  ),
+  cfg_mess AS (
+    SELECT s.id AS learner_id, mf.amount
+    FROM scope s
+    JOIN public.mess_categories tm ON tm.id = s.mess_category_id
+    LEFT JOIN LATERAL (
+      SELECT f.amount
+      FROM public.hostel_fees f
+      JOIN public.mess_categories fm ON fm.id = f.mess_category_id
+      WHERE f.hostel_year_id = v_hostel_year_id
+        AND f.is_active
+        AND fm.name = tm.name
+        AND (fm.id = tm.id OR s.gtype IS NULL OR fm.type = s.gtype)
+      ORDER BY (fm.id = tm.id) DESC
+      LIMIT 1
+    ) mf ON TRUE
+  ),
+  cfg_upgrade AS (
+    SELECT s.id AS learner_id, u.net
+    FROM scope s
+    JOIN entitled e ON e.learner_id = s.id
+    JOIN public.hostel_categories tc ON tc.id = s.hostel_category_id
+    JOIN public.hostel_categories ec ON ec.id = e.category_id
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(u.net_amount, u.amount) AS net
+      FROM public.hostel_category_upgrade_fees u
+      JOIN public.hostel_categories fc  ON fc.id  = u.from_hostel_category_id
+      JOIN public.hostel_categories tcc ON tcc.id = u.to_hostel_category_id
+      WHERE u.hostel_year_id = v_hostel_year_id
+        AND u.is_active
+        AND fc.name  = ec.name
+        AND tcc.name = tc.name
+      ORDER BY ((fc.id = ec.id AND tcc.id = tc.id)) DESC,
+               ((s.gtype IS NOT NULL AND fc.type = s.gtype AND tcc.type = s.gtype)) DESC
+      LIMIT 1
+    ) u ON TRUE
+    WHERE tc.name <> ec.name
+  ),
+  -- What the learner's resolved admission fee structure says the room and
+  -- mess lines are. NULL for legacy_fee_mode learners with no snapshot.
+  structure_exp AS (
+    SELECT s.id AS learner_id,
+           SUM((fi->>'amount')::numeric) FILTER (
+             WHERE public.fn_cl_billing_audit_bill_class(bc.kind::text, bc.category_name::text, NULL) = 'room') AS room_expected,
+           SUM((fi->>'amount')::numeric) FILTER (
+             WHERE public.fn_cl_billing_audit_bill_class(bc.kind::text, bc.category_name::text, NULL) = 'mess') AS mess_expected
+    FROM scope s
+    JOIN public.learners_profiles lp ON lp.id = s.id
+    CROSS JOIN LATERAL jsonb_array_elements(
+      CASE WHEN jsonb_typeof(lp.fee_items) = 'array' THEN lp.fee_items ELSE '[]'::jsonb END) AS fi
+    JOIN public.billing_categories bc ON bc.id = NULLIF(fi->>'category_id', '')::uuid
+    GROUP BY s.id
+  ),
+  bill_rows AS (
+    SELECT b.id,
+           b.student_id,
+           public.fn_cl_billing_audit_bill_class(bc.kind::text, bc.category_name::text, b.fee_source) AS cls,
+           bc.category_name::text                              AS category_name,
+           b.bill_description,
+           COALESCE(ay.academic_year_name::text, hy.name::text) AS year_name,
+           b.final_amount,
+           (b.final_amount - COALESCE(b.balance_amount, 0))    AS paid,
+           COALESCE(b.balance_amount, 0)                       AS pending,
+           b.status::text                                      AS status,
+           b.due_date,
+           (COALESCE(b.balance_amount, 0) > 0 AND b.due_date < CURRENT_DATE) AS is_overdue
+    FROM scope s
+    JOIN public.billing_student_bills b
+      ON b.student_id = s.id
+     AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+    JOIN public.billing_categories bc
+      ON bc.id = b.item_category_id
+     AND bc.kind IN ('hostel', 'mess')
+    LEFT JOIN public.academic_years ay ON ay.id = b.academic_year_id
+    LEFT JOIN public.hostel_years   hy ON hy.id = b.hostel_year_id
+    WHERE COALESCE(EXTRACT(YEAR FROM ay.start_date)::integer,
+                   EXTRACT(YEAR FROM hy.start_date)::integer) = s.target_yr
+  ),
+  per_class AS (
+    SELECT student_id, cls,
+           SUM(final_amount) AS billed,
+           SUM(paid)         AS paid,
+           SUM(pending)      AS pending,
+           MIN(due_date) FILTER (WHERE pending > 0) AS next_due,
+           MIN(due_date)                            AS first_due,
+           CASE WHEN SUM(pending) = 0 THEN 'paid'
+                WHEN SUM(paid) > 0    THEN 'partially_paid'
+                ELSE 'unpaid' END    AS status
+    FROM bill_rows
+    GROUP BY student_id, cls
+  ),
+  per_learner AS (
+    SELECT student_id,
+           SUM(final_amount)                                   AS total_billed,
+           SUM(paid)                                           AS total_paid,
+           SUM(pending)                                        AS total_outstanding,
+           SUM(pending) FILTER (WHERE is_overdue)              AS overdue_amount,
+           COUNT(*)     FILTER (WHERE is_overdue)::integer     AS overdue_count,
+           jsonb_agg(jsonb_build_object(
+             'bill_id',       id,
+             'class',         cls,
+             'category_name', category_name,
+             'description',   bill_description,
+             'year_name',     year_name,
+             'amount',        final_amount,
+             'paid',          paid,
+             'pending',       pending,
+             'status',        status,
+             'due_date',      due_date,
+             'is_overdue',    is_overdue
+           ) ORDER BY due_date NULLS LAST, category_name)      AS bills
+    FROM bill_rows
+    GROUP BY student_id
+  ),
+  assembled AS (
+    SELECT s.*,
+           sc.category_id                      AS seated_category_id,
+           scat.name::text                     AS seated_category_name,
+           tcat.sort_order                     AS tagged_sort,
+           tcat.room_source_category_id        AS tagged_room_source,
+           bf.fee                              AS band_fee,
+           e.category_id                       AS entitled_category_id,
+           ecat.name::text                     AS entitled_category_name,
+           ecat.sort_order                     AS entitled_sort,
+           ce.amount                           AS entitled_room_rate,
+           cr.amount                           AS category_room_rate,
+           cm.amount                           AS category_mess_rate,
+           se.room_expected                    AS expected_room_fee,
+           se.mess_expected                    AS expected_mess_fee,
+           cu.net                              AS expected_upgrade_fee,
+           rup.billed                          AS room_upgrade_billed,
+           room.billed  AS room_billed,  room.paid  AS room_paid,  room.status  AS room_status,
+           COALESCE(room.next_due, room.first_due) AS room_due_date,
+           mess.billed  AS mess_billed,  mess.paid  AS mess_paid,  mess.status  AS mess_status,
+           COALESCE(mess.next_due, mess.first_due) AS mess_due_date,
+           -- Room and mess upgrades are one "upgrade" lane for the audit.
+           (COALESCE(rup.billed, 0) + COALESCE(mup.billed, 0))  AS upgrade_billed,
+           (COALESCE(rup.paid, 0)   + COALESCE(mup.paid, 0))    AS upgrade_paid,
+           CASE WHEN rup.student_id IS NULL AND mup.student_id IS NULL THEN NULL
+                WHEN COALESCE(rup.pending, 0) + COALESCE(mup.pending, 0) = 0 THEN 'paid'
+                WHEN COALESCE(rup.paid, 0) + COALESCE(mup.paid, 0) > 0 THEN 'partially_paid'
+                ELSE 'unpaid' END                               AS upgrade_status,
+           LEAST(COALESCE(rup.next_due, rup.first_due), COALESCE(mup.next_due, mup.first_due)) AS upgrade_due_date,
+           rup.student_id IS NOT NULL                          AS has_room_upgrade_bill,
+           COALESCE(pl.total_billed, 0)      AS total_billed,
+           COALESCE(pl.total_paid, 0)        AS total_paid,
+           COALESCE(pl.total_outstanding, 0) AS total_outstanding,
+           COALESCE(pl.overdue_amount, 0)    AS overdue_amount,
+           COALESCE(pl.overdue_count, 0)     AS overdue_count,
+           COALESCE(pl.bills, '[]'::jsonb)   AS bills
+    FROM scope s
+    LEFT JOIN seated sc            ON sc.learner_id = s.id
+    LEFT JOIN public.hostel_categories scat ON scat.id = sc.category_id
+    LEFT JOIN public.hostel_categories tcat ON tcat.id = s.hostel_category_id
+    LEFT JOIN band_fee bf          ON bf.learner_id = s.id
+    LEFT JOIN entitled e           ON e.learner_id = s.id
+    LEFT JOIN public.hostel_categories ecat ON ecat.id = e.category_id
+    LEFT JOIN cfg_room cr          ON cr.learner_id = s.id
+    LEFT JOIN cfg_entitled ce      ON ce.learner_id = s.id
+    LEFT JOIN cfg_mess cm          ON cm.learner_id = s.id
+    LEFT JOIN structure_exp se     ON se.learner_id = s.id
+    LEFT JOIN cfg_upgrade cu       ON cu.learner_id = s.id
+    LEFT JOIN per_class room       ON room.student_id = s.id AND room.cls = 'room'
+    LEFT JOIN per_class mess       ON mess.student_id = s.id AND mess.cls = 'mess'
+    LEFT JOIN per_class rup        ON rup.student_id  = s.id AND rup.cls  = 'room_upgrade'
+    LEFT JOIN per_class mup        ON mup.student_id  = s.id AND mup.cls  = 'mess_upgrade'
+    LEFT JOIN per_learner pl       ON pl.student_id = s.id
+  ),
+  judged AS (
+    SELECT a.*,
+           -- Judge by configured price when both sides are priced; fall back
+           -- to sort_order only when a fee row is missing.
+           CASE WHEN a.hostel_category_id IS NULL THEN 'no_category'
+                WHEN a.entitled_category_id IS NULL THEN 'no_band'
+                WHEN a.entitled_category_name = a.tagged_category_name THEN 'within'
+                WHEN a.category_room_rate IS NOT NULL AND a.entitled_room_rate IS NOT NULL THEN
+                  CASE WHEN a.category_room_rate > a.entitled_room_rate THEN 'above'
+                       WHEN a.category_room_rate < a.entitled_room_rate THEN 'below'
+                       ELSE 'within' END
+                WHEN COALESCE(a.tagged_sort, 0) > COALESCE(a.entitled_sort, 0) THEN 'above'
+                WHEN COALESCE(a.tagged_sort, 0) < COALESCE(a.entitled_sort, 0) THEN 'below'
+                ELSE 'within' END AS band_status
+    FROM assembled a
+  )
+  SELECT j.id,
+         j.roll_number,
+         j.register_number,
+         j.full_name,
+         j.gender,
+         j.institution_id,
+         j.institution_name,
+         j.program_name,
+         j.year_of_study,
+         j.semester_name,
+         j.lifecycle_status,
+         (j.current_allocation_id IS NOT NULL),
+         j.current_block_id,
+         j.block_name,
+         j.room_number,
+         j.bed_number,
+         j.seated_category_name,
+         j.hostel_category_id,
+         j.tagged_category_name,
+         j.mess_category_name,
+         j.band_fee,
+         j.entitled_category_name,
+         j.band_status,
+         j.expected_room_fee,
+         j.expected_mess_fee,
+         j.expected_upgrade_fee,
+         j.category_room_rate,
+         j.category_mess_rate,
+         j.room_billed, j.room_paid, j.room_status, j.room_due_date,
+         j.mess_billed, j.mess_paid, j.mess_status, j.mess_due_date,
+         CASE WHEN j.upgrade_status IS NULL THEN NULL ELSE j.upgrade_billed END,
+         CASE WHEN j.upgrade_status IS NULL THEN NULL ELSE j.upgrade_paid END,
+         j.upgrade_status, j.upgrade_due_date,
+         j.total_billed,
+         j.total_paid,
+         j.total_outstanding,
+         j.overdue_amount,
+         j.overdue_count,
+         ARRAY_REMOVE(ARRAY[
+           CASE WHEN j.room_billed IS NULL THEN 'no_room_bill' END,
+           CASE WHEN j.mess_billed IS NULL THEN 'no_mess_bill' END,
+           CASE WHEN j.band_status = 'above' AND NOT j.has_room_upgrade_bill THEN 'upgrade_unbilled' END,
+           CASE WHEN j.total_outstanding > 0 THEN 'unpaid' END,
+           CASE WHEN j.overdue_count > 0 THEN 'overdue' END,
+           CASE WHEN (j.expected_room_fee IS NOT NULL AND j.room_billed IS NOT NULL
+                      AND j.room_billed <> j.expected_room_fee)
+                  OR (j.expected_mess_fee IS NOT NULL AND j.mess_billed IS NOT NULL
+                      AND j.mess_billed <> j.expected_mess_fee)
+                  OR (j.expected_upgrade_fee IS NOT NULL AND j.room_upgrade_billed IS NOT NULL
+                      AND j.room_upgrade_billed <> j.expected_upgrade_fee)
+                THEN 'amount_mismatch' END,
+           CASE WHEN j.band_status = 'no_band' THEN 'no_band' END,
+           -- Informational: the bed's category disagrees with the billed tag,
+           -- except the by-design stock mapping (Deluxe Plus sells Deluxe beds).
+           CASE WHEN j.seated_category_id IS NOT NULL AND j.hostel_category_id IS NOT NULL
+                     AND j.seated_category_name <> j.tagged_category_name
+                     AND j.seated_category_id IS DISTINCT FROM j.tagged_room_source
+                THEN 'category_drift' END
+         ], NULL)::text[],
+         j.bills,
+         j.target_ay_name
+  FROM judged j;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_cl_billing_audit_rows(uuid[], uuid, uuid, uuid, uuid, text, boolean) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.fn_cl_billing_audit_rows(uuid[], uuid, uuid, uuid, uuid, text, boolean) TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.fn_cl_billing_audit_rows(uuid[], uuid, uuid, uuid, uuid, text, boolean) IS
+  'Billing Audit engine: one row per hostel learner (v_learner_hostelites) with fee band, entitled category, configured fees, live room/mess/upgrade bills for the target year, and findings[]. Gated campus_living.billing_audit.view; scoped to accessible institutions.';
+
+-- ─── 3b. Paginated table RPC ────────────────────────────────────────────────
+DROP FUNCTION IF EXISTS public.get_cl_billing_audit_learners(uuid[], uuid, uuid, uuid, uuid, text, boolean, text, text, integer, integer, text, text);
+
+CREATE OR REPLACE FUNCTION public.get_cl_billing_audit_learners(
+  p_institution_ids   uuid[]  DEFAULT NULL,
+  p_academic_year_id  uuid    DEFAULT NULL,
+  p_block_id          uuid    DEFAULT NULL,
+  p_room_category_id  uuid    DEFAULT NULL,
+  p_program_id        uuid    DEFAULT NULL,
+  p_gender            text    DEFAULT NULL,
+  p_allocated_only    boolean DEFAULT false,
+  p_finding           text    DEFAULT 'all',
+  p_search            text    DEFAULT NULL,
+  p_page              integer DEFAULT 1,
+  p_page_size         integer DEFAULT 50,
+  p_sort_by           text    DEFAULT NULL,
+  p_sort_dir          text    DEFAULT 'asc'
+)
+RETURNS TABLE (
+  out_learner_id                uuid,
+  out_roll_number               text,
+  out_register_number           text,
+  out_full_name                 text,
+  out_gender                    text,
+  out_institution_id            uuid,
+  out_institution_name          text,
+  out_program_name              text,
+  out_year_of_study             integer,
+  out_semester_name             text,
+  out_lifecycle_status          text,
+  out_is_allocated              boolean,
+  out_block_id                  uuid,
+  out_block_name                text,
+  out_room_number               text,
+  out_bed_number                text,
+  out_seated_category_name      text,
+  out_tagged_category_id        uuid,
+  out_tagged_category_name      text,
+  out_mess_category_name        text,
+  out_band_fee                  numeric,
+  out_entitled_category_name    text,
+  out_band_status               text,
+  out_expected_room_fee         numeric,
+  out_expected_mess_fee         numeric,
+  out_expected_upgrade_fee      numeric,
+  out_category_room_rate        numeric,
+  out_category_mess_rate        numeric,
+  out_room_billed               numeric,
+  out_room_paid                 numeric,
+  out_room_status               text,
+  out_room_due_date             date,
+  out_mess_billed               numeric,
+  out_mess_paid                 numeric,
+  out_mess_status               text,
+  out_mess_due_date             date,
+  out_upgrade_billed            numeric,
+  out_upgrade_paid              numeric,
+  out_upgrade_status            text,
+  out_upgrade_due_date          date,
+  out_total_billed              numeric,
+  out_total_paid                numeric,
+  out_total_outstanding         numeric,
+  out_overdue_amount            numeric,
+  out_overdue_count             integer,
+  out_findings                  text[],
+  out_bills                     jsonb,
+  out_target_academic_year_name text,
+  out_total_count               bigint
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = 'public'
+AS $$
+DECLARE
+  v_limit  integer := LEAST(GREATEST(COALESCE(p_page_size, 50), 1), 200);
+  v_offset integer := GREATEST(COALESCE(p_page, 1) - 1, 0) * LEAST(GREATEST(COALESCE(p_page_size, 50), 1), 200);
+  v_dir    text    := CASE WHEN lower(COALESCE(p_sort_dir, 'asc')) = 'desc' THEN 'desc' ELSE 'asc' END;
+  v_sort   text    := CASE
+                        WHEN p_sort_by IN ('roll_number', 'full_name', 'institution_name', 'block_name',
+                                           'band_fee', 'total_billed', 'total_paid', 'total_outstanding',
+                                           'overdue_amount', 'program_name', 'tagged_category_name')
+                        THEN p_sort_by ELSE 'roll_number' END;
+  v_search text    := NULLIF(TRIM(COALESCE(p_search, '')), '');
+BEGIN
+  -- The engine re-checks permission and scope; this wrapper only filters,
+  -- sorts and pages. The whitelist above is what keeps p_sort_by out of the
+  -- ORDER BY as raw text.
+  RETURN QUERY EXECUTE format($q$
+    WITH audit_rows AS MATERIALIZED (
+      SELECT * FROM public.fn_cl_billing_audit_rows($1, $2, $3, $4, $5, $6, $7)
+    ),
+    filtered AS (
+      SELECT r.*
+      FROM audit_rows r
+      WHERE ($8 = 'all'
+             OR ($8 = 'clean' AND NOT (r.out_findings && ARRAY['no_room_bill','no_mess_bill','upgrade_unbilled','unpaid','overdue','amount_mismatch']::text[]))
+             OR ($8 <> 'all' AND $8 <> 'clean' AND $8 = ANY(r.out_findings)))
+        AND ($9::text IS NULL
+             OR r.out_roll_number     ILIKE '%%' || $9 || '%%'
+             OR r.out_register_number ILIKE '%%' || $9 || '%%'
+             OR r.out_full_name       ILIKE '%%' || $9 || '%%')
+    )
+    SELECT f.*, COUNT(*) OVER() AS out_total_count
+    FROM filtered f
+    ORDER BY f.out_%I %s NULLS LAST, f.out_roll_number ASC
+    LIMIT $10 OFFSET $11
+  $q$, v_sort, v_dir)
+  USING p_institution_ids, p_academic_year_id, p_block_id, p_room_category_id,
+        p_program_id, p_gender, COALESCE(p_allocated_only, false),
+        COALESCE(p_finding, 'all'), v_search, v_limit, v_offset;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.get_cl_billing_audit_learners(uuid[], uuid, uuid, uuid, uuid, text, boolean, text, text, integer, integer, text, text) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.get_cl_billing_audit_learners(uuid[], uuid, uuid, uuid, uuid, text, boolean, text, text, integer, integer, text, text) TO authenticated, service_role;
+
+-- ─── 3c. Summary RPC ────────────────────────────────────────────────────────
+DROP FUNCTION IF EXISTS public.get_cl_billing_audit_summary(uuid[], uuid, uuid, uuid, uuid, text, boolean);
+
+CREATE OR REPLACE FUNCTION public.get_cl_billing_audit_summary(
+  p_institution_ids   uuid[]  DEFAULT NULL,
+  p_academic_year_id  uuid    DEFAULT NULL,
+  p_block_id          uuid    DEFAULT NULL,
+  p_room_category_id  uuid    DEFAULT NULL,
+  p_program_id        uuid    DEFAULT NULL,
+  p_gender            text    DEFAULT NULL,
+  p_allocated_only    boolean DEFAULT false
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = 'public'
+AS $$
+DECLARE
+  v_result jsonb;
+BEGIN
+  -- Every aggregate below reads ONE materialised pass of the engine, so the
+  -- KPI cards and every breakdown describe the same population. (Two separate
+  -- RPC calls can still disagree by a row — the DB is live.)
+  WITH audit_rows AS MATERIALIZED (
+    SELECT * FROM public.fn_cl_billing_audit_rows(
+      p_institution_ids, p_academic_year_id, p_block_id, p_room_category_id,
+      p_program_id, p_gender, COALESCE(p_allocated_only, false))
+  ),
+  kpis AS (
+    SELECT
+      COUNT(*)::integer                                                        AS hostel_learners,
+      COUNT(*) FILTER (WHERE out_is_allocated)::integer                        AS allocated,
+      COUNT(*) FILTER (WHERE out_room_billed IS NOT NULL)::integer             AS room_billed_learners,
+      COUNT(*) FILTER (WHERE out_mess_billed IS NOT NULL)::integer             AS mess_billed_learners,
+      COUNT(*) FILTER (WHERE out_upgrade_status IS NOT NULL)::integer          AS upgrade_billed_learners,
+      COUNT(*) FILTER (WHERE out_band_status = 'above')::integer               AS above_band,
+      COUNT(*) FILTER (WHERE 'upgrade_unbilled' = ANY(out_findings))::integer  AS upgrade_unbilled,
+      COUNT(*) FILTER (WHERE 'no_band' = ANY(out_findings))::integer           AS no_band,
+      COUNT(*) FILTER (WHERE 'amount_mismatch' = ANY(out_findings))::integer   AS amount_mismatch,
+      COUNT(*) FILTER (WHERE 'category_drift' = ANY(out_findings))::integer    AS category_drift,
+      COUNT(*) FILTER (WHERE out_overdue_count > 0)::integer                   AS overdue_learners,
+      COUNT(*) FILTER (WHERE out_total_outstanding > 0)::integer               AS unpaid_learners,
+      COUNT(*) FILTER (WHERE NOT (out_findings && ARRAY['no_room_bill','no_mess_bill','upgrade_unbilled','unpaid','overdue','amount_mismatch']::text[]))::integer AS clean,
+      COALESCE(SUM(out_total_billed), 0)                                       AS total_billed,
+      COALESCE(SUM(out_total_paid), 0)                                         AS total_paid,
+      COALESCE(SUM(out_total_outstanding), 0)                                  AS total_outstanding,
+      COALESCE(SUM(out_overdue_amount), 0)                                     AS overdue_amount,
+      COALESCE(SUM(out_expected_upgrade_fee) FILTER (WHERE 'upgrade_unbilled' = ANY(out_findings)), 0) AS upgrade_unbilled_amount
+    FROM audit_rows
+  ),
+  by_finding AS (
+    SELECT f.key AS finding,
+           COUNT(*)::integer AS learners,
+           COALESCE(SUM(r.out_total_outstanding), 0) AS outstanding
+    FROM audit_rows r
+    CROSS JOIN LATERAL unnest(r.out_findings) AS f(key)
+    GROUP BY f.key
+  ),
+  by_institution AS (
+    SELECT out_institution_id AS id, out_institution_name AS name,
+           COUNT(*)::integer AS learners,
+           COUNT(*) FILTER (WHERE out_is_allocated)::integer AS allocated,
+           COUNT(*) FILTER (WHERE out_room_billed IS NOT NULL)::integer AS room_billed,
+           COUNT(*) FILTER (WHERE out_mess_billed IS NOT NULL)::integer AS mess_billed,
+           COALESCE(SUM(out_total_billed), 0)      AS billed,
+           COALESCE(SUM(out_total_paid), 0)        AS paid,
+           COALESCE(SUM(out_total_outstanding), 0) AS outstanding,
+           COALESCE(SUM(out_overdue_amount), 0)    AS overdue,
+           COUNT(*) FILTER (WHERE out_overdue_count > 0)::integer AS overdue_learners
+    FROM audit_rows
+    GROUP BY out_institution_id, out_institution_name
+  ),
+  by_block AS (
+    SELECT out_block_id AS id, COALESCE(out_block_name, 'Not allocated') AS name,
+           COUNT(*)::integer AS learners,
+           COALESCE(SUM(out_total_billed), 0)      AS billed,
+           COALESCE(SUM(out_total_paid), 0)        AS paid,
+           COALESCE(SUM(out_total_outstanding), 0) AS outstanding,
+           COALESCE(SUM(out_overdue_amount), 0)    AS overdue,
+           COUNT(*) FILTER (WHERE 'upgrade_unbilled' = ANY(out_findings))::integer AS upgrade_unbilled
+    FROM audit_rows
+    GROUP BY out_block_id, out_block_name
+  ),
+  by_room_category AS (
+    SELECT out_tagged_category_id AS id, COALESCE(out_tagged_category_name, 'No category') AS name,
+           COUNT(*)::integer AS learners,
+           COUNT(*) FILTER (WHERE out_band_status = 'above')::integer AS above_band,
+           COUNT(*) FILTER (WHERE out_room_billed IS NOT NULL)::integer AS room_billed,
+           MAX(out_category_room_rate) AS category_room_rate,
+           COALESCE(SUM(out_room_billed), 0) AS room_billed_amount,
+           COALESCE(SUM(out_upgrade_billed), 0) AS upgrade_billed_amount
+    FROM audit_rows
+    GROUP BY out_tagged_category_id, out_tagged_category_name
+  ),
+  bill_lines AS (
+    SELECT (b->>'status') AS status,
+           (b->>'class')  AS class,
+           (b->>'amount')::numeric  AS amount,
+           (b->>'pending')::numeric AS pending,
+           (b->>'due_date')::date   AS due_date,
+           (b->>'is_overdue')::boolean AS is_overdue
+    FROM audit_rows r CROSS JOIN LATERAL jsonb_array_elements(r.out_bills) AS b
+  ),
+  by_bill_status AS (
+    SELECT status, COUNT(*)::integer AS bills, COALESCE(SUM(amount), 0) AS amount
+    FROM bill_lines GROUP BY status
+  ),
+  by_bill_class AS (
+    SELECT class, COUNT(*)::integer AS bills,
+           COALESCE(SUM(amount), 0) AS amount,
+           COALESCE(SUM(amount - pending), 0) AS paid,
+           COALESCE(SUM(pending), 0) AS pending
+    FROM bill_lines GROUP BY class
+  ),
+  overdue_aging AS (
+    SELECT CASE WHEN CURRENT_DATE - due_date <= 30 THEN '1-30'
+                WHEN CURRENT_DATE - due_date <= 60 THEN '31-60'
+                WHEN CURRENT_DATE - due_date <= 90 THEN '61-90'
+                ELSE '90+' END AS bucket,
+           COUNT(*)::integer AS bills,
+           COALESCE(SUM(pending), 0) AS amount
+    FROM bill_lines WHERE is_overdue
+    GROUP BY 1
+  ),
+  due_soon AS (
+    SELECT CASE WHEN due_date <= CURRENT_DATE + 7  THEN 'this_week'
+                WHEN due_date <= CURRENT_DATE + 30 THEN 'this_month'
+                ELSE 'later' END AS bucket,
+           COUNT(*)::integer AS bills,
+           COALESCE(SUM(pending), 0) AS amount
+    FROM bill_lines WHERE pending > 0 AND due_date >= CURRENT_DATE
+    GROUP BY 1
+  ),
+  target_years AS (
+    SELECT DISTINCT out_institution_name AS institution, out_target_academic_year_name AS academic_year_name
+    FROM audit_rows
+  )
+  SELECT jsonb_build_object(
+    'kpis',              (SELECT to_jsonb(k) FROM kpis k),
+    'by_finding',        COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.learners DESC) FROM by_finding x), '[]'::jsonb),
+    'by_institution',    COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.name) FROM by_institution x), '[]'::jsonb),
+    'by_block',          COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.name) FROM by_block x), '[]'::jsonb),
+    'by_room_category',  COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.name) FROM by_room_category x), '[]'::jsonb),
+    'by_bill_status',    COALESCE((SELECT jsonb_agg(to_jsonb(x)) FROM by_bill_status x), '[]'::jsonb),
+    'by_bill_class',     COALESCE((SELECT jsonb_agg(to_jsonb(x)) FROM by_bill_class x), '[]'::jsonb),
+    'overdue_aging',     COALESCE((SELECT jsonb_agg(to_jsonb(x)) FROM overdue_aging x), '[]'::jsonb),
+    'due_soon',          COALESCE((SELECT jsonb_agg(to_jsonb(x)) FROM due_soon x), '[]'::jsonb),
+    'target_years',      COALESCE((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.institution) FROM target_years x), '[]'::jsonb)
+  ) INTO v_result;
+
+  RETURN v_result;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.get_cl_billing_audit_summary(uuid[], uuid, uuid, uuid, uuid, text, boolean) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.get_cl_billing_audit_summary(uuid[], uuid, uuid, uuid, uuid, text, boolean) TO authenticated, service_role;

@@ -21,14 +21,16 @@
 
 import Link from 'next/link';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Download, Eye, MoreHorizontal } from 'lucide-react';
+import { Download, Eye, MoreHorizontal, Trash2 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
@@ -58,6 +60,12 @@ const stamp = (iso: string | null) =>
 export interface RunColumnActions {
   /** hr_organization_id → institution name. */
   orgNameById: Map<string, string>;
+  /**
+   * Present only for a super admin (profile.is_super_admin — the same predicate
+   * the route and the DELETE policies use). Absent, the item is not rendered:
+   * a disabled "Delete" would advertise an action most readers can never take.
+   */
+  onDelete?: (run: HRSalaryRegisterRun) => void;
 }
 
 export function getRunColumns(
@@ -66,7 +74,39 @@ export function getRunColumns(
   const nameOf = (r: HRSalaryRegisterRun) =>
     actions.orgNameById.get(r.hr_organization_id) ?? r.hr_organization_id;
 
+  // The checkbox column exists for ONE bulk operation — delete — so it appears
+  // only when delete is wired, i.e. for a super admin. Everyone else keeps the
+  // table exactly as it was.
+  const selectColumn: ColumnDef<HRSalaryRegisterRun>[] = actions.onDelete
+    ? [
+        {
+          id: 'select',
+          header: ({ table }) => (
+            <Checkbox
+              checked={table.getIsAllPageRowsSelected()}
+              onCheckedChange={(v) => table.toggleAllPageRowsSelected(!!v)}
+              aria-label="Select all registers on this page"
+            />
+          ),
+          cell: ({ row }) => (
+            <Checkbox
+              checked={row.getIsSelected()}
+              onCheckedChange={(v) => row.toggleSelected(!!v)}
+              aria-label="Select register"
+            />
+          ),
+          size: 40,
+          minSize: 40,
+          maxSize: 40,
+          enableSorting: false,
+          enableHiding: false,
+          enableResizing: false,
+        },
+      ]
+    : [];
+
   return [
+    ...selectColumn,
     {
       id: 'institution',
       accessorFn: nameOf,
@@ -205,6 +245,18 @@ export function getRunColumns(
                   Export workbook
                 </a>
               </DropdownMenuItem>
+              {actions.onDelete && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onSelect={() => actions.onDelete?.(r)}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete register
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         );

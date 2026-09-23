@@ -94,6 +94,9 @@ import {
   ShieldCheck,
   // Campus Living Icons
   Hotel,
+  Bed,
+  DoorOpen,
+  FileSearch,
   UtensilsCrossed,
   WashingMachine,
   HeartPulse,
@@ -1474,6 +1477,84 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/campus-living/reports': 'campus_living.reports.view',
   '/campus-living/settings': 'campus_living.settings.view',
   '/campus-living/settings/approval-chains': 'campus_living.approval_chains.view',
+  // ── Sidebar sub-module rows (2026-09-22) ──────────────────────────────
+  // The Campus Living section went from one auto-discovered row to one row
+  // per sub-module with hand-authored submenus. Every submenu href must be
+  // mapped here or the default-deny filter hides it from every non-super-admin
+  // (check:menu-coverage fails the build on a gap). Each entry below carries
+  // the SAME key the route guard already resolved for it through the
+  // longest-prefix walk (lib/auth/route-matcher.ts), so nobody's access moves
+  // — this is a nav regrouping, not a re-gating. Tightening a page to its own
+  // more specific key (e.g. attendance.mark) is a separate decision.
+  '/campus-living/wardens': 'campus_living.dashboard.view',
+  '/campus-living/allocations/pending': 'campus_living.allocations.view',
+  '/campus-living/allocations/waitlist': 'campus_living.allocations.view',
+  '/campus-living/allocations/auto': 'campus_living.allocations.view',
+  '/campus-living/allocations/batches': 'campus_living.allocations.view',
+  '/campus-living/attendance/mark': 'campus_living.attendance.view',
+  '/campus-living/attendance/absentees': 'campus_living.attendance.view',
+  '/campus-living/attendance/history': 'campus_living.attendance.view',
+  '/campus-living/visitors/known': 'campus_living.visitors.view',
+  '/campus-living/visitors/register': 'campus_living.visitors.view',
+  '/campus-living/mess/bookings': 'campus_living.mess.view',
+  '/campus-living/mess/categories': 'campus_living.mess.view',
+  '/campus-living/mess/caterers': 'campus_living.mess.view',
+  '/campus-living/mess/caterer-management': 'campus_living.mess.view',
+  '/campus-living/mess/library': 'campus_living.mess.view',
+  '/campus-living/mess/menu-loop': 'campus_living.mess.view',
+  '/campus-living/mess/insights': 'campus_living.mess.view',
+  '/campus-living/mess/policies': 'campus_living.mess.view',
+  '/campus-living/safety/access-log': 'campus_living.safety.view',
+  '/campus-living/safety/curfew-exceptions': 'campus_living.safety.view',
+  '/campus-living/safety/emergency-contacts': 'campus_living.safety.view',
+  '/campus-living/analytics/occupancy': 'campus_living.analytics.view',
+  '/campus-living/analytics/attendance': 'campus_living.analytics.view',
+  '/campus-living/analytics/mess': 'campus_living.analytics.view',
+  '/campus-living/analytics/maintenance': 'campus_living.analytics.view',
+  '/campus-living/analytics/safety': 'campus_living.analytics.view',
+  '/campus-living/analytics/fees': 'campus_living.analytics.view',
+  '/campus-living/analytics/bed-economics': 'campus_living.analytics.view',
+  '/campus-living/analytics/cross-domain': 'campus_living.analytics.view',
+  '/campus-living/analytics/alerts': 'campus_living.analytics.view',
+  '/campus-living/analytics/alert-rules': 'campus_living.analytics.view',
+  '/campus-living/reports/occupancy': 'campus_living.reports.view',
+  '/campus-living/reports/attendance-register': 'campus_living.reports.view',
+  '/campus-living/reports/fee-collection': 'campus_living.reports.view',
+  '/campus-living/reports/visitor-register': 'campus_living.reports.view',
+  '/campus-living/reports/safety-audit': 'campus_living.reports.view',
+  '/campus-living/reports/anti-ragging-compliance': 'campus_living.reports.view',
+  '/campus-living/settings/general': 'campus_living.settings.view',
+  '/campus-living/settings/categories': 'campus_living.settings.view',
+  '/campus-living/settings/program-eligibility': 'campus_living.settings.view',
+  '/campus-living/settings/allocations': 'campus_living.settings.view',
+  '/campus-living/settings/amenities': 'campus_living.settings.view',
+  '/campus-living/settings/billable-amenities': 'campus_living.settings.view',
+  '/campus-living/settings/ac-amenity-audit': 'campus_living.settings.view',
+  '/campus-living/settings/hostel-years': 'campus_living.settings.view',
+  '/campus-living/settings/packages': 'campus_living.settings.view',
+  '/campus-living/settings/block-economics': 'campus_living.settings.view',
+  '/campus-living/settings/choose-your-menu': 'campus_living.settings.view',
+  '/campus-living/settings/mess-services': 'campus_living.settings.view',
+  '/campus-living/settings/fee-config': 'campus_living.settings.view',
+  '/campus-living/settings/fees-economics': 'campus_living.settings.view',
+  '/campus-living/settings/leave-types': 'campus_living.settings.view',
+  '/campus-living/settings/policies-workflows': 'campus_living.settings.view',
+  '/campus-living/settings/maintenance-sla': 'campus_living.settings.view',
+  '/campus-living/settings/notification-rules': 'campus_living.settings.view',
+  '/campus-living/settings/curfew': 'campus_living.settings.view',
+  // Billing Audit (2026-09-22) — hostel-learner bill coverage + fee-band audit.
+  // Its own key, granted by migration 20260922120000; the RPCs behind both
+  // pages gate on the same key server-side.
+  '/campus-living/billing-audit': 'campus_living.billing_audit.view',
+  '/campus-living/billing-audit/learners': 'campus_living.billing_audit.view',
+  // Premium Room admin surfaces are wrapped in SuperAdminOnly at the page
+  // level (app/(routes)/campus-living/premium/*/page.tsx). The sentinel makes
+  // the sidebar and the route guard say the same thing the page already does.
+  '/campus-living/premium/dashboard': 'super_admin',
+  '/campus-living/premium/tier-policy': 'super_admin',
+  '/campus-living/premium/override': 'super_admin',
+  '/campus-living/premium/audit-log': 'super_admin',
+  '/campus-living/premium/allocation-rules': 'super_admin',
 
   // Faculty Innovation Portfolio (spec v1.0.0 — 2026-04-15)
   '/faculty/innovation': 'faculty_innovation.initiative.submit',
@@ -2605,26 +2686,280 @@ export function GetPages(pathname: string): MenuGroup[] {
     {
       groupLabel: 'Campus Living',
       menus: [
-        // Single sidebar entry — all Campus Living navigation lives in the
-        // module's in-page tab bar (CLNav, see app/(routes)/campus-living/
-        // _components/cl-nav.tsx). This mirrors the Learners Council pattern
-        // where the sidebar shows only "Learners Council" as one entry.
+        // One row per sub-module, each with hand-authored submenus (2026-09-22).
         //
-        // Why: deep sidebar nesting doesn't scale across 8+ modules. The
-        // in-page tab pattern keeps the sidebar flat (1 entry per module)
-        // and puts workflow-specific navigation adjacent to the content.
+        // Before this the section had a single `/campus-living` row and
+        // Navbar/menu.tsx auto-discovered its depth-2 pages from the route
+        // manifest — 25 links in one alphabetical accordion (Activity,
+        // Allocations, Analytics, Attendance, Blocks, Calendar, …) with no
+        // grouping, so nothing could be found by topic. The in-page tab bar
+        // (app/(routes)/campus-living/nav-config.ts) still renders the
+        // tier-2 / tier-3 chips; this is the sidebar half of the same map.
+        // Same shape as HR Management below: rows with explicit submenus
+        // self-anchor on their own href, so each row is its own accordion.
+        //
+        // Gating: a row shows when ANY of its submenus is allowed, and every
+        // submenu href is mapped in MENU_PERMISSIONS (build gate). A role that
+        // holds only a sub-module key — mess_caterer, mess_operations — now
+        // sees that one row; before, without campus_living.dashboard.view, it
+        // saw no Campus Living entry at all.
+        //
+        // The `/campus-living` row MUST stay first and keep that exact href:
+        // GetRoleBasedPages rewrites it to the student's "My Hostel" link.
         {
           href: '/campus-living',
-          label: 'Campus Living',
-          active: pathname === '/campus-living' || pathname.startsWith('/campus-living/'),
+          label: 'Overview',
+          active: pathname === '/campus-living' || pathname === '/campus-living/dashboard',
           icon: Hotel,
-          submenus: []
-        }
-
-        // ↓ Previous nested structure removed. All routes remain reachable
-        // via the CLNav tab bar (Overview, Dashboard, Residents, Attendance,
-        // Services, Facility, Community, Insights, Settings) and per-section
-        // SectionSubNav components. URLs are UNCHANGED — no bookmarks break.
+          submenus: [
+            { href: '/campus-living', label: 'Overview', active: pathname === '/campus-living' },
+            { href: '/campus-living/dashboard', label: 'Dashboard', active: pathname === '/campus-living/dashboard' },
+          ]
+        },
+        {
+          href: '/campus-living/residents',
+          label: 'Residents & Rooms',
+          active:
+            pathname.startsWith('/campus-living/residents')
+            || pathname.startsWith('/campus-living/blocks')
+            || pathname.startsWith('/campus-living/wardens')
+            || pathname.startsWith('/campus-living/vacate-requests'),
+          icon: UsersRound,
+          submenus: [
+            { href: '/campus-living/residents', label: 'Residents', active: pathname.startsWith('/campus-living/residents') },
+            { href: '/campus-living/blocks', label: 'Blocks', active: pathname.startsWith('/campus-living/blocks') },
+            { href: '/campus-living/wardens', label: 'Wardens', active: pathname.startsWith('/campus-living/wardens') },
+            { href: '/campus-living/vacate-requests', label: 'Vacate Requests', active: pathname.startsWith('/campus-living/vacate-requests') },
+          ]
+        },
+        {
+          href: '/campus-living/allocations',
+          label: 'Allocations',
+          active: pathname.startsWith('/campus-living/allocations'),
+          icon: Bed,
+          submenus: [
+            { href: '/campus-living/allocations', label: 'Allocations', active: pathname === '/campus-living/allocations' },
+            { href: '/campus-living/allocations/pending', label: 'Pending Approvals', active: pathname.startsWith('/campus-living/allocations/pending') },
+            { href: '/campus-living/allocations/waitlist', label: 'Waitlist', active: pathname.startsWith('/campus-living/allocations/waitlist') },
+            { href: '/campus-living/allocations/auto', label: 'Auto-Allocate', active: pathname.startsWith('/campus-living/allocations/auto') },
+            { href: '/campus-living/allocations/batches', label: 'Allocation Batches', active: pathname.startsWith('/campus-living/allocations/batches') },
+            { href: '/campus-living/allocations/roommate-matching', label: 'Roommate Matching', active: pathname.startsWith('/campus-living/allocations/roommate-matching') },
+            { href: '/campus-living/allocations/onboarding', label: 'Onboarding', active: pathname.startsWith('/campus-living/allocations/onboarding') },
+            // Own key (campus_living.allocations.audit) held by no role — the
+            // link is super-admin-only by design, same as the route guard.
+            { href: '/campus-living/allocations/audit', label: 'Allocation Audit', active: pathname.startsWith('/campus-living/allocations/audit') },
+          ]
+        },
+        {
+          href: '/campus-living/attendance',
+          label: 'Attendance & Leave',
+          active:
+            pathname.startsWith('/campus-living/attendance')
+            || pathname.startsWith('/campus-living/leave'),
+          icon: UserCheck,
+          submenus: [
+            { href: '/campus-living/attendance', label: 'Attendance', active: pathname === '/campus-living/attendance' },
+            { href: '/campus-living/attendance/mark', label: 'Mark Attendance', active: pathname.startsWith('/campus-living/attendance/mark') },
+            { href: '/campus-living/attendance/absentees', label: 'Absentees', active: pathname.startsWith('/campus-living/attendance/absentees') },
+            { href: '/campus-living/attendance/history', label: 'History', active: pathname.startsWith('/campus-living/attendance/history') },
+            { href: '/campus-living/leave', label: 'Leave', active: pathname.startsWith('/campus-living/leave') },
+          ]
+        },
+        {
+          href: '/campus-living/gate-passes',
+          label: 'Gate & Visitors',
+          active:
+            pathname.startsWith('/campus-living/gate-passes')
+            || pathname.startsWith('/campus-living/visitors'),
+          icon: DoorOpen,
+          submenus: [
+            { href: '/campus-living/gate-passes', label: 'Gate Passes', active: pathname === '/campus-living/gate-passes' },
+            { href: '/campus-living/gate-passes/scan', label: 'Gate Scan', active: pathname.startsWith('/campus-living/gate-passes/scan') },
+            { href: '/campus-living/visitors', label: 'Visitors', active: pathname === '/campus-living/visitors' },
+            { href: '/campus-living/visitors/known', label: 'Known Visitors', active: pathname.startsWith('/campus-living/visitors/known') },
+            { href: '/campus-living/visitors/register', label: 'Register Visitor', active: pathname.startsWith('/campus-living/visitors/register') },
+          ]
+        },
+        {
+          // Menu Editor (/mess/menu-editor/[tier]) is deliberately absent: a
+          // dynamic route has no literal href to map; it stays an in-page chip.
+          href: '/campus-living/mess',
+          label: 'Mess',
+          active: pathname.startsWith('/campus-living/mess'),
+          icon: UtensilsCrossed,
+          submenus: [
+            { href: '/campus-living/mess', label: 'Mess Home', active: pathname === '/campus-living/mess' },
+            { href: '/campus-living/mess/menu', label: 'Menu', active: pathname.startsWith('/campus-living/mess/menu') && !pathname.startsWith('/campus-living/mess/menu-') },
+            { href: '/campus-living/mess/meals', label: 'Meals', active: pathname.startsWith('/campus-living/mess/meals') },
+            { href: '/campus-living/mess/bookings', label: 'Bookings', active: pathname.startsWith('/campus-living/mess/bookings') },
+            { href: '/campus-living/mess/billing', label: 'Billing', active: pathname.startsWith('/campus-living/mess/billing') },
+            { href: '/campus-living/mess/feedback', label: 'Feedback', active: pathname.startsWith('/campus-living/mess/feedback') },
+            { href: '/campus-living/mess/waste', label: 'Waste', active: pathname.startsWith('/campus-living/mess/waste') },
+            { href: '/campus-living/mess/categories', label: 'Mess Categories', active: pathname.startsWith('/campus-living/mess/categories') },
+            { href: '/campus-living/mess/caterers', label: 'Caterers', active: pathname.startsWith('/campus-living/mess/caterers') },
+            { href: '/campus-living/mess/caterer-management', label: 'Caterer Management', active: pathname.startsWith('/campus-living/mess/caterer-management') },
+            { href: '/campus-living/mess/library', label: 'Item Library', active: pathname.startsWith('/campus-living/mess/library') },
+            { href: '/campus-living/mess/menu-loop', label: 'Menu Loop', active: pathname.startsWith('/campus-living/mess/menu-loop') },
+            { href: '/campus-living/mess/insights', label: 'Rating Insights', active: pathname.startsWith('/campus-living/mess/insights') },
+            { href: '/campus-living/mess/policies', label: 'Mess Policies', active: pathname.startsWith('/campus-living/mess/policies') },
+          ]
+        },
+        {
+          href: '/campus-living/laundry',
+          label: 'Laundry & Housekeeping',
+          active:
+            pathname.startsWith('/campus-living/laundry')
+            || pathname.startsWith('/campus-living/housekeeping'),
+          icon: WashingMachine,
+          submenus: [
+            { href: '/campus-living/laundry', label: 'Laundry', active: pathname === '/campus-living/laundry' },
+            { href: '/campus-living/laundry/orders', label: 'Laundry Orders', active: pathname.startsWith('/campus-living/laundry/orders') },
+            { href: '/campus-living/laundry/schedule', label: 'Laundry Schedule', active: pathname.startsWith('/campus-living/laundry/schedule') },
+            { href: '/campus-living/laundry/settings', label: 'Laundry Settings', active: pathname.startsWith('/campus-living/laundry/settings') },
+            { href: '/campus-living/housekeeping', label: 'Housekeeping', active: pathname === '/campus-living/housekeeping' },
+            { href: '/campus-living/housekeeping/availability', label: 'Cleaning Availability', active: pathname.startsWith('/campus-living/housekeeping/availability') },
+            { href: '/campus-living/housekeeping/cleaners', label: 'Cleaners', active: pathname.startsWith('/campus-living/housekeeping/cleaners') },
+            { href: '/campus-living/housekeeping/types', label: 'Cleaning Types', active: pathname.startsWith('/campus-living/housekeeping/types') },
+            { href: '/campus-living/housekeeping/holds', label: 'Feedback Holds', active: pathname.startsWith('/campus-living/housekeeping/holds') },
+          ]
+        },
+        {
+          href: '/campus-living/maintenance',
+          label: 'Maintenance',
+          active: pathname.startsWith('/campus-living/maintenance'),
+          icon: Wrench,
+          submenus: [
+            { href: '/campus-living/maintenance', label: 'Maintenance', active: pathname === '/campus-living/maintenance' },
+            { href: '/campus-living/maintenance/preventive', label: 'Preventive', active: pathname === '/campus-living/maintenance/preventive' },
+            { href: '/campus-living/maintenance/preventive/tasks', label: 'Preventive Tasks', active: pathname.startsWith('/campus-living/maintenance/preventive/tasks') },
+            { href: '/campus-living/maintenance/contracts', label: 'Contracts', active: pathname.startsWith('/campus-living/maintenance/contracts') },
+          ]
+        },
+        {
+          href: '/campus-living/safety',
+          label: 'Safety & Wellness',
+          active:
+            pathname.startsWith('/campus-living/safety')
+            || pathname.startsWith('/campus-living/wellness')
+            || pathname.startsWith('/campus-living/health'),
+          icon: Shield,
+          submenus: [
+            { href: '/campus-living/safety', label: 'Safety', active: pathname === '/campus-living/safety' },
+            { href: '/campus-living/safety/incidents', label: 'Incidents', active: pathname.startsWith('/campus-living/safety/incidents') },
+            { href: '/campus-living/safety/inspections', label: 'Inspections', active: pathname.startsWith('/campus-living/safety/inspections') },
+            { href: '/campus-living/safety/access-log', label: 'Access Log', active: pathname.startsWith('/campus-living/safety/access-log') },
+            { href: '/campus-living/safety/anti-ragging', label: 'Anti-Ragging', active: pathname.startsWith('/campus-living/safety/anti-ragging') },
+            { href: '/campus-living/safety/curfew-exceptions', label: 'Curfew Exceptions', active: pathname.startsWith('/campus-living/safety/curfew-exceptions') },
+            { href: '/campus-living/safety/emergency-contacts', label: 'Emergency Contacts', active: pathname.startsWith('/campus-living/safety/emergency-contacts') },
+            { href: '/campus-living/wellness', label: 'Wellness', active: pathname === '/campus-living/wellness' },
+            { href: '/campus-living/wellness/surveys', label: 'Wellness Surveys', active: pathname.startsWith('/campus-living/wellness/surveys') },
+            { href: '/campus-living/health', label: 'Health', active: pathname.startsWith('/campus-living/health') },
+          ]
+        },
+        {
+          href: '/campus-living/community',
+          label: 'Community',
+          active:
+            pathname.startsWith('/campus-living/community')
+            || pathname.startsWith('/campus-living/activity')
+            || pathname.startsWith('/campus-living/calendar'),
+          icon: Users,
+          submenus: [
+            { href: '/campus-living/community', label: 'Community Home', active: pathname === '/campus-living/community' },
+            { href: '/campus-living/activity', label: 'Activity Feed', active: pathname.startsWith('/campus-living/activity') },
+            { href: '/campus-living/calendar', label: 'Calendar', active: pathname.startsWith('/campus-living/calendar') },
+            { href: '/campus-living/community/settings', label: 'Community Settings', active: pathname.startsWith('/campus-living/community/settings') },
+          ]
+        },
+        {
+          href: '/campus-living/analytics',
+          label: 'Analytics & Reports',
+          active:
+            pathname.startsWith('/campus-living/analytics')
+            || pathname.startsWith('/campus-living/reports')
+            || pathname.startsWith('/campus-living/settle-preview'),
+          icon: BarChart3,
+          submenus: [
+            { href: '/campus-living/analytics', label: 'Analytics Home', active: pathname === '/campus-living/analytics' },
+            { href: '/campus-living/analytics/occupancy', label: 'Occupancy', active: pathname.startsWith('/campus-living/analytics/occupancy') },
+            { href: '/campus-living/analytics/attendance', label: 'Attendance', active: pathname.startsWith('/campus-living/analytics/attendance') },
+            { href: '/campus-living/analytics/mess', label: 'Mess Analytics', active: pathname.startsWith('/campus-living/analytics/mess') },
+            { href: '/campus-living/analytics/maintenance', label: 'Maintenance Analytics', active: pathname.startsWith('/campus-living/analytics/maintenance') },
+            { href: '/campus-living/analytics/safety', label: 'Safety Analytics', active: pathname.startsWith('/campus-living/analytics/safety') },
+            { href: '/campus-living/analytics/fees', label: 'Fees Analytics', active: pathname.startsWith('/campus-living/analytics/fees') },
+            { href: '/campus-living/analytics/bed-economics', label: 'Bed Economics', active: pathname.startsWith('/campus-living/analytics/bed-economics') },
+            { href: '/campus-living/analytics/cross-domain', label: 'Cross-Domain', active: pathname.startsWith('/campus-living/analytics/cross-domain') },
+            { href: '/campus-living/analytics/alerts', label: 'Alerts', active: pathname.startsWith('/campus-living/analytics/alerts') },
+            { href: '/campus-living/analytics/alert-rules', label: 'Alert Rules', active: pathname.startsWith('/campus-living/analytics/alert-rules') },
+            { href: '/campus-living/reports', label: 'Reports Home', active: pathname === '/campus-living/reports' },
+            { href: '/campus-living/reports/occupancy', label: 'Occupancy Report', active: pathname.startsWith('/campus-living/reports/occupancy') },
+            { href: '/campus-living/reports/attendance-register', label: 'Attendance Register', active: pathname.startsWith('/campus-living/reports/attendance-register') },
+            { href: '/campus-living/reports/fee-collection', label: 'Fee Collection', active: pathname.startsWith('/campus-living/reports/fee-collection') },
+            { href: '/campus-living/reports/visitor-register', label: 'Visitor Register', active: pathname.startsWith('/campus-living/reports/visitor-register') },
+            { href: '/campus-living/reports/safety-audit', label: 'Safety Audit', active: pathname.startsWith('/campus-living/reports/safety-audit') },
+            { href: '/campus-living/reports/anti-ragging-compliance', label: 'Anti-Ragging Compliance', active: pathname.startsWith('/campus-living/reports/anti-ragging-compliance') },
+            { href: '/campus-living/settle-preview', label: 'Bill Practice Run', active: pathname.startsWith('/campus-living/settle-preview') },
+          ]
+        },
+        {
+          // Hostel-learner bill coverage + fee-band audit (2026-09-22). Gated on
+          // campus_living.billing_audit.view — wardens do not hold it.
+          href: '/campus-living/billing-audit',
+          label: 'Billing Audit',
+          active: pathname.startsWith('/campus-living/billing-audit'),
+          icon: FileSearch,
+          submenus: [
+            { href: '/campus-living/billing-audit', label: 'Analytics', active: pathname === '/campus-living/billing-audit' },
+            { href: '/campus-living/billing-audit/learners', label: 'Learner Audit', active: pathname.startsWith('/campus-living/billing-audit/learners') },
+          ]
+        },
+        {
+          href: '/campus-living/settings',
+          label: 'Settings',
+          active: pathname.startsWith('/campus-living/settings'),
+          icon: Settings,
+          submenus: [
+            { href: '/campus-living/settings/general', label: 'General', active: pathname.startsWith('/campus-living/settings/general') },
+            { href: '/campus-living/settings/categories', label: 'Hostel Room Categories', active: pathname.startsWith('/campus-living/settings/categories') },
+            { href: '/campus-living/settings/program-eligibility', label: 'Program Eligibility', active: pathname.startsWith('/campus-living/settings/program-eligibility') },
+            { href: '/campus-living/settings/allocations', label: 'Allocations & Eligibility', active: pathname.startsWith('/campus-living/settings/allocations') },
+            { href: '/campus-living/settings/amenities', label: 'Amenities', active: pathname.startsWith('/campus-living/settings/amenities') },
+            { href: '/campus-living/settings/billable-amenities', label: 'Billable Amenities', active: pathname.startsWith('/campus-living/settings/billable-amenities') },
+            { href: '/campus-living/settings/ac-amenity-audit', label: 'AC / Category Audit', active: pathname.startsWith('/campus-living/settings/ac-amenity-audit') },
+            { href: '/campus-living/settings/hostel-years', label: 'Hostel Years', active: pathname.startsWith('/campus-living/settings/hostel-years') },
+            { href: '/campus-living/settings/packages', label: 'Admission Packages', active: pathname.startsWith('/campus-living/settings/packages') },
+            { href: '/campus-living/settings/block-economics', label: 'Block Economics', active: pathname.startsWith('/campus-living/settings/block-economics') },
+            { href: '/campus-living/settings/choose-your-menu', label: 'Choose Your Menu', active: pathname.startsWith('/campus-living/settings/choose-your-menu') },
+            { href: '/campus-living/settings/mess-services', label: 'Mess & Daily Services', active: pathname.startsWith('/campus-living/settings/mess-services') },
+            { href: '/campus-living/settings/fee-config', label: 'Fee Config', active: pathname.startsWith('/campus-living/settings/fee-config') },
+            { href: '/campus-living/settings/fees-economics', label: 'Fees & Economics', active: pathname.startsWith('/campus-living/settings/fees-economics') },
+            { href: '/campus-living/settings/leave-types', label: 'Leave Types', active: pathname.startsWith('/campus-living/settings/leave-types') },
+            { href: '/campus-living/settings/approval-chains', label: 'Approval Chains', active: pathname.startsWith('/campus-living/settings/approval-chains') },
+            { href: '/campus-living/settings/policies-workflows', label: 'Policies & Workflows', active: pathname.startsWith('/campus-living/settings/policies-workflows') },
+            { href: '/campus-living/settings/maintenance-sla', label: 'Maintenance SLA', active: pathname.startsWith('/campus-living/settings/maintenance-sla') },
+            { href: '/campus-living/settings/notification-rules', label: 'Notification Rules', active: pathname.startsWith('/campus-living/settings/notification-rules') },
+            { href: '/campus-living/settings/curfew', label: 'Curfew Policies', active: pathname.startsWith('/campus-living/settings/curfew') },
+          ]
+        },
+        {
+          // Every page under /campus-living/premium is wrapped in SuperAdminOnly,
+          // so the row is flagged the same way (super_admin sees ALL menus; the
+          // filter drops the row for everyone else). Its hrefs map to the
+          // `super_admin` sentinel in MENU_PERMISSIONS. /campus-living/premium
+          // itself has no page.tsx, hence the row links to the dashboard.
+          href: '/campus-living/premium/dashboard',
+          label: 'Premium Rooms',
+          active: pathname.startsWith('/campus-living/premium'),
+          icon: Sparkles,
+          requiresSuperAdmin: true,
+          submenus: [
+            { href: '/campus-living/premium/dashboard', label: 'Premium Dashboard', active: pathname.startsWith('/campus-living/premium/dashboard') },
+            { href: '/campus-living/premium/tier-policy', label: 'Tier Policy', active: pathname.startsWith('/campus-living/premium/tier-policy') },
+            { href: '/campus-living/premium/override', label: 'Override', active: pathname.startsWith('/campus-living/premium/override') },
+            { href: '/campus-living/premium/audit-log', label: 'Audit Log', active: pathname.startsWith('/campus-living/premium/audit-log') },
+            { href: '/campus-living/premium/allocation-rules', label: 'Allocation Rules', active: pathname.startsWith('/campus-living/premium/allocation-rules') },
+          ]
+        } as MenuItem & { requiresSuperAdmin: boolean },
       ]
     },
     {
@@ -4579,21 +4914,26 @@ export function GetRoleBasedPages(
   const allMenus = GetPages(pathname);
 
   // Campus Living sidebar is role-aware: students get a single entry (no
-  // admin sub-page accordion — those pages auto-discover from the route
-  // manifest ungated and would otherwise leak the full admin list). Everyone
-  // else (super admin, wardens, staff) gets the full auto-discovered
-  // accordion. Set here because GetPages() has no role context.
+  // admin sub-module rows). Everyone else (super admin, wardens, staff) gets
+  // the per-sub-module accordion rows declared in GetPages. Set here because
+  // GetPages() has no role context.
   //
   // Students never hold the staff gate (campus_living.dashboard.view), so the
-  // entry is rewritten to the My Hostel hub and gated on
-  // campus_living.my_hostel.view instead. The nav surfaces (menu.tsx +
-  // bottom-navbar.tsx) overwrite that key with live user_is_hosteler() status,
-  // so only students with hostel accommodation see it.
+  // Overview row is rewritten to the My Hostel hub and gated on
+  // campus_living.my_hostel.view instead. Its submenus are emptied as well:
+  // the permission filter below shows a row with submenus only when one of
+  // THEM is allowed (Overview / Dashboard — keys no student holds), and would
+  // otherwise hide the very link this rewrite exists to show. The other
+  // Campus Living rows fall to that same filter on their own. The nav
+  // surfaces (menu.tsx + bottom-navbar.tsx) overwrite my_hostel.view with live
+  // user_is_hosteler() status, so only students with hostel accommodation see
+  // it.
   if (userRole?.role_key === 'student') {
     for (const group of allMenus) {
       for (const menu of group.menus) {
         if (menu.href === '/campus-living') {
           menu.noSubmenus = true;
+          menu.submenus = [];
           menu.href = '/campus-living/my-hostel';
           menu.label = 'My Hostel';
         }
