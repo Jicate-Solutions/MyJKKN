@@ -23,16 +23,34 @@
 -- THE RULE (same shape as the 2026-07-12 gap lookups, 20260712233000, with the
 -- refinements the spec and review #3983 ask for):
 --   * permission (the four readers) -> super admin, is_admin(), or
---                               user_has_permission(<the key the app's tool config
---                               gates on>): learners.view for students_summary /
---                               students_by_department, learners.admissions.dashboard
---                               for admission_analytics / admission_referrers.
---                               Otherwise {success:false, error.code:'FORBIDDEN'}.
---                               Before this, the only gate was in the app
---                               (lib/config/ai-query-tools-config.ts), so any signed-in
---                               account — a learner included — could call
---                               /rest/v1/rpc/ai_rpc_admission_referrers directly and
---                               read its own college's referrer names and phones.
+--                               user_has_permission(<key>): learners.view for
+--                               students_summary / students_by_department,
+--                               learners.admissions.dashboard for admission_analytics /
+--                               admission_referrers. Otherwise
+--                               {success:false, error.code:'FORBIDDEN'}.
+--                               THIS IS A NEW RESTRICTION, NOT A MIRROR OF AN APP CHECK.
+--                               The keys are the `permission` field of each tool in
+--                               lib/config/ai-query-tools-config.ts, but on jicate/main
+--                               that field is never enforced: its only reader is the
+--                               admin display (app/(routes)/ai-query/admin/_components/
+--                               tool-card.tsx:136). The only gate that runs today is
+--                               ai_query.view, checked by fn_ai_enqueue
+--                               (ai_job_types.allow_rule = 'permission:ai_query.view',
+--                               20260712201500 lines 199-208; app/api/ai-query/route.ts
+--                               header), after which the chat drain calls these functions
+--                               AS the asker. So every ai_query.view holder who lacks
+--                               learners.view stops getting an answer from
+--                               students_summary / students_by_department, and every one
+--                               who lacks learners.admissions.dashboard stops getting one
+--                               from admission_analytics / admission_referrers. The number
+--                               of such roles and people is NOT known to the lane that
+--                               wrote this (it could not read production); the rehearsal
+--                               (supabase/tests/ai-rpc-scope-guards-rehearsal.sql) reads it
+--                               live into its `impact` block. Read it before applying.
+--                               Why tighten anyway: without it, any signed-in account,
+--                               a learner included, can call
+--                               /rest/v1/rpc/ai_rpc_admission_referrers directly and read
+--                               its own college's referrer names and phone numbers.
 --   * super admin            -> p_institution_id NARROWS to that college; NULL = all.
 --                               (Before, a super admin's id was ignored and every
 --                               college's totals came back under one college's name.)
@@ -46,8 +64,11 @@
 --                               silently answered with the caller's own college, which
 --                               would present one college's numbers as another's
 --                               (CLAUDE.md rule #27: permission failures are explicit).
---   * no own institution     -> v_inst_id stays NULL -> `institution_id = NULL`
---                               matches nothing -> 0 rows (fail closed).
+--   * no institution to use  -> a non-super caller whose profile has no institution and
+--                               who names none (a legacy is_admin() role, or a
+--                               scope-'all' role, with NULL profiles.institution_id) is
+--                               REFUSED with error.code 'NO_INSTITUTION' — not answered
+--                               with a silent zero or an empty list (same rule #27).
 --
 -- WHO institution_scope='all' ADMITS (read live 2026-09-23, information only):
 --   39 custom_roles carry institution_scope='all', all is_active=true, so
@@ -64,9 +85,9 @@
 --   permission gate above.
 --
 -- WHAT CHANGED, AND WHAT DID NOT
---   Only the permission gate, the lines that pick the effective institution and
---   the institution predicate of each WHERE change; every other part of every
---   query, return shape, signature and default is byte-identical to the file each
+--   Only the permission gate, the lines that pick the effective institution,
+--   the NO_INSTITUTION refusal and the institution predicate of each WHERE
+--   change; every other part of every query, return shape, signature and default is byte-identical to the file each
 --   function was STARTED FROM. The four readers that lacked it gain
 --   `SET search_path = public` (the other ai_rpc_* functions already carry it).
 --   Each change is marked `-- [authz-guard 2026-09-23]`.
@@ -113,8 +134,8 @@ BEGIN
   p_user_id := auth.uid();
   SELECT institution_id, is_super_admin INTO v_profile FROM profiles WHERE id = p_user_id;
   v_super := COALESCE(v_profile.is_super_admin, FALSE);
-  -- [authz-guard 2026-09-23] permission gate in the database, not only in the app:
-  -- the same key lib/config/ai-query-tools-config.ts gates this tool on.
+  -- [authz-guard 2026-09-23] permission gate — a NEW restriction (see header): the key is the
+  -- one lib/config/ai-query-tools-config.ts displays for this tool, which nothing enforced before.
   IF NOT (v_super OR public.is_admin() OR public.user_has_permission('learners.view')) THEN
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN',
       'message','You do not have permission to view learner data.'));
@@ -132,6 +153,11 @@ BEGIN
   ELSE
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN_INSTITUTION',
       'message','You do not have access to that institution.', 'institution_id', p_institution_id));
+  END IF;
+  -- [authz-guard 2026-09-23] no institution to answer for: say so, never a silent zero.
+  IF v_inst_id IS NULL AND NOT v_super THEN
+    RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','NO_INSTITUTION',
+      'message','Your profile has no institution. Name an institution you have access to.'));
   END IF;
 
   WITH summary AS (
@@ -175,8 +201,8 @@ BEGIN
   p_user_id := auth.uid();
   SELECT institution_id, is_super_admin INTO v_profile FROM profiles WHERE id = p_user_id;
   v_super := COALESCE(v_profile.is_super_admin, FALSE);
-  -- [authz-guard 2026-09-23] permission gate in the database, not only in the app:
-  -- the same key lib/config/ai-query-tools-config.ts gates this tool on.
+  -- [authz-guard 2026-09-23] permission gate — a NEW restriction (see header): the key is the
+  -- one lib/config/ai-query-tools-config.ts displays for this tool, which nothing enforced before.
   IF NOT (v_super OR public.is_admin() OR public.user_has_permission('learners.view')) THEN
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN',
       'message','You do not have permission to view learner data.'));
@@ -194,6 +220,11 @@ BEGIN
   ELSE
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN_INSTITUTION',
       'message','You do not have access to that institution.', 'institution_id', p_institution_id));
+  END IF;
+  -- [authz-guard 2026-09-23] no institution to answer for: say so, never a silent zero.
+  IF v_inst_id IS NULL AND NOT v_super THEN
+    RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','NO_INSTITUTION',
+      'message','Your profile has no institution. Name an institution you have access to.'));
   END IF;
 
   WITH dept_stats AS (
@@ -238,8 +269,8 @@ BEGIN
   p_user_id := auth.uid();
   SELECT institution_id, is_super_admin INTO v_profile FROM profiles WHERE id = p_user_id;
   v_super := COALESCE(v_profile.is_super_admin, FALSE);
-  -- [authz-guard 2026-09-23] permission gate in the database, not only in the app:
-  -- the same key lib/config/ai-query-tools-config.ts gates this tool on.
+  -- [authz-guard 2026-09-23] permission gate — a NEW restriction (see header): the key is the
+  -- one lib/config/ai-query-tools-config.ts displays for this tool, which nothing enforced before.
   IF NOT (v_super OR public.is_admin() OR public.user_has_permission('learners.admissions.dashboard')) THEN
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN',
       'message','You do not have permission to view admission analytics.'));
@@ -257,6 +288,11 @@ BEGIN
   ELSE
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN_INSTITUTION',
       'message','You do not have access to that institution.', 'institution_id', p_institution_id));
+  END IF;
+  -- [authz-guard 2026-09-23] no institution to answer for: say so, never a silent zero.
+  IF v_inst_id IS NULL AND NOT v_super THEN
+    RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','NO_INSTITUTION',
+      'message','Your profile has no institution. Name an institution you have access to.'));
   END IF;
 
   WITH analytics AS (
@@ -302,8 +338,8 @@ BEGIN
   p_user_id := auth.uid();
   SELECT institution_id, is_super_admin INTO v_profile FROM profiles WHERE id = p_user_id;
   v_super := COALESCE(v_profile.is_super_admin, FALSE);
-  -- [authz-guard 2026-09-23] permission gate in the database, not only in the app:
-  -- the same key lib/config/ai-query-tools-config.ts gates this tool on.
+  -- [authz-guard 2026-09-23] permission gate — a NEW restriction (see header): the key is the
+  -- one lib/config/ai-query-tools-config.ts displays for this tool, which nothing enforced before.
   IF NOT (v_super OR public.is_admin() OR public.user_has_permission('learners.admissions.dashboard')) THEN
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN',
       'message','You do not have permission to view admission referrers.'));
@@ -321,6 +357,11 @@ BEGIN
   ELSE
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN_INSTITUTION',
       'message','You do not have access to that institution.', 'institution_id', p_institution_id));
+  END IF;
+  -- [authz-guard 2026-09-23] no institution to answer for: say so, never a silent zero.
+  IF v_inst_id IS NULL AND NOT v_super THEN
+    RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','NO_INSTITUTION',
+      'message','Your profile has no institution. Name an institution you have access to.'));
   END IF;
 
   WITH referrer_stats AS (
@@ -399,6 +440,11 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN_INSTITUTION',
       'message','You do not have access to that institution.', 'institution_id', p_institution_id));
   END IF;
+  -- [authz-guard 2026-09-23] no institution to answer for: say so, never a silent answer.
+  IF v_inst_id IS NULL AND NOT COALESCE(v_profile.is_super_admin, FALSE) THEN
+    RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','NO_INSTITUTION',
+      'message','Your profile has no institution. Name an institution you have access to.'));
+  END IF;
   -- LATENT (see header): `is_current` below and `.name` in the RETURN are BOTH missing
   -- columns (live: is_active, academic_year_name). Fixing one alone still raises 42703.
   SELECT * INTO v_academic_year
@@ -464,8 +510,9 @@ GRANT  EXECUTE ON FUNCTION public.ai_get_accessible_institutions(uuid) TO authen
 -- "CREATE OR REPLACE did not take" must not read as a clean apply: every
 -- function above must now carry the 2026-09-23 guard marker, none of the
 -- five readers may still carry the unguarded COALESCE, the five readers must
--- REFUSE a foreign institution explicitly, the four row readers must no longer
--- ignore a super admin's institution, and the four must gate on a permission.
+-- REFUSE a foreign institution and a missing institution explicitly, the four
+-- row readers must no longer ignore a super admin's institution, and the four
+-- must gate on a permission.
 DO $$
 DECLARE
   v_fn  text;
@@ -495,6 +542,10 @@ BEGIN
     END IF;
     IF position('v_profile.is_super_admin = TRUE OR' IN v_def) > 0 THEN
       RAISE EXCEPTION '20270307090000: % still ignores a super admin''s institution filter', v_fn;
+    END IF;
+    IF v_fn <> 'public.ai_get_accessible_institutions(uuid)'
+       AND position('NO_INSTITUTION' IN v_def) = 0 THEN
+      RAISE EXCEPTION '20270307090000: % answers a caller with no institution silently', v_fn;
     END IF;
     IF v_fn NOT IN ('public.ai_rpc_academic_context(uuid)', 'public.ai_get_accessible_institutions(uuid)')
        AND position('public.user_has_permission(' IN v_def) = 0 THEN

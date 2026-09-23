@@ -113,9 +113,16 @@ GRANT EXECUTE ON FUNCTION public.role_has_institution_access(uuid), public.is_su
 -- Institution A (Dental)     : 3 learners, 1 department, 1 referrer
 -- Institution B (Allied Hlth): 5 learners, 2 departments, 2 referrers
 -- Institution C (inactive-free, reached only by a grant): 2 learners, 1 department
---   low      — faculty at A, no grants, no scope-all role; holds learners.view and
---              learners.admissions.dashboard, so a foreign id meets the INSTITUTION refusal
+--   low      — faculty at A, no grants, no scope-all role; holds learners.view but
+--              NOT learners.admissions.dashboard (as on production, where that key sits
+--              mostly on scope-'all' roles), so a foreign id on the two admission
+--              readers would meet only the PERMISSION refusal
+--   low_ad   — an own-scope admission-desk account at A holding
+--              learners.admissions.dashboard only: the account the rehearsal must use
+--              for the admission readers, so their INSTITUTION guard is exercised
 --   learner  — a learner account at A: no permissions at all (the direct-RPC caller)
+--   Both faculty and admission_desk also hold ai_query.view, so the rehearsal's
+--   `impact` block (who the new permission gate turns away) has something to count.
 --   granted  — faculty at A with an active user_institution_access grant to C
 --   scopeall — at A, holds a role with institution_scope = 'all'
 --   noinst   — no institution, no grants, no scope-all role, not an admin
@@ -125,22 +132,25 @@ INSERT INTO institutions VALUES
   ('bbbbbbbb-0000-0000-0000-00000000000b','Allied Health',true,'H02'),
   ('cccccccc-0000-0000-0000-00000000000c','Nursing',true,NULL);
 INSERT INTO custom_roles VALUES
-  ('99999999-0000-0000-0000-000000000001','faculty','own',true,'{"learners.view":true,"learners.admissions.dashboard":true}'),
+  ('99999999-0000-0000-0000-000000000001','faculty','own',true,'{"learners.view":true,"ai_query.view":true}'),
   ('99999999-0000-0000-0000-000000000002','admission','all',true,'{"learners.view":true,"learners.admissions.dashboard":true}'),
-  ('99999999-0000-0000-0000-000000000003','student','own',true,'{}');
+  ('99999999-0000-0000-0000-000000000003','student','own',true,'{}'),
+  ('99999999-0000-0000-0000-000000000004','admission_desk','own',true,'{"learners.admissions.dashboard":true,"ai_query.view":true}');
 INSERT INTO profiles VALUES
   ('11111111-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-00000000000a',false,'faculty'),
   ('11111111-0000-0000-0000-000000000002','aaaaaaaa-0000-0000-0000-00000000000a',false,'faculty'),
   ('11111111-0000-0000-0000-000000000003','aaaaaaaa-0000-0000-0000-00000000000a',false,'faculty'),
   ('11111111-0000-0000-0000-000000000004',NULL,false,'faculty'),
   ('11111111-0000-0000-0000-000000000005','aaaaaaaa-0000-0000-0000-00000000000a',true,'super_admin'),
-  ('11111111-0000-0000-0000-000000000006','aaaaaaaa-0000-0000-0000-00000000000a',false,'student');
+  ('11111111-0000-0000-0000-000000000006','aaaaaaaa-0000-0000-0000-00000000000a',false,'student'),
+  ('11111111-0000-0000-0000-000000000007','aaaaaaaa-0000-0000-0000-00000000000a',false,'admission_desk');
 INSERT INTO user_roles VALUES
   ('11111111-0000-0000-0000-000000000001','99999999-0000-0000-0000-000000000001'),
   ('11111111-0000-0000-0000-000000000002','99999999-0000-0000-0000-000000000001'),
   ('11111111-0000-0000-0000-000000000003','99999999-0000-0000-0000-000000000002'),
   ('11111111-0000-0000-0000-000000000004','99999999-0000-0000-0000-000000000001'),
-  ('11111111-0000-0000-0000-000000000006','99999999-0000-0000-0000-000000000003');
+  ('11111111-0000-0000-0000-000000000006','99999999-0000-0000-0000-000000000003'),
+  ('11111111-0000-0000-0000-000000000007','99999999-0000-0000-0000-000000000004');
 INSERT INTO user_institution_access VALUES
   ('11111111-0000-0000-0000-000000000002','cccccccc-0000-0000-0000-00000000000c',true);
 INSERT INTO departments VALUES
