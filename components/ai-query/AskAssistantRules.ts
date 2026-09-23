@@ -18,6 +18,16 @@ export interface AskPageContext {
 /** The marker the note starts with. The drain sees it; the person never does. */
 const NOTE_LEAD = '\n\n(Asked from the ';
 
+/**
+ * A note as it sits at the END of a message. Its text never holds a bracket or
+ * a line break (clean() removes both from the page name and path), so this
+ * matches exactly what withPageNote wrote and nothing a person could type into
+ * the one-line box. The SQL notice (20270304090000) strips with the same rule.
+ * The greedy name part makes the path the text after the LAST " page, /".
+ */
+const NOTE_AT_END = /\n\n\(Asked from the [^()\n]* page, (\/[^()\n]*)\)$/;
+const ANY_NOTE_AT_END = /\n\n\(Asked from the [^()\n]*\)$/;
+
 const MAX_PATH = 200;
 const MAX_TITLE = 80;
 
@@ -60,9 +70,36 @@ export function withPageNote(message: string, ctx: AskPageContext | null): strin
  * typed, including when a past conversation is reopened from history.
  */
 export function stripPageNote(message: string): string {
-  const at = message.lastIndexOf(NOTE_LEAD);
-  if (at < 0 || !message.endsWith(')')) return message;
-  return message.slice(0, at);
+  return message.replace(ANY_NOTE_AT_END, '');
+}
+
+/** The page path a message's note names, or null when it carries no note. */
+export function notedPath(message: string): string | null {
+  const m = NOTE_AT_END.exec(message);
+  return m ? m[1] : null;
+}
+
+/**
+ * The page note to send with the next question, or null for none. A note goes
+ * whenever the page the person is asking from differs from the last page this
+ * conversation was told about — the first question, and again after they move
+ * to another page and reopen the same chat. Same page again → no repeat.
+ */
+export function pageContextToSend(
+  ctx: AskPageContext | null | undefined,
+  lastNotedPath: string | null,
+): AskPageContext | null {
+  if (!ctx) return null;
+  return ctx.path === lastNotedPath ? null : ctx;
+}
+
+/** The last page a restored conversation was told about (newest note wins). */
+export function lastNotedPathOf(questions: Array<string | null | undefined>): string | null {
+  for (let i = questions.length - 1; i >= 0; i--) {
+    const p = notedPath(questions[i] ?? '');
+    if (p) return p;
+  }
+  return null;
 }
 
 /**

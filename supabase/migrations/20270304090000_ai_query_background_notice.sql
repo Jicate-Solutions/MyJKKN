@@ -6,8 +6,8 @@
 -- long-poll, nobody waiting on the screen. Without this trigger the answer
 -- would land in ai_jobs and nobody would be told.
 --
--- WHAT. When a background ai_query.chat job reaches `done` or `error`, the
--- person who asked (ai_jobs.requested_by — always auth.uid() at enqueue, never
+-- WHAT. When a background ai_query.chat job reaches `done`, `error` or
+-- `canceled`, the person who asked (ai_jobs.requested_by — always auth.uid() at enqueue, never
 -- caller-supplied) gets ONE in-app notification linking to that conversation:
 -- /ai-query?conversation=<id>, which AIQueryContainer reopens on arrival.
 --
@@ -17,8 +17,26 @@
 --     same programme) also set background:true but deliver their own notice;
 --     firing here too would tell the person twice.
 --   * Any other job_type.
---   * Status changes that are not a TRANSITION into done/error (a re-write of
---     the same status, or pending/claimed/running/canceled).
+--   * Status changes that are not a TRANSITION into done/error/canceled (a
+--     re-write of the same status, or a move to pending/claimed/running).
+--
+-- NO QUESTION IS LEFT HANGING (repair round 1, 2026-09-23). ai_query.chat is an
+-- interactive job type, so fn_ai_requeue_stale (20260724070000) deliberately
+-- never touches it, and the route does not wait on (or cancel) a background
+-- question. Without a sweep, a background question the answering computers
+-- never pick up, or drop half-way, would sit pending/claimed forever: no notice,
+-- and one of the person's in-flight slots (fn_ai_enqueue's max_inflight) used
+-- for good. fn_ai_query_background_reap(), run by pg_cron every 10 minutes,
+-- closes them:
+--   * still `pending` after 2 hours           -> `canceled`
+--       'The answering computers were offline. Please ask again.'
+--   * `claimed`/`running` for over 20 minutes -> `error`
+--       'This took too long and was stopped. Please ask again.'
+-- Each move fires the trigger above, so the person is told. 20 minutes is well
+-- past the longest background budget a runner gives one question (540 s on the
+-- Mac standby). Only background, non-scheduled ai_query.chat jobs are touched;
+-- a foreground question is never reaped here. A canceled job does not count
+-- against the daily cap (fn_ai_enqueue counts status <> 'canceled').
 --
 -- DELIVERY. A notification needs BOTH a notifications row AND a
 -- user_notifications fan-out row — the bell, badge and inbox read the junction
@@ -55,12 +73,13 @@ DECLARE
   v_key      text;
   v_title    text;
   v_body     text;
+  v_reason   text;
   v_notif    uuid;
 BEGIN
   -- The WHEN clause below already filters; re-checked here so the function is
   -- correct on its own if the trigger is ever re-created without it.
   IF NEW.job_type IS DISTINCT FROM 'ai_query.chat'
-     OR NEW.status NOT IN ('done', 'error')
+     OR NEW.status NOT IN ('done', 'error', 'canceled')
      OR OLD.status IS NOT DISTINCT FROM NEW.status
      OR COALESCE(NEW.payload->>'background', '') <> 'true'
      OR NEW.payload ? 'schedule_id' THEN
@@ -85,10 +104,14 @@ BEGIN
     END IF;
 
     -- What they typed, without the "(Asked from the … page, …)" note the Ask
-    -- panel adds for the AI (components/ai-query/AskAssistantRules.ts). Every
-    -- input below is COALESCEd: a NULL anywhere in a || chain nulls the whole
-    -- body, and notifications.body is NOT NULL.
-    v_question := split_part(COALESCE(NEW.payload->>'message', ''), E'\n\n(Asked from the ', 1);
+    -- panel adds for the AI. The SAME rule as stripPageNote in
+    -- components/ai-query/AskAssistantRules.ts: only a note at the very END of
+    -- the message, whose text holds no brackets and no line break (the panel
+    -- strips both from the page name and path). Every input below is
+    -- COALESCEd: a NULL anywhere in a || chain nulls the whole body, and
+    -- notifications.body is NOT NULL.
+    v_question := regexp_replace(COALESCE(NEW.payload->>'message', ''),
+                                 '\n\n\(Asked from the [^()\n]*\)$', '');
     v_question := btrim(regexp_replace(v_question, '\s+', ' ', 'g'));
     IF length(v_question) > 120 THEN
       v_question := left(v_question, 117) || '...';
@@ -100,10 +123,17 @@ BEGIN
                       THEN 'You asked: "' || v_question || '". Open it to read the answer.'
                       ELSE 'Open it to read the answer.' END;
     ELSE
+      -- The sweep below writes one of two fixed reasons; say it plainly.
+      -- Anything else (a runner's own error text) is never shown to the person.
+      v_reason := CASE
+        WHEN NEW.error IN ('The answering computers were offline. Please ask again.',
+                           'This took too long and was stopped. Please ask again.')
+          THEN NEW.error
+        ELSE 'Please open the conversation and ask again.' END;
       v_title := 'The AI Assistant could not answer your question';
       v_body  := CASE WHEN v_question <> ''
-                      THEN 'You asked: "' || v_question || '". Please open the conversation and ask again.'
-                      ELSE 'Please open the conversation and ask again.' END;
+                      THEN 'You asked: "' || v_question || '". ' || v_reason
+                      ELSE v_reason END;
     END IF;
 
     v_key := 'ai_query.background|' || NEW.id::text;
@@ -157,7 +187,7 @@ $function$;
 
 COMMENT ON FUNCTION public.fn_ai_query_background_notice() IS
   'AFTER UPDATE trigger on ai_jobs: when a background ai_query.chat job (payload.background = true, '
-  'no payload.schedule_id) moves into done or error, sends the asker ONE in-app notification '
+  'no payload.schedule_id) moves into done, error or canceled, sends the asker ONE in-app notification '
   '(notifications + user_notifications) linking to /ai-query?conversation=<id>. Never blocks the '
   'status write. Added 2026-09-23 (AI Assistant everywhere + background).';
 
@@ -170,13 +200,92 @@ CREATE TRIGGER trg_ai_query_background_notice
   FOR EACH ROW
   WHEN (
     OLD.status IS DISTINCT FROM NEW.status
-    AND NEW.status IN ('done', 'error')
+    AND NEW.status IN ('done', 'error', 'canceled')
     AND NEW.job_type = 'ai_query.chat'
   )
   EXECUTE FUNCTION public.fn_ai_query_background_notice();
 
--- Apply-time assertions: the trigger exists and the function body carries the
--- two writes and the schedule_id skip, so "CREATE OR REPLACE did not take"
+-- ---------------------------------------------------------------------------
+-- The sweep: close background questions nobody finished (see the header).
+-- System-only: pg_cron calls it; nobody signed in can. No auth.uid() inside —
+-- it acts on every person's stale background questions, never a caller's own.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_ai_query_background_reap(
+  p_pending_minutes integer DEFAULT 120,
+  p_running_minutes integer DEFAULT 20
+)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path = public
+ SET statement_timeout TO '10s'
+AS $function$
+DECLARE
+  v_offline int;
+  v_timeout int;
+BEGIN
+  -- Never picked up: the answering computers were offline the whole time.
+  UPDATE public.ai_jobs j
+     SET status       = 'canceled',
+         error        = 'The answering computers were offline. Please ask again.',
+         completed_at = now()
+   WHERE j.job_type = 'ai_query.chat'
+     AND j.status   = 'pending'
+     AND COALESCE(j.payload->>'background', '') = 'true'
+     AND NOT (j.payload ? 'schedule_id')
+     AND j.requested_at < now() - make_interval(mins => GREATEST(p_pending_minutes, 30));
+  GET DIAGNOSTICS v_offline = ROW_COUNT;
+
+  -- Picked up but never finished: the runner died or ran far past its budget.
+  -- A late fn_ai_complete then finds no claimed/running row and changes nothing.
+  UPDATE public.ai_jobs j
+     SET status       = 'error',
+         error        = 'This took too long and was stopped. Please ask again.',
+         completed_at = now()
+   WHERE j.job_type = 'ai_query.chat'
+     AND j.status   IN ('claimed', 'running')
+     AND COALESCE(j.payload->>'background', '') = 'true'
+     AND NOT (j.payload ? 'schedule_id')
+     AND COALESCE(j.claimed_at, j.requested_at)
+           < now() - make_interval(mins => GREATEST(p_running_minutes, 10));
+  GET DIAGNOSTICS v_timeout = ROW_COUNT;
+
+  RETURN jsonb_build_object('offline', v_offline, 'timed_out', v_timeout);
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_ai_query_background_reap(integer, integer) IS
+  'pg_cron sweep (every 10 min): a background ai_query.chat job (payload.background = true, no '
+  'payload.schedule_id) still pending after 2 h -> canceled; claimed/running for over 20 min -> error. '
+  'Each move fires trg_ai_query_background_notice, so the asker is told and the in-flight slot is '
+  'freed. Added 2026-09-23 (repair round 1).';
+
+REVOKE EXECUTE ON FUNCTION public.fn_ai_query_background_reap(integer, integer) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_ai_query_background_reap(integer, integer) FROM authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_ai_query_background_reap(integer, integer) TO service_role;
+
+-- Every 10 minutes. Guarded on cron.schedule existing: pg_cron is on production
+-- (20260716064500 schedules through it) but not on a bare local or CI Postgres,
+-- where this degrades to a NOTICE so the file still applies. cron.schedule
+-- upserts by job name, so re-applying re-points the same job.
+DO $$
+BEGIN
+  IF to_regprocedure('cron.schedule(text,text,text)') IS NOT NULL THEN
+    PERFORM cron.schedule(
+      'ai-query-background-reap',
+      '*/10 * * * *',
+      $job$ SELECT public.fn_ai_query_background_reap(); $job$
+    );
+    RAISE NOTICE 'scheduled ai-query-background-reap every 10 minutes';
+  ELSE
+    RAISE NOTICE 'pg_cron not installed — skipping schedule for fn_ai_query_background_reap';
+  END IF;
+END
+$$;
+
+-- Apply-time assertions: the trigger exists, the function body carries the
+-- two writes, the schedule_id skip and the canceled case, and the sweep is
+-- closed to signed-in and anonymous callers, so "CREATE OR REPLACE did not take"
 -- cannot read as a clean apply.
 DO $$
 DECLARE v_def text;
@@ -199,5 +308,14 @@ BEGIN
 
   IF has_function_privilege('anon', 'public.fn_ai_query_background_notice()', 'EXECUTE') THEN
     RAISE EXCEPTION 'anon can execute fn_ai_query_background_notice';
+  END IF;
+
+  IF position('canceled' IN v_def) = 0 THEN
+    RAISE EXCEPTION 'fn_ai_query_background_notice does not handle canceled';
+  END IF;
+
+  IF has_function_privilege('anon', 'public.fn_ai_query_background_reap(integer, integer)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.fn_ai_query_background_reap(integer, integer)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'a signed-in or anonymous caller can execute fn_ai_query_background_reap';
   END IF;
 END $$;

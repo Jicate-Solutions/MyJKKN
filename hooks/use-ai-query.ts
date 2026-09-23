@@ -15,13 +15,19 @@ import type {
   SuggestedQuery,
   DEFAULT_SUGGESTED_QUERIES,
 } from '@/types/ai-query';
-import { stripPageNote, type AskPageContext } from '@/components/ai-query/AskAssistantRules';
+import {
+  lastNotedPathOf,
+  pageContextToSend,
+  stripPageNote,
+  type AskPageContext,
+} from '@/components/ai-query/AskAssistantRules';
 
 interface UseAIQueryOptions {
   onError?: (error: { code: string; message: string }) => void;
   onMessage?: (message: AIQueryMessage) => void;
-  /** The page the Ask panel was opened on. Sent with the FIRST question of a
-   *  conversation only; the route turns it into a short note for the AI. */
+  /** The page the Ask panel was opened on. Sent whenever it differs from the
+   *  last page this conversation was told about (the first question, and again
+   *  after a move to another page); the route turns it into a note for the AI. */
   pageContext?: AskPageContext | null;
 }
 
@@ -56,6 +62,12 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
     { text: 'List pending admission applications', category: 'admissions', icon: 'FileText' },
   ]);
   const conversationIdRef = useRef<string | null>(null);
+  // The last page THIS conversation's AI was told about (null = none yet).
+  const lastNotedPathRef = useRef<string | null>(null);
+  // Message ids that came from the "while you were away" inbox. They are
+  // acknowledged as soon as they render, so a conversation reopened afterwards
+  // must keep them on screen, not replace them (they would never come back).
+  const inboxIdsRef = useRef<Set<string>>(new Set());
 
   // Max-lane "while you were away" inbox: if a subscription-lane answer
   // finished AFTER the tab/phone died mid-wait, it's waiting on the server.
@@ -101,6 +113,7 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
             ],
           },
         ]);
+        restored.forEach((m) => inboxIdsRef.current.add(m.id));
         // De-duplicate by id: a conversation reopened from a notification link
         // (loadConversation) may already hold these turns.
         setMessages((prev) => [
@@ -123,8 +136,8 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
   const sendMessage = useCallback(async (message: string, opts?: { background?: boolean }) => {
     if (!message.trim()) return;
     const background = opts?.background === true;
-    // The page note rides only on the first question of a conversation.
-    const isFirstTurn = !conversationIdRef.current;
+    // The page note rides whenever the page differs from the last one noted.
+    const noteCtx = pageContextToSend(options.pageContext, lastNotedPathRef.current);
 
     // Stamp a stable conversation_id from the VERY first turn so every job in
     // this thread shares it — this is what lets the Max drain rebuild memory of
@@ -162,7 +175,7 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
         body: JSON.stringify({
           message,
           conversation_id: conversationIdRef.current,
-          ...(isFirstTurn && options.pageContext ? { page_context: options.pageContext } : {}),
+          ...(noteCtx ? { page_context: noteCtx } : {}),
           ...(background ? { background: true } : {}),
         }),
       });
@@ -193,6 +206,9 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
       // Background hand-off: the route returned at once with the job id. No
       // answer yet, and NO ack — the answer is delivered later through the
       // in-app notice and the "while you were away" inbox.
+      // Accepted either way: the AI now knows this page.
+      if (noteCtx) lastNotedPathRef.current = noteCtx.path;
+
       if ((data as { background?: unknown }).background === true) {
         const accepted = data as AIQueryBackgroundAccepted;
         if (typeof accepted.conversation_id === 'string') {
@@ -290,6 +306,8 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
   const clearMessages = useCallback(() => {
     setMessages([]);
     conversationIdRef.current = null;
+    lastNotedPathRef.current = null;
+    inboxIdsRef.current.clear();
     setError(null);
     setSuggestions([
       { text: 'Show learners with participation below 75%', category: 'academic', icon: 'Users' },
@@ -384,8 +402,15 @@ export function useAIQuery(options: UseAIQueryOptions = {}): UseAIQueryReturn {
       } catch {
         // silent — artifacts are a bonus on reopen, never block the thread
       }
-      setMessages(restored);
+      // Merge, never a bare replace: inbox answers already on screen (and
+      // already acknowledged) stay; anything the thread itself holds wins.
+      const restoredIds = new Set(restored.map((m) => m.id));
+      setMessages((prev) => [
+        ...prev.filter((m) => inboxIdsRef.current.has(m.id) && !restoredIds.has(m.id)),
+        ...restored,
+      ]);
       conversationIdRef.current = conversationId;
+      lastNotedPathRef.current = lastNotedPathOf(turns.map((t) => t.question));
     } catch {
       // silent — a failed reopen leaves the current chat untouched
     } finally {

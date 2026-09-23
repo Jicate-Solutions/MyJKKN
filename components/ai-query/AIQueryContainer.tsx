@@ -5,8 +5,9 @@
  * Main container component for the AI Query System
  */
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback, Suspense } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useAIQuery } from '@/hooks/use-ai-query';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
@@ -42,6 +43,22 @@ import type { ActionDefinition } from '@/types/ai-query';
 import type { AskPageContext } from './AskAssistantRules';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Reports ?conversation=<id> on arrival AND on every later change of the query
+ * string. A bell link to /ai-query?conversation=<id> clicked while already on
+ * /ai-query is a same-route navigation that remounts nothing, so reading the
+ * URL once on mount would miss it. Rendered inside its own Suspense boundary so
+ * useSearchParams never forces the whole page into client-only rendering.
+ */
+function ConversationLinkWatcher({ onLink }: { onLink: (id: string) => void }) {
+  const params = useSearchParams();
+  const id = params?.get('conversation') ?? null;
+  useEffect(() => {
+    if (id) onLink(id);
+  }, [id, onLink]);
+  return null;
+}
 
 interface AIQueryContainerProps {
   className?: string;
@@ -95,19 +112,26 @@ export function AIQueryContainer({
     },
   });
 
-  // Reopen a conversation on arrival: the panel passes its last chat; the full
-  // page reads ?conversation=<id>, the link an "answer ready" notice carries.
-  // window.location (not useSearchParams) so the page needs no Suspense edge.
+  // The panel reopens its last chat once, on arrival.
   const openedRef = useRef(false);
   useEffect(() => {
     if (openedRef.current) return;
     openedRef.current = true;
-    let target = initialConversationId;
-    if (!target && !compact && typeof window !== 'undefined') {
-      target = new URLSearchParams(window.location.search).get('conversation');
-    }
+    const target = compact ? initialConversationId : null;
     if (target && UUID_RE.test(target)) void loadConversation(target);
   }, [compact, initialConversationId, loadConversation]);
+
+  // The full page opens ?conversation=<id> — the link an "answer ready" notice
+  // carries — on arrival and whenever that link changes while already here.
+  const linkedRef = useRef<string | null>(null);
+  const openFromLink = useCallback(
+    (id: string) => {
+      if (!UUID_RE.test(id) || linkedRef.current === id) return;
+      linkedRef.current = id;
+      void loadConversation(id);
+    },
+    [loadConversation],
+  );
 
   useEffect(() => {
     onConversationChange?.(conversationId);
@@ -150,6 +174,11 @@ export function AIQueryContainer({
 
   return (
     <div className={cn('flex flex-col h-full', className)}>
+      {!compact && (
+        <Suspense fallback={null}>
+          <ConversationLinkWatcher onLink={openFromLink} />
+        </Suspense>
+      )}
       {/* Admin-only banner — renders only when the Max chat drain is confirmed offline */}
       <DrainHealthBanner />
 
