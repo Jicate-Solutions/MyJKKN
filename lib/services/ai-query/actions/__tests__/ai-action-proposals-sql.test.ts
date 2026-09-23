@@ -1,17 +1,24 @@
 /**
  * AI Assistant actions — the database half, proved on a real PostgreSQL.
  *
- * supabase/migrations/20270302090000_ai_action_proposals.sql is applied
- * VERBATIM to a throwaway database over a minimal stand-in of the production
- * objects it touches (profiles, staff, projects, ai_jobs, notifications, and
- * the three permission helpers, whose answers each test sets explicitly).
- * Every assertion reads what PostgreSQL actually did.
+ * supabase/migrations/20270302090000_ai_action_proposals.sql and
+ * 20270302090100_ai_action_proposals_owner_only.sql are applied VERBATIM, in
+ * order, to a throwaway database over a minimal stand-in of the production
+ * objects they touch (profiles, staff, projects, project_members, institutions,
+ * custom_roles, learners_profiles, ai_jobs, notifications, and the three
+ * permission helpers, whose answers each test sets explicitly). Every
+ * assertion reads what PostgreSQL actually did.
  *
  * What must hold:
  *   - proposing never sends: no notifications / user_notifications row;
  *   - the caller needs the same permission the normal screen needs;
  *   - only people the caller can reach are resolved; learners through
- *     profiles.learner_id; more than 200 is refused;
+ *     profiles.learner_id; more than 200 is refused; the same person asked for
+ *     twice is never reported as "not reachable";
+ *   - every person on the card carries college, role and an identifier;
+ *   - email needs notifications.send; a task needs both people on the project;
+ *   - a card is refused unless it can be attached to an answer being written;
+ *   - a card stuck in "Sending…" is closed as failed after 10 minutes;
  *   - a claim succeeds exactly once (the second is ALREADY_CONFIRMED);
  *   - permission and recipients are re-checked at claim time;
  *   - cancelled and expired proposals cannot be claimed;
@@ -29,7 +36,28 @@ import { Client } from 'pg';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 
 const REPO = path.resolve(__dirname, '..', '..', '..', '..', '..');
-const MIGRATION = path.join(REPO, 'supabase/migrations/20270302090000_ai_action_proposals.sql');
+// AIACT_TEST_MIGRATION_DIR lets a mutation run point the suite at an altered
+// copy without touching the repo's own files.
+const MIGRATION_DIR = process.env.AIACT_TEST_MIGRATION_DIR ?? path.join(REPO, 'supabase/migrations');
+const MIGRATION = path.join(MIGRATION_DIR, '20270302090000_ai_action_proposals.sql');
+const MIGRATION_OWNER_ONLY = path.join(MIGRATION_DIR, '20270302090100_ai_action_proposals_owner_only.sql');
+const applyMigrations = async (c: Client) => {
+  await c.query(readFileSync(MIGRATION, 'utf8'));
+  await c.query(readFileSync(MIGRATION_OWNER_ONLY, 'utf8'));
+};
+
+// The zero-tolerance PEOPLE words, read from the terminology gate's own
+// dictionary (.claude/skills/jkkn-terminologies) so this list cannot drift:
+// every CRITICAL_TERMS pattern whose replacement is a learner / Senior Learner /
+// team member word.
+const PEOPLE_REPLACEMENTS = new Set(['learner', 'learners', 'young learners', 'senior learner', 'senior learners', 'team members']);
+const PEOPLE_WORDS: RegExp[] = (() => {
+  const dict = readFileSync(path.join(REPO, '.claude/skills/jkkn-terminologies/scripts/validate_terminology.py'), 'utf8');
+  const block = dict.slice(dict.indexOf('CRITICAL_TERMS = {'), dict.indexOf('ENCOURAGED_TERMS = {'));
+  return [...block.matchAll(/r'([^']+)':\s*'([^']+)'/g)]
+    .filter((m) => PEOPLE_REPLACEMENTS.has(m[2].toLowerCase()))
+    .map((m) => new RegExp(m[1], 'i'));
+})();
 
 const PGHOST = process.env.AIACT_TEST_PGHOST ?? 'localhost';
 const PGPORT = Number(process.env.AIACT_TEST_PGPORT ?? 5432);
@@ -48,8 +76,13 @@ const LEARNER_ID = '00000000-0000-4000-8000-000000000302'; // learners_profiles 
 const NOEMAIL_P = '00000000-0000-4000-8000-000000000203'; // inst A, no email
 const FAR_P = '00000000-0000-4000-8000-000000000204'; // inst B — not reachable
 const INACTIVE_P = '00000000-0000-4000-8000-000000000205'; // inst A, deactivated
+const NONAME_P = '00000000-0000-4000-8000-000000000206'; // inst A, blank name, team member
 const STAFF_ROW = '00000000-0000-4000-8000-000000000401';
+const OWNER_STAFF_ROW = '00000000-0000-4000-8000-000000000402';
+const NONAME_STAFF_ROW = '00000000-0000-4000-8000-000000000403';
+const NOEMAIL_STAFF_ROW = '00000000-0000-4000-8000-000000000404'; // team member, on NO project
 const PROJECT = '00000000-0000-4000-8000-000000000501';
+const OTHER_PROJECT = '00000000-0000-4000-8000-000000000502';
 const JOB = '00000000-0000-4000-8000-000000000601';
 const CONV = '00000000-0000-4000-8000-000000000701';
 
@@ -70,9 +103,13 @@ GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated;
 
 CREATE TABLE public.profiles (
   id uuid PRIMARY KEY, full_name text, email text, institution_id uuid,
-  learner_id uuid, is_active boolean NOT NULL DEFAULT true);
-CREATE TABLE public.staff (id uuid PRIMARY KEY, profile_id uuid);
-CREATE TABLE public.projects (id uuid PRIMARY KEY, title text NOT NULL);
+  learner_id uuid, role text, is_active boolean NOT NULL DEFAULT true);
+CREATE TABLE public.institutions (id uuid PRIMARY KEY, name text, display_name text);
+CREATE TABLE public.custom_roles (role_key text PRIMARY KEY, role_name text);
+CREATE TABLE public.learners_profiles (id uuid PRIMARY KEY, roll_number text, register_number text);
+CREATE TABLE public.staff (id uuid PRIMARY KEY, profile_id uuid, staff_id text);
+CREATE TABLE public.projects (id uuid PRIMARY KEY, title text NOT NULL, owner_staff_id uuid);
+CREATE TABLE public.project_members (project_id uuid, staff_id uuid, role text NOT NULL DEFAULT 'member');
 CREATE TABLE public.ai_jobs (
   id uuid PRIMARY KEY, job_type text NOT NULL, payload jsonb NOT NULL DEFAULT '{}',
   requested_by uuid NOT NULL, status text NOT NULL DEFAULT 'pending',
@@ -97,19 +134,32 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
 `;
 
 const FIXTURE = `
-TRUNCATE public.profiles, public.staff, public.projects, public.ai_jobs, public.notifications,
-         public.user_notifications, public.t_grants, public.t_inst_access, public.t_super,
-         public.ai_action_proposals;
-INSERT INTO public.profiles (id, full_name, email, institution_id, learner_id, is_active) VALUES
-  ('${OWNER}',      'Owner Person',   'owner@jkkn.ac.in',   '${INST_A}', NULL, true),
-  ('${OTHER}',      'Other Person',   'other@jkkn.ac.in',   '${INST_A}', NULL, true),
-  ('${STAFF_P}',    'Asha Kumar',     'asha@jkkn.ac.in',    '${INST_A}', NULL, true),
-  ('${LEARNER_P}',  'Bala Learner',   'bala@jkkn.ac.in',    '${INST_A}', '${LEARNER_ID}', true),
-  ('${NOEMAIL_P}',  'Chitra NoEmail', NULL,                 '${INST_A}', NULL, true),
-  ('${FAR_P}',      'Far Away',       'far@jkkn.ac.in',     '${INST_B}', NULL, true),
-  ('${INACTIVE_P}', 'Gone Person',    'gone@jkkn.ac.in',    '${INST_A}', NULL, false);
-INSERT INTO public.staff (id, profile_id) VALUES ('${STAFF_ROW}', '${STAFF_P}');
-INSERT INTO public.projects (id, title) VALUES ('${PROJECT}', 'Library Revamp');
+TRUNCATE public.profiles, public.staff, public.projects, public.project_members, public.ai_jobs,
+         public.notifications, public.user_notifications, public.t_grants, public.t_inst_access,
+         public.t_super, public.ai_action_proposals, public.institutions, public.custom_roles,
+         public.learners_profiles;
+INSERT INTO public.institutions (id, name, display_name) VALUES
+  ('${INST_A}', 'JKKN College A', 'JKKN College A'), ('${INST_B}', 'JKKN College B', NULL);
+-- Production role names really do read 'Student' and 'Staff' (custom_roles, 2026-09-23).
+INSERT INTO public.custom_roles (role_key, role_name) VALUES
+  ('student', 'Student'), ('staff', 'Staff'), ('faculty', 'Facilitator'), ('principal', 'Principal');
+INSERT INTO public.learners_profiles (id, roll_number, register_number) VALUES ('${LEARNER_ID}', 'R-17', '611223104017');
+INSERT INTO public.profiles (id, full_name, email, institution_id, learner_id, role, is_active) VALUES
+  ('${OWNER}',      'Owner Person',   'owner@jkkn.ac.in',   '${INST_A}', NULL, 'principal', true),
+  ('${OTHER}',      'Other Person',   'other@jkkn.ac.in',   '${INST_A}', NULL, 'principal', true),
+  ('${STAFF_P}',    'Asha Kumar',     'asha@jkkn.ac.in',    '${INST_A}', NULL, 'faculty', true),
+  ('${LEARNER_P}',  'Bala Learner',   'bala@jkkn.ac.in',    '${INST_A}', '${LEARNER_ID}', 'student', true),
+  ('${NOEMAIL_P}',  'Chitra NoEmail', NULL,                 '${INST_A}', NULL, 'staff', true),
+  ('${FAR_P}',      'Far Away',       'far@jkkn.ac.in',     '${INST_B}', NULL, 'faculty', true),
+  ('${INACTIVE_P}', 'Gone Person',    'gone@jkkn.ac.in',    '${INST_A}', NULL, 'faculty', false),
+  ('${NONAME_P}',   '   ',            'noname@jkkn.ac.in',  '${INST_A}', NULL, 'staff', true);
+INSERT INTO public.staff (id, profile_id, staff_id) VALUES
+  ('${STAFF_ROW}', '${STAFF_P}', 'AATS001'), ('${OWNER_STAFF_ROW}', '${OWNER}', 'AATS900'),
+  ('${NONAME_STAFF_ROW}', '${NONAME_P}', NULL), ('${NOEMAIL_STAFF_ROW}', '${NOEMAIL_P}', NULL);
+-- OWNER owns PROJECT; Asha is a member of it; nobody is on OTHER_PROJECT.
+INSERT INTO public.projects (id, title, owner_staff_id) VALUES
+  ('${PROJECT}', 'Library Revamp', '${OWNER_STAFF_ROW}'), ('${OTHER_PROJECT}', 'Canteen', NULL);
+INSERT INTO public.project_members (project_id, staff_id, role) VALUES ('${PROJECT}', '${STAFF_ROW}', 'member');
 INSERT INTO public.ai_jobs (id, job_type, payload, requested_by, status, claimed_at)
   VALUES ('${JOB}', 'ai_query.chat', '{"conversation_id":"${CONV}"}', '${OWNER}', 'running', now());
 INSERT INTO public.t_grants VALUES
@@ -174,7 +224,7 @@ beforeAll(async () => {
   await db.connect();
   dbConnected = true;
   await db.query(SCHEMA);
-  await db.query(readFileSync(MIGRATION, 'utf8'));
+  await applyMigrations(db);
 });
 
 afterAll(async () => {
@@ -205,8 +255,37 @@ describe('ai_rpc_propose_action', () => {
   it('resolves a learner through profiles.learner_id and never stores an email address', async () => {
     const r = await propose(OWNER, { ...MESSAGE, p_learner_ids: [LEARNER_ID] });
     const p = await row(r.proposal_id);
-    expect(p.recipients).toEqual([{ profile_id: LEARNER_P, display_name: 'Bala Learner', has_email: true }]);
+    expect(p.recipients).toEqual([{
+      profile_id: LEARNER_P, display_name: 'Bala Learner', has_email: true,
+      college: 'JKKN College A', role: 'Learner', id_label: 'Register no.', id_number: '611223104017',
+    }]);
     expect(JSON.stringify(p.recipients)).not.toContain('@');
+  });
+
+  it('shows who is who: college, role, identifier, and never hides a blank name', async () => {
+    const r = await propose(OWNER, { ...MESSAGE, p_profile_ids: [STAFF_P, NOEMAIL_P, NONAME_P] });
+    const byId = Object.fromEntries((await row(r.proposal_id)).recipients.map((x: any) => [x.profile_id, x]));
+    // Production's faculty role is named after a banned teaching word; the card says Senior Learner.
+    expect(byId[STAFF_P]).toMatchObject({ role: 'Senior Learner', college: 'JKKN College A', id_label: 'Employee no.', id_number: 'AATS001' });
+    // Production's role_name 'Staff' is shown as Team member, never the banned word.
+    expect(byId[NOEMAIL_P]).toMatchObject({ role: 'Team member', id_label: null, id_number: null });
+    expect(byId[NONAME_P]).toMatchObject({ display_name: 'No name on file', role: 'Team member' });
+    // The summary the assistant repeats names each person with the same details.
+    expect(r.summary).toContain('Asha Kumar (Senior Learner, JKKN College A, Employee no. AATS001)');
+    expect(r.summary).toContain('No name on file (Team member, JKKN College A)');
+    expect(PEOPLE_WORDS.some((re) => re.test(r.summary))).toBe(false);
+  });
+
+  it('never reports the same person twice as "not reachable"', async () => {
+    // The learner id AND that learner's own profile id, plus a repeated id and one far-away person.
+    const r = await propose(OWNER, {
+      ...MESSAGE,
+      p_learner_ids: [LEARNER_ID],
+      p_profile_ids: [LEARNER_P, STAFF_P, STAFF_P, FAR_P],
+    });
+    expect(r.success).toBe(true);
+    expect(r.recipient_count).toBe(2);
+    expect(r.skipped.not_reachable).toBe(1);
   });
 
   it('leaves out people the caller cannot reach (other college, deactivated) and counts them', async () => {
@@ -230,9 +309,13 @@ describe('ai_rpc_propose_action', () => {
     const r = await propose(OWNER, { ...MESSAGE, p_profile_ids: [STAFF_P] });
     expect(r.success).toBe(false);
     expect(r.error.code).toBe('PERMISSION_DENIED');
-    // notifications.create alone is enough, exactly like app/api/notifications/send.
+    // notifications.create alone is enough for an in-app message, exactly like
+    // app/api/notifications/send ...
     await db.query(`INSERT INTO t_grants VALUES ('${OWNER}', 'notifications.create')`);
     expect((await propose(OWNER, { ...MESSAGE, p_profile_ids: [STAFF_P] })).success).toBe(true);
+    // ... but NOT for an email, which needs notifications.send (Director, 2026-09-23).
+    const email = await propose(OWNER, { ...MESSAGE, p_kind: 'email', p_profile_ids: [STAFF_P] });
+    expect(email.error.code).toBe('PERMISSION_DENIED');
   });
 
   it('refuses more than 200 people', async () => {
@@ -242,21 +325,61 @@ describe('ai_rpc_propose_action', () => {
     expect(r.error.code).toBe('TOO_MANY_RECIPIENTS');
   });
 
-  it('email leaves out people with no address', async () => {
+  it('email leaves out people with no address, and stores the exact footer the card shows', async () => {
     const r = await propose(OWNER, { ...MESSAGE, p_kind: 'email', p_profile_ids: [STAFF_P, NOEMAIL_P] });
     expect(r.success).toBe(true);
     expect(r.recipient_count).toBe(1);
     expect(r.skipped.no_email).toBe(1);
+    const footer = 'Sent on behalf of Owner Person through MyJKKN. Reply to this email to reach Owner Person directly.';
+    expect((await row(r.proposal_id)).email_footer).toBe(footer);
+    const c = await claim(OWNER, r.proposal_id);
+    expect(c.proposal.email_footer).toBe(footer);
+    const card = await asUser(OWNER, 'SELECT email_footer FROM fn_ai_my_action_proposals(NULL, $1)', [JOB]);
+    expect(card[0].email_footer).toBe(footer);
+    // An in-app message carries no footer.
+    const msg = await propose(OWNER, { ...MESSAGE, p_profile_ids: [STAFF_P] });
+    expect((await row(msg.proposal_id)).email_footer).toBeNull();
   });
 
-  it('a task goes to one team member in an existing project', async () => {
-    const noProject = await propose(OWNER, { ...MESSAGE, p_kind: 'create_task', p_profile_ids: [STAFF_P] });
+  it('a task goes to one team member, in a project BOTH people are on', async () => {
+    const TASK = { ...MESSAGE, p_kind: 'create_task' };
+    const noProject = await propose(OWNER, { ...TASK, p_profile_ids: [STAFF_P] });
     expect(noProject.error.code).toBe('PROJECT_REQUIRED');
-    const notStaff = await propose(OWNER, { ...MESSAGE, p_kind: 'create_task', p_profile_ids: [LEARNER_P], p_project_id: PROJECT });
-    expect(notStaff.error.code).toBe('NO_VISIBLE_RECIPIENTS');
-    const ok = await propose(OWNER, { ...MESSAGE, p_kind: 'create_task', p_profile_ids: [STAFF_P], p_project_id: PROJECT, p_due_date: '2026-10-01' });
+    // A learner has no team-member record, so cannot be given a task.
+    const notTeam = await propose(OWNER, { ...TASK, p_profile_ids: [LEARNER_P], p_project_id: PROJECT });
+    expect(notTeam.error.code).toBe('NO_VISIBLE_RECIPIENTS');
+    expect(PEOPLE_WORDS.some((re) => re.test(notTeam.error.message))).toBe(false);
+    // The person asking is not on OTHER_PROJECT: refused before anyone is resolved.
+    const notMine = await propose(OWNER, { ...TASK, p_profile_ids: [STAFF_P], p_project_id: OTHER_PROJECT });
+    expect(notMine.error.code).toBe('NOT_ON_PROJECT');
+    // A team member who is not on the project cannot be the assignee.
+    const notTheirs = await propose(OWNER, { ...TASK, p_profile_ids: [NOEMAIL_P], p_project_id: PROJECT });
+    expect(notTheirs.error.code).toBe('NO_VISIBLE_RECIPIENTS');
+    expect(notTheirs.error.message).toContain('owner or a member of the project');
+    // A viewer is not a member for this purpose.
+    await db.query(`UPDATE project_members SET role = 'viewer' WHERE staff_id = '${STAFF_ROW}'`);
+    expect((await propose(OWNER, { ...TASK, p_profile_ids: [STAFF_P], p_project_id: PROJECT })).error.code).toBe('NO_VISIBLE_RECIPIENTS');
+    await db.query(`UPDATE project_members SET role = 'member' WHERE staff_id = '${STAFF_ROW}'`);
+    const ok = await propose(OWNER, { ...TASK, p_profile_ids: [STAFF_P], p_project_id: PROJECT, p_due_date: '2026-10-01' });
     expect(ok.success).toBe(true);
     expect((await row(ok.proposal_id)).task).toEqual({ project_id: PROJECT, project_title: 'Library Revamp', due_date: '2026-10-01' });
+    // The claim hands the route the assignee's team-member row ON THIS PROJECT.
+    const c = await claim(OWNER, ok.proposal_id);
+    expect(c.success).toBe(true);
+    expect(c.proposal.assignee_staff_id).toBe(STAFF_ROW);
+  });
+
+  it('re-checks project membership at click time', async () => {
+    const TASK = { ...MESSAGE, p_kind: 'create_task', p_project_id: PROJECT };
+    const a = await propose(OWNER, { ...TASK, p_profile_ids: [STAFF_P] });
+    await db.query(`DELETE FROM project_members WHERE staff_id = '${STAFF_ROW}'`);
+    expect((await claim(OWNER, a.proposal_id)).code).toBe('RECIPIENTS_CHANGED');
+    expect((await row(a.proposal_id)).confirmed_at).toBeNull();
+    await db.query(`INSERT INTO project_members (project_id, staff_id) VALUES ('${PROJECT}', '${STAFF_ROW}')`);
+    const b = await propose(OWNER, { ...TASK, p_profile_ids: [STAFF_P] });
+    await db.query(`UPDATE projects SET owner_staff_id = NULL WHERE id = '${PROJECT}'`);
+    expect((await claim(OWNER, b.proposal_id)).code).toBe('NOT_ON_PROJECT');
+    expect((await row(b.proposal_id)).status).toBe('failed');
   });
 
   it('ties the proposal to the caller’s own running chat job, never someone else’s', async () => {
@@ -264,9 +387,23 @@ describe('ai_rpc_propose_action', () => {
     const p = await row(mine.proposal_id);
     expect(p.job_id).toBe(JOB);
     expect(p.conversation_id).toBe(CONV);
-    // OTHER passes OWNER's job id explicitly: it is ignored.
+    // OTHER passes OWNER's job id explicitly: it is ignored, and OTHER has no
+    // question being answered, so NO card is stored (it could never be seen).
     const theirs = await propose(OTHER, { ...MESSAGE, p_profile_ids: [STAFF_P], p_job_id: JOB });
-    expect((await row(theirs.proposal_id)).job_id).toBeNull();
+    expect(theirs.success).toBe(false);
+    expect(theirs.error.code).toBe('NO_ANSWER_TO_ATTACH');
+    expect(Number((await db.query(`SELECT count(*) FROM ai_action_proposals WHERE requested_by = '${OTHER}'`)).rows[0].count)).toBe(0);
+  });
+
+  it('refuses to store an orphan card when no question is being answered', async () => {
+    await db.query(`UPDATE ai_jobs SET status = 'done' WHERE id = '${JOB}'`);
+    const r = await propose(OWNER, { ...MESSAGE, p_profile_ids: [STAFF_P] });
+    expect(r.error.code).toBe('NO_ANSWER_TO_ATTACH');
+    expect(Number((await db.query('SELECT count(*) FROM ai_action_proposals')).rows[0].count)).toBe(0);
+    // An explicit job id of the caller's own finished question still attaches it.
+    const explicit = await propose(OWNER, { ...MESSAGE, p_profile_ids: [STAFF_P], p_job_id: JOB });
+    expect(explicit.success).toBe(true);
+    expect((await row(explicit.proposal_id)).job_id).toBe(JOB);
   });
 });
 
@@ -334,6 +471,26 @@ describe('fn_ai_claim_action_proposal (the Confirm click)', () => {
     expect((await cancel(OWNER, proposal_id)).code).toBe('NOT_PENDING');
   });
 
+  it('a card stuck in "Sending…" is closed as failed after 10 minutes, and nothing else is touched', async () => {
+    const stuck = (await propose(OWNER, { ...MESSAGE, p_profile_ids: [STAFF_P] })).proposal_id;
+    const fresh = (await propose(OWNER, { ...MESSAGE, p_profile_ids: [STAFF_P] })).proposal_id;
+    const waiting = (await propose(OWNER, { ...MESSAGE, p_profile_ids: [STAFF_P] })).proposal_id;
+    await claim(OWNER, stuck);
+    await claim(OWNER, fresh);
+    await db.query(`UPDATE ai_action_proposals SET confirmed_at = now() - interval '11 minutes' WHERE id = $1`, [stuck]);
+    expect((await asUser(OWNER, 'SELECT id, effective_status FROM fn_ai_my_action_proposals(NULL, $1)', [JOB]))
+      .find((x: any) => x.id === stuck).effective_status).toBe('sending');
+    // A signed-in person cannot run it at all ...
+    await expect(asUser(OWNER, 'SELECT public.fn_ai_action_proposals_fail_stuck()')).rejects.toThrow(/permission denied/);
+    // ... the scheduler (no signed-in person) can.
+    const closed = await db.query('SELECT public.fn_ai_action_proposals_fail_stuck() AS n');
+    expect(closed.rows[0].n).toBe(1);
+    expect(await row(stuck)).toMatchObject({ status: 'failed', error: 'Delivery could not be confirmed — check before sending again.' });
+    expect((await row(fresh)).status).toBe('pending');
+    expect((await row(waiting)).status).toBe('pending');
+    expect((await row(waiting)).confirmed_at).toBeNull();
+  });
+
   it('stops at 20 confirmed actions a day', async () => {
     await db.query(`
       INSERT INTO ai_action_proposals (requested_by, kind, title, body, recipients, recipient_count, status, confirmed_at)
@@ -383,8 +540,20 @@ describe('access', () => {
     expect(Object.keys(r.rows[0].params.properties).sort()).toEqual(args.rows.map((x) => x.a).sort());
   });
 
+  it('every person-facing string in both migrations uses the JKKN words for people', async () => {
+    // The terminology gate does not scan .sql, so this does, with the gate's own
+    // dictionary. Regex patterns (the role-name rewrite) are code, not copy.
+    expect(PEOPLE_WORDS.length).toBeGreaterThan(10);
+    for (const file of [MIGRATION, MIGRATION_OWNER_ONLY]) {
+      const sql = readFileSync(file, 'utf8').replace(/--[^\n]*/g, '');
+      const literals: string[] = sql.match(/'(?:[^']|'')*'/g) ?? [];
+      const bad = literals.filter((l) => !l.includes('\\m') && PEOPLE_WORDS.some((re) => re.test(l)));
+      expect(bad).toEqual([]);
+    }
+  });
+
   it('re-applying the migration is safe (idempotent)', async () => {
-    await db.query(readFileSync(MIGRATION, 'utf8'));
+    await applyMigrations(db);
     expect(Number((await db.query(`SELECT count(*) FROM ai_tool_catalog WHERE name = 'propose_action'`)).rows[0].count)).toBe(1);
   });
 });

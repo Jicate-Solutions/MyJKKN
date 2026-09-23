@@ -5,9 +5,12 @@
  *
  * Under an AI Assistant answer, shows every action the assistant PROPOSED for
  * that answer (an in-app message, an email or a task) as a card: what it is,
- * the exact text, and exactly who will receive it. Nothing is sent until the
- * person clicks Confirm; Cancel discards it. After the click the card shows
- * the outcome in plain words.
+ * the exact text that will be sent (for an email, including the "sent on
+ * behalf of" line), and exactly who will receive it — each person with their
+ * college, role and register / roll / employee number, so two people with the
+ * same name can be told apart. Nothing is sent until the person clicks
+ * Confirm; Cancel discards it. After the click the card shows the outcome in
+ * plain words.
  *
  * Reads through fn_ai_my_action_proposals (owner-only). Confirm / Cancel go to
  * /api/ai-query/actions/[id]/confirm|cancel, which re-check everything at
@@ -30,6 +33,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
+import { composeEmailText } from '@/lib/services/ai-query/actions/compose-email';
 
 type ActionKind = 'in_app_message' | 'email' | 'create_task';
 type EffectiveStatus = 'pending' | 'sending' | 'sent' | 'failed' | 'cancelled' | 'expired';
@@ -38,6 +42,10 @@ interface Recipient {
   profile_id: string;
   display_name: string;
   has_email: boolean;
+  college?: string | null;
+  role?: string | null;
+  id_label?: string | null;
+  id_number?: string | null;
 }
 
 interface ActionProposal {
@@ -48,6 +56,7 @@ interface ActionProposal {
   recipients: Recipient[];
   recipient_count: number;
   task: { project_id: string; project_title?: string | null; due_date?: string | null } | null;
+  email_footer?: string | null;
   effective_status: EffectiveStatus;
   expires_at: string;
   result: { delivered?: number; total?: number } | null;
@@ -76,6 +85,17 @@ const PREVIEW_COUNT = 10;
 
 function peopleWord(n: number) {
   return n === 1 ? '1 person' : `${n} people`;
+}
+
+/** Role, college and identifier — what tells two people with one name apart. */
+function recipientDetails(r: Recipient): string {
+  const parts = [r.role, r.college, r.id_number ? `${r.id_label ?? 'No.'} ${r.id_number}` : null];
+  return parts.filter((p): p is string => typeof p === 'string' && p.trim().length > 0).join(' · ');
+}
+
+/** Exactly what will be sent: the email gets its stored "sent on behalf of" line. */
+function sentText(p: ActionProposal): string {
+  return p.kind === 'email' ? composeEmailText(p.body, p.email_footer) : p.body;
 }
 
 /** The final status in plain words. */
@@ -112,9 +132,9 @@ function ProposalCard({ proposal, onChanged }: { proposal: ActionProposal; onCha
   const meta = KIND_META[proposal.kind] ?? KIND_META.in_app_message;
   const Icon = meta.icon;
   const status = proposal.effective_status;
-  const names = proposal.recipients.map((r) => r.display_name);
-  const shown = showAll ? names : names.slice(0, PREVIEW_COUNT);
-  const hidden = names.length - PREVIEW_COUNT;
+  const people = proposal.recipients;
+  const shown = showAll ? people : people.slice(0, PREVIEW_COUNT);
+  const hidden = people.length - PREVIEW_COUNT;
 
   const act = async (which: 'confirm' | 'cancel') => {
     if (busy) return;
@@ -158,23 +178,33 @@ function ProposalCard({ proposal, onChanged }: { proposal: ActionProposal; onCha
         </div>
       </div>
 
-      <p className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-muted px-3 py-2 text-xs text-foreground">
-        {proposal.body}
+      <p className="mt-2 text-[11px] font-medium text-muted-foreground">
+        Drafted by the assistant — check it before you confirm.
+      </p>
+      <p className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-muted px-3 py-2 text-xs text-foreground">
+        {sentText(proposal)}
       </p>
 
       <div className="mt-2 text-xs text-foreground">
-        <span className="font-medium">
-          {proposal.kind === 'create_task' ? 'Given to: ' : `To ${peopleWord(proposal.recipient_count)}: `}
-        </span>
-        <span className="text-muted-foreground">
-          {shown.join(', ')}
-          {!showAll && hidden > 0 ? ` and ${hidden} more` : ''}
-        </span>
+        <p className="font-medium">
+          {proposal.kind === 'create_task' ? 'Given to:' : `To ${peopleWord(proposal.recipient_count)}:`}
+        </p>
+        <ul className={cn('mt-1 space-y-1', showAll && 'max-h-64 overflow-y-auto pr-1')}>
+          {shown.map((r) => {
+            const details = recipientDetails(r);
+            return (
+              <li key={r.profile_id} className="break-words">
+                <span className="text-foreground">{r.display_name}</span>
+                {details && <span className="text-muted-foreground"> · {details}</span>}
+              </li>
+            );
+          })}
+        </ul>
         {hidden > 0 && (
           <button
             type="button"
             onClick={() => setShowAll((v) => !v)}
-            className="ml-1 inline-flex items-center gap-0.5 text-primary hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            className="mt-1 inline-flex items-center gap-0.5 text-primary hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
           >
             {showAll ? (
               <>
@@ -182,7 +212,7 @@ function ProposalCard({ proposal, onChanged }: { proposal: ActionProposal; onCha
               </>
             ) : (
               <>
-                Show all <ChevronDown className="h-3 w-3" />
+                Show all {people.length} <ChevronDown className="h-3 w-3" />
               </>
             )}
           </button>

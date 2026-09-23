@@ -20,17 +20,27 @@
  *    queue. Every working sender in the repo (bug-report, course-welcome,
  *    meeting-booking, online-meeting invites) goes through lib/resend.ts, so
  *    this does too. One email per recipient (Resend batch = one message per
- *    `to`), so nobody sees anybody else's address.
+ *    `to`), so nobody sees anybody else's address. The text is exactly what
+ *    the card showed: the message plus the stored "sent on behalf of" line
+ *    (composeEmailText). Batches are sent in 'permissive' mode, so one bad
+ *    address fails only its own email, not the other 99 in its batch. With no
+ *    RESEND_FROM_EMAIL set, nothing is sent: the Resend sandbox sender would
+ *    accept the batch and deliver it to nobody while the card said "Emailed".
  *  - Task → TaskService.createTask + TaskService.assign (project_tasks, the PM
  *    module). meeting_action_items needs a meeting booking and event tasks need
  *    an event; a project task is the only "give a task to a person" record
  *    that stands on its own and appears on the assignee's board. It runs on the
- *    OWNER's session client, so the insert is made AS the owner under RLS.
+ *    OWNER's session client, so the insert is made AS the owner under RLS, and
+ *    records the owner in created_by. The assignee's team-member row on THAT
+ *    project comes from the claim (assignee_staff_id), and the assignee gets
+ *    one in-app notification so the task does not land unannounced.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 import { TaskService } from '@/lib/services/projects/task-service';
+import type { ProjectTaskInsert } from '@/types/projects';
+import { composeEmailText } from './compose-email';
 
 export type ActionKind = 'in_app_message' | 'email' | 'create_task';
 
@@ -41,6 +51,10 @@ export interface ClaimedProposal {
   title: string;
   body: string;
   task: { project_id: string; project_title?: string | null; due_date?: string | null } | null;
+  /** create_task only: the assignee's team-member row on the task's project, resolved at the click. */
+  assignee_staff_id?: string | null;
+  /** email only: the stored "sent on behalf of" line the card showed. */
+  email_footer?: string | null;
   recipient_ids: string[];
   recipient_count: number;
 }
@@ -66,16 +80,10 @@ async function getResend() {
   return mod.resend;
 }
 
-function fromAddress(): string {
-  return process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev';
-}
-
-/** Plain-text email body: the message, then who it is from and how to reply. */
-export function buildEmailText(body: string, owner: ActionOwner): string {
-  const footer = owner.email
-    ? `Sent on behalf of ${owner.name} through MyJKKN. Reply to this email to reach ${owner.name} directly.`
-    : `Sent on behalf of ${owner.name} through MyJKKN.`;
-  return `${body}\n\n—\n${footer}`;
+/** The configured sender, or null when none is set (never the Resend sandbox sender). */
+function fromAddress(): string | null {
+  const from = (process.env.RESEND_FROM_EMAIL ?? '').trim();
+  return from.length > 0 ? from : null;
 }
 
 async function sendInApp(
@@ -111,7 +119,8 @@ async function sendEmails(
   proposal: ClaimedProposal,
   owner: ActionOwner
 ): Promise<ExecutionOutcome> {
-  if (!process.env.RESEND_API_KEY) {
+  const from = fromAddress();
+  if (!process.env.RESEND_API_KEY || !from) {
     return { status: 'failed', result: { delivered: 0 }, error: 'Email is not set up on this server. Nothing was sent.' };
   }
 
@@ -129,25 +138,32 @@ async function sendEmails(
   const missing = proposal.recipient_ids.length - addresses.length;
 
   const resend = await getResend();
-  const text = buildEmailText(proposal.body, owner);
+  const text = composeEmailText(proposal.body, proposal.email_footer);
   let delivered = 0;
   const failures: string[] = [];
 
   for (let i = 0; i < addresses.length; i += EMAIL_BATCH_SIZE) {
     const chunk = addresses.slice(i, i + EMAIL_BATCH_SIZE);
     const payload = chunk.map((a) => ({
-      from: fromAddress(),
+      from,
       to: a.email,
       subject: proposal.title,
       text,
       ...(owner.email ? { replyTo: owner.email } : {}),
     }));
     try {
-      const { error: sendErr } = await resend.batch.send(payload, {
+      const { data: sent, error: sendErr } = await resend.batch.send(payload, {
         idempotencyKey: `ai-action-${proposal.id}-${i / EMAIL_BATCH_SIZE}`,
+        batchValidation: 'permissive',
       });
-      if (sendErr) failures.push(sendErr.message ?? 'Email provider refused the batch');
-      else delivered += chunk.length;
+      if (sendErr) {
+        failures.push(sendErr.message ?? 'Email provider refused the batch');
+      } else {
+        // Permissive mode: only the addresses Resend rejected are lost.
+        const rejected = Array.isArray(sent?.errors) ? sent.errors : [];
+        for (const r of rejected) failures.push(r.message ?? 'Address refused');
+        delivered += Math.max(chunk.length - rejected.length, 0);
+      }
     } catch (e) {
       failures.push(e instanceof Error ? e.message : 'Email provider error');
     }
@@ -174,42 +190,62 @@ async function createTask(
   if (!proposal.task?.project_id || proposal.recipient_ids.length !== 1) {
     return { status: 'failed', result: {}, error: 'This task is missing its project or its person.' };
   }
-  const assigneeProfileId = proposal.recipient_ids[0];
-  const { data: memberRow, error: memberErr } = await service
-    .from('staff')
-    .select('id')
-    .eq('profile_id', assigneeProfileId)
-    .order('id', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (memberErr) throw memberErr;
-  if (!memberRow?.id) {
-    return { status: 'failed', result: {}, error: 'That person is not on the team list, so no task was created.' };
+  const assigneeStaffId = proposal.assignee_staff_id ?? null;
+  if (!assigneeStaffId) {
+    return { status: 'failed', result: {}, error: 'That person is not on this project, so no task was created.' };
   }
+  const assigneeProfileId = proposal.recipient_ids[0];
 
-  // AS the owner: the owner's session client, so RLS sees the owner.
-  const task = await TaskService.createTask(userClient, {
+  // AS the owner: the owner's session client, so RLS sees the owner, and the
+  // owner is recorded as the task's creator.
+  const insert: ProjectTaskInsert & { created_by: string } = {
     project_id: proposal.task.project_id,
     title: proposal.title,
     description: proposal.body,
-    owner_staff_id: memberRow.id as string,
+    owner_staff_id: assigneeStaffId,
     due_date: proposal.task.due_date ?? null,
     metadata: { source: 'ai-assistant-action', ai_action_proposal_id: proposal.id, requested_by: owner.id },
-  });
-  // The task already exists with its owner set; a failed assignee row must not
-  // turn a created task into a "failed" card (the person would retry and get
-  // a second task), so it is reported alongside the success instead.
-  let assignError: string | null = null;
+    created_by: owner.id,
+  };
+  const task = await TaskService.createTask(userClient, insert);
+
+  // From here on the task EXISTS. A failed assignee row or notification must
+  // not turn it into a "failed" card (the person would retry and get a second
+  // task), so each is reported alongside the success instead.
+  const problems: string[] = [];
   try {
-    await TaskService.assign(userClient, task.id, memberRow.id as string, 'responsible', owner.id);
+    await TaskService.assign(userClient, task.id, assigneeStaffId, 'responsible', owner.id);
   } catch (e) {
-    assignError = e instanceof Error ? e.message : 'Could not add the person to the task list';
+    problems.push(`adding the person as assignee failed: ${e instanceof Error ? e.message : 'unknown error'}`);
+  }
+
+  let notified = false;
+  try {
+    const projectTitle = proposal.task.project_title ?? 'a project';
+    const due = proposal.task.due_date ? ` Due ${proposal.task.due_date}.` : '';
+    const res = await fanoutNotification(service, {
+      title: `New task: ${proposal.title}`.slice(0, 200),
+      body: `${owner.name} gave you a task in the project "${projectTitle}".${due}`,
+      userIds: [assigneeProfileId],
+      createdBy: owner.id,
+      category: 'general',
+      kind: 'work_item',
+      priority: 'normal',
+      url: `/projects/${proposal.task.project_id}`,
+      source: 'ai-assistant-action',
+      metadata: { ai_action_proposal_id: proposal.id, task_id: task.id, sent_on_behalf_of: owner.id },
+      idempotencyKey: `ai-action-task:${proposal.id}`,
+    });
+    notified = res.skipped === 'idempotent' || res.notified > 0;
+    if (!notified) problems.push('the person could not be notified');
+  } catch (e) {
+    problems.push(`notifying the person failed: ${e instanceof Error ? e.message : 'unknown error'}`);
   }
 
   return {
     status: 'sent',
-    result: { delivered: 1, total: 1, task_id: task.id, project_id: task.project_id },
-    error: assignError ? `Task created, but adding the person as assignee failed: ${assignError}` : null,
+    result: { delivered: 1, total: 1, task_id: task.id, project_id: task.project_id, assignee_notified: notified },
+    error: problems.length > 0 ? `Task created, but ${problems.join('; ')}.` : null,
   };
 }
 

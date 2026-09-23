@@ -2,13 +2,19 @@
  * POST /api/ai-query/actions/[id]/confirm and /cancel — the route half.
  *
  * The database half (claim runs once, re-checks, owner-only) is proved on a
- * real PostgreSQL in ai-action-proposals-sql.test.ts. What must hold here:
+ * real PostgreSQL in lib/services/ai-query/actions/__tests__/
+ * ai-action-proposals-sql.test.ts. This file lives under __tests__/lib/ so the
+ * lib unit suite runs it on every pull request. What must hold here:
  *   - no user → 401 and no RPC, nothing sent;
  *   - a refused claim (already confirmed, permission gone, expired, someone
  *     else's) sends NOTHING and returns the refusal;
  *   - a successful claim executes exactly once and records the outcome;
- *   - an email goes one-per-recipient, from MyJKKN, reply-to the owner, and no
- *     message carries another person's address;
+ *   - an email goes one-per-recipient, from MyJKKN, reply-to the owner, with
+ *     EXACTLY the text the card showed, and no message carries another
+ *     person's address; one bad address loses only its own email; with no
+ *     sender address configured nothing is sent;
+ *   - a task is created as the owner (created_by), for the assignee's row on
+ *     that project, and the assignee is told once in-app;
  *   - cancel goes through the owner-only RPC.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -83,6 +89,7 @@ vi.mock('@/lib/services/projects/task-service', () => ({ TaskService: { createTa
 import { POST as confirmPOST } from '@/app/api/ai-query/actions/[id]/confirm/route';
 import { POST as cancelPOST } from '@/app/api/ai-query/actions/[id]/cancel/route';
 import { NextRequest } from 'next/server';
+import { composeEmailText } from '@/lib/services/ai-query/actions/compose-email';
 
 const ID = '11111111-1111-4111-8111-111111111111';
 const params = Promise.resolve({ id: ID });
@@ -168,48 +175,96 @@ describe('POST /api/ai-query/actions/[id]/confirm', () => {
     expect(fanoutNotification).toHaveBeenCalledTimes(1);
   });
 
-  it('email: one message per person, from MyJKKN, on behalf of the owner, reply-to the owner', async () => {
-    claimResult = claimed('email');
+  const FOOTER = 'Sent on behalf of Owner Person through MyJKKN. Reply to this email to reach Owner Person directly.';
+
+  it('email: one message per person, from MyJKKN, reply-to the owner, EXACTLY the text the card showed', async () => {
+    claimResult = claimed('email', { email_footer: FOOTER });
     const res = await confirmPOST(req(), { params });
     expect(res.status).toBe(200);
     expect(batchSend).toHaveBeenCalledTimes(1);
     const [payload, options] = (batchSend.mock.calls[0] as unknown) as [any[], any];
     expect(payload).toHaveLength(2);
+    // The same function the card uses, over the same stored footer.
+    const shownOnCard = composeEmailText('The library is closed tomorrow.', FOOTER);
+    expect(shownOnCard).toBe(`The library is closed tomorrow.\n\n—\n${FOOTER}`);
     for (const m of payload) {
       expect(typeof m.to).toBe('string');
       expect(m.from).toBe('MyJKKN <noreply@jkkn.ai>');
       expect(m.replyTo).toBe('owner@jkkn.ac.in');
       expect(m.subject).toBe('Library closed');
-      expect(m.text).toContain('Sent on behalf of Owner Person through MyJKKN');
+      expect(m.text).toBe(shownOnCard);
       expect(m.html).toBeUndefined();
     }
     expect(payload.map((m) => m.to).sort()).toEqual(['one@jkkn.ac.in', 'two@jkkn.ac.in']);
     // No message carries the other recipient's address.
     expect(payload[0].text).not.toContain(payload[1].to);
     expect(options.idempotencyKey).toBe(`ai-action-${ID}-0`);
+    // One malformed address must not sink the other 99 in its batch.
+    expect(options.batchValidation).toBe('permissive');
   });
 
-  it('task: created AS the owner (session client) and given to the team member', async () => {
+  it('email: an address Resend refuses loses only its own email, and the card says so', async () => {
+    claimResult = claimed('email', { email_footer: FOOTER });
+    batchSend.mockResolvedValueOnce({ data: { data: [{ id: 'e-1' }], errors: [{ index: 1, message: 'Invalid `to` field' }] }, error: null });
+    const res = await confirmPOST(req(), { params });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: 'sent', result: { delivered: 1, total: 2 }, error: '1 of 2 could not be emailed.' });
+  });
+
+  it('email: with no sender address configured, NOTHING is sent (never the Resend sandbox sender)', async () => {
+    delete process.env.RESEND_FROM_EMAIL;
+    claimResult = claimed('email', { email_footer: FOOTER });
+    const res = await confirmPOST(req(), { params });
+    expect(res.status).toBe(502);
+    expect(batchSend).not.toHaveBeenCalled();
+    expect(updates[0].values).toMatchObject({ status: 'failed', error: 'Email is not set up on this server. Nothing was sent.' });
+  });
+
+  it('task: created AS the owner (session client, created_by), for the assignee on that project, who is told once', async () => {
     claimResult = claimed('create_task', {
       recipient_ids: ['p-1'],
       recipient_count: 1,
+      assignee_staff_id: 'staff-1',
       task: { project_id: 'proj-1', project_title: 'Library', due_date: '2026-10-01' },
-    });
-    // staff lookup resolves through maybeSingle on profile_id; return a staff row.
-    service.from.mockImplementationOnce(serviceFrom).mockImplementationOnce(() => {
-      const q: any = {
-        select: () => q, eq: () => q, order: () => q, limit: () => q,
-        maybeSingle: () => Promise.resolve({ data: { id: 'staff-1' }, error: null }),
-      };
-      return q;
     });
     const res = await confirmPOST(req(), { params });
     expect(res.status).toBe(200);
     expect(createTask).toHaveBeenCalledTimes(1);
     const [client, input] = (createTask.mock.calls[0] as unknown) as [unknown, any];
     expect(client).toBe(userClient);
-    expect(input).toMatchObject({ project_id: 'proj-1', owner_staff_id: 'staff-1', title: 'Library closed', due_date: '2026-10-01' });
+    expect(input).toMatchObject({
+      project_id: 'proj-1', owner_staff_id: 'staff-1', title: 'Library closed', due_date: '2026-10-01', created_by: 'owner-1',
+    });
     expect(assign).toHaveBeenCalledWith(userClient, 't-1', 'staff-1', 'responsible', 'owner-1');
+    // Exactly one bell item, to the assignee only, pointing at the project.
+    expect(fanoutNotification).toHaveBeenCalledTimes(1);
+    const [, note] = (fanoutNotification.mock.calls[0] as unknown) as [unknown, any];
+    expect(note).toMatchObject({
+      userIds: ['p-1'], createdBy: 'owner-1', url: '/projects/proj-1', idempotencyKey: `ai-action-task:${ID}`,
+    });
+    expect(note.body).toContain('Owner Person gave you a task in the project "Library". Due 2026-10-01.');
+    expect(await res.json()).toMatchObject({ status: 'sent', result: { assignee_notified: true }, error: null });
+  });
+
+  it('task: a failed notification does not turn a created task into a failed card', async () => {
+    claimResult = claimed('create_task', {
+      recipient_ids: ['p-1'], recipient_count: 1, assignee_staff_id: 'staff-1',
+      task: { project_id: 'proj-1', project_title: 'Library', due_date: null },
+    });
+    fanoutNotification.mockRejectedValueOnce(new Error('bell down'));
+    const res = await confirmPOST(req(), { params });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: 'sent', error: 'Task created, but notifying the person failed: bell down.' });
+  });
+
+  it('task: with no assignee row on the project, nothing is created', async () => {
+    claimResult = claimed('create_task', {
+      recipient_ids: ['p-1'], recipient_count: 1, assignee_staff_id: null,
+      task: { project_id: 'proj-1', project_title: 'Library', due_date: null },
+    });
+    const res = await confirmPOST(req(), { params });
+    expect(res.status).toBe(502);
+    expect(createTask).not.toHaveBeenCalled();
   });
 
   it('a send that fails is recorded as failed', async () => {
