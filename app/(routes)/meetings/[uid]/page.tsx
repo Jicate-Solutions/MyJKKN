@@ -47,6 +47,7 @@ import {
   switchRequestState,
   switchSourceMode,
 } from '@/lib/services/meetings/meeting-mode-switch';
+import { EndRecordingButton } from './_components/end-recording-button';
 import { CancelBookingButton } from './_components/cancel-booking-button';
 import { RescheduleBookingButton } from './_components/reschedule-booking-button';
 import { SwitchToOnlineButton } from './_components/switch-to-online-button';
@@ -741,6 +742,11 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
                       {r.status === 'recording' ? ' · still recording' : ''}
                     </p>
                     {problem ? <p className="text-amber-600 dark:text-amber-500">{problem}</p> : null}
+                    {/* A recording whose Stop button went away with the tab that
+                        started it can only be ended from here. */}
+                    {r.status === 'recording' ? (
+                      <EndRecordingButton recordingId={r.id as string} />
+                    ) : null}
                   </div>
                 );
               })}
