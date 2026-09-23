@@ -30,11 +30,11 @@
 
 import Link from 'next/link';
 import type { ColumnDef } from '@tanstack/react-table';
-import { format } from 'date-fns';
 import { Building2 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
+import { formatIstDate } from '@/lib/utils/date-format';
 import { inductionStatusLabel, INDUCTION_ACTIVE_STATUS } from '@/types/events';
 import type { EventStatus } from '@/types/events';
 import type { InductionListRow } from '@/lib/services/induction/induction-service';
@@ -57,7 +57,7 @@ export interface InductionColumnOptions {
 const renderDate = (value: string | null) => {
   if (!value) return null;
   const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? null : format(d, 'd MMM yyyy');
+  return Number.isNaN(d.getTime()) ? null : formatIstDate(d);
 };
 
 export const getInductionColumns = (
