@@ -3,6 +3,8 @@ import { AttendancePeriodOption } from '@/types/attendance';
 import { format } from 'date-fns';
 import { AttendanceService } from './attendance-service';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { isTimetableOnApprovedLeave } from '@/lib/utils/academic/approved-leave-scope';
+import { fillPeriodSectionNames, sectionIdsNeedingNames } from '@/lib/utils/academic/fill-period-section-names';
 import type {
   TimetableWithRelations,
   TimetableDataStructure,
