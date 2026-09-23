@@ -723,6 +723,23 @@ export class FacultyAttendanceService {
         }
       }
 
+      // Added: 2026-09-23 (BUG-006200) - Name the sections of year-level
+      // timetables, whose to-one `sections` join is null; otherwise two cohorts
+      // of one year show as identical cards with no section.
+      const unnamedSectionIds = sectionIdsNeedingNames(facultyPeriods as any);
+      if (unnamedSectionIds.length > 0) {
+        const { data: sectionRows } = await this.supabase
+          .from('sections')
+          .select('id, section_name')
+          .in('id', unnamedSectionIds);
+        if (sectionRows) {
+          fillPeriodSectionNames(
+            facultyPeriods as any,
+            new Map(sectionRows.map((s: any) => [s.id, s.section_name]))
+          );
+        }
+      }
+
       // Sort by start time
       facultyPeriods.sort((a, b) => {
         const timeA = this.parseTime(a.start_time);
