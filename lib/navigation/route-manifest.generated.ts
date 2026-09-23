@@ -1826,6 +1826,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Admin",
         "iconName": "FileText",
         "children": []
+      },
+      {
+        "path": "/ai-query/connect",
+        "label": "Connect an outside AI",
+        "iconName": "KeyRound",
+        "children": []
       }
     ]
   },

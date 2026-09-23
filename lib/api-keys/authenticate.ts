@@ -128,6 +128,14 @@ export async function authenticateApiKey(
     return unauthorized('API key is empty');
   }
 
+  // A person's own outside-AI key (made on /ai-query/connect) works ONLY at the
+  // MCP door, where it runs as that person. The B2A routes query with the
+  // service role, so they never accept one. The row itself also carries
+  // permissions {read:false, write:false} by constraint (20270301090000).
+  if (apiKey.startsWith('jkkn_pk_')) {
+    return unauthorized('This personal key only works with the MyJKKN MCP connection (/api/mcp/mcp)');
+  }
+
   // 2. SHA-256 hash the raw key
   const hashedKey = createHash('sha256').update(apiKey).digest('hex');
 
