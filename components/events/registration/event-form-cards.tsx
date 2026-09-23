@@ -79,6 +79,7 @@ const dateTime = (iso: string) =>
     year: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
+    timeZone: 'Asia/Kolkata',
   });
 
 /* ─── Preview ─────────────────────────────────────────────────────
