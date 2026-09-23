@@ -31,10 +31,9 @@ const SITES: Array<{ file: string; client: string; key: keyof typeof FEATURE_KEY
   { file: 'app/api/hr/leave/applications/route.ts', client: 'supabase', key: 'HR_LEAVE_APPLY' },
   { file: 'app/api/hr/leave/applications/[id]/approve/route.ts', client: 'supabase', key: 'HR_LEAVE_DECIDE' },
   { file: 'app/api/hr/leave/applications/[id]/reject/route.ts', client: 'supabase', key: 'HR_LEAVE_DECIDE' },
-  { file: 'lib/services/hr/attendance/attendance-period-service.ts', client: 'supabase', key: 'HR_ATTENDANCE_MONTH_CLOSE' },
 ];
 
-describe('adoption loop — the eight-key batch', () => {
+describe('adoption loop — the seven keys wired here', () => {
   it('spells each key exactly as feature_registry holds it', () => {
     expect(FEATURE_KEYS.SERVICE_REQUESTS_RAISE).toBe('service_requests.raise');
     expect(FEATURE_KEYS.USERS_ASSIGN_ROLE).toBe('users.assign_role');
@@ -43,6 +42,7 @@ describe('adoption loop — the eight-key batch', () => {
     expect(FEATURE_KEYS.CDC_DECLARE_INTEREST).toBe('cdc.declare_interest');
     expect(FEATURE_KEYS.HR_LEAVE_APPLY).toBe('hr.leave_apply');
     expect(FEATURE_KEYS.HR_LEAVE_DECIDE).toBe('hr.leave_decide');
+    // hr.attendance_month_close is declared here but wired in its own PR.
     expect(FEATURE_KEYS.HR_ATTENDANCE_MONTH_CLOSE).toBe('hr.attendance_month_close');
   });
 
@@ -71,10 +71,6 @@ describe('adoption loop — the eight-key batch', () => {
     const gatePass = read('lib/services/campus-living/gate-pass-service.ts');
     expect(gatePass.indexOf("throw new Error(getErrorMessage(error));")).toBeLessThan(
       gatePass.indexOf('FEATURE_KEYS.CAMPUS_LIVING_GATE_PASS_REQUEST'),
-    );
-    const period = read('lib/services/hr/attendance/attendance-period-service.ts');
-    expect(period.indexOf('if (error) throw new Error(getErrorMessage(error));')).toBeLessThan(
-      period.indexOf('FEATURE_KEYS.HR_ATTENDANCE_MONTH_CLOSE'),
     );
   });
 

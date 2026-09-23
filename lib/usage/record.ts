@@ -14,6 +14,14 @@
  * Use the caller's own Supabase client (session-scoped): the function keys
  * the row on auth.uid(). A service-role client has no auth.uid() and records
  * nothing.
+ *
+ * THAT IS THE ONE TRAP HERE, AND IT IS SILENT. fn_feature_used keys the row on
+ * auth.uid(), so a call made on a service-role client writes NOTHING and
+ * reports no error — the wiring looks done, the tests pass, and the module
+ * stays exactly as blind as before. Several routes hold both clients in the
+ * same scope (a session client for the read, `admin`/`supabaseAdmin`/
+ * `serviceSupabase` for the write that needs to bypass RLS). Always pass the
+ * SESSION client, even when the write beside it uses the other one.
  */
 
 type RpcClient = {
@@ -45,7 +53,8 @@ export const FEATURE_KEYS = {
   HR_LEAVE_APPLY: 'hr.leave_apply',
   /** An approver decided a staff leave application — approve and reject both count. */
   HR_LEAVE_DECIDE: 'hr.leave_decide',
-  /** HR froze an institution's attendance month. */
+  /** HR froze an institution's attendance month. Wired in its own PR — the
+   *  call sits inside the attendance-close path, which is held separately. */
   HR_ATTENDANCE_MONTH_CLOSE: 'hr.attendance_month_close',
 } as const;
 
