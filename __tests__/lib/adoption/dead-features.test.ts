@@ -39,6 +39,7 @@ import {
   toNumber,
   type AdoptionMetricRow,
   rollingWeekStart,
+  isEventFeature,
 } from '@/lib/adoption/summarise';
 
 /** A fixed "now" so an age never depends on the day the suite runs. */
@@ -640,5 +641,31 @@ describe('rollingWeekStart', () => {
     const tue = rollingWeekStart(new Date('2026-09-22T06:00:00Z'));
     expect(mon).toBe('2026-09-15');
     expect(tue).toBe('2026-09-16');
+  });
+});
+
+describe('features used only when the occasion arises', () => {
+  it('is never dead on a low share — 0.2 % of people reporting a bug is health, not death', () => {
+    const [group] = groupByFeature([
+      row({ cadence: 'event', intended_count: 7116, pct_weekly: 0.2, pct_ever: 3 }),
+    ]);
+    expect(isEventFeature(group)).toBe(true);
+    expect(isDeadFeature(group, NOW)).toBe(false);
+  });
+
+  it('is never asked why, because a low share is not evidence of a problem', () => {
+    const [group] = groupByFeature([row({ cadence: 'event', pct_weekly: 0 })]);
+    expect(canAskWhy(group, NOW)).toBe(false);
+  });
+
+  it('says "When needed" rather than naming a window', () => {
+    const [group] = groupByFeature([row({ cadence: 'event' })]);
+    expect(activeShareLabel(group)).toBe('When needed');
+  });
+
+  it('leaves weekly features judged exactly as before', () => {
+    const [group] = groupByFeature([row({ cadence: 'weekly', pct_weekly: 0.2 })]);
+    expect(isEventFeature(group)).toBe(false);
+    expect(isDeadFeature(group, NOW)).toBe(true);
   });
 });

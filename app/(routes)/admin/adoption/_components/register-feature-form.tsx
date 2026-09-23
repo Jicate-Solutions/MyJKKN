@@ -239,6 +239,23 @@ export function RegisterFeatureForm() {
               </span>
             </span>
           </label>
+          <label className="flex items-start gap-2 text-sm text-foreground">
+            <input
+              type="radio"
+              name="adoption-cadence"
+              value="event"
+              checked={form.cadence === 'event'}
+              onChange={() => set('cadence', 'event')}
+              disabled={busy}
+              className="mt-0.5 h-4 w-4"
+            />
+            <span>
+              When needed
+              <span className="block text-xs text-muted-foreground">
+                used only when the occasion arises — never judged on a share
+              </span>
+            </span>
+          </label>
         </div>
 
         <div className="mt-3 space-y-1.5">

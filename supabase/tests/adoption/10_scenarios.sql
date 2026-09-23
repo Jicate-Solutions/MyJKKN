@@ -231,4 +231,16 @@ SELECT fn_adoption_register('cron.thing','Nightly job','runs by itself','{all}',
 SELECT feature_key, skip_reason FROM fn_adoption_metrics(NULL,NULL) WHERE feature_key='cron.thing';
 DO $$ DECLARE r jsonb; BEGIN r := fn_adoption_ask_why('cron.thing');
   IF (r->>'success')::boolean OR r->>'error' NOT LIKE 'this feature is skipped on purpose%' THEN RAISE EXCEPTION 'FAIL skipped ask: %', r; END IF; END $$;
+\echo '--- used when needed: never dead on a share, never asked (2026-09-23)'
+SELECT fn_adoption_register('rare.thing','Rare thing','do the rare thing when it happens','{all}',NULL,NULL, now() - interval '60 days', true, NULL,NULL,NULL,'event');
+SELECT fn_adoption_register('bad.cadence2','x','y','{all}',NULL,NULL,NULL,true,NULL,NULL,NULL,'annually');
+SELECT feature_key, cadence FROM fn_adoption_metrics(NULL,NULL) WHERE feature_key='rare.thing';
+DO $$ DECLARE r jsonb; c text; BEGIN
+  SELECT cadence INTO c FROM feature_registry WHERE feature_key='rare.thing';
+  IF c <> 'event' THEN RAISE EXCEPTION 'FAIL: cadence not stored: %', c; END IF;
+  r := fn_adoption_register('bad.cadence2','x','y','{all}',NULL,NULL,NULL,true,NULL,NULL,NULL,'annually');
+  IF (r->>'success')::boolean THEN RAISE EXCEPTION 'FAIL: accepted an undefined cadence'; END IF;
+  r := fn_adoption_ask_why('rare.thing');
+  IF (r->>'success')::boolean OR r->>'error' NOT LIKE '%occasion arises%' THEN RAISE EXCEPTION 'FAIL: asked about a when-needed feature: %', r; END IF;
+END $$;
 \echo '=== ALL SCENARIOS PASSED ==='

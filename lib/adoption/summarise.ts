@@ -106,7 +106,7 @@ export interface AdoptionMetricRow {
   usage_synced_at?: string | null;
   /** How this feature is judged. Absent or unreadable means 'weekly' — the
    *  default that every feature had before cadence existed. */
-  cadence?: 'weekly' | 'term' | null;
+  cadence?: 'weekly' | 'term' | 'event' | null;
   /** Intended people who did the core action at any point in the RUNNING term.
    *  Shown, never judged: the term is not over. */
   term_active?: Numeric;
@@ -142,7 +142,7 @@ export interface FeatureGroup {
   usage_bridged: boolean;
   usage_synced_at: string | null;
   /** 'weekly' unless the label says otherwise — see the cadence note at the top. */
-  cadence: 'weekly' | 'term';
+  cadence: 'weekly' | 'term' | 'event';
   /** The running term's window, carried up from the rows so the page can name
    *  it. Null when the database sent no term. */
   term_start: string | null;
@@ -216,7 +216,8 @@ export function groupByFeature(rows: AdoptionMetricRow[]): FeatureGroup[] {
         // Anything that is not the word 'term' is weekly. A missing cadence —
         // an older row, a hand-built test row — must read as the old default,
         // never as "seasonal", which would suspend the dead rule silently.
-        cadence: row.cadence === 'term' ? 'term' : 'weekly',
+        cadence:
+          row.cadence === 'term' ? 'term' : row.cadence === 'event' ? 'event' : 'weekly',
         term_start: row.term_start ?? null,
         term_end: row.term_end ?? null,
         prev_term_start: row.prev_term_start ?? null,
@@ -252,6 +253,18 @@ export function isOldEnoughToJudge(group: FeatureGroup, now: Date = new Date()):
 /** Seasonal: judged once a term, never by the week. */
 export function isTermFeature(group: FeatureGroup): boolean {
   return group.cadence === 'term';
+}
+
+/**
+ * "Used when needed": reporting a bug, applying for leave, raising a
+ * grievance. Nobody should be doing it every week — 0.2 % in a week means few
+ * bugs happened, which is health, not death. Such a feature is judged on
+ * whether people CAN use it (first-use coverage, and that it works at all),
+ * never on a weekly share, and is never proposed for retirement on share
+ * alone (Director 2026-09-23, after the first dead list named bug reporting).
+ */
+export function isEventFeature(group: FeatureGroup): boolean {
+  return group.cadence === 'event';
 }
 
 /** Deliberately not measured, with a reason. A blank reason is not a skip —
@@ -291,7 +304,10 @@ function hadFullLastTerm(group: FeatureGroup): boolean {
 
 /** The header over the RUNNING share column. A term feature shows this beside
  *  a second column for the last completed term, which is the deciding one. */
-export function activeShareLabel(group: FeatureGroup): 'Last 7 days' | 'This term' {
+export function activeShareLabel(
+  group: FeatureGroup,
+): 'Last 7 days' | 'This term' | 'When needed' {
+  if (isEventFeature(group)) return 'When needed';
   return isTermFeature(group) ? 'This term' : 'Last 7 days';
 }
 
@@ -330,6 +346,8 @@ export function rollingWeekStart(now: Date = new Date()): string {
  */
 export function isDeadFeature(group: FeatureGroup, now: Date = new Date()): boolean {
   if (isSkipped(group)) return false; // never measured, so never a verdict
+  // "Used when needed" is never dead on a share (Director 2026-09-23).
+  if (isEventFeature(group)) return false;
   if (!isOldEnoughToJudge(group, now)) return false;
   if (group.status === 'retired') return false;
   if (!group.usage_wired) return false; // zero use of an unrecorded key is not evidence
@@ -354,6 +372,7 @@ export function isDeadFeature(group: FeatureGroup, now: Date = new Date()): bool
  *  term why they have not made next term's timetable is a question with no
  *  honest answer. */
 export function canAskWhy(group: FeatureGroup, now: Date = new Date()): boolean {
+  if (isEventFeature(group)) return false;
   // fn_adoption_ask_why refuses a skipped feature outright ("this feature is
   // skipped on purpose"), so the button is off before the tap, not after.
   if (isSkipped(group)) return false;

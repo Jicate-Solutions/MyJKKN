@@ -30,7 +30,7 @@ const str = (v: unknown): string | null =>
  *  like a timetable. Weekly is the default, and the database accepts nothing
  *  else — so a third word is refused HERE with a sentence a person can read,
  *  rather than reaching the RPC as a constraint violation. */
-const CADENCES = new Set(['weekly', 'term']);
+const CADENCES = new Set(['weekly', 'term', 'event']);
 
 export async function POST(request: Request) {
   await connection();

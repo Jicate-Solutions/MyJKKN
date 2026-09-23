@@ -55,6 +55,7 @@ import {
   type AdoptionMetricRow,
   type Numeric,
   rollingWeekStart,
+  isEventFeature,
 } from '@/lib/adoption/summarise';
 import { FeatureActions, type PendingProposal } from './_components/feature-actions';
 import { RegisterFeatureForm } from './_components/register-feature-form';
@@ -489,7 +490,7 @@ export default async function FeatureAdoptionPage() {
                               {group.status}
                             </Badge>
                             <Badge variant="outline" className="text-muted-foreground">
-                              {seasonal ? 'term' : 'weekly'}
+                              {isEventFeature(group) ? 'when needed' : seasonal ? 'term' : 'weekly'}
                             </Badge>
                           </div>
                           {featureIsDead ? (

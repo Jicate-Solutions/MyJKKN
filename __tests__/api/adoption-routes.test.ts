@@ -453,3 +453,34 @@ describe('POST /api/admin/adoption/sync', () => {
     expect((await res.json()).error).toMatch(/switched off/);
   });
 });
+
+describe('POST /api/admin/adoption/register — cadence', () => {
+  it('accepts a feature that is used only when the occasion arises', async () => {
+    rpcData = { success: true, feature_key: 'bug_reports.submit', cadence: 'event' };
+    const res = await registerPost(
+      post('register', {
+        feature_key: 'bug_reports.submit',
+        title: 'Report a bug',
+        core_action: 'report a problem you hit',
+        cadence: 'event',
+      })
+    );
+    expect(res.status).toBe(200);
+    expect(userRpc).toHaveBeenCalledWith(
+      'fn_adoption_register',
+      expect.objectContaining({ p_cadence: 'event' })
+    );
+  });
+
+  it('still refuses a cadence nobody defined', async () => {
+    const res = await registerPost(
+      post('register', {
+        feature_key: 'gate.pass_issue',
+        title: 'Gate pass',
+        core_action: 'issue a gate pass',
+        cadence: 'yearly',
+      })
+    );
+    expect(res.status).toBe(400);
+  });
+});

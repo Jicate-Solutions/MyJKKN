@@ -27,9 +27,9 @@ ALTER TABLE public.feature_registry
 ALTER TABLE public.feature_registry
   DROP CONSTRAINT IF EXISTS feature_registry_cadence_check;
 ALTER TABLE public.feature_registry
-  ADD CONSTRAINT feature_registry_cadence_check CHECK (cadence IN ('weekly', 'term'));
+  ADD CONSTRAINT feature_registry_cadence_check CHECK (cadence IN ('weekly', 'term', 'event'));
 COMMENT ON COLUMN public.feature_registry.cadence IS
-  'weekly = judged by the weekly share; term = seasonal, judged by "active this term" and only after the term ends (Director 2026-09-18).';
+  'weekly = judged by the weekly share; term = seasonal, judged by "active this term" and only after the term ends (Director 2026-09-18); event = used only when the occasion arises (report a bug, apply for leave), judged on whether people CAN use it, never on a share, never dead (2026-09-23).';
 
 -- A merged change the desk chose NOT to measure (a cron job, a public form, a
 -- one-person allow-list, a micro-interaction) is still recorded, with the
@@ -299,8 +299,8 @@ BEGIN
   IF COALESCE(btrim(p_title), '') = '' OR COALESCE(btrim(p_core_action), '') = '' THEN
     RETURN jsonb_build_object('success', false, 'error', 'title and core_action are required');
   END IF;
-  IF p_cadence IS NULL OR p_cadence NOT IN ('weekly', 'term') THEN
-    RETURN jsonb_build_object('success', false, 'error', 'cadence must be weekly or term');
+  IF p_cadence IS NULL OR p_cadence NOT IN ('weekly', 'term', 'event') THEN
+    RETURN jsonb_build_object('success', false, 'error', 'cadence must be weekly, term or event');
   END IF;
 
   INSERT INTO public.feature_registry
@@ -376,6 +376,11 @@ BEGIN
   SELECT * INTO v_feat FROM public.feature_registry WHERE feature_key = p_feature_key;
   IF NOT FOUND THEN
     RETURN jsonb_build_object('success', false, 'error', 'unknown feature');
+  END IF;
+  IF v_feat.cadence = 'event' THEN
+    -- "Used when needed": a low share means few occasions arose, not that the
+    -- feature failed. There is nothing to ask about (2026-09-23).
+    RETURN jsonb_build_object('success', false, 'error', 'this feature is used only when the occasion arises, so a low share is not evidence — it is never judged dead');
   END IF;
   IF v_feat.skip_reason IS NOT NULL THEN
     RETURN jsonb_build_object('success', false, 'error', 'this feature is skipped on purpose: ' || v_feat.skip_reason);
