@@ -29,7 +29,7 @@ import {
   IndianRupee,
   Clock,
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { formatIstDate } from '@/lib/utils/date-format';
 import { useOpenTournaments, type OpenTournament } from '@/hooks/events/use-open-tournaments';
 import { TEAM_SPORTS } from '@/types/health-sports';
 
@@ -78,9 +78,9 @@ function TournamentCard({ t }: { t: OpenTournament }) {
               {t.start_date && (
                 <span className="flex items-center gap-1">
                   <Calendar className="h-3 w-3" />
-                  {format(new Date(t.start_date), 'd MMM yyyy')}
+                  {formatIstDate(t.start_date)}
                   {t.end_date && t.end_date !== t.start_date &&
-                    ` – ${format(new Date(t.end_date), 'd MMM yyyy')}`}
+                    ` – ${formatIstDate(t.end_date)}`}
                 </span>
               )}
               {t.venue && (
@@ -103,7 +103,7 @@ function TournamentCard({ t }: { t: OpenTournament }) {
               {t.registration_close_date && t.is_registration_open && (
                 <span className="flex items-center gap-1">
                   <Clock className="h-3 w-3" />
-                  Closes {format(new Date(t.registration_close_date), 'd MMM')}
+                  Closes {formatIstDate(t.registration_close_date, { day: 'numeric', month: 'short' })}
                 </span>
               )}
             </div>
