@@ -2,21 +2,25 @@
 
 /**
  * DrainHealthBanner
- * Admin-only red banner shown when the Max-lane chat drain is OFFLINE.
+ * Admin-only banner on /ai-query saying which computer is answering questions.
  *
  * Pilot decision #5: when the answering service is down, regular users get an
  * inline "temporarily offline" note on their question (handled in the API
- * route), and administrators additionally get this persistent red banner so
- * they know to restart the drain.
+ * route), and administrators additionally get this persistent banner so they
+ * know to restart the drain.
+ *
+ * Two answerers (Director ruling 2026-09-23): the Windows chat drain, and a
+ * standby on the Director's Mac that answers when Windows is down.
  *
  * Driven by fn_ai_chat_drain_health (super-admin only; RAISEs otherwise —
- * so we ONLY call it when isSuperAdmin). It reads the heartbeat the Windows
- * chat drain stamps each cycle:
- *   online === true   → fresh (<3 min)          → render nothing
- *   online === false  → stale (drain down)      → render the red banner
- *   online === null   → never stamped yet       → render nothing (INERT, so
- *                                                 there is no false alarm
- *                                                 before the first heartbeat)
+ * so we ONLY call it when isSuperAdmin). `serving` says who is answering:
+ *   'windows'     → render nothing (normal)
+ *   'mac_standby' → AMBER: Windows is down, the Mac backup is answering
+ *   'none'        → RED: both answering computers are down
+ *   'unknown'     → render nothing (INERT — neither heartbeat ever stamped,
+ *                   so there is no false alarm before the first heartbeat)
+ * Before migration 20270306090000 is applied the RPC has no `serving`; the
+ * old fields are mapped so the banner behaves exactly as it did then.
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react';
@@ -24,9 +28,50 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { AlertTriangle } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
-interface DrainHealth {
+export type AnswererServing = 'windows' | 'mac_standby' | 'none' | 'unknown';
+
+export interface DrainHealth {
+  /** Windows chat drain: true fresh, false stale, null never stamped. */
   online: boolean | null;
   last_seen: string | null;
+  /** Mac backup: true fresh, false stale, null never stamped. */
+  standby_online?: boolean | null;
+  standby_last_seen?: string | null;
+  serving?: AnswererServing;
+}
+
+export type BannerState =
+  | { kind: 'hidden' }
+  | { kind: 'standby'; windowsLastSeen: string | null }
+  | { kind: 'down'; windowsLastSeen: string | null; standbyLastSeen: string | null };
+
+/** Pure: what the banner should show for a health reading. */
+export function resolveBannerState(health: DrainHealth | null): BannerState {
+  if (!health) return { kind: 'hidden' };
+
+  // Pre-migration payload (no `serving`): the old single-computer meaning.
+  const serving: AnswererServing =
+    health.serving ??
+    (health.online === true ? 'windows' : health.online === false ? 'none' : 'unknown');
+
+  switch (serving) {
+    case 'mac_standby':
+      return { kind: 'standby', windowsLastSeen: health.last_seen };
+    case 'none':
+      return {
+        kind: 'down',
+        windowsLastSeen: health.last_seen,
+        standbyLastSeen: health.standby_last_seen ?? null,
+      };
+    default:
+      return { kind: 'hidden' };
+  }
+}
+
+function checkedIn(who: string, iso: string | null): string {
+  return iso
+    ? `${who} last checked in at ${new Date(iso).toLocaleString()}`
+    : `${who} has never checked in`;
 }
 
 const POLL_INTERVAL_MS = 60_000;
@@ -57,20 +102,36 @@ export function DrainHealthBanner() {
     };
   }, [isSuperAdmin, poll]);
 
-  // Inert unless we have a definitive "offline" (a stamped-but-stale heartbeat).
-  if (!isSuperAdmin || !health || health.online !== false) return null;
+  if (!isSuperAdmin) return null;
+  const state = resolveBannerState(health);
+  if (state.kind === 'hidden') return null;
 
-  const lastSeen = health.last_seen
-    ? new Date(health.last_seen).toLocaleString()
-    : 'an unknown time';
+  if (state.kind === 'standby') {
+    return (
+      <div
+        role="status"
+        className="flex items-start gap-2 px-3 sm:px-4 py-2 bg-amber-50 border-b border-amber-300 text-amber-700 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-400"
+      >
+        <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+        <div className="text-xs sm:text-sm">
+          <span className="font-semibold">The Windows answering computer is down. The Mac backup is answering.</span>{' '}
+          {checkedIn('Windows', state.windowsLastSeen)}. Questions are still being answered;
+          restart the chat drain on the Windows computer to switch back.
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex items-start gap-2 px-3 sm:px-4 py-2 bg-destructive/10 border-b border-destructive/30 text-destructive">
+    <div
+      role="alert"
+      className="flex items-start gap-2 px-3 sm:px-4 py-2 bg-destructive/10 border-b border-destructive/30 text-destructive"
+    >
       <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
       <div className="text-xs sm:text-sm">
-        <span className="font-semibold">AI Assistant chat is offline.</span>{' '}
-        The Max answering service hasn’t responded since {lastSeen}. Users are being
-        asked to try again later — restart the chat drain to bring it back.
+        <span className="font-semibold">Both answering computers are down. The assistant can’t answer right now.</span>{' '}
+        {checkedIn('Windows', state.windowsLastSeen)}; {checkedIn('the Mac backup', state.standbyLastSeen)}.{' '}
+        Users are being asked to try again later. Restart the chat drain on the Windows computer, or start the Mac backup.
       </div>
     </div>
   );
