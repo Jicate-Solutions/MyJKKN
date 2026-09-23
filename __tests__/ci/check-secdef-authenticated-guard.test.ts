@@ -555,6 +555,34 @@ describe('branch (d) — resolved-access helper verdict', () => {
     expect(code).toBe(1);
   });
 
+  it('FLAGS a caller whose only reaction to a false verdict is RAISE NOTICE', () => {
+    // Branch (d) demands RAISE EXCEPTION. A notice is written to the log and the
+    // caller carries straight on — that is not a denial, and a gate that reads
+    // it as one would waive the exact shape it is here to catch.
+    const { code, out } = runGate(`
+      CREATE OR REPLACE FUNCTION public.fn_verdict_notice_only(p_assessment_id uuid)
+      RETURNS void
+      LANGUAGE plpgsql
+      SECURITY DEFINER
+      SET search_path = public
+      AS $$
+      DECLARE v_access jsonb;
+      BEGIN
+        v_access := fn_pde_case_access(p_assessment_id);
+        IF NOT (v_access->>'allowed')::boolean THEN
+          RAISE NOTICE 'not allowed, carrying on anyway';
+        END IF;
+        UPDATE pde_assessments SET updated_at = now() WHERE id = p_assessment_id;
+      END;
+      $$;
+      REVOKE EXECUTE ON FUNCTION public.fn_verdict_notice_only(uuid) FROM anon, PUBLIC;
+      GRANT  EXECUTE ON FUNCTION public.fn_verdict_notice_only(uuid) TO authenticated;
+    `, 'verdict-notice-only.sql');
+
+    expect(guardFlagged(out, 'fn_verdict_notice_only')).toBe(true);
+    expect(code).toBe(1);
+  });
+
   it('keeps FLAGGING a function with no authorization check of any kind', () => {
     // Branch (d) must not have widened the gate's front door.
     const { code, out } = runGate(`

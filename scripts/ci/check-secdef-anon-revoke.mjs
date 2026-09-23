@@ -464,8 +464,11 @@ function hasAuthorizationGuard(body, lang = '') {
     const assigned = new RegExp(`\\b([a-z_][a-z0-9_]*)\\s*:=\\s*${h.fn}\\s*\\(`, 'i').exec(body);
     if (!assigned) continue;
     const v = assigned[1];
+    //     `RAISE EXCEPTION`, not a bare `raise`: branches (a)/(b) accept any
+    //     RAISE, but a `RAISE NOTICE` logs and lets the caller straight through,
+    //     so the one branch that turns on a helper's verdict demands a throw.
     const denies = new RegExp(
-      `${DECISION_KEYWORD}[^;]{0,200}?\\b${v}\\b[^;]{0,200}?'${h.verdict}'[^;]{0,400}?\\braise\\b`,
+      `${DECISION_KEYWORD}[^;]{0,200}?\\b${v}\\b[^;]{0,200}?'${h.verdict}'[^;]{0,400}?\\braise\\s+exception\\b`,
       'i',
     );
     if (denies.test(body)) return true;
