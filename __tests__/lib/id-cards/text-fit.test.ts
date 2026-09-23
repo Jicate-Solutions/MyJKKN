@@ -25,6 +25,14 @@ describe('countWrappedLines', () => {
   it('hard-breaks a single word longer than the line', () => {
     expect(countWrappedLines('ABCDEFGHIJ', 4)).toBe(3);
   });
+  it('treats a non-breaking space as glue, never a wrap point', () => {
+    // "TAMIL NADU - 638005" glued = one 19-char word: cannot share a 20-char
+    // line with "ERODE," so it drops to its own line, as the renderer does.
+    const glued = 'ERODE, TAMIL NADU - 638005';
+    expect(countWrappedLines(glued, 20)).toBe(2);
+    expect(countWrappedLines('ERODE, TAMIL NADU - 638005', 20)).toBe(2);
+    expect(countWrappedLines(glued, 12)).toBe(3); // 19 > 12: hard-broken like any long word
+  });
 });
 
 const WORST_ADDRESS =

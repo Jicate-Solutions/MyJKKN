@@ -3,6 +3,9 @@ import { AttendancePeriodOption } from '@/types/attendance';
 import { format } from 'date-fns';
 import { AttendanceService } from './attendance-service';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { isTimetableOnApprovedLeave } from '@/lib/utils/academic/approved-leave-scope';
+import { fillPeriodSectionNames, sectionIdsNeedingNames } from '@/lib/utils/academic/fill-period-section-names';
+import { practicalSectionIdsForStaff } from '@/lib/utils/practical-period-sections';
 import type {
   TimetableWithRelations,
   TimetableDataStructure,
@@ -267,7 +270,9 @@ export class FacultyAttendanceService {
           end_date,
           selected_dates,
           section_id,
+          section_ids,
           semester_id,
+          department_id,
           attendance_mode,
           timetable_data,
           periods,
@@ -312,6 +317,19 @@ export class FacultyAttendanceService {
 
       logger.dev('academic/faculty-attendance', 'Timetables found', { count: timetables.length });
 
+      // Added: 2026-09-23 (BUG-005985) - Approved holidays (Academic > Leaves).
+      // Only cycle timetables skipped them (via get_cycle_for_date); regular and
+      // batch timetables listed classes on a declared holiday. Same rule as the
+      // pending dashboard (BUG-006141), incl. department/semester/section scope.
+      const { data: approvedLeaves, error: approvedLeavesError } = await (this.supabase as any)
+        .from('institution_leaves')
+        .select('institution_id, start_date, end_date, department_ids, semester_ids, section_ids')
+        .in('institution_id', Array.from(new Set(timetables.map((t: any) => t.institution_id))))
+        .eq('status', 'approved')
+        .lte('start_date', targetDate)
+        .gte('end_date', targetDate);
+      if (approvedLeavesError) throw approvedLeavesError;
+
       // Fixed: 2026-08-19 - Authoritative period timings for every institution this
       // staff teaches in; overlaid onto each timetable's period snapshot below.
       const periodMaster = await this.fetchPeriodMasterMap(
@@ -337,6 +355,8 @@ export class FacultyAttendanceService {
         );
 
         if (!isDateValid) continue;
+
+        if (isTimetableOnApprovedLeave(timetable as any, targetDate, approvedLeaves)) continue;
 
         // Updated: 2026-06-11 - Day-wise (session_wise) timetables are NOT marked
         // per-period; their attendance is FN/AN day-wise (shown separately as the
@@ -658,6 +678,14 @@ export class FacultyAttendanceService {
             }
             if (practicalCourseId) courseIds.add(practicalCourseId);
 
+            // Updated: 2026-09-23 (BUG-006198) - Carry the sections of this staff's
+            // batches. With sections: [] the My Classes pre-check had no section to
+            // look up, so a marked practical kept showing as pending.
+            const practicalSectionIds = practicalSectionIdsForStaff(practicalBatches, staffId);
+            if (practicalSectionIds.length === 0 && timetable.section_id) {
+              practicalSectionIds.push(timetable.section_id);
+            }
+
             facultyPeriods.push({
               id: timetableSlotId,
               timetable_slot_id: timetableSlotId,
@@ -670,8 +698,8 @@ export class FacultyAttendanceService {
               period_mode: 'practical',
               practical_config: slot.practical_config,
               course: practicalCourseId ? { id: practicalCourseId } : undefined,
-              sections: [],
-              section_ids: [],
+              sections: practicalSectionIds.map((sid) => ({ id: sid, name: '' })),
+              section_ids: practicalSectionIds,
               degree_name: (timetable.degrees as any)?.degree_name,
               program_name: (timetable.programs as any)?.program_name,
               department_name: (timetable.departments as any)?.department_name,
@@ -703,6 +731,23 @@ export class FacultyAttendanceService {
               };
             }
           });
+        }
+      }
+
+      // Added: 2026-09-23 (BUG-006200) - Name the sections of year-level
+      // timetables, whose to-one `sections` join is null; otherwise two cohorts
+      // of one year show as identical cards with no section.
+      const unnamedSectionIds = sectionIdsNeedingNames(facultyPeriods as any);
+      if (unnamedSectionIds.length > 0) {
+        const { data: sectionRows } = await this.supabase
+          .from('sections')
+          .select('id, section_name')
+          .in('id', unnamedSectionIds);
+        if (sectionRows) {
+          fillPeriodSectionNames(
+            facultyPeriods as any,
+            new Map(sectionRows.map((s: any) => [s.id, s.section_name]))
+          );
         }
       }
 

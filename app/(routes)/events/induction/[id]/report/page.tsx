@@ -24,6 +24,7 @@ import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { IST_TIME_ZONE } from '@/lib/utils/date-format';
 import {
   InductionService,
   type InductionSessionRow,
@@ -74,10 +75,10 @@ const slug = (s: string) =>
 
 const fmtDateTime = (iso: string) =>
   new Date(iso).toLocaleString('en-GB', {
-    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: IST_TIME_ZONE,
   });
 const fmtDate = (iso: string) =>
-  new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: IST_TIME_ZONE });
 const fmtDob = (iso?: string | null) => {
   if (!iso) return '-';
   const d = new Date(iso);
