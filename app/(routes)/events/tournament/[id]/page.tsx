@@ -51,7 +51,7 @@ import {
   AlertCircle,
   ShieldCheck,
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { formatIstDate } from '@/lib/utils/date-format';
 import toast from 'react-hot-toast';
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -478,10 +478,10 @@ export default function TournamentManagePage() {
                   {tournament.start_date && (
                     <span className="flex items-center gap-1">
                       <Calendar className="h-3 w-3" />
-                      {format(new Date(tournament.start_date), 'd MMM yyyy')}
+                      {formatIstDate(tournament.start_date)}
                       {tournament.end_date &&
                         tournament.end_date !== tournament.start_date &&
-                        ` – ${format(new Date(tournament.end_date), 'd MMM yyyy')}`}
+                        ` – ${formatIstDate(tournament.end_date)}`}
                     </span>
                   )}
                   {(tournament.venue || tournament.venue_text) && (

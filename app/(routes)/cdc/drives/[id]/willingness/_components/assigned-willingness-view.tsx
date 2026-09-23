@@ -12,6 +12,7 @@
 
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
@@ -26,14 +27,24 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { ArrowLeft, Bell, ChevronLeft, ChevronRight, Download, Eye, Pencil, Search, Users } from 'lucide-react';
+import { ArrowLeft, Bell, ChevronLeft, ChevronRight, Download, Eye, Loader2, Pencil, Search, ThumbsUp, Users } from 'lucide-react';
 import {
   useCdcDrive,
   useCdcDriveAssigned,
+  useMarkCdcWillingManually,
   cdcDriveAssignedExportUrl,
   type UseCdcDriveAssignedParams,
 } from '@/hooks/cdc/use-cdc-drives';
@@ -98,6 +109,10 @@ export function AssignedWillingnessView({ id }: { id: string }) {
   const [selected, setSelected] = useState<CdcDriveAssignedRow | null>(null);
   const [pageSize, setPageSize] = useState<number | 'all'>(50);
   const [page, setPage] = useState(1);
+  // Manual willingness (2026-09-23): tick learners → "Mark as Willing".
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const markWilling = useMarkCdcWillingManually(id);
 
   const params: UseCdcDriveAssignedParams = {
     institution_id: institution === 'all' ? undefined : institution,
@@ -135,7 +150,58 @@ export function AssignedWillingnessView({ id }: { id: string }) {
       return true;
     });
   }, [data, params.q, params.institution_id, params.semester_order, params.status, params.responded]);
-  const summary = data?.summary;
+  // Score cards follow the institution / semester filter (search, willingness
+  // and response filters are left out so the cards can still be used to
+  // switch between Willing / Not willing / Pending within that audience).
+  const summary = useMemo(() => {
+    const all = data?.data ?? [];
+    if (!params.institution_id && params.semester_order == null) return data?.summary;
+    const scoped = all.filter(
+      (r) =>
+        (!params.institution_id || r.institution_id === params.institution_id) &&
+        (params.semester_order == null || r.semester_order === params.semester_order)
+    );
+    const s = { assigned: scoped.length, responded: 0, willing: 0, not_willing: 0, pending: 0 };
+    for (const r of scoped) {
+      if (r.responded) s.responded += 1;
+      s[r.bucket] += 1;
+    }
+    return s;
+  }, [data, params.institution_id, params.semester_order]);
+  const canMark = data?.can_mark_willing === true;
+  const pickable = useMemo(() => rows.filter((r) => r.bucket !== 'willing'), [rows]);
+  const pickedVisible = pickable.filter((r) => picked.has(r.learner_id)).length;
+  const allVisiblePicked = pickable.length > 0 && pickedVisible === pickable.length;
+
+  function togglePick(learnerId: string) {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(learnerId)) next.delete(learnerId);
+      else next.add(learnerId);
+      return next;
+    });
+  }
+  function setAllVisible(on: boolean) {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      pickable.forEach((r) => (on ? next.add(r.learner_id) : next.delete(r.learner_id)));
+      return next;
+    });
+  }
+  async function confirmMarkWilling() {
+    const ids = Array.from(picked);
+    try {
+      const res = await markWilling.mutateAsync(ids);
+      toast.success(
+        `${res.marked} learner${res.marked === 1 ? '' : 's'} marked as Willing` +
+          (res.already_willing ? ` · ${res.already_willing} already willing` : '')
+      );
+      setPicked(new Set());
+      setConfirmOpen(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not mark willingness');
+    }
+  }
 
   // Client-side paging over the filtered list (the API returns the whole audience).
   const pageCount = pageSize === 'all' ? 1 : Math.max(1, Math.ceil(rows.length / pageSize));
@@ -212,6 +278,11 @@ export function AssignedWillingnessView({ id }: { id: string }) {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {canMark ? (
+                <Button size="sm" variant={picked.size > 0 ? 'default' : 'outline'} disabled={picked.size === 0} onClick={() => setConfirmOpen(true)}>
+                  <ThumbsUp className="h-4 w-4 mr-1" /> Mark as Willing{picked.size > 0 ? ` (${picked.size})` : ''}
+                </Button>
+              ) : null}
               <PermissionGuard module="cdc.drives" action="edit" fallback={null}>
                 {drive && drive.status !== 'closed' && drive.status !== 'cancelled' ? (
                   <Button asChild variant="outline" size="sm">
@@ -285,12 +356,21 @@ export function AssignedWillingnessView({ id }: { id: string }) {
           ))}
         </div>
 
+        {canMark ? (
+          <p className="text-xs text-muted-foreground rounded-md border bg-muted/40 px-3 py-2">
+            Manual willingness: tick learners who confirmed in person or by phone, then <strong>Mark as Willing</strong>.
+            They are recorded as willing on their behalf (no CGPA / arrears are filled in) and appear in the participant list.
+          </p>
+        ) : data?.mark_blocked_reason ? (
+          <p className="text-xs text-muted-foreground">{data.mark_blocked_reason}</p>
+        ) : null}
+
         {/* Search + filters */}
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Search &amp; filters</CardTitle>
             <CardDescription>
-              The Excel download uses the same search and filters.
+              The Excel download uses the same search and filters. The score cards follow the institution and semester filter.
               {data && !data.contact_released
                 ? ' Profile contact is hidden for your role; only contact a learner shared at submission is shown.'
                 : ''}
@@ -381,6 +461,16 @@ export function AssignedWillingnessView({ id }: { id: string }) {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      {canMark ? (
+                        <TableHead className="w-10">
+                          <Checkbox
+                            checked={allVisiblePicked}
+                            disabled={pickable.length === 0}
+                            onCheckedChange={(v) => setAllVisible(v === true)}
+                            aria-label="Select all shown who are not yet willing"
+                          />
+                        </TableHead>
+                      ) : null}
                       <TableHead className="w-12">#</TableHead>
                       <TableHead>Learner</TableHead>
                       <TableHead>Institution</TableHead>
@@ -397,7 +487,18 @@ export function AssignedWillingnessView({ id }: { id: string }) {
                   </TableHeader>
                   <TableBody>
                     {pageRows.map((r, i) => (
-                      <TableRow key={r.learner_id}>
+                      <TableRow key={r.learner_id} data-state={picked.has(r.learner_id) ? 'selected' : undefined}>
+                        {canMark ? (
+                          <TableCell>
+                            {r.bucket === 'willing' ? null : (
+                              <Checkbox
+                                checked={picked.has(r.learner_id)}
+                                onCheckedChange={() => togglePick(r.learner_id)}
+                                aria-label={`Select ${r.learner_name ?? 'learner'}`}
+                              />
+                            )}
+                          </TableCell>
+                        ) : null}
                         <TableCell className="text-muted-foreground">{pageStart + i + 1}</TableCell>
                         <TableCell>
                           <div className="font-medium">{r.learner_name ?? '—'}</div>
@@ -482,6 +583,25 @@ export function AssignedWillingnessView({ id }: { id: string }) {
       </div>
 
       <LearnerDetailsSheet row={selected} onClose={() => setSelected(null)} />
+
+      <Dialog open={confirmOpen} onOpenChange={(o) => { if (!o && !markWilling.isPending) setConfirmOpen(false); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Mark {picked.size} learner{picked.size === 1 ? '' : 's'} as Willing?</DialogTitle>
+            <DialogDescription>
+              They will be recorded as willing for this drive on their behalf, with your name in the audit trail.
+              Learners who are already willing are left unchanged. CGPA and arrears are not filled in.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={markWilling.isPending}>Cancel</Button>
+            <Button onClick={confirmMarkWilling} disabled={markWilling.isPending}>
+              {markWilling.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <ThumbsUp className="h-4 w-4 mr-2" />}
+              Mark as Willing
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </ContentLayout>
   );
 }

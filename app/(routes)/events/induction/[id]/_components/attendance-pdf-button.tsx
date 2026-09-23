@@ -22,6 +22,7 @@ import {
 } from '@/lib/utils/induction/induction-attendance-pdf';
 import { Button } from '@/components/ui/button';
 import { Download, Loader2 } from 'lucide-react';
+import { IST_TIME_ZONE } from '@/lib/utils/date-format';
 
 const supabase = createClientSupabaseClient();
 
@@ -30,9 +31,9 @@ const slug = (s: string) =>
   s.trim().replace(/[^\w\d]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'report';
 
 const fmtDate = (iso: string) =>
-  new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: IST_TIME_ZONE });
 const fmtTime = (iso: string) =>
-  new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: IST_TIME_ZONE });
 
 /** Shared by this button and the report page — one fetch contract, not two. */
 export async function fetchAttendanceReportRows(

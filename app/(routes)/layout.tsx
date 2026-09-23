@@ -14,6 +14,7 @@ import { AutoBreadcrumbs } from '@/components/navigation/auto-breadcrumbs';
 import { SentryUserSync } from '@/hooks/use-sentry-user-sync';
 import { UsageBeacon } from '@/components/analytics/usage-beacon';
 import { Navbar } from '@/components/Navbar/Navbar';
+import { FeePaymentNoticeBanner } from '@/components/billing/fee-payment-notice-banner';
 import { HandoverLauncher } from '@/components/director-desk/handover-launcher';
 
 interface DashboardLayoutProps {
@@ -59,6 +60,13 @@ const Dashboardlayout = ({ children }: DashboardLayoutProps) => {
          */}
         <UsageBeacon key='usage-beacon' />
         <Navbar key='global-navbar' />
+        {/*
+          FeePaymentNoticeBanner: the learner's 48-hour Transport Maintenance
+          Fee countdown (TMS tms_fee_payment_notice via
+          fn_my_fee_payment_notice()). Renders null for non-learners and for
+          learners with no notice.
+         */}
+        <FeePaymentNoticeBanner key='fee-payment-notice' />
         <div key='auto-breadcrumbs' className='px-4 md:px-8 pt-3'>
           <AutoBreadcrumbs />
         </div>

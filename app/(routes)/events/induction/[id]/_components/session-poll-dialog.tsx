@@ -4,6 +4,7 @@
 // SessionPulseControl polling pattern and the resource-links repeater UX.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { IST_TIME_ZONE } from '@/lib/utils/date-format';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -240,7 +241,7 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
   const expired = status === 'open' && !!autoCloseAt && new Date(autoCloseAt).getTime() <= nowTs;
   const isLive = status === 'open' && !expired;
   const autoCloseLabel = autoCloseAt
-    ? new Date(autoCloseAt).toLocaleString(undefined, { hour: 'numeric', minute: '2-digit', day: 'numeric', month: 'short' })
+    ? new Date(autoCloseAt).toLocaleString(undefined, { hour: 'numeric', minute: '2-digit', day: 'numeric', month: 'short', timeZone: IST_TIME_ZONE })
     : '';
 
   return (
@@ -337,7 +338,7 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
                           <span className="text-muted-foreground"> · {r.learner_name || 'Unnamed'}</span>
                         </span>
                         <span className="text-muted-foreground shrink-0 pl-2 tabular-nums">
-                          {r.questions_answered}q · {new Date(r.answered_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+                          {r.questions_answered}q · {new Date(r.answered_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', timeZone: IST_TIME_ZONE })}
                         </span>
                       </div>
                     ))}
