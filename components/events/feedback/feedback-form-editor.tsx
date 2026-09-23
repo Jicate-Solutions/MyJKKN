@@ -19,7 +19,10 @@ import {
   ArrowLeft,
   Save,
   Sparkles,
+  Download,
+  Upload,
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,6 +42,11 @@ import {
 } from '@/hooks/events/use-event-feedback';
 import type { SaveFeedbackSectionPayload } from '@/lib/services/events/feedback/event-feedback-service';
 import { slugifyQuestionKey } from '@/lib/services/events/feedback/event-feedback-service';
+import {
+  downloadFeedbackTemplate,
+  parseFeedbackExcel,
+} from '@/lib/services/events/feedback/feedback-form-excel';
+import type { ImportedFeedbackSection } from '@/lib/services/events/feedback/feedback-form-excel';
 import {
   FeedbackQuestionInput,
   isQuestionVisible,
@@ -516,6 +524,61 @@ export function FeedbackFormEditor({
     setDirty(true);
   }
 
+  // ── Excel import ──
+  // Rows land in the EDITOR, not the database: the coordinator reviews and
+  // presses Save. Imported sections are appended after whatever is already
+  // here, so an import never silently replaces saved questions.
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+
+  function appendImported(imported: ImportedFeedbackSection[]) {
+    const added: EditableSection[] = imported.map((sec) => ({
+      uid: nextUid(),
+      title: sec.title,
+      questions: sec.questions.map((q) =>
+        newQuestion({
+          question_label: q.question_label,
+          question_type: q.question_type,
+          is_required: q.is_required,
+          options: q.options,
+          help_text: q.help_text,
+          rating_scale: q.rating_scale,
+        })
+      ),
+    }));
+    applyLocal([...sections, ...added]);
+  }
+
+  async function onImportFile(file: File) {
+    setImporting(true);
+    try {
+      const result = await parseFeedbackExcel(file);
+      const count = result.sections.reduce((n, s) => n + s.questions.length, 0);
+      if (count === 0) {
+        toast.error(
+          result.errors[0] ?? 'No questions found — fill the Questions sheet of the template.',
+        );
+        return;
+      }
+      appendImported(result.sections);
+      if (result.errors.length) {
+        toast(
+          `${count} question${count === 1 ? '' : 's'} added; ${result.errors.length} row${result.errors.length === 1 ? '' : 's'} skipped — ${result.errors[0]}`,
+          { icon: '⚠️', duration: 9000 },
+        );
+      } else {
+        toast.success(
+          `${count} question${count === 1 ? '' : 's'} added from Excel — review and press Save.`,
+        );
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not read that file.');
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
   function addSection() {
     applyLocal([...sections, { uid: nextUid(), title: 'New section', questions: [] }]);
   }
@@ -666,7 +729,41 @@ export function FeedbackFormEditor({
             </Label>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void onImportFile(f);
+            }}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => downloadFeedbackTemplate(form?.name)}
+            title="Download an Excel template to fill the questions offline"
+          >
+            <Download className="mr-1.5 h-4 w-4" /> Template
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={importing}
+            onClick={() => fileInputRef.current?.click()}
+            title="Import questions from a filled template"
+          >
+            {importing ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <Upload className="mr-1.5 h-4 w-4" />
+            )}
+            Import Excel
+          </Button>
           {dirty && (
             <span className="text-xs text-amber-600 dark:text-amber-400">Unsaved changes</span>
           )}
@@ -708,7 +805,19 @@ export function FeedbackFormEditor({
                   <Button type="button" variant="outline" onClick={addSection}>
                     <Plus className="mr-1 h-3.5 w-3.5" /> Start blank
                   </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={importing}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Upload className="mr-1 h-3.5 w-3.5" /> Import from Excel
+                  </Button>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Use <span className="font-medium">Template</span> above to download the Excel
+                  layout, one question per row.
+                </p>
               </CardContent>
             </Card>
           )}

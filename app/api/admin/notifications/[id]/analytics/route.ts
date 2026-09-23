@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse, connection } from 'next/server';
+import { attachAnswersToReaders } from '@/lib/notifications/blocking-items';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 /**
@@ -56,7 +57,22 @@ export async function GET(
       );
     }
 
-    return NextResponse.json(analytics, {
+    // Must-answer notices (2026-09-18): each reader row also carries the option
+    // that person picked, read through the caller's own session (super admins
+    // may read notification_answers). A missing table (migration pending) or
+    // any read error simply leaves `answer` off — the analytics still serve.
+    let withAnswers = analytics;
+    try {
+      const { data: answers } = await supabase
+        .from('notification_answers')
+        .select('user_id, answer')
+        .eq('notification_id', notificationId);
+      withAnswers = attachAnswersToReaders(analytics as any, answers as any);
+    } catch {
+      withAnswers = analytics;
+    }
+
+    return NextResponse.json(withAnswers, {
       headers: { 'Cache-Control': 'private, no-store, no-cache, must-revalidate' }
     });
   } catch (error) {

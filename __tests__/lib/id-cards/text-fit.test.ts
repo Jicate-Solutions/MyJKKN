@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BOLD_RATIO_BONUS,
+  CHAR_RATIO_MIXED,
   charsPerLine,
   countWrappedLines,
   fitText,
@@ -47,7 +49,7 @@ describe('fitText', () => {
     expect(r.text).toBe(value);
     expect(r.elided).toBe(false);
     // One size larger must NOT fit — proves "largest that fits".
-    const perLineUp = charsPerLine(300, r.fontSize + 1, 0.56 + 0.03);
+    const perLineUp = charsPerLine(300, r.fontSize + 1, CHAR_RATIO_MIXED + BOLD_RATIO_BONUS);
     expect(countWrappedLines(value, perLineUp)).toBeGreaterThan(1);
   });
 

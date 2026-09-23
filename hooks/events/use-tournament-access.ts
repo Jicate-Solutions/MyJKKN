@@ -71,13 +71,17 @@ export function useTournamentAccess(
       const supabase = createClientSupabaseClient();
       const { data } = await (supabase as any)
         .from('event_committees')
-        .select('lead_id, lead_name, member_ids, member_names')
+        .select('lead_id, lead_ids, lead_name, member_ids, member_names')
         .eq('event_id', eventId);
       return (data ?? []).some((c: any) => {
         const ids: string[] = Array.isArray(c.member_ids) ? c.member_ids : [];
         const names: string[] = Array.isArray(c.member_names) ? c.member_names : [];
+        // lead_ids (migration 20261229090000) carries the committee's leads —
+        // committees routinely name two people, which lead_id cannot hold.
+        const leadIds: string[] = Array.isArray(c.lead_ids) ? c.lead_ids : [];
         return (
           c.lead_id === profileId ||
+          leadIds.includes(profileId as string) ||
           ids.includes(profileId as string) ||
           (!!userName && (c.lead_name === userName || names.includes(userName)))
         );

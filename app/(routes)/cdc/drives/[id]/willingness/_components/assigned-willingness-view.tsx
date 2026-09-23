@@ -30,7 +30,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { ArrowLeft, Bell, Download, Eye, Pencil, Search, Users } from 'lucide-react';
+import { ArrowLeft, Bell, ChevronLeft, ChevronRight, Download, Eye, Pencil, Search, Users } from 'lucide-react';
 import {
   useCdcDrive,
   useCdcDriveAssigned,
@@ -49,6 +49,8 @@ import {
   CDC_ASSIGNED_NOTIFICATION_LABEL as ASSIGNED_NOTIFICATION_LABEL,
 } from '@/types/cdc';
 import { DriveStatusBadge } from '../../../_components/drive-status-badge';
+
+const TRACKER_PAGE_SIZES = [10, 20, 50, 100, 250, 500] as const;
 
 const RAW_STATUS_LABEL: Record<CdcWillingnessStatus, string> = {
   willing: 'Willing',
@@ -94,6 +96,8 @@ export function AssignedWillingnessView({ id }: { id: string }) {
   const [responded, setResponded] = useState('all');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<CdcDriveAssignedRow | null>(null);
+  const [pageSize, setPageSize] = useState<number | 'all'>(50);
+  const [page, setPage] = useState(1);
 
   const params: UseCdcDriveAssignedParams = {
     institution_id: institution === 'all' ? undefined : institution,
@@ -132,6 +136,12 @@ export function AssignedWillingnessView({ id }: { id: string }) {
     });
   }, [data, params.q, params.institution_id, params.semester_order, params.status, params.responded]);
   const summary = data?.summary;
+
+  // Client-side paging over the filtered list (the API returns the whole audience).
+  const pageCount = pageSize === 'all' ? 1 : Math.max(1, Math.ceil(rows.length / pageSize));
+  const safePage = Math.min(page, pageCount);
+  const pageStart = pageSize === 'all' ? 0 : (safePage - 1) * pageSize;
+  const pageRows = pageSize === 'all' ? rows : rows.slice(pageStart, pageStart + pageSize);
   const filtersActive = institution !== 'all' || semester !== 'all' || status !== 'all' || responded !== 'all' || !!search.trim();
   const exportUrl = cdcDriveAssignedExportUrl(id, params);
   const exportAllUrl = cdcDriveAssignedExportUrl(id);
@@ -386,9 +396,9 @@ export function AssignedWillingnessView({ id }: { id: string }) {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {rows.map((r, i) => (
+                    {pageRows.map((r, i) => (
                       <TableRow key={r.learner_id}>
-                        <TableCell className="text-muted-foreground">{i + 1}</TableCell>
+                        <TableCell className="text-muted-foreground">{pageStart + i + 1}</TableCell>
                         <TableCell>
                           <div className="font-medium">{r.learner_name ?? '—'}</div>
                           <div className="text-xs text-muted-foreground">
@@ -433,6 +443,40 @@ export function AssignedWillingnessView({ id }: { id: string }) {
                 </Table>
               </div>
             )}
+            {rows.length > 0 ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Rows per page</span>
+                  <Select
+                    value={String(pageSize)}
+                    onValueChange={(v) => {
+                      setPageSize(v === 'all' ? 'all' : parseInt(v, 10));
+                      setPage(1);
+                    }}
+                  >
+                    <SelectTrigger className="h-8 w-24"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {TRACKER_PAGE_SIZES.map((n) => (
+                        <SelectItem key={n} value={String(n)}>{n}</SelectItem>
+                      ))}
+                      <SelectItem value="all">All</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">
+                    {pageStart + 1}–{Math.min(pageStart + pageRows.length, rows.length)} of {rows.length}
+                  </span>
+                  <Button variant="outline" size="sm" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)} aria-label="Previous page">
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <span className="text-muted-foreground">Page {safePage} / {pageCount}</span>
+                  <Button variant="outline" size="sm" disabled={safePage >= pageCount} onClick={() => setPage(safePage + 1)} aria-label="Next page">
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       </div>
