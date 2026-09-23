@@ -491,3 +491,115 @@ describe('assertion 2 — a predicate that is ASSIGNED, not CHECKED', () => {
     expect(code).toBe(0);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Branch (d) — a resolved-access helper returning a VERDICT, not a boolean.
+//
+// `fn_pde_case_access(uuid) -> jsonb {allowed, is_staff}` carries the canonical
+// predicates in its own body, but plpgsql has no assignment-expression, so its
+// callers cannot put the call in a decision position without invoking it twice.
+// Branch (d) reads `assign → branch on the verdict → RAISE`, and nothing looser:
+// these tests pin BOTH halves of that, because a branch that waives on the mere
+// presence of a blessed helper name is how a gate stops gating.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('branch (d) — resolved-access helper verdict', () => {
+  it('PASSES the assign-then-deny shape the PDE stage RPCs use', () => {
+    const { code, out } = runGate(`
+      CREATE OR REPLACE FUNCTION public.fn_verdict_denies(p_assessment_id uuid)
+      RETURNS jsonb
+      LANGUAGE plpgsql
+      SECURITY DEFINER
+      SET search_path = public
+      AS $$
+      DECLARE v_access jsonb;
+      BEGIN
+        v_access := fn_pde_case_access(p_assessment_id);
+        IF NOT (v_access->>'allowed')::boolean THEN
+          RAISE EXCEPTION 'not authorized for this case' USING ERRCODE = '42501';
+        END IF;
+        RETURN v_access;
+      END;
+      $$;
+      REVOKE EXECUTE ON FUNCTION public.fn_verdict_denies(uuid) FROM anon, PUBLIC;
+      GRANT  EXECUTE ON FUNCTION public.fn_verdict_denies(uuid) TO authenticated;
+    `, 'verdict-denies.sql');
+
+    expect(guardChecked(out)).toBe(1);
+    expect(guardFlagged(out, 'fn_verdict_denies')).toBe(false);
+    expect(code).toBe(0);
+  });
+
+  it('FLAGS a caller that resolves the helper but never denies on it', () => {
+    // The whole point of branch (d): calling a blessed helper is not a guard.
+    // Only denying on its verdict is. Without this, naming a helper would be a
+    // waiver that any future function could claim by calling it and ignoring it.
+    const { code, out } = runGate(`
+      CREATE OR REPLACE FUNCTION public.fn_verdict_ignored(p_assessment_id uuid)
+      RETURNS void
+      LANGUAGE plpgsql
+      SECURITY DEFINER
+      SET search_path = public
+      AS $$
+      DECLARE v_access jsonb;
+      BEGIN
+        v_access := fn_pde_case_access(p_assessment_id);
+        UPDATE pde_assessments SET updated_at = now() WHERE id = p_assessment_id;
+      END;
+      $$;
+      REVOKE EXECUTE ON FUNCTION public.fn_verdict_ignored(uuid) FROM anon, PUBLIC;
+      GRANT  EXECUTE ON FUNCTION public.fn_verdict_ignored(uuid) TO authenticated;
+    `, 'verdict-ignored.sql');
+
+    expect(guardChecked(out)).toBe(1);
+    expect(guardFlagged(out, 'fn_verdict_ignored')).toBe(true);
+    expect(code).toBe(1);
+  });
+
+  it('keeps FLAGGING a function with no authorization check of any kind', () => {
+    // Branch (d) must not have widened the gate's front door.
+    const { code, out } = runGate(`
+      CREATE OR REPLACE FUNCTION public.fn_no_guard_at_all(p_id uuid)
+      RETURNS void
+      LANGUAGE plpgsql
+      SECURITY DEFINER
+      SET search_path = public
+      AS $$
+      BEGIN
+        UPDATE platform_policies SET value = 'true'::jsonb WHERE id = p_id;
+      END;
+      $$;
+      REVOKE EXECUTE ON FUNCTION public.fn_no_guard_at_all(uuid) FROM anon, PUBLIC;
+      GRANT  EXECUTE ON FUNCTION public.fn_no_guard_at_all(uuid) TO authenticated;
+    `, 'no-guard-at-all.sql');
+
+    expect(guardFlagged(out, 'fn_no_guard_at_all')).toBe(true);
+    expect(code).toBe(1);
+  });
+
+  it('does NOT bless an unrelated helper that merely returns a verdict key', () => {
+    // Only helpers on the reviewed list count. An arbitrary function returning
+    // something called 'allowed' is not an authorization check.
+    const { code, out } = runGate(`
+      CREATE OR REPLACE FUNCTION public.fn_lookalike_verdict(p_id uuid)
+      RETURNS void
+      LANGUAGE plpgsql
+      SECURITY DEFINER
+      SET search_path = public
+      AS $$
+      DECLARE v_access jsonb;
+      BEGIN
+        v_access := fn_some_unreviewed_helper(p_id);
+        IF NOT (v_access->>'allowed')::boolean THEN
+          RAISE EXCEPTION 'nope' USING ERRCODE = '42501';
+        END IF;
+        UPDATE platform_policies SET value = 'true'::jsonb WHERE id = p_id;
+      END;
+      $$;
+      REVOKE EXECUTE ON FUNCTION public.fn_lookalike_verdict(uuid) FROM anon, PUBLIC;
+      GRANT  EXECUTE ON FUNCTION public.fn_lookalike_verdict(uuid) TO authenticated;
+    `, 'lookalike-verdict.sql');
+
+    expect(guardFlagged(out, 'fn_lookalike_verdict')).toBe(true);
+    expect(code).toBe(1);
+  });
+});

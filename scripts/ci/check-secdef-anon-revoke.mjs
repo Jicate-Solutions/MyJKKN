@@ -384,6 +384,50 @@ const AUTHZ_PREDICATE = [
 const DECISION_KEYWORD = String.raw`\b(?:if|elsif|elseif|when|while|and|or|not|where|case|assert|having|check|using|exists|coalesce)\b`;
 
 /**
+ * RESOLVED-ACCESS HELPERS — the one shape the predicate list above cannot see.
+ *
+ * A helper in this family is itself SECURITY DEFINER, carries the canonical
+ * predicates in its OWN body, and returns a structured verdict (jsonb) rather
+ * than a bare boolean, because its callers need more than yes/no — typically
+ * "may you touch this at all" AND "are you staff or a learner", which decide
+ * different things further down.
+ *
+ * That return type is exactly why such a call cannot sit in a decision position
+ * the way `is_super_admin()` does: plpgsql has no assignment-expression, so a
+ * caller must either invoke the helper TWICE or write the only sane shape —
+ *
+ *     v_access := fn_pde_case_access(p_assessment_id);
+ *     IF NOT (v_access->>'allowed')::boolean THEN
+ *       RAISE EXCEPTION 'not authorized for this case' USING ERRCODE = '42501';
+ *     END IF;
+ *
+ * — which branches (a) and (b) cannot follow, because the `;` after the
+ * assignment is the statement boundary they deliberately refuse to cross.
+ * Adding the helper's NAME to AUTHZ_PREDICATE does not fix this and was tried:
+ * the name is not the problem, the statement boundary is.
+ *
+ * Branch (d) below reads that shape, and only that shape. It demands the verdict
+ * be ASSIGNED to a variable AND that same variable's verdict key reach a RAISE
+ * from a decision keyword. An assignment on its own still fails, so assertion 2
+ * ("a predicate that is ASSIGNED, not CHECKED") is untouched — see its tests.
+ *
+ * A helper is only listed here once its own body has been read and shown to
+ * carry the canonical predicates. Listing one loosens nothing except for
+ * functions that actually call it and actually deny on its verdict.
+ *
+ *   fn_pde_case_access(uuid) -> jsonb {allowed, is_staff}
+ *     supabase/migrations/20270115090000_pde_clinical_case_stages.sql
+ *     staff   : is_super_admin() OR is_admin() OR the case author
+ *               OR (user_has_permission('pde.faculty.view')
+ *                   AND role_has_institution_access(course.institution_id))
+ *     learner : an enrolment in the parent course of a published, active case
+ *     returns {allowed:false} outright when auth.uid() IS NULL
+ */
+const RESOLVED_ACCESS_HELPER = [
+  { fn: String.raw`(?:public\s*\.\s*)?fn_pde_case_access`, verdict: 'allowed' },
+];
+
+/**
  * Does this body actually CHECK the caller's authority? Narrow on purpose:
  * a canonical predicate must also sit in a decision position, so a predicate
  * merely assigned or logged does not clear the gate.
@@ -411,6 +455,21 @@ function hasAuthorizationGuard(body, lang = '') {
   if (lang === 'sql'
       && !/\bselect\b[\s\S]{0,300}?\binto\b/i.test(body)
       && new RegExp(`\\b(?:return|select)\\b[^;]{0,300}?${pred}`, 'i').test(body)) return true;
+  // (d) a resolved-access helper whose verdict is assigned, then DENIED on.
+  //     Both halves are required: the assignment names the variable, and that
+  //     same variable's verdict key must reach a RAISE from a decision keyword.
+  //     Assigning and never branching still fails, exactly as in branch (c)'s
+  //     reasoning — see RESOLVED_ACCESS_HELPER above for why this shape exists.
+  for (const h of RESOLVED_ACCESS_HELPER) {
+    const assigned = new RegExp(`\\b([a-z_][a-z0-9_]*)\\s*:=\\s*${h.fn}\\s*\\(`, 'i').exec(body);
+    if (!assigned) continue;
+    const v = assigned[1];
+    const denies = new RegExp(
+      `${DECISION_KEYWORD}[^;]{0,200}?\\b${v}\\b[^;]{0,200}?'${h.verdict}'[^;]{0,400}?\\braise\\b`,
+      'i',
+    );
+    if (denies.test(body)) return true;
+  }
   return false;
 }
 
