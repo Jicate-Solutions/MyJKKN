@@ -24,6 +24,7 @@ import {
 } from '@/hooks/service-requests/use-service-requests';
 import { useTablePagination } from '@/hooks/service-requests/use-table-pagination';
 import { RequestDataTable } from './_components/request-data-table';
+import { buildHubStatCards, type HubStatCard } from './_components/hub-stat-cards';
 import {
   Plus,
   FileText,
@@ -32,6 +33,20 @@ import {
   AlertTriangle,
   Inbox,
 } from 'lucide-react';
+
+const STAT_CARD_ICONS: Record<HubStatCard['key'], typeof FileText> = {
+  total: FileText,
+  in_progress: Clock,
+  approved: CheckCircle,
+  rejected: AlertTriangle,
+};
+
+const STAT_CARD_ICON_COLORS: Record<HubStatCard['key'], string> = {
+  total: 'text-blue-500',
+  in_progress: 'text-yellow-500',
+  approved: 'text-green-500',
+  rejected: 'text-red-500',
+};
 
 export default function ServiceRequestsHubPage() {
   const searchParams = useSearchParams();
@@ -99,57 +114,37 @@ export default function ServiceRequestsHubPage() {
           </Button>
         </div>
 
-        {/* Status Count Cards */}
+        {/* Status Count Cards — the second card is "In progress", not
+            "Pending"; see _components/hub-stat-cards.ts (BUG-006055). */}
         {counts && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-muted-foreground">Total</p>
-                    <p className="text-2xl font-bold">
-                      {Object.values(counts).reduce((a: number, b) => a + (typeof b === 'number' ? b : 0), 0)}
-                    </p>
-                  </div>
-                  <FileText className="h-6 w-6 text-blue-500" />
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-muted-foreground">Pending</p>
-                    <p className="text-2xl font-bold">
-                      {(counts.submitted || 0) + (counts.in_review || 0)}
-                    </p>
-                  </div>
-                  <Clock className="h-6 w-6 text-yellow-500" />
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-muted-foreground">Approved</p>
-                    <p className="text-2xl font-bold">{counts.approved || 0}</p>
-                  </div>
-                  <CheckCircle className="h-6 w-6 text-green-500" />
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-muted-foreground">Rejected</p>
-                    <p className="text-2xl font-bold">{counts.rejected || 0}</p>
-                  </div>
-                  <AlertTriangle className="h-6 w-6 text-red-500" />
-                </div>
-              </CardContent>
-            </Card>
+            {buildHubStatCards(
+              counts,
+              // The approver's own queue total — the number the Pending
+              // Approvals tab shows. Withheld while loading or while a search
+              // narrows that tab, so the card never quotes a filtered count.
+              canApprove && !approvalsPaging.search && pendingApprovalsData?.metadata
+                ? pendingApprovalsData.metadata.total
+                : null
+            ).map((card) => {
+              const Icon = STAT_CARD_ICONS[card.key];
+              return (
+                <Card key={card.key}>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-muted-foreground">{card.label}</p>
+                        <p className="text-2xl font-bold">{card.value}</p>
+                        {card.caption && (
+                          <p className="text-xs text-muted-foreground">{card.caption}</p>
+                        )}
+                      </div>
+                      <Icon className={`h-6 w-6 ${STAT_CARD_ICON_COLORS[card.key]}`} />
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         )}
 
