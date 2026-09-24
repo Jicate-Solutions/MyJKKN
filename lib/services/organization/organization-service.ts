@@ -514,9 +514,9 @@ export class OrganizationService {
         throw new Error('Institution not found');
       }
 
-      // Fetch departments for this institution
-      const { data: departments, error: departmentsError } = await this.supabase
-        .from('departments')
+      // Fetch department contacts for this institution
+      const { data: departments, error: departmentsError } = await (this.supabase as any)
+        .from('institution_departments')
         .select('*')
         .eq('institution_id', id);
 
