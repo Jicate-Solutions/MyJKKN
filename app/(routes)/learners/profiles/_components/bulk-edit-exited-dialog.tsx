@@ -127,7 +127,27 @@ const STEPS: Array<{ key: Step; label: string }> = [
   { key: 'result', label: 'Result' }
 ];
 
-export function BulkEditActiveDialog({ onSuccess }: { onSuccess?: () => void }) {
+/**
+ * 'full'    → Bulk Edit Active (every editable column).
+ * 'id_card' → ID Card Data: same pipeline, reduced column set, DOB as
+ *             DD-MM-YYYY. The routes switch on `template=id_card`.
+ */
+export type BulkEditVariant = 'full' | 'id_card';
+
+const VARIANT_COPY: Record<BulkEditVariant, { button: string; title: string; filePrefix: string }> = {
+  full: { button: 'Bulk Edit Active', title: 'Bulk Edit Active Learners', filePrefix: 'active-learners' },
+  id_card: { button: 'ID Card Data', title: 'ID Card Data - Bulk Edit', filePrefix: 'id-card-data' },
+};
+
+export function BulkEditActiveDialog({
+  onSuccess,
+  variant = 'full',
+}: {
+  onSuccess?: () => void;
+  variant?: BulkEditVariant;
+}) {
+  const isIdCard = variant === 'id_card';
+  const copy = VARIANT_COPY[variant];
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<Step>('select');
@@ -195,6 +215,7 @@ export function BulkEditActiveDialog({ onSuccess }: { onSuccess?: () => void }) 
       // Build query parameters with filters
       const params = new URLSearchParams();
       params.append('include_complete', includeComplete.toString());
+      if (isIdCard) params.append('template', 'id_card');
 
       if (selectedInstitution) params.append('institution_id', selectedInstitution);
       if (selectedDegree) params.append('degree_id', selectedDegree);
@@ -218,7 +239,7 @@ export function BulkEditActiveDialog({ onSuccess }: { onSuccess?: () => void }) 
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `active-learners-${new Date().toISOString().split('T')[0]}.xlsx`;
+      a.download = `${copy.filePrefix}-${new Date().toISOString().split('T')[0]}.xlsx`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -262,6 +283,7 @@ export function BulkEditActiveDialog({ onSuccess }: { onSuccess?: () => void }) 
     try {
       const formData = new FormData();
       formData.append('file', selectedFile);
+      if (isIdCard) formData.append('template', 'id_card');
 
       const response = await fetch('/api/learners/bulk-edit-preview', {
         method: 'POST',
@@ -323,6 +345,7 @@ export function BulkEditActiveDialog({ onSuccess }: { onSuccess?: () => void }) 
       // Server-side gate: without this the route refuses the whole batch if any
       // row is invalid, rather than silently writing the good ones.
       formData.append('skipInvalid', String(skipInvalid));
+      if (isIdCard) formData.append('template', 'id_card');
 
       // Simulate progress updates
       const progressInterval = setInterval(() => {
@@ -436,7 +459,7 @@ export function BulkEditActiveDialog({ onSuccess }: { onSuccess?: () => void }) 
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">
           <Edit className="mr-2 h-4 w-4" />
-          Bulk Edit Active
+          {copy.button}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-6xl max-h-[90vh] flex flex-col p-0 gap-0">
@@ -449,7 +472,7 @@ export function BulkEditActiveDialog({ onSuccess }: { onSuccess?: () => void }) 
                 </div>
                 <div>
                   <DialogTitle className="text-xl font-bold flex items-center gap-2 flex-wrap">
-                    Bulk Edit Active Learners
+                    {copy.title}
                     {step === 'preview' && <Badge variant="outline" className="text-xs">Step 2 - Review</Badge>}
                     {step === 'validate' && <Badge variant="outline" className="text-xs">Step 3 - Validation</Badge>}
                     {step === 'uploading' && <Badge className="bg-blue-500 text-xs">Updating</Badge>}
@@ -538,6 +561,12 @@ export function BulkEditActiveDialog({ onSuccess }: { onSuccess?: () => void }) 
                       <AlertCircle className="h-3 w-3" />
                       Do NOT modify the ID column - it&apos;s used to match records
                     </p>
+                    {isIdCard && (
+                      <p className="text-xs text-muted-foreground mt-2">
+                        ID Card sheet: only its 18 columns are read and validated. Date of Birth is
+                        DD-MM-YYYY (YYYY-MM-DD also accepted).
+                      </p>
+                    )}
                   </AlertDescription>
                 </Alert>
 
@@ -798,9 +827,9 @@ export function BulkEditActiveDialog({ onSuccess }: { onSuccess?: () => void }) 
                         accept=".xlsx,.csv"
                         onChange={handleFileSelect}
                         className="hidden"
-                        id="file-upload"
+                        id={`file-upload-${variant}`}
                       />
-                      <label htmlFor="file-upload" className="w-full">
+                      <label htmlFor={`file-upload-${variant}`} className="w-full">
                         <Button variant="outline" size="sm" className="w-full" asChild>
                           <span>Select File</span>
                         </Button>

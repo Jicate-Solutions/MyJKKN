@@ -387,7 +387,16 @@ export type CourseApplicationStatus = (typeof COURSE_APPLICATION_STATUSES)[numbe
 export const COURSE_APPLICANT_TYPES = ['learner', 'staff', 'external'] as const;
 export type CourseApplicantType = (typeof COURSE_APPLICANT_TYPES)[number];
 
-export interface CourseApplication extends CourseApplicationRow {
+/** Where an applicant came from, from the email domain alone: @jkkn.ac.in is
+ *  internal, anything else external. Distinct from CourseApplicantType, which
+ *  says which identity the row points at and is constrained by
+ *  course_applications_identity_chk. See classifyApplicantOrigin(). */
+export type CourseApplicantOrigin = 'internal' | 'external';
+
+export interface CourseApplication extends Omit<CourseApplicationRow, 'applicant_origin' | 'jkkn_id'> {
+  /** The generated Row carries it as a plain string (regenerated 2026-09-21);
+   *  narrowed here to the two values course_applications_origin_check allows. */
+  applicant_origin: CourseApplicantOrigin;
   form?: { id: string; name: string } | null;
   package?: { id: string; name: string; total_amount: number } | null;
   decided_by_profile?: { id: string; full_name: string | null } | null;
@@ -402,20 +411,77 @@ export interface CourseApplication extends CourseApplicationRow {
     total_payable?: number | null;
     total_paid?: number | null;
     balance?: number | null;
+    /** Decides whether reissuing sign-in details is even possible. Only an
+     *  'external' participant signs in with a JKKN ID and a password; a reused
+     *  learner or team member signs in with their own MyJKKN account, and
+     *  resetting that password from here would be a takeover of it. */
+    participant_type?: CourseParticipantType | null;
   } | null;
-  /** The provisioned person. jkkn_identities is reached THROUGH profiles —
-   *  course_applications has no FK to it, but jkkn_identities.profile_id does,
-   *  so PostgREST embeds it in reverse. Readable by the same roles that can see
-   *  applications: all 7 holding courses.applications.view also hold
-   *  users.jkkn_id.view, so this never silently returns null for them. */
-  profile?: { id: string; jkkn_identities?: { jkkn_id: string }[] | null } | null;
+  /**
+   * The applicant's JKKN ID once they have been provisioned, null while the
+   * application is still pending.
+   *
+   * A POSTGREST COMPUTED COLUMN backed by fn_jkkn_id_of, not an embed. The
+   * embed this replaced — profiles -> jkkn_identities(jkkn_id) — was wrong
+   * twice: jkkn_identities_select demands users.jkkn_id.view, which NONE of
+   * administrator / coo / course_coordinator holds (measured 2026-09-19), and
+   * an RLS-blocked embed returns null rather than erroring, so the whole tab
+   * read "Not issued"; and it joins on jkkn_identities.profile_id, which is
+   * NULL for every learner and staff row, so a reused identity would read
+   * "Not issued" too. fn_jkkn_id_of is SECURITY DEFINER, open to all
+   * authenticated by design, and walks all three anchors.
+   *
+   * Optional, unlike the generated Row (the computed column now appears there
+   * too since the 2026-09-21 regeneration): callers that select a narrower
+   * column list still build this type without it.
+   */
+  jkkn_id?: string | null;
 }
 
 export interface CourseApplicationFilters {
   status?: CourseApplicationStatus;
   applicant_type?: CourseApplicantType;
+  applicant_origin?: CourseApplicantOrigin;
   /** Matches name, phone or email. */
   search?: string;
+}
+
+/**
+ * Everything the Applications tab's statistics card shows, from
+ * fn_course_application_stats — one RPC rather than four table scans in the
+ * browser, and one gate rather than four RLS predicates that could each
+ * silently under-report a figure.
+ */
+export interface CourseApplicationStats {
+  ok: true;
+  /** Counts by status and by origin. Every key present, 0 rather than absent. */
+  applications: Record<CourseApplicationStatus, number> & {
+    total: number;
+    internal: number;
+    external: number;
+  };
+  /** Summed from course_enrollments, which fn_course_recompute_balances keeps
+   *  current — summing the bills instead would drift the moment a payment
+   *  landed. collection_pct is computed in SQL with a zero-guard. */
+  fees: {
+    enrollments: number;
+    payable: number;
+    collected: number;
+    outstanding: number;
+    collection_pct: number;
+  };
+  health: {
+    overdue_bills: number;
+    overdue_amount: number;
+    /** Payments that never reached 'success'. NOT proof of a lost sale — a
+     *  webhook may simply not have landed — so this is a prompt to look. */
+    stalled_payments: number;
+    stalled_amount: number;
+  };
+  /** `total` is null when the course sets no capacity, which means unlimited.
+   *  `taken` counts the same enrolment statuses the self-service seat check
+   *  uses, so the card and registration can never disagree. */
+  seats: { total: number | null; taken: number };
 }
 
 /** Per-status counts for the panel's summary row. Every status is present with
@@ -432,6 +498,51 @@ export type CourseApplicationCounts = Record<CourseApplicationStatus, number> & 
  *  object is discarded. It is absent when an existing identity was reused —
  *  overwriting a person's password to display it to an admin would be an
  *  account takeover, not a convenience. */
+/** Which identity a course enrollment is written against. Mirrors
+ *  course_enrollments_identity_chk, which makes this more than a label: a
+ *  'staff' row must carry neither learner_id nor external_participant_id, a
+ *  'learner' row must carry a learner_id, and an 'external' row must carry an
+ *  external_participant_id. */
+export type CourseParticipantType = 'learner' | 'staff' | 'external';
+
+/** Somebody who shares the applicant's phone number but not their email. */
+export interface CourseApplicantPhoneMatch {
+  kind: 'learner' | 'staff';
+  jkkn_id: string;
+  display_name: string | null;
+}
+
+/**
+ * What fn_course_resolve_applicant answers: is this applicant already somebody
+ * MyJKKN knows?
+ *
+ * Matched on normalised EMAIL across all three jkkn_identities anchors
+ * (learner_profile_id, team_member_id, profile_id). A phone match never links
+ * automatically — it only populates phone_only_matches.
+ *
+ * `ambiguous` means one address resolved to two or more DIFFERENT JKKN IDs.
+ * Approval refuses rather than guessing which human is applying.
+ */
+export interface CourseApplicantMatch {
+  ok: true;
+  matched: boolean;
+  ambiguous: boolean;
+  /** Present only when matched and not ambiguous. */
+  jkkn_id?: string;
+  /** Present only when ambiguous — the competing numbers, to show the admin. */
+  jkkn_ids?: string[];
+  person_kind?: string | null;
+  participant_type?: CourseParticipantType;
+  profile_id?: string | null;
+  learner_profile_id?: string | null;
+  team_member_id?: string | null;
+  display_name?: string | null;
+  /** Where the match came from: 'staff record', 'learner record', 'MyJKKN account'. */
+  matched_on?: string | null;
+  email?: string | null;
+  phone_only_matches: CourseApplicantPhoneMatch[];
+}
+
 export interface CourseApprovalResult {
   ok: true;
   profile_id: string;
@@ -449,6 +560,19 @@ export interface CourseApprovalResult {
   /** The person already had a profile and a JKKN ID — a second course, not a
    *  second identity. No password is issued in this case. */
   reusedExistingIdentity: boolean;
+  /** Which identity the enrollment was written against. Anything other than
+   *  'external' means MyJKKN already knew this person: they keep the number and
+   *  the login they already had, and no password was minted. */
+  participantType?: CourseParticipantType;
+  /** The matched person's name, when an existing identity was reused. */
+  matchedName?: string | null;
+  /** Their person_kind in the JKKN register ('learner', 'team_member', …). */
+  matchedKind?: string | null;
+  /** People who share the applicant's PHONE but not their email address. Shown
+   *  to the admin as a warning and never acted on — families share numbers, and
+   *  the 2026-08-27 register backfill withheld 18 such pairs for human review
+   *  rather than merging them. */
+  phoneOnlyMatches?: CourseApplicantPhoneMatch[];
   /** Whether the welcome email actually went out. Sent AFTER the approval
    *  transaction and unable to fail it, so this is reported rather than thrown:
    *  when false the admin still has to hand the credentials over themselves. */

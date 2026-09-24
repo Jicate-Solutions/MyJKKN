@@ -445,7 +445,7 @@ export class StorageService {
                 results.failed.push({
                   filename: file.name,
                   error:
-                    'Could not extract roll number from filename. Expected format: ROLLNUMBER.extension (e.g., 123654789.jpg, 24MBA60.jpg, DB22092.jpg)'
+                    'Could not extract roll number from filename. Expected format: ROLLNUMBER.extension (e.g., 4559.jpg, 123654789.jpg, 24MBA60.jpg, DB22092.jpg)'
                 });
                 return;
               }
@@ -768,6 +768,8 @@ export class StorageService {
       /(\d{6,10})/,
       // Pattern 3: Optional leading digits + 2-4 letters + 2-6 digits (e.g., "24MBA60", "DB22092", "CS21001")
       /(\d*[A-Z]{2,4}\d{2,6})/i,
+      // Pattern 4: Standalone short digit run, 1-5 digits (school roll numbers, e.g., "4559", "4559 (1)", "IMG_4559")
+      /(?:^|[^A-Z0-9])(\d{1,5})(?:[^A-Z0-9]|$)/i,
     ];
 
     for (const pattern of patterns) {

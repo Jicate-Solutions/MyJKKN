@@ -45,10 +45,25 @@ export const APPROVAL_TABS = {
  */
 export type CloseState = 'ready' | 'review' | 'closed' | 'nodata';
 
+/**
+ * True when the month is only partly imported.
+ *
+ * Not cosmetic: the Salary Register's unpaid days are the FULL month's basis
+ * minus the days paid for, and the basis does not shrink with the import. A
+ * month closed with 15 of 30 days imported deducts about half a month's pay
+ * from every person who worked it.
+ */
+export function isPartlyImported(r: AttendancePeriodConsoleRow): boolean {
+  return r.record_count > 0 && r.days_covered < r.days_in_month;
+}
+
 export function closeStateOf(r: AttendancePeriodConsoleRow): CloseState {
   if (r.status === 'locked') return 'closed';
   if (r.record_count === 0) return 'nodata';
-  return r.pending_total > 0 ? 'review' : 'ready';
+  // A short month reads 'review' rather than 'ready': there is nothing wrong
+  // with it, but it is not finished, and "ready" invites a close that costs
+  // people pay.
+  return r.pending_total > 0 || isPartlyImported(r) ? 'review' : 'ready';
 }
 
 export const CLOSE_STATE_RANK: Record<CloseState, number> = {
@@ -185,10 +200,21 @@ export function getCloseConsoleColumns(
   return [
     {
       accessorKey: 'institution_name',
-      size: 240,
+      size: 540,
       header: ({ column }) => <DataTableColumnHeader column={column} title='Institution' />,
       cell: ({ row }) => (
-        <span className='truncate text-sm font-medium'>{row.original.institution_name}</span>
+        <span className='truncate text-sm font-medium'>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger>
+              {row.original.institution_name}
+            </TooltipTrigger>
+            <TooltipContent>
+              {row.original.institution_name}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        </span>
       ),
     },
     {
@@ -266,18 +292,32 @@ export function getCloseConsoleColumns(
       ),
     },
     {
-      accessorKey: 'unprocessed_days',
-      size: 110,
-      header: ({ column }) => <DataTableColumnHeader column={column} title='Unjudged' />,
-      cell: ({ row }) =>
-        row.original.unprocessed_days > 0 ? (
-          <span className='block text-right tabular-nums text-amber-700 dark:text-amber-400'>
-            {row.original.unprocessed_days}
+      accessorKey: 'days_covered',
+      size: 130,
+      header: ({ column }) => <DataTableColumnHeader column={column} title='Coverage' />,
+      cell: ({ row }) => {
+        const r = row.original;
+        if (r.record_count === 0) {
+          return <span className='block text-right tabular-nums text-muted-foreground'>—</span>;
+        }
+        const short = isPartlyImported(r);
+        return (
+          <span
+            className={`block text-right tabular-nums ${
+              short ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'
+            }`}
+            title={
+              short
+                ? `Imported ${r.first_covered_date} to ${r.last_covered_date}. Unpaid days are computed against the whole month, so closing now deducts pay for the ${r.days_in_month - r.days_covered} day(s) not yet imported.`
+                : 'Every day of the month has records.'
+            }
+          >
+            {r.days_covered} / {r.days_in_month} days
           </span>
-        ) : (
-          <span className='block text-right tabular-nums text-muted-foreground'>0</span>
-        ),
+        );
+      },
     },
+    
     {
       id: 'actions',
       size: 300,

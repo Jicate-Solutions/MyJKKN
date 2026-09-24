@@ -225,14 +225,14 @@ function OverviewTab({ enrollmentId }: { enrollmentId: string }) {
           </CardContent>
         </Card>
 
-        {(enrollment.college ?? enrollment.institution) && (
+        {(reg.institution?.name ?? enrollment.college ?? enrollment.institution) && (
           <Card className="shadow-sm border-0 bg-muted/30">
             <CardContent className="pt-4 pb-4 px-4 flex items-center gap-3">
               <TrendingUp className="h-4 w-4 text-muted-foreground flex-shrink-0" aria-hidden="true" />
               <div>
                 <p className="text-xs text-muted-foreground">College</p>
                 <p className="text-sm font-medium">
-                  {enrollment.college ?? enrollment.institution}
+                  {reg.institution?.name ?? enrollment.college ?? enrollment.institution}
                 </p>
               </div>
             </CardContent>

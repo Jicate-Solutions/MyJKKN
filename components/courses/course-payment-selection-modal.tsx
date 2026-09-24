@@ -210,7 +210,35 @@ export function CoursePaymentSelectionModal({
         },
       });
 
-      checkout.open();
+      // Razorpay Checkout mounts `.razorpay-container` as a direct child of
+      // <body>, OUTSIDE this Dialog's portal. While a modal Radix layer is
+      // mounted, @radix-ui/react-dismissable-layer holds
+      // document.body.style.pointerEvents = 'none' and only DialogContent sets
+      // pointer-events: auto back on itself — so checkout renders in full but
+      // every tap inside it is swallowed, and the focus trap blocks typing a
+      // card number too. The payment options look dead. The dialog must
+      // therefore be GONE before checkout opens, not merely behind it.
+      //
+      // Same rule the billing flow already follows (payment-selection-modal.tsx
+      // mounts its redirect first, then closes; online-payment-button.tsx closes
+      // as its first statement). onOpenChange directly rather than
+      // handleClose(), which no-ops while `busy` is true.
+      onOpenChange(false);
+
+      // DialogContent exits through a 200ms animation (duration-200 in
+      // components/ui/dialog.tsx) and the dismissable layer stays mounted for
+      // all of it, so opening in the same tick would still land on an inert
+      // body. Wait past the animation, then clear the lock outright so the fix
+      // does not silently depend on that duration staying 200ms.
+      window.setTimeout(() => {
+        document.body.style.pointerEvents = '';
+        try {
+          checkout.open();
+        } catch {
+          toast.error('Could not start the payment.');
+          setBusy(false);
+        }
+      }, 250);
     } catch (e: any) {
       toast.error(
         e?.message === 'checkout failed to load'

@@ -485,7 +485,7 @@ function PageSkeleton() {
 
 function StakeholderSurveysInner() {
   const { profile } = useAuth();
-  const { isSuperAdmin, canAccess } = usePermissions();
+  const { isSuperAdmin, canAccess, hasAllInstitutionsScope } = usePermissions();
   const [showCreate, setShowCreate] = useState(false);
   const [pickedInstId, setPickedInstId] = useState<string>('');
 
@@ -495,18 +495,18 @@ function StakeholderSurveysInner() {
   const { data: pickableInstitutions = [] } = useQuery({
     queryKey: ['stakeholder-surveys', 'iqac-institutions'],
     queryFn: fetchIqacInstitutions,
-    enabled: isSuperAdmin,
+    enabled: hasAllInstitutionsScope,
   });
 
   useEffect(() => {
-    if (isSuperAdmin && !pickedInstId && pickableInstitutions.length > 0) {
+    if (hasAllInstitutionsScope && !pickedInstId && pickableInstitutions.length > 0) {
       setPickedInstId(pickableInstitutions[0].id);
     }
-  }, [isSuperAdmin, pickedInstId, pickableInstitutions]);
+  }, [hasAllInstitutionsScope, pickedInstId, pickableInstitutions]);
 
   const effectiveInstitutionId = useMemo(
-    () => (isSuperAdmin ? pickedInstId : profile?.institution_id ?? ''),
-    [isSuperAdmin, pickedInstId, profile?.institution_id]
+    () => (hasAllInstitutionsScope ? pickedInstId : profile?.institution_id ?? ''),
+    [hasAllInstitutionsScope, pickedInstId, profile?.institution_id]
   );
 
   const { data: cycles = [], isLoading, error } = useQuery({
@@ -539,7 +539,7 @@ function StakeholderSurveysInner() {
               </p>
             </div>
             <div className="flex items-end gap-2">
-              {isSuperAdmin && (
+              {hasAllInstitutionsScope && (
                 <div className="w-60">
                   <Label className="text-xs">Institution</Label>
                   <Select

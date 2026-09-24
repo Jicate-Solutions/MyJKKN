@@ -19,12 +19,15 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { CaseAttempt } from './_components/CaseAttempt';
 import { OverdueClosedState } from './_components/OverdueClosedState';
+import { notifyFacultyOfCapReached } from '@/lib/services/pde-clinical-cap-notice';
+import { resolveEffectiveAttemptsCap } from '@/lib/services/pde-clinical-attempt-cap';
 import type {
   ClinicalCaseBundle,
   ClinicalCaseScenario,
   ClinicalQuestion,
   ClinicalSubmissionSummary,
 } from '@/types/pde-clinical-reasoning';
+import { DEFAULT_CLINICAL_PASSING_THRESHOLD_PCT } from '@/types/pde-clinical-reasoning';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,6 +57,23 @@ async function readPolicyAttemptsCap(supabase: any): Promise<number> {
   if (error || data === null || data === undefined) return 5;
   const n = typeof data === 'number' ? data : Number(data);
   return Number.isFinite(n) && n > 0 ? n : 5;
+}
+
+/**
+ * clinical_reasoning.scoring.passing_threshold_pct — the pass mark, 80 since
+ * 2026-09-18. Read here so the client's provisional `passed` stamp is decided
+ * by the policy instead of a literal that cannot follow it when it moves.
+ */
+async function readPolicyPassingThresholdPct(supabase: any): Promise<number> {
+  const { data, error } = await supabase.rpc('fn_get_policy_clinical_reasoning', {
+    p_key: 'scoring.passing_threshold_pct',
+    p_default: DEFAULT_CLINICAL_PASSING_THRESHOLD_PCT,
+  });
+  if (error || data === null || data === undefined) {
+    return DEFAULT_CLINICAL_PASSING_THRESHOLD_PCT;
+  }
+  const n = typeof data === 'number' ? data : Number(data);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_CLINICAL_PASSING_THRESHOLD_PCT;
 }
 
 /** null unless `value` is a positive whole number — 0, NULL and junk all fall back. */
@@ -193,7 +213,26 @@ export default async function CaseAttemptPage({ params }: CasePageProps) {
   const attemptsUsed = prior.length;
   // Per-case number first; the policy RPC is only consulted when the case set none.
   const perCaseCap = positiveIntOrNull(assessment.max_attempts);
-  const attemptsCap = perCaseCap ?? (await readPolicyAttemptsCap(supabase));
+  const baseAttemptsCap = perCaseCap ?? (await readPolicyAttemptsCap(supabase));
+  // Plus anything a Senior Learner has granted this learner on this case. Those
+  // grants were written, audited and shown on the faculty roster but read by
+  // nothing here, so "Grant 3 more attempts" left the learner just as locked
+  // out as before. The counter, the remaining-attempts text and the cap screen
+  // all read attemptsCap, so they now agree with what was actually granted.
+  //
+  // Read with the SERVICE-ROLE client, not this learner's session.
+  // pde_attempt_grants has RLS disabled today — 20260709000000 lists it among
+  // the "real operational RLS-off tables ... LEFT for a careful
+  // enable-RLS-+-policy pass" — so a session read works now and would start
+  // returning zero rows, silently, the moment that pass lands without a
+  // learner-own-row policy. The learner would be re-locked with nothing
+  // raising. The query is pinned to this case and to user.id, which the session
+  // above already authenticated, so service-role widens no one's view of
+  // anything but their own grants.
+  const { effectiveCap: attemptsCap } = await resolveEffectiveAttemptsCap(
+    createServiceRoleClient(),
+    { assessmentId: assessment.id, learnerId: user.id, baseCap: baseAttemptsCap },
+  );
 
   const bestSubmission: ClinicalSubmissionSummary | null = prior.length
     ? prior.reduce<ClinicalSubmissionSummary | null>((best, cur) => {
@@ -270,6 +309,38 @@ export default async function CaseAttemptPage({ params }: CasePageProps) {
     );
   }
 
+  // ---- 7. Out of attempts: tell the Senior Learner, then say so -------------
+  // The learner is about to be shown a wall whose only instruction is "ask your
+  // faculty". Telling them to go chase someone is the silent dead end this
+  // repo forbids, so the person who can grant more attempts is notified here,
+  // at the moment the learner actually hits it.
+  //
+  // The scoring route fires the same notice the instant a final attempt lands,
+  // which covers the learner who never comes back. This call is what covers the
+  // one who does — including every learner already over the cap before any of
+  // this shipped, whose attempts were spent long before there was anything to
+  // fire. It is idempotent per (learner, case), so between the two of them a
+  // Senior Learner still gets exactly one bell item, no matter how many times
+  // this page is reloaded.
+  //
+  // A write during a render is deliberate and bounded: this page is
+  // force-dynamic so nothing caches it, the helper never throws, and its first
+  // act is an idempotency read that costs one indexed lookup on a repeat view.
+  // The alternative — claiming "your Senior Learner has been told" on a page
+  // that never told anyone — is a lie the learner would act on.
+  const capReached = attemptsUsed >= attemptsCap;
+  let facultyNotified = false;
+  if (capReached) {
+    const outcome = await notifyFacultyOfCapReached(createServiceRoleClient(), {
+      learnerId: user.id,
+      assessmentId: assessment.id,
+      attemptsUsed,
+      attemptsCap,
+      caseTitle: assessment.title,
+    });
+    facultyNotified = outcome.delivered;
+  }
+
   const bundle: ClinicalCaseBundle = {
     assessment: {
       id: assessment.id,
@@ -285,7 +356,9 @@ export default async function CaseAttemptPage({ params }: CasePageProps) {
     attemptsUsed,
     attemptsCap,
     bestSubmission,
-    capReached: attemptsUsed >= attemptsCap,
+    capReached,
+    facultyNotified,
+    passingThresholdPct: await readPolicyPassingThresholdPct(supabase),
     learnerProfileId: user.id,
   };
 

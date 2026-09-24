@@ -263,9 +263,40 @@ function PassengerTypeFieldControl({
   onChange: (v: string) => void;
 }) {
   const { profile } = useAuth() as any;
-  const detected = profile?.learner_id ? 'learner' : 'staff';
+  const profileId: string | undefined = profile?.id;
+  const hasLearnerLink = !!profile?.learner_id;
+
+  // A learner link alone does not make someone a learner: a graduate who
+  // joined as staff keeps their old learner_id. An active staff record wins —
+  // the same rule sync_bus_pass_to_learner_profile routes the pass by.
+  const [hasActiveStaff, setHasActiveStaff] = useState<boolean | null>(
+    hasLearnerLink ? null : false
+  );
   useEffect(() => {
-    if (value !== detected) onChange(detected);
+    if (!hasLearnerLink || !profileId) {
+      setHasActiveStaff(false);
+      return;
+    }
+    let cancelled = false;
+    setHasActiveStaff(null);
+    createClientSupabaseClient()
+      .from('staff')
+      .select('id')
+      .eq('profile_id', profileId)
+      .eq('is_active', true)
+      .limit(1)
+      .then(({ data, error }) => {
+        if (!cancelled) setHasActiveStaff(!error && (data ?? []).length > 0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasLearnerLink, profileId]);
+
+  const detected =
+    hasActiveStaff === null ? null : hasLearnerLink && !hasActiveStaff ? 'learner' : 'staff';
+  useEffect(() => {
+    if (detected && value !== detected) onChange(detected);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detected]);
   return (
@@ -273,7 +304,7 @@ function PassengerTypeFieldControl({
       <Label>{field.field_label}</Label>
       <div>
         <span className="inline-flex items-center rounded-md bg-muted px-2.5 py-1 text-sm font-medium capitalize">
-          {detected === 'learner' ? 'Learner' : 'Staff'}
+          {detected === null ? 'Detecting…' : detected === 'learner' ? 'Learner' : 'Staff'}
         </span>
       </div>
       {field.help_text && (
