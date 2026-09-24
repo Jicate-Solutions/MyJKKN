@@ -11,6 +11,7 @@ import { StaffNotificationService } from '@/lib/services/staff/notification-serv
 import { HrDecisionEmailService } from '@/lib/services/hr/decision-email-service';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
+import { errorMessage } from '@/lib/utils/supabase-error';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -92,6 +93,10 @@ export async function POST(
     return NextResponse.json({ data: updated });
   } catch (err) {
     console.error('[hr/leave/applications/:id/reject] error', err);
-    return NextResponse.json({ error: err instanceof Error ? err.message : 'Unknown error' }, { status: 400 });
+    // LeaveService throws the PostgREST error as-is (`if (error) throw error`),
+    // which is a PLAIN OBJECT, not an Error — so `instanceof Error` dropped the
+    // database's own refusal sentence (a trigger's RAISE, a policy refusal) and
+    // the approver read "Unknown error". errorMessage reads `.message` from both.
+    return NextResponse.json({ error: errorMessage(err, 'Unknown error') }, { status: 400 });
   }
 }
