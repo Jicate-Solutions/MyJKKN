@@ -67,10 +67,10 @@ vi.mock('@/app/(routes)/foundation/_components/item-flag-button', () => ({
 // Radix Select portals its list and measures layout; jsdom does neither well.
 // Render every option inline so the test can read what the form offers.
 vi.mock('@/components/ui/select', () => ({
-  Select: ({ children }: any) => <div>{children}</div>,
-  SelectTrigger: ({ children }: any) => <div>{children}</div>,
+  Select: (p: any) => <div>{p.children}</div>,
+  SelectTrigger: (p: any) => <div>{p.children}</div>,
   SelectValue: ({ placeholder }: any) => <span>{placeholder}</span>,
-  SelectContent: ({ children }: any) => <div>{children}</div>,
+  SelectContent: (p: any) => <div>{p.children}</div>,
   SelectItem: ({ children, value }: any) => (
     <div data-testid="select-item" data-value={value}>
       {children}
