@@ -85,6 +85,17 @@ describe('OneMark scope — Physics volumes follow the textbook, not the list le
     fireEvent.click(screen.getByRole('button', { name: 'Volume 2' }));
     expect(lastChapterIds(patch)).toEqual(ids(6, 7, 8, 9, 10, 11));
   });
+
+  it('a topic in neither volume list lands in neither volume', () => {
+    // An unclassified topic mapped to Physics (e.g. added later through the
+    // Units screen) must not fall into Volume 2 by default.
+    const stray: ChapterRef = { id: 'phy-extra', config_key: 'onemark_phy_extra', display_name: 'Extra', sort_order: 12, pool_count: 1 };
+    const patch = renderScope('tn_hsc_physics', [...PHYSICS_UNITS, stray], 'volume');
+    fireEvent.click(screen.getByRole('button', { name: 'Volume 1' }));
+    expect(lastChapterIds(patch)).toEqual(ids(1, 2, 3, 4, 5));
+    fireEvent.click(screen.getByRole('button', { name: 'Volume 2' }));
+    expect(lastChapterIds(patch)).toEqual(ids(6, 7, 8, 9, 10, 11));
+  });
 });
 
 describe('OneMark scope — the mode list depends on the subject', () => {
@@ -105,5 +116,28 @@ describe('OneMark scope — the mode list depends on the subject', () => {
     renderScope('tn_hsc_english', ENGLISH_UNITS, 'volume', ['eng-01', 'eng-02', 'eng-03']);
     expect(screen.queryByRole('button', { name: 'Volume 1' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Volume 2' })).not.toBeInTheDocument();
+  });
+
+  it('an English draft carrying volume mode is rewritten to Chosen chapters (same chapters), once', () => {
+    // Without this the next save persists 'volume' although the screen shows
+    // "Chosen chapters" — the teacher never touched scope, so no click fixes it.
+    const patch = vi.fn();
+    const ref = reference('tn_hsc_english', ENGLISH_UNITS);
+    const draft = (chapter_ids: string[]) => ({ selection_mode: 'volume', chapter_ids }) as unknown as PaperParams;
+    const { rerender } = render(<StepScope draft={draft(['eng-01', 'eng-02', 'eng-03'])} patch={patch} title="t" setTitle={() => {}} reference={ref} disabled={false} />);
+    expect(patch).toHaveBeenCalledTimes(1);
+    expect(patch).toHaveBeenCalledWith({ selection_mode: 'multi', chapter_ids: ['eng-01', 'eng-02', 'eng-03'] });
+    // A parent that has not applied the patch yet re-renders with a fresh
+    // array: the step must not write again.
+    rerender(<StepScope draft={draft(['eng-01', 'eng-02', 'eng-03'])} patch={patch} title="t" setTitle={() => {}} reference={ref} disabled={false} />);
+    expect(patch).toHaveBeenCalledTimes(1);
+  });
+
+  it('a draft in a mode the subject offers is left alone', () => {
+    const english = renderScope('tn_hsc_english', ENGLISH_UNITS, 'unit', ['eng-01']);
+    expect(english).not.toHaveBeenCalled();
+    cleanup();
+    const physics = renderScope('tn_hsc_physics', PHYSICS_UNITS, 'volume', ids(1, 2, 3, 4, 5));
+    expect(physics).not.toHaveBeenCalled();
   });
 });

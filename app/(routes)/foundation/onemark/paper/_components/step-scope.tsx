@@ -5,6 +5,7 @@
 // lesson) is shown separately and is never excluded by a chapter tick
 // (PRD English §4.4).
 
+import { useEffect, useRef } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -24,8 +25,12 @@ const MODES: { value: SelectionMode; label: string; hint: string }[] = [
 // Volume 1 is matched by the unit's key, not its position: the seed tags
 // onemark_phy_u01..u05 "(Vol. 1)", and halving the list put Unit 6 (Ray
 // Optics) in Volume 1 and moved again whenever a unit was retired.
+// Volume 2 is an explicit list too (seed 20260917111500 tags u06..u11
+// "(Vol. 2)"): a topic in neither list belongs to neither volume, rather than
+// landing in Volume 2 by default.
 const VOLUME_EXAM_KEY = 'tn_hsc_physics';
 const PHYSICS_VOLUME_1 = new Set(['onemark_phy_u01', 'onemark_phy_u02', 'onemark_phy_u03', 'onemark_phy_u04', 'onemark_phy_u05']);
+const PHYSICS_VOLUME_2 = new Set(['onemark_phy_u06', 'onemark_phy_u07', 'onemark_phy_u08', 'onemark_phy_u09', 'onemark_phy_u10', 'onemark_phy_u11']);
 
 interface StepScopeProps {
   draft: PaperParams;
@@ -42,7 +47,17 @@ export function StepScope({ draft, patch, title, setTitle, reference, disabled }
   const modes = hasVolumes ? MODES : MODES.filter((m) => m.value !== 'volume');
   // A draft saved in a mode this subject does not offer is shown as its
   // chosen chapters, so the radio group is never left with nothing picked.
-  const shownMode = modes.some((m) => m.value === draft.selection_mode) ? draft.selection_mode : 'multi';
+  const modeOffered = modes.some((m) => m.value === draft.selection_mode);
+  const shownMode = modeOffered ? draft.selection_mode : 'multi';
+  // ...and the draft itself is moved to that mode (same chapters), once, so
+  // what the next save persists is what the teacher sees — otherwise an
+  // untouched English draft would be saved back as 'volume'.
+  const normalised = useRef(false);
+  useEffect(() => {
+    if (modeOffered || disabled || normalised.current) return;
+    normalised.current = true;
+    patch({ selection_mode: 'multi', chapter_ids: draft.chapter_ids });
+  }, [modeOffered, disabled, patch, draft.chapter_ids]);
   const chapters = reference.chapters;
   const selected = new Set(draft.chapter_ids);
   const inScope = selected.size === 0 ? chapters.reduce((s, c) => s + c.pool_count, 0) : chapters.filter((c) => selected.has(c.id)).reduce((s, c) => s + c.pool_count, 0);
@@ -66,7 +81,8 @@ export function StepScope({ draft, patch, title, setTitle, reference, disabled }
   }
 
   function volumeChapterIds(v: 1 | 2) {
-    return chapters.filter((c) => PHYSICS_VOLUME_1.has(c.config_key) === (v === 1)).map((c) => c.id);
+    const keys = v === 1 ? PHYSICS_VOLUME_1 : PHYSICS_VOLUME_2;
+    return chapters.filter((c) => keys.has(c.config_key)).map((c) => c.id);
   }
 
   function volume(v: 1 | 2) {
