@@ -2009,6 +2009,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/pde/faculty/cases/new': 'pde.faculty.view',
   '/pde/faculty/cases/[id]/edit': 'pde.faculty.view',
   '/pde/faculty/cases/[id]/preview': 'pde.faculty.view',
+  '/pde/faculty/cases/[id]/export': 'pde.faculty.view',
   '/pde/faculty/cases/[id]/attempts': 'pde.faculty.view',
   '/pde/faculty/cases/[id]/attempts/[studentId]': 'pde.faculty.view',
   '/pde/learn/cases/[caseSlug]': 'pde.profile.view',
