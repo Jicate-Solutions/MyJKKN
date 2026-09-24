@@ -68,8 +68,8 @@ CREATE SCHEMA IF NOT EXISTS auth;
 
 DO $roles$
 BEGIN
-  BEGIN CREATE ROLE anon; EXCEPTION WHEN duplicate_object THEN NULL; END;
-  BEGIN CREATE ROLE authenticated; EXCEPTION WHEN duplicate_object THEN NULL; END;
+  BEGIN CREATE ROLE anon; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END;
+  BEGIN CREATE ROLE authenticated; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END;
 END $roles$;
 
 CREATE FUNCTION auth.uid() RETURNS uuid

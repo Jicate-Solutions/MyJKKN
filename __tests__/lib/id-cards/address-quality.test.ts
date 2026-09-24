@@ -39,13 +39,17 @@ const CLEAN: AddressParts = {
 };
 
 describe('joinPrintableAddress', () => {
-  it('joins the five columns in the card back order, dropping blanks', () => {
+  it('prints Street, Taluk, District, State - PIN, dropping blanks', () => {
     expect(joinPrintableAddress(CLEAN)).toBe(
-      '12 Bharathi Street, Kumarapalayam, Namakkal, Tamil Nadu, 638183'
+      '12 Bharathi Street, Kumarapalayam, Namakkal, Tamil Nadu - 638183'
     );
     expect(joinPrintableAddress({ street: ' 12 Bharathi Street ', pinCode: '638183' })).toBe(
-      '12 Bharathi Street, 638183'
+      '12 Bharathi Street - 638183'
     );
+    expect(joinPrintableAddress({ ...CLEAN, pinCode: '' })).toBe(
+      '12 Bharathi Street, Kumarapalayam, Namakkal, Tamil Nadu'
+    );
+    expect(joinPrintableAddress({ pinCode: '638183' })).toBe('638183');
     expect(joinPrintableAddress({})).toBe('');
     expect(joinPrintableAddress({ street: null, taluk: undefined })).toBe('');
   });
@@ -223,7 +227,7 @@ describe('machine_code_value', () => {
 });
 
 describe('duplicated_part', () => {
-  it('fires when the street already carries the district and taluk', () => {
+  it('fires when the street already carries the district', () => {
     const result = assessAddress({
       street: '34 H2, Somasundara Puram 2nd Street, Bhavani, Namakkal',
       taluk: 'Namakkal',
@@ -271,7 +275,7 @@ describe('over_printable_length', () => {
     // entered address simply is. Raising an issue on that would bury the
     // records a person actually has to fix, so the band between the two limits
     // is reported as a flag and nothing more.
-    const result = assessAddress(CLEAN);
+    const result = assessAddress({ ...CLEAN, street: '12 Bharathi Street, Kattur Road' });
     expect(result.length).toBeGreaterThan(PRINTABLE_ADDRESS_DEFAULT_BACK_MAX);
     expect(result.length).toBeLessThanOrEqual(PRINTABLE_ADDRESS_CUSTOM_BACK_MAX);
     expect(result.overDefaultBack).toBe(true);
@@ -339,13 +343,14 @@ describe('drift guard against the renderer', () => {
   const read = (relative: string) =>
     fs.readFileSync(path.join(process.cwd(), relative), 'utf8');
 
-  it('still joins the same five columns in the same order as render-data.ts', () => {
+  it('still feeds the same four columns through joinPrintableAddress in render-data.ts', () => {
     const source = read('lib/id-cards/render-data.ts');
-    const block = source.slice(source.indexOf('address ='), source.indexOf('contactPhone ='));
+    const block = source.slice(source.indexOf('address ='), source.indexOf('addressParts ='));
     expect(block.length).toBeGreaterThan(0);
+    expect(block).toContain('joinPrintableAddress(');
+    expect(block).not.toContain('permanent_address_taluk');
     const order = [
       'permanent_address_street',
-      'permanent_address_taluk',
       'permanent_address_district',
       'permanent_address_state',
       'permanent_address_pin_code',
@@ -356,7 +361,6 @@ describe('drift guard against the renderer', () => {
       expect(at, `${column} missing from the renderer join`).toBeGreaterThan(cursor);
       cursor = at;
     }
-    expect(block).toContain(".join(', ')");
   });
 
   it('still sizes the address tail-first on both back paths (responsive text, 2026-09-05)', () => {
