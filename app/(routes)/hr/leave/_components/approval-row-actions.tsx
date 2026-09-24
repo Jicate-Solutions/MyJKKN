@@ -154,8 +154,9 @@ export function ApprovalRowActions({
             {blockedByBiometric && !isReview && (
               <DropdownMenuLabel className="whitespace-normal py-1 text-xs font-normal leading-snug text-amber-700 dark:text-amber-400">
                 Biometric not uploaded for{' '}
-                {formatBiometricGap(row.biometric_gap_from)}. HR imports it from
-                HR › Attendance › Import; you can approve once it is in.
+                {formatBiometricGap(row.biometric_gap_from)}. HR uploads it from
+                HR Setup › Admin Dashboard › Import Biometric Punches; you can
+                approve once it is in.
               </DropdownMenuLabel>
             )}
             <DropdownMenuItem

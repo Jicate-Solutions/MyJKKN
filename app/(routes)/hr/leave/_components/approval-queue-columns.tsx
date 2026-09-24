@@ -218,7 +218,7 @@ const statusColumn: ColumnDef<HRLeaveApprovalQueueRow> = {
           className="border-amber-400 text-amber-800 dark:text-amber-400"
           title={`Biometric attendance is not uploaded for ${formatBiometricGap(
             row.original.biometric_gap_from,
-          )}. Approving now would not reach the attendance report, so the database refuses it. HR imports the month from HR > Attendance > Import; approve once it is in.`}
+          )}. Approving now would not reach the attendance report, so the database refuses it. HR uploads the month from HR Setup › Admin Dashboard › Import Biometric Punches; approve once it is in.`}
         >
           Biometric pending
         </Badge>
