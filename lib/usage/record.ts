@@ -56,6 +56,8 @@ export const FEATURE_KEYS = {
   /** HR froze an institution's attendance month. Wired in its own PR — the
    *  call sits inside the attendance-close path, which is held separately. */
   HR_ATTENDANCE_MONTH_CLOSE: 'hr.attendance_month_close',
+  /** The office rang back someone the interview booking link could not book (#3997). */
+  HR_INTERVIEW_CALLBACK_HANDLE: 'hr.interview_callback_handle',
 } as const;
 
 export type FeatureKey = (typeof FEATURE_KEYS)[keyof typeof FEATURE_KEYS] | (string & {});

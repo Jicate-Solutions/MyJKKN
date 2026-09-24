@@ -14,6 +14,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { FEATURE_KEYS, recordFeatureUse } from '@/lib/usage/record';
 
 export interface CallbackRequestRow {
   id: string;
@@ -151,6 +152,8 @@ export async function markCallbackRequestCalled(
     .select('id');
   if (error) return { success: false, error: `Could not update the request: ${error.message}` };
   if (!data || data.length === 0) return explainNoRowUpdated(supabase);
+  // Adoption: the office did the core action — a person the link could not book was rung back.
+  await recordFeatureUse(supabase, FEATURE_KEYS.HR_INTERVIEW_CALLBACK_HANDLE);
   return { success: true };
 }
 
