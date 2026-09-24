@@ -68,7 +68,9 @@ export function PreSubmitConfirmationDialog(props: Props) {
             </div>
           ) : (
             <div className="text-amber-600">
-              No fee structure matched — submission will fail.
+              No fee structure matched for this combination. The profile will
+              still be saved; fees will be applied once a matching structure
+              exists in Settings → Fees Structure.
             </div>
           )}
           <table className="w-full text-sm">
@@ -102,7 +104,7 @@ export function PreSubmitConfirmationDialog(props: Props) {
           </Button>
           <Button
             onClick={onConfirm}
-            disabled={submitting || !resolvedItems.length}
+            disabled={submitting}
           >
             {submitting ? 'Submitting…' : 'Submit'}
           </Button>

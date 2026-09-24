@@ -328,7 +328,12 @@ export default function SalaryRegisterLinePage({
                       label="Business working days"
                       value={days(line.business_working_days)}
                     />
+                    {/* The total first, then the three columns that partition
+                        it — the same figures the register table now prints. */}
                     <Row label="Paid leave" value={days(line.paid_leave_days)} />
+                    <Row label="— Casual leave" muted value={days(line.casual_leave_days)} />
+                    <Row label="— Comp off" muted value={days(line.comp_off_days)} />
+                    <Row label="— Other paid leave" muted value={days(line.other_paid_leave_days)} />
                     <Row
                       label="Unpaid leave"
                       value={
@@ -344,13 +349,17 @@ export default function SalaryRegisterLinePage({
                     <Row label="On duty" value={days(line.on_duty_days)} />
                     <Row label="Worked" value={days(line.worked_days)} />
                     <Row label="Paid days" strong value={days(line.paid_days)} />
-                    {/* The divisor is the institution's month standard, frozen
-                        with the run — not a per-staff number — which is what
-                        makes two people on the same register comparable. */}
+                    {/* The divisor is THIS LINE's business working days, frozen
+                        with the run: the person's own full-month calendar
+                        (minus week-offs and holidays), so a 3-day-week pattern
+                        member is priced on 13 and everyone else on the
+                        institution's 23. Until 2026-09-22 it was the run-wide
+                        figure, which was also what put one mis-stamped 29
+                        under all 50 lines. */}
                     <Row
                       label="Day-rate divisor"
                       muted
-                      value={days(run.working_days_basis)}
+                      value={days(line.business_working_days)}
                     />
                   </Section>
 

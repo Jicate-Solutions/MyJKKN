@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse , connection } from 'next/server';
 import { z } from 'zod';
 import { getAuthSession, createServerSupabaseClient } from '@/lib/supabase/server';
+import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
 import { ServiceRequestService } from '@/lib/services/service-requests/service-request-service';
 import { paginationFromSearchParams } from '@/lib/services/service-requests/pagination';
 import { createServiceRequestSchema, type CreateServiceRequestDto } from '@/types/service-request';
@@ -76,6 +77,16 @@ export async function POST(request: Request) {
       validated,
       session.user.id
     );
+
+    // Adoption loop: createRequest defaults status to 'submitted', so this IS
+    // the raise for the ordinary path. A draft is not raised yet — that one
+    // counts at /submit below.
+    if ((serviceRequest as { status?: string } | null)?.status !== 'draft') {
+      await recordFeatureUse(
+        await createServerSupabaseClient(),
+        FEATURE_KEYS.SERVICE_REQUESTS_RAISE
+      );
+    }
 
     return NextResponse.json(serviceRequest, { status: 201 });
   } catch (error) {

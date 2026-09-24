@@ -299,7 +299,7 @@ const inr = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 });
 
 export default function CollaborationsRegisterPage() {
   const { profile } = useAuth();
-  const { isSuperAdmin, canAccess } = usePermissions();
+  const { isSuperAdmin, canAccess, hasAllInstitutionsScope } = usePermissions();
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
 
@@ -318,14 +318,14 @@ export default function CollaborationsRegisterPage() {
   const [pickedInstId, setPickedInstId] = useState<string>('');
 
   useEffect(() => {
-    if (isSuperAdmin && !pickedInstId && pickableInstitutions.length > 0) {
+    if (hasAllInstitutionsScope && !pickedInstId && pickableInstitutions.length > 0) {
       setPickedInstId(pickableInstitutions[0].id);
     }
-  }, [isSuperAdmin, pickedInstId, pickableInstitutions]);
+  }, [hasAllInstitutionsScope, pickedInstId, pickableInstitutions]);
 
   const effectiveInstitutionId = useMemo(
-    () => (isSuperAdmin ? pickedInstId : profile?.institution_id ?? ''),
-    [isSuperAdmin, pickedInstId, profile?.institution_id]
+    () => (hasAllInstitutionsScope ? pickedInstId : profile?.institution_id ?? ''),
+    [hasAllInstitutionsScope, pickedInstId, profile?.institution_id]
   );
 
   const { data: items = [], isLoading, error, refetch } = useQuery({
@@ -456,7 +456,7 @@ export default function CollaborationsRegisterPage() {
                 </p>
               </div>
               <div className="flex items-end gap-2">
-                {isSuperAdmin && (
+                {hasAllInstitutionsScope && (
                   <div className="w-64">
                     <Label className="text-xs">Institution</Label>
                     <Select

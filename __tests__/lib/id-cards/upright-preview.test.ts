@@ -85,3 +85,24 @@ describe('upright preview mode (portrait templates)', () => {
     expect(backCanvasSize({}, { upright: true })).toEqual({ width: CARD_WIDTH, height: CARD_HEIGHT });
   });
 });
+
+describe('card-printer back flip (duplex long-edge)', () => {
+  const rotationOf = (node: unknown): string | null => {
+    if (!node || typeof node !== 'object') return null;
+    if (Array.isArray(node)) { for (const n of node) { const r = rotationOf(n); if (r) return r; } return null; }
+    const rec = node as { props?: Record<string, unknown> };
+    const style = rec.props?.style as Record<string, unknown> | undefined;
+    if (style && typeof style.transform === 'string' && /rotate\(/.test(style.transform)) return style.transform;
+    return rotationOf(rec.props?.children);
+  };
+  const back = { orientation: 'portrait' as const };
+  const input = { person, backgroundDataUrl: null, barcodeDataUrl: null, layout: back, mappings: [], validUntilLabel: 'x' };
+  it('printer path rotates the back the OPPOSITE way to the preview path (180° apart)', async () => {
+    const { buildBackElement } = await import('@/lib/id-cards/render-card');
+    const preview = rotationOf(buildBackElement(input));
+    const printer = rotationOf(buildBackElement(input, { printerBack: true }));
+    expect(preview).not.toBeNull();
+    expect(printer).not.toBeNull();
+    expect(printer).not.toBe(preview);
+  });
+});

@@ -375,10 +375,10 @@ export function JobDetailView({ id }: { id: string }) {
           >
             {JOB_STATUS_LABELS[job.status] ?? job.status}
           </span>
-          {job.is_public && (
+          {job.status === 'open' && (
             <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300">
               <Globe className="h-3 w-3" />
-              On /careers
+              On jkkn.ac.in
             </span>
           )}
         </div>

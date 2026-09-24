@@ -137,6 +137,50 @@ export function paymentStatusPollInterval(input: {
   return PAYMENT_STATUS_POLL_INTERVAL_MS;
 }
 
+/** Query param /learners/my-bills reads to open one receipt's dialog on arrival. */
+export const MY_BILLS_RECEIPT_PARAM = 'receipt';
+
+export interface PaymentSuccessLinks {
+  /** Where "View Receipt" goes; null while no receipt has been generated. */
+  receipt: string | null;
+  /** Where "View My Bills" goes. */
+  bills: string;
+}
+
+/**
+ * Destinations for the success page's "View Receipt" / "View My Bills" buttons.
+ *
+ * A student cannot open `/billing/receipts/[id]` or `/billing/schedule/students/[id]`
+ * — both sit behind staff permissions (`billing.receipts.view` et al.), so a
+ * learner who had just paid tapped either button and landed on Access Denied
+ * (BUG-006167). Students belong on their own self-service page,
+ * `/learners/my-bills`, whose receipt dialog carries the PDF download. Staff
+ * collecting on a learner's behalf keep the admin pages.
+ */
+export function buildPaymentSuccessLinks(input: {
+  isStudent: boolean;
+  receiptId: string | null;
+  /** `payment_transactions.student_id` — a learners_profiles.id. */
+  studentId?: string | null;
+}): PaymentSuccessLinks {
+  const { isStudent, receiptId, studentId } = input;
+
+  if (isStudent) {
+    const receipt = receiptId
+      ? `/learners/my-bills?${new URLSearchParams({
+          tab: 'paid',
+          [MY_BILLS_RECEIPT_PARAM]: receiptId,
+        }).toString()}`
+      : null;
+    return { receipt, bills: '/learners/my-bills' };
+  }
+
+  return {
+    receipt: receiptId ? `/billing/receipts/${receiptId}` : null,
+    bills: studentId ? `/billing/schedule/students/${studentId}` : '/billing/schedule/students',
+  };
+}
+
 /**
  * Builds a redirect URL between the two confirmation pages while PRESERVING the
  * query string. The failed page used to rebuild the URL from `transaction_id`

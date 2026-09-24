@@ -2581,6 +2581,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/campus-living/billing-audit",
+        "label": "Billing Audit",
+        "iconName": "Wallet",
+        "children": [
+          {
+            "path": "/campus-living/billing-audit/learners",
+            "label": "Learners",
+            "iconName": "GraduationCap",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/campus-living/blocks",
         "label": "Blocks",
         "iconName": "Building",
@@ -3398,6 +3411,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Drives",
         "iconName": "FileText",
         "children": [
+          {
+            "path": "/cdc/drives/coordinating",
+            "label": "Coordinating",
+            "iconName": "ClipboardCheck",
+            "children": []
+          },
           {
             "path": "/cdc/drives/new",
             "label": "New",
@@ -4617,6 +4636,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/hr/leave/compensatory-off",
             "label": "Compensatory Off",
+            "iconName": "CalendarOff",
+            "children": []
+          },
+          {
+            "path": "/hr/leave/eligibility",
+            "label": "Eligibility",
             "iconName": "CalendarOff",
             "children": []
           },
@@ -7034,6 +7059,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Paradigm Shift",
         "iconName": "FileText",
         "children": [
+          {
+            "path": "/solutions/paradigm-shift/confirmations",
+            "label": "Confirmations",
+            "iconName": "FileText",
+            "children": []
+          },
           {
             "path": "/solutions/paradigm-shift/leaderboard",
             "label": "Leaderboard",
