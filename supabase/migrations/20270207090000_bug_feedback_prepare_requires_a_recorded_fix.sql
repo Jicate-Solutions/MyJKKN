@@ -183,3 +183,9 @@ BEGIN
   );
 END;
 $function$;
+
+-- Re-stated, unchanged from 20261227090000: CREATE OR REPLACE keeps existing
+-- grants, but the anon lock must be explicit in every migration that touches it.
+-- Service role only, exactly as main has it; no signed-in caller gains access.
+REVOKE EXECUTE ON FUNCTION public.fn_bug_feedback_prepare(uuid, text, text) FROM anon, PUBLIC, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_bug_feedback_prepare(uuid, text, text) TO service_role;

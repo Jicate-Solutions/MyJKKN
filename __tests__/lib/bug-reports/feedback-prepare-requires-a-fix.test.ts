@@ -47,10 +47,19 @@ describe('fn_bug_feedback_prepare requires a recorded fix', () => {
     );
   });
 
-  it('touches no table, grant or policy — it only replaces the function', () => {
-    for (const forbidden of [/\bALTER TABLE\b/i, /\bGRANT\b/i, /\bREVOKE\b/i, /\bDROP\b/i, /CREATE POLICY/i]) {
+  it('touches no table or policy, and does not change who may call it — it only replaces the function', () => {
+    for (const forbidden of [/\bALTER TABLE\b/i, /\bDROP\b/i, /CREATE POLICY/i]) {
       expect(sql).not.toMatch(forbidden);
     }
     expect((sql.match(/CREATE OR REPLACE FUNCTION/g) || []).length).toBe(1);
+
+    // The anon-lock gate needs the revoke written in every migration that
+    // replaces a SECURITY DEFINER function. The only grant/revoke allowed here
+    // is the exact service-role-only pair already on main (20261227090000).
+    const grants = (sql.match(/^\s*(GRANT|REVOKE)\b.*$/gim) || []).map((l) => l.trim().replace(/\s+/g, ' '));
+    expect(grants).toEqual([
+      'REVOKE EXECUTE ON FUNCTION public.fn_bug_feedback_prepare(uuid, text, text) FROM anon, PUBLIC, authenticated;',
+      'GRANT EXECUTE ON FUNCTION public.fn_bug_feedback_prepare(uuid, text, text) TO service_role;',
+    ]);
   });
 });
