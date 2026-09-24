@@ -22,12 +22,11 @@ import {
 } from '@/components/ui/select';
 import type { EventRegistrationFormField, FormFieldCondition } from '@/types/tournament';
 
-/** Whether `field` should be shown given the current answers to ALL fields on the form. */
-export function isFieldVisible(
-  field: EventRegistrationFormField,
+/** Whether a rule holds for the current answers. A missing rule always holds. */
+export function conditionHolds(
+  condition: FormFieldCondition | null | undefined,
   allValues: Record<string, unknown>
 ): boolean {
-  const condition = field.condition as FormFieldCondition | null;
   if (!condition) return true;
   const dependentValue = allValues[condition.field];
   const asString = dependentValue == null ? '' : String(dependentValue);
@@ -45,6 +44,26 @@ export function isFieldVisible(
     default:
       return true;
   }
+}
+
+/** Whether `field` should be shown given the current answers to ALL fields on the form. */
+export function isFieldVisible(
+  field: EventRegistrationFormField,
+  allValues: Record<string, unknown>
+): boolean {
+  return conditionHolds(field.condition as FormFieldCondition | null, allValues);
+}
+
+/**
+ * Whether a whole section should be shown. A section's own rule gates every
+ * field in it — "Category is Parent" on the Parent section hides all of its
+ * questions at once, without repeating the rule on each field.
+ */
+export function isSectionVisible(
+  section: { condition?: FormFieldCondition | null },
+  allValues: Record<string, unknown>
+): boolean {
+  return conditionHolds(section.condition ?? null, allValues);
 }
 
 /**

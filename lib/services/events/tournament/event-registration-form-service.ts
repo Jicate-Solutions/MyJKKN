@@ -99,6 +99,8 @@ export interface SaveFormFieldPayload {
 export interface SaveFormSectionPayload {
   title: string;
   display_order: number;
+  /** Section-level visibility rule; carried on every save or the RPC wipes it. */
+  condition: FormFieldCondition | null;
   fields: SaveFormFieldPayload[];
 }
 
@@ -363,6 +365,7 @@ export class EventRegistrationFormService {
       fee_label?: string | null;
       starts_at?: string | null;
       ends_at?: string | null;
+      contact_block?: 'top' | 'bottom' | 'hidden';
     }
   ): Promise<EventRegistrationForm> {
     const supabase = createClientSupabaseClient();

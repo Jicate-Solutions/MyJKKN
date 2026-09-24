@@ -459,6 +459,8 @@ export interface EventRegistrationFormSection {
   event_id: string;
   title: string;
   display_order: number;
+  /** Show the WHOLE section only when another field's answer matches. NULL = always. */
+  condition?: FormFieldCondition | null;
   created_at: string;
   updated_at: string;
   fields?: EventRegistrationFormField[];
@@ -483,6 +485,13 @@ export interface EventRegistrationForm {
   /** Registration closes at this moment. NULL = no end. */
   ends_at: string | null;
   display_order: number;
+  /**
+   * Built-in name/phone/email block on the public form: 'top' (default),
+   * 'bottom' (after the custom sections) or 'hidden' (read from the form's own
+   * fields). Optional in the type because rows predating the column read as
+   * undefined through some selects; treat undefined as 'top'.
+   */
+  contact_block?: 'top' | 'bottom' | 'hidden' | null;
   /**
    * Whether this form charges at all. Separate from the amount so a fee can be
    * switched off without destroying the price — and so "free" is distinguishable
