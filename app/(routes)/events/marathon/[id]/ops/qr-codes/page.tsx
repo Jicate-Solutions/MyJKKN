@@ -182,7 +182,7 @@ export default function QrCodesPage() {
   const pendingCount = (registrations ?? []).length - generatedCount;
 
   const lastUpdated = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString('en-IN', {
-    hour: '2-digit', minute: '2-digit',
+    hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata',
   }) : null;
 
   // Block non-admin users

@@ -443,6 +443,12 @@ export interface EventRegistrationFormField {
    * while the form is still live.
    */
   media_url: string | null;
+  /**
+   * Profile attribute a signed-in registrant's answer is seeded from (see
+   * lib/services/events/registration/form-prefill.ts). NULL = no prefill.
+   * Always editable by the person — a convenience, not a lock.
+   */
+  prefill_source: string | null;
   created_at: string;
   updated_at: string;
 }

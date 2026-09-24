@@ -99,9 +99,14 @@ export function buildFieldReport(input: FieldReportInput): CardFieldReport[] {
     { key: 'department', label: departmentLabel, side: 'front', value: present(person.departmentName) },
     { key: 'institution', label: 'Institution', side: 'front', value: present(person.institutionName) },
     ...(isLearner
-      ? [{ key: 'study_period', label: 'Study Period', side: 'front' as const, value: present(person.studyPeriod) }]
+      ? [
+          { key: 'father_name', label: 'Father Name', side: 'front' as const, value: present(person.guardianName) },
+          { key: 'study_period', label: 'Study Period', side: 'front' as const, value: present(person.studyPeriod) }
+        ]
       : []),
-    { key: 'valid_until', label: 'Valid Until', side: 'front', value: present(validUntilLabel) },
+    ...(isLearner
+      ? []
+      : [{ key: 'valid_until', label: 'Valid Until', side: 'front' as const, value: present(validUntilLabel) }]),
     { key: 'photo', label: 'Photo', side: 'front', value: photoResolved ? 'Available' : null },
     { key: 'qr_code', label: 'QR Code', side: 'front', value: qrResolved ? 'Available' : null }
   ];
