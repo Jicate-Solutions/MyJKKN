@@ -18,6 +18,7 @@ import type {
   FormFieldCondition,
 } from '@/types/tournament';
 import { asFormUpload, isAnswerableField, UPLOAD_FIELD_TYPES } from '@/types/tournament';
+import { visibleFields } from '@/lib/services/events/registration/form-visibility';
 
 /** One submitted response, answers already paired with their field labels. */
 export interface FormResponseRow {
@@ -521,10 +522,18 @@ export class EventRegistrationFormService {
  */
 export function validateCustomFields(
   fields: EventRegistrationFormField[],
-  submitted: Record<string, unknown> | null | undefined
+  submitted: Record<string, unknown> | null | undefined,
+  /**
+   * The form's sections, so a section-level "show only when" rule is applied.
+   * Optional for older callers; field-level rules are always applied.
+   */
+  sections?: { id: string; condition?: FormFieldCondition | null }[] | null
 ): string | null {
   const answers = submitted ?? {};
-  for (const field of fields) {
+  // Only what the registrant could SEE is demanded. A required "Parent name"
+  // hidden for a Learner used to be reported as missing by the server even
+  // though the client had (correctly) never shown it.
+  for (const field of visibleFields(fields, answers, sections)) {
     // Display-only fields ask nothing. The DB forces is_required false for them
     // too, but a stale row from before that rule would otherwise make the form
     // permanently unsubmittable — there is no input that could satisfy it.

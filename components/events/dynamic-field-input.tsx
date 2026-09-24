@@ -20,51 +20,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { EventRegistrationFormField, FormFieldCondition } from '@/types/tournament';
+import type { EventRegistrationFormField } from '@/types/tournament';
 
-/** Whether a rule holds for the current answers. A missing rule always holds. */
-export function conditionHolds(
-  condition: FormFieldCondition | null | undefined,
-  allValues: Record<string, unknown>
-): boolean {
-  if (!condition) return true;
-  const dependentValue = allValues[condition.field];
-  const asString = dependentValue == null ? '' : String(dependentValue);
-  switch (condition.op) {
-    case 'eq':
-      return asString === condition.value;
-    case 'neq':
-      return asString !== condition.value;
-    case 'contains':
-      return asString.includes(condition.value);
-    case 'not_empty':
-      return asString.trim() !== '';
-    case 'empty':
-      return asString.trim() === '';
-    default:
-      return true;
-  }
-}
-
-/** Whether `field` should be shown given the current answers to ALL fields on the form. */
-export function isFieldVisible(
-  field: EventRegistrationFormField,
-  allValues: Record<string, unknown>
-): boolean {
-  return conditionHolds(field.condition as FormFieldCondition | null, allValues);
-}
-
-/**
- * Whether a whole section should be shown. A section's own rule gates every
- * field in it — "Category is Parent" on the Parent section hides all of its
- * questions at once, without repeating the rule on each field.
- */
-export function isSectionVisible(
-  section: { condition?: FormFieldCondition | null },
-  allValues: Record<string, unknown>
-): boolean {
-  return conditionHolds(section.condition ?? null, allValues);
-}
+// The rule evaluator lives in a pure module so the public-register API can
+// apply the same show-when logic on the server. Re-exported here so existing
+// client imports keep working.
+export {
+  conditionHolds,
+  isFieldVisible,
+  isSectionVisible,
+} from '@/lib/services/events/registration/form-visibility';
 
 /**
  * Where an upload should go. Absent on the BUILDER'S PREVIEW, which renders the

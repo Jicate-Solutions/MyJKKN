@@ -412,7 +412,8 @@ export interface FormFieldOption {
  * on the same form) satisfies `op` against `value`. */
 export interface FormFieldCondition {
   field: string;
-  op: 'eq' | 'neq' | 'contains' | 'not_empty' | 'empty';
+  /** 'in' = "is any of": `value` is a comma-separated list of option values. */
+  op: 'eq' | 'neq' | 'in' | 'contains' | 'not_empty' | 'empty';
   value: string;
 }
 

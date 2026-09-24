@@ -87,9 +87,9 @@ const ADDRESS_MIN_FONT = 16;
 // larger and the small print (valid-until, wrapped address, college contact
 // lines) one step smaller. Authored element sizes no longer override these —
 // fitText still shrinks a value that would not fit its box.
-const VALUE_FONT = 26;
+const VALUE_FONT = 30; // 2026-09-24: raised from 26 — values read small on the printed card
 const PREFERRED_VALUE_FONT: Record<string, number> = {
-  name_line_1: 34,
+  name_line_1: 38,
   roll_number: VALUE_FONT,
   father_name: VALUE_FONT,
   course: VALUE_FONT,
@@ -100,7 +100,7 @@ const PREFERRED_VALUE_FONT: Record<string, number> = {
   blood_group: VALUE_FONT,
   date_of_birth: VALUE_FONT,
   guardian: VALUE_FONT,
-  address: VALUE_FONT,
+  address: 26, // wraps to 4–5 lines; one step under the values so it stays in its band
   contact_phone: VALUE_FONT,
   institution_email: VALUE_FONT,
   institution_phone: VALUE_FONT,
@@ -150,6 +150,9 @@ function elementBox(
 ): { width: number; height: number } {
   const width = element.width ?? Math.max(40, canvasWidth - element.x - 24);
   if (element.height !== undefined) return { width, height: element.height };
+  // The name is a single headline: the FATHER row sits close under it by
+  // design, so measuring to the next element would shrink it. Width only.
+  if (element.field === 'name_line_1') return { width, height: 200 };
   const left = element.x;
   const right = element.x + width;
   let nextY = canvasHeight - 12;
@@ -1206,7 +1209,12 @@ export function learnerFrontRows(elements: readonly FrontLayoutElement[]): Front
   const isValidUpto = (el: FrontLayoutElement) =>
     el.field === 'valid_until' ||
     (el.field === 'static_text' && /VALID\s*(UP\s*TO|UNTIL|THRU|THROUGH)/i.test(el.text ?? ''));
-  const kept = elements.filter((el) => !isValidUpto(el));
+  const kept = elements
+    .filter((el) => !isValidUpto(el))
+    // Headings keep pace with the larger values: never below 24px.
+    .map((el) =>
+      el.field === 'static_text' && (el.font_size ?? 26) < 24 ? { ...el, font_size: 24 } : el
+    );
   if (kept.some((el) => el.field === 'father_name')) return kept; // authored explicitly
   const roll = kept.find((el) => el.field === 'roll_number');
   if (!roll) return kept;

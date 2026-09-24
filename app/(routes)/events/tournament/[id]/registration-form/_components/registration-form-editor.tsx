@@ -35,6 +35,7 @@ import {
 import { StandardFieldsCard, StandardFieldsPreview } from './standard-fields-card';
 import { FORM_FIELD_TYPES } from '@/types/tournament';
 import { REGISTRATION_PREFILL_SOURCES } from '@/lib/services/events/registration/form-prefill';
+import { parseConditionList } from '@/lib/services/events/registration/form-visibility';
 import type {
   EventRegistrationFormField,
   FormFieldType,
@@ -232,7 +233,8 @@ export interface ConditionSourceField {
 const CONDITION_OPS: { value: FormFieldCondition['op']; label: string; needsValue: boolean }[] = [
   { value: 'eq', label: 'is', needsValue: true },
   { value: 'neq', label: 'is not', needsValue: true },
-  { value: 'contains', label: 'contains', needsValue: true },
+  { value: 'in', label: 'is any of', needsValue: true },
+  { value: 'contains', label: 'contains text', needsValue: true },
   { value: 'not_empty', label: 'is answered', needsValue: false },
   { value: 'empty', label: 'is not answered', needsValue: false },
 ];
@@ -318,7 +320,42 @@ function ConditionEditor({
           </Select>
         )}
 
-        {condition && source && op.needsValue && (
+        {condition && source && op.value === 'in' && (
+          <div className="rounded-md border p-2 sm:col-span-1">
+            {choices && choices.length > 0 ? (
+              <div className="space-y-1">
+                {choices.map((o) => {
+                  const picked = parseConditionList(condition.value);
+                  const on = picked.includes(o.value);
+                  return (
+                    <label key={o.value} className="flex cursor-pointer items-center gap-2 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={(e) => {
+                          const next = e.target.checked
+                            ? [...picked, o.value]
+                            : picked.filter((v) => v !== o.value);
+                          onChange({ ...condition, value: next.join(', ') });
+                        }}
+                      />
+                      {o.label}
+                    </label>
+                  );
+                })}
+              </div>
+            ) : (
+              <Input
+                className="h-9"
+                value={condition.value}
+                onChange={(e) => onChange({ ...condition, value: e.target.value })}
+                placeholder="value1, value2, value3"
+              />
+            )}
+          </div>
+        )}
+
+        {condition && source && op.needsValue && op.value !== 'in' && (
           choices && choices.length > 0 && op.value !== 'contains' ? (
             <Select
               value={condition.value}
@@ -347,7 +384,15 @@ function ConditionEditor({
       </div>
       <p className="text-xs text-muted-foreground">
         {condition && source
-          ? `Hidden unless "${source.label || 'that field'}" ${op.label}${op.needsValue ? ` "${choices?.find((c) => c.value === condition.value)?.label ?? condition.value}"` : ''}. Hidden questions are never required.`
+          ? `Hidden unless "${source.label || 'that field'}" ${op.label}${
+              op.value === 'in'
+                ? ` ${parseConditionList(condition.value)
+                    .map((v) => `"${choices?.find((c) => c.value === v)?.label ?? v}"`)
+                    .join(', ') || '(pick at least one)'}`
+                : op.needsValue
+                  ? ` "${choices?.find((c) => c.value === condition.value)?.label ?? condition.value}"`
+                  : ''
+            }. Hidden questions are never required.`
           : `Shown to everyone. Pick a dropdown or choice field to show ${what} only for some answers — e.g. Category is "Parent".`}
       </p>
     </div>
