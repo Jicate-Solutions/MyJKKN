@@ -74,6 +74,7 @@ export class ServiceRequestService {
       .from('service_types')
       .select('*, approval_steps:service_request_approval_steps(*)')
       .eq('id', dto.service_type_id)
+      .eq('approval_steps.is_active', true)
       .single();
 
     if (typeError || !serviceType) {
@@ -438,6 +439,7 @@ export class ServiceRequestService {
       .from('service_requests')
       .select('*, service_type:service_types(*, approval_steps:service_request_approval_steps(*))')
       .eq('id', id)
+      .eq('service_type.approval_steps.is_active', true)
       .single();
 
     if (fetchError || !request) {
@@ -593,6 +595,8 @@ export class ServiceRequestService {
       .from('service_requests')
       .select(REQUEST_DETAIL_SELECT)
       .eq('id', id)
+      // Live flow only; the approvals embed keeps its own step join for history.
+      .eq('service_type.approval_steps.is_active', true)
       .single();
 
     if (error) {
@@ -702,7 +706,8 @@ export class ServiceRequestService {
     const { data: matchingSteps, error: stepsError } = await supabase
       .from('service_request_approval_steps')
       .select('step_order, service_type_id')
-      .eq('approver_role', userRole);
+      .eq('approver_role', userRole)
+      .eq('is_active', true);
 
     if (stepsError || !matchingSteps || matchingSteps.length === 0) {
       return {
