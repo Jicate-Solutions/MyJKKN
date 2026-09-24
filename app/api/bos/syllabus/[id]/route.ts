@@ -9,6 +9,7 @@ import {
   isBosReadAllObserver,
 } from '@/lib/utils/bos/bos-access';
 import { BosCourseSyllabus, UpdateBosSyllabusDto } from '@/types/bos';
+import { normalizeStreamInput } from '@/lib/utils/bos/stream-filter';
 
 /**
  * GET /api/bos/syllabus/[id]
@@ -218,7 +219,7 @@ export async function PUT(
       .update({
         course_name: body.course_name,
         course_credits: body.course_credits,
-        stream: body.stream,
+        stream: normalizeStreamInput(body.stream),
         // NAAC-2024 coverage tags (metrics 1.4 / 1.6). undefined keys are
         // dropped by supabase-js, so requests that omit them leave the row as-is.
         is_skill_based: body.is_skill_based,
