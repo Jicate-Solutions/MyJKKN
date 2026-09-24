@@ -29,6 +29,7 @@ import {
   BLOOM_LEVELS,
   OPTION_KEYS,
   approvalBlockers,
+  topicLabel,
   useApproveDraft,
   useSaveDraft,
   type BloomLevel,
@@ -323,7 +324,10 @@ export function DraftCard({ draft, examId, examKey, topics, tags, userId, twins 
               onChange={(e) => setStem(e.target.value)}
               rows={2}
               className="text-[15px] leading-relaxed"
-              placeholder="English stem — mark an underlined word as <u>word</u>"
+              placeholder={
+                // The <u>word</u> hint is for English synonym / antonym items only.
+                examKey === 'tn_hsc_english' ? 'English stem — mark an underlined word as <u>word</u>' : 'English stem'
+              }
             />
             <div className="grid gap-2 sm:grid-cols-2">
               {OPTION_KEYS.map((k) => (
@@ -429,7 +433,7 @@ export function DraftCard({ draft, examId, examKey, topics, tags, userId, twins 
                 <SelectItem value={NO_TOPIC}>Not anchored to a unit</SelectItem>
                 {topics.map((t) => (
                   <SelectItem key={t.id} value={t.id}>
-                    {t.display_name}
+                    {topicLabel(t, examKey)}
                   </SelectItem>
                 ))}
               </SelectContent>

@@ -57,7 +57,7 @@ import {
   type RequestOutcome,
 } from '@/lib/services/onemark/draft-request';
 import { useDraftBudget, useDraftJobStatus, useSubmitDraftRequest } from '@/hooks/onemark/use-draft-request';
-import { BLOOM_LABELS, useDraftTags, useDraftTopics, useOneMarkExams } from '../_lib/drafts';
+import { BLOOM_LABELS, topicLabel, useDraftTags, useDraftTopics, useOneMarkExams } from '../_lib/drafts';
 
 // Radix crashes on an empty-string SelectItem value; sentinels instead.
 const ANY_UNIT = '__any_unit';
@@ -260,7 +260,7 @@ export function RequestDraftsPanel({ examId, onSubjectChange }: RequestDraftsPan
               <SelectItem value={ANY_UNIT}>Any unit — draw on the whole subject</SelectItem>
               {(topics ?? []).map((t) => (
                 <SelectItem key={t.id} value={t.id}>
-                  {t.display_name}
+                  {topicLabel(t, exam?.config_key)}
                 </SelectItem>
               ))}
             </SelectContent>
