@@ -5,6 +5,11 @@
 // copy-on-write edits. Answers are shown only when the API sent them — to a
 // paper builder (foundation.assessments.manage; Director ruling 2026-09-05),
 // never on a learner-facing surface.
+//
+// The preview-language switch lives here (Physics PRD §1014 puts it in the
+// Step-4 checklist): it only changes what this step shows, so it saves with
+// 'save' and never regenerates — swaps, locks and edits survive it. An English
+// paper is monolingual and gets no switch.
 
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -14,21 +19,27 @@ import type { usePaperAction } from '@/hooks/onemark/use-paper';
 import {
   JABT_LEVEL_LABELS,
   levelOf,
+  type ExamReference,
   type PaperDetail,
   type PaperParams,
+  type PreviewLanguage,
   type QuestionOverride,
   type ResolvedQuestion,
 } from '@/lib/services/onemark/paper-service';
 import { QuestionCard } from './question-card';
+import { BoardShapeOffNote } from './step-quantity';
 
 interface StepPreviewProps {
   paper: PaperDetail;
   draft: PaperParams;
+  patch: (p: Partial<PaperParams>) => void;
+  /** For chapter names in the shortfall banner. */
+  reference: ExamReference | null;
   act: ReturnType<typeof usePaperAction>;
   disabled: boolean;
 }
 
-export function StepPreview({ paper, draft, act, disabled }: StepPreviewProps) {
+export function StepPreview({ paper, draft, patch, reference, act, disabled }: StepPreviewProps) {
   const [exhausted, setExhausted] = useState<Record<string, string>>({});
   const report = paper.config.last_generation;
   const questions = paper.questions;
@@ -42,7 +53,26 @@ export function StepPreview({ paper, draft, act, disabled }: StepPreviewProps) {
   const lockMoves = report?.lock_moves ?? [];
   const boardConflicts = paper.board_conflicts ?? [];
   const poolShortfall = !!report && report.available < report.requested;
-  const boardOn = draft.enforce_board_blueprint && paper.exam.config_key === 'tn_hsc_english';
+  const english = paper.exam.config_key === 'tn_hsc_english';
+  const boardOn = draft.enforce_board_blueprint && english;
+  const chapterShortfalls = report?.chapter_shortfalls ?? [];
+  const levelShortfalls = report?.level_shortfalls ?? [];
+  const lockOverruns = report?.chapter_lock_overruns ?? [];
+  const chapterTrims = report?.chapter_trims ?? [];
+  const chapterName = (id: string | null) =>
+    id === null ? 'Grammar (no chapter)' : (reference?.chapters.find((c) => c.id === id)?.display_name ?? 'A chapter');
+  const levelName = (k: keyof typeof JABT_LEVEL_LABELS) => JABT_LEVEL_LABELS[k].split(' · ')[0];
+
+  // Display only: show it at once, store it without regenerating.
+  async function setPreviewLanguage(l: PreviewLanguage) {
+    patch({ preview_language: l });
+    if (disabled) return;
+    try {
+      await act.mutateAsync({ action: 'save', params: { preview_language: l } });
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Could not save the preview language');
+    }
+  }
 
   // Questions and gaps interleaved by printed position.
   const rows: ({ kind: 'q'; q: ResolvedQuestion } | { kind: 'gap'; position: number; tag_key: string })[] = [
@@ -87,11 +117,34 @@ export function StepPreview({ paper, draft, act, disabled }: StepPreviewProps) {
             {paper.config.locked_ids.length > 0 && ` · ${paper.config.locked_ids.length} locked`}
           </p>
         </div>
-        <Button variant="outline" size="sm" disabled={disabled} onClick={() => run({ action: 'generate' }, 'Regenerated — locked questions kept their slots')}>
-          {act.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1.5 h-4 w-4" />}
-          Regenerate unlocked
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {!english && (
+            <div className="flex items-center gap-1.5" role="group" aria-label="Preview language">
+              {(['ta', 'en', 'both'] as PreviewLanguage[]).map((l) => (
+                <button
+                  key={l}
+                  type="button"
+                  disabled={act.isPending}
+                  aria-pressed={draft.preview_language === l}
+                  onClick={() => setPreviewLanguage(l)}
+                  className={[
+                    'h-9 rounded-md border px-3 text-sm transition-colors',
+                    draft.preview_language === l ? 'border-[#0b6d41] bg-[#0b6d41] text-white' : 'border-border hover:bg-muted',
+                  ].join(' ')}
+                >
+                  {l === 'ta' ? 'தமிழ்' : l === 'en' ? 'English' : 'Both'}
+                </button>
+              ))}
+            </div>
+          )}
+          <Button variant="outline" size="sm" disabled={disabled} onClick={() => run({ action: 'generate' }, 'Regenerated — locked questions kept their slots')}>
+            {act.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1.5 h-4 w-4" />}
+            Regenerate unlocked
+          </Button>
+        </div>
       </div>
+
+      {english && !draft.enforce_board_blueprint && <BoardShapeOffNote />}
 
       {report && poolShortfall && (
         <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm" role="alert">
@@ -99,6 +152,15 @@ export function StepPreview({ paper, draft, act, disabled }: StepPreviewProps) {
             <AlertTriangle className="h-4 w-4 text-amber-600" />
             You asked for {report.requested}; these filters can supply {report.available}.
           </p>
+          {chapterShortfalls.length > 0 && (
+            <ul className="list-disc pl-6 text-xs text-foreground">
+              {chapterShortfalls.map((c) => (
+                <li key={c.chapter_id ?? 'none'}>
+                  You asked for {c.requested} from {chapterName(c.chapter_id)}; {c.available} available.
+                </li>
+              ))}
+            </ul>
+          )}
           <p className="text-xs text-muted-foreground">Nothing is padded from other chapters, other sources, or unapproved drafts. Choose:</p>
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" disabled={disabled || report.available < 1} onClick={() => run({ action: 'use_available' }, `Paper set to ${report.available} questions`)}>
@@ -106,6 +168,41 @@ export function StepPreview({ paper, draft, act, disabled }: StepPreviewProps) {
             </Button>
             <span className="self-center text-xs text-muted-foreground">or go back and widen the chapters, tags, sources or years.</span>
           </div>
+        </div>
+      )}
+
+      {levelShortfalls.length > 0 && (
+        <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm" role="status">
+          <p className="font-medium text-foreground">Your level mix could not be met with these chapters and filters — the rest came from other levels.</p>
+          <ul className="mt-1 list-disc pl-6 text-xs text-muted-foreground">
+            {levelShortfalls.map((l) => (
+              <li key={l.level}>
+                {levelName(l.level)}: asked for {l.requested}; {l.available} on the paper.
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {lockOverruns.length > 0 && (
+        <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm" role="alert">
+          <p className="flex items-center gap-2 font-medium text-foreground">
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+            Locked questions go past your chapter counts — every lock stays, so the paper does not match the counts you set.
+          </p>
+          <ul className="list-disc pl-6 text-xs text-foreground">
+            {lockOverruns.map((o) => (
+              <li key={`over-${o.chapter_id ?? 'none'}`}>
+                {chapterName(o.chapter_id)}: {o.locked} locked; you set {o.requested}.
+              </li>
+            ))}
+            {chapterTrims.map((t) => (
+              <li key={`trim-${t.chapter_id ?? 'none'}`}>
+                {chapterName(t.chapter_id)}: you set {t.requested}; {t.placed} on the paper.
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-muted-foreground">Unlock some of those questions, or change the chapter counts on Step 3 to match.</p>
         </div>
       )}
 
@@ -133,7 +230,7 @@ export function StepPreview({ paper, draft, act, disabled }: StepPreviewProps) {
               disabled={disabled || !boardOn}
               onClick={async () => {
                 await run({ action: 'save', params: { enforce_board_blueprint: false } });
-                await run({ action: 'generate' }, 'Board shape off — synonyms and antonyms are ordinary tags now');
+                await run({ action: 'generate' }, 'Board shape off — the paper no longer matches the official board structure; synonyms and antonyms are ordinary tags now');
               }}
             >
               Switch board shape off
@@ -197,6 +294,7 @@ export function StepPreview({ paper, draft, act, disabled }: StepPreviewProps) {
                 <QuestionCard
                   question={row.q}
                   language={draft.preview_language}
+                  monolingual={english}
                   canSeeAnswers={paper.can_see_answers}
                   disabled={disabled}
                   exhaustedReason={exhausted[row.q.item_id] ?? (row.q.swap_available ? null : 'No unused question left with the same chapter, tag and level.')}

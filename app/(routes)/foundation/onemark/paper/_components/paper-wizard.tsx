@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { usePaper, usePaperAction, usePaperReference } from '@/hooks/onemark/use-paper';
 import {
   LEVEL_KEYS,
+  manualChapterTotal,
   type PaperParams,
   type WizardStep,
 } from '@/lib/services/onemark/paper-service';
@@ -83,6 +84,16 @@ export function PaperWizard() {
   );
   const levelMixSet = levelMixTotal > 0;
   const levelMixBalanced = !levelMixSet || levelMixTotal === (draft?.question_count ?? 0);
+  // Manual distribution: the chapter counts must add up to the question count
+  // (decision 11 — the engine never tops a short chapter up from another).
+  // Not checked while the English board shape is on: the distribution is
+  // hidden and unused there.
+  const manualTotal = draft ? manualChapterTotal(draft) : 0;
+  const manualApplies =
+    !!draft &&
+    draft.distribution_mode === 'manual' &&
+    !(paper?.exam.config_key === 'tn_hsc_english' && draft.enforce_board_blueprint);
+  const manualBalanced = !manualApplies || (manualTotal > 0 && manualTotal === (draft?.question_count ?? 0));
 
   const busy = act.isPending;
   const finalized = paper?.config.state === 'FINALIZED';
@@ -96,6 +107,10 @@ export function PaperWizard() {
           toast.error(`The level mix adds up to ${levelMixTotal}, not ${draft.question_count}.`);
           return;
         }
+        if (!manualBalanced) {
+          toast.error(`The chapter counts add up to ${manualTotal}, not ${draft.question_count}.`);
+          return;
+        }
         await act.mutateAsync({ action: 'save', params: draft, step: 4, title });
         await act.mutateAsync({ action: 'generate' });
         setStep(4);
@@ -104,7 +119,11 @@ export function PaperWizard() {
       if (next === 5) {
         const r = await act.mutateAsync({ action: 'finalize' });
         setStep(5);
-        toast.success(`Finalised — ${r.paper.questions.length} questions in order.`);
+        const held = r.paper.questions.length;
+        const asked = r.paper.config.params.question_count;
+        // Decision 11: show the real number on a shortfall, never pad.
+        if (held < asked) toast.warning(`Finalised with ${held} of the ${asked} questions you asked for.`);
+        else toast.success(`Finalised — ${held} questions in order.`);
         return;
       }
       if (step === 5 && next < 5 && finalized && !published) {
@@ -150,7 +169,7 @@ export function PaperWizard() {
     !busy &&
     !published &&
     (step !== 4 || (paper.questions.length > 0 && boardGaps === 0)) &&
-    (step !== 3 || levelMixBalanced) &&
+    (step !== 3 || (levelMixBalanced && manualBalanced)) &&
     step < 5;
 
   return (
@@ -249,14 +268,22 @@ export function PaperWizard() {
             disabled={busy || published}
           />
         ) : step === 4 ? (
-          <StepPreview paper={paper} draft={draft} act={act} disabled={busy || published} />
+          <StepPreview
+            paper={paper}
+            draft={draft}
+            patch={patch}
+            reference={reference.exam_reference}
+            act={act}
+            disabled={busy || published}
+          />
         ) : (
           <StepOutput paper={paper} reference={reference.exam_reference} act={act} disabled={busy} />
         )}
       </section>
 
-      {/* Footer */}
-      <div className="flex items-center justify-between">
+      {/* Footer — below 1024px the floating Help button sits over the
+          bottom-left corner; the extra padding keeps Back clear of it. */}
+      <div className="flex items-center justify-between pb-12 lg:pb-0">
         <Button
           variant="outline"
           onClick={() => goTo((step - 1) as WizardStep)}
