@@ -1212,6 +1212,7 @@ export async function assembleCardData(
       address =
         joinPrintableAddress({
           street: learner.permanent_address_street,
+          taluk: learner.permanent_address_taluk,
           district: learner.permanent_address_district,
           state: learner.permanent_address_state,
           pinCode: learner.permanent_address_pin_code

@@ -54,6 +54,12 @@ function pickSupportedMime(): { mime: string; ext: string } | null {
   return { mime: '', ext: 'webm' };
 }
 
+/** The `call-memos` bucket allowlists bare MIME types; `audio/webm;codecs=opus` is rejected. */
+export function normalizeMemoContentType(blobType?: string | null, fallback?: string | null): string {
+  const raw = blobType || fallback || 'audio/webm';
+  return raw.split(';')[0].trim() || 'audio/webm';
+}
+
 type RecorderState = 'idle' | 'recording' | 'recorded' | 'uploading' | 'uploaded' | 'error';
 
 export interface VoiceMemoRecorderHandle {
@@ -389,7 +395,8 @@ export const VoiceMemoRecorder = forwardRef<VoiceMemoRecorderHandle, VoiceMemoRe
             // Use the extension that matches the format the recorder actually
             // produced — webm on Chrome/Firefox/Android, mp4 on iOS Safari.
             const ext = chosenExtRef.current || 'webm';
-            const contentType = blob.type || chosenMimeRef.current || 'audio/webm';
+            // Strip any `;codecs=` parameter — the bucket only allowlists bare MIME types.
+            const contentType = normalizeMemoContentType(blob.type, chosenMimeRef.current);
             const path = `${institutionId}/${callLogId}.${ext}`;
             const { error: uploadErr } = await supabase.storage
               .from(bucket)

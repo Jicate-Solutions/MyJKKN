@@ -101,16 +101,16 @@ describe('back icon mode — values sit beside the artwork icons', () => {
 
     const blood = nodes.find((n) => n.text === 'A1B')!;
     expect(blood.left).toBe(44 + 80);
-    // Block centred on the icon at the uniform 26px value size: 70 + 30 − (26 × 1.15) / 2 ≈ 85
-    expect(blood.top).toBe(85);
+    // Centred on the icon at the uniform 30px value size: 70 + 30 − (30 × 1.15) / 2 ≈ 83
+    expect(blood.top).toBe(83);
 
     const dob = nodes.find((n) => n.text === '02 May 1987')!;
     expect(dob.left).toBe(124);
-    expect(dob.top).toBe(Math.round(180 + 30 - (26 * 1.15) / 2)); // 195
+    expect(dob.top).toBe(Math.round(180 + 30 - (30 * 1.15) / 2)); // 193
     expect(dob.width).toBe(550 - 80); // box narrows so it still ends at the same right edge
 
     const phone = nodes.find((n) => n.text === '9894848882')!;
-    expect(phone.top).toBe(Math.round(470 + 30 - (26 * 1.15) / 2)); // 485
+    expect(phone.top).toBe(Math.round(470 + 30 - (30 * 1.15) / 2)); // 483
 
     // Non-heading static text keeps its row but also clears the icon column.
     const ph = nodes.find((n) => n.text === 'PH: 99659 39333')!;
@@ -127,7 +127,7 @@ describe('back icon mode — values sit beside the artwork icons', () => {
     const nodes = render({ elements }, TINY_PNG);
     const addr = nodes.find((n) => n.text.startsWith('2-209/1'))!;
     // Same anchor as a one-line value at the fitted size (≤ 26px): never above it.
-    expect(addr.top).toBeGreaterThanOrEqual(Math.round(290 + 30 - (26 * 1.15) / 2));
+    expect(addr.top).toBeGreaterThanOrEqual(Math.round(290 + 30 - (30 * 1.15) / 2));
     expect(addr.top).toBeLessThanOrEqual(290 + 30);
     expect(addr.left).toBe(124);
   });
@@ -144,7 +144,7 @@ describe('back icon mode — values sit beside the artwork icons', () => {
     const nodes = render({ elements }, TINY_PNG);
     const blood = nodes.find((n) => n.text === 'A1B')!;
     expect(blood.left).toBe(44 + 80);
-    expect(blood.top).toBe(85);
+    expect(blood.top).toBe(83);
     const phone = nodes.find((n) => n.text === '9894848882')!;
     expect(phone.left).toBe(124);
     expect(phone.width).toBe(400 - (124 - 160)); // box grows back by the leftward move
@@ -156,7 +156,7 @@ describe('back icon mode — values sit beside the artwork icons', () => {
     const nodes = render({ icon_gutter: 0 }, TINY_PNG);
     const blood = nodes.find((n) => n.text === 'A1B')!;
     expect(blood.left).toBe(44);
-    expect(blood.top).toBe(85);
+    expect(blood.top).toBe(83);
   });
 
   it('without artwork there is no icon column: headings hidden, positions untouched', () => {

@@ -10,15 +10,23 @@
 // Hybrid identity mirrors the tournament page: a signed-in JKKN user has their
 // name prefilled and their profile linked server-side; a guest types theirs.
 
+import type { FormFieldCondition } from '@/types/tournament';
 import { useMemo, useState } from 'react';
 import { CheckCircle2, ListOrdered, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { EventRazorpayHostedRedirect } from '@/components/events/event-razorpay-hosted-redirect';
-import { DynamicFieldInput, isFieldVisible } from '@/components/events/dynamic-field-input';
+import {
+  DynamicFieldInput,
+  isFieldVisible,
+  isSectionVisible,
+} from '@/components/events/dynamic-field-input';
 import {
   applyRegistrationPrefill,
+  deriveContactFromAnswers,
+  formCanSupplyName,
+  type ContactBlockMode,
   type RegistrationPrefill,
 } from '@/lib/services/events/registration/form-prefill';
 import {
@@ -28,10 +36,18 @@ import {
   type EventRegistrationFormField,
 } from '@/types/tournament';
 
+/**
+ * Fields laid out two per row inside a section ("left & right"); anything that
+ * needs the full width — long text, pictures, uploads, multi-choice — spans
+ * both columns. Everything is one column on a phone.
+ */
+const FULL_WIDTH_TYPES = new Set(['textarea', 'image_display', 'file', 'image', 'multi_select', 'checkbox']);
+
 interface SectionWithFields {
   id: string;
   title: string;
   display_order: number;
+  condition?: FormFieldCondition | null;
   fields: EventRegistrationFormField[];
 }
 
@@ -41,6 +57,15 @@ interface RzpState {
   amountPaise: number;
   customer: { name?: string; email?: string; phone?: string };
 }
+
+/** Section cards cycle through these so a long form reads as distinct blocks. */
+const SECTION_TONES = [
+  { card: 'border-sky-200/70 bg-sky-50/50 dark:border-sky-900 dark:bg-sky-950/30', title: 'text-sky-900 dark:text-sky-100', bar: 'bg-sky-500' },
+  { card: 'border-violet-200/70 bg-violet-50/50 dark:border-violet-900 dark:bg-violet-950/30', title: 'text-violet-900 dark:text-violet-100', bar: 'bg-violet-500' },
+  { card: 'border-amber-200/70 bg-amber-50/50 dark:border-amber-900 dark:bg-amber-950/30', title: 'text-amber-900 dark:text-amber-100', bar: 'bg-amber-500' },
+  { card: 'border-rose-200/70 bg-rose-50/50 dark:border-rose-900 dark:bg-rose-950/30', title: 'text-rose-900 dark:text-rose-100', bar: 'bg-rose-500' },
+  { card: 'border-teal-200/70 bg-teal-50/50 dark:border-teal-900 dark:bg-teal-950/30', title: 'text-teal-900 dark:text-teal-100', bar: 'bg-teal-500' },
+];
 
 const formatMoney = (n: number) =>
   `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
@@ -54,6 +79,7 @@ export function EventRegisterForm({
   signedInName,
   signedInEmail,
   prefill,
+  contactBlock = 'top',
   full = false,
   claimOnly = false,
   sections,
@@ -68,6 +94,8 @@ export function EventRegisterForm({
   signedInEmail: string | null;
   /** The signed-in person's profile values, keyed by prefill source; {} for a guest. */
   prefill?: RegistrationPrefill;
+  /** Where the built-in name/phone/email block sits, or 'hidden'. */
+  contactBlock?: ContactBlockMode;
   /**
    * The event has no places left AND its cap_behavior is 'waitlist', so this
    * form is still open on purpose for a signed-in person: sending it joins the
@@ -110,9 +138,13 @@ export function EventRegisterForm({
 
   // Conditional fields: a hidden field must not be required, or the form becomes
   // unsubmittable for anyone whose answers hide it.
+  // A field is visible only if its SECTION is — a required field inside a
+  // hidden section must not block submission.
   const visibleFields = useMemo(
     () =>
-      sections.flatMap((s) => (s.fields ?? []).filter((f) => isFieldVisible(f, customFields))),
+      sections
+        .filter((s) => isSectionVisible(s, customFields))
+        .flatMap((s) => (s.fields ?? []).filter((f) => isFieldVisible(f, customFields))),
     [sections, customFields]
   );
 
@@ -129,8 +161,25 @@ export function EventRegisterForm({
     return v === undefined || v === null || v === '';
   });
 
+  // 'hidden' only works when the organizer's fields can supply a name; if they
+  // cannot, fall back to showing the block rather than shipping an
+  // unsubmittable form.
+  const allFields = useMemo(() => sections.flatMap((s) => s.fields ?? []), [sections]);
+  const blockMode: ContactBlockMode =
+    contactBlock === 'hidden' && !formCanSupplyName(allFields) ? 'top' : contactBlock;
+  const derived = useMemo(
+    () => (blockMode === 'hidden' ? deriveContactFromAnswers(visibleFields, customFields) : null),
+    [blockMode, visibleFields, customFields],
+  );
+  // What is actually sent: the block's inputs, or the answers standing in for them.
+  const contactName = derived ? derived.name : name;
+  const contactEmail = derived ? derived.email : email;
+  const contactPhone = derived ? derived.phone : phone;
+
   const canSubmit =
-    name.trim().length > 0 && (phone.trim().length > 0 || email.trim().length > 0) && !missingRequired;
+    contactName.trim().length > 0 &&
+    (contactPhone.trim().length > 0 || contactEmail.trim().length > 0) &&
+    !missingRequired;
 
   async function submit() {
     setBusy(true);
@@ -141,9 +190,9 @@ export function EventRegisterForm({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           form_id: formId,
-          participant_name: name.trim(),
-          participant_email: email.trim() || null,
-          participant_phone: phone.trim() || null,
+          participant_name: contactName.trim(),
+          participant_email: contactEmail.trim() || null,
+          participant_phone: contactPhone.trim() || null,
           custom_fields: customFields,
         }),
       });
@@ -229,33 +278,7 @@ export function EventRegisterForm({
     );
   }
 
-  return (
-    <div className="space-y-5 rounded-xl border bg-card p-5 shadow-sm">
-      {full && (
-        <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
-          <p className="flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-400">
-            <ListOrdered className="h-4 w-4" />
-            {claimOnly ? 'A place is being held for you' : 'This event is full'}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {claimOnly
-              ? 'Registration has otherwise closed. Send this form to take the place up before the hold lapses.'
-              : 'Send this form to join the waiting list. If a place frees up it is offered to whoever is at the front and held for them for 24 hours — or, if a place is already being held for you, sending this takes it up.'}
-          </p>
-        </div>
-      )}
-
-      {isPaid && (
-        <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
-          <p className="text-sm font-medium">
-            {feeLabel ?? 'Registration fee'}: {formatMoney(fee)}
-          </p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            You&apos;ll be taken to a secure Razorpay page to pay after you submit.
-          </p>
-        </div>
-      )}
-
+  const contactBlockEl = (
       <div className="space-y-4">
         <div className="space-y-1.5">
           <Label htmlFor="participant_name">
@@ -296,30 +319,85 @@ export function EventRegisterForm({
           Give at least one of phone or email so the organizer can reach you.
         </p>
       </div>
+  );
 
-      {sections.map((section) => {
+  return (
+    <div className="space-y-6 rounded-2xl border border-emerald-200/70 bg-card p-5 shadow-md sm:p-7 dark:border-emerald-900">
+      {full && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
+          <p className="flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-400">
+            <ListOrdered className="h-4 w-4" />
+            {claimOnly ? 'A place is being held for you' : 'This event is full'}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {claimOnly
+              ? 'Registration has otherwise closed. Send this form to take the place up before the hold lapses.'
+              : 'Send this form to join the waiting list. If a place frees up it is offered to whoever is at the front and held for them for 24 hours — or, if a place is already being held for you, sending this takes it up.'}
+          </p>
+        </div>
+      )}
+
+      {isPaid && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
+          <p className="text-sm font-medium">
+            {feeLabel ?? 'Registration fee'}: {formatMoney(fee)}
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            You&apos;ll be taken to a secure Razorpay page to pay after you submit.
+          </p>
+        </div>
+      )}
+
+      {blockMode === 'top' && (
+        <section className="rounded-xl border border-emerald-200/70 bg-emerald-50/50 p-4 dark:border-emerald-900 dark:bg-emerald-950/30">
+          <h3 className="mb-3 text-sm font-semibold text-emerald-900 dark:text-emerald-100">Your details</h3>
+          {contactBlockEl}
+        </section>
+      )}
+
+      {sections.map((section, idx) => {
+        if (!isSectionVisible(section, customFields)) return null;
         const fields = (section.fields ?? []).filter((f) => isFieldVisible(f, customFields));
         if (fields.length === 0) return null;
+        const tone = SECTION_TONES[idx % SECTION_TONES.length];
         return (
-          <div key={section.id} className="space-y-4 border-t pt-4">
-            {section.title && <h3 className="text-sm font-semibold">{section.title}</h3>}
-            {fields.map((field) => (
-              <DynamicFieldInput
-                key={field.id}
-                field={field}
-                value={customFields[field.field_key]}
-                // Enables real uploading. Without it the control renders
-                // disabled — which is what the builder's preview wants, but
-                // would silently break the live form.
-                uploadContext={{ eventId, formId }}
-                onChange={(value) =>
-                  setCustomFields((prev) => ({ ...prev, [field.field_key]: value }))
-                }
-              />
-            ))}
-          </div>
+          <section key={section.id} className={`rounded-xl border p-4 ${tone.card}`}>
+            {section.title && (
+              <h3 className={`mb-3 flex items-center gap-2 text-sm font-semibold ${tone.title}`}>
+                <span className={`h-5 w-1.5 rounded-full ${tone.bar}`} aria-hidden />
+                {section.title}
+              </h3>
+            )}
+            <div className="grid gap-4 sm:grid-cols-2">
+              {fields.map((field) => (
+                <div
+                  key={field.id}
+                  className={FULL_WIDTH_TYPES.has(field.field_type) ? 'sm:col-span-2' : undefined}
+                >
+                  <DynamicFieldInput
+                    field={field}
+                    value={customFields[field.field_key]}
+                    // Enables real uploading. Without it the control renders
+                    // disabled — which is what the builder's preview wants, but
+                    // would silently break the live form.
+                    uploadContext={{ eventId, formId }}
+                    onChange={(value) =>
+                      setCustomFields((prev) => ({ ...prev, [field.field_key]: value }))
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+          </section>
         );
       })}
+
+      {blockMode === 'bottom' && (
+        <section className="rounded-xl border border-emerald-200/70 bg-emerald-50/50 p-4 dark:border-emerald-900 dark:bg-emerald-950/30">
+          <h3 className="mb-3 text-sm font-semibold text-emerald-900 dark:text-emerald-100">Your details</h3>
+          {contactBlockEl}
+        </section>
+      )}
 
       {error && (
         <p className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
@@ -327,7 +405,12 @@ export function EventRegisterForm({
         </p>
       )}
 
-      <Button onClick={submit} disabled={!canSubmit || busy} className="w-full gap-2">
+      <Button
+        onClick={submit}
+        disabled={!canSubmit || busy}
+        size="lg"
+        className="w-full gap-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-sky-600 text-white shadow-md hover:from-emerald-700 hover:via-teal-700 hover:to-sky-700"
+      >
         {busy && <Loader2 className="h-4 w-4 animate-spin" />}
         {isPaid ? `Register & pay ${formatMoney(fee)}` : 'Register'}
       </Button>
