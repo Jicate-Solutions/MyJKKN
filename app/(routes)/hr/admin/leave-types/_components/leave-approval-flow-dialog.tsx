@@ -58,9 +58,10 @@ import {
   useSaveLeaveApprovalFlow,
 } from '@/hooks/hr/use-leave-approval-flows';
 import { useHrOrgMappings } from '@/hooks/hr/use-hr-org-mappings';
+import { LEAVE_STAFF_GROUP_LABELS } from '@/types/hr-leave-types';
 import type {
-  HRLeaveType, LeaveApprovalFlowStep, LeaveChainResyncResult, LeaveFlowRunMode,
-  LeaveFlowStepSource, LeaveStepQuorum,
+  HRLeaveType, LeaveApprovalFlowStep, LeaveChainResyncResult, LeaveFlowFor, LeaveFlowRunMode,
+  LeaveFlowSlot, LeaveFlowStepSource, LeaveStepQuorum,
 } from '@/types/hr-leave-types';
 import { getErrorMessage } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -95,6 +96,9 @@ const draftKey = (prefix: string): string => {
   return `${prefix}${c?.randomUUID ? c.randomUUID() : `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`}`;
 };
 
+/** All staff first: it is the default, and the only slot most types ever use. */
+const SLOTS: LeaveFlowSlot[] = [null, 'teaching', 'non_teaching'];
+
 const newStep = (p?: Partial<DraftStep>): DraftStep => ({
   key: draftKey('s'),
   approvers: [newApprover()],
@@ -107,13 +111,31 @@ export function LeaveApprovalFlowDialog({
   leaveType,
   open,
   onOpenChange,
+  flowFor = 'leave_approval',
 }: {
   leaveType: HRLeaveType | null;
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  /**
+   * 'leave_eligibility' turns this into "Who approves eligibility" (2026-09-21):
+   * the same editor over the same table, minus the staff-group tabs (an
+   * eligibility flow governs everyone who asks) and minus the re-route offer
+   * (pending eligibility requests are few and short-lived). A gated type with
+   * no eligibility flow routes its requests to its LEAVE flow, so the editor
+   * seeds from that when there is nothing of its own to show.
+   */
+  flowFor?: LeaveFlowFor;
 }) {
+  const isEligibility = flowFor === 'leave_eligibility';
   const hrOrgId = leaveType?.hr_organization_id;
-  const { data: resolved, isLoading } = useLeaveApprovalFlow(hrOrgId, leaveType?.id);
+  const { data: resolved, isLoading } = useLeaveApprovalFlow(hrOrgId, leaveType?.id, flowFor);
+  // The leave flow behind an eligibility flow — what a request falls back to
+  // and what an empty editor seeds from. Fetched only in eligibility mode.
+  const { data: leaveResolved, isLoading: leaveLoading } = useLeaveApprovalFlow(
+    isEligibility ? hrOrgId : undefined,
+    leaveType?.id,
+    'leave_approval'
+  );
   const { data: roles } = useLeaveApproverRoles(open);
 
   // Leave types are keyed on hr_organization_id, which is meaningless on screen.
@@ -143,6 +165,39 @@ export function LeaveApprovalFlowDialog({
     { flowId: string; drift: LeaveChainResyncResult } | null
   >(null);
 
+  /**
+   * WHICH STAFF THE FLOW ON SCREEN GOVERNS.
+   *
+   * `null` is the All staff slot — the only one that existed before
+   * 2026-09-19, and still the default every dialog opens on. Picking Teaching
+   * or Non-teaching edits a flow that OVERRIDES All staff for that group only;
+   * a group with no flow of its own keeps using All staff, so nothing here has
+   * to be filled in for the feature to stay off.
+   */
+  const [slot, setSlot] = useState<LeaveFlowSlot>(null);
+
+  /** The saved flow for the slot on screen, or null when it inherits. */
+  const slotOwnFlow =
+    slot === 'teaching'
+      ? resolved?.teaching ?? null
+      : slot === 'non_teaching'
+        ? resolved?.nonTeaching ?? null
+        : resolved?.own ?? null;
+
+  /**
+   * What the slot resolves to TODAY, own flow or inherited. This is what the
+   * editor seeds from, so opening a group tab that has no flow yet starts from
+   * the chain those staff actually get rather than from an empty one.
+   */
+  const slotEffective =
+    slot === 'teaching'
+      ? resolved?.effectiveTeaching ?? null
+      : slot === 'non_teaching'
+        ? resolved?.effectiveNonTeaching ?? null
+        : // An eligibility flow with nothing of its own falls back to the LEAVE
+          // flow at request time, so that is what the editor opens on.
+          resolved?.effective ?? (isEligibility ? leaveResolved?.effective ?? null : null);
+
   const [steps, setSteps] = useState<DraftStep[]>([]);
   const [stepSource, setStepSource] = useState<LeaveFlowStepSource>('explicit');
   const [runMode, setRunMode] = useState<LeaveFlowRunMode>('sequential');
@@ -161,8 +216,16 @@ export function LeaveApprovalFlowDialog({
   // opens on exactly what is stored, not on a migrated approximation.
   useEffect(() => {
     if (!open || isLoading || !leaveType) return;
-    if (seeded === leaveType.id) return;
-    const src = resolved?.effective;
+    // In eligibility mode the seed may come from the leave flow, so wait for
+    // it too — seeding once from `null` and never again is how the editor would
+    // open empty on a type whose leave flow is perfectly good.
+    if (isEligibility && leaveLoading) return;
+    // Keyed on the SLOT as well as the type, so switching to the Non-teaching
+    // tab re-seeds the editor from that group's flow instead of leaving the
+    // All-staff chain on screen under a different heading.
+    const seedKey = `${leaveType.id}|${slot ?? 'all'}`;
+    if (seeded === seedKey) return;
+    const src = slotEffective;
 
     setStepSource(src?.step_source ?? 'explicit');
     setRunMode(src?.run_mode ?? 'sequential');
@@ -199,11 +262,16 @@ export function LeaveApprovalFlowDialog({
           )
         : [newStep()]
     );
-    setSeeded(leaveType.id);
-  }, [open, isLoading, leaveType, resolved, seeded]);
+    setSeeded(seedKey);
+  }, [open, isLoading, isEligibility, leaveLoading, leaveType, resolved, seeded, slot, slotEffective]);
 
   useEffect(() => {
-    if (!open) setSeeded(null);
+    if (!open) {
+      setSeeded(null);
+      // Always reopen on All staff. A dialog that remembered the last tab would
+      // put an administrator on a group slot without their having chosen it.
+      setSlot(null);
+    }
   }, [open]);
 
   const roleByKey = useMemo(
@@ -293,10 +361,21 @@ export function LeaveApprovalFlowDialog({
     if (!leaveType || !hrOrgId) return;
     try {
       const saved = await save.mutateAsync({
-        id: resolved?.own?.id,
+        // The slot's OWN flow, never what it inherits: saving a group tab that
+        // is currently inheriting must create a new flow, not overwrite the
+        // All-staff one it was seeded from.
+        id: slotOwnFlow?.id,
         hrOrgId,
         leaveTypeId: leaveType.id,
-        flowName: `${leaveType.leave_type_name} approval`,
+        flowFor,
+        // An eligibility flow has no group slot; the tabs are hidden in that
+        // mode and the service refuses one anyway.
+        staffGroup: isEligibility ? undefined : slot ?? undefined,
+        flowName: isEligibility
+          ? `${leaveType.leave_type_name} eligibility approval`
+          : slot
+            ? `${leaveType.leave_type_name} approval — ${LEAVE_STAFF_GROUP_LABELS[slot]}`
+            : `${leaveType.leave_type_name} approval`,
         stepSource,
         runMode,
         roleLadder: ladder,
@@ -334,32 +413,55 @@ export function LeaveApprovalFlowDialog({
                 escalate_after_hours: s.escalate_after_hours,
               })),
       });
-      toast.success(`Approval flow saved for ${leaveType.leave_type_name}`);
+      toast.success(
+        isEligibility
+          ? `Eligibility approvers saved for ${leaveType.leave_type_name}`
+          : `Approval flow saved for ${leaveType.leave_type_name}`
+      );
       onOpenChange(false);
       // save() returns the row it wrote, which is the flow that governs this type
       // from now on — including on a first save, where there was no id to pass in.
-      await offerReroute(saved?.id);
+      // The re-route RPCs read hr_leave_applications only, so there is nothing
+      // to offer for an eligibility flow.
+      if (!isEligibility) await offerReroute(saved?.id);
     } catch (err) {
       toast.error(getErrorMessage(err));
     }
   };
 
   const handleClear = async () => {
-    if (!leaveType || !hrOrgId || !resolved?.own) return;
+    if (!leaveType || !hrOrgId || !slotOwnFlow) return;
     try {
-      await clear.mutateAsync({ flowId: resolved.own.id, hrOrgId, leaveTypeId: leaveType.id });
-      toast.success('Reverted to the organization default');
+      await clear.mutateAsync({ flowId: slotOwnFlow.id, hrOrgId, leaveTypeId: leaveType.id });
+      toast.success(
+        isEligibility
+          ? resolved?.fallback
+            ? 'Eligibility requests now use the institution eligibility flow'
+            : 'Eligibility requests now go to the leave approvers'
+          : slot
+            ? `${LEAVE_STAFF_GROUP_LABELS[slot]} team members now use the All team members flow`
+            : 'Reverted to the organization default'
+      );
       onOpenChange(false);
-      // The catch-all is what governs this type now. If the organisation has
-      // none, the type has no flow at all and no chain can be built for it —
-      // there is nothing to offer.
-      await offerReroute(resolved.fallback?.id);
+      if (isEligibility) return;
+      // WHAT GOVERNS THOSE STAFF NOW, which is not the same answer for the two
+      // cases: removing a group flow hands that group back to All staff (or the
+      // catch-all behind it), while removing the All staff flow hands the whole
+      // type to the catch-all. If the organisation has neither, the type has no
+      // flow at all and there is nothing to offer.
+      await offerReroute(
+        slot ? (resolved?.own?.id ?? resolved?.fallback?.id) : resolved?.fallback?.id
+      );
     } catch (err) {
       toast.error(getErrorMessage(err));
     }
   };
 
   const inheriting = !resolved?.own && !!resolved?.fallback;
+  // Eligibility only: nothing of its own AND no institution catch-all, so
+  // requests go to the leave flow. Worth its own banner because the chain on
+  // screen is that leave flow, and Save would copy it into a new flow.
+  const fallsBackToLeave = isEligibility && !resolved?.own && !resolved?.fallback;
   // Same breakpoint as leave-type-detail-dialog.tsx and the DataTable's
   // row/card swap, so the table and both its modals agree on "mobile".
   const isMobile = useMediaQuery('(max-width: 768px)');
@@ -370,15 +472,19 @@ export function LeaveApprovalFlowDialog({
       {/* min-w-0 lets a long leave type name wrap instead of forcing the
           header wider than the container. */}
       <span className="min-w-0 break-words">
-        Approval flow — {leaveType?.leave_type_name}
+        {isEligibility ? 'Eligibility approvers' : 'Approval flow'} — {leaveType?.leave_type_name}
       </span>
     </span>
   );
 
-  const description =
-    'Who signs off on this leave type. Each step is cleared in order; the last ' +
-    'step grants approval. The chain is copied onto an application when it is ' +
-    'submitted, so editing here never changes requests already in flight.';
+  const description = isEligibility
+    ? 'Who reads the supporting document and decides whether a team member may use ' +
+      'this leave type at all. Decided once per person; the leave itself then follows ' +
+      '"Who approves this". The chain is copied onto a request when it is filed, so ' +
+      'editing here never changes requests already in flight.'
+    : 'Who signs off on this leave type. Each step is cleared in order; the last ' +
+      'step grants approval. The chain is copied onto an application when it is ' +
+      'submitted, so editing here never changes requests already in flight.';
 
   const body = (
     <>
@@ -413,6 +519,58 @@ export function LeaveApprovalFlowDialog({
           </div>
         )}
 
+        {/* WHICH STAFF THIS FLOW IS FOR.
+            All staff is the default and the only slot most types ever use. A
+            group tab exists so an institution can route, say, every
+            non-teaching request to one named person while teaching staff keep
+            the longer chain — without that, one leave type could only ever have
+            one set of approvers.
+            Not offered for an eligibility flow: it governs everyone who asks. */}
+        {leaveType && !isEligibility && (
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-xs font-medium text-muted-foreground">Applies to</span>
+              {SLOTS.map((s) => {
+                const active = slot === s;
+                const own =
+                  s === null
+                    ? Boolean(resolved?.own)
+                    : s === 'teaching'
+                      ? Boolean(resolved?.teaching)
+                      : Boolean(resolved?.nonTeaching);
+                return (
+                  <button
+                    key={s ?? 'all'}
+                    type="button"
+                    onClick={() => setSlot(s)}
+                    className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                      active
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : 'bg-background hover:bg-muted'
+                    }`}
+                  >
+                    {s === null ? 'All team members' : LEAVE_STAFF_GROUP_LABELS[s]}
+                    {/* A group with no flow of its own is where you ADD one, so
+                        it says so. Without this marker a configured tab and an
+                        empty one look identical, and the only way to tell was
+                        to open each in turn. */}
+                    <span className={active ? 'ml-1.5 opacity-80' : 'ml-1.5 text-muted-foreground'}>
+                      {own ? '•' : s === null ? '' : '+'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {slot === null
+                ? 'The default for everyone. A group with no flow of its own uses this one.'
+                : slotOwnFlow
+                  ? `${LEAVE_STAFF_GROUP_LABELS[slot]} team members have their own flow for this leave type.`
+                  : `${LEAVE_STAFF_GROUP_LABELS[slot]} team members currently use the All team members flow. Saving here creates a flow just for them.`}
+            </p>
+          </div>
+        )}
+
         {isLoading ? (
           <p className="py-8 text-center text-sm text-muted-foreground">Loading…</p>
         ) : (
@@ -421,9 +579,25 @@ export function LeaveApprovalFlowDialog({
               <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
-                  This leave type has no flow of its own and currently inherits
+                  {isEligibility ? 'Eligibility for this' : 'This'} leave type has no flow of its
+                  own and currently inherits
                   <strong> {resolved?.fallback?.flow_name}</strong>. Saving below creates
                   a flow just for {leaveType?.leave_type_name}.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {fallsBackToLeave && (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  No eligibility approvers are set for this institution, so eligibility requests
+                  for {leaveType?.leave_type_name} currently go to its <em>leave</em> approvers
+                  {leaveResolved?.effective?.flow_name ? (
+                    <> (<strong>{leaveResolved.effective.flow_name}</strong>)</>
+                  ) : null}
+                  . That chain is shown below as a starting point — change it and save to give
+                  eligibility its own approvers.
                 </AlertDescription>
               </Alert>
             )}
@@ -541,8 +715,9 @@ export function LeaveApprovalFlowDialog({
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
-                  Nobody is above the highest rung, so the person holding it cannot submit this
-                  leave type at all. Set a fallback approver above.
+                  Nobody is above the highest rung, so the person holding it cannot{' '}
+                  {isEligibility ? 'request eligibility for' : 'submit'} this leave type at all.
+                  Set a fallback approver above.
                 </AlertDescription>
               </Alert>
             )}
@@ -571,12 +746,28 @@ export function LeaveApprovalFlowDialog({
    */
   const footer = (
     <>
+          {/* One button, two meanings, because the slot decides what "remove
+              this flow" hands the team members back to. */}
           <Button type="button" variant="ghost" className="w-full sm:w-auto" onClick={handleClear}
-            disabled={!resolved?.own || clear.isPending}
-            title={resolved?.own
-              ? 'Delete this type-specific flow and inherit the organization default'
-              : 'This type already inherits the organization default'}>
-            Use organization default
+            disabled={!slotOwnFlow || clear.isPending}
+            title={
+              isEligibility
+                ? slotOwnFlow
+                  ? 'Delete this eligibility flow; requests go to the institution eligibility flow, or to the leave approvers if there is none'
+                  : 'This type has no eligibility flow of its own'
+                : slot
+                  ? slotOwnFlow
+                    ? `Delete this ${LEAVE_STAFF_GROUP_LABELS[slot]} flow; those team members go back to the All team members flow`
+                    : `${LEAVE_STAFF_GROUP_LABELS[slot]} team members already use the All team members flow`
+                  : slotOwnFlow
+                    ? 'Delete this type-specific flow and inherit the organization default'
+                    : 'This type already inherits the organization default'
+            }>
+            {isEligibility
+              ? 'Remove eligibility flow'
+              : slot
+                ? `Remove ${LEAVE_STAFF_GROUP_LABELS[slot]} flow`
+                : 'Use organization default'}
           </Button>
           <div className="flex w-full gap-2 sm:w-auto">
             <Button type="button" variant="outline" className="flex-1 sm:flex-none"

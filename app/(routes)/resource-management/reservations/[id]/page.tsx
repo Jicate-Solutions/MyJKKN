@@ -165,6 +165,15 @@ export default function ReservationDetailsPage({
           <ReservationComments
             reservationId={reservationId}
             institutionId={reservation.resource?.institution_id}
+            booker={
+              reservation.user
+                ? {
+                    id: reservation.user.id,
+                    name: reservation.user.full_name || 'Booker',
+                    subtitle: reservation.user.email ?? null,
+                  }
+                : null
+            }
           />
 
           {/* Every ad-hoc message sent about this booking — self-gates to the
