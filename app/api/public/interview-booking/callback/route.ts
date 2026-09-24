@@ -21,10 +21,12 @@ import { loadActiveStaffBooker } from '../book/active-staff';
 
 export const dynamic = 'force-dynamic';
 
-// The book route's limit (#8: no new barrier — this is the existing one).
-// Without it the link becomes a way to flood the office's call list.
+// A cap against flooding the office's call list, sized so it cannot bite a
+// walk-in drive: every phone on one campus Wi-Fi shares one public IP, and on a
+// day with no free times each of them may ask to be called (#14). 30 an hour per
+// IP; staff are exempt (#1). Revealing nothing, this route needs no tighter one.
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT = 5;
+const RATE_LIMIT = 30;
 const RATE_WINDOW_MS = 60 * 60 * 1000;
 
 function checkRateLimit(ip: string): boolean {

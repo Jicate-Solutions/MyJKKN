@@ -202,8 +202,8 @@ function LogCallForm({
   // conversation to record, so memo stays optional there.
   // In update-only mode there's no call → memo is never required.
   const memoRequired = !isUpdateOnly && outcome === 'connected';
-  const memoBlocksSave = memoRequired && !hasMemo;
   const resolvedInstitutionId = lead.institution_id || selectedInstitutionId || '';
+  const memoBlocksSave = memoRequired && !hasMemo && !!resolvedInstitutionId;
 
   // Allowed manual-stage transitions from the lead's current stage.
   // We include the current stage as a no-op option so the Select can render an
@@ -494,6 +494,12 @@ function LogCallForm({
             </SelectContent>
           </Select>
         </div>
+      )}
+
+      {!isUpdateOnly && outcome && !resolvedInstitutionId && (
+        <p className="text-xs text-amber-700">
+          Voice memo unavailable — this lead has no institution set. You can still save this call.
+        </p>
       )}
 
       {!isUpdateOnly && outcome && resolvedInstitutionId && (

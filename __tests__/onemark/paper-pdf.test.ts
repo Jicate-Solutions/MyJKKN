@@ -12,6 +12,37 @@
  *   5. Option layout is data-driven (PRD Physics §4.3 / English §4.5).
  */
 import { describe, it, expect, vi } from 'vitest';
+
+// render.ts is exercised with a fake Chromium: each print returns a PDF with
+// `printPages` page dictionaries, and every document and footer it was handed
+// is recorded (BUG-006062 / BUG-006063 "Turn over" tests at the end).
+const chromium = vi.hoisted(() => ({
+  printPages: 3,
+  documents: [] as string[],
+  footers: [] as string[],
+}));
+vi.mock('puppeteer', () => ({
+  default: {
+    launch: async () => ({
+      version: async () => 'mock',
+      close: async () => {},
+      newPage: async () => ({
+        setContent: async (html: string) => {
+          chromium.documents.push(html);
+        },
+        evaluate: async () => undefined,
+        pdf: async (o: { footerTemplate: string }) => {
+          chromium.footers.push(o.footerTemplate);
+          const pages = Array.from({ length: chromium.printPages }, (_, i) => `${i + 3} 0 obj <</Type /Page /Parent 2 0 R>> endobj`);
+          return new TextEncoder().encode(`%PDF-1.4 2 0 obj <</Type /Pages /Count ${chromium.printPages}>> endobj ${pages.join(' ')}`);
+        },
+        close: async () => {},
+      }),
+    }),
+  },
+}));
+vi.mock('puppeteer-core', () => ({ default: { launch: async () => { throw new Error('serverless path not expected in tests'); } } }));
+vi.mock('@sparticuz/chromium', () => ({ default: { args: [], executablePath: async () => '' } }));
 import {
   arrangeForSeries,
   classifyOptionLayout,
@@ -31,12 +62,20 @@ import {
   charNeedsKatex,
   itemTextToHtml,
   katexFontText,
+  segmentItemText,
   splitTexRuns,
   uncoveredGlyphs,
   unicodeNotationToTex,
 } from '@/lib/onemark/pdf/notation';
 import { fontCoverageKnown, tamilRunWidthChars } from '@/lib/onemark/pdf/fonts';
-import { answerKeyHtml, questionPaperHtml, showSeriesBox } from '@/lib/onemark/pdf/document';
+import {
+  answerKeyHtml,
+  footerTemplate,
+  questionPaperHtml,
+  showSeriesBox,
+  turnOverPageCss,
+} from '@/lib/onemark/pdf/document';
+import { countPdfPages, renderAnswerKeyPdf, renderQuestionPaperPdf, withPageCss } from '@/lib/onemark/pdf/render';
 import { SAMPLE_ENGLISH_PAPER, SAMPLE_PHYSICS_PAPER, withoutAnswers } from '@/lib/onemark/pdf/samples';
 import {
   applyOverride,
@@ -44,6 +83,7 @@ import {
   normaliseAnswer,
   normaliseOptions,
   normaliseTamilOptions,
+  seriesCountFromConfig,
 } from '@/lib/onemark/pdf/load-paper';
 import type { PaperItem, PaperModel } from '@/lib/onemark/pdf/types';
 
@@ -529,5 +569,151 @@ describe('load-paper contracts', () => {
     expect(directiveForTags('tn_hsc_english', ['synonyms'])).toMatch(/synonyms/);
     expect(directiveForTags('tn_hsc_english', ['idioms'])).toBeNull();
     expect(directiveForTags('tn_hsc_physics', ['synonyms'])).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BUG-006062 (English) / BUG-006063 (Physics) — the Wave 3 try-out findings
+// ---------------------------------------------------------------------------
+
+describe('series count comes from where the wizard saves it (BUG-006062)', () => {
+  it('reads config.params.series_count, falls back to the top level, clamps 1–4, defaults to 1', () => {
+    expect(seriesCountFromConfig({ params: { series_count: 2 } })).toBe(2);
+    expect(seriesCountFromConfig({ params: { series_count: 4 }, series_count: 1 })).toBe(4);
+    expect(seriesCountFromConfig({ series_count: 3 })).toBe(3);
+    expect(seriesCountFromConfig({})).toBe(1);
+    expect(seriesCountFromConfig(null)).toBe(1);
+    expect(seriesCountFromConfig({ params: { series_count: 9 } })).toBe(4);
+    expect(seriesCountFromConfig({ params: { series_count: 0 } })).toBe(1);
+    expect(seriesCountFromConfig({ params: { series_count: 'x' } })).toBe(1);
+    expect(seriesCountFromConfig({ params: null, series_count: 2 })).toBe(2);
+  });
+
+  it('an English paper saved with 2 series prints the letter on Series A too; one series prints none', () => {
+    const two = { ...SAMPLE_ENGLISH_PAPER, seriesCount: seriesCountFromConfig({ params: { series_count: 2 } }) };
+    expect(showSeriesBox(arrangeForSeries(two, 'A'))).toBe(true);
+    const one = { ...SAMPLE_ENGLISH_PAPER, seriesCount: seriesCountFromConfig({ params: { series_count: 1 } }) };
+    expect(showSeriesBox(arrangeForSeries(one, 'A'))).toBe(false);
+  });
+});
+
+/** The footer as printed: the invisible width-keeper cell removed. */
+const visibleFooter = (f: string) => f.replace(/<div style="visibility:hidden[^"]*">[\s\S]*?<\/div>/g, '');
+
+describe('"Turn over" never prints on the last page (BUG-006062 / BUG-006063)', () => {
+  it('the footer template stamped on every page no longer shows it', () => {
+    for (const model of [SAMPLE_PHYSICS_PAPER, SAMPLE_ENGLISH_PAPER]) {
+      const footer = footerTemplate(arrangeForSeries(model, 'A'));
+      expect(visibleFooter(footer)).not.toContain('Turn over');
+      expect(footer).toContain('class="pageNumber"');
+    }
+  });
+
+  it('the page CSS names pages 1 … N−1 and leaves the last one blank; a one-page document gets none', () => {
+    const physics = arrangeForSeries(SAMPLE_PHYSICS_PAPER, 'B');
+    const css = turnOverPageCss(physics, 3);
+    expect(css).toContain('range: 1 2;');
+    expect(css).toMatch(/symbols: "\[ \S+ \/ Turn over"/); // Tamil word then English, as before
+    expect(css).toContain('@bottom-right');
+    expect(css).toContain('fallback: onemark-no-turn-over');
+    expect(turnOverPageCss(arrangeForSeries(SAMPLE_ENGLISH_PAPER, 'A'), 5)).toContain('symbols: "[ Turn over"; range: 1 4;');
+    expect(turnOverPageCss(physics, 1)).toBe('');
+    expect(turnOverPageCss(physics, 0)).toBe('');
+  });
+
+  it('counts the pages of a Chromium PDF (page dictionaries, not the page tree)', () => {
+    const pdf = (n: number) =>
+      new TextEncoder().encode(`<</Type /Pages /Count ${n}>> ${'<</Type /Page /Parent 2 0 R>> '.repeat(n)}`);
+    expect(countPdfPages(pdf(1))).toBe(1);
+    expect(countPdfPages(pdf(4))).toBe(4);
+    expect(countPdfPages(new TextEncoder().encode('%PDF-1.7 mock'))).toBe(0);
+    expect(withPageCss('<head><title>x</title></head>', 'a{}')).toContain('<style>a{}</style>');
+    expect(withPageCss('<head></head>', '')).toBe('<head></head>');
+  });
+
+  it('the answer key and the question paper print twice: the second pass carries the page range from the first', async () => {
+    for (const [render, model] of [
+      [renderAnswerKeyPdf, SAMPLE_PHYSICS_PAPER],
+      [renderQuestionPaperPdf, withoutAnswers(SAMPLE_ENGLISH_PAPER)],
+    ] as const) {
+      chromium.documents.length = 0;
+      chromium.footers.length = 0;
+      chromium.printPages = 3;
+      await render(model, 'A');
+      expect(chromium.documents).toHaveLength(2);
+      expect(chromium.documents[0]).not.toContain('onemark-turn-over');
+      expect(chromium.documents[1]).toContain('range: 1 2;');
+      for (const f of chromium.footers) expect(visibleFooter(f)).not.toContain('Turn over');
+    }
+  });
+
+  it('a one-page document prints once and never says "Turn over"', async () => {
+    chromium.documents.length = 0;
+    chromium.printPages = 1;
+    await renderAnswerKeyPdf(SAMPLE_ENGLISH_PAPER, 'A');
+    expect(chromium.documents).toHaveLength(1);
+    expect(chromium.documents[0]).not.toContain('Turn over');
+  });
+});
+
+describe('answer-key labels and answer text (BUG-006062 / BUG-006063)', () => {
+  function oneItemKey(optionsTa: string[] | null): string {
+    const base = SAMPLE_PHYSICS_PAPER.items[1];
+    const en = ['0.5', '1.5', '2.0', '0.25'];
+    const item: PaperItem = {
+      ...base,
+      assets: [],
+      optionsEn: en.map((text, i) => ({ key: String.fromCharCode(97 + i), text })),
+      optionsTa: optionsTa ? optionsTa.map((text, i) => ({ key: String.fromCharCode(97 + i), text })) : null,
+      answerKey: 'a',
+    };
+    return answerKeyHtml(arrangeForSeries({ ...SAMPLE_PHYSICS_PAPER, items: [item] }, 'A'));
+  }
+  const answerCell = (html: string) => html.match(/<td class="ans">([\s\S]*?)<\/td>/)![1];
+
+  it('an answer whose Tamil copy is the same formula prints once', () => {
+    const cell = answerCell(oneItemKey(['0.5', '1.5', '2.0', '0.25']));
+    expect(visibleText(cell)).toBe('0.5');
+    expect(cell).not.toContain('class="ta"');
+  });
+
+  it('an answer that really differs in Tamil still prints both scripts', () => {
+    const cell = answerCell(oneItemKey(['அரை', '1.5', '2.0', '0.25']));
+    expect(cell).toContain('class="ta"');
+    expect(visibleText(cell)).toContain('0.5');
+  });
+
+  it('the header says Marks as PRD §5.3 and the paper do; Senior Learner and JABT stay (terminology ruling, decision 6)', () => {
+    const html = answerKeyHtml(arrangeForSeries(SAMPLE_PHYSICS_PAPER, 'A'));
+    expect(html).toContain('<b>Marks :</b>');
+    expect(html).not.toContain('Score :');
+    expect(html).toContain('Senior Learner :');
+    expect(html).toContain('JABT level mix');
+  });
+});
+
+describe('one notation for one quantity (BUG-006063)', () => {
+  const bodyText = (s: string) =>
+    segmentItemText(s)
+      .filter((x) => x.kind === 'text')
+      .map((x) => (x as { value: string }).value)
+      .join('');
+
+  it('a superscript the body font could draw is still typeset: q², d², 1/r² go through KaTeX', () => {
+    expect(hasNotationTrigger('q²')).toBe(true);
+    expect(hasNotationTrigger('d²')).toBe(true);
+    expect(hasNotationTrigger('1/r².')).toBe(true);
+    expect(hasNotationTrigger('30°')).toBe(false);
+    expect(hasNotationTrigger('plain')).toBe(false);
+  });
+
+  it('the live Physics options no longer mix body-text q² with typeset r² on one line', () => {
+    for (const s of ['q² / (4πε₀r²)', 'F ∝ 1/r².', 'd²', 'q₁q₂ / (4πε r²)']) {
+      expect(bodyText(s)).not.toMatch(/[¹²³⁰-⁹₀-₉]/);
+      expect(uncoveredGlyphs(s)).toEqual([]);
+    }
+    const seg = segmentItemText('q² / (4πε₀r²)');
+    expect(seg.filter((x) => x.kind === 'tex')).toHaveLength(2);
+    expect(itemTextToHtml('F ∝ q²')).not.toMatch(/q²/);
   });
 });
