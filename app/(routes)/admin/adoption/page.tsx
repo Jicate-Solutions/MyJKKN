@@ -59,6 +59,12 @@ import {
   countsWhat,
   COUNTS_WHAT_LABEL,
 } from '@/lib/adoption/summarise';
+import {
+  lastSentLabel,
+  reminderTotalsByFeature,
+  reminderTotalsFor,
+  type ReminderSummaryRow,
+} from '@/lib/adoption/reminders';
 import { FeatureActions, type PendingProposal } from './_components/feature-actions';
 import { RegisterFeatureForm } from './_components/register-feature-form';
 import { SyncUsageButton } from './_components/sync-usage-button';
@@ -185,7 +191,7 @@ export default async function FeatureAdoptionPage() {
   const loopEnabled = loopEnabledData === true;
 
   const now = new Date();
-  const [metricsResult, loginsResult, proposalsResult] = await Promise.all([
+  const [metricsResult, loginsResult, proposalsResult, remindersResult] = await Promise.all([
     // One clock for the whole render: the rolling window and the dead rule must agree.
     supabase.rpc('fn_adoption_metrics', {
       // A ROLLING seven days, not the calendar week: on a Monday or Tuesday a
@@ -199,11 +205,19 @@ export default async function FeatureAdoptionPage() {
       .select('id, feature_key, proposed_option, recommendation, created_at')
       .eq('status', 'pending')
       .order('created_at', { ascending: true }),
+    // Ruling 10: reminders sent per feature. Totals only; RLS on
+    // adoption_reminders keeps even these to super admins.
+    supabase.rpc('fn_adoption_reminder_summary'),
   ]);
 
   const metricsError = metricsResult.error;
   const rows = (metricsResult.data ?? []) as AdoptionMetricRow[];
   const loginDays = (loginsResult.data ?? []) as LoginDay[];
+  // A missing function (migration not applied yet) reads as "none yet" for
+  // every feature rather than breaking the page.
+  const reminderTotals = reminderTotalsByFeature(
+    (remindersResult.data ?? []) as ReminderSummaryRow[]
+  );
 
   const pendingByFeature = new Map<string, PendingProposal>();
   for (const proposal of (proposalsResult.data ?? []) as Array<{
@@ -253,6 +267,23 @@ export default async function FeatureAdoptionPage() {
             recorded, pulled from the usage log, or asked until the platform policy
             <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">adoption.loop.enabled</code>
             is turned on. The numbers below are whatever was recorded before.
+          </div>
+        ) : null}
+
+        {loopEnabled ? (
+          <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">
+              Asking and reminding now run on their own, every morning at 10:33.
+            </span>{' '}
+            When a feature is under {DEAD_WEEKLY_PCT}% for everyone it was built for, the people
+            who have not used it get the one-tap &ldquo;why not?&rdquo; question — once per
+            feature, never more than once a week. People who have never used a feature get one
+            plain reminder, at most once a month. Nobody gets more than one of these a day, and
+            each run stops at the limit set in the platform policy
+            <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">
+              adoption.tick.max_notifications
+            </code>
+            . The Ask why button below still works for sending a question straight away.
           </div>
         ) : null}
 
@@ -326,6 +357,7 @@ export default async function FeatureAdoptionPage() {
                   <TableHead className="text-right">Last term</TableHead>
                   <TableHead className="text-right">Ever</TableHead>
                   <TableHead className="text-right">Asked</TableHead>
+                  <TableHead className="text-right">Reminded</TableHead>
                   <TableHead>Answers</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Actions</TableHead>
@@ -460,6 +492,18 @@ export default async function FeatureAdoptionPage() {
                           className="align-top text-right text-sm tabular-nums"
                         >
                           {group.asked_count}
+                        </TableCell>
+                      ) : null}
+
+                      {index === 0 ? (
+                        <TableCell
+                          rowSpan={span}
+                          className="align-top text-right text-sm tabular-nums"
+                        >
+                          {reminderTotalsFor(reminderTotals, group.feature_key).sent}
+                          <div className="text-xs text-muted-foreground">
+                            {lastSentLabel(reminderTotalsFor(reminderTotals, group.feature_key))}
+                          </div>
                         </TableCell>
                       ) : null}
 

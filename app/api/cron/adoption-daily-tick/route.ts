@@ -1,0 +1,118 @@
+// =============================================================================
+// ADOPTION DAILY TICK — the adoption loop asks why and reminds on its own
+// =============================================================================
+// Spec: specs/2026-09-16-adoption-loop.md, rulings 2, 6, 9, 10 (9 and 10:
+// Director 2026-09-24 17:52). Until this route, the why-not question needed a
+// super admin to press "Ask why" on /admin/adoption; nobody did, and
+// adoption_asks held 0 rows on production. This is the clock.
+//
+// Daily 10:33 IST through the AI-routine dispatcher (ai_routine_schedules row
+// 'adoption-daily-tick', migration 20270324090000) — NOT vercel.json, which is
+// at its hard cron cap.
+//
+// ONE RPC. Every rule lives in fn_adoption_daily_tick, in the database:
+//   * the why-not question only for near-zero features, through the same core
+//     the button uses (once per feature ever, once per person per 7 days);
+//   * a reminder only to people who never did the core action, at most once a
+//     month per person per feature;
+//   * at most adoption.tick.max_notifications people per run, one adoption
+//     message per person per run;
+//   * nothing at all while adoption.loop.enabled is off.
+// This route adds no rule of its own, so it cannot loosen one.
+//
+// ?dry_run=1 returns what the run WOULD send and writes nothing.
+//
+// Auth: CRON_SECRET Bearer header only — the dispatcher and the AI Routines
+// "Run now" both send it; secrets never sit in URLs. An RPC error, or a run
+// that answered success:false, is HTTP 500 so the dispatcher records the
+// failure instead of a silent 200.
+// Created: 2026-09-24.
+
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+export const maxDuration = 120;
+
+import { NextRequest, NextResponse } from 'next/server';
+import { createServiceRoleClient } from '@/lib/supabase/server';
+import { logger } from '@/lib/utils/enhanced-logger';
+
+/** What fn_adoption_daily_tick returns (counts only — never who). */
+export interface AdoptionTickResult {
+  success: boolean;
+  error?: string;
+  skipped?: string;
+  dry_run?: boolean;
+  cap?: number;
+  capped?: boolean;
+  asked?: number;
+  reminded?: number;
+  features?: Record<
+    string,
+    {
+      near_zero?: boolean;
+      asked?: number;
+      reminded?: number;
+      ask_note?: string | null;
+      remind_note?: string | null;
+    }
+  >;
+}
+
+/** One line for the log and the dispatcher's status column. */
+export function summariseTick(result: AdoptionTickResult): string {
+  if (result.skipped) return `skipped: ${result.skipped}`;
+  const asked = Number(result.asked ?? 0);
+  const reminded = Number(result.reminded ?? 0);
+  const prefix = result.dry_run ? 'would ask' : 'asked';
+  const verb = result.dry_run ? 'would remind' : 'reminded';
+  const cap = result.capped ? ` (cap ${result.cap} reached — the rest go on a later day)` : '';
+  return `${prefix} ${asked}, ${verb} ${reminded}${cap}`;
+}
+
+export async function GET(request: NextRequest) {
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
+    return NextResponse.json({ ok: false, error: 'CRON_SECRET not configured' }, { status: 500 });
+  }
+  if (request.headers.get('authorization') !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
+  }
+
+  const dryRun = ['1', 'true'].includes(request.nextUrl.searchParams.get('dry_run') ?? '');
+  const started = Date.now();
+  const admin = createServiceRoleClient();
+
+  const { data, error } = await admin.rpc('fn_adoption_daily_tick', { p_dry_run: dryRun });
+  if (error) {
+    logger.error('adoption/daily-tick', 'fn_adoption_daily_tick failed', error);
+    return NextResponse.json(
+      { ok: false, error: `tick rpc failed: ${error.message}`, elapsed_ms: Date.now() - started },
+      { status: 500 }
+    );
+  }
+
+  const result = (data ?? null) as AdoptionTickResult | null;
+  if (!result || typeof result !== 'object' || result.success !== true) {
+    const message = result?.error ?? 'tick returned no result';
+    logger.error('adoption/daily-tick', 'run refused', message);
+    return NextResponse.json(
+      { ok: false, error: message, elapsed_ms: Date.now() - started },
+      { status: 500 }
+    );
+  }
+
+  const summary = summariseTick(result);
+  logger.info('adoption/daily-tick', summary, {
+    asked: result.asked ?? 0,
+    reminded: result.reminded ?? 0,
+    capped: result.capped ?? false,
+    dry_run: result.dry_run ?? dryRun,
+  });
+
+  return NextResponse.json({
+    ok: true,
+    summary,
+    elapsed_ms: Date.now() - started,
+    result,
+  });
+}

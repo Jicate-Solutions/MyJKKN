@@ -63,3 +63,17 @@ CREATE TABLE public.usage_events (
 CREATE OR REPLACE FUNCTION public.fn_get_policy(p_key text, p_scope_id uuid DEFAULT NULL) RETURNS jsonb
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT value FROM platform_policies WHERE policy_key = p_key AND scope_type='global' AND is_active LIMIT 1 $$;
+-- Added 2026-09-24 for migration E (daily ask + remind): the role reader the
+-- service-role path checks, the int policy reader the per-run cap reads, and the
+-- dispatcher's schedule table the clock row lands in. Shapes as on production.
+CREATE OR REPLACE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(NULLIF(current_setting('request.jwt.claim.role', true), ''),
+                  (NULLIF(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'))::text $$;
+CREATE OR REPLACE FUNCTION public.fn_get_policy_int(p_key text, p_default integer, p_scope_id uuid DEFAULT NULL) RETURNS integer
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT COALESCE((fn_get_policy(p_key, p_scope_id))::int, p_default) $$;
+CREATE TABLE public.ai_routine_schedules (
+  routine_id text PRIMARY KEY, enabled boolean NOT NULL DEFAULT true, days_of_week smallint[],
+  minute_of_day smallint, managed boolean NOT NULL DEFAULT false, last_fired_slot text,
+  last_fired_at timestamptz, last_status text, updated_by uuid, max_only boolean NOT NULL DEFAULT false,
+  launch_id text, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now());
