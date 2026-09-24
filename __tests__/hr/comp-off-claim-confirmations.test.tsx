@@ -57,11 +57,15 @@ vi.mock('@/hooks/hr/use-time-off-context', () => ({
 }));
 // Whether the viewer holds hr.leave.approve — the only grant hcoc_select
 // honours for someone else's claim. Default: an HR approver.
-const perms = vi.hoisted(() => ({ hrApprove: true }));
+const perms = vi.hoisted(() => ({ hrApprove: true, failed: false }));
 vi.mock('@/hooks/use-permissions', () => ({
   usePermissions: () => ({
     isLoading: false,
-    canAccess: (m: string, a: string) => m === 'hr.leave' && a === 'approve' && perms.hrApprove,
+    error: perms.failed ? new Error('network') : null,
+    refetch: vi.fn(),
+    // An errored load collapses to "no grant", as the real hook does.
+    canAccess: (m: string, a: string) =>
+      !perms.failed && m === 'hr.leave' && a === 'approve' && perms.hrApprove,
   }),
 }));
 
@@ -116,6 +120,7 @@ beforeEach(() => {
   mutateAsync.mockResolvedValue(undefined);
   table.selectAll = false;
   perms.hrApprove = true;
+  perms.failed = false;
 });
 afterEach(() => {
   cleanup();
@@ -255,6 +260,13 @@ describe('Comp-off claim queue — who confirms claims', () => {
     perms.hrApprove = false;
     render(<CompOffClaimsQueue />);
     expect(screen.getByText(/claims are confirmed by HR/i)).toBeInTheDocument();
+  });
+
+  it('does not claim "only your own" when the permissions load failed', () => {
+    perms.failed = true;
+    render(<CompOffClaimsQueue />);
+    expect(screen.queryByText(/claims are confirmed by HR/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/permissions did not load/i)).toBeInTheDocument();
   });
 
   it('says nothing extra to an HR approver', () => {

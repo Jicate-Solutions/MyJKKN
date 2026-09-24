@@ -78,7 +78,15 @@ export function CompOffClaimsQueue() {
    * and read it as "comp off is not displayed" (BUG-006194). Display only:
    * who may decide a claim is unchanged.
    */
-  const { canAccess, isLoading: permsLoading } = usePermissions();
+  // A failed permissions load reads as "no grant" (canAccess → false), so the
+  // note below would tell a real HR approver the opposite of the table under
+  // it. Say nothing then; offer a retry instead (CLAUDE.md #27).
+  const {
+    canAccess,
+    isLoading: permsLoading,
+    error: permsError,
+    refetch: refetchPerms,
+  } = usePermissions();
   const decidesOthersClaims = canAccess('hr.leave', 'approve');
   const { data, isLoading, error, refetch, isFetching, dataUpdatedAt } = useCompOffClaimsQueue();
   const decide = useDecideCompOffClaim();
@@ -333,7 +341,19 @@ export function CompOffClaimsQueue() {
         </AlertDescription>
       </Alert>
 
-      {!permsLoading && !decidesOthersClaims && (
+      {permsError && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="text-xs">
+            Your permissions did not load, so this page cannot say whose claims you confirm.{' '}
+            <button type="button" className="underline" onClick={() => refetchPerms()}>
+              Retry
+            </button>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {!permsLoading && !permsError && !decidesOthersClaims && (
         <Alert>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription className="text-xs">

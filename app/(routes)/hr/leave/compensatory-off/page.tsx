@@ -46,6 +46,9 @@ const SUB_TABS = [
 const fmtDate = (d: string) =>
   d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-GB') : '—';
 
+/** How long a refused claim stays on the Request tab after it lapsed. */
+const REFUSED_CLAIM_SHOWN_DAYS = 30;
+
 const CREDIT_TONE: Record<CompOffEffectiveStatus, string> = {
   approved: 'border-emerald-600/30 bg-emerald-600/10 text-emerald-700 dark:text-emerald-400',
   pending: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400',
@@ -68,9 +71,12 @@ export default function CompensatoryOffPage() {
   const { data, isLoading, refetch, isFetching } = useMyApplications(
     ctx.employeeId || undefined
   );
-  const { data: balance, isLoading: balanceLoading } = useCompOffBalance(
-    ctx.employeeId || undefined
-  );
+  const {
+    data: balance,
+    isLoading: balanceLoading,
+    refetch: refetchBalance,
+    isFetching: balanceFetching,
+  } = useCompOffBalance(ctx.employeeId || undefined);
 
   const rows = useMemo(() => {
     const all = (data?.data ?? []) as HRLeaveApplicationWithType[];
@@ -96,14 +102,27 @@ export default function CompensatoryOffPage() {
    * applied"). Claims that have not become credit — awaiting a decision, or
    * refused — are listed here too; approved ones are already counted in
    * Available and listed on the Balance tab.
+   *
+   * Bounded two ways, because the nightly auto-reject turns every undecided
+   * claim into a 'rejected' row a month after the day worked and the ledger
+   * keeps them all: the tab's Period applies (by the day worked), and a
+   * refused claim drops off here 30 days after it lapsed. The full history
+   * stays on the Balance tab.
    */
-  const undecidedOrRefusedClaims = useMemo(
-    () =>
-      (balance?.credits ?? []).filter(
-        (c) => c.source === 'claim' && (c.status === 'pending' || c.status === 'rejected')
-      ),
-    [balance?.credits]
-  );
+  const undecidedOrRefusedClaims = useMemo(() => {
+    const refusedShownSince = new Date();
+    refusedShownSince.setHours(0, 0, 0, 0);
+    refusedShownSince.setDate(refusedShownSince.getDate() - REFUSED_CLAIM_SHOWN_DAYS);
+    return (balance?.credits ?? []).filter(
+      (c) =>
+        c.source === 'claim' &&
+        (c.status === 'pending' ||
+          (c.status === 'rejected' &&
+            new Date(`${c.expires_on}T00:00:00`) >= refusedShownSince)) &&
+        (period.preset === 'all' || (c.worked_date >= period.from && c.worked_date <= period.to))
+    );
+  }, [balance?.credits, period]);
+  const hasPendingClaim = undecidedOrRefusedClaims.some((c) => c.status === 'pending');
 
   return (
     <TimeOffShell title="Compensatory Off" subTabs={SUB_TABS}>
@@ -242,8 +261,12 @@ export default function CompensatoryOffPage() {
           <PeriodFilter
             value={period}
             onChange={setPeriod}
-            onRefresh={() => refetch()}
-            isRefreshing={isFetching}
+            // Both tables on this tab: bookings and the claims listed above them.
+            onRefresh={() => {
+              refetch();
+              refetchBalance();
+            }}
+            isRefreshing={isFetching || balanceFetching}
             action={
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => setClaimOpen(true)}>
@@ -287,6 +310,7 @@ export default function CompensatoryOffPage() {
                   { key: 'worked', label: 'Worked Date' },
                   { key: 'days', label: 'Days', align: 'right' },
                   { key: 'status', label: 'Status' },
+                  { key: 'actions', label: '', align: 'right' },
                 ]}
               >
                 {undecidedOrRefusedClaims.map((c) => (
@@ -299,16 +323,28 @@ export default function CompensatoryOffPage() {
                       <span
                         className={cn(
                           'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium',
-                          CREDIT_TONE[c.effective_status]
+                          CREDIT_TONE[c.status]
                         )}
                         title={c.status === 'rejected' ? c.rejection_reason ?? undefined : undefined}
                       >
-                        {COMP_OFF_STATUS_LABELS[c.effective_status]}
+                        {COMP_OFF_STATUS_LABELS[c.status]}
                       </span>
                       {c.status === 'rejected' && c.rejection_reason && (
                         <span className="mt-0.5 block max-w-[220px] truncate text-xs text-muted-foreground">
                           {c.rejection_reason}
                         </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {/* Same guard as the Balance tab: hcoc_withdraw_own_pending
+                          accepts only a claim nobody has decided yet. */}
+                      {c.status === 'pending' && (
+                        <CancelRequestAction
+                          what="this comp off claim"
+                          detail={`Worked ${fmtDate(c.worked_date)} · ${formatDays(c.credit_days)} day(s)`}
+                          disabled={withdrawClaim.isPending}
+                          onConfirm={() => withdrawClaim.mutateAsync(c.id)}
+                        />
                       )}
                     </TableCell>
                   </RequestRow>
@@ -325,7 +361,11 @@ export default function CompensatoryOffPage() {
             ]}
             isLoading={isLoading || ctx.isLoading}
             isEmpty={rows.length === 0}
-            emptyMessage="No compensatory off requests yet. Use Apply to book one."
+            emptyMessage={
+              hasPendingClaim
+                ? 'No compensatory off booked yet — your claim above is awaiting approval. Once it is approved, use Apply to book the day off.'
+                : 'No compensatory off requests yet. Use Apply to book one.'
+            }
           >
             {rows.map((a) => (
               <RequestRow key={a.id} status={a.status} revoked={a.revoked_at !== null}>
