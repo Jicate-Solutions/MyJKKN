@@ -720,6 +720,17 @@ export interface HRRecruitmentCandidateComment {
   updated_at: string;
   /** Joined commenter display info (profiles embed). */
   commenter?: { full_name: string | null; email: string | null } | null;
+  /**
+   * People tagged on this comment (hr_recruitment_comment_mentions embed).
+   * Drives the "@Name" highlight on the posted comment — only a name here was
+   * really tagged, so an "@" typed without picking anyone stays plain text.
+   * `notified_at` is null while the alert has not gone out yet.
+   */
+  mentions?: {
+    mentioned_user_id: string;
+    notified_at: string | null;
+    profile?: { full_name: string | null } | null;
+  }[] | null;
 }
 
 export interface HRJobApplicationInsert {

@@ -32,6 +32,7 @@ import { useApprovalsJobOverview, useCandidates } from '@/hooks/hr/use-recruitme
 import { useRecruitmentInstitutions } from '@/hooks/hr/use-recruitment-institutions';
 import { useAuth } from '@/hooks/use-auth';
 import { MyPendingCandidates } from './_components/my-pending-candidates';
+import { CandidateSearchResults } from './_components/candidate-search-results';
 import {
   ApprovalsFiltersPanel,
   ActiveApprovalsFilterChips,
@@ -92,6 +93,12 @@ function RecruitmentApprovalsInner() {
   const institutionNameById = useMemo(
     () => new Map(institutions.map((i) => [i.id, i.name] as const)),
     [institutions],
+  );
+  // Feeds the people-search panel: a person's record carries a job_id, not a
+  // job title, and the overview has already fetched every job the viewer sees.
+  const jobTitleById = useMemo(
+    () => new Map((rows ?? []).map((r) => [r.job.id, r.job.title] as const)),
+    [rows],
   );
 
   // Legacy safety net: pending candidates that never came through a job.
@@ -207,9 +214,9 @@ function RecruitmentApprovalsInner() {
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by title, code or institution…"
+              placeholder="Search candidate name, job title, code or institution…"
               className="pl-8 h-9"
-              aria-label="Search jobs"
+              aria-label="Search candidates and jobs"
             />
           </div>
 
@@ -265,6 +272,11 @@ function RecruitmentApprovalsInner() {
         {/* ALL — job-first list */}
         {viewMode === 'all' && (
           <>
+            {/* People search — the same box, matched against applicants across
+                every job, so finding one person no longer means opening each
+                job workspace in turn. */}
+            <CandidateSearchResults search={search} jobTitleById={jobTitleById} />
+
             {/* Fetch error */}
             {!isLoading && error && (
               <Alert variant="destructive">
@@ -291,15 +303,31 @@ function RecruitmentApprovalsInner() {
               </Card>
             )}
 
-            {/* Empty state */}
-            {!isLoading && !error && visible.length === 0 && (
+            {/* Empty state. With a search term the people panel above is the
+                real answer, so "no JOB matched" shrinks to one muted line
+                rather than a full-height card under a successful hit. */}
+            {!isLoading && !error && visible.length === 0 && search.trim() && (
+              <p className="text-xs text-muted-foreground">
+                No job title, code or institution matches &ldquo;{search.trim()}&rdquo;.
+                {advancedCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setAdvanced(EMPTY_APPROVALS_FILTERS)}
+                    className="ml-1.5 text-primary underline-offset-2 hover:underline"
+                  >
+                    Clear advanced filters
+                  </button>
+                )}
+              </p>
+            )}
+            {!isLoading && !error && visible.length === 0 && !search.trim() && (
               <Card>
                 <CardContent className="py-12 flex flex-col items-center gap-2 text-center">
                   <Inbox className="h-8 w-8 text-muted-foreground/60" />
                   <p className="text-sm font-medium">No jobs found</p>
                   <p className="text-xs text-muted-foreground max-w-sm">
-                    {search || advancedCount > 0
-                      ? 'No job matches your search and filters.'
+                    {advancedCount > 0
+                      ? 'No job matches your filters.'
                       : 'Jobs appear here once created under Recruitment → Jobs.'}
                   </p>
                   {advancedCount > 0 && (
@@ -317,10 +345,10 @@ function RecruitmentApprovalsInner() {
 
             {/* Job rows */}
             {!isLoading && !error && visible.length > 0 && (advancedCount > 0 || search) && (
-              <p className="text-xs text-muted-foreground">
-                Showing{' '}
-                <span className="font-medium text-foreground">{visible.length}</span>{' '}
-                of {totals.jobs} job{totals.jobs !== 1 ? 's' : ''}
+              <p className="text-xs font-medium text-muted-foreground">
+                Jobs · showing{' '}
+                <span className="tabular-nums font-semibold text-foreground">{visible.length}</span>{' '}
+                of {totals.jobs}
               </p>
             )}
             {!isLoading && !error && visible.length > 0 && (
