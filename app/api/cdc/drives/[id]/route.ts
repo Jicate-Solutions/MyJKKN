@@ -55,15 +55,21 @@ export async function GET(
     // Full detail (history, recruiter, counts, notification summary) is team-member
     // data. Learners read their own view through ../willingness; assigned
     // coordinators through ../attendance.
-    const [{ data: canView }, { data: canTrack }] = await Promise.all([
+    // An assigned coordinator of THIS drive reads its detail too (the
+    // willingness tracker header needs it, 2026-09-23); the service role does
+    // the read because cdc_drives RLS is role-based.
+    const service = createServiceRoleClient();
+    const [{ data: canView }, { data: canTrack }, { data: coord }] = await Promise.all([
       supabase.rpc('user_has_permission', { permission_name: 'cdc.drives.view' }),
       supabase.rpc('user_has_permission', { permission_name: 'cdc.drives.willingness.view' }),
+      service.from('cdc_drive_coordinators').select('id').eq('drive_id', id).eq('user_id', user.id).maybeSingle(),
     ]);
-    if (canView !== true && canTrack !== true) {
+    const isCoordinator = !!coord;
+    if (canView !== true && canTrack !== true && !isCoordinator) {
       return NextResponse.json({ error: 'Forbidden — cdc.drives.view required' }, { status: 403 });
     }
 
-    const detail = await CdcDriveService.getDriveDetail(supabase, id);
+    const detail = await CdcDriveService.getDriveDetail(isCoordinator && canView !== true && canTrack !== true ? service : supabase, id);
     if (!detail) {
       return NextResponse.json({ error: 'Drive not found' }, { status: 404 });
     }

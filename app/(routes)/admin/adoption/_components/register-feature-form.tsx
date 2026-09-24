@@ -25,6 +25,13 @@ const EMPTY = {
   intended_roles: 'all',
   module: '',
   source_pr: '',
+  // How the feature is judged. Weekly is the default and the right answer for
+  // almost everything; 'term' is for the seasonal ones — a timetable made at a
+  // term boundary, a bulk promotion done once a term — which a weekly bar
+  // would call dead for most of the year.
+  cadence: 'weekly',
+  // Set = labelled but deliberately not measured, and why. Empty = measure it.
+  skip_reason: '',
   // Where usage comes from. Leave all three empty and the feature is labelled
   // but NOT measured (never judged dead, nobody asked why) until code records it.
   usage_event_module: '',
@@ -68,6 +75,10 @@ export function RegisterFeatureForm() {
           intended_roles: roles.length > 0 ? roles : ['all'],
           module: form.module.trim() || null,
           source_pr: Number.isFinite(pr) ? pr : null,
+          cadence: form.cadence,
+          // Null, not an empty string: null is what clears an earlier skip and
+          // puts the feature back into the numbers.
+          skip_reason: form.skip_reason.trim() || null,
           usage_wired: usageWired,
           usage_event_module: form.usage_event_module.trim() || null,
           usage_event_feature: form.usage_event_feature.trim() || null,
@@ -185,6 +196,86 @@ export function RegisterFeatureForm() {
           />
         </div>
       </div>
+
+      <fieldset className="mt-4 rounded-lg border border-dashed border-border p-3">
+        <legend className="px-1 text-sm font-medium text-foreground">How it is judged</legend>
+        <p className="mb-2 text-xs text-muted-foreground">
+          Most features are used every week. A seasonal one — a timetable made at a term
+          boundary, a promotion run once a term — reads as dead 50 weeks a year on a weekly
+          bar, so it is counted over the whole term and only judged once the term has ended.
+        </p>
+        <div className="flex flex-wrap gap-4">
+          <label className="flex items-start gap-2 text-sm text-foreground">
+            <input
+              type="radio"
+              name="adoption-cadence"
+              value="weekly"
+              checked={form.cadence === 'weekly'}
+              onChange={() => set('cadence', 'weekly')}
+              disabled={busy}
+              className="mt-0.5 h-4 w-4"
+            />
+            <span>
+              Weekly
+              <span className="block text-xs text-muted-foreground">
+                judged every week
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 text-sm text-foreground">
+            <input
+              type="radio"
+              name="adoption-cadence"
+              value="term"
+              checked={form.cadence === 'term'}
+              onChange={() => set('cadence', 'term')}
+              disabled={busy}
+              className="mt-0.5 h-4 w-4"
+            />
+            <span>
+              Term
+              <span className="block text-xs text-muted-foreground">
+                judged once a term (seasonal)
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 text-sm text-foreground">
+            <input
+              type="radio"
+              name="adoption-cadence"
+              value="event"
+              checked={form.cadence === 'event'}
+              onChange={() => set('cadence', 'event')}
+              disabled={busy}
+              className="mt-0.5 h-4 w-4"
+            />
+            <span>
+              When needed
+              <span className="block text-xs text-muted-foreground">
+                used only when the occasion arises — never judged on a share
+              </span>
+            </span>
+          </label>
+        </div>
+
+        <div className="mt-3 space-y-1.5">
+          <Label htmlFor="adoption-skip-reason">
+            Skip reason (leave empty to measure)
+          </Label>
+          <Input
+            id="adoption-skip-reason"
+            value={form.skip_reason}
+            onChange={(event) => set('skip_reason', event.target.value)}
+            placeholder="a cron job, nobody opens it"
+            disabled={busy}
+          />
+          <p className="text-xs text-muted-foreground">
+            For a merged change nobody adopts: a cron job, a public form, a one-person
+            allow-list, a micro-interaction. It stays in the list, out of every number, and
+            nobody is asked about it. Clearing this box measures it again.
+          </p>
+        </div>
+      </fieldset>
 
       <div className="mt-4 rounded-lg border border-dashed border-border p-3">
         <p className="text-sm font-medium text-foreground">Where usage comes from</p>
