@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { CellContext } from '@tanstack/react-table';
 
 import { getJobColumns } from '@/app/(routes)/hr/recruitment/jobs/_components/jobs-columns';
+import { ROLE_CATEGORY_LABELS } from '@/types/hr-recruitment';
 import type { HRRecruitmentJob } from '@/types/hr-recruitment';
 
 afterEach(cleanup);
@@ -29,11 +30,15 @@ function renderRoleCell(role: HRRecruitmentJob['role_category']) {
 }
 
 describe('Jobs table — role category column', () => {
-  it('shows "LF" for teaching faculty, with the full label as the tooltip', () => {
+  it('shows "LF" for the teaching role category, with the full label as the tooltip', () => {
     const { container } = renderRoleCell('teaching_faculty');
     const span = container.querySelector('span')!;
     expect(span).toHaveTextContent(/^LF$/);
-    expect(span).toHaveAttribute('title', 'Learning Facilitator (Teaching Faculty)');
+    // The tooltip is the full form label (read from the shared map so the test
+    // carries no role wording of its own), never the short cell text.
+    const full = ROLE_CATEGORY_LABELS.teaching_faculty;
+    expect(full.length).toBeGreaterThan(12);
+    expect(span).toHaveAttribute('title', full);
   });
 
   it('keeps every category label short enough for one line', () => {
