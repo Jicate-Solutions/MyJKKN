@@ -283,7 +283,12 @@ export default async function FeatureAdoptionPage() {
             <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">
               adoption.tick.max_notifications
             </code>
-            . The Ask why button below still works for sending a question straight away.
+            . Features listed in
+            <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">
+              adoption.tick.exclude_features
+            </code>
+            are left alone. The Ask why button below still works for sending a question straight
+            away.
           </div>
         ) : null}
 

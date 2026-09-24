@@ -71963,7 +71963,8 @@ GRANT  EXECUTE ON FUNCTION public.fn_adoption_remind(text, boolean) TO authentic
 --   2) REMIND next (ruling 10), newest feature first: the people most likely
 --      not to know a feature exists are the ones it was built for last month,
 --      not last year.
--- Stops at adoption.tick.max_notifications people; people left over are
+-- Features listed in adoption.tick.exclude_features are skipped in both
+-- passes. Stops at adoption.tick.max_notifications people; people left over are
 -- reached on the next day's run. Nobody gets more than one adoption message
 -- from one run, and nobody reminded in the last 20 hours is messaged again.
 -- Service role only: a signed-in person cannot run it (EXECUTE is not granted
@@ -71992,6 +71993,8 @@ DECLARE
   v_total_rem integer := 0;
   v_rows      jsonb := '{}'::jsonb;   -- feature_key → what this run did
   v_capped    boolean := false;
+  v_excluded  text[] := '{}'::text[];
+  v_raw       jsonb;
 BEGIN
   IF auth.uid() IS NOT NULL THEN
     RAISE EXCEPTION 'the adoption daily run is started by the scheduler, not by a person' USING ERRCODE = '42501';
@@ -72005,8 +72008,20 @@ BEGIN
   -- one run at a time: a manual run and the scheduled one cannot interleave
   PERFORM pg_advisory_xact_lock(hashtext('fn_adoption_daily_tick'));
 
-  v_cap := GREATEST(COALESCE(public.fn_get_policy_int('adoption.tick.max_notifications', 500), 500), 0);
+  v_cap := GREATEST(COALESCE(public.fn_get_policy_int('adoption.tick.max_notifications', 100), 100), 0);
   v_left := v_cap;
+
+  -- Features this run leaves alone entirely (config row, text array). An
+  -- unreadable row excludes nothing extra — every other limit still holds.
+  BEGIN
+    v_raw := public.fn_get_policy('adoption.tick.exclude_features', NULL);
+  EXCEPTION WHEN OTHERS THEN
+    v_raw := NULL;
+  END;
+  IF v_raw IS NOT NULL AND jsonb_typeof(v_raw) = 'array' THEN
+    SELECT COALESCE(array_agg(e), '{}'::text[]) INTO v_excluded
+    FROM jsonb_array_elements_text(v_raw) e;
+  END IF;
 
   v_actor := public.fn_adoption_loop_sender();
   IF v_actor IS NULL AND NOT v_dry THEN
@@ -72034,6 +72049,7 @@ BEGIN
       AND fr.usage_wired
       AND fr.cadence <> 'event'
       AND fr.shipped_at <= now() - interval '14 days'
+      AND NOT (fr.feature_key = ANY (v_excluded))
     ORDER BY fr.shipped_at, fr.feature_key
   LOOP
     v_from := CASE WHEN v_feat.cadence = 'term' THEN v_tstart ELSE v_week_from END;
@@ -72096,6 +72112,7 @@ BEGIN
       AND fr.usage_wired
       AND fr.cadence <> 'event'
       AND fr.shipped_at <= now() - interval '14 days'
+      AND NOT (fr.feature_key = ANY (v_excluded))
     ORDER BY fr.shipped_at DESC, fr.feature_key
   LOOP
     IF v_left <= 0 THEN
@@ -72121,6 +72138,7 @@ BEGIN
     'dry_run',  v_dry,
     'cap',      v_cap,
     'capped',   v_capped,
+    'excluded', to_jsonb(v_excluded),
     'asked',    v_total_ask,
     'reminded', v_total_rem,
     'features', v_rows);

@@ -46,10 +46,12 @@
 --     admin; not an event / skipped / unrecorded / retired / stale / under-14-day
 --     feature, never the sign-in line. Tighter than the ruling on purpose:
 --     nobody gets a reminder on a day they already had an adoption message.
---   per run: at most adoption.tick.max_notifications recipients (default 500),
+--   per run: at most adoption.tick.max_notifications recipients (default 100),
 --     and one adoption message per person. Questions go out before reminders;
 --     reminders newest feature first. Whoever the cap leaves out is reached on
 --     a later day.
+--   excluded features: adoption.tick.exclude_features (seeded with
+--     induction.my_sessions_open) — the daily run neither asks nor reminds.
 --   master switch adoption.loop.enabled: off = nothing is asked or reminded.
 --
 -- Rehearsed on production inside BEGIN … ROLLBACK with p_dry_run => true
@@ -120,8 +122,10 @@ SELECT
   'adoption.tick.max_notifications',
   'global',
   NULL,
-  to_jsonb(500),
-  'The most people the adoption loop''s daily run may message in one run — why-not questions and reminders together. A safety cap so a fault can never message everyone at once; people left over are reached on the next day''s run. 0 = the daily run sends nothing. The per-person limits (why-not once per feature ever and once a week; a reminder once a month per feature; one adoption message per person per day) apply whatever this is set to.',
+  -- 100 for the first rollout (coordinator, 2026-09-24): read the first
+  -- answers before the volume grows. Raise it on Platform Policies.
+  to_jsonb(100),
+  'The most people the adoption loop''s daily run may message in one run — why-not questions and reminders together. A safety cap so a fault can never message everyone at once; people left over are reached on the next day''s run. 0 = the daily run sends nothing. Starts at 100 so the first answers can be read before the volume grows. The per-person limits (why-not once per feature ever and once a week; a reminder once a month per feature; one adoption message per person per day) apply whatever this is set to.',
   'number',
   'major',
   'number',
@@ -132,6 +136,34 @@ SELECT
 WHERE NOT EXISTS (
   SELECT 1 FROM public.platform_policies
    WHERE policy_key = 'adoption.tick.max_notifications'
+     AND scope_type = 'global' AND scope_id IS NULL
+);
+
+-- Features the daily run leaves alone entirely — no question, no reminder.
+-- Seeded with induction.my_sessions_open: it is labelled for every learner,
+-- faculty member and HOD, but induction is used mainly by new learners
+-- (ever opened, 24 Sep: 318 learners, 14 faculty, 7 HODs). Asking 6,406
+-- people a blocking "why not?" would mostly reach people it was never meant
+-- for. Fix the label, then take the key out of this list. The Ask why button
+-- is not affected by this row.
+INSERT INTO public.platform_policies
+  (policy_key, scope_type, scope_id, value, description, data_type,
+   classification, ui_category, is_system, is_active, publication_state)
+SELECT
+  'adoption.tick.exclude_features',
+  'global',
+  NULL,
+  '["induction.my_sessions_open"]'::jsonb,
+  'Feature keys the adoption loop''s daily run skips completely: nobody is asked why or reminded about them. Use it for a feature whose "intended for" label is wider than the people it really serves, until the label is corrected. Starts with induction.my_sessions_open (labelled for every learner, faculty member and HOD; used mainly by new learners). Does not affect the Ask why button on /admin/adoption.',
+  'array',
+  'major',
+  'analytics',
+  true,
+  true,
+  'published'
+WHERE NOT EXISTS (
+  SELECT 1 FROM public.platform_policies
+   WHERE policy_key = 'adoption.tick.exclude_features'
      AND scope_type = 'global' AND scope_id IS NULL
 );
 
@@ -526,7 +558,8 @@ GRANT  EXECUTE ON FUNCTION public.fn_adoption_remind(text, boolean) TO authentic
 --   2) REMIND next (ruling 10), newest feature first: the people most likely
 --      not to know a feature exists are the ones it was built for last month,
 --      not last year.
--- Stops at adoption.tick.max_notifications people; people left over are
+-- Features listed in adoption.tick.exclude_features are skipped in both
+-- passes. Stops at adoption.tick.max_notifications people; people left over are
 -- reached on the next day's run. Nobody gets more than one adoption message
 -- from one run, and nobody reminded in the last 20 hours is messaged again.
 -- Service role only: a signed-in person cannot run it (EXECUTE is not granted
@@ -555,6 +588,8 @@ DECLARE
   v_total_rem integer := 0;
   v_rows      jsonb := '{}'::jsonb;   -- feature_key → what this run did
   v_capped    boolean := false;
+  v_excluded  text[] := '{}'::text[];
+  v_raw       jsonb;
 BEGIN
   IF auth.uid() IS NOT NULL THEN
     RAISE EXCEPTION 'the adoption daily run is started by the scheduler, not by a person' USING ERRCODE = '42501';
@@ -568,8 +603,20 @@ BEGIN
   -- one run at a time: a manual run and the scheduled one cannot interleave
   PERFORM pg_advisory_xact_lock(hashtext('fn_adoption_daily_tick'));
 
-  v_cap := GREATEST(COALESCE(public.fn_get_policy_int('adoption.tick.max_notifications', 500), 500), 0);
+  v_cap := GREATEST(COALESCE(public.fn_get_policy_int('adoption.tick.max_notifications', 100), 100), 0);
   v_left := v_cap;
+
+  -- Features this run leaves alone entirely (config row, text array). An
+  -- unreadable row excludes nothing extra — every other limit still holds.
+  BEGIN
+    v_raw := public.fn_get_policy('adoption.tick.exclude_features', NULL);
+  EXCEPTION WHEN OTHERS THEN
+    v_raw := NULL;
+  END;
+  IF v_raw IS NOT NULL AND jsonb_typeof(v_raw) = 'array' THEN
+    SELECT COALESCE(array_agg(e), '{}'::text[]) INTO v_excluded
+    FROM jsonb_array_elements_text(v_raw) e;
+  END IF;
 
   v_actor := public.fn_adoption_loop_sender();
   IF v_actor IS NULL AND NOT v_dry THEN
@@ -597,6 +644,7 @@ BEGIN
       AND fr.usage_wired
       AND fr.cadence <> 'event'
       AND fr.shipped_at <= now() - interval '14 days'
+      AND NOT (fr.feature_key = ANY (v_excluded))
     ORDER BY fr.shipped_at, fr.feature_key
   LOOP
     v_from := CASE WHEN v_feat.cadence = 'term' THEN v_tstart ELSE v_week_from END;
@@ -659,6 +707,7 @@ BEGIN
       AND fr.usage_wired
       AND fr.cadence <> 'event'
       AND fr.shipped_at <= now() - interval '14 days'
+      AND NOT (fr.feature_key = ANY (v_excluded))
     ORDER BY fr.shipped_at DESC, fr.feature_key
   LOOP
     IF v_left <= 0 THEN
@@ -684,6 +733,7 @@ BEGIN
     'dry_run',  v_dry,
     'cap',      v_cap,
     'capped',   v_capped,
+    'excluded', to_jsonb(v_excluded),
     'asked',    v_total_ask,
     'reminded', v_total_rem,
     'features', v_rows);

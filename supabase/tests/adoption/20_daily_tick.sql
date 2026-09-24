@@ -25,8 +25,10 @@ UPDATE platform_policies SET value = 'true'::jsonb WHERE policy_key = 'adoption.
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM ai_routine_schedules WHERE routine_id='adoption-daily-tick' AND minute_of_day=633 AND enabled) THEN
     RAISE EXCEPTION 'FAIL: schedule row missing'; END IF;
-  IF (SELECT (value)::int FROM platform_policies WHERE policy_key='adoption.tick.max_notifications') <> 500 THEN
-    RAISE EXCEPTION 'FAIL: cap row missing or not 500'; END IF;
+  IF (SELECT (value)::int FROM platform_policies WHERE policy_key='adoption.tick.max_notifications') <> 100 THEN
+    RAISE EXCEPTION 'FAIL: cap row missing or not 100 (first-rollout default)'; END IF;
+  IF (SELECT value FROM platform_policies WHERE policy_key='adoption.tick.exclude_features') <> '["induction.my_sessions_open"]'::jsonb THEN
+    RAISE EXCEPTION 'FAIL: exclusion row missing or not seeded with induction.my_sessions_open'; END IF;
 END $$;
 
 -- ===== label features as the super admin =====
@@ -243,7 +245,37 @@ DO $$ DECLARE w jsonb; before int; BEGIN
   w := fn_adoption_daily_tick();
   IF (SELECT count(*) FROM user_notifications) <> before OR (w->>'asked')::int + (w->>'reminded')::int <> 0 THEN RAISE EXCEPTION 'FAIL cap 0: %', w; END IF;
 END $$;
-UPDATE platform_policies SET value = '500'::jsonb WHERE policy_key = 'adoption.tick.max_notifications';
+UPDATE platform_policies SET value = '100'::jsonb WHERE policy_key = 'adoption.tick.max_notifications';
+
+-- ===== adoption.tick.exclude_features: the run leaves a listed feature alone =====
+\echo '--- excluded: a near-zero HOD feature on the list gets no question and no reminder; off the list, it is asked again'
+SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);
+SELECT set_config('request.jwt.claim.role','authenticated',false);
+SELECT fn_adoption_register('excl.thing','Excluded thing','do the excluded thing','{hod}',NULL,NULL, now() - interval '30 days', true)->>'success' AS r10;
+SELECT set_config('request.jwt.claim.sub','',false);
+SELECT set_config('request.jwt.claim.role','',false);
+UPDATE platform_policies SET value = '["excl.thing"]'::jsonb WHERE policy_key = 'adoption.tick.exclude_features';
+UPDATE adoption_reminders SET sent_at = now() - interval '40 days';
+UPDATE adoption_asks SET asked_at = now() - interval '40 days';
+DO $$ DECLARE w jsonb; BEGIN
+  w := fn_adoption_daily_tick(true);
+  IF w->'features' ? 'excl.thing' OR NOT (w->'excluded' ? 'excl.thing') THEN RAISE EXCEPTION 'FAIL: dry run looked at an excluded feature: %', w; END IF;
+  w := fn_adoption_daily_tick();
+  IF w->'features' ? 'excl.thing' THEN RAISE EXCEPTION 'FAIL: run looked at an excluded feature: %', w; END IF;
+  IF EXISTS (SELECT 1 FROM adoption_asks WHERE feature_key = 'excl.thing')
+     OR EXISTS (SELECT 1 FROM adoption_reminders WHERE feature_key = 'excl.thing')
+     OR EXISTS (SELECT 1 FROM user_notifications WHERE user_id = '20000000-0000-0000-0000-000000000002') THEN
+    RAISE EXCEPTION 'FAIL: an excluded feature sent something'; END IF;
+  RAISE NOTICE 'excluded: nothing sent ok';
+END $$;
+UPDATE platform_policies SET value = '[]'::jsonb WHERE policy_key = 'adoption.tick.exclude_features';
+UPDATE adoption_reminders SET sent_at = now() - interval '40 days';
+DO $$ DECLARE w jsonb; BEGIN
+  w := fn_adoption_daily_tick();
+  IF (w#>>'{features,excl.thing,asked}')::int <> 1 THEN RAISE EXCEPTION 'FAIL: not asked once the exclusion was lifted: %', w; END IF;
+  IF (SELECT count(*) FROM adoption_asks WHERE feature_key = 'excl.thing') <> 1 THEN RAISE EXCEPTION 'FAIL: excl.thing ask row'; END IF;
+  RAISE NOTICE 'exclusion lifted: asked again ok';
+END $$;
 
 -- ===== the button still behaves exactly as before =====
 \echo '--- fn_adoption_ask_why as super admin: EXPECT the old answer shape (no person ids)'
