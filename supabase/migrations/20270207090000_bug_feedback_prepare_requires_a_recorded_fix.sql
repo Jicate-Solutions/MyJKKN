@@ -83,8 +83,21 @@ BEGIN
   -- reporter to confirm), so it may not be prepared without one. Fall back to
   -- the group's own recorded fix so the normal cluster path keeps working, and
   -- store whatever we resolved so every request stays traceable to its fix.
+  -- THE KEYS MATTER, AND THE FIRST VERSION OF THIS GATE HAD THEM WRONG.
+  -- fn_bug_cluster_fix_complete (20260718140000:189-197) writes the fix as
+  -- pr_url and pr_number, and that is what bug-groups-tab.tsx, cluster.ts and
+  -- fn_bug_fix_outcome_record all read. Measured on production 2026-09-24:
+  -- 39 clusters carry fix.pr_number, 36 carry fix.pr_url, 2 carry fix.fix_pr
+  -- and ZERO carry fix.pr. Reading 'pr' first therefore refused 37 of the 39
+  -- groups that genuinely have a fix -- and the admin screen calls prepare with
+  -- no p_fix_pr at all, so every prepare from the screen would have been
+  -- refused. The real keys come first now; the older spellings stay last so a
+  -- hand-recorded fix still counts.
   v_fix_pr := COALESCE(
     NULLIF(btrim(p_fix_pr), ''),
+    NULLIF(btrim(v_cluster.metadata -> 'fixability' -> 'fix' ->> 'pr_url'), ''),
+    NULLIF(btrim(v_cluster.metadata -> 'fixability' -> 'fix' ->> 'pr_number'), ''),
+    NULLIF(btrim(v_cluster.metadata -> 'fixability' -> 'fix' ->> 'fix_pr'), ''),
     NULLIF(btrim(v_cluster.metadata -> 'fixability' -> 'fix' ->> 'pr'), ''),
     NULLIF(btrim(v_cluster.metadata ->> 'fix_pr'), '')
   );

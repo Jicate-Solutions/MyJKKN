@@ -36,6 +36,22 @@ describe('fn_bug_feedback_prepare requires a recorded fix', () => {
     expect(block.indexOf('p_fix_pr')).toBeLessThan(block.indexOf("'fixability'"));
   });
 
+  it('reads the keys the fix is actually WRITTEN under, not a plausible spelling', () => {
+    // fn_bug_cluster_fix_complete (20260718140000:189-197) writes pr_url and
+    // pr_number; bug-groups-tab.tsx, cluster.ts and fn_bug_fix_outcome_record
+    // all read those. Measured on production 2026-09-24: 39 clusters carry
+    // fix.pr_number, 36 carry fix.pr_url, 2 carry fix.fix_pr, ZERO carry
+    // fix.pr. The first version of this gate read 'pr' first and would have
+    // refused 37 of the 39 groups that genuinely have a fix. Order matters as
+    // much as presence, so this asserts both.
+    const i = sql.indexOf('v_fix_pr := COALESCE(');
+    const block = sql.slice(i, sql.indexOf(');', i));
+    expect(block).toContain("->> 'pr_url'");
+    expect(block).toContain("->> 'pr_number'");
+    expect(block.indexOf("'pr_url'")).toBeLessThan(block.indexOf("->> 'pr'"));
+    expect(block.indexOf("'pr_number'")).toBeLessThan(block.indexOf("->> 'pr'"));
+  });
+
   it('stores what it resolved, not the raw argument, so every request is traceable', () => {
     expect(sql).toMatch(/e\.reporter_user_id,\s*v_fix_pr,\s*v_deploy_sha/);
     expect(sql).not.toMatch(/e\.reporter_user_id,\s*p_fix_pr,\s*p_deploy_sha/);
