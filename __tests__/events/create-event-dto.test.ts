@@ -71,7 +71,8 @@ describe('helpers', () => {
 
   it('toIso reads datetime-local as LOCAL wall time, not UTC', () => {
     const iso = toIso('2026-01-05T09:00');
-    expect(iso).toBe(new Date('2026-01-05T09:00').toISOString());
+    // Read as IST (+05:30) regardless of the machine's zone: 09:00 IST = 03:30Z.
+    expect(iso).toBe('2026-01-05T03:30:00.000Z');
     // The whole point: the raw string is NOT passed through, or Postgres would
     // read it as naive and shift it by the timezone offset.
     expect(iso).not.toBe('2026-01-05T09:00');
@@ -141,8 +142,13 @@ describe('buildCreateEventDto — the fields the wizard used to drop', () => {
     );
     expect(dto.start_date).toBe('2026-02-01T03:30:00.000Z');
     expect(dto.end_date).toBe('2026-02-01T11:30:00.000Z');
-    expect(dto.registration_open_date).toBe(new Date('2026-01-01T09:00').toISOString());
-    expect(dto.registration_close_date).toBe(new Date('2026-01-20T17:00').toISOString());
+    // The wizard reads what the organiser typed as India time, whatever clock the
+    // server runs on (the fix in a9d4eaf88f). So 09:00 typed is 03:30 UTC. These
+    // are literals on purpose: the old expectation, new Date('…T09:00'), used the
+    // clock of the machine running the test — right on a Mac in India, 5.5 hours
+    // wrong on the UTC test runner, which held every open PR red on this gate.
+    expect(dto.registration_open_date).toBe('2026-01-01T03:30:00.000Z');
+    expect(dto.registration_close_date).toBe('2026-01-20T11:30:00.000Z');
     expect(dto.registration_open_date).not.toBe(dto.start_date);
   });
 });
