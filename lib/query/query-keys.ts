@@ -141,5 +141,16 @@ export const queryKeys = {
       [...queryKeys.courseApplications.all, 'counts', courseEventId] as const,
     details: () => [...queryKeys.courseApplications.all, 'detail'] as const,
     detail: (id: string) => [...queryKeys.courseApplications.details(), id] as const,
+    /** "Is this applicant already somebody MyJKKN knows?" Keyed on the email and
+     *  phone rather than on the application, because the admin can retype the
+     *  address in the approve dialog and the answer must follow what they typed,
+     *  not what was submitted. */
+    match: (email: string, phone: string) =>
+      [...queryKeys.courseApplications.all, 'match', email, phone] as const,
+    /** Aggregates for the statistics card. Under `.all`, so the existing
+     *  invalidation after an approve/reject moves the tiles with the table —
+     *  nothing in this app self-refreshes. */
+    stats: (courseEventId: string) =>
+      [...queryKeys.courseApplications.all, 'stats', courseEventId] as const,
   },
 } as const;

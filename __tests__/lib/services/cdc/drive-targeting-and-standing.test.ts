@@ -25,10 +25,20 @@ describe('normalizeInstitutionSemesters', () => {
       ],
       [A, B]
     );
+    // program_ids joined the targeting entry with program targeting (2026-09-16).
     expect(out).toEqual([
-      { institution_id: A, semester_orders: [5, 6] },
-      { institution_id: B, semester_orders: [] },
+      { institution_id: A, semester_orders: [5, 6], program_ids: [] },
+      { institution_id: B, semester_orders: [], program_ids: [] },
     ]);
+  });
+
+  it('keeps program targeting per institution: UUIDs only, deduped', () => {
+    const P = '44444444-4444-4444-4444-444444444444';
+    const out = normalizeInstitutionSemesters(
+      [{ institution_id: A, semester_orders: [5], program_ids: [P, P, 'not-a-uuid', 7] }],
+      [A]
+    );
+    expect(out).toEqual([{ institution_id: A, semester_orders: [5], program_ids: [P] }]);
   });
 
   it('returns [] for garbage input', () => {

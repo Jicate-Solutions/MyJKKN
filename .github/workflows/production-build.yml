@@ -317,7 +317,10 @@ jobs:
     # A real build here is 3-7 minutes. 30 is deliberately generous: a timeout
     # reports `cancelled`, which reads as neither pass nor fail, so a clock that
     # is merely tight turns this gate into a source of unreadable verdicts.
-    timeout-minutes: 30
+    # 2026-09-20: 60 -> 90. The 2-vCPU runner varies almost 2x run to run: the last six GREEN builds took 47, 58, 31,
+    # 29, 33 and 35 min, and run 35458979644 was cancelled by this clock at exactly 60 min while still compiling with
+    # memory fine (swap 12.4 G of 24 G, no OOM). The same branch had built green in 58 min earlier. Advice only (R16).
+    timeout-minutes: 90
 
     # NOTE: deliberately NO `if: ${{ !github.event.pull_request.draft }}`.
     #
@@ -452,17 +455,42 @@ jobs:
       #
       # Nothing here touches package.json, next.config.ts, or anything Vercel
       # executes — it is runner configuration, not build configuration.
+      - name: Free disk so the swap step can reach its cap
+        # MEASURED 2026-09-18 (runs 35373451357 and 35373539312, the first green builds since the runner halved to
+        # 2 vCPU / 7.8 GiB on 09-16): with only 14G free the swap step settled for 10G and every
+        # build died with that swapfile 100% full. Clearing toolchains this repo never uses
+        # (.NET, Android, GHC, CodeQL, Swift, PowerShell, JVM) frees ~30G; the build then peaked at
+        # 14.4–15.4G of swap and finished in 33–36 min. Failures here are swallowed — less swap beats no build.
+        if: steps.relevant.outputs.count != '0'
+        run: |
+          df -h / /mnt | sed 's/^/before: /'
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/share/swift /usr/local/share/powershell /usr/lib/jvm 2>/dev/null || true
+          df -h / /mnt | sed 's/^/after: /'
       - name: Give the runner more swap
         if: steps.relevant.outputs.count != '0'
         run: |
           set -euo pipefail
           echo "before:"; free -h
           sudo swapoff -a || true
-          sudo rm -f /mnt/swapfile
-          sudo fallocate -l 24G /mnt/swapfile || sudo dd if=/dev/zero of=/mnt/swapfile bs=1M count=24576 status=none
-          sudo chmod 600 /mnt/swapfile
-          sudo mkswap /mnt/swapfile > /dev/null
-          sudo swapon /mnt/swapfile
+          sudo rm -f /mnt/swapfile /swapfile
+          # Size the swapfile to the disk that is actually there. From 2026-09-16
+          # 22:34 IST the hosted runner's /mnt no longer holds 24G ("fallocate:
+          # No space left on device") and three builds in a row died here before
+          # compiling a line. Take the emptier of /mnt and /, keep 4G of headroom,
+          # cap at 24G, and never fail the build over swap — a smaller file is
+          # still better than none.
+          pick=/mnt; [ "$(df --output=avail -BG /mnt | tail -1 | tr -dc 0-9)" -ge "$(df --output=avail -BG / | tail -1 | tr -dc 0-9)" ] || pick=/
+          avail=$(df --output=avail -BG "$pick" | tail -1 | tr -dc 0-9)
+          size=$(( avail - 4 )); [ "$size" -gt 24 ] && size=24
+          swapfile="$pick/swapfile"; [ "$pick" = / ] && swapfile=/swapfile
+          echo "swap: $pick has ${avail}G free -> ${size}G swapfile at $swapfile"
+          if [ "$size" -ge 2 ]; then
+            (sudo fallocate -l "${size}G" "$swapfile" || sudo dd if=/dev/zero of="$swapfile" bs=1M count=$(( size * 1024 )) status=none) \
+              && sudo chmod 600 "$swapfile" && sudo mkswap "$swapfile" > /dev/null && sudo swapon "$swapfile" \
+              || echo "::warning::could not enable a ${size}G swapfile at $swapfile — building with what the runner has"
+          else
+            echo "::warning::only ${avail}G free on $pick — building without extra swap"
+          fi
           # Prefer swapping over dying. The default (60) is tuned for interactive
           # machines; a batch build would rather page than be killed.
           sudo sysctl -w vm.swappiness=80 > /dev/null

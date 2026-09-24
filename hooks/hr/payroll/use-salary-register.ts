@@ -13,6 +13,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  HRSalaryRegisterDeletedRun,
   HRSalaryRegisterLine,
   HRSalaryRegisterRun,
   SalaryRegisterPreflight,
@@ -148,6 +149,27 @@ export function useUpdateSalaryRegisterLine(runId: string) {
       // list are both stale — not just the row that was edited.
       qc.invalidateQueries({ queryKey: SALARY_REGISTER_KEYS.detail(runId) });
       qc.invalidateQueries({ queryKey: SALARY_REGISTER_KEYS.all });
+    },
+  });
+}
+
+/**
+ * Remove a register. Super admin only — the route and the DELETE policies both
+ * refuse anyone else, so a 403 here is the server's answer, not a UI guess.
+ */
+export function useDeleteSalaryRegisterRun() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (vars: { runId: string }) =>
+      readJson<{ success: true; deleted: HRSalaryRegisterDeletedRun }>(
+        await fetch(`/api/hr/payroll/register/${vars.runId}`, { method: 'DELETE' }),
+      ),
+    onSuccess: (_data, vars) => {
+      // The list, the readiness panel for that month, and the run's own detail
+      // (which is now a 404) are all stale; nothing self-refreshes.
+      qc.invalidateQueries({ queryKey: SALARY_REGISTER_KEYS.all });
+      qc.removeQueries({ queryKey: SALARY_REGISTER_KEYS.detail(vars.runId) });
     },
   });
 }

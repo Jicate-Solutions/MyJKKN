@@ -15,6 +15,8 @@ import { useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Plus, Trash2, Save } from 'lucide-react';
 
+import { SECTION_THEMES } from '../../_components/section-theme';
+
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -284,7 +286,7 @@ export function TermCalendarForm({
 
           <div className="flex-1" />
 
-          <Button type="submit" disabled={!canEdit || saving}>
+          <Button type="submit" disabled={!canEdit || saving} className={SECTION_THEMES.calendar.button}>
             <Save className="h-4 w-4 mr-1" />
             {saving ? 'Saving…' : 'Save calendar'}
           </Button>

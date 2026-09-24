@@ -10,26 +10,27 @@
 // year without a calendar produces real financial records that can never be
 // chased or fined.
 
+import { cn } from '@/lib/utils';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 
 import { SchoolFeesBreadcrumb } from '../_components/school-fees-breadcrumb';
+import { SchoolFeeSectionHeader } from '../_components/school-fee-section-header';
+import { SECTION_THEMES } from '../_components/section-theme';
 import { TermCalendarView } from './_components/term-calendar-view';
 
 export default function SchoolTermCalendarPage() {
   return (
     <PermissionGuard module="school_fees" action="read">
       <ContentLayout title="School Term Calendar">
-        <div className="space-y-4">
+        <div className={cn('space-y-4 rounded-2xl p-3 sm:p-4', SECTION_THEMES.calendar.pageBg)}>
           <SchoolFeesBreadcrumb leaf="Term Calendar" />
 
-          <div>
-            <h1 className="text-2xl font-bold py-1">School Term Calendar</h1>
-            <p className="text-sm sm:text-base text-muted-foreground">
-              Term due dates, fine start dates and flat fine amounts — set once per school per
-              academic year, and inherited by every class fee plan in that year.
-            </p>
-          </div>
+          <SchoolFeeSectionHeader
+            section="calendar"
+            title="School Term Calendar"
+            description="Term due dates, fine start dates and flat fine amounts — set once per school per academic year, and inherited by every class fee plan in that year."
+          />
 
           <TermCalendarView />
         </div>

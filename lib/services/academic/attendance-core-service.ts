@@ -5,13 +5,21 @@ import { trackUsage } from '@/lib/utils/track-usage';
 import { logActivityClient, AcademicActivityTemplates } from '@/lib/utils/activity-logger-client';
 import { LeaveCalendarService } from './leave-calendar-service';
 import { isStaffAssignedToRawSlot } from '@/lib/utils/academic/slot-staff-assignment';
+import {
+  isPeriodNotStarted,
+  formatPeriodTime
+} from '@/lib/utils/academic/period-time-window';
+import { istBusinessDate } from '@/lib/utils/date-format';
+import {
+  mergeAttendancePeriod,
+  otherBatchStudentIds
+} from '@/lib/utils/academic/merge-attendance-period';
 import type {
   StudentAttendance,
   UpdateStudentAttendanceDto,
   BatchUpdateAttendanceDto,
   ConsolidatedStudentAttendance,
   ConsolidatedAttendanceData,
-  ConsolidatedAttendanceStudent,
   ConsolidatedAttendancePeriod,
   UpsertConsolidatedAttendanceDto,
   AttendanceAuditEntry
@@ -40,32 +48,6 @@ export function computeAttendanceDiff(
       old_status: old.status,
       new_status: newMap.get(old.student_id)!,
     }))
-}
-
-/**
- * Merges an incoming attendance period into the existing stored period,
- * unioning `students` by student_id instead of replacing the array.
- * Practical periods split students across batches that all share one
- * period_id — each batch only submits its own students, so a plain
- * object-replace here would let the second batch's write wipe out the
- * first batch's Present markers.
- */
-function mergeAttendancePeriod(
-  existing: ConsolidatedAttendancePeriod | undefined,
-  incoming: ConsolidatedAttendancePeriod
-): ConsolidatedAttendancePeriod {
-  if (!existing) return incoming;
-
-  const studentMap = new Map<string, ConsolidatedAttendanceStudent>(
-    (existing.students || []).map((s) => [s.student_id, s])
-  );
-  (incoming.students || []).forEach((s) => studentMap.set(s.student_id, s));
-
-  return {
-    ...existing,
-    ...incoming,
-    students: Array.from(studentMap.values())
-  };
 }
 
 /**
@@ -479,6 +461,38 @@ export class AttendanceCoreService {
         throw new Error(errorMessage);
       }
 
+      // Updated: 2026-09-17 (BUG-006133) - Refuse attendance for a class that
+      // has not begun. The UI guard for this had been short-circuited to
+      // `return 'current'` in two copy-pasted components, and there was never
+      // an equivalent check here, so the write path's only gate was the leave
+      // check above. A faculty member marked a 15:45 period at 13:09 and could
+      // not undo it; 113 of 682 stored slots in the first half of September
+      // carry a marked_at earlier than their own start_time.
+      //
+      // This is enforced service-side rather than only in the cards because
+      // the cards are not the only caller, and a client-side-only rule is not
+      // a rule. Late marking stays open — only the future is closed.
+      const notStartedPeriod = Object.entries(enrichedAttendanceData).find(
+        ([, period]) =>
+          isPeriodNotStarted(data.attendance_date, period?.start_time)
+      );
+
+      if (notStartedPeriod) {
+        const [, period] = notStartedPeriod;
+        const opensAt = formatPeriodTime(period?.start_time);
+        const errorMessage = opensAt
+          ? `${period?.period_name || 'This period'} starts at ${opensAt}. Attendance can be marked once the period begins.`
+          : 'Attendance cannot be marked for a period that has not started yet.';
+        logger.error('academic/attendance', 'Attendance blocked: period has not started', {
+          date: data.attendance_date,
+          period_name: period?.period_name,
+          start_time: period?.start_time,
+          marked_by: data.marked_by
+        });
+        toast.error(errorMessage);
+        throw new Error(errorMessage);
+      }
+
       // First, try to find existing consolidated record
       const { data: existingRecord, error: findError } = await this.supabase
         .from('student_attendance')
@@ -545,11 +559,30 @@ export class AttendanceCoreService {
         // unions students instead of replacing the first batch's array.
         const existingAttendanceData =
           ((currentRecord as any)?.attendance_data as ConsolidatedAttendanceData) || {};
+        // Updated: 2026-09-23 (BUG-006196) - For a practical batch save, read the
+        // slot's current batches so the merge keeps only OTHER batches' stored
+        // learners; a learner moved out of the saving batch no longer sticks.
+        const needsBatches = Object.keys(enrichedAttendanceData).some(
+          (k) => existingAttendanceData[k] && (enrichedAttendanceData[k] as any)?.batch_selected?.batch_id
+        );
+        let slotTimetableData: unknown = null;
+        if (needsBatches) {
+          const { data: ttRow } = await (this.supabase as any)
+            .from('timetables')
+            .select('timetable_data')
+            .eq('id', data.timetable_id)
+            .maybeSingle();
+          slotTimetableData = ttRow?.timetable_data ?? null;
+        }
+
         const mergedAttendanceData: ConsolidatedAttendanceData = { ...existingAttendanceData };
         Object.keys(enrichedAttendanceData).forEach((periodKey) => {
+          const incoming = enrichedAttendanceData[periodKey];
+          const ownBatchId = (incoming as any)?.batch_selected?.batch_id;
           mergedAttendanceData[periodKey] = mergeAttendancePeriod(
             existingAttendanceData[periodKey],
-            enrichedAttendanceData[periodKey]
+            incoming,
+            ownBatchId ? otherBatchStudentIds(slotTimetableData, periodKey, ownBatchId) : null
           );
         });
 
@@ -1483,6 +1516,205 @@ export class AttendanceCoreService {
     } catch (error) {
       logger.error('academic/attendance', 'Error in checkPracticalConflict', error);
       throw error;
+    }
+  }
+
+  // =====================
+  // UNDO A MIS-MARKED PERIOD
+  // =====================
+
+  /**
+   * Whether `actor` may remove one period's attendance from a record.
+   *
+   * Added: 2026-09-17 — BUG-006133.
+   *
+   * Before this existed there was no unmark path at all: once a slot key was
+   * written into attendance_data, nothing in the codebase could take it out.
+   * A faculty member who marked the wrong period could only file a bug report,
+   * which is exactly what happened — the report that prompted this method.
+   *
+   * The permission is deliberately narrow. Faculty get a self-service undo
+   * only for their OWN mistake, only on the same IST business day, and only
+   * while nobody else has touched the period. Anything wider turns an undo
+   * into a way to quietly erase a recorded class:
+   *
+   *   - super_admin            → always
+   *   - HOD, own dept + instn  → always (mirrors the existing edit scope)
+   *   - the original marker    → same IST day, and no audit entries by anyone
+   *                              else on this period
+   *   - anyone else            → never
+   */
+  static canDeletePeriodAttendance(args: {
+    period: ConsolidatedAttendancePeriod | undefined;
+    attendanceDate: string;
+    actor: { id: string; role: string; department_id?: string | null; institution_id?: string | null };
+    record: { department_id?: string | null; institution_id?: string | null };
+    auditEntries?: Array<{ period_id: string; edited_by: string }>;
+    now?: Date;
+  }): { allowed: boolean; reason?: string } {
+    const { period, attendanceDate, actor, record, auditEntries = [], now = new Date() } = args;
+
+    if (!period) return { allowed: false, reason: 'Period not found on this record' };
+
+    if (actor.role === 'super_admin') return { allowed: true };
+
+    if (actor.role === 'hod') {
+      if (
+        actor.department_id &&
+        actor.department_id === record.department_id &&
+        actor.institution_id === record.institution_id
+      ) {
+        return { allowed: true };
+      }
+      return {
+        allowed: false,
+        reason: 'HODs can only remove attendance in their own department'
+      };
+    }
+
+    const markerId = period.marked_by_details?.marker_id;
+    if (!markerId || markerId !== actor.id) {
+      return {
+        allowed: false,
+        reason:
+          'Only the person who marked this period can remove it. Ask your HOD to correct it.'
+      };
+    }
+
+    // Same IST business day only. A mis-mark noticed within the hour is a
+    // typo; one noticed next week is a record the institution has already
+    // reported on, and correcting that should go through a HOD.
+    if (istBusinessDate(now) !== attendanceDate) {
+      return {
+        allowed: false,
+        reason:
+          'Attendance can only be removed by the marker on the same day. Ask your HOD to correct it.'
+      };
+    }
+
+    const editedByOthers = auditEntries.some(
+      (entry) => entry.period_id === period.period_id && entry.edited_by !== actor.id
+    );
+    if (editedByOthers) {
+      return {
+        allowed: false,
+        reason: 'Someone else has already edited this period. Ask your HOD to correct it.'
+      };
+    }
+
+    return { allowed: true };
+  }
+
+  /**
+   * Removes one period's attendance from a consolidated record, writing an
+   * audit row per student first so the removal is never silent.
+   *
+   * The record row itself is kept even when its last period is removed —
+   * other tables reference student_attendance.id, and an empty
+   * attendance_data already reads as "nothing marked" everywhere that derives
+   * marked-ness from the object's keys.
+   *
+   * Added: 2026-09-17 — BUG-006133
+   */
+  static async deletePeriodAttendance(args: {
+    attendanceId: string;
+    periodKey: string;
+    actor: { id: string; full_name: string; role: string; department_id?: string | null; institution_id?: string | null };
+  }): Promise<{ success: boolean; error?: string }> {
+    const { attendanceId, periodKey, actor } = args;
+
+    try {
+      const { data: record, error: fetchError } = await (this.supabase as any)
+        .from('student_attendance')
+        .select('id, attendance_data, attendance_date, department_id, institution_id')
+        .eq('id', attendanceId)
+        .single();
+
+      if (fetchError || !record) {
+        logger.error('academic/attendance', 'Cannot remove period: record not found', fetchError);
+        return { success: false, error: 'Attendance record not found' };
+      }
+
+      const attendanceData = (record.attendance_data || {}) as ConsolidatedAttendanceData;
+      const period = attendanceData[periodKey];
+
+      let auditEntries: Array<{ period_id: string; edited_by: string }> = [];
+      try {
+        // RLS returns [] for non-super-admins, which reads as "no other editor"
+        // — acceptable, because a faculty undo is additionally fenced by the
+        // same-day rule and by being their own mark.
+        auditEntries = (await this.getAttendanceAuditLog(attendanceId)) as any;
+      } catch {
+        auditEntries = [];
+      }
+
+      const permission = this.canDeletePeriodAttendance({
+        period,
+        attendanceDate: record.attendance_date,
+        actor,
+        record,
+        auditEntries
+      });
+
+      if (!permission.allowed) {
+        return { success: false, error: permission.reason || 'Not authorized' };
+      }
+
+      const students = period?.students || [];
+      if (students.length > 0) {
+        const auditRows = students.map((student) => ({
+          attendance_id: attendanceId,
+          period_id: periodKey,
+          student_id: student.student_id,
+          old_status: student.status,
+          new_status: 'Removed',
+          edited_by: actor.id,
+          edited_by_name: actor.full_name,
+          edited_by_role: actor.role,
+          edited_at: new Date().toISOString(),
+          institution_id: record.institution_id,
+          attendance_date: record.attendance_date
+        }));
+
+        const { error: auditError } = await (this.supabase as any)
+          .from('attendance_audit_log')
+          .insert(auditRows);
+
+        // Unlike the edit path, a failed audit write aborts here. An edit that
+        // loses its audit row still leaves the new statuses visible; a removal
+        // that loses its audit row leaves no trace of the period at all.
+        if (auditError) {
+          logger.error('academic/attendance', 'Aborting removal: audit write failed', auditError);
+          return { success: false, error: 'Could not record the change. Nothing was removed.' };
+        }
+      }
+
+      const remaining = { ...attendanceData };
+      delete remaining[periodKey];
+
+      const { error: updateError } = await (this.supabase as any)
+        .from('student_attendance')
+        .update({ attendance_data: remaining, updated_at: new Date().toISOString() })
+        .eq('id', attendanceId);
+
+      if (updateError) {
+        logger.error('academic/attendance', 'Failed to remove period attendance', updateError);
+        return { success: false, error: 'Could not remove the attendance' };
+      }
+
+      logger.info('academic/attendance', 'Period attendance removed', {
+        attendance_id: attendanceId,
+        period_id: periodKey,
+        period_name: period?.period_name,
+        students: students.length,
+        removed_by: actor.id,
+        role: actor.role
+      });
+
+      return { success: true };
+    } catch (error) {
+      logger.error('academic/attendance', 'Error removing period attendance', error);
+      return { success: false, error: 'An error occurred while removing the attendance' };
     }
   }
 

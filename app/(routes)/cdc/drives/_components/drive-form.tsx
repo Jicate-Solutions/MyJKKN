@@ -42,6 +42,7 @@ import type {
 import { RecruiterQuickAdd } from '../new/_components/recruiter-quick-add';
 import { InstitutionSemesterPicker, describeTargeting } from './institution-semester-picker';
 import { CircularAttachment } from './circular-attachment';
+import { DriveClashWarning } from './drive-clash-warning';
 
 export interface DriveFormValues {
   title: string;
@@ -73,6 +74,8 @@ interface Props {
   submitting: boolean;
   submitError: string | null;
   onSubmit: (values: DriveFormValues) => void | Promise<void>;
+  /** Edit page once willingness has opened: the window lives in the Willingness Settings card, not here. */
+  windowManagedByCycles?: boolean;
   cancelHref: string;
 }
 
@@ -119,7 +122,7 @@ function fromLocalInput(v: string): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-export function DriveForm({ mode, drive, eligibility, submitting, submitError, onSubmit, cancelHref }: Props) {
+export function DriveForm({ mode, drive, eligibility, submitting, submitError, onSubmit, cancelHref, windowManagedByCycles = false }: Props) {
   const { data: lookups, isLoading: lookupsLoading } = useCdcLookups();
   const {
     data: institutionsData,
@@ -196,6 +199,10 @@ export function DriveForm({ mode, drive, eligibility, submitting, submitError, o
       return setLocalError('Maximum arrears cannot be negative');
     }
     const hasEligibility = cgpa != null || arrears != null || passedOutAllowed || eligibilityNotes.trim();
+    // Audience programs are the single source; mirror them onto the eligibility
+    // record so "Who is eligible" and the audience picker never disagree.
+    const activeTargeting = targeting.filter((t) => institutions.includes(t.institution_id));
+    const audienceProgramIds = Array.from(new Set(activeTargeting.flatMap((t) => t.program_ids ?? [])));
 
     void onSubmit({
       title: title.trim(),
@@ -203,25 +210,27 @@ export function DriveForm({ mode, drive, eligibility, submitting, submitError, o
       recruiter_id: recruiterId,
       drive_type_id: driveTypeId,
       institutions,
-      institution_semesters: targeting.filter((t) => institutions.includes(t.institution_id)),
+      institution_semesters: activeTargeting,
       circular,
-      eligibility: hasEligibility
-        ? {
-            min_cgpa: cgpa,
-            max_arrears: arrears,
-            passed_out_allowed: passedOutAllowed,
-            additional_notes: eligibilityNotes.trim() || null,
-          }
-        : eligibility
-          ? null
-          : undefined,
+      eligibility:
+        hasEligibility || audienceProgramIds.length > 0
+          ? {
+              program_ids: audienceProgramIds,
+              min_cgpa: cgpa,
+              max_arrears: arrears,
+              passed_out_allowed: passedOutAllowed,
+              additional_notes: eligibilityNotes.trim() || null,
+            }
+          : eligibility
+            ? null
+            : undefined,
       rounds_count: roundsCount,
       drive_mode: driveMode,
       location_url: driveMode === 'off_campus' ? locationUrl.trim() || null : null,
       drive_date: driveDate || null,
       drive_start_time: driveStartTime || null,
       drive_end_time: driveEndTime || null,
-      willingness_window_close_at: fromLocalInput(deadline),
+      willingness_window_close_at: windowManagedByCycles ? (drive?.willingness_window_close_at ?? null) : fromLocalInput(deadline),
       venue_label: venueLabel.trim() || null,
       expected_package_lpa: expectedPackage ? parseFloat(expectedPackage) : null,
       job_role_title: jobRoleTitle.trim() || null,
@@ -295,6 +304,7 @@ export function DriveForm({ mode, drive, eligibility, submitting, submitError, o
               onSelectedInstitutionsChange={setInstitutions}
               targeting={targeting}
               onTargetingChange={setTargeting}
+              fallbackProgramIds={eligibility?.program_ids ?? []}
             />
             {institutions.length > 0 ? (
               <div className="mt-4 flex items-start gap-2 rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
@@ -407,12 +417,33 @@ export function DriveForm({ mode, drive, eligibility, submitting, submitError, o
                 <Label htmlFor="rounds">Rounds count</Label>
                 <Input id="rounds" type="number" min={1} max={10} value={roundsCount} onChange={(e) => setRoundsCount(parseInt(e.target.value, 10) || 1)} />
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="deadline">Willingness deadline</Label>
-                <Input id="deadline" type="datetime-local" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
-                <p className="text-xs text-muted-foreground">Learners cannot respond after this. Leave empty for no deadline.</p>
-              </div>
+              {windowManagedByCycles ? (
+                <div className="space-y-1.5">
+                  <Label>Willingness window</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Managed in <strong>Willingness Settings</strong> below (open / close date &amp; time, reopen, history).
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <Label htmlFor="deadline">Willingness deadline</Label>
+                  <Input id="deadline" type="datetime-local" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+                  <p className="text-xs text-muted-foreground">Learners cannot respond after this. Leave empty for no deadline.</p>
+                </div>
+              )}
             </div>
+            {/*
+              Allow-and-warn: the room may already be booked, or learners may
+              already have said yes elsewhere that day. Never blocks the save.
+            */}
+            <DriveClashWarning
+              driveId={drive?.id ?? null}
+              driveDate={driveDate}
+              driveStartTime={driveStartTime}
+              driveEndTime={driveEndTime}
+              venueLabel={venueLabel}
+              dateChanged={mode === 'edit' && driveDate !== (drive?.drive_date ?? '')}
+            />
           </CardContent>
         </Card>
 

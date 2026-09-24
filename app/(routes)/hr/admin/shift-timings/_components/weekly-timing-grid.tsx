@@ -70,6 +70,13 @@ interface WeeklyTimingGridProps {
    */
   applicableGender?: ShiftApplicableGender;
   /**
+   * The Role / Individual discriminators (2026-09-21). Same contract as
+   * applicableGender: in `params` AND in `scopeKey`, or the grid keeps the
+   * previous override's week on screen after the picker changes.
+   */
+  roleKey?: string | null;
+  staffId?: string | null;
+  /**
    * Fired after a SUCCESSFUL save. The Override tab uses it to collapse the
    * builder back to the list, so the override just written appears there and
    * "Add another override" is reachable again — without it the builder stays
@@ -231,11 +238,13 @@ export function WeeklyTimingGrid({
   effectiveFrom,
   onEffectiveFromChange,
   applicableGender = 'all',
+  roleKey = null,
+  staffId = null,
   onSaved,
 }: WeeklyTimingGridProps) {
   const params = useMemo(
-    () => ({ institutionId, staffScope, employmentCategoryId, applicableGender }),
-    [institutionId, staffScope, employmentCategoryId, applicableGender],
+    () => ({ institutionId, staffScope, employmentCategoryId, applicableGender, roleKey, staffId }),
+    [institutionId, staffScope, employmentCategoryId, applicableGender, roleKey, staffId],
   );
 
   const { data, isLoading } = useShiftTimingWeek(params);
@@ -246,7 +255,9 @@ export function WeeklyTimingGrid({
   // Hydrate once per scope, NOT on every `data` identity change. A background
   // refetch (this app refetches on window focus) would otherwise wipe an
   // in-progress edit the moment the user tabs away and back.
-  const scopeKey = `${institutionId}|${staffScope}|${employmentCategoryId ?? ''}|${applicableGender}`;
+  const scopeKey = [
+    institutionId, staffScope, employmentCategoryId ?? '', roleKey ?? '', staffId ?? '', applicableGender,
+  ].join('|');
   const hydratedFor = useRef<string | null>(null);
   useEffect(() => {
     if (!data || hydratedFor.current === scopeKey) return;
@@ -354,6 +365,8 @@ export function WeeklyTimingGrid({
         staffScope,
         employmentCategoryId,
         applicableGender,
+        roleKey,
+        staffId,
         effectiveFrom,
         days: rows,
       });
@@ -394,7 +407,7 @@ export function WeeklyTimingGrid({
     }
   }, [
     errors.length, save, institutionId, staffScope, employmentCategoryId,
-    applicableGender, effectiveFrom, rows, isScheduledChange, saveLabel, onSaved,
+    applicableGender, roleKey, staffId, effectiveFrom, rows, isScheduledChange, saveLabel, onSaved,
   ]);
 
   if (isLoading) {

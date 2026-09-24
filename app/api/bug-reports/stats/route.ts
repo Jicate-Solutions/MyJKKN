@@ -6,7 +6,10 @@ import { logger } from '@/lib/utils/enhanced-logger';
 import {
   isIsoDate,
   parseStatusList,
-  resolvedAtBounds
+  resolvedAtBounds,
+  REPORTER_CONFIRMED_MARKER,
+  OTHERS_RESOLVER_KEY,
+  OTHERS_RESOLVER_LABEL
 } from '@/lib/utils/bug-reports/status-tabs';
 
 export async function GET(request: Request) {
@@ -80,6 +83,87 @@ export async function GET(request: Request) {
         .is('resolved_at', null)
     ]);
 
+    // Who resolved how many, grouped in SQL. Absent before migration
+    // 20261223093000 is applied — the dashboard then shows no breakdown
+    // rather than failing the whole stats call.
+    let resolvers: Array<{
+      resolved_by: string | null;
+      resolver_name: string | null;
+      resolver_email: string | null;
+      resolved_count: number;
+    }> = [];
+    const { data: resolverRows, error: resolverError } = await (supabase as any).rpc(
+      'fn_bug_resolver_stats',
+      { p_from: resolvedFrom || null, p_to: resolvedTo || null }
+    );
+    if (resolverError) {
+      logger.warn('bug-reports/api', 'Resolver breakdown unavailable', resolverError);
+    } else {
+      resolvers = (resolverRows ?? []).map((row: any) => ({
+        resolved_by: row.resolved_by ?? null,
+        resolver_name: row.resolver_name ?? null,
+        resolver_email: row.resolver_email ?? null,
+        resolved_count: Number(row.resolved_count ?? 0)
+      }));
+
+      // Bugs closed by their reporter's "No, it works now" leave each person's
+      // count and are pooled as one Others entry. The period mirrors the RPC's
+      // exactly (>= from, < the day after to, IST) so the subtraction is exact.
+      const nextDay = (date: string) => {
+        const [y, m, d] = date.split('-').map(Number);
+        return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+      };
+      const confirmedRows: Array<{ resolved_by: string | null }> = [];
+      let confirmedError: unknown = null;
+      for (let offset = 0; ; offset += 1000) {
+        let confirmedQuery = supabase
+          .from('bug_reports')
+          .select('id, resolved_by')
+          .eq('status', 'resolved')
+          .eq('metadata->>resolved_by', REPORTER_CONFIRMED_MARKER);
+        if (resolvedBounds.gte) confirmedQuery = confirmedQuery.gte('resolved_at', resolvedBounds.gte);
+        if (isIsoDate(resolvedTo)) {
+          confirmedQuery = confirmedQuery.lt(
+            'resolved_at',
+            `${nextDay(resolvedTo)}T00:00:00.000+05:30`
+          );
+        }
+        const { data, error } = await confirmedQuery
+          .order('id')
+          .range(offset, offset + 999);
+        if (error) {
+          confirmedError = error;
+          break;
+        }
+        confirmedRows.push(...((data ?? []) as Array<{ resolved_by: string | null }>));
+        if ((data ?? []).length < 1000) break;
+      }
+
+      if (confirmedError) {
+        logger.warn('bug-reports/api', 'Reporter-confirmed breakdown unavailable', confirmedError);
+      } else if (confirmedRows.length > 0) {
+        const confirmedByResolver = new Map<string | null, number>();
+        for (const row of confirmedRows) {
+          const key = row.resolved_by ?? null;
+          confirmedByResolver.set(key, (confirmedByResolver.get(key) ?? 0) + 1);
+        }
+        resolvers = resolvers
+          .map((resolver) => ({
+            ...resolver,
+            resolved_count:
+              resolver.resolved_count - (confirmedByResolver.get(resolver.resolved_by) ?? 0)
+          }))
+          .filter((resolver) => resolver.resolved_count > 0);
+        resolvers.push({
+          resolved_by: OTHERS_RESOLVER_KEY,
+          resolver_name: OTHERS_RESOLVER_LABEL,
+          resolver_email: null,
+          resolved_count: confirmedRows.length
+        });
+        resolvers.sort((a, b) => b.resolved_count - a.resolved_count);
+      }
+    }
+
     const totalCount = total ?? 0;
     const resolvedCount = resolved ?? 0;
     const recentCount = recentReports ?? 0;
@@ -107,6 +191,7 @@ export async function GET(request: Request) {
       recentReports: recentCount,
       previousReports: previousCount,
       resolvedMissingDate: resolvedMissingDate ?? 0,
+      resolvers,
       reportsTrend: {
         value: trendValue.toFixed(1),
         direction: trendValue > 0 ? 'up' : trendValue < 0 ? 'down' : 'neutral'

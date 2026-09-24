@@ -15,6 +15,8 @@ import type {
   CdcDriveUpdate,
   CdcDriveNotificationLogRow,
   CdcDriveNotificationSummary,
+  CdcDriveAssignedResponse,
+  CdcAssignedWillingnessBucket,
 } from '@/types/cdc';
 import type { InstitutionSemestersResponse } from '@/app/api/cdc/pickers/institution-semesters/route';
 import type { LearnerNotifyDiagnosis } from '@/lib/services/cdc/drive-notifications';
@@ -186,6 +188,31 @@ export function useCdcInstitutionSemesters(institutionIds: string[]) {
   });
 }
 
+export interface CdcPickerProgramOption {
+  value: string;
+  label: string;
+  /** Every duplicate master id behind this program name. */
+  ids: string[];
+  institution_id: string | null;
+}
+
+/** Program options within the caller's scope, grouped by name (duplicate master rows merged). */
+export function useCdcProgramOptionsAll(enabled = true) {
+  return useQuery({
+    queryKey: ['cdc-program-options', 'all'],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/pickers/programs`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Programs failed: ${res.status}`);
+      }
+      return ((await res.json()).options ?? []) as CdcPickerProgramOption[];
+    },
+    enabled,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 /** Response of PATCH /api/cdc/drives/[id]. `notify` is set only when the audience changed on an open drive. */
 export interface CdcUpdateDriveResponse {
   data: CdcDrive;
@@ -213,6 +240,12 @@ export function useUpdateCdcDrive() {
       qc.invalidateQueries({ queryKey: ['cdc-drives'] });
       qc.invalidateQueries({ queryKey: ['cdc-drive', result.data.id] });
       qc.invalidateQueries({ queryKey: ['cdc-drive-notifications', result.data.id] });
+      qc.invalidateQueries({ queryKey: ['cdc-drive-eligibility', result.data.id] });
+      if (result.targeting_changed) {
+        qc.invalidateQueries({ queryKey: ['cdc-drive-assigned', result.data.id] });
+        qc.invalidateQueries({ queryKey: ['cdc-drive-participants', result.data.id] });
+        qc.invalidateQueries({ queryKey: ['cdc-drive-attendance', result.data.id] });
+      }
     },
   });
 }
@@ -300,6 +333,74 @@ export function cdcDriveResponsesExportUrl(driveId: string, params: UseCdcDriveR
   return `${BASE}/drives/${driveId}/responses?${search}`;
 }
 
+export interface UseCdcDriveAssignedParams {
+  institution_id?: string;
+  semester_order?: number;
+  status?: CdcAssignedWillingnessBucket;
+  responded?: 'yes' | 'no';
+  q?: string;
+}
+
+function assignedSearchParams(params: UseCdcDriveAssignedParams): URLSearchParams {
+  const search = new URLSearchParams();
+  if (params.institution_id) search.set('institution_id', params.institution_id);
+  if (params.semester_order != null) search.set('semester_order', String(params.semester_order));
+  if (params.status) search.set('status', params.status);
+  if (params.responded) search.set('responded', params.responded);
+  if (params.q && params.q.trim()) search.set('q', params.q.trim());
+  return search;
+}
+
+/** Every targeted learner of a drive (responded or pending) — /cdc/drives/[id]/willingness staff view. */
+export function useCdcDriveAssigned(driveId: string | undefined, params: UseCdcDriveAssignedParams = {}) {
+  return useQuery({
+    queryKey: ['cdc-drive-assigned', driveId, params],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/drives/${driveId}/assigned?${assignedSearchParams(params)}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Assigned learners failed: ${res.status}`);
+      }
+      return (await res.json()) as CdcDriveAssignedResponse;
+    },
+    enabled: !!driveId,
+    placeholderData: (prev) => prev,
+  });
+}
+
+/** Manual willingness: mark chosen learners as Willing on their behalf. */
+export function useMarkCdcWillingManually(driveId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (learnerIds: string[]) => {
+      const res = await fetch(`${BASE}/drives/${driveId}/assigned`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ learner_ids: learnerIds }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Could not mark willingness');
+      }
+      return (await res.json()) as { marked: number; already_willing: number; unknown: number };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cdc-drive-assigned', driveId] });
+      qc.invalidateQueries({ queryKey: ['cdc-drive-responses', driveId] });
+      qc.invalidateQueries({ queryKey: ['cdc-drive-attendance', driveId] });
+      qc.invalidateQueries({ queryKey: ['cdc-drive-participants', driveId] });
+      qc.invalidateQueries({ queryKey: ['cdc-drive', driveId] });
+    },
+  });
+}
+
+/** Excel download URL for the assigned-learner view (same filters as the table). */
+export function cdcDriveAssignedExportUrl(driveId: string, params: UseCdcDriveAssignedParams = {}): string {
+  const search = assignedSearchParams(params);
+  search.set('format', 'xlsx');
+  return `${BASE}/drives/${driveId}/assigned?${search}`;
+}
+
 /** Response shape of the transition route (data + optional notification summary). */
 export interface CdcTransitionResponse {
   data: CdcDrive;
@@ -325,6 +426,11 @@ export function useTransitionCdcDriveWithNotify() {
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['cdc-drives'] });
       qc.invalidateQueries({ queryKey: ['cdc-drive', result.data.id] });
+      // Drive-day screens gate their actions on the status they were served with.
+      qc.invalidateQueries({ queryKey: ['cdc-drive-attendance', result.data.id] });
+      qc.invalidateQueries({ queryKey: ['cdc-drive-selection', result.data.id] });
+      qc.invalidateQueries({ queryKey: ['cdc-drive-participants', result.data.id] });
+      qc.invalidateQueries({ queryKey: ['cdc-coordinating-drives'] });
     },
   });
 }

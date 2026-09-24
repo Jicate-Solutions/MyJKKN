@@ -98,6 +98,11 @@ export const CATEGORY_ONLY_MODULES: ReadonlyArray<readonly [string, string]> = [
   // PERMISSION_CATEGORIES entry + sidebar route; fp_* tables not yet in
   // table-module-map, so it's category-only like Calendar/Feedback above.
   ['Foundation Programme', 'foundation'],
+  // Feature Adoption (2026-09-16 adoption loop): has the 'adoption'
+  // PERMISSION_CATEGORIES entry + the /adoption sidebar route; its tables
+  // (feature_registry, feature_usage, adoption_*) are read through RPCs only,
+  // so it is category-only like Feedback above.
+  ['Feature Adoption', 'adoption'],
   // Gate Security (2026-09): has the 'gate_security' PERMISSION_CATEGORIES
   // entry + sidebar routes; movement tables not yet in table-module-map, so
   // it is category-only like Calendar/Feedback above.
@@ -230,6 +235,7 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/online-meetings', 'Online Meetings'],
   ['/my-bug-reports', 'Bug Reports'],
   ['/bug-leaderboard', 'Bug Reports'],
+  ['/adoption', 'Feature Adoption'], // principal's adoption page (2026-09-16 adoption loop, ruling 7)
   // /admission/inbox/* — sub-prefixes BEFORE /admission catch-all (κ 2026-05-30).
   ['/admission/inbox/messenger', 'Social Messenger'], // δ PR #1149
   ['/admission/inbox/instagram', 'Instagram'], // ι PR #1153 — shares ig_* substrate with /social/instagram
@@ -260,6 +266,10 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/health', 'Health'],
   ['/ims', 'IMS'],
   ['/events', 'Events'],
+  // Longer prefix first, per the scan rule above: '/my-courses' must not fall
+  // through to a shorter match. It is the participant's own portal and belongs
+  // to the same module as the admin console.
+  ['/my-courses', 'Courses'],
   ['/courses', 'Courses'],
   ['/audit', 'System'],
   ['/staff', 'Staff'],
@@ -289,6 +299,9 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   // Listed before any broader /reports prefix so the report rolls up here.
   ['/reports/gate-in-out', 'Gate Security'],
   ['/gate-security', 'Gate Security'],
+  // "My Gate Pass" (self-service QR for every signed-in person, gated by
+  // view_profile) lives in the Gate Security sidebar group, so it rolls up here.
+  ['/gate-pass', 'Gate Security'],
   ['/hr', 'Staff'],
 
   // Single-segment dashboards — keep last to avoid swallowing nested paths.

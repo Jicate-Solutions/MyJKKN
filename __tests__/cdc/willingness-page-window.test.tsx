@@ -19,28 +19,32 @@
  * the POST carries `additional_mobile` + `data_consent` alongside `intent`. The
  * fixture and the open-window test follow the shipped page; the closed-window
  * copy is unchanged.
+ *
+ * 2026-09-16 — the page became a role switch (6bcf5b789): learners get
+ * LearnerWillingnessView, coordinators get AssignedWillingnessView, decided by
+ * useAuth. What a learner sees is LearnerWillingnessView, so that is what this
+ * file renders; the switch itself needs a live auth session. The same push made
+ * CGPA and arrears mandatory before "Confirm willingness" unlocks.
  */
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { Suspense } from 'react';
 import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { LearnerWillingnessSnapshot } from '@/lib/services/cdc/willingness-service';
+
+// The page dispatches on useAuth (learner form vs team tracker). These tests
+// cover the learner form, so the hook reports a signed-in learner.
+vi.mock('@/hooks/use-auth', () => ({
+  useAuth: () => ({ profile: { id: 'u1', learner_id: 'l1', role: 'student' }, isLoading: false, error: null }),
+}));
 
 vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
-import CdcDriveWillingnessPage from '@/app/(routes)/cdc/drives/[id]/willingness/page';
+import { LearnerWillingnessView } from '@/app/(routes)/cdc/drives/[id]/willingness/_components/learner-willingness-view';
 
 const DRIVE_ID = 'drive-1';
-// `use(params)` reads a thenable that already carries React's fulfilled shape
-// synchronously, so the page never suspends. A bare Promise suspends on first
-// use and the resume does not land inside this harness.
-const PARAMS = Object.assign(Promise.resolve({ id: DRIVE_ID }), {
-  status: 'fulfilled',
-  value: { id: DRIVE_ID },
-}) as Promise<{ id: string }>;
 
 function snapshot(over: Partial<LearnerWillingnessSnapshot> = {}): LearnerWillingnessSnapshot {
   return {
@@ -82,13 +86,10 @@ function snapshot(over: Partial<LearnerWillingnessSnapshot> = {}): LearnerWillin
 }
 
 async function renderPage() {
-  await PARAMS;
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <Suspense fallback={<div>loading</div>}>
-        <CdcDriveWillingnessPage params={PARAMS} />
-      </Suspense>
+      <LearnerWillingnessView id={DRIVE_ID} />
     </QueryClientProvider>
   );
 }
@@ -131,7 +132,11 @@ describe('willingness page — window open (the state every production drive is 
       fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'POST')
     ).toBeUndefined();
 
+    // Consent alone is not enough: CGPA and arrears are mandatory (2026-09-16).
     fireEvent.click(screen.getByRole('checkbox'));
+    expect((yes as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByPlaceholderText('e.g. 8.20'), { target: { value: '8.2' } });
+    fireEvent.change(screen.getByPlaceholderText('0'), { target: { value: '0' } });
     await waitFor(() => expect((yes as HTMLButtonElement).disabled).toBe(false));
 
     fireEvent.click(yes);
@@ -145,6 +150,8 @@ describe('willingness page — window open (the state every production drive is 
         intent: 'willing',
         additional_mobile: null,
         data_consent: true,
+        cgpa: 8.2,
+        arrears_count: 0,
       });
     });
   });
@@ -222,6 +229,6 @@ describe('willingness page — closed by status, unchanged behaviour', () => {
     await renderPage();
 
     expect(await screen.findByText(/not open for willingness right now/i)).toBeTruthy();
-    expect(screen.getByText(/Current status: Eligibility Locked/i)).toBeTruthy();
+    expect(screen.getByText(/Current status: Participants Finalized/i)).toBeTruthy();
   });
 });

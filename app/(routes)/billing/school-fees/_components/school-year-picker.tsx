@@ -18,6 +18,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import type { SchoolYearOption } from '@/hooks/school-fees/use-school-year-selection';
+import { cn } from '@/lib/utils';
+
+import { SECTION_THEMES, type SchoolFeeSection } from './section-theme';
 
 interface SchoolYearPickerProps {
   title?: string;
@@ -31,6 +34,8 @@ interface SchoolYearPickerProps {
   loadingYears: boolean;
   /** Rendered on the right of the header — clone buttons, "New plan", etc. */
   actions?: React.ReactNode;
+  /** Section colour for the card header strip. */
+  section?: SchoolFeeSection;
 }
 
 export function SchoolYearPicker({
@@ -44,20 +49,29 @@ export function SchoolYearPicker({
   loadingInstitutions,
   loadingYears,
   actions,
+  section,
 }: SchoolYearPickerProps) {
+  const theme = section ? SECTION_THEMES[section] : null;
   return (
-    <Card>
-      <CardHeader className="pb-3">
+    <Card className={cn(theme?.cardBorder)}>
+      <CardHeader className={cn('pb-3', theme?.cardHeader)}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-base flex items-center gap-2">
-            <CalendarDays className="h-4 w-4" />
+            <span
+              className={cn(
+                'flex h-6 w-6 items-center justify-center rounded-md',
+                theme?.iconTileSm ?? 'bg-muted text-muted-foreground',
+              )}
+            >
+              <CalendarDays className="h-3.5 w-3.5" />
+            </span>
             {title}
           </CardTitle>
           {actions}
         </div>
       </CardHeader>
 
-      <CardContent>
+      <CardContent className="pt-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="sy-institution">School</Label>

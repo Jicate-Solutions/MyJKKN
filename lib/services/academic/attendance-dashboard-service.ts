@@ -644,6 +644,47 @@ export class AttendanceDashboardService {
         const offDaySet = new Set(offDays?.map((d: any) => d.off_date) ?? [])
         filteredWorkingDates = workingDates.filter(d => !offDaySet.has(d))
       }
+
+      // Added: 2026-09-17 (BUG-006141) - Holidays declared on Academic > Leaves
+      // live in `institution_leaves`, not `institution_off_days`, so APPROVED
+      // ones were never subtracted and their dates showed as pending. Scoped
+      // leaves (department/semester/section) only exempt matching timetables,
+      // so the check runs per timetable in the day loop below.
+      let approvedLeavesQuery = (this.supabase as any)
+        .from('institution_leaves')
+        .select('institution_id, start_date, end_date, department_ids, semester_ids, section_ids')
+        .eq('status', 'approved')
+        .lte('start_date', queryEndDate)
+        .gte('end_date', queryStartDate)
+      if (effectiveInstitutionId) {
+        approvedLeavesQuery = approvedLeavesQuery.eq('institution_id', effectiveInstitutionId)
+      }
+      const { data: approvedLeaves, error: approvedLeavesError } = await approvedLeavesQuery
+      if (approvedLeavesError) {
+        logger.error('academic/attendance-dashboard', 'Error fetching approved leaves', approvedLeavesError)
+        throw approvedLeavesError
+      }
+      const isOnApprovedLeave = (timetable: any, date: string): boolean =>
+        (approvedLeaves ?? []).some((l: any) => {
+          if (l.institution_id !== timetable.institution_id) return false
+          if (l.start_date > date || l.end_date < date) return false
+          const inScope = (ids: string[] | null, id: string | null) =>
+            !ids || ids.length === 0 || (!!id && ids.includes(id))
+          // `sections` is the to-one join `sections(id, section_name)` above -
+          // an object, not an array. Treating it as an array threw
+          // "sections?.map is not a function" for every college that had an
+          // approved leave in the window (BUG: CAS Self pending report).
+          const joined = timetable.sections
+          const sectionIds: string[] = [
+            timetable.section_id,
+            ...(Array.isArray(joined) ? joined.map((s: any) => s?.id) : [joined?.id])
+          ].filter(Boolean)
+          return (
+            inScope(l.department_ids, timetable.department_id) &&
+            inScope(l.semester_ids, timetable.semester_id) &&
+            (!l.section_ids?.length || sectionIds.some((id) => l.section_ids.includes(id)))
+          )
+        })
       if (academicYearId) {
         timetableQuery = timetableQuery.eq('academic_year_id', academicYearId);
       }
@@ -832,6 +873,10 @@ export class AttendanceDashboardService {
 
           if (!isValidForDate) {
             return; // Skip this timetable for this date
+          }
+
+          if (isOnApprovedLeave(timetable, date)) {
+            return; // approved holiday/leave covers this class on this date
           }
 
           // Updated: 2026-08-11 - Replaces the hardcoded `getDay() !== 0 && !== 6`

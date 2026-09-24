@@ -74,6 +74,7 @@ export class ServiceRequestService {
       .from('service_types')
       .select('*, approval_steps:service_request_approval_steps(*)')
       .eq('id', dto.service_type_id)
+      .eq('approval_steps.is_active', true)
       .single();
 
     if (typeError || !serviceType) {
@@ -262,6 +263,10 @@ export class ServiceRequestService {
     // Pending state is already represented by service_requests.status +
     // current_approval_step; the approvals table is now the action log only.
 
+    if (initialStatus === 'submitted') {
+      await this.issueStaffGatePassOnSubmit(request.id, serviceType, userId);
+    }
+
     const noApprovalSteps = (serviceType.approval_steps || []).length === 0;
     if (initialStatus === 'submitted' && noApprovalSteps && serviceType.auto_fulfill_on_approval) {
       await this.finalizeAutoApproval(request.id, serviceType, userId, 'submitted');
@@ -269,6 +274,45 @@ export class ServiceRequestService {
     }
 
     return request;
+  }
+
+  /**
+   * Gate Pass category, team-member requester: the pass is issued the moment
+   * the request is submitted. Prior approval is not required for staff /
+   * faculty and a configured approval step must never block the gate. The
+   * DEFINER RPC does nothing for learner requesters (they wait for approval)
+   * and is idempotent per request. Logged, never thrown.
+   */
+  private static async issueStaffGatePassOnSubmit(
+    requestId: string,
+    serviceType: any,
+    userId: string
+  ): Promise<void> {
+    if (!serviceType?.issues_gate_pass) return;
+    const supabase = await getSupabase();
+    const { data: me } = await supabase
+      .from('profiles')
+      .select('learner_id')
+      .eq('id', userId)
+      .maybeSingle();
+    if (me?.learner_id) {
+      // A learner link alone is not enough: a graduate who joined as staff
+      // keeps their old learner_id. An active staff record makes them a team
+      // member — the same rule issue_gate_pass_for_service_request applies.
+      const { data: activeStaff } = await supabase
+        .from('staff')
+        .select('id')
+        .eq('profile_id', userId)
+        .eq('is_active', true)
+        .limit(1);
+      if ((activeStaff ?? []).length === 0) return; // learner: approval path
+    }
+    const { error } = await supabase.rpc('issue_gate_pass_for_service_request', {
+      p_request_id: requestId,
+    });
+    if (error) {
+      console.error('[service-requests] Team-member gate pass issue on submit failed:', error);
+    }
   }
 
   /**
@@ -395,6 +439,7 @@ export class ServiceRequestService {
       .from('service_requests')
       .select('*, service_type:service_types(*, approval_steps:service_request_approval_steps(*))')
       .eq('id', id)
+      .eq('service_type.approval_steps.is_active', true)
       .single();
 
     if (fetchError || !request) {
@@ -436,6 +481,8 @@ export class ServiceRequestService {
     );
 
     const st = request.service_type;
+    await this.issueStaffGatePassOnSubmit(id, st, userId);
+
     const noApprovalSteps = (st?.approval_steps || []).length === 0;
     if (noApprovalSteps && st?.auto_fulfill_on_approval) {
       await this.finalizeAutoApproval(id, st, userId, 'submitted');
@@ -548,6 +595,8 @@ export class ServiceRequestService {
       .from('service_requests')
       .select(REQUEST_DETAIL_SELECT)
       .eq('id', id)
+      // Live flow only; the approvals embed keeps its own step join for history.
+      .eq('service_type.approval_steps.is_active', true)
       .single();
 
     if (error) {
@@ -657,7 +706,8 @@ export class ServiceRequestService {
     const { data: matchingSteps, error: stepsError } = await supabase
       .from('service_request_approval_steps')
       .select('step_order, service_type_id')
-      .eq('approver_role', userRole);
+      .eq('approver_role', userRole)
+      .eq('is_active', true);
 
     if (stepsError || !matchingSteps || matchingSteps.length === 0) {
       return {

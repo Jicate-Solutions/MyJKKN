@@ -6,7 +6,8 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { CdcDriveService } from '@/lib/services/cdc/drive-service';
-import { notifyDriveWillingnessOpen } from '@/lib/services/cdc/drive-notifications';
+import { notifyDriveWillingnessOpen, type DriveNotifyResult } from '@/lib/services/cdc/drive-notifications';
+import { currentCycle } from '@/lib/services/cdc/willingness-cycles';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import type { CdcDriveNotifySummary, CdcDriveUpdate } from '@/types/cdc';
 
@@ -51,7 +52,24 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const detail = await CdcDriveService.getDriveDetail(supabase, id);
+    // Full detail (history, recruiter, counts, notification summary) is team-member
+    // data. Learners read their own view through ../willingness; assigned
+    // coordinators through ../attendance.
+    // An assigned coordinator of THIS drive reads its detail too (the
+    // willingness tracker header needs it, 2026-09-23); the service role does
+    // the read because cdc_drives RLS is role-based.
+    const service = createServiceRoleClient();
+    const [{ data: canView }, { data: canTrack }, { data: coord }] = await Promise.all([
+      supabase.rpc('user_has_permission', { permission_name: 'cdc.drives.view' }),
+      supabase.rpc('user_has_permission', { permission_name: 'cdc.drives.willingness.view' }),
+      service.from('cdc_drive_coordinators').select('id').eq('drive_id', id).eq('user_id', user.id).maybeSingle(),
+    ]);
+    const isCoordinator = !!coord;
+    if (canView !== true && canTrack !== true && !isCoordinator) {
+      return NextResponse.json({ error: 'Forbidden — cdc.drives.view required' }, { status: 403 });
+    }
+
+    const detail = await CdcDriveService.getDriveDetail(isCoordinator && canView !== true && canTrack !== true ? service : supabase, id);
     if (!detail) {
       return NextResponse.json({ error: 'Drive not found' }, { status: 404 });
     }
@@ -112,7 +130,14 @@ export async function PATCH(
     let notify_error: string | undefined;
     if (targeting_changed && drive.status === 'willingness_open') {
       try {
-        const result = await notifyDriveWillingnessOpen(createServiceRoleClient(), drive, user.id);
+        const service = createServiceRoleClient();
+        // Delta send belongs to the current cycle; a cycle whose open time has
+        // not arrived is left to the cron so nobody is notified early.
+        const cycle = await currentCycle(service, id);
+        const cycleDue = !cycle || (cycle.notification_sent && new Date(cycle.open_at).getTime() <= Date.now());
+        const result = cycleDue
+          ? await notifyDriveWillingnessOpen(service, drive, user.id, cycle?.cycle_no ?? 1)
+          : { targeted_learners: 0, unlinked_learners: 0, already_notified: 0, notified: 0, skipped: 'scheduled' as const } as unknown as DriveNotifyResult;
         notify = {
           targeted_learners: result.targeted_learners,
           unlinked_learners: result.unlinked_learners,

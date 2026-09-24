@@ -129,6 +129,12 @@ export interface CdcDriveInstitutionSemesterTarget {
   institution_id: string;
   /** semesters.semester_order values. Empty = every semester of that institution. */
   semester_orders: number[];
+  /**
+   * programs.id values (2026-09-16). Empty / absent = every program of that
+   * institution. The picker stores EVERY duplicate master id behind a chosen
+   * program name so learners split across copies are all matched.
+   */
+  program_ids?: string[];
 }
 export type CdcDriveInstitutionSemesters = CdcDriveInstitutionSemesterTarget[];
 
@@ -157,6 +163,9 @@ export interface CdcDrive {
   circular_size_bytes: number | null;
   circular_uploaded_at: string | null;
   circular_uploaded_by: string | null;
+  /** Set when CDC finalizes the participant list (20260919110000). */
+  participants_finalized_at: string | null;
+  participants_finalized_by: string | null;
   title: string;
   description: string | null;
   status: CdcDriveStatus;
@@ -247,7 +256,8 @@ export interface CdcDriveWillingness {
   cgpa: number | null;
   arrears_count: number | null;
   arrears_details: CdcArrearDetail[] | null;
-  academic_source: 'coe_rest' | 'coe_db' | 'rate_limited' | 'unavailable' | null;
+  /** 'learner_declared' = the learner typed CGPA/arrears (mandatory since 2026-09-16); COE source kept when it matched. */
+  academic_source: 'coe_rest' | 'coe_db' | 'rate_limited' | 'unavailable' | 'learner_declared' | null;
   data_consent_at: string | null;
   created_at: string;
   updated_at: string;
@@ -350,15 +360,75 @@ export interface CdcDriveNotifySummary {
   unlinked_learners: number;
   already_notified: number;
   notified: number;
-  skipped?: 'idempotent' | 'no_recipients' | 'no_created_by' | 'no_targeting';
+  skipped?: 'idempotent' | 'no_recipients' | 'no_created_by' | 'no_targeting' | 'scheduled';
   push?: { sent: number; failed: number; total_subscriptions: number };
 }
 
-/** One row of cdc_drive_notification_log (per learner, per drive). */
+// =====================================================================================
+// Willingness opening cycles (20260916100000)
+// =====================================================================================
+
+/** Stored kind of a cycle row; 'expired' and the scheduled→open flip are derived from time. */
+export type CdcWillingnessCycleStatus = 'scheduled' | 'open' | 'reopened' | 'closed';
+/** What CDC sees: stored kind resolved against the clock. */
+export type CdcWillingnessCycleDisplayStatus = 'scheduled' | 'open' | 'reopened' | 'closed' | 'expired';
+
+export const CDC_WILLINGNESS_CYCLE_STATUS_LABELS: Record<CdcWillingnessCycleDisplayStatus, string> = {
+  scheduled: 'Scheduled',
+  open: 'Open',
+  reopened: 'Reopened',
+  closed: 'Closed',
+  expired: 'Expired',
+};
+
+export interface CdcWillingnessCycle {
+  id: string;
+  drive_id: string;
+  cycle_no: number;
+  open_at: string;
+  close_at: string | null;
+  status: CdcWillingnessCycleStatus;
+  reopen_reason: string | null;
+  notification_sent: boolean;
+  notification_sent_at: string | null;
+  notification_id: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Derived by the API for display. */
+  display_status: CdcWillingnessCycleDisplayStatus;
+  /** Learners logged as notified for this cycle (audit rows with status 'sent'). */
+  notified_count: number;
+}
+
+export interface CdcWillingnessCyclesResponse {
+  cycles: CdcWillingnessCycle[];
+  /** Highest cycle_no, or null when willingness has never opened. */
+  current: CdcWillingnessCycle | null;
+  drive_status: CdcDriveStatus;
+  can_reopen: boolean;
+}
+
+export interface CdcWillingnessCycleUpdatePayload {
+  action: 'update';
+  open_at: string;
+  close_at: string | null;
+}
+
+export interface CdcWillingnessCycleReopenPayload {
+  action: 'reopen';
+  open_at: string;
+  close_at: string | null;
+  reason?: string | null;
+}
+
+/** One row of cdc_drive_notification_log (per learner, per drive, per cycle). */
 export interface CdcDriveNotificationLogRow {
   id: string;
   drive_id: string;
   learner_id: string;
+  /** Willingness opening cycle this send belongs to (20260916100000). */
+  cycle_no: number;
   user_id: string | null;
   notification_type: string;
   notification_id: string | null;
@@ -399,9 +469,12 @@ export const CDC_DRIVE_STATUS_LABELS: Record<CdcDriveStatus, string> = {
   draft: 'Draft',
   announced: 'Announced',
   willingness_open: 'Willingness Open',
-  eligibility_locked: 'Eligibility Locked',
-  attendance_day: 'Attendance Day',
-  results_announced: 'Results Announced',
+  // Workflow labels (2026-09-19). The enum values are unchanged; only what people read:
+  // eligibility_locked = participants finalized, attendance_day = the drive is running,
+  // results_announced = selection finalized.
+  eligibility_locked: 'Participants Finalized',
+  attendance_day: 'Drive In Progress',
+  results_announced: 'Selection Finalized',
   closed: 'Closed',
   cancelled: 'Cancelled',
 };
@@ -418,6 +491,44 @@ export function canTransition(
     return to === 'results_announced' || to === 'closed';
   }
   return false;
+}
+
+/**
+ * Moving back (2026-09-22). Every non-terminal stage — and Closed — can step
+ * back exactly one stage along the main path; Cancelled stays final. Nothing
+ * recorded in the later stage is deleted: the stage is simply open for
+ * corrections again. A reason is mandatory (enforced by transitionDrive).
+ */
+export const CDC_DRIVE_PREVIOUS_STATUS: Partial<Record<CdcDriveStatus, CdcDriveStatus>> = {
+  announced: 'draft',
+  willingness_open: 'announced',
+  eligibility_locked: 'willingness_open',
+  attendance_day: 'eligibility_locked',
+  results_announced: 'attendance_day',
+  closed: 'results_announced',
+};
+
+export function previousDriveStatus(from: CdcDriveStatus): CdcDriveStatus | null {
+  return CDC_DRIVE_PREVIOUS_STATUS[from] ?? null;
+}
+
+export function isRollback(from: CdcDriveStatus, to: CdcDriveStatus): boolean {
+  return CDC_DRIVE_PREVIOUS_STATUS[from] === to;
+}
+
+/**
+ * Assigned coordinators (no cdc.drives.edit) may only step back within the
+ * three drive-day stages they work in: Drive In Progress → Participants
+ * Finalized, and Selection Finalized → Drive In Progress. They never move a
+ * drive forward, and Closed is the CDC office's to reopen.
+ */
+export const CDC_COORDINATOR_ROLLBACK_FROM: ReadonlySet<CdcDriveStatus> = new Set<CdcDriveStatus>([
+  'attendance_day',
+  'results_announced',
+]);
+
+export function canCoordinatorRollback(from: CdcDriveStatus, to: CdcDriveStatus): boolean {
+  return CDC_COORDINATOR_ROLLBACK_FROM.has(from) && isRollback(from, to);
 }
 
 // =====================================================================================
@@ -479,9 +590,234 @@ export interface CdcDriveResponseRow {
   declared_at: string;
 }
 
+/** Willingness bucket used by the assigned-learner view (`/cdc/drives/[id]/willingness`). */
+export type CdcAssignedWillingnessBucket = 'willing' | 'not_willing' | 'pending';
+
+/** Notification delivery state for one learner on one drive (from cdc_drive_notification_log). */
+export type CdcAssignedNotificationState = 'sent' | 'failed' | 'not_sent' | 'no_push_token';
+
+export const CDC_ASSIGNED_BUCKET_LABEL: Record<CdcAssignedWillingnessBucket, string> = {
+  willing: 'Willing',
+  not_willing: 'Not willing',
+  pending: 'Pending',
+};
+
+export const CDC_ASSIGNED_NOTIFICATION_LABEL: Record<CdcAssignedNotificationState, string> = {
+  sent: 'Sent',
+  failed: 'Failed',
+  not_sent: 'Not sent',
+  no_push_token: 'No push token',
+};
+
+/** One row of GET /api/cdc/drives/[id]/assigned — every targeted learner, responded or not. */
+export interface CdcDriveAssignedRow {
+  learner_id: string;
+  learner_name: string | null;
+  register_number: string | null;
+  roll_number: string | null;
+  photo_url: string | null;
+  institution_id: string | null;
+  institution_name: string | null;
+  department_name: string | null;
+  program_id: string | null;
+  program_name: string | null;
+  semester_order: number | null;
+  semester_label: string | null;
+  /** Profile contact — released only when the caller may view learner profiles, or the learner consented at submission. */
+  email: string | null;
+  mobile: string | null;
+  additional_mobile: string | null;
+  contact_source: 'profile' | 'consent' | 'hidden';
+  cgpa: number | null;
+  arrears_count: number | null;
+  arrears_details: CdcArrearDetail[] | null;
+  data_consent_at: string | null;
+  /** Raw willingness status; null when the learner has not responded. */
+  willingness_status: CdcWillingnessStatus | null;
+  bucket: CdcAssignedWillingnessBucket;
+  responded: boolean;
+  declared_at: string | null;
+  notification_state: CdcAssignedNotificationState;
+  notification_sent_at: string | null;
+  notification_detail: string | null;
+  /** True when the learner responded but no longer matches the drive's audience (moved semester / institution). */
+  outside_audience: boolean;
+}
+
+export interface CdcDriveAssignedSummary {
+  assigned: number;
+  responded: number;
+  willing: number;
+  not_willing: number;
+  pending: number;
+}
+
+export interface CdcDriveAssignedResponse {
+  data: CdcDriveAssignedRow[];
+  total: number;
+  summary: CdcDriveAssignedSummary;
+  /** Whether profile contact fields were released to this caller. */
+  contact_released: boolean;
+  /** Caller may mark learners as Willing by hand (cdc.drives.edit or assigned coordinator, drive stage permitting). */
+  can_mark_willing?: boolean;
+  mark_blocked_reason?: string | null;
+}
+
 export interface CdcLookupsResponse {
   drive_types: CdcDriveType[];
   industry_sectors: CdcIndustrySector[];
   offer_types: CdcOfferType[];
   recruiters: CdcRecruiter[];
+}
+
+// =====================================================================================
+// Drive-day slice (20260919110000): participants, coordinators, attendance
+// =====================================================================================
+
+export type CdcDriveAttendanceStatus = 'present' | 'absent' | 'late' | 'excused' | 'not_attended';
+
+export interface CdcDriveAttendanceSummary {
+  total: number;
+  present: number;
+  absent: number;
+  late: number;
+  excused: number;
+  not_attended: number;
+  unmarked: number;
+}
+
+/** An audience row plus its participation state (participants screen). */
+export interface CdcDriveParticipantRow extends CdcDriveAssignedRow {
+  is_participant: boolean;
+  /** Pre-ticked on the screen: Willing before finalization, the saved list after. */
+  proposed: boolean;
+  participant_source: 'willing' | 'added' | null;
+  participant_status: 'active' | 'removed' | null;
+  participant_remarks: string | null;
+  participant_added_at: string | null;
+  participant_notified_at: string | null;
+}
+
+/** A finalized participant plus drive-day attendance (attendance screen). */
+export interface CdcDriveAttendanceRow extends CdcDriveAssignedRow {
+  attendance_status: CdcDriveAttendanceStatus | null;
+  attendance_marked_at: string | null;
+  attendance_marked_by: string | null;
+  attendance_remarks: string | null;
+}
+
+export interface CdcDriveCoordinator {
+  id: string;
+  drive_id: string;
+  staff_id: string;
+  user_id: string | null;
+  assigned_at: string;
+  notified_at: string | null;
+  name: string;
+  staff_code: string | null;
+  designation: string | null;
+  email: string | null;
+  /** false = the staff record has no linked login, so they cannot open the attendance page. */
+  has_login: boolean;
+}
+
+export interface CdcDriveDayAccess {
+  canManage: boolean;
+  canView: boolean;
+  isCoordinator: boolean;
+  canMark: boolean;
+  markBlockedReason: string | null;
+}
+
+// =====================================================================================
+// Drive documents + bulk upload (20260919120600)
+// =====================================================================================
+
+export type CdcDocumentType =
+  | 'offer_letter'
+  | 'appointment_letter'
+  | 'joining_letter'
+  | 'internship_letter'
+  | 'training_letter'
+  | 'salary_letter'
+  | 'other';
+
+/** What to do when the learner already has a current document of this type. */
+export type CdcBulkExistingMode = 'skip' | 'replace' | 'new_version';
+
+export type CdcBulkPreviewStatus =
+  | 'matched'
+  | 'existing'
+  | 'no_match'
+  | 'multiple_match'
+  | 'duplicate_in_batch'
+  | 'invalid';
+
+export interface CdcBulkPreviewRow {
+  file_name: string;
+  size_bytes: number;
+  status: CdcBulkPreviewStatus;
+  learner_id: string | null;
+  learner_name: string | null;
+  register_number: string | null;
+  roll_number: string | null;
+  match_kind: 'register_exact' | 'roll_exact' | 'register_contained' | 'roll_contained' | null;
+  /** Candidates when status = multiple_match. */
+  options: Array<{ learner_id: string; name: string; register_number: string | null }>;
+  existing: { document_id: string; version: number; file_name: string; uploaded_at: string } | null;
+  reason: string | null;
+}
+
+export interface CdcDocumentBatch {
+  id: string;
+  batch_code: string;
+  drive_id: string;
+  document_type: CdcDocumentType;
+  status: 'in_progress' | 'completed' | 'completed_with_errors' | 'abandoned';
+  total_files: number;
+  matched: number;
+  uploaded: number;
+  failed: number;
+  no_match: number;
+  multiple_match: number;
+  existing_found: number;
+  skipped: number;
+  uploaded_by: string | null;
+  uploaded_by_name?: string | null;
+  started_at: string;
+  completed_at: string | null;
+}
+
+// =====================================================================================
+// Selection decisions (20260919130100)
+// =====================================================================================
+
+export type CdcSelectionDecision = 'selected' | 'waitlisted' | 'rejected' | 'hold';
+
+/** A finalized participant with attendance, decision and current documents. */
+export interface CdcDriveSelectionRow extends CdcDriveAttendanceRow {
+  decision: CdcSelectionDecision | null;
+  decision_remarks: string | null;
+  decided_at: string | null;
+  decided_by_name: string | null;
+  documents: Array<{
+    id: string;
+    document_type: CdcDocumentType;
+    file_name: string;
+    version: number;
+    status: string;
+    uploaded_at: string;
+  }>;
+}
+
+export interface CdcDriveSelectionSummary {
+  participants: number;
+  attended: number;
+  selected: number;
+  waitlisted: number;
+  rejected: number;
+  hold: number;
+  undecided: number;
+  offer_uploaded: number;
+  offer_pending: number;
 }

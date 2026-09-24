@@ -15,6 +15,7 @@
 // and an UPDATE policy exists, so a denial surfaces as an error toast rather
 // than a silent 0-row no-op.
 
+import { formatIstDate, formatIstTime, istLocalInputToIso } from '@/lib/utils/date-format';
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -32,8 +33,10 @@ import {
   ChevronRight,
   Eye,
   Globe,
+  Phone,
   ShieldCheck,
   Star,
+  UserRound,
   Users,
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -88,6 +91,7 @@ import { EventTasksCard } from '@/components/events/shared/event-tasks-card';
 import { EventReviewCommentsCard } from '@/components/events/shared/event-review-comments-card';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useEventOrganiserContacts } from '@/hooks/events/shared/use-event-organiser-contacts';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 
 /** 'cultural' → 'Cultural', 'sports_day' → 'Sports Day' (raw types render readable). */
@@ -97,25 +101,17 @@ const formatEventType = (type: string) =>
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(' ');
 
-const formatDate = (value: string | null) => {
-  if (!value) return null;
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleDateString('en-IN', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
-};
+// Dates and times render in IST whatever the viewer's browser zone.
+const formatDate = (value: string | null) => formatIstDate(value) || null;
 
 /** "9:30 am" from a time or timestamp column; null when unparseable. */
 const formatTime = (value: string | null) => {
   if (!value) return null;
-  // start_time/end_time are `time` columns ("09:30:00"), which Date() cannot
-  // parse on its own — give them a date before handing them over.
-  const d = new Date(/^\d{2}:\d{2}/.test(value) ? `1970-01-01T${value}` : value);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
+  // start_time/end_time are `time` columns ("09:30:00") holding an IST wall
+  // clock already — read them as IST so they are not shifted on the way out.
+  const d = /^\d{2}:\d{2}/.test(value) ? `1970-01-01T${value.slice(0, 5)}` : value;
+  const iso = /^\d{2}:\d{2}/.test(value) ? istLocalInputToIso(d) : d;
+  return formatIstTime(iso) || null;
 };
 
 /** A date range that collapses to one date when both ends match (or one is absent). */
@@ -135,7 +131,9 @@ function Fact({
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
-  value: string | null | undefined;
+  // ReactNode, not string: the organiser's mobile renders as a tel: link so it
+  // can be dialled from a phone. A plain string still works unchanged.
+  value: React.ReactNode;
 }) {
   return (
     <div className="flex items-start gap-2.5">
@@ -528,6 +526,20 @@ export default function GeneralEventDetailPage() {
       isSuperAdmin,
     });
 
+  // Who to contact about this event (BUG-006129). Read BEFORE the loading and
+  // redirect guards below, because those return early and a hook cannot be
+  // called conditionally. Both inputs are optional, so an absent event simply
+  // resolves to nothing and issues no query.
+  const inchargesRaw = Array.isArray(
+    (event?.config as Record<string, unknown> | null)?.incharges,
+  )
+    ? ((event!.config as Record<string, unknown>).incharges as {
+        member_id?: string;
+        name?: string;
+      }[]).filter((i) => i && (typeof i.name === 'string' || typeof i.member_id === 'string'))
+    : [];
+  const organisers = useEventOrganiserContacts(event?.created_by, inchargesRaw);
+
   // A specialised event type reached through this URL belongs to its own
   // console — this page cannot manage divisions, sessions or race ops.
   const dedicatedConsole = event
@@ -752,6 +764,44 @@ export default function GeneralEventDetailPage() {
                   value={registrationWindow}
                 />
                 <Fact icon={Users} label="Capacity" value={capacityLabel} />
+                {/* Who to contact (BUG-006129). The label follows the source:
+                    an appointed in-charge is the organiser, whereas
+                    events.created_by is only the person who filled the form —
+                    calling the latter "Organiser" would assert something the
+                    data does not say. */}
+                <Fact
+                  icon={UserRound}
+                  label={
+                    organisers.primary?.kind === 'incharge' ? 'Organiser' : 'Created by'
+                  }
+                  value={
+                    organisers.isLoading
+                      ? 'Loading…'
+                      : organisers.primary
+                        ? organisers.primary.name
+                        : null
+                  }
+                />
+                <Fact
+                  icon={Phone}
+                  label="Mobile"
+                  value={
+                    organisers.isLoading ? (
+                      'Loading…'
+                    ) : organisers.primary?.phone ? (
+                      <a
+                        href={`tel:${organisers.primary.phone}`}
+                        className="underline underline-offset-2 hover:no-underline"
+                      >
+                        {organisers.primary.phone}
+                      </a>
+                    ) : organisers.primary ? (
+                      <span className="font-normal text-muted-foreground">
+                        No mobile number on file
+                      </span>
+                    ) : null
+                  }
+                />
               </div>
 
               {event.description && (
@@ -785,14 +835,26 @@ export default function GeneralEventDetailPage() {
                       In-charge
                     </p>
                     {incharges.length > 0 ? (
+                      /* Each in-charge carries their mobile (BUG-006129) —
+                         these are the people a reader needs to reach, and the
+                         number was one join away the whole time. */
                       <div className="flex flex-wrap gap-1">
-                        {incharges.map((i, idx) => (
+                        {organisers.incharges.map((i, idx) => (
                           <Badge
-                            key={i.member_id ?? idx}
+                            key={i.id ?? idx}
                             variant="secondary"
-                            className="text-[11px] font-normal"
+                            className="gap-1 text-[11px] font-normal"
                           >
                             {i.name}
+                            {i.phone && (
+                              <a
+                                href={`tel:${i.phone}`}
+                                className="inline-flex items-center gap-0.5 underline underline-offset-2 hover:no-underline"
+                              >
+                                <Phone className="h-2.5 w-2.5" />
+                                {i.phone}
+                              </a>
+                            )}
                           </Badge>
                         ))}
                       </div>
@@ -967,8 +1029,8 @@ export default function GeneralEventDetailPage() {
 
         {/* Review comments — LAST on the page by request: the reviewing
             authority reads the whole console, then writes what is still wrong
-            at the foot of it. The card gates itself (super admin, admin /
-            administrator / event_coordinator with institution access, the
+            at the foot of it. The card gates itself (super admin, the
+            events.review_comments.view permission with institution access, the
             in-charge, the creator) and renders nothing for anyone else, so no
             props decide who sees it — see
             hooks/events/shared/use-event-review-comment-access.ts. */}

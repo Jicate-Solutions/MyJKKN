@@ -48,10 +48,22 @@ export function normalizeInstitutionSemesters(
           )
         ).sort((a, b) => a - b)
       : [];
+    const programsRaw = (entry as { program_ids?: unknown }).program_ids;
+    const programs = Array.isArray(programsRaw)
+      ? Array.from(new Set(programsRaw.filter((p): p is string => typeof p === 'string' && UUID_RE.test(p))))
+      : [];
     seen.add(inst);
-    out.push({ institution_id: inst, semester_orders: orders });
+    out.push({ institution_id: inst, semester_orders: orders, program_ids: programs });
   }
   return out;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Does this drive restrict any institution to specific programs? */
+export function hasProgramTargeting(drive: Pick<CdcDrive, 'institution_semesters'>): boolean {
+  const t = drive.institution_semesters;
+  return Array.isArray(t) && t.some((e) => Array.isArray(e.program_ids) && e.program_ids.length > 0);
 }
 
 /** Does this drive carry any semester targeting at all? */
@@ -74,6 +86,8 @@ export function distinctSemesterOrders(drive: Pick<CdcDrive, 'institution_semest
 export interface LearnerTargetingInput {
   institution_id: string | null;
   semester_order: number | null;
+  /** learners_profiles.program_id — only consulted when the institution entry lists program_ids. */
+  program_id?: string | null;
 }
 
 /**
@@ -90,8 +104,28 @@ export function isLearnerTargeted(
     (e) => e.institution_id === learner.institution_id
   );
   if (!entry) return false;
+  if (entry.program_ids && entry.program_ids.length > 0) {
+    if (!learner.program_id || !entry.program_ids.includes(learner.program_id)) return false;
+  }
   if (!entry.semester_orders || entry.semester_orders.length === 0) return true; // whole institution
   return learner.semester_order != null && entry.semester_orders.includes(learner.semester_order);
+}
+
+/** Which part of the targeting rejected the learner (for learner-facing copy + diagnosis). */
+export function learnerTargetingMiss(
+  drive: Pick<CdcDrive, 'institutions' | 'institution_semesters'>,
+  learner: LearnerTargetingInput
+): 'institution' | 'program' | 'semester' | null {
+  if (!learner.institution_id || !drive.institutions.includes(learner.institution_id)) return 'institution';
+  const entry = (drive.institution_semesters ?? []).find((e) => e.institution_id === learner.institution_id);
+  if (!entry) return 'institution';
+  if (entry.program_ids && entry.program_ids.length > 0 && (!learner.program_id || !entry.program_ids.includes(learner.program_id))) {
+    return 'program';
+  }
+  if (entry.semester_orders.length > 0 && (learner.semester_order == null || !entry.semester_orders.includes(learner.semester_order))) {
+    return 'semester';
+  }
+  return null;
 }
 
 // ------------------------------------------------------------------------
@@ -142,64 +176,80 @@ export async function resolveTargetLearners(
   // 1. Resolve semester ids per institution for the requested orders.
   const semesterIdsByInst = new Map<string, string[] | 'ALL'>();
   const orderBySemesterId = new Map<string, number>();
-  for (const entry of targeting) {
-    if (!entry.semester_orders || entry.semester_orders.length === 0) {
-      semesterIdsByInst.set(entry.institution_id, 'ALL');
-      continue;
-    }
-    const { data, error } = await service
-      .from('semesters')
-      .select('id, semester_order')
-      .eq('institution_id', entry.institution_id)
-      .in('semester_order', entry.semester_orders)
-      .limit(5000);
-    if (error) throw error;
-    const ids = (data ?? []).map((s) => {
-      orderBySemesterId.set(s.id as string, s.semester_order as number);
-      return s.id as string;
-    });
-    semesterIdsByInst.set(entry.institution_id, ids);
-  }
+  // One semesters query per institution, all at once (they are independent).
+  await Promise.all(
+    targeting.map(async (entry) => {
+      if (!entry.semester_orders || entry.semester_orders.length === 0) {
+        semesterIdsByInst.set(entry.institution_id, 'ALL');
+        return;
+      }
+      const { data, error } = await service
+        .from('semesters')
+        .select('id, semester_order')
+        .eq('institution_id', entry.institution_id)
+        .in('semester_order', entry.semester_orders)
+        .limit(5000);
+      if (error) throw error;
+      const ids = (data ?? []).map((s) => {
+        orderBySemesterId.set(s.id as string, s.semester_order as number);
+        return s.id as string;
+      });
+      semesterIdsByInst.set(entry.institution_id, ids);
+    })
+  );
 
-  // 2. Learners per institution.
+  // 2. Learners per institution (optionally restricted to the entry's programs).
+  const programIdsByInst = new Map<string, string[]>();
+  for (const entry of targeting) {
+    if (entry.program_ids && entry.program_ids.length > 0) programIdsByInst.set(entry.institution_id, entry.program_ids);
+  }
   const learners: Array<{ id: string; institution_id: string; semester_id: string | null }> = [];
+  // Every (institution × semester-chunk) read is independent → one parallel wave.
+  const learnerJobs: Array<Promise<Array<{ id: string; institution_id: string; semester_id: string | null }>>> = [];
   for (const [institutionId, semesterIds] of semesterIdsByInst) {
     if (semesterIds !== 'ALL' && semesterIds.length === 0) continue;
     const groups = semesterIds === 'ALL' ? [null] : chunk(semesterIds, IN_CHUNK);
+    const programIds = programIdsByInst.get(institutionId) ?? null;
     for (const group of groups) {
-      let q = service
-        .from('learners_profiles')
-        .select('id, institution_id, semester_id')
-        .eq('institution_id', institutionId)
-        .in('lifecycle_status', TARGET_LIFECYCLE)
-        .limit(20000);
-      if (group) q = q.in('semester_id', group);
-      const { data, error } = await q;
-      if (error) throw error;
-      for (const row of data ?? []) {
-        learners.push({
-          id: row.id as string,
-          institution_id: row.institution_id as string,
-          semester_id: (row.semester_id as string | null) ?? null,
-        });
-      }
+      learnerJobs.push(
+        (async () => {
+          let q = service
+            .from('learners_profiles')
+            .select('id, institution_id, semester_id')
+            .eq('institution_id', institutionId)
+            .in('lifecycle_status', TARGET_LIFECYCLE)
+            .limit(20000);
+          if (group) q = q.in('semester_id', group);
+          if (programIds) q = q.in('program_id', programIds);
+          const { data, error } = await q;
+          if (error) throw error;
+          return (data ?? []).map((row) => ({
+            id: row.id as string,
+            institution_id: row.institution_id as string,
+            semester_id: (row.semester_id as string | null) ?? null,
+          }));
+        })()
+      );
     }
   }
+  for (const batch of await Promise.all(learnerJobs)) learners.push(...batch);
   if (learners.length === 0) return empty;
 
   // 3. learners_profiles.id → profiles.id (the notifiable auth user).
   const userByLearner = new Map<string, string>();
-  for (const ids of chunk(learners.map((l) => l.id), IN_CHUNK)) {
-    const { data, error } = await service
-      .from('profiles')
-      .select('id, learner_id')
-      .in('learner_id', ids)
-      .eq('is_active', true);
-    if (error) throw error;
-    for (const p of data ?? []) {
-      if (p.learner_id && p.id) userByLearner.set(p.learner_id as string, p.id as string);
-    }
-  }
+  await Promise.all(
+    chunk(learners.map((l) => l.id), IN_CHUNK).map(async (ids) => {
+      const { data, error } = await service
+        .from('profiles')
+        .select('id, learner_id')
+        .in('learner_id', ids)
+        .eq('is_active', true);
+      if (error) throw error;
+      for (const p of data ?? []) {
+        if (p.learner_id && p.id) userByLearner.set(p.learner_id as string, p.id as string);
+      }
+    })
+  );
 
   const rows: TargetLearnerRow[] = [];
   const unlinked: UnlinkedLearnerRow[] = [];

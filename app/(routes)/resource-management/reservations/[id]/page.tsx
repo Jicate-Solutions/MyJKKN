@@ -19,6 +19,8 @@ import { ReservationActions } from './_components/reservation-actions';
 import { ReservationApprovalActions } from './_components/reservation-approval-actions';
 import { ReservationTimeline } from './_components/reservation-timeline';
 import { ReservationComments } from './_components/reservation-comments';
+import { ReservationCommunicationsLog } from './_components/reservation-communications-log';
+import { ReservationMessageAction } from './_components/reservation-message-action';
 import {
   useReservation,
   useReservationApprovals
@@ -160,7 +162,23 @@ export default function ReservationDetailsPage({
               Gates itself — booker, the request's approvers, or resource
               administrators. Renders nothing for anyone else, including the
               rest of the institution, who CAN read the booking row itself. */}
-          <ReservationComments reservationId={reservationId} />
+          <ReservationComments
+            reservationId={reservationId}
+            institutionId={reservation.resource?.institution_id}
+            booker={
+              reservation.user
+                ? {
+                    id: reservation.user.id,
+                    name: reservation.user.full_name || 'Booker',
+                    subtitle: reservation.user.email ?? null,
+                  }
+                : null
+            }
+          />
+
+          {/* Every ad-hoc message sent about this booking — self-gates to the
+              same audience as the Comments thread above. */}
+          <ReservationCommunicationsLog reservationId={reservationId} />
         </div>
 
         {/* Sidebar */}
@@ -170,6 +188,7 @@ export default function ReservationDetailsPage({
             reservation={reservation}
             userId={user?.id}
           />
+          <ReservationMessageAction reservation={reservation} />
           <ReservationActions reservation={reservation} userId={user?.id} />
           <ReservationTimeline
             reservation={reservation}

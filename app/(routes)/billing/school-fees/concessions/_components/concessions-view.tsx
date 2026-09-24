@@ -35,7 +35,12 @@ import {
   useSchoolFeeConcessionSchemes,
 } from '@/hooks/school-fees/use-school-fee-concessions';
 
+import { cn } from '@/lib/utils';
+
 import { SchoolYearPicker } from '../../_components/school-year-picker';
+import { SECTION_THEMES } from '../../_components/section-theme';
+
+const T = SECTION_THEMES.concessions;
 import { SchemeFormDialog } from './scheme-form-dialog';
 import { AssignLearnersDialog } from './assign-learners-dialog';
 import type { SchoolFeeConcessionScheme } from '@/types/school-fees';
@@ -91,6 +96,7 @@ export function ConcessionsView() {
   return (
     <div className="space-y-6">
       <SchoolYearPicker
+        section="concessions"
         institutions={institutions}
         institutionId={institutionId}
         onInstitutionChange={setInstitutionChoice}
@@ -103,7 +109,7 @@ export function ConcessionsView() {
           ready && canManage ? (
             <Button
               size="sm"
-              variant="outline"
+              className={T.button}
               onClick={() => {
                 setEditing(null);
                 setFormOpen(true);
@@ -128,14 +134,17 @@ export function ConcessionsView() {
       ) : (
         <div className="grid gap-6 lg:grid-cols-2">
           {/* ---------------------------------------------------------- */}
-          <Card>
-            <CardHeader className="pb-3">
+          <Card className={T.cardBorder}>
+            <CardHeader className={cn('pb-3', T.cardHeader)}>
               <CardTitle className="text-base flex items-center gap-2">
+                <span className={cn('flex h-6 w-6 items-center justify-center rounded-md', T.iconTileSm)}>
+                  <Percent className="h-3.5 w-3.5" />
+                </span>
                 Concession schemes
-                <Badge variant="secondary">{schemes.length}</Badge>
+                <Badge className={T.badge}>{schemes.length}</Badge>
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-4">
               {loading ? (
                 <Skeleton className="h-40 w-full" />
               ) : schemes.length === 0 ? (
@@ -235,15 +244,18 @@ export function ConcessionsView() {
           </Card>
 
           {/* ---------------------------------------------------------- */}
-          <Card>
-            <CardHeader className="pb-3">
+          <Card className={T.cardBorder}>
+            <CardHeader className={cn('pb-3', T.cardHeader)}>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <CardTitle className="text-base flex items-center gap-2">
+                  <span className={cn('flex h-6 w-6 items-center justify-center rounded-md', T.iconTileSm)}>
+                    <UserPlus className="h-3.5 w-3.5" />
+                  </span>
                   Learners
-                  {selected ? <Badge variant="secondary">{schemeAssignments.length}</Badge> : null}
+                  {selected ? <Badge className={T.badge}>{schemeAssignments.length}</Badge> : null}
                 </CardTitle>
                 {selected && canManage ? (
-                  <Button size="sm" variant="outline" onClick={() => setAssignOpen(true)}>
+                  <Button size="sm" className={T.button} onClick={() => setAssignOpen(true)}>
                     <UserPlus className="h-4 w-4 mr-1" />
                     Assign learners
                   </Button>
@@ -251,7 +263,7 @@ export function ConcessionsView() {
               </div>
             </CardHeader>
 
-            <CardContent>
+            <CardContent className="pt-4">
               {!selected ? (
                 <p className="text-sm text-muted-foreground">
                   Select a scheme to see who holds it in {yearName}.

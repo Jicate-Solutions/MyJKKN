@@ -81,12 +81,12 @@ const learner: CardPersonData = {
   courseName: 'B.Tech AI',
   departmentName: 'CSE',
   institutionName: 'JKKN College of Engineering',
-  isSchool: false,
+  isSchool: false, qrId: null, academicYearLabel: null,
   qrValue: 'learner-uuid',
   photoCandidates: [],
   valueBag: {},
   bloodGroup: 'B+',
-  dateOfBirthLabel: '09 Nov 2001',
+  dateOfBirthLabel: '09-11-2001',
   guardianName: 'R. Kumar',
   guardianPhone: '9876543210',
   address: '12 Main Street, Komarapalayam',
@@ -447,7 +447,7 @@ describe('buildCardElement — portrait rotation wrapper', () => {
 });
 
 describe('buildCardElement — portrait default design', () => {
-  it('learner card: caps red name, ROLL NO / COURSE / YEAR lines, VALID UPTO, QR', () => {
+  it('learner card: caps red name, FATHER / ROLL NO / COURSE / YEAR lines, no VALID UPTO, QR', () => {
     const tree = buildCardElement(baseInput());
     const text = collectText(tree).join(' | ');
     expect(text).toContain('ANITHA KUMARI'); // caps
@@ -457,8 +457,8 @@ describe('buildCardElement — portrait default design', () => {
     expect(text).toContain('B.Tech AI');
     expect(text).toContain('YEAR');
     expect(text).toContain('2025-2028');
-    expect(text).toContain('VALID UPTO');
-    expect(text).toContain('31 May 2027');
+    expect(text).not.toContain('VALID UPTO'); // learner cards dropped it 2026-09-23
+    expect(text).not.toContain('31 May 2027'); // no VALID UPTO date on learner cards
     expect(text).toContain('JKKN College of Engineering');
     expect(collectImgSrcs(tree)).toContain(QR_URL);
     const nameStyle = collectStyles(tree).find((s) => s.color === '#c8102e');
@@ -603,7 +603,7 @@ describe('buildCardElement — portrait custom elements', () => {
 describe('school cards use school vocabulary, not college vocabulary', () => {
   const schoolLearner: CardPersonData = {
     ...learner,
-    isSchool: true,
+    isSchool: true, qrId: null, academicYearLabel: null,
     courseName: 'Standard 12',
     departmentName: 'Science',
     institutionName: 'JKKN Matric Higher Secondary School'
@@ -625,7 +625,7 @@ describe('school cards use school vocabulary, not college vocabulary', () => {
     // it, which is why the school learner above cannot exercise this label.
     const schoolTeacher: CardPersonData = {
       ...teamMember,
-      isSchool: true,
+      isSchool: true, qrId: null, academicYearLabel: null,
       departmentName: 'Science',
       institutionName: 'JKKN Matric Higher Secondary School'
     };

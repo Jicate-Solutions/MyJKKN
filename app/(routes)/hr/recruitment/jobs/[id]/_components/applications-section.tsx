@@ -216,6 +216,11 @@ export function ApplicationsSection({ jobId }: { jobId: string }) {
                       <Badge variant="outline" className={cn('text-[11px]', STATUS_BADGE[app.status])}>
                         {JOB_APPLICATION_STATUS_LABELS[app.status]}
                       </Badge>
+                      {app.source === 'external_website' && (
+                        <Badge variant="outline" className="border-sky-300 bg-sky-50 text-[11px] text-sky-800 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-300">
+                          Website
+                        </Badge>
+                      )}
                     </div>
                     <p className="truncate text-xs text-muted-foreground">
                       {app.email} · {app.phone}

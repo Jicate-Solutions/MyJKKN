@@ -26,7 +26,7 @@ import type {
   CdcDriveUpdate,
   CdcRecruiter,
 } from '@/types/cdc';
-import { canTransition, CDC_DRIVE_STATUS_LABELS } from '@/types/cdc';
+import { canTransition, isRollback, CDC_DRIVE_STATUS_LABELS } from '@/types/cdc';
 import {
   CdcEligibilityService,
   ELIGIBILITY_REQUIRED_MESSAGE,
@@ -89,6 +89,43 @@ export function driveCircularOf(
  * Inverse of driveCircularOf: the column set to write for a create/update payload.
  * `undefined` → no change (empty object); `null` → clear every column; object → set all.
  */
+/**
+ * Notification audit totals for one drive, computed by the database (HEAD count
+ * queries) — the detail page is opened constantly and used to download every
+ * log row just to add them up.
+ */
+async function notificationSummaryOf(supabase: SupabaseClient, driveId: string) {
+  const base = () =>
+    supabase
+      .from('cdc_drive_notification_log')
+      .select('id', { count: 'exact', head: true })
+      .eq('drive_id', driveId)
+      .eq('notification_type', 'cdc.drive.willingness_open');
+  const [sent, noProfile, delivered, failed, noSub, last] = await Promise.all([
+    base().eq('status', 'sent'),
+    base().eq('status', 'no_profile'),
+    base().eq('push_status', 'delivered'),
+    base().in('push_status', ['failed', 'stale_removed']),
+    base().in('push_status', ['no_subscription', 'opted_out']),
+    supabase
+      .from('cdc_drive_notification_log')
+      .select('sent_at')
+      .eq('drive_id', driveId)
+      .eq('notification_type', 'cdc.drive.willingness_open')
+      .order('sent_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  return {
+    sent: sent.count ?? 0,
+    no_profile: noProfile.count ?? 0,
+    push_delivered: delivered.count ?? 0,
+    push_failed: failed.count ?? 0,
+    no_subscription: noSub.count ?? 0,
+    last_sent_at: ((last.data as { sent_at?: string } | null)?.sent_at ?? null) as string | null,
+  };
+}
+
 function circularColumns(
   circular: CdcDriveCircular | null | undefined,
   actorId: string | null | undefined
@@ -216,32 +253,10 @@ export class CdcDriveService {
         .eq('id', drive.drive_type_id)
         .maybeSingle(),
       supabase.from('cdc_drive_eligibility').select('*').eq('drive_id', id).maybeSingle(),
-      supabase
-        .from('cdc_drive_notification_log')
-        .select('status, push_status, sent_at')
-        .eq('drive_id', id)
-        .eq('notification_type', 'cdc.drive.willingness_open')
-        .limit(50000),
+      notificationSummaryOf(supabase, id),
     ]);
 
-    const notification_summary = {
-      sent: 0,
-      no_profile: 0,
-      push_delivered: 0,
-      push_failed: 0,
-      no_subscription: 0,
-      last_sent_at: null as string | null,
-    };
-    for (const r of (logRes.data ?? []) as Array<{ status: string; push_status: string | null; sent_at: string }>) {
-      if (r.status === 'sent') notification_summary.sent += 1;
-      if (r.status === 'no_profile') notification_summary.no_profile += 1;
-      if (r.push_status === 'delivered') notification_summary.push_delivered += 1;
-      if (r.push_status === 'failed' || r.push_status === 'stale_removed') notification_summary.push_failed += 1;
-      if (r.push_status === 'no_subscription' || r.push_status === 'opted_out') notification_summary.no_subscription += 1;
-      if (!notification_summary.last_sent_at || r.sent_at > notification_summary.last_sent_at) {
-        notification_summary.last_sent_at = r.sent_at;
-      }
-    }
+    const notification_summary = logRes;
 
     const institution_names: Record<string, string> = {};
     for (const row of (institutionsRes.data ?? []) as Array<{ id: string; name: string }>) {
@@ -357,10 +372,22 @@ export class CdcDriveService {
         payload.institution_semesters ?? drive.institution_semesters,
         institutions
       );
+      // Compare as SETS: the picker re-appends the entry you touched, so the same
+      // audience in a different order used to read as "changed" and ran a whole
+      // notification pass for nothing.
+      const canonical = (t: ReturnType<typeof normalizeInstitutionSemesters>) =>
+        JSON.stringify(
+          [...t]
+            .map((e) => ({
+              institution_id: e.institution_id,
+              semester_orders: [...(e.semester_orders ?? [])].sort((a, b) => a - b),
+              program_ids: [...((e as { program_ids?: string[] }).program_ids ?? [])].sort(),
+            }))
+            .sort((a, b) => a.institution_id.localeCompare(b.institution_id))
+        );
       targeting_changed =
         JSON.stringify([...institutions].sort()) !== JSON.stringify([...drive.institutions].sort()) ||
-        JSON.stringify(nextTargeting) !==
-          JSON.stringify(normalizeInstitutionSemesters(drive.institution_semesters, drive.institutions));
+        canonical(nextTargeting) !== canonical(normalizeInstitutionSemesters(drive.institution_semesters, drive.institutions));
       update.institutions = institutions;
       update.institution_semesters = nextTargeting;
     }
@@ -438,13 +465,16 @@ export class CdcDriveService {
       updated_at: now,
       updated_by: actorId,
     };
+    // program_ids mirrors the audience picker's programs (2026-09-16); an
+    // omitted value leaves the saved list untouched.
+    if (Array.isArray(input.program_ids)) row.program_ids = input.program_ids;
     if (existing) {
       const { error } = await supabase.from('cdc_drive_eligibility').update(row).eq('id', existing.id);
       if (error) throw friendlyDriveError(error);
     } else {
       const { error } = await supabase
         .from('cdc_drive_eligibility')
-        .insert({ ...row, program_ids: [], created_by: actorId });
+        .insert({ program_ids: [], ...row, created_by: actorId });
       if (error) throw friendlyDriveError(error);
     }
   }
@@ -481,7 +511,16 @@ export class CdcDriveService {
     if (dtErr) throw dtErr;
     const skipStates = (driveType?.skip_states as string[] | null) ?? null;
 
-    if (!canTransition(drive.status, payload.to_status, skipStates)) {
+    // Moving back one stage (2026-09-22): allowed from any non-cancelled stage,
+    // keeps every record of the later stage, and must carry a reason for the
+    // status history. Who may do it is decided by the route (CDC editors, or an
+    // assigned coordinator within the drive-day stages).
+    const rollback = isRollback(drive.status, payload.to_status);
+    if (rollback && !payload.reason?.trim()) {
+      throw new Error('A reason is required to move a drive back to its previous state.');
+    }
+
+    if (!rollback && !canTransition(drive.status, payload.to_status, skipStates)) {
       throw new Error(
         `Invalid transition: ${CDC_DRIVE_STATUS_LABELS[drive.status]} → ${CDC_DRIVE_STATUS_LABELS[payload.to_status]} not allowed`
       );
@@ -496,10 +535,16 @@ export class CdcDriveService {
     // willingness page reporting "not eligible" for everyone, because
     // computeIsEligible(null, …) is false. Refuse the transition instead of
     // letting it succeed silently.
+    // A drive with institution + semester targeting reaches learners through
+    // drive-targeting.ts, so the legacy program list is only required when no
+    // targeting exists.
     if (payload.to_status === 'willingness_open') {
-      const eligibility = await CdcEligibilityService.getEligibility(supabase, driveId);
-      if (!isEligibilityReadyForWillingness(eligibility)) {
-        throw new Error(ELIGIBILITY_REQUIRED_MESSAGE);
+      const targeted = Array.isArray(drive.institution_semesters) && drive.institution_semesters.length > 0;
+      if (!targeted) {
+        const eligibility = await CdcEligibilityService.getEligibility(supabase, driveId);
+        if (!isEligibilityReadyForWillingness(eligibility)) {
+          throw new Error(ELIGIBILITY_REQUIRED_MESSAGE);
+        }
       }
     }
 
@@ -533,7 +578,7 @@ export class CdcDriveService {
         transitioned_by: transitionedBy,
         transitioned_at: now,
         reason: payload.reason ?? null,
-        metadata: payload.metadata ?? null,
+        metadata: rollback ? { ...(payload.metadata ?? {}), rollback: true } : (payload.metadata ?? null),
       });
     if (insErr) {
       // Non-fatal: state already changed; surface but don't roll back

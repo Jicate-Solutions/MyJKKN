@@ -26,7 +26,7 @@
 // that. Collapsing them into one "isAdmin" would paint a Delete button that the
 // database then refuses on every click.
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ComponentType, ReactNode } from 'react';
 import {
   CheckCircle2,
@@ -39,6 +39,7 @@ import {
   Send,
   ShieldAlert,
   Trash2,
+  AtSign,
   X,
 } from 'lucide-react';
 
@@ -66,13 +67,31 @@ import { Textarea } from '@/components/ui/textarea';
 import { MAX_COMMENT_BODY } from '@/lib/services/shared/comment-threads';
 import type { ThreadComment } from '@/lib/services/shared/comment-threads';
 
+/** Someone who can be tagged, as the tag picker lists them. */
+export interface TaggablePerson {
+  id: string;
+  name: string;
+  subtitle?: string | null;
+}
+
 /** Every write the panel can ask for. Reject to keep the user's text. */
 export interface CommentThreadHandlers {
-  onPost: (body: string) => Promise<unknown>;
-  onReply: (parentId: string, body: string) => Promise<unknown>;
+  /** mentionIds is only ever passed when the panel was given `peopleSearch`. */
+  onPost: (body: string, mentionIds?: string[]) => Promise<unknown>;
+  onReply: (parentId: string, body: string, mentionIds?: string[]) => Promise<unknown>;
   onEdit: (id: string, body: string) => Promise<unknown>;
   onResolve: (id: string, resolved: boolean) => Promise<unknown>;
   onDelete: (id: string) => Promise<unknown>;
+  /**
+   * Remove one tag from a comment, revoking the access it granted; the comment
+   * stays. Omit it and tags are shown without a remove control.
+   */
+  onUntag?: (commentId: string, userId: string) => Promise<unknown>;
+  /**
+   * Re-send one tag's alert — finishes one that failed, or sends a reminder.
+   * Omit it and tags show no Resend control.
+   */
+  onResendTag?: (commentId: string, userId: string) => Promise<unknown>;
 }
 
 export interface CommentThreadPanelProps {
@@ -100,6 +119,10 @@ export interface CommentThreadPanelProps {
   /** May delete a comment they did not write. */
   canDeleteAny: boolean;
   handlers: CommentThreadHandlers;
+  /**
+   * Turns tagging ON. Omit it and the composer has no tag control at all.
+   */
+  peopleSearch?: (query: string) => Promise<TaggablePerson[]>;
 }
 
 /** "just now", "2h ago", "12 Sep" — a thread is read by recency. */
@@ -127,23 +150,118 @@ function roleLabel(role: string | null): string | null {
 
 // ── Composer ────────────────────────────────────────────────────────────────
 
+/**
+ * The "@query" being typed immediately before the caret, if any.
+ *
+ * Only a single word is matched: the directory searches first name, last name
+ * and email, so "@raj" is enough to find "MISS. RAJATHI S", and stopping at a
+ * space is what lets an ordinary "@" in a sentence ("meet @ 4pm") close the
+ * menu the moment the writer moves on.
+ */
+function activeMention(text: string, caret: number): { start: number; query: string } | null {
+  const before = text.slice(0, caret);
+  const m = /(^|[\s(])@([^\s@]{0,40})$/.exec(before);
+  if (!m) return null;
+  return { start: before.length - m[2].length - 1, query: m[2] };
+}
+
 function Composer({
   placeholder,
   submitLabel,
   autoFocus,
   onSubmit,
   onCancel,
+  peopleSearch,
 }: {
   placeholder: string;
   submitLabel: string;
   autoFocus?: boolean;
-  onSubmit: (body: string) => Promise<unknown>;
+  onSubmit: (body: string, mentionIds?: string[]) => Promise<unknown>;
   onCancel?: () => void;
+  peopleSearch?: (query: string) => Promise<TaggablePerson[]>;
 }) {
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
+  // Everyone picked from the menu. Who is ACTUALLY tagged is derived below from
+  // whether their "@Name" is still in the text — deleting the name untags them,
+  // with no separate list to keep in sync.
+  const [picked, setPicked] = useState<TaggablePerson[]>([]);
+  const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
+  // The "@" position the writer dismissed with Escape, so moving the caret
+  // does not immediately reopen the menu they just closed.
+  const [dismissedAt, setDismissedAt] = useState<number | null>(null);
+  const [results, setResults] = useState<TaggablePerson[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [highlight, setHighlight] = useState(0);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const mirrorRef = useRef<HTMLDivElement>(null);
+
   const trimmed = body.trim();
   const tooLong = trimmed.length > MAX_COMMENT_BODY;
+  const tagged = picked.filter((p) => body.includes(`@${p.name}`));
+  const menuOpen = !!peopleSearch && !!mention;
+
+  const syncMention = (text: string, caret: number) => {
+    if (!peopleSearch) return;
+    const next = activeMention(text, caret);
+    if (next && next.start === dismissedAt) {
+      setMention(null);
+      return;
+    }
+    setMention((cur) =>
+      cur && next && cur.start === next.start && cur.query === next.query ? cur : next,
+    );
+  };
+
+  const query = mention?.query ?? null;
+  useEffect(() => {
+    setHighlight(0);
+    if (!peopleSearch || query === null || query.length < 2) {
+      setResults([]);
+      setFailed(false);
+      setSearching(false);
+      return;
+    }
+    // Debounced, and a stale answer is dropped: typing "ra" then "raj" quickly
+    // must not let the slower "ra" response overwrite the "raj" one.
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const hits = await peopleSearch(query);
+        if (!cancelled) {
+          setResults(hits.slice(0, 8));
+          setFailed(false);
+        }
+      } catch {
+        if (!cancelled) setFailed(true);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [query, peopleSearch]);
+
+  const pick = (person: TaggablePerson) => {
+    const el = textareaRef.current;
+    if (!mention || !el) return;
+    const caret = el.selectionStart ?? body.length;
+    const insert = `@${person.name} `;
+    const next = body.slice(0, mention.start) + insert + body.slice(caret);
+    const nextCaret = mention.start + insert.length;
+    setBody(next);
+    setPicked((cur) => (cur.some((p) => p.id === person.id) ? cur : [...cur, person]));
+    setMention(null);
+    // Put the caret after the inserted name once React has written the value.
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(nextCaret, nextCaret);
+    });
+  };
 
   // The box is cleared only AFTER the write lands. Clearing on click would
   // throw away a paragraph the moment the network hiccups, and the error toast
@@ -153,8 +271,11 @@ function Composer({
     if (!trimmed || tooLong || busy) return;
     setBusy(true);
     try {
-      await onSubmit(trimmed);
+      await onSubmit(trimmed, tagged.length > 0 ? tagged.map((p) => p.id) : undefined);
       setBody('');
+      setPicked([]);
+      setMention(null);
+      setDismissedAt(null);
     } catch {
       /* text stays put; the toast says why */
     } finally {
@@ -162,27 +283,162 @@ function Composer({
     }
   };
 
+  // What the highlight layer paints: the same text, with each tagged "@Name"
+  // wrapped so it can carry a background. Longest names first, so "@Raj Kumar"
+  // is not split by a shorter "@Raj".
+  const highlighted = (() => {
+    const names = tagged.map((p) => p.name).sort((x, y) => y.length - x.length);
+    if (names.length === 0) return body;
+    const escaped = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    return body.split(new RegExp(`(@(?:${escaped.join('|')}))`, 'g')).map((part, i) =>
+      part.startsWith('@') && names.includes(part.slice(1)) ? (
+        <mark key={i} className="rounded bg-primary/15 text-transparent">
+          {part}
+        </mark>
+      ) : (
+        <span key={i}>{part}</span>
+      ),
+    );
+  })();
+
   return (
     <div className="space-y-2">
-      <Textarea
-        rows={3}
-        autoFocus={autoFocus}
-        placeholder={placeholder}
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-        // Ctrl/Cmd+Enter posts. Plain Enter must stay a newline — these are
-        // paragraphs, not chat lines.
-        onKeyDown={(e) => {
-          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') submit();
-        }}
-        className="text-sm"
-      />
+      <div className="relative">
+        {/* Highlight layer. A <textarea> cannot style part of its own text, so
+            this div sits exactly behind it — same border width, padding, font
+            and wrapping — with its text transparent. Only the <mark>
+            backgrounds show through the textarea (which is bg-transparent), so
+            a tagged name reads as highlighted while the real, editable text is
+            still the textarea's. Scroll is mirrored in onScroll below. */}
+        {peopleSearch && (
+          <div
+            ref={mirrorRef}
+            aria-hidden
+            className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words rounded-md border border-transparent px-3 py-2 text-sm text-transparent"
+          >
+            {highlighted}
+            {/* A trailing newline in a textarea still takes a line; without this
+                the layer is one line short and the last highlight drifts. */}
+            {'\u200b'}
+          </div>
+        )}
+        <Textarea
+          ref={textareaRef}
+          onScroll={(e) => {
+            if (mirrorRef.current) mirrorRef.current.scrollTop = e.currentTarget.scrollTop;
+          }}
+          rows={3}
+          autoFocus={autoFocus}
+          placeholder={peopleSearch ? `${placeholder} Type @ to tag team members.` : placeholder}
+          value={body}
+          onChange={(e) => {
+            const next = e.target.value;
+            setBody(next);
+            if (dismissedAt !== null && next.length < body.length) setDismissedAt(null);
+            syncMention(next, e.target.selectionStart ?? next.length);
+          }}
+          // Caret moved by click or arrow keys — the "@word" under it may have changed.
+          onSelect={(e) =>
+            syncMention(e.currentTarget.value, e.currentTarget.selectionStart ?? 0)
+          }
+          onBlur={() => setMention(null)}
+          onKeyDown={(e) => {
+            if (menuOpen && mention) {
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                setDismissedAt(mention.start);
+                setMention(null);
+                return;
+              }
+              if (results.length > 0) {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  setHighlight((h) => (h + 1) % results.length);
+                  return;
+                }
+                if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  setHighlight((h) => (h - 1 + results.length) % results.length);
+                  return;
+                }
+                // Enter picks while the menu is open; otherwise it stays a newline.
+                if ((e.key === 'Enter' && !e.metaKey && !e.ctrlKey) || e.key === 'Tab') {
+                  e.preventDefault();
+                  pick(results[Math.min(highlight, results.length - 1)]);
+                  return;
+                }
+              }
+            }
+            // Ctrl/Cmd+Enter posts. Plain Enter must stay a newline — these are
+            // paragraphs, not chat lines.
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') submit();
+          }}
+          className="relative text-sm"
+        />
+
+        {/* Suggestions open right under the text, WhatsApp-style, instead of a
+            separate search box. onMouseDown + preventDefault keeps the textarea
+            focused, so onBlur does not close the menu before the click lands. */}
+        {menuOpen && (
+          <div
+            role="listbox"
+            className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+          >
+            {query !== null && query.length < 2 ? (
+              <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                Keep typing a name to tag team members…
+              </p>
+            ) : failed ? (
+              <p className="px-2 py-1.5 text-xs text-destructive">
+                The team member directory could not be searched.
+              </p>
+            ) : searching && results.length === 0 ? (
+              <p className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" /> Searching…
+              </p>
+            ) : results.length === 0 ? (
+              <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                No team members match &ldquo;{query}&rdquo;.
+              </p>
+            ) : (
+              results.map((p, i) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  role="option"
+                  aria-selected={i === highlight}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    pick(p);
+                  }}
+                  onMouseEnter={() => setHighlight(i)}
+                  className={`flex w-full flex-col items-start rounded px-2 py-1.5 text-left ${
+                    i === highlight ? 'bg-accent text-accent-foreground' : ''
+                  }`}
+                >
+                  <span className="text-sm">{p.name}</span>
+                  {p.subtitle && (
+                    <span className="text-[11px] text-muted-foreground">{p.subtitle}</span>
+                  )}
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="flex flex-wrap items-center justify-end gap-2">
-        {tooLong && (
+        {tooLong ? (
           <span className="mr-auto text-xs text-destructive">
             {trimmed.length} characters — the limit is {MAX_COMMENT_BODY}.
           </span>
-        )}
+        ) : tagged.length > 0 ? (
+          <span className="mr-auto flex items-center gap-1 text-[11px] text-muted-foreground">
+            <AtSign className="h-3 w-3" />
+            Will notify {tagged.map((p) => p.name).join(', ')} — they can see and reply in this
+            thread.
+          </span>
+        ) : null}
         {onCancel && (
           <Button variant="ghost" size="sm" className="h-8" onClick={onCancel} disabled={busy}>
             Cancel
@@ -204,18 +460,155 @@ function Composer({
 
 // ── One comment (root or reply) ─────────────────────────────────────────────
 
+/**
+ * Renders a comment with every "@Name" of a person actually tagged on it
+ * highlighted. Only names in `mentions` are highlighted — an "@" someone typed
+ * without picking a person from the menu tagged nobody, and styling it like a
+ * tag would say otherwise.
+ */
+function MentionText({ body, mentions }: { body: string; mentions?: ThreadComment['mentions'] }) {
+  const names = (mentions ?? []).map((m) => m.name).filter(Boolean);
+  if (names.length === 0) return <>{body}</>;
+  const escaped = names
+    .sort((x, y) => y.length - x.length)
+    .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const parts = body.split(new RegExp(`(@(?:${escaped.join('|')}))`, 'g'));
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.startsWith('@') && names.includes(part.slice(1)) ? (
+          <span
+            key={i}
+            className="rounded bg-primary/10 px-0.5 font-medium text-primary"
+          >
+            {part}
+          </span>
+        ) : (
+          <span key={i}>{part}</span>
+        ),
+      )}
+    </>
+  );
+}
+
+/**
+ * Who is tagged on a comment. The author gets, per person:
+ *  - Resend: a tag whose alert never went out is marked "not notified", and
+ *    Resend finishes it; on a notified tag it sends a reminder.
+ *  - ×: removing a tag revokes the access it granted, and the comment —
+ *    including the "@Name" text — stays as written.
+ */
+function TagList({
+  comment,
+  isAuthor,
+  onUntag,
+  onResendTag,
+}: {
+  comment: ThreadComment;
+  isAuthor: boolean;
+  onUntag?: (commentId: string, userId: string) => Promise<unknown>;
+  onResendTag?: (commentId: string, userId: string) => Promise<unknown>;
+}) {
+  // One action at a time per comment: "<userId>:untag" or "<userId>:resend".
+  const [busy, setBusy] = useState<string | null>(null);
+  const mentions = comment.mentions ?? [];
+  if (mentions.length === 0) return null;
+
+  const act = async (
+    userId: string,
+    kind: 'untag' | 'resend',
+    fn?: (commentId: string, userId: string) => Promise<unknown>,
+  ) => {
+    if (!fn) return;
+    setBusy(`${userId}:${kind}`);
+    try {
+      await fn(comment.id, userId);
+    } catch {
+      /* the toast says why; the tag stays as it was */
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
+      <AtSign className="h-3 w-3" />
+      <span>Tagged:</span>
+      {mentions.map((m) => {
+        // Only the author learns whether an alert went out — it is theirs to fix.
+        const pending = isAuthor && m.notified === false;
+        return (
+          <Badge
+            key={m.id}
+            variant="secondary"
+            className={`h-5 gap-0.5 px-1.5 text-[11px] font-normal ${
+              pending ? 'border border-amber-500/60 text-amber-800 dark:text-amber-300' : ''
+            }`}
+          >
+            {m.name}
+            {pending && <span className="ml-0.5">· not notified</span>}
+            {isAuthor && onResendTag && (
+              <button
+                type="button"
+                className={`ml-1 rounded-sm underline-offset-2 hover:underline disabled:opacity-40 ${
+                  pending ? 'font-medium' : 'opacity-70 hover:opacity-100'
+                }`}
+                title={
+                  pending
+                    ? `Send ${m.name} the alert that did not go out`
+                    : `Remind ${m.name} about this comment`
+                }
+                disabled={busy !== null}
+                onClick={() => act(m.id, 'resend', onResendTag)}
+              >
+                {busy === `${m.id}:resend` ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : pending ? (
+                  'Resend'
+                ) : (
+                  <RotateCcw className="h-3 w-3" aria-label={`Remind ${m.name}`} />
+                )}
+              </button>
+            )}
+            {isAuthor && onUntag && (
+              <button
+                type="button"
+                className="ml-0.5 rounded-sm opacity-70 hover:opacity-100 disabled:opacity-40"
+                aria-label={`Untag ${m.name}`}
+                title={`Untag ${m.name} — removes their access to this discussion`}
+                disabled={busy !== null}
+                onClick={() => act(m.id, 'untag', onUntag)}
+              >
+                {busy === `${m.id}:untag` ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <X className="h-3 w-3" />
+                )}
+              </button>
+            )}
+          </Badge>
+        );
+      })}
+    </div>
+  );
+}
+
 function CommentBody({
   comment,
   isMine,
   canDelete,
   onEdit,
   onRequestDelete,
+  onUntag,
+  onResendTag,
 }: {
   comment: ThreadComment;
   isMine: boolean;
   canDelete: boolean;
   onEdit: (id: string, body: string) => Promise<unknown>;
   onRequestDelete: (comment: ThreadComment) => void;
+  onUntag?: (commentId: string, userId: string) => Promise<unknown>;
+  onResendTag?: (commentId: string, userId: string) => Promise<unknown>;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(comment.body);
@@ -286,8 +679,20 @@ function CommentBody({
           </div>
         </div>
       ) : (
-        <p className="whitespace-pre-wrap break-words text-sm text-foreground">{comment.body}</p>
+        <p className="whitespace-pre-wrap break-words text-sm text-foreground">
+          <MentionText body={comment.body} mentions={comment.mentions} />
+        </p>
       )}
+
+      {!editing && (
+        <TagList
+          comment={comment}
+          isAuthor={isMine}
+          onUntag={onUntag}
+          onResendTag={onResendTag}
+        />
+      )}
+
 
       {!editing && (isMine || canDelete) && (
         <div className="flex gap-1">
@@ -328,6 +733,7 @@ function Thread({
   replyPlaceholder,
   handlers,
   onRequestDelete,
+  peopleSearch,
 }: {
   thread: ThreadComment;
   myId: string | null;
@@ -337,6 +743,7 @@ function Thread({
   replyPlaceholder: string;
   handlers: CommentThreadHandlers;
   onRequestDelete: (comment: ThreadComment) => void;
+  peopleSearch?: (query: string) => Promise<TaggablePerson[]>;
 }) {
   const [replying, setReplying] = useState(false);
   const [resolving, setResolving] = useState(false);
@@ -407,6 +814,8 @@ function Thread({
         canDelete={isMine(thread.author_id) || canDeleteAny}
         onEdit={handlers.onEdit}
         onRequestDelete={onRequestDelete}
+        onUntag={handlers.onUntag}
+        onResendTag={handlers.onResendTag}
       />
 
       {thread.replies.length > 0 && (
@@ -419,6 +828,8 @@ function Thread({
               canDelete={isMine(r.author_id) || canDeleteAny}
               onEdit={handlers.onEdit}
               onRequestDelete={onRequestDelete}
+              onUntag={handlers.onUntag}
+              onResendTag={handlers.onResendTag}
             />
           ))}
         </div>
@@ -431,8 +842,9 @@ function Thread({
             placeholder={replyPlaceholder}
             submitLabel="Reply"
             onCancel={() => setReplying(false)}
-            onSubmit={(body) =>
-              handlers.onReply(thread.id, body).then((r) => {
+            peopleSearch={peopleSearch}
+            onSubmit={(body, mentionIds) =>
+              handlers.onReply(thread.id, body, mentionIds).then((r) => {
                 setReplying(false);
                 return r;
               })
@@ -472,6 +884,7 @@ export function CommentThreadPanel({
   canResolveAny,
   canDeleteAny,
   handlers,
+  peopleSearch,
 }: CommentThreadPanelProps) {
   const [showResolved, setShowResolved] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<ThreadComment | null>(null);
@@ -487,6 +900,7 @@ export function CommentThreadPanel({
     replyPlaceholder,
     handlers,
     onRequestDelete: setPendingDelete,
+    peopleSearch,
   };
 
   return (
@@ -509,6 +923,7 @@ export function CommentThreadPanel({
           placeholder={placeholder}
           submitLabel="Post comment"
           onSubmit={handlers.onPost}
+          peopleSearch={peopleSearch}
         />
 
         {isLoading && (

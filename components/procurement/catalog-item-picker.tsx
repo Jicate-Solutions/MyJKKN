@@ -66,7 +66,7 @@ export function CatalogItemPicker({
           disabled={disabled}
           className="w-full justify-between font-normal"
         >
-          <span className={value ? 'truncate' : 'truncate text-muted-foreground'}>
+          <span className={value ? 'min-w-0 truncate' : 'min-w-0 truncate text-muted-foreground'}>
             {value || placeholder}
           </span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -96,16 +96,21 @@ export function CatalogItemPicker({
                     setQuery('');
                   }}
                 >
-                  <div className="flex flex-col gap-0.5">
-                    <span className="font-medium flex items-center gap-2">
-                      {it.name}
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <span className="flex min-w-0 items-center gap-2 font-medium">
+                      <span className="truncate">{it.name}</span>
                       {it.isChemical && (
-                        <Badge variant="secondary" className="text-[10px]">
+                        <Badge variant="secondary" className="shrink-0 text-[10px]">
                           Chemical
                         </Badge>
                       )}
+                      {it.requiresSerialNumber && (
+                        <Badge variant="secondary" className="shrink-0 text-[10px]">
+                          Serialized
+                        </Badge>
+                      )}
                     </span>
-                    <span className="text-xs text-muted-foreground">
+                    <span className="truncate text-xs text-muted-foreground">
                       {it.code ? `${it.code}` : 'No code'}
                       {it.reorderLevel != null && ` · reorder @ ${it.reorderLevel}`}
                       {it.costPrice != null && ` · ₹${Number(it.costPrice).toLocaleString()}`}

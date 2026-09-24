@@ -20,12 +20,14 @@
 // Interleaving them would make June look self-contradictory. They are drawn as
 // separate groups with a divider, and the header says which is which.
 //
-// EDITING is opt-in via `editable` and passed only by the admin Adjust dialog.
-// It is additionally gated on super admin OR hr.leave.balance.adjust, mirroring
-// hr_leave_month_entry_set — the control is hidden rather than shown and refused.
+// EDITING is opt-in via `editable` and passed by the two admin surfaces (the
+// Adjust dialog and the Staff Balances row expander) — never by the staff
+// member's own page. It is additionally gated on super admin OR
+// hr.leave.balance.adjust, mirroring hr_leave_month_entry_set — the control is
+// hidden rather than shown and refused.
 
 import { Fragment, useState } from 'react';
-import { AlertCircle, Info, Pencil } from 'lucide-react';
+import { AlertCircle, Info, Pencil, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import {
@@ -105,7 +107,17 @@ function num(n: number): string {
 
 function drawLabel(d: HRLeaveLedgerDraw): string {
   if (d.status === 'opening_adjustment') return `Unexplained (${num(d.days)})`;
-  if (d.status === 'manual') return `Recorded by admin (${num(d.days)})`;
+  if (d.status === 'manual') {
+    // The RPC says explicitly whether this sub-event is a real evidence date
+    // (e.g. a biometric LOP day) or the no-evidence remainder — NOT inferred
+    // from the date, because an over-drawn month's FIFO spillover can land a
+    // no-evidence event (dated at its own month's 1st) under a later month's
+    // row, where comparing dates would wrongly read as evidenced there.
+    if (d.evidenced && d.start_date) {
+      return `${fmtDay(d.start_date)} (${num(d.days)}) · payroll-verified`;
+    }
+    return `Recorded by admin (${num(d.days)})`;
+  }
   const when = d.start_date === d.end_date
     ? fmtDay(d.start_date)
     : `${fmtDay(d.start_date)}–${fmtDay(d.end_date)}`;
@@ -314,7 +326,7 @@ export function LeaveMonthlyLedger({
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7"
-                          title={`Set the days taken in ${fmtMonth(r.month_start)}`}
+                          title={`Edit days taken in ${fmtMonth(r.month_start)}`}
                           onClick={() =>
                             setEditing((prev) =>
                               prev === r.month_start ? null : r.month_start
@@ -338,6 +350,7 @@ export function LeaveMonthlyLedger({
                           staffId={staffId as string}
                           leaveTypeId={leaveTypeId as string}
                           hrAcademicYearId={hrAcademicYearId as string}
+                          leaveTypeName={leaveTypeName}
                           adjustment={adjustment}
                           onDone={() => setEditing(null)}
                         />
@@ -373,15 +386,25 @@ export function LeaveMonthlyLedger({
  * The mode choice is the whole risk surface, so it is two labelled buttons with
  * their consequence spelled out rather than a dropdown: `add` moves the year
  * total, `reclassify` does not. Choosing wrong over- or under-counts, and
- * neither shows up as an error.
+ * neither shows up as an error. The choice is only OFFERED while unexplained
+ * days exist — with nothing to reclassify, `add` is the only mode that can
+ * apply, and showing a disabled second button next to it was the single most
+ * confusing thing on this screen.
+ *
+ * "Not taken" is the everyday case since the 2026-09-22 reset charged every
+ * staff member one day for each of June, July and August: a staff member says
+ * they never took that month's day, and HR sets it to 0. One click, with a
+ * default reason if none was typed — the RPC insists on a reason, and "not
+ * taken, corrected on the staff member's claim" is exactly what happened.
  */
 function MonthEntryEditor({
-  row, staffId, leaveTypeId, hrAcademicYearId, adjustment, onDone,
+  row, staffId, leaveTypeId, hrAcademicYearId, leaveTypeName, adjustment, onDone,
 }: {
   row: HRLeaveMonthlyLedgerRow;
   staffId: string;
   leaveTypeId: string;
   hrAcademicYearId: string;
+  leaveTypeName: string;
   adjustment: number;
   onDone: () => void;
 }) {
@@ -399,14 +422,23 @@ function MonthEntryEditor({
   const value = Number(total);
   const invalid = total.trim() === '' || Number.isNaN(value) || value < 0;
   const delta = invalid ? 0 : value - row.taken_in_month;
+  const month = fmtMonth(row.month_start);
+  // With nothing unexplained, `add` is the only mode that can apply; the
+  // toggle is not drawn at all rather than drawn with one dead button.
+  const offerMode = adjustment > 0;
 
-  const run = (payloadMode: HRLeaveMonthEntryMode, days: number | null) => {
+  const run = (
+    payloadMode: HRLeaveMonthEntryMode,
+    days: number | null,
+    fallbackReason?: string
+  ) => {
     setError(null);
-    if (payloadMode !== 'clear' && invalid) {
+    if (payloadMode !== 'clear' && (days === null || Number.isNaN(days) || days < 0)) {
       setError('Enter a number of days that is zero or more.');
       return;
     }
-    if (reason.trim() === '') {
+    const why = reason.trim() || fallbackReason?.trim() || '';
+    if (why === '') {
       setError('A reason is required — it is what makes this adjustment auditable.');
       return;
     }
@@ -418,14 +450,14 @@ function MonthEntryEditor({
         month_start: row.month_start,
         days,
         mode: payloadMode,
-        reason: reason.trim(),
+        reason: why,
       },
       {
         onSuccess: () => {
           toast.success(
             payloadMode === 'clear'
-              ? `${fmtMonth(row.month_start)} is back to what its leave requests say.`
-              : `${fmtMonth(row.month_start)} set to ${num(days ?? 0)} day(s).`
+              ? `${month} is back to what its leave requests say.`
+              : `${month} set to ${num(days ?? 0)} day(s).`
           );
           onDone();
         },
@@ -441,7 +473,7 @@ function MonthEntryEditor({
       <div className="flex flex-wrap items-end gap-3">
         <div className="w-36">
           <Label htmlFor="me-total" className="text-xs">
-            Total days in {fmtMonth(row.month_start)}
+            Days taken in {month}
           </Label>
           <Input
             id="me-total"
@@ -454,34 +486,50 @@ function MonthEntryEditor({
             disabled={busy}
           />
         </div>
-        <div className="flex-1 min-w-[280px]">
-          <Label className="text-xs">How should the year total change?</Label>
-          <div className="mt-1 flex gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant={mode === 'add' ? 'default' : 'outline'}
-              onClick={() => setMode('add')}
-              disabled={busy}
-            >
-              Add
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant={mode === 'reclassify' ? 'default' : 'outline'}
-              onClick={() => setMode('reclassify')}
-              disabled={busy || adjustment <= 0}
-              title={
-                adjustment <= 0
-                  ? 'Nothing unexplained left to reclassify — every used day is already accounted for'
-                  : undefined
-              }
-            >
-              Reclassify
-            </Button>
+        {/* The everyday correction: the default one day was charged but the
+            staff member never took it. Submits 0 in `add` mode so the year
+            total (and Available) moves by the same amount. */}
+        {row.taken_in_month > 0 && (
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="h-8"
+            disabled={busy}
+            title={`Record that no ${leaveTypeName} was taken in ${month}`}
+            onClick={() =>
+              run('add', 0, `Not taken in ${month} — corrected on staff claim`)
+            }
+          >
+            <Undo2 className="mr-1.5 h-3.5 w-3.5" />
+            Not taken — set to 0
+          </Button>
+        )}
+        {offerMode && (
+          <div className="flex-1 min-w-[280px]">
+            <Label className="text-xs">How should the year total change?</Label>
+            <div className="mt-1 flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={mode === 'add' ? 'default' : 'outline'}
+                onClick={() => setMode('add')}
+                disabled={busy}
+              >
+                Add
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={mode === 'reclassify' ? 'default' : 'outline'}
+                onClick={() => setMode('reclassify')}
+                disabled={busy}
+              >
+                Reclassify
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* What is being overridden. Silence here is how an admin discovers a
@@ -500,7 +548,8 @@ function MonthEntryEditor({
       <p className="text-xs text-muted-foreground">
         {mode === 'add' ? (
           <>
-            <strong>Add</strong> — the year total moves by{' '}
+            {offerMode && <><strong>Add</strong> — </>}
+            The year total moves by{' '}
             <strong>{delta >= 0 ? '+' : ''}{num(delta)}</strong> day(s), so this
             person&apos;s available balance changes by the same amount.
           </>
@@ -524,6 +573,9 @@ function MonthEntryEditor({
           rows={2}
           disabled={busy}
         />
+        <p className="mt-1 text-[10px] text-muted-foreground">
+          Required for Save. “Not taken” records its own reason if this is left empty.
+        </p>
       </div>
 
       {error && (
@@ -551,10 +603,10 @@ function MonthEntryEditor({
         </Button>
         <Button
           size="sm"
-          onClick={() => run(mode, value)}
+          onClick={() => run(mode, invalid ? null : value)}
           disabled={busy || reason.trim() === ''}
         >
-          {busy ? 'Saving…' : 'Save month total'}
+          {busy ? 'Saving…' : 'Save'}
         </Button>
       </div>
     </div>

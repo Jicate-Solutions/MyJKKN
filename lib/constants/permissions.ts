@@ -1078,6 +1078,19 @@ export const PERMISSION_CATEGORIES = [
       // overriding a record outright and exporting the tamper log are six
       // different amounts of trust.
       { key: 'hr.attendance.mark_self', label: 'Mark Own Attendance Punch' },
+
+      // ── Staff photograph — the reviewer side (2026-09-16) ────────────────
+      // ONE key, not two. Submitting your own photograph is deliberately
+      // ungated: fn_submit_my_staff_photo() resolves the staff row from
+      // auth.uid() itself, so a caller can only ever submit for themselves and
+      // a permission key would add nothing but a rollout blocker — nobody could
+      // photograph themselves until 22 roles were re-granted.
+      //
+      // Reviewing is the institutional act (Director ruling 2026-09-03: a
+      // self-supplied photograph is not evidence the institution photographed
+      // anyone), so THAT is what is gated, and the RLS + the review function
+      // both demand this key.
+      { key: 'hr.staff_photo.review', label: 'Approve Team Member Photographs' },
       { key: 'hr.attendance.view_all', label: 'View Attendance for Everyone' },
       { key: 'hr.attendance.approve_team', label: 'Approve Attendance for Own Team' },
       { key: 'hr.attendance.regularize_approve', label: 'Approve Attendance Regularization Requests' },
@@ -1225,6 +1238,10 @@ export const PERMISSION_CATEGORIES = [
         label: 'Approve Resource Requests'
       },
       { key: 'resources.approvals.reject', label: 'Reject Resource Requests' },
+      {
+        key: 'resources.reservations.communicate',
+        label: 'Message Reservation Users'
+      },
       { key: 'resources.analytics.view', label: 'View Resource Analytics' },
       { key: 'resources.reports.view', label: 'View Resource Reports' },
       { key: 'resources.maintenance.view', label: 'View Resource Maintenance' },
@@ -2073,6 +2090,17 @@ export const PERMISSION_CATEGORIES = [
       // button that always fails. Renaming or removing either of these two
       // closes the department status review queue on /solutions/departments.
       { key: 'solutions.societal.approve', label: 'Approve Community Engagements' },
+      // Joint initiatives (2026-09-18). One community initiative can be run by
+      // several departments across colleges; each named department confirms its
+      // OWN part, with hours. This key gates the UPDATE policy on
+      // `sh_community_engagement_participants`
+      // (20261226113000_community_engagement_joint_departments.sql), paired
+      // there with `department_id = sh_user_department_id()` so the key alone
+      // never lets one department confirm on another's behalf. Leaving it
+      // unregistered would make confirmation permanently admin-only, and the
+      // shared-credit rule it protects would count every department a lead
+      // chose to name.
+      { key: 'solutions.societal.confirm', label: 'Confirm Community Engagement Participation' },
 
       // Settings (tier-2 chip-leak sweep 2026-04-27)
       { key: 'solutions.settings.view', label: 'View Solutions Settings' }
@@ -2245,6 +2273,14 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.fees.config', label: 'Configure Fee Structure' },
       { key: 'campus_living.fees.waive', label: 'Waive Fee' },
       { key: 'campus_living.fees.refund', label: 'Refund Fee' },
+
+      // Billing Audit — hostel-learner bill coverage, fee-band and upgrade
+      // audit (/campus-living/billing-audit). Granted by migration
+      // 20260922120000 to hostel_office, chief_warden, executive_admin_officer,
+      // ceo, managing_director and accounts. Wardens deliberately excluded —
+      // this reads every hostel learner's band fee and outstanding balance.
+      { key: 'campus_living.billing_audit.view', label: 'View Hostel Billing Audit' },
+      { key: 'campus_living.billing_audit.export', label: 'Export Hostel Billing Audit' },
 
       // Deposits
       { key: 'campus_living.deposits.view', label: 'View Deposits' },
@@ -2729,6 +2765,32 @@ export const PERMISSION_CATEGORIES = [
       { key: 'events.marathon.create', label: 'Create Marathon Events' },
       // Events Platform Promotion — shared logistics
       { key: 'events.budget.approve', label: 'Approve Event Budgets (finance sign-off)' },
+      // Drafting budget LINES, as distinct from signing the budget off
+      // (2026-09-16, BUG-006124). event_budget_items' only policy was FOR ALL
+      // with USING and no WITH CHECK, so its "the event's institution is my
+      // institution" test silently became the INSERT gate — refusing the event
+      // in-charge that EventLogistics shows the Add Budget Line button to, and
+      // every institution_scope='all' executive (they sit at Main Office, which
+      // hosts no events). See
+      // 20261220092000_event_budget_items_incharge_and_permission_write.sql.
+      { key: 'events.budget.manage', label: 'Add & Edit Event Budget Lines' },
+      // The remaining Event Logistics boards — Sponsors, Committees, Incidents
+      // and event categories (2026-09-16). ONE key for all four because
+      // EventLogistics passes a single canManage prop to every board; splitting
+      // the DB gate finer than the UI gate would grant rights nobody can use.
+      // Budget stays separate (events.budget.manage) as it alone has a finance
+      // sign-off flow. See
+      // 20261220093000_event_logistics_incharge_and_permission_write.sql.
+      { key: 'events.logistics.manage', label: 'Manage Event Sponsors, Committees & Incidents' },
+      // Sending an event's registrants an announcement, and reading the log of
+      // what was already sent (2026-09-16). fn_can_manage_event_messages gated
+      // on is_admin(), which accepts only admin/super_admin/administrator — so
+      // event_coordinator, which every OTHER event logistics policy admits by
+      // name, could edit an event's budget but not tell its registrants the
+      // venue changed. Institution-scoped like the is_admin() arm: this reaches
+      // real people's notifications, so it stays narrower than the sponsor and
+      // budget boards. See 20261220094000_event_messages_coordinator_key.sql.
+      { key: 'events.messages.send', label: 'Message Event Registrants (sends real notifications)' },
       { key: 'events.presets.manage', label: 'Publish Official Event Presets' },
       // Event-date requests (CARRE instrumentation, 2026-07-25): grants deciding
       // (confirm/decline/supersede) a raised "please confirm a date" request via
@@ -2768,7 +2830,18 @@ export const PERMISSION_CATEGORIES = [
       // fn_can_read_event_review_comments / fn_is_event_review_admin
       // (20261130090000). Never fold into events.view — students hold it.
       { key: 'events.review_comments.view', label: 'View & Reply to Event Review Comments' },
-      { key: 'events.review_comments.resolve', label: "Resolve Others' Event Review Comments" }
+      { key: 'events.review_comments.resolve', label: "Resolve Others' Event Review Comments" },
+      // Registration list on any event's Logistics → Registrations tab
+      // (2026-09-16). Before this, reading events_registrations was gated by
+      // hardcoded role names plus a test that the registrant's institution_id
+      // equalled the caller's — which no institution_scope='all' role satisfies,
+      // because their profiles.institution_id is NULL. A COO therefore saw
+      // "No registrations yet." on an event full of registrants while a
+      // facilitator of the registrants' own college saw the list.
+      // See 20261220090000_events_registrations_view_permission_key.sql.
+      // Never fold into events.view — students hold it, and these rows carry
+      // every participant's phone number and email.
+      { key: 'events.registrations.view', label: 'View Event Registration Lists (participant contact details)' }
     ]
   },
   // Course Events (2026-08-13). Paid, multi-session learning courses open to
@@ -3198,6 +3271,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'cdc.drives.create', label: 'Create Campus Drives' },
       { key: 'cdc.drives.edit', label: 'Edit Campus Drives' },
       { key: 'cdc.drives.delete', label: 'Delete Campus Drives' },
+      // 2026-09-15 — assigned-learner willingness tracker (/cdc/drives/[id]/willingness
+      // for staff + /cdc/drives/willingness index). Profile contact columns are
+      // additionally gated by learners.profiles.view inside the API.
+      { key: 'cdc.drives.willingness.view', label: 'View Assigned Learners & Willingness Tracker (incl. Excel)' },
 
       // Placements
       { key: 'cdc.placements.view', label: 'View Placements' },
@@ -3691,6 +3768,17 @@ export const PERMISSION_CATEGORIES = [
       },
     ],
   },
+  {
+    // Added 2026-09-16 — Adoption loop (specs/2026-09-16-adoption-loop.md).
+    // Who may open /adoption: the principal of an institution sees which of
+    // their people use each shipped feature (names for their own institution
+    // only — ruling 7). Super admins bypass; granted to 'principal' by migration.
+    name: 'Feature Adoption',
+    key: 'adoption',
+    permissions: [
+      { key: 'adoption.view', label: 'View Feature Adoption For Own Institution' }
+    ]
+  }
 ];
 
 export const PERMISSIONS = {

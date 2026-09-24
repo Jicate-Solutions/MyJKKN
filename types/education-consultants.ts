@@ -859,3 +859,191 @@ export interface CommissionLiabilityReport {
     amount: number;
   }[];
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SERVICE-CHARGE RATE CARD (commission_rate_cards / _groups / _slabs)
+//
+// The standard card every agency is paid against — one card per intake year,
+// not a per-consultant negotiated deal. See the 20260916090000 migration for
+// why it does not live in consultant_commission_structures.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** A slab line: "1 to 10 → ₹5,000". max_count null = "& above". */
+export interface CommissionRateSlab {
+  id: string;
+  group_id: string;
+  min_count: number;
+  max_count: number | null;
+  /** Gross rupees PER qualifying admission, not for the band as a whole. */
+  amount: number;
+}
+
+/** One printed line of the card ("Arts & Science", "Engineering UG ( Regular )"). */
+export interface CommissionRateGroup {
+  id: string;
+  card_id: string;
+  name: string;
+  /** Lower is tested first; an admission lands in the first group it matches. */
+  priority: number;
+  institution_ids: string[];
+  degree_ids: string[];
+  program_ids: string[];
+  entry_types: string[];
+  notes: string | null;
+  slabs: CommissionRateSlab[];
+}
+
+export interface CommissionRateCard {
+  id: string;
+  name: string;
+  /** 2026 = the "2026-27" intake. */
+  academic_year: number;
+  notes: string | null;
+  effective_from: string | null;
+  effective_to: string | null;
+  is_active: boolean;
+  groups: CommissionRateGroup[];
+}
+
+/** One row of fn_consultant_rate_card_earnings — the card applied to a consultant. */
+export interface ConsultantRateCardEarning {
+  group_id: string;
+  group_name: string;
+  priority: number;
+  /** Admissions in the card's year whose learner is account / admitted / active. */
+  qualifying_count: number;
+  slab_min: number | null;
+  slab_max: number | null;
+  /** Rate per admission at the slab the count reached; null = no slab reached. */
+  rate_amount: number | null;
+  /** qualifying_count × rate_amount. */
+  total_amount: number | null;
+  /** Net of recorded payments minus recoveries for this group. */
+  paid_amount: number;
+  /** Earned − paid, when positive: still to be paid. */
+  balance_amount: number;
+  /** Paid − earned, when positive: to be recovered (e.g. a paid student went Rejected). */
+  excess_amount: number;
+  /**
+   * True when this line is priced by THIS agency's own ladder rather than the
+   * standard card. Their ladder replaces the standard one for this line only —
+   * so a null rate_amount here means their ladder has no band covering their
+   * count, never that the standard rate quietly applied.
+   */
+  is_override: boolean;
+  /**
+   * How much of this year's advance this line consumed. Advances are spread down
+   * the card in its printed order, filling each line's outstanding balance until
+   * the advance runs out, so this is already deducted from balance_amount.
+   */
+  advance_applied: number;
+}
+
+/**
+ * One row of fn_consultant_first_year_fee_collection — per institution, the
+ * 1st-year academic fees of the learners the rate card counts.
+ */
+export interface ConsultantFirstYearFeeCollection {
+  institution_id: string;
+  institution_name: string | null;
+  learner_count: number;
+  /** Billed 1st-year academic fees (cancelled / superseded bills excluded). */
+  fee_amount: number;
+  paid_amount: number;
+  balance_amount: number;
+}
+
+export type RateCardPaymentEntryType = 'payment' | 'recovery';
+
+/** A lump-sum payment (or recovery) against one card group for one consultant. */
+export interface RateCardPayment {
+  id: string;
+  consultant_id: string;
+  group_id: string;
+  entry_type: RateCardPaymentEntryType;
+  /** Always positive; entry_type gives the direction. */
+  amount: number;
+  paid_on: string;
+  payment_mode: string | null;
+  reference: string | null;
+  notes: string | null;
+  created_at: string;
+  group?: { id: string; name: string };
+}
+
+export interface RateCardPaymentInput {
+  consultant_id: string;
+  group_id: string;
+  entry_type: RateCardPaymentEntryType;
+  amount: number;
+  paid_on: string;
+  payment_mode?: string | null;
+  reference?: string | null;
+  notes?: string | null;
+}
+
+/** The three learner statuses that earn a service charge. Nothing else counts. */
+export const COMMISSION_QUALIFYING_STATUSES = ['account', 'admitted', 'active'] as const;
+
+
+/**
+ * One band of a rate ladder on a line of the service-charge card.
+ *
+ * `consultant_id` null is the standard card everyone is paid against. Set, it is
+ * that agency's own ladder for that line, which replaces the standard ladder for
+ * that agency alone (Director ruling, 2026-09-21).
+ */
+export interface RateCardSlab {
+  id: string;
+  group_id: string;
+  consultant_id: string | null;
+  min_count: number;
+  max_count: number | null;
+  amount: number;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One band as the ladder editor hands it back, before it has an id. */
+export interface RateCardSlabInput {
+  min_count: number;
+  max_count: number | null;
+  amount: number;
+}
+
+
+/** What happens to the unused part of an advance — decided per agency when it is recorded. */
+export type AdvanceDisposition = 'carry_forward' | 'recoverable';
+
+/**
+ * An advance paid to an agency against one intake year's card.
+ *
+ * It carries no college line — with no line there is nothing else to say which
+ * card it belongs to, which is why the year is required (Director, 2026-09-21).
+ */
+export interface RateCardAdvanceInput {
+  consultant_id: string;
+  entry_type: 'advance';
+  amount: number;
+  paid_on: string;
+  academic_year: number;
+  advance_disposition: AdvanceDisposition;
+  payment_mode?: string | null;
+  reference?: string | null;
+  notes?: string | null;
+}
+
+export interface RateCardAdvance {
+  id: string;
+  consultant_id: string;
+  amount: number;
+  paid_on: string;
+  academic_year: number;
+  advance_disposition: AdvanceDisposition;
+  payment_mode: string | null;
+  reference: string | null;
+  notes: string | null;
+  created_at: string;
+}

@@ -303,14 +303,9 @@ export class ProcurementPurchaseOrderService {
   }
 
   static async cancel(id: string): Promise<ProcurementPurchaseOrder> {
-    const { data, error } = await this.supabase
-      .from('procurement_purchase_orders')
-      .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .select()
-      .single();
-    if (error) throw error;
-    return data as ProcurementPurchaseOrder;
+    // Only a PO nobody has approved yet can be cancelled. Unguarded, a page still
+    // showing "pending approval" could cancel a PO someone approved meanwhile.
+    return this.transition(id, ['draft', 'pending_approval'], { status: 'cancelled' });
   }
 
   /** Updates the document-format selection, free-entry field values and classification tags for a PO. */
@@ -422,26 +417,40 @@ export class ProcurementPurchaseOrderService {
     }
   }
 
+  /**
+   * Move a PO between states, only from the expected state(s). Zero rows means
+   * the PO moved on (another tab, a double click, someone else's approval) —
+   * say where it is now instead of surfacing PostgREST's "0 rows" error.
+   */
   private static async transition(
     id: string,
-    fromStatus: string,
+    fromStatus: string | string[],
     patch: Record<string, unknown>
   ): Promise<ProcurementPurchaseOrder> {
-    try {
-      const { data, error } = await this.supabase
-        .from('procurement_purchase_orders')
-        .update({ ...patch, updated_at: new Date().toISOString() })
-        .eq('id', id)
-        .eq('status', fromStatus)
-        .select()
-        .single();
-      if (error) throw error;
-      if (!data) throw new Error(`PO is not in "${fromStatus}" state; refresh and retry.`);
-      return data as ProcurementPurchaseOrder;
-    } catch (error) {
+    const from = Array.isArray(fromStatus) ? fromStatus : [fromStatus];
+    const { data, error } = await this.supabase
+      .from('procurement_purchase_orders')
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .in('status', from)
+      .select()
+      .maybeSingle();
+    if (error) {
       console.error('[ProcurementPurchaseOrderService] transition:', error);
       throw error;
     }
+    if (data) return data as ProcurementPurchaseOrder;
+
+    const { data: current } = await this.supabase
+      .from('procurement_purchase_orders')
+      .select('status')
+      .eq('id', id)
+      .maybeSingle();
+    throw new Error(
+      current?.status
+        ? `This purchase order is already ${String(current.status).replace(/_/g, ' ')} — the page has been refreshed.`
+        : 'This purchase order could not be found — it may have been removed.'
+    );
   }
 
   private static async generatePoNumber(institutionId: string): Promise<string> {

@@ -85,6 +85,20 @@ export default function EditClinicalCasePage() {
     name: cc.name,
   }));
 
+  // Stages in order. Empty on a flat case, which leaves the builder in its
+  // pre-stages shape — the Stages tab just starts empty.
+  const initialStages = (c.stages || []).map((s) => ({
+    title: s.title,
+    scenario_text: s.scenario_text,
+    image_url: s.image_url,
+    order_index: s.stage_order,
+  }));
+  // A question carries a stage UUID on the server and a stage INDEX in the
+  // builder. Translate here so the builder never deals in ids it did not mint.
+  const stageIdToIndex = new Map(
+    (c.stages || []).map((s, idx) => [s.id, idx] as [string, number])
+  );
+
   // Map server Q rows back into CreateClinicalQuestionInput shape so the builder
   // can edit them with the same component contract used by /new.
   const initialQuestions = (c.questions || []).map((q: ClinicalCaseQuestion) => ({
@@ -96,6 +110,7 @@ export default function EditClinicalCasePage() {
     expected_regions: q.expected_regions,
     points: q.points,
     order_index: q.order_index,
+    stage_index: q.stage_id != null ? (stageIdToIndex.get(q.stage_id) ?? null) : null,
     metadata: q.metadata,
   }));
 
@@ -114,6 +129,7 @@ export default function EditClinicalCasePage() {
     time_limit_minutes: c.time_limit_minutes,
     pass_threshold: c.pass_threshold,
     questions: initialQuestions,
+    stages: initialStages,
   };
 
   const isArchived = c.status === 'archived';
@@ -131,6 +147,10 @@ export default function EditClinicalCasePage() {
           time_limit_minutes: value.time_limit_minutes,
           pass_threshold: value.pass_threshold,
           questions: value.questions,
+          // Sent together with the questions, always. The API rejects stages on
+          // their own, because rebuilding stages without their questions would
+          // cascade-delete every staged question.
+          stages: value.stages ?? [],
         },
       });
     } catch (e: any) {
@@ -142,7 +162,7 @@ export default function EditClinicalCasePage() {
     setActionError(null);
     if (status === 'archived') {
       const ok = window.confirm(
-        `Archive "${c.title}"? Students will no longer be able to attempt this case. Existing submissions stay intact. This is irreversible.`
+        `Archive "${c.title}"? Learners will no longer be able to attempt this case. Existing submissions stay intact. This is irreversible.`
       );
       if (!ok) return;
     }

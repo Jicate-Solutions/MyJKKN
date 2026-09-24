@@ -299,6 +299,25 @@ export interface HRSalaryRegisterRun {
   updated_at: string;
 }
 
+/**
+ * What a delete removed — returned to the caller so the toast and the activity
+ * log can say which register is gone after the row no longer exists.
+ */
+export interface HRSalaryRegisterDeletedRun {
+  id: string;
+  hr_organization_id: string;
+  organisation_name: string;
+  institution_id: string;
+  period_year: number;
+  period_month: number;
+  staff_total: number;
+  included_count: number;
+  total_net: number;
+  generated_at: string;
+  /** True when the run was already superseded — deleting it changed no month's live register. */
+  was_superseded: boolean;
+}
+
 export interface HRSalaryRegisterLine {
   id: string;
   run_id: string;
@@ -321,7 +340,16 @@ export interface HRSalaryRegisterLine {
   paid_by_name: string | null;
 
   business_working_days: number;
+  /**
+   * The paid-leave TOTAL. The three below partition it exactly
+   * (casual + comp_off + other = paid_leave_days), which is what lets the
+   * detail table print them as columns and still add up.
+   */
   paid_leave_days: number;
+  casual_leave_days: number;
+  comp_off_days: number;
+  /** Clinical, PH.D, WFH — every paid type that is neither of the two above. */
+  other_paid_leave_days: number;
   unpaid_leave_days: number;
   on_duty_days: number;
   worked_days: number;

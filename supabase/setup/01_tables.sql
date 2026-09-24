@@ -7950,6 +7950,14 @@ CREATE TABLE IF NOT EXISTS public.course_applications (
   applicant_name          text NOT NULL,
   applicant_email         text,
   applicant_phone         text NOT NULL,
+  -- Added 2026-09-19 (migration 20260919150000). Where the applicant came from,
+  -- judged purely from the email domain at submission: @jkkn.ac.in is internal,
+  -- anything else external. A SEPARATE question from applicant_type above,
+  -- which records which identity the row points at and is pinned by
+  -- course_applications_identity_chk to 'external' for every public submission
+  -- (a public applicant has no profile_id or learner_id until approval).
+  applicant_origin        text NOT NULL DEFAULT 'external'
+                            CHECK (applicant_origin IN ('internal','external')),
   custom_fields           jsonb NOT NULL DEFAULT '{}'::jsonb,
   status                  text NOT NULL DEFAULT 'pending'
                             CHECK (status IN ('pending','shortlisted','approved','rejected','withdrawn')),
@@ -8105,8 +8113,15 @@ CREATE TABLE IF NOT EXISTS public.course_bill_payments (
 -- and the server webhook — and both fire for the same payment. This index
 -- makes a duplicate settlement a constraint violation the caller can
 -- swallow, rather than a second credit.
-CREATE UNIQUE INDEX IF NOT EXISTS course_bill_payments_rzp_payment_uniq
-  ON public.course_bill_payments (razorpay_payment_id)
+--
+-- Composite, not just (razorpay_payment_id): a partial-payment order can
+-- cover SEVERAL selected instalments in one Razorpay transaction, inserting
+-- one row per bill that all share the same payment id. The guarantee is now
+-- "this bill can't be credited twice for this payment", not "this payment
+-- can only ever touch one row". Mirrors migration
+-- 20260916161000_course_bill_payments_multi_bill_idempotency.sql.
+CREATE UNIQUE INDEX IF NOT EXISTS course_bill_payments_rzp_payment_bill_uniq
+  ON public.course_bill_payments (razorpay_payment_id, bill_id)
   WHERE razorpay_payment_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_course_bill_payments_bill
@@ -8614,9 +8629,9 @@ CREATE TABLE IF NOT EXISTS public.hr_attendance_period_summaries (
 );
 
 COMMENT ON COLUMN public.hr_attendance_period_summaries.scheduled_days IS
-  'Days the shift-timing resolver expected this person to work in the month (pattern-aware, full month, holidays removed). NULL on periods closed before 2026-09.';
+  'Full-month working days per the shift-timing resolver: calendar days minus week-offs minus holidays (pattern/role/person aware; not clamped to joining). The salary register''s Business Working Days and this line''s day-rate divisor (2026-09-22); the attendance page''s cards print the same unit.';
 COMMENT ON COLUMN public.hr_attendance_period_summaries.work_pattern_id IS
-  'The work pattern held on any day of the month (most recent if several). When set, the salary register divides by scheduled_days instead of the period standard.';
+  'The work pattern held on any day of the month (most recent if several). Informational since 2026-09-22: every line divides by its own scheduled_days.';
 
 CREATE INDEX IF NOT EXISTS hr_attendance_period_summaries_staff_idx
   ON public.hr_attendance_period_summaries (staff_id);
@@ -8881,7 +8896,14 @@ CREATE TABLE IF NOT EXISTS public.hr_salary_register_lines (
   -- a mid-month joiner has no records before their start date, so lop_days is 0
   -- and paying on it would hand them a full month's gross for half a month.
   business_working_days  numeric(5,1) NOT NULL DEFAULT 0,
+  -- The paid-leave TOTAL, and the three columns that partition it exactly
+  -- (casual + comp_off + other = paid_leave_days, 2026-09-22). "Other" is
+  -- derived by subtraction so a paid type nobody has enumerated still lands
+  -- in a column instead of vanishing from the register row.
   paid_leave_days        numeric(5,1) NOT NULL DEFAULT 0,
+  casual_leave_days      numeric(5,1) NOT NULL DEFAULT 0,
+  comp_off_days          numeric(5,1) NOT NULL DEFAULT 0,
+  other_paid_leave_days  numeric(5,1) NOT NULL DEFAULT 0,
   unpaid_leave_days      numeric(5,1) NOT NULL DEFAULT 0,
   on_duty_days           numeric(5,1) NOT NULL DEFAULT 0,
   worked_days            numeric(5,1) NOT NULL DEFAULT 0,
@@ -10133,3 +10155,166 @@ COMMENT ON TABLE public.wa_bridge_status IS
   'Single-row heartbeat for the on-campus WhatsApp bridge. connected = the process is running and talking to us; logged_in = its WhatsApp session is still authenticated. The two differ, and the difference is the whole value: a bridge that is running but logged out looks healthy from the outside while sending nothing.';
 
 -- ---------------------------------------------------------------------------
+-- reservation_communications (20261224100000_reservation_communicate_users.sql)
+-- Immutable log of ad-hoc messages an approver/admin sent to a reservation's
+-- booker, one row per (reservation, message).
+CREATE TABLE IF NOT EXISTS public.reservation_communications (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  reservation_id  uuid NOT NULL
+                    REFERENCES public.resource_reservations(id) ON DELETE CASCADE,
+  institution_id  uuid NOT NULL
+                    REFERENCES public.institutions(id),
+  sender_id       uuid NOT NULL DEFAULT auth.uid()
+                    CONSTRAINT reservation_communications_sender_id_fkey
+                    REFERENCES public.profiles(id) ON DELETE CASCADE,
+  recipient_id    uuid NOT NULL
+                    CONSTRAINT reservation_communications_recipient_id_fkey
+                    REFERENCES public.profiles(id) ON DELETE CASCADE,
+  subject         text,
+  message         text NOT NULL
+                    CONSTRAINT reservation_communications_message_length
+                    CHECK (char_length(btrim(message)) BETWEEN 1 AND 4000),
+  notification_id uuid REFERENCES public.notifications(id) ON DELETE SET NULL,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE public.reservation_communications IS
+  'Immutable log of ad-hoc messages an approver/admin sent to a reservation''s booker. One row per (reservation, message) so a bulk send across several bookings still logs against each one. Delivery is a fanoutNotification() in-app notification written by the API route with the service-role client; notification_id links back to it.';
+
+CREATE INDEX IF NOT EXISTS idx_reservation_communications_reservation
+  ON public.reservation_communications (reservation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_reservation_communications_recipient
+  ON public.reservation_communications (recipient_id);
+CREATE INDEX IF NOT EXISTS idx_reservation_communications_institution
+  ON public.reservation_communications (institution_id);
+
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- Leave eligibility approval flow (flow_for = 'leave_eligibility') — 2026-09-21
+-- Mirror of supabase/migrations/20261225110000_leave_eligibility_approval_flow.sql
+-- ---------------------------------------------------------------------------
+ALTER TABLE public.hr_approval_flows
+  DROP CONSTRAINT IF EXISTS hr_approval_flows_eligibility_no_group_chk;
+
+ALTER TABLE public.hr_approval_flows
+  ADD CONSTRAINT hr_approval_flows_eligibility_no_group_chk CHECK (
+    flow_for <> 'leave_eligibility'
+    OR conditions ->> 'staff_group' IS NULL
+  );
+
+-- COALESCE to '' so the catch-all (no leave_type_id) occupies a slot too;
+-- a NULL in a unique index never collides with anything.
+DROP INDEX IF EXISTS public.hr_approval_flows_eligibility_slot_uniq;
+CREATE UNIQUE INDEX hr_approval_flows_eligibility_slot_uniq
+  ON public.hr_approval_flows (
+    hr_organization_id,
+    (COALESCE(conditions ->> 'leave_type_id', ''))
+  )
+  WHERE flow_for = 'leave_eligibility' AND is_active AND valid_until IS NULL;
+
+-- ---------------------------------------------------------------------------
+-- Shift timings: role and individual overrides — 2026-09-21
+-- Mirror of supabase/migrations/20260921120000_shift_timing_role_and_person_overrides.sql
+-- ---------------------------------------------------------------------------
+ALTER TABLE public.hr_shift_timings
+  ADD COLUMN IF NOT EXISTS role_key text,
+  ADD COLUMN IF NOT EXISTS staff_id uuid REFERENCES public.staff(id) ON DELETE CASCADE;
+
+COMMENT ON COLUMN public.hr_shift_timings.role_key IS
+  'custom_roles.role_key this week applies to. Non-null iff staff_scope = ''role''.';
+COMMENT ON COLUMN public.hr_shift_timings.staff_id IS
+  'The one team member this week applies to. Non-null iff staff_scope = ''staff''; such a row always has applicable_gender = ''all''.';
+
+ALTER TABLE public.hr_shift_timings
+  DROP CONSTRAINT IF EXISTS hr_shift_timings_staff_scope_check;
+ALTER TABLE public.hr_shift_timings
+  ADD CONSTRAINT hr_shift_timings_staff_scope_check
+  CHECK (staff_scope = ANY (ARRAY['teaching','non_teaching','category','role','staff']));
+
+-- One discriminator per scope, and none for the general weeks.
+ALTER TABLE public.hr_shift_timings
+  DROP CONSTRAINT IF EXISTS hr_shift_timings_scope_category_chk;
+ALTER TABLE public.hr_shift_timings
+  DROP CONSTRAINT IF EXISTS hr_shift_timings_scope_shape_chk;
+ALTER TABLE public.hr_shift_timings
+  ADD CONSTRAINT hr_shift_timings_scope_shape_chk CHECK (
+       (staff_scope = 'category'
+          AND employment_category_id IS NOT NULL AND role_key IS NULL AND staff_id IS NULL)
+    OR (staff_scope = 'role'
+          AND role_key IS NOT NULL AND employment_category_id IS NULL AND staff_id IS NULL)
+    OR (staff_scope = 'staff'
+          AND staff_id IS NOT NULL AND employment_category_id IS NULL AND role_key IS NULL
+          AND applicable_gender = 'all')
+    OR (staff_scope IN ('teaching','non_teaching')
+          AND employment_category_id IS NULL AND role_key IS NULL AND staff_id IS NULL)
+  );
+
+-- The current-row unique index must carry BOTH new discriminators, or a role
+-- week and a category week for the same weekday collide and the second save is
+-- refused (the gender rollout hit exactly this).
+DROP INDEX IF EXISTS public.hr_shift_timings_current_uq;
+CREATE UNIQUE INDEX hr_shift_timings_current_uq
+  ON public.hr_shift_timings (
+    institution_id,
+    staff_scope,
+    COALESCE(employment_category_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    COALESCE(role_key, ''),
+    COALESCE(staff_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    applicable_gender,
+    day_of_week
+  )
+  WHERE effective_until IS NULL AND is_active;
+
+CREATE INDEX IF NOT EXISTS hr_shift_timings_staff
+  ON public.hr_shift_timings (staff_id) WHERE staff_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS hr_shift_timings_role
+  ON public.hr_shift_timings (role_key) WHERE role_key IS NOT NULL;
+
+-- ---------------------------------------------------------------------------
+-- learner_activation_failures
+--   Migration: supabase/migrations/20260919005000_harden_first_present_activation.sql
+--   Updated: 2026-09-19 - Added so a failed first-present activation is visible
+--   to a human instead of taking a teacher's attendance save down with it.
+--
+-- `trg_activate_learner_on_first_present` is an AFTER trigger, and an AFTER
+-- trigger that raises ABORTS the statement that fired it — here, a teacher
+-- saving a whole class's marks. The trigger body now catches everything and
+-- writes what went wrong here. A row in this table means: the attendance WAS
+-- saved, and the learner was NOT activated. Somebody has to look.
+--
+-- 🔒 NO FOREIGN KEYS, ON PURPOSE. This table exists because a write failed;
+-- every FK on it would be one more way for the failure RECORD to fail, which is
+-- the silent swallow all over again.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.learner_activation_failures (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  occurred_at            timestamptz NOT NULL DEFAULT now(),
+  student_attendance_id  uuid,
+  attendance_date        date,
+  section_id             uuid,
+  timetable_id           uuid,
+  institution_id         uuid,
+  trigger_op             text,
+  learner_ids            uuid[] NOT NULL DEFAULT '{}'::uuid[],
+  marked_by              uuid,
+  attempted_by           uuid,
+  sqlstate               text,
+  error_message          text NOT NULL,
+  error_detail           text,
+  error_context          text,
+  resolved_at            timestamptz,
+  resolved_by            uuid,
+  resolution_notes       text
+);
+
+CREATE INDEX IF NOT EXISTS idx_learner_activation_failures_occurred
+  ON public.learner_activation_failures (occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_learner_activation_failures_unresolved
+  ON public.learner_activation_failures (occurred_at DESC)
+  WHERE resolved_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_learner_activation_failures_institution
+  ON public.learner_activation_failures (institution_id, occurred_at DESC);
+
+COMMENT ON TABLE public.learner_activation_failures IS
+  'Activations that FAILED while a learner was being moved to active on their first Present mark. Written by fn_activate_learner_on_first_present() from inside an exception handler so the attendance save itself is never rejected. A row here means the attendance was saved and the learner was NOT activated — someone has to look.';

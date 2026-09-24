@@ -27,6 +27,9 @@ import { useCdcDrive, useUpdateCdcDrive } from '@/hooks/cdc/use-cdc-drives';
 import { CDC_DRIVE_STATUS_LABELS } from '@/types/cdc';
 import { DriveForm, type DriveFormValues } from '../../_components/drive-form';
 import { DriveStatusBadge } from '../../_components/drive-status-badge';
+import { WillingnessCyclesCard } from '../../_components/willingness-cycles-card';
+
+const WINDOW_MANAGED_STATUSES = new Set(['willingness_open', 'eligibility_locked', 'attendance_day', 'results_announced']);
 
 export default function EditCdcDrivePage(props: { params: Promise<{ id: string }> }) {
   return (
@@ -63,6 +66,7 @@ function EditContent({ params }: { params: Promise<{ id: string }> }) {
 
   const drive = data.data;
   const terminal = drive.status === 'closed' || drive.status === 'cancelled';
+  const windowManagedByCycles = WINDOW_MANAGED_STATUSES.has(drive.status);
 
   async function handleSubmit(values: DriveFormValues) {
     setSubmitError(null);
@@ -126,7 +130,7 @@ function EditContent({ params }: { params: Promise<{ id: string }> }) {
 
       {!terminal ? (
         <DriveForm
-          key={drive.updated_at}
+          key={drive.id}
           mode="edit"
           drive={drive}
           eligibility={data.eligibility}
@@ -134,7 +138,14 @@ function EditContent({ params }: { params: Promise<{ id: string }> }) {
           submitError={submitError}
           onSubmit={handleSubmit}
           cancelHref={`/cdc/drives/${id}`}
+          windowManagedByCycles={windowManagedByCycles}
         />
+      ) : null}
+
+      {windowManagedByCycles ? (
+        <div className="mt-8 mb-10">
+          <WillingnessCyclesCard driveId={id} driveStatus={drive.status} />
+        </div>
       ) : null}
     </ContentLayout>
   );

@@ -18,6 +18,10 @@
   },
   "crons": [
     {
+      "path": "/api/cron/cdc-willingness-cycles?secret=${CRON_SECRET}",
+      "schedule": "3,18,33,48 * * * *"
+    },
+    {
       "path": "/api/cron/ai-routine-dispatcher?secret=${CRON_SECRET}",
       "schedule": "5,20,35,50 * * * *"
     },
@@ -174,10 +178,6 @@
       "schedule": "8,38 * * * *"
     },
     {
-      "path": "/api/cron/analyze-calls?secret=${CRON_SECRET}",
-      "schedule": "6,21,36,51 * * * *"
-    },
-    {
       "path": "/api/cron/analyze-voice-memos?secret=${CRON_SECRET}",
       "schedule": "1,6,11,16,21,26,31,36,41,46,51,56 * * * *"
     },
@@ -260,6 +260,10 @@
     {
       "path": "/api/cron/campus-walk-photo-retention?secret=${CRON_SECRET}",
       "schedule": "17 3 * * *"
+    },
+    {
+      "path": "/api/cron/meeting-audio-retention?secret=${CRON_SECRET}",
+      "schedule": "43 3 * * *"
     },
     {
       "schedule": "35 20 * * *",

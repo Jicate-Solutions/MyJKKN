@@ -84,21 +84,29 @@ export function buildFieldReport(input: FieldReportInput): CardFieldReport[] {
   const { person, validUntilLabel, photoResolved, qrResolved, signatureResolved, backConfigured } =
     input;
   const isLearner = person.kind === 'learner';
+  // School vocabulary in the missing-data list too (Program → Class, Department → Wing).
+  const courseLabel = person.isSchool ? 'Class' : 'Course';
+  const departmentLabel = person.isSchool ? 'Wing' : 'Department';
 
   const front: CardFieldReport[] = [
     { key: 'name', label: 'Name', side: 'front', value: present(person.fullName) },
     isLearner
-      ? { key: 'roll_number', label: 'Roll Number', side: 'front', value: present(person.rollNumber) }
+      ? { key: 'roll_number', label: person.isSchool ? 'Adm. No.' : 'Roll Number', side: 'front', value: present(person.rollNumber) }
       : { key: 'staff_id', label: 'Team member ID', side: 'front', value: present(person.staffId) },
     isLearner
-      ? { key: 'course', label: 'Course', side: 'front', value: present(person.courseName) }
+      ? { key: 'course', label: courseLabel, side: 'front', value: present(person.courseName) }
       : { key: 'designation', label: 'Designation', side: 'front', value: present(person.designation) },
-    { key: 'department', label: 'Department', side: 'front', value: present(person.departmentName) },
+    { key: 'department', label: departmentLabel, side: 'front', value: present(person.departmentName) },
     { key: 'institution', label: 'Institution', side: 'front', value: present(person.institutionName) },
     ...(isLearner
-      ? [{ key: 'study_period', label: 'Study Period', side: 'front' as const, value: present(person.studyPeriod) }]
+      ? [
+          { key: 'father_name', label: 'Father Name', side: 'front' as const, value: present(person.guardianName) },
+          { key: 'study_period', label: 'Study Period', side: 'front' as const, value: present(person.studyPeriod) }
+        ]
       : []),
-    { key: 'valid_until', label: 'Valid Until', side: 'front', value: present(validUntilLabel) },
+    ...(isLearner
+      ? []
+      : [{ key: 'valid_until', label: 'Valid Until', side: 'front' as const, value: present(validUntilLabel) }]),
     { key: 'photo', label: 'Photo', side: 'front', value: photoResolved ? 'Available' : null },
     { key: 'qr_code', label: 'QR Code', side: 'front', value: qrResolved ? 'Available' : null }
   ];

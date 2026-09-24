@@ -476,6 +476,7 @@ export default function AttendanceMonthClosePage() {
                   // this is exactly "super admin or HR Head". The RPC checks it
                   // again — this only decides whether the control is offered.
                   canRegularize={isSuperAdmin || canManage}
+                  coverage={confirmRow}
                 />
               ) : (
                 <Alert variant='destructive'>

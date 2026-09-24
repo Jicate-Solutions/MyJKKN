@@ -35,6 +35,7 @@ import {
   CLOSE_STATE_LABEL,
   CLOSE_STATE_RANK,
   closeStateOf,
+  isPartlyImported,
   getCloseConsoleColumns,
   monthBounds,
   type CloseState,
@@ -162,7 +163,16 @@ export function CloseConsoleTable({
             {r.staff_with_records} of {r.active_staff} staff in biometric ·{' '}
             {r.record_count.toLocaleString('en-IN')} records
             {r.unprocessed_days > 0 && ` · ${r.unprocessed_days} unjudged`}
+            {r.record_count > 0 && ` · ${r.days_covered} of ${r.days_in_month} days imported`}
           </p>
+
+          {isPartlyImported(r) && (
+            <p className='text-xs text-amber-700 dark:text-amber-400'>
+              Only {r.days_covered} of {r.days_in_month} days are imported. Unpaid days are worked out
+              against the whole month, so closing now charges everyone for the{' '}
+              {r.days_in_month - r.days_covered} day(s) still missing.
+            </p>
+          )}
 
           {state !== 'nodata' && (
             <dl className='grid grid-cols-3 gap-2 text-xs'>

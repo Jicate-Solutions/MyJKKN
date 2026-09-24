@@ -243,6 +243,9 @@ export default function FacultyClinicalCasesPage() {
                         <Button asChild variant="ghost" size="sm">
                           <Link href={`/pde/faculty/cases/${c.id}/preview`}>Preview</Link>
                         </Button>
+                        <Button asChild variant="ghost" size="sm">
+                          <Link href={`/pde/faculty/cases/${c.id}/export`}>Paper</Link>
+                        </Button>
                         {c.status === 'published' ? (
                           <Button asChild variant="ghost" size="sm">
                             <Link href={`/pde/faculty/cases/${c.id}/attempts`}>Cohort</Link>

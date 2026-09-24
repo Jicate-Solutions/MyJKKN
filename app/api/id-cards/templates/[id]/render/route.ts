@@ -58,14 +58,40 @@ import {
   CARD_HEIGHT
 } from '@/lib/id-cards/render-card';
 import { makeCode39SvgDataUrl } from '@/lib/id-cards/barcode';
+import { loadCardFonts } from '@/lib/id-cards/card-fonts';
 import { buildFieldReport } from '@/lib/id-cards/field-report';
 import type { ReactElement } from 'react';
 
 const paramsSchema = z.string().uuid();
+
+// ── Policy cache (per institution, 60 s) ─────────────────────────────────────
+const POLICY_TTL_MS = 60 * 1000;
+const policyCache = new Map<string, { at: number; value: unknown }>();
+async function readPolicyCached(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  institutionId: string | null
+): Promise<unknown> {
+  const key = institutionId ?? '__global__';
+  const hit = policyCache.get(key);
+  if (hit && Date.now() - hit.at < POLICY_TTL_MS) return hit.value;
+  const { data, error } = await supabase.rpc('fn_get_id_card_policy', { p_institution_id: institutionId });
+  if (error) {
+    console.warn(
+      '[id-cards/templates/render] policy read failed, using built-in validity rules:',
+      error.message
+    );
+    return null;
+  }
+  policyCache.set(key, { at: Date.now(), value: data });
+  return data;
+}
 const querySchema = z.object({
   profile_id: z.string().uuid(),
   format: z.enum(['json', 'png']).optional().default('json'),
-  side: z.enum(['front', 'back']).optional().default('front'),
+  // 'both' (json only): front + back in ONE request — the preview dialogs use
+  // it so a card costs one round trip and one data assembly, not two.
+  side: z.enum(['front', 'back', 'both']).optional().default('front'),
   include: z.enum(['fields']).optional(),
   // upright=1: PREVIEW ONLY — a portrait template renders unrotated (638x1014)
   // so people see it as designed. The printer bridge never sends this; its
@@ -175,20 +201,13 @@ export async function GET(
     // Fail-soft like every other read here: an error, or a database that
     // predates the validity keys, falls back to the built-in defaults, which
     // are the Director's rules (learner = whole course, team member = yearly).
-    const { data: policyJson, error: policyError } = await supabase.rpc(
-      'fn_get_id_card_policy',
-      { p_institution_id: templateRow.institution_id }
-    );
-    if (policyError) {
-      console.warn(
-        '[id-cards/templates/render] policy read failed, using built-in validity rules:',
-        policyError.message
-      );
-    }
+    // Policy is per institution and changes rarely: cached 60 s so a batch
+    // does not call the RPC once per card.
+    const policyJson = await readPolicyCached(supabase, templateRow.institution_id);
     const validUntilLabel = resolveValidUntilLabel({
       kind: person.kind,
       courseEndDate: person.courseEndDate,
-      policy: parseValidityPolicy(policyError ? null : policyJson)
+      policy: parseValidityPolicy(policyJson)
     });
 
     let element: ReactElement;
@@ -199,19 +218,26 @@ export async function GET(
     let photoResolved = false;
     let qrResolved = false;
     let signatureResolved = false;
-    if (side === 'back') {
-      // 3b. Back composite (DARK): Code 39 barcode of the learner's roll
-      // number / team member's staff id (pure, no I/O) + optional back
-      // artwork through the SAME id-card-assets allowlist as the front.
+    // 3b. Back composite (DARK): Code 39 barcode of the learner's roll
+    // number / team member's staff id (pure, no I/O) + optional back artwork
+    // through the SAME id-card-assets allowlist as the front. Shared by
+    // side=back and side=both.
+    // Poppins Regular / SemiBold / Bold — without these every fontWeight
+    // rendered at the built-in font's single regular weight.
+    const fonts = await loadCardFonts();
+
+    // The Windows print bridge fetches side=back&format=png; that (and only
+    // that) gets the duplex-corrected back. JSON callers are previews.
+    const printerBack = side === 'back' && format === 'png';
+
+    const renderBack = async (): Promise<ArrayBuffer> => {
       const backLayout = parseBackLayout(templateRow.back_layout_json) ?? {};
       const barcodeDataUrl =
         (backLayout.show_barcode ?? true) && person.idCode
           ? makeCode39SvgDataUrl(person.idCode, { height: 110, scale: 3, showText: false })
           : null;
-      const backBackgroundDataUrl = await resolveBackgroundDataUrl(
-        backLayout.background_image
-      );
-      element = buildBackElement(
+      const backBackgroundDataUrl = await resolveBackgroundDataUrl(backLayout.background_image);
+      const backElement = buildBackElement(
         {
           person,
           backgroundDataUrl: backBackgroundDataUrl,
@@ -220,10 +246,31 @@ export async function GET(
           mappings: parseFieldMappings(templateRow.field_mappings),
           validUntilLabel
         },
-        buildOptions
+        { ...buildOptions, printerBack }
       );
-      canvas = backCanvasSize(backLayout, buildOptions);
-    } else {
+      const size = backCanvasSize(backLayout, buildOptions);
+      return new ImageResponse(backElement, { width: size.width, height: size.height, fonts }).arrayBuffer();
+    };
+
+    if (side === 'back') {
+      const backPng = await renderBack();
+      if (format === 'png') {
+        return new Response(backPng, {
+          status: 200,
+          headers: {
+            'content-type': 'image/png',
+            'cache-control': 'no-store',
+            'content-disposition': `inline; filename="id-card-${profileId}-back.png"`
+          }
+        });
+      }
+      return jsonOk({
+        png_base64: Buffer.from(backPng).toString('base64'),
+        template_id: parsedId.data,
+        profile_id: profileId
+      });
+    }
+    {
       // 3. Photo fallback chain + QR + card artwork — all fail-soft (never 500
       // the render). The background fetch is allowlisted to the id-card-assets
       // bucket inside resolveBackgroundDataUrl.
@@ -261,9 +308,16 @@ export async function GET(
 
     const image = new ImageResponse(element, {
       width: canvas.width,
-      height: canvas.height
+      height: canvas.height,
+      fonts
     });
-    const pngBuffer = await image.arrayBuffer();
+    const backConfiguredEarly =
+      templateRow.back_layout_json !== null && templateRow.back_layout_json !== undefined;
+    // side=both: composite the back in parallel with the front (same person data).
+    const [pngBuffer, bothBackPng] = await Promise.all([
+      image.arrayBuffer(),
+      side === 'both' && backConfiguredEarly && format === 'json' ? renderBack() : Promise.resolve(null)
+    ]);
 
     // 5a. Raw PNG for the Windows print bridge.
     if (format === 'png') {
@@ -272,7 +326,7 @@ export async function GET(
         headers: {
           'content-type': 'image/png',
           'cache-control': 'no-store',
-          'content-disposition': `inline; filename="id-card-${profileId}${side === 'back' ? '-back' : ''}.png"`
+          'content-disposition': `inline; filename="id-card-${profileId}.png"`
         }
       });
     }
@@ -285,6 +339,7 @@ export async function GET(
       png_base64: Buffer.from(pngBuffer).toString('base64'),
       template_id: parsedId.data,
       profile_id: profileId,
+      ...(bothBackPng ? { back_png_base64: Buffer.from(bothBackPng).toString('base64') } : {}),
       ...(include === 'fields'
         ? {
             back_configured: backConfigured,

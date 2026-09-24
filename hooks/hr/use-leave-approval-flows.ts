@@ -14,6 +14,7 @@ import {
   type LeaveApprovalFlowCoverage,
   type SaveLeaveApprovalFlowInput,
 } from '@/lib/services/hr/leave-approval-flow-service';
+import type { LeaveFlowFor } from '@/types/hr-leave-types';
 
 const KEY = 'hr-leave-approval-flows';
 
@@ -23,13 +24,18 @@ const KEY = 'hr-leave-approval-flows';
  */
 export function useLeaveApprovalFlow(
   hrOrgId: string | undefined,
-  leaveTypeId: string | undefined
+  leaveTypeId: string | undefined,
+  /** 'leave_eligibility' resolves the "Who approves eligibility" flow instead. */
+  flowFor: LeaveFlowFor = 'leave_approval'
 ) {
   const supabase = createClientSupabaseClient();
   return useQuery({
-    queryKey: [KEY, hrOrgId, leaveTypeId],
+    // flowFor is in the key so the two editors for one type never read each
+    // other's cache. Kept as the trailing element so the save/clear
+    // invalidation on [KEY] still covers both.
+    queryKey: [KEY, hrOrgId, leaveTypeId, flowFor],
     queryFn: () =>
-      LeaveApprovalFlowService.resolveForLeaveType(supabase, hrOrgId!, leaveTypeId!),
+      LeaveApprovalFlowService.resolveForLeaveType(supabase, hrOrgId!, leaveTypeId!, flowFor),
     enabled: !!hrOrgId && !!leaveTypeId,
   });
 }

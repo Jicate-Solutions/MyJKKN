@@ -67,13 +67,19 @@ export function RescheduleBookingButton({
   const [days, setDays] = useState<DayGroup[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [reason, setReason] = useState<Reason | null>(null);
+  /**
+   * The host asked to see times their published hours do not offer (Director,
+   * 22 Sep). Only ever true on this screen — the visitor's reschedule page has
+   * no such switch, and the server widens nothing without it.
+   */
+  const [anyTime, setAnyTime] = useState(false);
   const [pending, startTransition] = useTransition();
   const router = useRouter();
 
-  async function loadSlots() {
+  async function loadSlots(showEverything = anyTime) {
     setLoading(true);
     setSelected(null);
-    const result = await getMyBookingSlots(uid);
+    const result = await getMyBookingSlots(uid, showEverything);
     setLoading(false);
     if (!result.success) {
       toast.error(result.error ?? 'Could not load available times.');
@@ -107,7 +113,7 @@ export function RescheduleBookingButton({
     // things is happening — 'missed' moves it, the other two create a new one.
     if (hasEnded && !reason) return;
     startTransition(async () => {
-      const result = await rescheduleMyBooking(uid, selected, reason ?? undefined);
+      const result = await rescheduleMyBooking(uid, selected, reason ?? undefined, anyTime);
       if (result.success) {
         toast.success(
           reason === 'repeat' || reason === 'follow_up'
@@ -156,6 +162,31 @@ export function RescheduleBookingButton({
         </Button>
       </div>
 
+      {/* Your own diary, your own call. The published hours exist to stop
+          VISITORS taking the wrong time; they were never meant to stop the
+          host putting a meeting where they want it (Director, 22 Sep). The
+          server applies the same widened rule when the pick is saved, so every
+          button offered here actually works. Bookings still block: "any time"
+          is not "on top of something else". */}
+      <label className="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={anyTime}
+          onChange={(e) => {
+            setAnyTime(e.target.checked);
+            void loadSlots(e.target.checked);
+          }}
+          disabled={loading || pending}
+          className="mt-0.5 h-4 w-4"
+        />
+        <span className="text-muted-foreground">
+          Show any time, not just my available hours
+          <span className="block text-xs">
+            7am to 10pm, every day. Times you are already booked stay hidden.
+          </span>
+        </span>
+      </label>
+
       {/* Asked only for a meeting that has ended. 'It was missed' moves this
           meeting; the other two leave it as it is and book a new one linked
           back to it, so the thread stays readable later. */}
@@ -191,7 +222,10 @@ export function RescheduleBookingButton({
 
       {!loading && days && days.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          No open slots in the next 14 days. Free up time in your availability, then try again.
+          No open slots in the next 14 days.
+          {anyTime
+            ? ' Every time in the day is taken, or the meeting type allows fewer days ahead.'
+            : ' Turn on "any time" above to use hours outside your availability.'}
         </p>
       ) : null}
 

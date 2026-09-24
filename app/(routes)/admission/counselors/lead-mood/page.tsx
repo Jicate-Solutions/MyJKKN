@@ -181,7 +181,7 @@ function LeadMoodContent() {
               Lead Mood Digest — Today's Sentiment
             </h1>
             <p className="text-xs text-muted-foreground">
-              Auto-refreshing every 30s · Sentiment captured by analyze-calls cron (every 15 min)
+              Auto-refreshing every 30s · Sentiment comes from counselor voice memos
             </p>
           </div>
           <Button size="sm" variant="ghost" onClick={refreshAll} disabled={kpisLoading}>
@@ -285,20 +285,14 @@ function LeadMoodContent() {
               </div>
               <h3 className="font-semibold text-base">Mood data is being captured</h3>
               <p className="text-sm text-muted-foreground max-w-md mx-auto">
-                The analyze pipeline runs every 15 minutes against new completed calls.
-                Sentiment, summary, and category data will appear here automatically once the
-                first batch finishes processing.
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Cron status:{' '}
-                <code className="bg-muted px-1.5 py-0.5 rounded font-mono">
-                  /api/cron/analyze-calls
-                </code>
+                Mood comes from the short voice memo a counselor records after a call.
+                Sentiment, summary, and category data will appear here automatically once
+                the first memo of the day has been analysed.
               </p>
               {totalCallsToday > 0 && (
                 <p className="text-xs text-muted-foreground">
-                  {totalCallsToday} {totalCallsToday === 1 ? 'call' : 'calls'} placed today and
-                  waiting to be analyzed.
+                  {totalCallsToday} {totalCallsToday === 1 ? 'call' : 'calls'} placed today; none has
+                  an analysed voice memo yet.
                 </p>
               )}
               <Button size="sm" variant="outline" onClick={refreshAll} className="mt-2">

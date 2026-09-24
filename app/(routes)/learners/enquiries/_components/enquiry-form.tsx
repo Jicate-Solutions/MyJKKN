@@ -1448,6 +1448,25 @@ export function EnquiryForm({
     setIsSavingDraft(true);
     try {
       const values = form.getValues();
+
+      // Same reasoning as handleSaveDraft: a queued photo lives only in
+      // pendingImageFile until uploaded. The photo picker sits on the first
+      // tab (Basic Details), which is never the last tab, so "Save & Next"
+      // is the button a user actually presses right after choosing a photo —
+      // skipping the upload here silently dropped it. Non-blocking, so a
+      // failed upload doesn't discard the rest of the tab's fields.
+      if (pendingImageFile) {
+        try {
+          const imageUrl = await uploadProfileImage(pendingImageFile);
+          values.student_photo_url = imageUrl;
+          form.setValue('student_photo_url', imageUrl);
+          setPendingImageFile(null);
+        } catch (err) {
+          console.error('[enquiry-form] Image upload failed during save:', err);
+          toast.error('Photo could not be uploaded — saving the other changes without it.');
+        }
+      }
+
       const data = await formatFormDataForAPI(values);
 
       let result: LearnerProfile;
@@ -1461,7 +1480,7 @@ export function EnquiryForm({
         result = await LearnerProfileService.createLearnerProfile(data as any);
         setSavedEnquiryId(result.id);
         toast.success('Progress saved successfully');
-          
+
       }
 
       // Move to next tab if not on last tab

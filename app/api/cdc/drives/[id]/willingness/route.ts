@@ -7,7 +7,8 @@ export const dynamic = 'force-dynamic';
  *                                         targeting eligibility + learner profile
  *                                         details + CGPA/arrears + existing response)
  * POST /api/cdc/drives/[id]/willingness  → { intent: 'willing'|'decline',
- *                                            additional_mobile?, data_consent? }
+ *                                            additional_mobile?, data_consent?,
+ *                                            cgpa, arrears_count (mandatory for 'willing') }
  *
  * Auth: caller is an authenticated learner. We resolve auth.uid() to learners_profiles.id
  * server-side and never trust client-supplied learner_id. RLS on cdc_drive_willingness
@@ -21,7 +22,14 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { CdcWillingnessService } from '@/lib/services/cdc/willingness-service';
+import { getLearnerParticipation } from '@/lib/services/cdc/drive-day';
+
+import { getLearnerOutcome } from '@/lib/services/cdc/drive-selection';
+
+type LearnerParticipation = Awaited<ReturnType<typeof getLearnerParticipation>>;
+type LearnerOutcome = Awaited<ReturnType<typeof getLearnerOutcome>>;
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -49,7 +57,7 @@ async function getClient() {
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   await connection();
@@ -76,15 +84,35 @@ export async function GET(
       );
     }
 
-    const snapshot = await CdcWillingnessService.getLearnerWillingnessSnapshot(
-      supabase,
-      id,
-      learner
-    );
+    // COE results are slow (REST → DB fallback, no learner-visible value until
+    // the response panel). The page loads without them; the client asks for
+    // ?include=academic in a second request once the page is up.
+    const includeAcademic = request.nextUrl.searchParams.get('include') === 'academic';
+    const snapshot = await CdcWillingnessService.getLearnerWillingnessSnapshot(supabase, id, learner, {
+      includeAcademic,
+    });
     if (!snapshot) {
       return NextResponse.json({ error: 'Drive not found' }, { status: 404 });
     }
-    return NextResponse.json(snapshot, { headers: { 'Cache-Control': 'no-store' } });
+    if (includeAcademic) {
+      return NextResponse.json({ academic: snapshot.academic }, { headers: { 'Cache-Control': 'no-store' } });
+    }
+    // The learner's OWN shortlist + attendance state (drive-day slice). Never
+    // blocks the page: a missing table (migration not applied) reads as "nothing yet".
+    let participation: LearnerParticipation = { finalized: false, is_participant: false, attendance_status: null };
+    try {
+      participation = await getLearnerParticipation(createServiceRoleClient(), snapshot.drive, learner.id);
+    } catch (err) {
+      console.warn('[cdc/drives/[id]/willingness] participation lookup skipped:', err);
+    }
+    // Result + own letters, only once the drive has announced results.
+    let outcome: LearnerOutcome = { decision: null, documents: [] };
+    try {
+      outcome = await getLearnerOutcome(createServiceRoleClient(), snapshot.drive, learner.id);
+    } catch (err) {
+      console.warn('[cdc/drives/[id]/willingness] outcome lookup skipped:', err);
+    }
+    return NextResponse.json({ ...snapshot, participation, outcome }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (err) {
     console.error('[cdc/drives/[id]/willingness] GET error', err);
     return NextResponse.json(
@@ -141,8 +169,26 @@ export async function POST(
         additional_mobile:
           typeof body.additional_mobile === 'string' ? body.additional_mobile.trim() || null : null,
         data_consent: body.data_consent === true,
+        cgpa:
+          typeof body.cgpa === 'number'
+            ? body.cgpa
+            : typeof body.cgpa === 'string' && body.cgpa.trim()
+              ? Number(body.cgpa)
+              : null,
+        arrears_count:
+          typeof body.arrears_count === 'number'
+            ? body.arrears_count
+            : typeof body.arrears_count === 'string' && body.arrears_count.trim()
+              ? Number(body.arrears_count)
+              : null,
       }
     );
+    // Adoption loop: only a YES is declaring interest. A decline is a different
+    // act and is deliberately not counted under this key.
+    if (intent === 'willing') {
+      await recordFeatureUse(supabase, FEATURE_KEYS.CDC_DECLARE_INTEREST);
+    }
+
     return NextResponse.json({ data: willingness });
   } catch (err) {
     console.error('[cdc/drives/[id]/willingness] POST error', err);
