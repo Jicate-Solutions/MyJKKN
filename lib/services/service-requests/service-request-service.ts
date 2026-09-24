@@ -74,6 +74,7 @@ export class ServiceRequestService {
       .from('service_types')
       .select('*, approval_steps:service_request_approval_steps(*)')
       .eq('id', dto.service_type_id)
+      .eq('approval_steps.is_active', true)
       .single();
 
     if (typeError || !serviceType) {
@@ -294,7 +295,18 @@ export class ServiceRequestService {
       .select('learner_id')
       .eq('id', userId)
       .maybeSingle();
-    if (me?.learner_id) return; // learner: approval path
+    if (me?.learner_id) {
+      // A learner link alone is not enough: a graduate who joined as staff
+      // keeps their old learner_id. An active staff record makes them a team
+      // member — the same rule issue_gate_pass_for_service_request applies.
+      const { data: activeStaff } = await supabase
+        .from('staff')
+        .select('id')
+        .eq('profile_id', userId)
+        .eq('is_active', true)
+        .limit(1);
+      if ((activeStaff ?? []).length === 0) return; // learner: approval path
+    }
     const { error } = await supabase.rpc('issue_gate_pass_for_service_request', {
       p_request_id: requestId,
     });
@@ -427,6 +439,7 @@ export class ServiceRequestService {
       .from('service_requests')
       .select('*, service_type:service_types(*, approval_steps:service_request_approval_steps(*))')
       .eq('id', id)
+      .eq('service_type.approval_steps.is_active', true)
       .single();
 
     if (fetchError || !request) {
@@ -582,6 +595,8 @@ export class ServiceRequestService {
       .from('service_requests')
       .select(REQUEST_DETAIL_SELECT)
       .eq('id', id)
+      // Live flow only; the approvals embed keeps its own step join for history.
+      .eq('service_type.approval_steps.is_active', true)
       .single();
 
     if (error) {
@@ -691,7 +706,8 @@ export class ServiceRequestService {
     const { data: matchingSteps, error: stepsError } = await supabase
       .from('service_request_approval_steps')
       .select('step_order, service_type_id')
-      .eq('approver_role', userRole);
+      .eq('approver_role', userRole)
+      .eq('is_active', true);
 
     if (stepsError || !matchingSteps || matchingSteps.length === 0) {
       return {

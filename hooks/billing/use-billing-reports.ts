@@ -14,6 +14,7 @@ import type {
   StudentYearBreakdown,
   OutstandingReport,
   CollectionReport,
+  CollectionDaywiseRow,
   DiscountReport,
   RefundReport,
   InvoiceReport,
@@ -99,17 +100,11 @@ export function useStudentYearBreakdown(filters: BillingReportFilters = {}) {
   return { breakdown };
 }
 
-/**
- * The whole filtered collection set, for the Collection tab.
- *
- * Unlike useCollectionReport (one server-paginated page) this pulls every
- * matching receipt so payment-mode totals, the mode filter and the name /
- * receipt-number search can all be computed over the FULL set rather than over
- * whichever 50 rows happen to be on screen. Paging then happens client-side,
- * which also makes search feel instant.
- */
-export function useCollectionFullSet(filters: BillingReportFilters = {}) {
-  const [rows, setRows] = useState<CollectionReport[]>([]);
+/** Whole-range fetch for the Collection tab (whole range, no paging); a
+ *  superseded request is ignored so a slow older fetch cannot overwrite a
+ *  newer one. */
+export function useCollectionDaywise(filters: BillingReportFilters = {}) {
+  const [rows, setRows] = useState<CollectionDaywiseRow[]>([]);
   const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -122,13 +117,13 @@ export function useCollectionFullSet(filters: BillingReportFilters = {}) {
     try {
       setLoading(true);
       setError(null);
-      const res = await BillingReportService.getCollectionFullSet(JSON.parse(key));
-      if (myReq !== reqId.current) return; // superseded by a newer request
+      const res = await BillingReportService.getCollectionDaywise(JSON.parse(key));
+      if (myReq !== reqId.current) return;
       setRows(res.rows);
       setTruncated(res.truncated);
     } catch (err) {
       if (myReq !== reqId.current) return;
-      const msg = err instanceof Error ? err.message : 'Failed to fetch collection report';
+      const msg = err instanceof Error ? err.message : 'Failed to fetch day-wise collection';
       setError(msg);
       toast.error(msg);
     } finally {

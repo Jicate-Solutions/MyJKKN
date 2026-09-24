@@ -12,7 +12,7 @@
 // promise a toolbar action that cannot be honoured.
 
 import type { ColumnDef } from '@tanstack/react-table';
-import { format } from 'date-fns';
+import { formatIstDate } from '@/lib/utils/date-format';
 import { Badge } from '@/components/ui/badge';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { NaacCriteriaChips } from '@/components/events/shared/naac-criteria-field';
@@ -40,11 +40,7 @@ export interface EventColumnOptions {
 }
 
 /** Tolerant date render — legacy rows hold a few unparseable date strings. */
-const renderDate = (value: string | null) => {
-  if (!value) return '—';
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? '—' : format(d, 'd MMM yyyy');
-};
+const renderDate = (value: string | null) => formatIstDate(value) || '—';
 
 export const getColumns = (options: EventColumnOptions): ColumnDef<Event>[] => [
   {

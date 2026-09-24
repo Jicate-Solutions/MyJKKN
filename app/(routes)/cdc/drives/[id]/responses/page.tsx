@@ -188,11 +188,11 @@ function ResponsesContent({ params }: { params: Promise<{ id: string }> }) {
               <Users className="h-5 w-5 text-muted-foreground" />
               {drive?.title ?? 'Drive'}
             </h1>
-            <p className="text-sm text-muted-foreground mt-1 flex flex-wrap items-center gap-2">
+            <div className="text-sm text-muted-foreground mt-1 flex flex-wrap items-center gap-2">
               {drive ? <DriveStatusBadge status={drive.status} /> : null}
               {drive ? <span>{describeTargeting(drive.institution_semesters ?? [], drive.institutions.length)}</span> : null}
               <span>· {data?.total ?? 0} response{(data?.total ?? 0) === 1 ? '' : 's'}</span>
-            </p>
+            </div>
           </div>
           {canExport ? (
             <Button asChild>

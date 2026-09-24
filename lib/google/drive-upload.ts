@@ -655,3 +655,86 @@ export async function uploadCdcDriveCircular(
     sizeBytes: buffer.byteLength,
   };
 }
+
+// ============================================================================
+// CDC — per-learner drive documents (offer / appointment / joining letters …)
+// ============================================================================
+
+export interface CdcDriveDocumentUploadOptions {
+  /** Recruiter / company name. */
+  companyName: string | null;
+  /** cdc_drives.drive_date (yyyy-mm-dd) or null. */
+  driveDate: string | null;
+  /** Sub-folder inside the drive folder, e.g. "Offer Letters". */
+  typeFolder: string;
+  /** Exact name to store the file under (already sanitised + versioned by the caller). */
+  storedName: string;
+  file: File;
+  /**
+   * Drive folder id already recorded for this drive + document type. When given,
+   * the CDC / Campus Drives / {Company} / {Type} walk (up to four sequential
+   * Drive list calls on a cold server) is skipped entirely.
+   */
+  knownFolderId?: string | null;
+}
+
+export interface CdcDriveDocumentUploadResult {
+  driveFileId: string;
+  driveFolderId: string;
+  url: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+/** "25 Sep 2026" from a yyyy-mm-dd string, without dragging the server timezone in. */
+function cdcFolderDate(value: string | null): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value ?? '');
+  if (!m) return 'Undated';
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${m[3]} ${months[parseInt(m[2], 10) - 1] ?? m[2]} ${m[1]}`;
+}
+
+/**
+ * Upload one learner document to
+ *   CDC / Campus Drives / {Company} - {Drive Date} / {Type Folder} / {storedName}
+ *
+ * Folders are created on first use. NO PUBLIC PERMISSION: offer and joining
+ * letters carry personal + salary details, so the bytes are served only by
+ * /api/cdc/drives/[id]/documents/[docId] after the viewer is authorised.
+ */
+export async function uploadCdcDriveDocument(
+  opts: CdcDriveDocumentUploadOptions,
+): Promise<CdcDriveDocumentUploadResult> {
+  if (!isDriveConfigured()) throw new Error('Google Drive is not configured for this server.');
+  const drive = createDriveClient();
+
+  const company = (opts.companyName || 'Unassigned recruiter').replace(/[\r\n/]/g, ' ').trim().slice(0, 80);
+  // Folder resolution and reading the upload into memory are independent.
+  const [folderId, buffer] = await Promise.all([
+    opts.knownFolderId
+      ? Promise.resolve(opts.knownFolderId)
+      : ensureFolderPath(drive, ['CDC', 'Campus Drives', `${company} - ${cdcFolderDate(opts.driveDate)}`, opts.typeFolder]),
+    opts.file.arrayBuffer().then((ab) => Buffer.from(ab)),
+  ]);
+
+  const created = await drive.files.create({
+    requestBody: { name: opts.storedName, parents: [folderId] },
+    media: {
+      mimeType: opts.file.type || 'application/octet-stream',
+      body: Readable.from(buffer),
+    },
+    fields: 'id, webViewLink',
+    supportsAllDrives: true,
+  });
+
+  const fileId = created.data.id;
+  if (!fileId) throw new Error('Drive upload returned no file id.');
+
+  return {
+    driveFileId: fileId,
+    driveFolderId: folderId,
+    url: created.data.webViewLink ?? `https://drive.google.com/file/d/${fileId}/view`,
+    mimeType: opts.file.type || 'application/octet-stream',
+    sizeBytes: buffer.byteLength,
+  };
+}

@@ -94,6 +94,30 @@ import type { LearnerWillingnessSnapshot } from '@/lib/services/cdc/willingness-
 import type { CdcDriveWillingness } from '@/types/cdc';
 import { CDC_DRIVE_STATUS_LABELS } from '@/types/cdc';
 
+const OUTCOME_TEXT: Record<string, string> = {
+  selected: 'Selected',
+  waitlisted: 'Waitlisted',
+  rejected: 'Not selected',
+  hold: 'On hold',
+};
+const LETTER_TEXT: Record<string, string> = {
+  offer_letter: 'Offer letter',
+  appointment_letter: 'Appointment letter',
+  joining_letter: 'Joining letter',
+  internship_letter: 'Internship letter',
+  training_letter: 'Training letter',
+  salary_letter: 'Salary letter',
+  other: 'Document',
+};
+
+const ATTENDANCE_TEXT: Record<string, string> = {
+  present: 'Present',
+  absent: 'Absent',
+  late: 'Late',
+  excused: 'Excused',
+  not_attended: 'Not attended',
+};
+
 const API_BASE = '/api/cdc/drives';
 
 /**
@@ -299,6 +323,12 @@ export function LearnerWillingnessView({ id }: { id: string }) {
   const sameDayClashes = snapshot.same_day_clashes ?? [];
   const reopenedForLearner = snapshot.reopened_for_learner === true;
   const canRespond = snapshot.can_respond ?? (is_window_open || reopenedForLearner);
+  const participation = (snapshot as typeof snapshot & {
+    participation?: { finalized: boolean; is_participant: boolean; attendance_status: string | null };
+  }).participation;
+  const outcome = (snapshot as typeof snapshot & {
+    outcome?: { decision: string | null; documents: Array<{ id: string; document_type: string; file_name: string; uploaded_at: string }> };
+  }).outcome;
   const academic = academicLazy ?? snapshot.academic ?? null;
   const hasCriteria =
     !!eligibility &&
@@ -616,6 +646,55 @@ export function LearnerWillingnessView({ id }: { id: string }) {
 
         {/* Right: response panel */}
         <div className="space-y-4">
+          {participation?.finalized ? (
+            <Alert>
+              {participation.is_participant ? <CheckCircle2 className="h-4 w-4 text-green-600" /> : <Info className="h-4 w-4" />}
+              <AlertTitle>
+                {participation.is_participant ? 'You are shortlisted for this drive' : 'You are not on the final participant list'}
+              </AlertTitle>
+              <AlertDescription>
+                {participation.is_participant
+                  ? participation.attendance_status
+                    ? `Your drive-day attendance: ${ATTENDANCE_TEXT[participation.attendance_status] ?? participation.attendance_status}.`
+                    : 'Report on time with your ID card and resume. Your attendance will appear here after the drive.'
+                  : 'The placement team has finalized participants for this drive. Contact the coordinator if you think this is a mistake.'}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          {outcome?.decision ? (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Your result</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <Badge variant={outcome.decision === 'selected' ? 'default' : 'secondary'}>
+                  {OUTCOME_TEXT[outcome.decision] ?? outcome.decision}
+                </Badge>
+                {outcome.documents.length > 0 ? (
+                  <ul className="space-y-2">
+                    {outcome.documents.map((d) => (
+                      <li key={d.id} className="flex items-center justify-between gap-2 rounded-md border p-2">
+                        <span className="min-w-0 truncate flex items-center gap-2">
+                          <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                          {LETTER_TEXT[d.document_type] ?? 'Document'}
+                        </span>
+                        <span className="flex gap-1 shrink-0">
+                          <Button asChild variant="outline" size="sm">
+                            <a href={`${API_BASE}/${drive.id}/documents/${d.id}`} target="_blank" rel="noopener noreferrer">View</a>
+                          </Button>
+                          <Button asChild variant="outline" size="sm">
+                            <a href={`${API_BASE}/${drive.id}/documents/${d.id}?download=1`}><Download className="h-4 w-4" /></a>
+                          </Button>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : outcome.decision === 'selected' ? (
+                  <p className="text-xs text-muted-foreground">Your offer letter will appear here once the placement team uploads it.</p>
+                ) : null}
+              </CardContent>
+            </Card>
+          ) : null}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Your response</CardTitle>

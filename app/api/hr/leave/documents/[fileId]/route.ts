@@ -142,6 +142,23 @@ export async function GET(
       authorised = !!claimMatch;
     }
 
+    // Eligibility requests for a gated leave type (2026-09-21) carry their
+    // proof in the same shape. hr_leave_eligibilities_select scopes them the
+    // same way: the requester, whoever is on the current step, and HR for
+    // their organisations. Without this branch every eligibility document
+    // was a 404 through the proxy and a "You need access" through the raw
+    // Drive link — the file itself is deliberately unshared.
+    if (!authorised) {
+      const { data: eligMatch, error: eligError } = await supabase
+        .from('hr_leave_eligibilities')
+        .select('id')
+        .filter('documents', 'cs', JSON.stringify([{ drive_file_id: fileId }]))
+        .limit(1)
+        .maybeSingle();
+      if (eligError) throw eligError;
+      authorised = !!eligMatch;
+    }
+
     if (!authorised) {
       // Deliberately identical to a genuinely missing file: telling an
       // unauthorised caller that the id is real is itself a disclosure.

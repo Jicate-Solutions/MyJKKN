@@ -8,7 +8,11 @@ import {
   CheckCircle2,
   Bell,
   ChevronRight,
-  Shield
+  Shield,
+  Bug,
+  ThumbsUp,
+  ThumbsDown,
+  AlarmClock
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -18,7 +22,9 @@ import toast from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   useNotificationPulse,
-  invalidateNotificationPulse
+  invalidateNotificationPulse,
+  NOTIFICATION_PULSE_KEY,
+  type NotificationPulse
 } from '@/hooks/notification/use-notification-pulse';
 import type { UnacknowledgedNotification } from '@/types/notifications';
 
@@ -31,6 +37,32 @@ interface VerificationQuestion {
   question: string;
   options: string[];
   correct_index: number;
+}
+
+/** The bug statuses that mean a report is open (bug_reports_status_check). */
+const OPEN_BUG_STATUSES = ['new', 'seen', 'in_progress'];
+
+/**
+ * What to tell a reporter who answered "Not fixed". Exported for the test.
+ *
+ * 2026-09-18 (blind-critic gap 1): the message is derived from what the RPC
+ * reports — `reopened` (rows it flipped) and `bug_status` (read back from
+ * bug_reports afterwards) — instead of being a fixed sentence. The fixed
+ * sentence claimed a reopen and a notified fixer on every answer, including
+ * when the report was already open and when nobody is on file to tell.
+ */
+export function bugAnswerMessage(data: {
+  reopened?: number;
+  bug_status?: string | null;
+  fixer_notified?: boolean;
+}): string {
+  const openAgain =
+    Number(data.reopened ?? 0) > 0 ||
+    OPEN_BUG_STATUSES.includes(String(data.bug_status ?? ''));
+  if (!openAgain) return 'Thanks for telling us — your answer is recorded.';
+  return data.fixer_notified
+    ? 'Thanks for telling us. The report is open again and the fixer has been told.'
+    : 'Thanks for telling us. The report is open again.';
 }
 
 /**
@@ -96,6 +128,88 @@ function AcknowledgmentGateInner({ children }: { children: React.ReactNode }) {
     }
   });
 
+  // 2026-09-16: the two new kinds of blocking item. Each action removes the
+  // item from the cached pulse at once (so the screen moves on without waiting
+  // for the next poll) and then revalidates.
+  const dropFromPulse = useCallback(
+    (notificationId: string) => {
+      queryClient.setQueryData<NotificationPulse>(NOTIFICATION_PULSE_KEY, (old) =>
+        old
+          ? {
+              ...old,
+              unacknowledged: old.unacknowledged.filter((n) => n.notification_id !== notificationId)
+            }
+          : old
+      );
+      invalidateNotificationPulse(queryClient);
+      queryClient.invalidateQueries({ queryKey: ['bug-feedback-prompts', 'mine'] });
+    },
+    [queryClient]
+  );
+
+  const bugAnswerMutation = useMutation({
+    mutationFn: async ({ requestId, answer }: { requestId: string; answer: 'fixed' | 'not_fixed' }) => {
+      const res = await fetch(`/api/bug-reports/feedback/${requestId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'answer', answer })
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || 'Could not record your answer');
+      return { requestId, ...json };
+    },
+    onSuccess: (data) => {
+      dropFromPulse(data.requestId);
+      if (data.answer === 'fixed') {
+        toast.success('Thanks! Glad it works for you now.');
+        return;
+      }
+      // 2026-09-18 (critic gap 1): say what actually happened. This used to
+      // promise a reopen and a told fixer unconditionally — including when the
+      // report was already open, or when nobody is on file to tell.
+      toast.success(bugAnswerMessage(data));
+    },
+    onError: (err: any) => toast.error(err?.message || 'Could not record your answer')
+  });
+
+  const bugSnoozeMutation = useMutation({
+    mutationFn: async (requestId: string) => {
+      const res = await fetch(`/api/bug-reports/feedback/${requestId}/snooze`, { method: 'POST' });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || 'Could not snooze');
+      return { requestId, ...json };
+    },
+    onSuccess: (data) => {
+      dropFromPulse(data.requestId);
+      const left = Math.max(0, 3 - Number(data.snooze_count ?? 0));
+      toast.success(
+        left > 0
+          ? `We will ask again tomorrow. You can ask later ${left} more time${left === 1 ? '' : 's'}.`
+          : 'We will ask again tomorrow. That was your last "ask me later".'
+      );
+    },
+    onError: (err: any) => toast.error(err?.message || 'Could not snooze')
+  });
+
+  const announcementAnswerMutation = useMutation({
+    mutationFn: async ({ notificationId, answer }: { notificationId: string; answer: string }) => {
+      const res = await fetch('/api/notifications/answer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notification_id: notificationId, answer })
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || 'Could not record your answer');
+      return { notificationId, ...json };
+    },
+    onSuccess: (data) => {
+      dropFromPulse(data.notificationId);
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      toast.success('Answer recorded. Thank you.');
+    },
+    onError: (err: any) => toast.error(err?.message || 'Could not record your answer')
+  });
+
   const handleAcknowledge = useCallback(async () => {
     const current = notifications[currentIndex];
     if (!current) return;
@@ -140,8 +254,31 @@ function AcknowledgmentGateInner({ children }: { children: React.ReactNode }) {
   // No pending acknowledgments — render app normally
   if (!hasPending) return <>{children}</>;
 
-  const current = notifications[currentIndex];
+  // An item answered/snoozed away from under the index must not blank the
+  // screen: fall back to the top of what is left (derived, no effect).
+  const safeIndex = currentIndex < notifications.length ? currentIndex : 0;
+  const current = notifications[safeIndex];
   if (!current) return <>{children}</>;
+
+  // Ruling 1 (2026-09-16): the reporter's own "is this fixed for you?" question
+  // blocks like a mandatory notice. Ruling 7 (super admins exempt) already
+  // returned above, so they never see this screen.
+  if (current.kind === 'bug_feedback' && current.request_id) {
+    const requestId = current.request_id;
+    const busy = bugAnswerMutation.isPending || bugSnoozeMutation.isPending;
+    return (
+      <BugFeedbackModal
+        current={current}
+        notifications={notifications}
+        currentIndex={safeIndex}
+        busy={busy}
+        onAnswer={(answer) => bugAnswerMutation.mutate({ requestId, answer })}
+        onSnooze={() => bugSnoozeMutation.mutate(requestId)}
+      >
+        {children}
+      </BugFeedbackModal>
+    );
+  }
 
   const deadlineDate = new Date(current.deadline_at);
   const isOverdue = current.is_overdue;
@@ -156,9 +293,16 @@ function AcknowledgmentGateInner({ children }: { children: React.ReactNode }) {
       timeLeft={timeLeft}
       deadlineDate={deadlineDate}
       notifications={notifications}
-      currentIndex={currentIndex}
+      currentIndex={safeIndex}
       acknowledging={acknowledging}
       onAcknowledge={handleAcknowledge}
+      answering={announcementAnswerMutation.isPending}
+      onAnswer={
+        current.kind === 'answer'
+          ? (answer) =>
+              announcementAnswerMutation.mutate({ notificationId: current.notification_id, answer })
+          : undefined
+      }
     >
       {children}
     </AcknowledgmentModal>
@@ -191,6 +335,8 @@ export function AcknowledgmentModal({
   currentIndex,
   acknowledging,
   onAcknowledge,
+  answering = false,
+  onAnswer,
   children
 }: {
   current: UnacknowledgedNotification;
@@ -201,6 +347,9 @@ export function AcknowledgmentModal({
   currentIndex: number;
   acknowledging: boolean;
   onAcknowledge: () => void;
+  /** kind 'answer' (2026-09-16): the pick replaces the acknowledge button. */
+  answering?: boolean;
+  onAnswer?: (answer: string) => void;
   children: React.ReactNode;
 }) {
   const [readTimeLeft, setReadTimeLeft] = useState<number>(-1);
@@ -293,6 +442,8 @@ export function AcknowledgmentModal({
   const quizPassed = verificationQ ? answerStatus === 'correct' : true;
   const canAcknowledge = timerDone && hasScrolledToBottom && quizPassed;
   const disabledLabel = !canAcknowledge;
+  const isAnswerKind =
+    current.kind === 'answer' && !!onAnswer && (current.answer_options?.length ?? 0) > 0;
 
   // Check answer handler
   const handleAnswerSelect = (index: number) => {
@@ -336,7 +487,7 @@ export function AcknowledgmentModal({
             <Shield className="h-6 w-6 shrink-0" />
             <div className="flex-1 min-w-0">
               <h2 className="text-lg font-bold truncate">
-                Mandatory Acknowledgment
+                {isAnswerKind ? 'Your answer is needed' : 'Mandatory Acknowledgment'}
               </h2>
               <p className="text-sm opacity-90">
                 {notifications.length === 1
@@ -480,7 +631,21 @@ export function AcknowledgmentModal({
 
           {/* Action area — gated by read time + scroll + quiz */}
           <div className="px-6 py-4 bg-muted/30 border-t">
-            {disabledLabel ? (
+            {isAnswerKind && !disabledLabel ? (
+              <div className="space-y-2 animate-in fade-in duration-300" data-testid="answer-options">
+                {current.answer_options!.map((option) => (
+                  <Button
+                    key={option}
+                    variant="outline"
+                    disabled={answering}
+                    onClick={() => onAnswer!(option)}
+                    className="w-full h-11 text-base font-medium justify-start"
+                  >
+                    {option}
+                  </Button>
+                ))}
+              </div>
+            ) : disabledLabel ? (
               <Button
                 disabled
                 className="w-full h-12 text-base font-semibold gap-2 opacity-60"
@@ -526,7 +691,112 @@ export function AcknowledgmentModal({
                   ? 'Please read the notification carefully.'
                   : verificationQ && !quizPassed
                     ? 'Answer the verification question to proceed.'
-                    : 'By acknowledging, you confirm that you have read and understood this notification. This action is permanently recorded.'}
+                    : isAnswerKind
+                      ? 'Pick one option. Your answer is recorded and counts as your acknowledgment.'
+                      : 'By acknowledging, you confirm that you have read and understood this notification. This action is permanently recorded.'}
+            </p>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── "Is this fixed for you?" — the reporter's own question, blocking ───
+// Exported for the component test; the gate renders it for kind 'bug_feedback'.
+export function BugFeedbackModal({
+  current,
+  notifications,
+  currentIndex,
+  busy,
+  onAnswer,
+  onSnooze,
+  children
+}: {
+  current: UnacknowledgedNotification;
+  notifications: UnacknowledgedNotification[];
+  currentIndex: number;
+  busy: boolean;
+  onAnswer: (answer: 'fixed' | 'not_fixed') => void;
+  onSnooze: () => void;
+  children: React.ReactNode;
+}) {
+  const snoozesLeft = Math.max(0, 3 - (current.snooze_count ?? 0));
+  const canSnooze = current.can_snooze !== false && snoozesLeft > 0;
+  const bugLabel = current.display_id ? `bug ${current.display_id}` : 'a bug';
+
+  return (
+    <>
+      <div className="pointer-events-none select-none blur-sm opacity-30">
+        {children}
+      </div>
+
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+        <div className="w-full max-w-lg bg-background rounded-2xl shadow-2xl border overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <div className="px-6 py-4 flex items-center gap-3 bg-emerald-600 text-white">
+            <Bug className="h-6 w-6 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <h2 className="text-lg font-bold truncate">Is this fixed for you?</h2>
+              <p className="text-sm opacity-90">
+                {notifications.length === 1
+                  ? 'One quick question about a bug you reported'
+                  : `${currentIndex + 1} of ${notifications.length} items need you`}
+              </p>
+            </div>
+          </div>
+
+          <div className="px-6 py-5 space-y-4">
+            <div>
+              <p className="text-sm text-muted-foreground">You reported {bugLabel}:</p>
+              <p className="mt-1 text-base font-medium leading-snug" data-testid="bug-description">
+                {current.body || 'No description was saved with this report.'}
+              </p>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              The team says it is fixed. Does it work for you now? Your answer goes
+              straight to the person who fixed it. If you say not fixed, the report
+              is opened again and they take another look.
+            </p>
+          </div>
+
+          <div className="px-6 py-4 bg-muted/30 border-t space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                onClick={() => onAnswer('fixed')}
+                disabled={busy}
+                className="h-12 text-base font-semibold gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                <ThumbsUp className="h-5 w-5" />
+                Fixed
+              </Button>
+              <Button
+                onClick={() => onAnswer('not_fixed')}
+                disabled={busy}
+                variant="destructive"
+                className="h-12 text-base font-semibold gap-2"
+              >
+                <ThumbsDown className="h-5 w-5" />
+                Not fixed
+              </Button>
+            </div>
+            {canSnooze && (
+              <Button
+                onClick={onSnooze}
+                disabled={busy}
+                variant="outline"
+                className="w-full h-11 text-sm gap-2"
+              >
+                <AlarmClock className="h-4 w-4" />
+                Ask me later
+                <span className="text-xs text-muted-foreground">
+                  ({snoozesLeft} left)
+                </span>
+              </Button>
+            )}
+            <p className="text-xs text-center text-muted-foreground">
+              {canSnooze
+                ? 'Ask me later hides this until tomorrow, up to 3 times.'
+                : 'No more "ask me later" — please answer to continue.'}
             </p>
           </div>
         </div>

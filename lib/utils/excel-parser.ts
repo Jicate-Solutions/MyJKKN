@@ -192,6 +192,62 @@ export function isRowEmpty(row: Record<string, any>, requiredFields: string[]): 
   });
 }
 
+/** A date outside this window is never a real DOB / admission date. */
+const DATE_MIN_YEAR = 1900;
+const DATE_MAX_YEAR = 2100;
+
+function isoIfReal(y: number, m: number, d: number): string {
+  if (y < DATE_MIN_YEAR || y > DATE_MAX_YEAR || m < 1 || m > 12 || d < 1 || d > 31) return '';
+  const probe = new Date(Date.UTC(y, m - 1, d));
+  if (probe.getUTCFullYear() !== y || probe.getUTCMonth() !== m - 1 || probe.getUTCDate() !== d) return '';
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+function isoFromExcelSerial(serial: number): string {
+  const date = XLSX.SSF.parse_date_code(serial);
+  if (!date) return '';
+  return isoIfReal(date.y, date.m, date.d);
+}
+
+/**
+ * Date cells → 'YYYY-MM-DD', or '' when the cell cannot be read as a real
+ * date (callers treat '' as "not provided").
+ *
+ * 2026-09-22: an Excel serial that arrives as a STRING ("42842" — pasted, or
+ * CSV) used to fall through to `new Date("42842")`, which V8 reads as YEAR
+ * 42842 and toISOString() emits as "+042842-01-01". 456 learner DOBs were
+ * stored that way. Serials are now recognised whether numeric or string,
+ * DD-MM-YYYY / DD.MM.YYYY are read day-first, and any result outside
+ * 1900–2100 is rejected rather than written.
+ */
+function sanitizeDateValue(value: any, stringValue: string): string {
+  if (value instanceof Date) {
+    return isNaN(value.getTime()) ? '' : value.toISOString().slice(0, 10);
+  }
+  if (typeof value === 'number') {
+    return isoFromExcelSerial(value);
+  }
+  // Serial that lost its numeric type (pasted / CSV).
+  if (/^\d{4,6}(\.\d+)?$/.test(stringValue)) {
+    return isoFromExcelSerial(Number(stringValue));
+  }
+  const dmy = stringValue.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  if (dmy) {
+    return isoIfReal(Number(dmy[3]), Number(dmy[2]), Number(dmy[1]));
+  }
+  const ymd = stringValue.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[T ].*)?$/);
+  if (ymd) {
+    return isoIfReal(Number(ymd[1]), Number(ymd[2]), Number(ymd[3]));
+  }
+  // Anything else (e.g. "15 Aug 2005"): let the engine try, but never let an
+  // out-of-range year through.
+  const parsed = new Date(stringValue);
+  if (isNaN(parsed.getTime())) return '';
+  const y = parsed.getFullYear();
+  if (y < DATE_MIN_YEAR || y > DATE_MAX_YEAR) return '';
+  return parsed.toISOString().slice(0, 10);
+}
+
 /**
  * Sanitize and format field values
  */
@@ -217,21 +273,7 @@ export function sanitizeValue(value: any, type: 'text' | 'email' | 'mobile' | 'n
       return stringValue;
 
     case 'date':
-      // Handle Excel date serial numbers
-      if (typeof value === 'number') {
-        const date = XLSX.SSF.parse_date_code(value);
-        return `${date.y}-${String(date.m).padStart(2, '0')}-${String(date.d).padStart(2, '0')}`;
-      }
-      // Handle string dates
-      try {
-        const date = new Date(stringValue);
-        if (!isNaN(date.getTime())) {
-          return date.toISOString().split('T')[0];
-        }
-      } catch {
-        return stringValue;
-      }
-      return stringValue;
+      return sanitizeDateValue(value, stringValue);
 
     default:
       return stringValue;

@@ -554,10 +554,18 @@ export const CAC_METRIC_CATALOG: readonly CacCategory[] = [
       {
         id: 'community-outreach',
         ceoLabel: 'Community Outreach & Extension Activities',
-        substrate: 'no-substrate',
+        // Was `no-substrate` until 2026-09-18, on the sentence "nothing
+        // identifies an event as extension activity, so the subset cannot be
+        // separated from the rest". That was wrong in two ways at once. It
+        // missed sh_community_engagements, which is the register this is
+        // actually filed in, and it predated event_academic_types. Calling a
+        // recordable dimension unbuildable sends a reader to close an
+        // engineering gap that is really an adoption gap — the exact confusion
+        // the second locked decision exists to prevent.
+        substrate: 'awaiting-entry',
         scope: 'both',
         evidence:
-          'Some events are outreach in practice, but nothing marks an event as extension activity, so the subset cannot be separated from the rest.',
+          'Two places now hold this. sh_community_engagements is the register a department files outreach into, with beneficiaries, hours and venue per engagement, and since event_academic_types shipped 2026-09-13 an event can be typed as Outreach, Community Engagement or Community / Environmental Awareness. Both are all but unused: on 2026-09-18 the register held 0 rows and 1 of 56 events carried a human-confirmed community type.',
       },
     ],
   },
