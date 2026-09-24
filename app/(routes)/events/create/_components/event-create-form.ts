@@ -16,6 +16,7 @@
 // real rules (local time → UTC, '' → undefined, scope → visibility, the venue
 // CHECK) and the only part worth testing without a browser.
 
+import { istLocalInputToIso } from '@/lib/utils/date-format';
 import type {
   CreateEventDto,
   EventCategory,
@@ -49,15 +50,15 @@ export { emptyChiefGuestDraft } from '@/components/events/shared/event-people-fi
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
- * datetime-local → ISO. `new Date('2026-01-05T09:00')` parses as LOCAL time —
- * what the organizer typed — and toISOString converts to UTC for storage.
+ * datetime-local → ISO, read as IST. Event times are institutional: "09:00"
+ * means 09:00 in India whichever zone the organizer's laptop is set to. The
+ * earlier `new Date(local)` read the string in the BROWSER's zone, so the same
+ * typed value stored a different instant on a UTC-configured machine.
  * Sending the raw string would hand Postgres a naive timestamp and shift it by
  * the timezone offset (a 5:30h drift in this deployment).
  */
 export function toIso(local: string): string | undefined {
-  if (!local.trim()) return undefined;
-  const d = new Date(local);
-  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+  return istLocalInputToIso(local) ?? undefined;
 }
 
 /** '' → undefined so an untouched optional field is omitted, not written blank. */

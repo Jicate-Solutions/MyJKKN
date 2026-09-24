@@ -26,6 +26,7 @@ import { useProcessScan, useOpsStats } from '@/hooks/events/marathon/use-maratho
 import { useOpsProfileMap } from '@/hooks/events/marathon/use-ops-profile-map';
 import { MarathonAccessDenied } from '../../_components/marathon-access-denied';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { IST_TIME_ZONE } from '@/lib/utils/date-format';
 import type { OpsScanResult } from '@/types/events-marathon';
 
 import { BibScanner } from '@/components/marathon/bib-scanner';
@@ -266,6 +267,7 @@ export default function CheckInPage() {
     return new Date(dateStr).toLocaleTimeString('en-IN', {
       hour: '2-digit',
       minute: '2-digit',
+      timeZone: IST_TIME_ZONE,
     });
   };
 
@@ -308,7 +310,7 @@ export default function CheckInPage() {
         tshirt_size: (customData.tshirt_size as string) ?? '',
         checked_in_status: r.checked_in ? 'Yes' : 'No',
         checked_in_time: r.checked_in_at
-          ? new Date(r.checked_in_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })
+          ? new Date(r.checked_in_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short', timeZone: IST_TIME_ZONE })
           : '',
         tshirt_status: r.tshirt_collected ? 'Yes' : 'No',
         certificate_status: r.certificate_issued ? 'Yes' : 'No',

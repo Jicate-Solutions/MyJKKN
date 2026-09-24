@@ -22,7 +22,7 @@ import {
   Users,
   XCircle,
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { formatIstDate } from '@/lib/utils/date-format';
 import toast from 'react-hot-toast';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -80,7 +80,7 @@ function StatCard({
 function fmtDate(value: string | null): string {
   if (!value) return '—';
   const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? '—' : format(d, 'dd MMM yyyy');
+  return Number.isNaN(d.getTime()) ? '—' : formatIstDate(d, { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 function PaymentCell({ row }: { row: EventRegistrationRow }) {

@@ -29,6 +29,7 @@ import { getLearnerOutcome } from '@/lib/services/cdc/drive-selection';
 type LearnerParticipation = Awaited<ReturnType<typeof getLearnerParticipation>>;
 type LearnerOutcome = Awaited<ReturnType<typeof getLearnerOutcome>>;
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -182,6 +183,12 @@ export async function POST(
               : null,
       }
     );
+    // Adoption loop: only a YES is declaring interest. A decline is a different
+    // act and is deliberately not counted under this key.
+    if (intent === 'willing') {
+      await recordFeatureUse(supabase, FEATURE_KEYS.CDC_DECLARE_INTEREST);
+    }
+
     return NextResponse.json({ data: willingness });
   } catch (err) {
     console.error('[cdc/drives/[id]/willingness] POST error', err);

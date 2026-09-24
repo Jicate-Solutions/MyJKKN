@@ -57,8 +57,8 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 DO $roles$
 BEGIN
-  BEGIN CREATE ROLE anon; EXCEPTION WHEN duplicate_object THEN NULL; END;
-  BEGIN CREATE ROLE authenticated; EXCEPTION WHEN duplicate_object THEN NULL; END;
+  BEGIN CREATE ROLE anon; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END;
+  BEGIN CREATE ROLE authenticated; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END;
 END $roles$;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon;
