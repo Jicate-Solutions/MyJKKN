@@ -288,7 +288,15 @@ async function resolveDepartmentOfferings(
       .eq('head_of_department_id', userId);
     if (headedErr) warn('departments', headedErr);
     for (const d of (headed ?? []) as any[]) if (d?.id) departmentIds.add(d.id);
-    if (departmentIds.size === 0) return [];
+    if (departmentIds.size === 0) {
+      // staff.department_id is nullable: an HOD filed without a department gets
+      // no offerings, and without this line nobody could tell why.
+      console.warn(
+        '[qp-scope] department offerings: none offered — the HOD has no department (staff.department_id is empty and no department names them as head)',
+        { userId }
+      );
+      return [];
+    }
 
     const { data: deptStaff, error: staffErr } = await supabase
       .from('staff')
@@ -296,7 +304,13 @@ async function resolveDepartmentOfferings(
       .in('department_id', [...departmentIds]);
     if (staffErr) warn('staff', staffErr);
     const deptStaffIds = [...new Set((deptStaff ?? []).map((s: any) => s.id).filter(Boolean))];
-    if (deptStaffIds.length === 0) return [];
+    if (deptStaffIds.length === 0) {
+      console.warn(
+        '[qp-scope] department offerings: none offered — no staff readable in the HOD\'s department(s)',
+        { userId, departments: departmentIds.size }
+      );
+      return [];
+    }
 
     // Active plans only, filtered IN THE DATABASE through the inner join — never
     // the department's all-time plan history, and no long list of plan ids in
@@ -309,13 +323,16 @@ async function resolveDepartmentOfferings(
       .lte('staff_plans.start_date', windowEnd)
       .gte('staff_plans.end_date', windowStart);
     if (spcErr) warn('staff_plan_courses', spcErr);
-    const activeRows = ((rows ?? []) as any[]).filter((r) => r?.course_id && r?.staff_plans);
-    if (activeRows.length >= POSTGREST_ROW_CAP) {
+    // The cap applies to what PostgREST RETURNED, so check the raw rows — the
+    // filtered list below can sit under the cap even when the fetch was cut short.
+    const returnedRows = (rows ?? []) as any[];
+    if (returnedRows.length >= POSTGREST_ROW_CAP) {
       console.warn('[qp-scope] department offerings: active plan rows hit the row cap', {
         userId,
-        rows: activeRows.length,
+        rows: returnedRows.length,
       });
     }
+    const activeRows = returnedRows.filter((r) => r?.course_id && r?.staff_plans);
     if (activeRows.length === 0) return [];
 
     const courseIds = [...new Set(activeRows.map((r) => r.course_id))];

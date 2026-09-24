@@ -171,6 +171,82 @@ describe('resolveQpScope — HOD department offerings', () => {
       warn.mockRestore();
     }
   });
+
+  it('warns on the row cap from the rows PostgREST returned, not the filtered ones', async () => {
+    // 1,000 returned rows that the course_id filter throws away: the fetch hit
+    // the cap (and may be truncated) even though few rows survive the filter.
+    const data = {
+      ...db,
+      staff_plan_courses: [
+        ...db.staff_plan_courses,
+        ...Array.from({ length: 1000 }, () => ({
+          staff_id: 'st-peer',
+          course_id: null,
+          staff_plan_id: 'p-uch1',
+        })),
+      ],
+    };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await resolveQpScope(fakeSupabase(['hod'], [], data), 'u-hod', false, 'hod', withOfferings);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('hit the row cap'),
+        expect.objectContaining({ userId: 'u-hod', rows: expect.any(Number) })
+      );
+      const capCall = warn.mock.calls.find((c) => String(c[0]).includes('hit the row cap'));
+      expect((capCall?.[1] as any).rows).toBeGreaterThanOrEqual(1000);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('says why when the HOD has no department (staff.department_id is null)', async () => {
+    const data = {
+      ...db,
+      staff: db.staff.map((s) => (s.id === 'st-hod' ? { ...s, department_id: null } : s)),
+    };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const scope = await resolveQpScope(fakeSupabase(['hod'], [], data), 'u-hod', false, 'hod', withOfferings);
+      expect(scope.departmentOfferings).toEqual([]);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('the HOD has no department'),
+        { userId: 'u-hod' }
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('says why when no staff can be read in the HOD\'s department', async () => {
+    // The HOD heads an (empty) department but is filed under none herself.
+    const data = {
+      ...db,
+      staff: db.staff.map((s) => (s.id === 'st-hod' ? { ...s, department_id: null } : s)),
+      departments: [...db.departments, { id: 'd-empty', head_of_department_id: 'u-hod' }],
+    };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const scope = await resolveQpScope(fakeSupabase(['hod'], [], data), 'u-hod', false, 'hod', withOfferings);
+      expect(scope.departmentOfferings).toEqual([]);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('no staff readable in the HOD\'s department'),
+        { userId: 'u-hod', departments: 1 }
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('does not warn for an HOD whose department simply has offerings', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await resolveQpScope(fakeSupabase(['hod']), 'u-hod', false, 'hod', withOfferings);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });
 
 describe('departmentCourseCodesFor', () => {
