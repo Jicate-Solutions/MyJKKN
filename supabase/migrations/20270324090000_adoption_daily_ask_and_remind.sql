@@ -51,7 +51,8 @@
 --     reminders newest feature first. Whoever the cap leaves out is reached on
 --     a later day.
 --   excluded features: adoption.tick.exclude_features (seeded with
---     induction.my_sessions_open) — the daily run neither asks nor reminds.
+--     induction.my_sessions_open and guide.open) — the daily run neither asks
+--     nor reminds.
 --   master switch adoption.loop.enabled: off = nothing is asked or reminded.
 --
 -- Rehearsed on production inside BEGIN … ROLLBACK with p_dry_run => true
@@ -144,8 +145,10 @@ WHERE NOT EXISTS (
 -- faculty member and HOD, but induction is used mainly by new learners
 -- (ever opened, 24 Sep: 318 learners, 14 faculty, 7 HODs). Asking 6,406
 -- people a blocking "why not?" would mostly reach people it was never meant
--- for. Fix the label, then take the key out of this list. The Ask why button
--- is not affected by this row.
+-- for. Fix the label, then take the key out of this list.
+-- Also guide.open: a blocking "why not?" to 6,450 people about opening the
+-- help guide is a nag, not a question worth their time (coordinator,
+-- 2026-09-24). The Ask why button is not affected by this row.
 INSERT INTO public.platform_policies
   (policy_key, scope_type, scope_id, value, description, data_type,
    classification, ui_category, is_system, is_active, publication_state)
@@ -153,8 +156,8 @@ SELECT
   'adoption.tick.exclude_features',
   'global',
   NULL,
-  '["induction.my_sessions_open"]'::jsonb,
-  'Feature keys the adoption loop''s daily run skips completely: nobody is asked why or reminded about them. Use it for a feature whose "intended for" label is wider than the people it really serves, until the label is corrected. Starts with induction.my_sessions_open (labelled for every learner, faculty member and HOD; used mainly by new learners). Does not affect the Ask why button on /admin/adoption.',
+  '["induction.my_sessions_open", "guide.open"]'::jsonb,
+  'Feature keys the adoption loop''s daily run skips completely: nobody is asked why or reminded about them. Use it for a feature whose "intended for" label is wider than the people it really serves, until the label is corrected. Starts with induction.my_sessions_open (labelled for every learner, faculty member and HOD; used mainly by new learners) and guide.open (a blocking question to everyone about opening the help guide is a nag, not a question worth their time). Does not affect the Ask why button on /admin/adoption.',
   'array',
   'major',
   'analytics',

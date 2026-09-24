@@ -27,8 +27,8 @@ DO $$ BEGIN
     RAISE EXCEPTION 'FAIL: schedule row missing'; END IF;
   IF (SELECT (value)::int FROM platform_policies WHERE policy_key='adoption.tick.max_notifications') <> 100 THEN
     RAISE EXCEPTION 'FAIL: cap row missing or not 100 (first-rollout default)'; END IF;
-  IF (SELECT value FROM platform_policies WHERE policy_key='adoption.tick.exclude_features') <> '["induction.my_sessions_open"]'::jsonb THEN
-    RAISE EXCEPTION 'FAIL: exclusion row missing or not seeded with induction.my_sessions_open'; END IF;
+  IF (SELECT value FROM platform_policies WHERE policy_key='adoption.tick.exclude_features') <> '["induction.my_sessions_open", "guide.open"]'::jsonb THEN
+    RAISE EXCEPTION 'FAIL: exclusion row missing or not seeded with induction.my_sessions_open + guide.open'; END IF;
 END $$;
 
 -- ===== label features as the super admin =====
