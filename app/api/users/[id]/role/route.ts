@@ -9,6 +9,7 @@ import { Database, SYSTEM_ROLES } from '@/types/auth';
 import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
 import { RESOURCE_TYPES } from '@/types/activity';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
 
 export async function PATCH(
   request: NextRequest,
@@ -258,6 +259,9 @@ export async function PATCH(
       institutionId: currentUser?.institution_id,
       statusCode: 200
     });
+
+    // Adoption loop: a role was saved onto someone's account.
+    await recordFeatureUse(supabase, FEATURE_KEYS.USERS_ASSIGN_ROLE);
 
     return NextResponse.json({
       success: true,
