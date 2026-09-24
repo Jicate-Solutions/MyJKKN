@@ -6,16 +6,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 type Call = [string, string, ...unknown[]];
 const calls: Call[] = [];
 let result: { data: unknown; error: unknown } = { data: [], error: null };
+// Per-table overrides (createItem reads exam_definitions / exam_topic_map
+// before it writes fp_items); a table not listed here answers with `result`.
+let byTable: Record<string, { data: unknown; error: unknown }> = {};
 
 function builder(table: string) {
   const b: any = {};
-  for (const m of ['select', 'eq', 'order', 'insert', 'single', 'in', 'or']) {
+  for (const m of ['select', 'eq', 'order', 'insert', 'single', 'maybeSingle', 'in', 'or']) {
     b[m] = (...args: unknown[]) => {
       calls.push([table, m, ...args]);
       return b;
     };
   }
-  b.then = (res: any, rej: any) => Promise.resolve(result).then(res, rej);
+  b.then = (res: any, rej: any) =>
+    Promise.resolve(byTable[table] ?? result).then(res, rej);
   return b;
 }
 
@@ -34,6 +38,7 @@ import {
 beforeEach(() => {
   calls.length = 0;
   result = { data: [], error: null };
+  byTable = {};
 });
 
 describe('isOneMarkExam', () => {
@@ -115,5 +120,88 @@ describe('createItem', () => {
     await FoundationService.createItem(base);
     const insert = calls.find((c) => c[1] === 'insert');
     expect(insert?.[2]).not.toHaveProperty('difficulty');
+  });
+});
+
+describe('createItem — OneMark rules on the write path (review of #4008)', () => {
+  const four = [
+    { key: 'A', text: 'a' },
+    { key: 'B', text: 'b' },
+    { key: 'C', text: 'c' },
+    { key: 'D', text: 'd' },
+  ];
+  const oneMark = {
+    exam_definition_id: 'exam-physics',
+    topic_id: 't-phy',
+    q_type: 'mcq',
+    stem: 'Q?',
+    options: four,
+    answer: { correct: 'A' },
+  };
+  const inserted = () => calls.some((c) => c[0] === 'fp_items' && c[1] === 'insert');
+
+  it('refuses a OneMark question with fewer than four filled options, and writes nothing', async () => {
+    byTable.exam_definitions = { data: { config_key: 'tn_hsc_physics' }, error: null };
+    byTable.exam_topic_map = { data: { topic_id: 't-phy' }, error: null };
+    await expect(
+      FoundationService.createItem({
+        ...oneMark,
+        options: [...four.slice(0, 3), { key: 'D', text: '   ' }],
+      }),
+    ).rejects.toThrow(/needs all four options \(A–D\)\. 3 of 4 filled/);
+    expect(inserted()).toBe(false);
+  });
+
+  it('refuses a OneMark question filed under a topic not mapped to that exam', async () => {
+    byTable.exam_definitions = { data: { config_key: 'tn_hsc_physics' }, error: null };
+    byTable.exam_topic_map = { data: null, error: null };
+    await expect(
+      FoundationService.createItem({ ...oneMark, topic_id: 't-english-chapter' }),
+    ).rejects.toThrow(/does not belong to this OneMark subject/);
+    expect(calls).toContainEqual(['exam_topic_map', 'eq', 'exam_definition_id', 'exam-physics']);
+    expect(calls).toContainEqual(['exam_topic_map', 'eq', 'topic_id', 't-english-chapter']);
+    expect(inserted()).toBe(false);
+  });
+
+  it('accepts a OneMark question with four options and a mapped topic', async () => {
+    byTable.exam_definitions = { data: { config_key: 'tn_hsc_english' }, error: null };
+    byTable.exam_topic_map = { data: { topic_id: 't-phy' }, error: null };
+    byTable.fp_items = { data: { id: 'i3' }, error: null };
+    await FoundationService.createItem(oneMark);
+    expect(inserted()).toBe(true);
+  });
+
+  it('a non-OneMark exam is untouched: two options and any topic still insert, same payload', async () => {
+    byTable.exam_definitions = { data: { config_key: 'neet_ug' }, error: null };
+    byTable.fp_items = { data: { id: 'i4' }, error: null };
+    await FoundationService.createItem({
+      exam_definition_id: 'exam-neet',
+      topic_id: 't-anything',
+      difficulty: 3,
+      q_type: 'mcq',
+      stem: 'Q?',
+      options: [
+        { key: 'A', text: 'a' },
+        { key: 'B', text: 'b' },
+      ],
+      answer: { correct: 'A' },
+    });
+    expect(calls.some((c) => c[0] === 'exam_topic_map')).toBe(false);
+    const insert = calls.find((c) => c[0] === 'fp_items' && c[1] === 'insert');
+    expect(insert?.[2]).toEqual({
+      exam_definition_id: 'exam-neet',
+      topic_id: 't-anything',
+      difficulty: 3,
+      q_type: 'mcq',
+      stem: 'Q?',
+      options: [
+        { key: 'A', text: 'a' },
+        { key: 'B', text: 'b' },
+      ],
+      answer: { correct: 'A' },
+      explanation: null,
+      source: null,
+      is_active: true,
+    });
   });
 });

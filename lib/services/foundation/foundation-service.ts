@@ -21,6 +21,8 @@ import { logger } from '@/lib/utils/enhanced-logger';
 import { OneMarkExamKeys } from '@/types/onemark';
 
 const LOG = 'foundation/service';
+/** A OneMark MCQ always has four options (approve-rules.ts OPTIONS_PER_ITEM). */
+const ONEMARK_OPTIONS_PER_ITEM = 4;
 const getSupabase = (): any => createClientSupabaseClient();
 
 /**
@@ -596,7 +598,63 @@ export class FoundationService {
     return (data ?? []) as FoundationItem[];
   }
 
+  /**
+   * The OneMark authoring rules, enforced on the write path so a caller other
+   * than the console form cannot bypass them (the form checks the same two
+   * rules, but only for itself). Applies ONLY to OneMark exams; for every other
+   * Foundation exam this is a no-op and the insert is unchanged.
+   *   - four options (A–D, distinct keys, each with text) — BUG-006063;
+   *   - a chosen topic must be mapped to this exam in exam_topic_map
+   *     (BUG-006062). No topic at all stays allowed, as the form allows it.
+   * Throws an Error with a plain reason when a rule is broken.
+   */
+  private static async assertOneMarkItemRules(input: CreateItemInput): Promise<void> {
+    const supabase = getSupabase();
+    const { data: exam, error: examError } = await supabase
+      .from('exam_definitions')
+      .select('config_key')
+      .eq('id', input.exam_definition_id)
+      .maybeSingle();
+    if (examError) {
+      logger.error(LOG, 'createItem exam lookup failed', examError);
+      throw examError;
+    }
+    if (!isOneMarkExam(exam?.config_key)) return;
+
+    const filled = new Set<string>();
+    for (const o of Array.isArray(input.options) ? input.options : []) {
+      if (!o || typeof o !== 'object') continue;
+      const key = String((o as any).key ?? '').toUpperCase();
+      const text = String((o as any).text ?? '').trim();
+      if (['A', 'B', 'C', 'D'].includes(key) && text) filled.add(key);
+    }
+    if (filled.size < ONEMARK_OPTIONS_PER_ITEM) {
+      throw new Error(
+        `A OneMark question needs all four options (A–D). ${filled.size} of ${ONEMARK_OPTIONS_PER_ITEM} filled.`,
+      );
+    }
+
+    if (input.topic_id) {
+      const { data: mapped, error: mapError } = await supabase
+        .from('exam_topic_map')
+        .select('topic_id')
+        .eq('exam_definition_id', input.exam_definition_id)
+        .eq('topic_id', input.topic_id)
+        .maybeSingle();
+      if (mapError) {
+        logger.error(LOG, 'createItem topic check failed', mapError);
+        throw mapError;
+      }
+      if (!mapped) {
+        throw new Error(
+          "That topic does not belong to this OneMark subject. Pick one of the subject's own chapters.",
+        );
+      }
+    }
+  }
+
   static async createItem(input: CreateItemInput): Promise<FoundationItem> {
+    await FoundationService.assertOneMarkItemRules(input);
     const { data, error } = await getSupabase()
       .from('fp_items')
       .insert({
