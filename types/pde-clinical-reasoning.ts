@@ -1,7 +1,7 @@
 // types/pde-clinical-reasoning.ts
 // AICBL → PDE Clinical Reasoning sprint, Agent C
 // ----------------------------------------------------------------------------
-// Types for the student-facing clinical case attempt experience.
+// Types for the learner-facing clinical case attempt experience.
 // Follows the spec at specs/aicbl-as-pde-clinical-reasoning-2026-05-21.md.
 //
 // Spec-vs-reality notes:
@@ -162,6 +162,19 @@ export interface ClinicalStageResult {
 // Case bundle returned from the server component
 // ============================================================================
 
+/**
+ * The clinical-case pass mark when the policy row cannot be read: 80 since
+ * 2026-09-18 (Director) — see
+ * supabase/migrations/20260918140400_clinical_reasoning_pass_mark_80.sql.
+ *
+ * It lives in this types module because BOTH sides need the same number and
+ * this file imports nothing server-only: the scoring route falls back to it
+ * when the RPC fails, and the attempt page's client hands it to the provisional
+ * `passed` stamp when the bundle carries no resolved value. Defining it twice
+ * is how the old literal 60 survived in the client after the server moved on.
+ */
+export const DEFAULT_CLINICAL_PASSING_THRESHOLD_PCT = 80;
+
 export interface ClinicalCaseBundle {
   assessment: {
     id: string;
@@ -180,6 +193,21 @@ export interface ClinicalCaseBundle {
   attemptsCap: number; // policy-driven (default 5)
   bestSubmission: ClinicalSubmissionSummary | null;
   capReached: boolean;
+  /**
+   * True only when a notice about this learner being capped provably exists for
+   * their Senior Learner. Optional, and absence means no, on purpose: the cap
+   * screen may only claim someone was told when that is confirmed, so anything
+   * other than `true` falls back to the ask-them wording.
+   */
+  facultyNotified?: boolean;
+  /**
+   * clinical_reasoning.scoring.passing_threshold_pct, resolved server-side and
+   * handed to the client so the provisional `passed` stamp on a new attempt is
+   * decided by the policy rather than by a literal. Optional only so older
+   * bundles still type-check; absent falls back to
+   * DEFAULT_CLINICAL_PASSING_THRESHOLD_PCT, never to the old 60.
+   */
+  passingThresholdPct?: number;
   learnerProfileId: string; // profiles.id (auth.uid())
 }
 

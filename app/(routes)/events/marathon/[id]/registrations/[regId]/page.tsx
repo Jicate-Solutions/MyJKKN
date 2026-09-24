@@ -37,7 +37,7 @@ import {
   CheckCircle2,
   XCircle,
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { formatIstDateTime } from '@/lib/utils/date-format';
 import type { RegistrationStatus, PaymentStatus } from '@/types/events';
 import type { MarathonRegistrationCustomData } from '@/types/events-marathon';
 
@@ -309,7 +309,7 @@ export default function RegistrationDetailPage() {
                 label="Registered At"
                 value={
                   registration.created_at
-                    ? format(new Date(registration.created_at), 'dd MMM yyyy, hh:mm a')
+                    ? formatIstDateTime(registration.created_at)
                     : '-'
                 }
               />
@@ -323,7 +323,7 @@ export default function RegistrationDetailPage() {
               {registration.checked_in_at && (
                 <Field
                   label="Checked In At"
-                  value={format(new Date(registration.checked_in_at), 'dd MMM yyyy, hh:mm a')}
+                  value={formatIstDateTime(registration.checked_in_at)}
                 />
               )}
             </CardContent>

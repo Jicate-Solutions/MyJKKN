@@ -904,6 +904,41 @@ export interface CollectionReport {
   accountant_name?: string;
 }
 
+/** One receipt row of the Day-wise collection report
+ *  (get_billing_reports_collection_daywise, migration 20260922110000). */
+export interface CollectionDaywiseRow {
+  receipt_id: string;
+  receipt_number: string;
+  receipt_date: string;
+  first_name: string;
+  last_name?: string | null;
+  roll_number?: string | null;
+  institution_name: string;
+  program_name?: string | null;
+  semester_name?: string | null;
+  payment_mode: PaymentMode | string;
+  /** UTR / cheque no / DD no / gateway reference — whichever the mode uses. */
+  payment_reference_number?: string | null;
+  dd_bank_name?: string | null;
+  dd_branch?: string | null;
+  remitter_name?: string | null;
+  payment_paid_date?: string | null;
+  date_of_credit?: string | null;
+  payer_name?: string | null;
+  payer_contact?: string | null;
+  /** accountant full name, falling back to created_by; null = gateway/system. */
+  collected_by?: string | null;
+  payment_remarks?: string | null;
+  /** Distinct fee categories the receipt settled, comma-joined for display. */
+  categories?: string | null;
+  /** Per-category amount_paid (gross of refunds); sums to payment_amount. */
+  category_breakdown?: { category: string; amount: number | string }[] | null;
+  payment_amount: number;
+  total_refunds: number;
+  net_amount: number;
+  has_refunds: boolean;
+}
+
 export interface DiscountReport {
   discount_id: string;
   first_name: string;

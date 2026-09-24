@@ -26,7 +26,8 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MessagesSquare } from 'lucide-react';
 import { CommentThreadPanel } from '@/components/shared/comment-thread-panel';
-import { makeInstitutionStaffSearch } from '@/components/shared/search-taggable-staff';
+import { makeInstitutionStaffSearchWith } from '@/components/shared/search-taggable-staff';
+import type { TaggablePerson } from '@/components/shared/comment-thread-panel';
 import { useAuth } from '@/hooks/use-auth';
 import {
   useCreateReservationComment,
@@ -42,19 +43,38 @@ import {
 export function ReservationComments({
   reservationId,
   institutionId,
+  booker,
 }: {
   reservationId: string;
   /**
-   * The booked resource's institution. Only its team members are offered in
-   * the tag picker (the server enforces the same rule). Without it the picker
+   * The booked resource's institution. Its team members are offered in the
+   * tag picker (the server enforces the same rule). Without it the picker
    * is switched off rather than opened to every college.
    */
   institutionId?: string | null;
+  /**
+   * The person who raised the booking. Offered in the picker whatever their
+   * college — a cross-college booker is not in the resource's staff directory,
+   * yet they are the one person this thread exists to talk to. The server
+   * allows exactly this (fn_can_be_tagged_on_reservation).
+   */
+  booker?: TaggablePerson | null;
 }) {
   const { profile } = useAuth();
+  // Keyed on the booker's fields, not the object: the page builds it inline,
+  // and a new function every render would re-run the search on each keystroke.
+  const bookerId = booker?.id ?? null;
+  const bookerName = booker?.name ?? null;
+  const bookerSubtitle = booker?.subtitle ?? null;
   const peopleSearch = useMemo(
-    () => (institutionId ? makeInstitutionStaffSearch(institutionId) : undefined),
-    [institutionId],
+    () =>
+      institutionId || bookerId
+        ? makeInstitutionStaffSearchWith(
+            institutionId,
+            bookerId ? { id: bookerId, name: bookerName ?? 'Booker', subtitle: bookerSubtitle } : null,
+          )
+        : undefined,
+    [institutionId, bookerId, bookerName, bookerSubtitle],
   );
   const {
     canView,
@@ -101,8 +121,9 @@ export function ReservationComments({
           Use it to say what is still outstanding while the request is pending.
           Only the booker, this request&apos;s approvers, resource
           administrators and team members tagged here can see it. Type @ or use
-          Tag people to bring in a team member of this booking&apos;s
-          institution; remove a tag with × to take their access away.
+          Tag people to bring in the booker or a team member of this
+          booking&apos;s institution; remove a tag with × to take their access
+          away.
         </>
       }
       placeholder='Say what is holding this request up, or what the booker still has to do.'

@@ -35,8 +35,8 @@ const FUNNEL_RAMP = [
 
 // Categorical slots 1 (blue) + 2 (aqua) for the two-source split.
 const SOURCE_COLORS = {
-  with_account: 'bg-[#2a78d6] dark:bg-[#3987e5]',
-  anonymous: 'bg-[#1baf7a] dark:bg-[#199e70]',
+  website: 'bg-[#2a78d6] dark:bg-[#3987e5]',
+  internal: 'bg-[#1baf7a] dark:bg-[#199e70]',
 } as const;
 
 interface FunnelStage {
@@ -117,7 +117,7 @@ export function WorkspaceAnalyticsTab({ jobId }: { jobId: string }) {
   const shortlistRate = data.applications_total
     ? Math.round(((app.shortlisted + app.promoted) / data.applications_total) * 100)
     : null;
-  const sourceTotal = data.source_split.with_account + data.source_split.anonymous;
+  const sourceTotal = data.source_split.website + data.source_split.internal;
 
   return (
     <div className="space-y-3">
@@ -190,33 +190,33 @@ export function WorkspaceAnalyticsTab({ jobId }: { jobId: string }) {
               ) : (
                 <>
                   <div className="flex h-3 w-full gap-[2px] rounded-[4px] overflow-hidden">
-                    {data.source_split.with_account > 0 && (
+                    {data.source_split.website > 0 && (
                       <div
-                        className={SOURCE_COLORS.with_account}
-                        style={{ width: `${(data.source_split.with_account / sourceTotal) * 100}%` }}
+                        className={SOURCE_COLORS.website}
+                        style={{ width: `${(data.source_split.website / sourceTotal) * 100}%` }}
                       />
                     )}
-                    {data.source_split.anonymous > 0 && (
+                    {data.source_split.internal > 0 && (
                       <div
-                        className={SOURCE_COLORS.anonymous}
-                        style={{ width: `${(data.source_split.anonymous / sourceTotal) * 100}%` }}
+                        className={SOURCE_COLORS.internal}
+                        style={{ width: `${(data.source_split.internal / sourceTotal) * 100}%` }}
                       />
                     )}
                   </div>
                   <div className="space-y-1 text-xs">
                     <div className="flex items-center justify-between">
                       <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                        <span className={`h-2 w-2 rounded-full ${SOURCE_COLORS.with_account}`} />
-                        Signed-in applicants
+                        <span className={`h-2 w-2 rounded-full ${SOURCE_COLORS.website}`} />
+                        Website (jkkn.ac.in)
                       </span>
-                      <span className="tabular-nums font-semibold">{data.source_split.with_account}</span>
+                      <span className="tabular-nums font-semibold">{data.source_split.website}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                        <span className={`h-2 w-2 rounded-full ${SOURCE_COLORS.anonymous}`} />
-                        Careers page (guest)
+                        <span className={`h-2 w-2 rounded-full ${SOURCE_COLORS.internal}`} />
+                        Entered in MyJKKN
                       </span>
-                      <span className="tabular-nums font-semibold">{data.source_split.anonymous}</span>
+                      <span className="tabular-nums font-semibold">{data.source_split.internal}</span>
                     </div>
                   </div>
                 </>

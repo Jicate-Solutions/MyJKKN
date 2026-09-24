@@ -7,7 +7,11 @@ import type { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import type { CookieOptions } from '@supabase/ssr';
 import { getStaffScope } from '@/lib/services/staff/staff-scope';
-import { generateSyntheticEmail } from '@/lib/services/staff/synthetic-email';
+import {
+  generateSyntheticEmail,
+  describeStaffEmailConflict,
+  staffEmailConflictKind
+} from '@/lib/services/staff/synthetic-email';
 
 
 // Create admin client for database operations
@@ -539,6 +543,29 @@ export async function POST(request: Request) {
 
     if (createError) {
       console.error('Error creating staff via API route:', createError);
+
+      // A duplicate address is the caller's input, not a server fault: answer
+      // 409 and say which field — including the case where the address was
+      // generated from Staff ID / phone for a view-only record.
+      const conflictKind = staffEmailConflictKind(createError.message);
+      if (conflictKind) {
+        const conflict = describeStaffEmailConflict({
+          kind: conflictKind,
+          address:
+            conflictKind === 'institution' ? json.institution_email : json.email,
+          staffId: json.staff_id,
+          phone: json.phone
+        });
+        return NextResponse.json(
+          {
+            error: conflict.toast,
+            field: conflict.field,
+            details: createError.message
+          },
+          { status: 409 }
+        );
+      }
+
       return NextResponse.json(
         {
           error: 'Failed to create staff record',
