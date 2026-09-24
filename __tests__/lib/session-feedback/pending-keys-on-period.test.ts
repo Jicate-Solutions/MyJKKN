@@ -47,10 +47,19 @@ describe('the pending list keys on the period, not the course', () => {
     expect(sql).toMatch(/now\(\) <= /);
   });
 
-  it('replaces only the function — no table, grant or policy', () => {
-    for (const forbidden of [/\bALTER TABLE\b/i, /\bGRANT\b/i, /\bREVOKE\b/i, /\bDROP\s+TABLE\b/i, /CREATE POLICY/i]) {
+  it('replaces only the function — no table or policy, and no change to who may call it', () => {
+    for (const forbidden of [/\bALTER TABLE\b/i, /\bDROP\s+TABLE\b/i, /CREATE POLICY/i]) {
       expect(sql).not.toMatch(forbidden);
     }
     expect((sql.match(/CREATE OR REPLACE FUNCTION/g) || []).length).toBe(1);
+
+    // The anon-lock gate needs the revoke written in every migration that
+    // replaces a SECURITY DEFINER function. The only grant/revoke allowed here
+    // is the exact pair already on main (20260815100000) — re-stated, not changed.
+    const grants = (sql.match(/^\s*(GRANT|REVOKE)\b.*$/gim) || []).map((l) => l.trim().replace(/\s+/g, ' '));
+    expect(grants).toEqual([
+      'REVOKE EXECUTE ON FUNCTION public.fn_scf_pending_for_learner(integer) FROM anon, PUBLIC;',
+      'GRANT EXECUTE ON FUNCTION public.fn_scf_pending_for_learner(integer) TO authenticated, service_role;',
+    ]);
   });
 });

@@ -20,6 +20,8 @@
 -- grants; no table, policy or grant is touched.
 --
 -- HELD: rewrites a live function (R21) - the Director's number first.
+--
+-- ci:allow-secdef-authenticated fn_scf_pending_for_learner is learner self-service: called from the browser as the signed-in learner (lib/services/session-feedback-service.ts); the body resolves auth.uid() to the caller's own learners_profiles row and returns only that learner's own pending sessions. Same grants as main (20260815100000), re-stated below so the anon lock is explicit.
 
 CREATE OR REPLACE FUNCTION public.fn_scf_pending_for_learner(p_lookback_days integer DEFAULT 30)
  RETURNS TABLE(attendance_date date, timetable_id uuid, period_id text, section_id uuid, course_id uuid, course_code text, course_name text, faculty_name text, period_name text, start_time text, end_time text)
@@ -108,3 +110,8 @@ BEGIN
   ORDER BY sa.attendance_date DESC, period.value ->> 'start_time';
 END;
 $function$;
+
+-- Re-stated, unchanged from 20260815100000: CREATE OR REPLACE keeps existing
+-- grants, but the anon lock must be explicit in every migration that touches it.
+REVOKE EXECUTE ON FUNCTION public.fn_scf_pending_for_learner(integer) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_scf_pending_for_learner(integer) TO authenticated, service_role;
