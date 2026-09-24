@@ -58,13 +58,19 @@
 --   role. They were checked one by one (repair round 1, 2026-09-23); they fall
 --   into three groups, and a personal key is refused by each for a DIFFERENT
 --   reason — there is no single blanket rule:
---   a. api-management/*, app/api/profiles, lib/auth/with-auth.ts,
---      lib/services/reference/reference-api-auth.ts and lib/mcp/auth-bridge.ts
---      hash the presented key and then refuse a row whose permissions.read is
---      false. A personal row is pinned to {"read": false, "write": false} by
---      the CHECK below, so these refuse it. lib/api-keys/authenticate.ts (b2a/*)
---      additionally refuses the jkkn_pk_ prefix before looking anything up, and
---      /api/mcp sends jkkn_pk_ keys to the personal door, never to auth-bridge.
+--   a. api-management/*, app/api/profiles, lib/auth/with-auth.ts and
+--      lib/services/reference/reference-api-auth.ts hash the presented key and
+--      then refuse a row whose permissions.read is false. A personal row is
+--      pinned to {"read": false, "write": false} by the CHECK below, so these
+--      refuse it. lib/api-keys/authenticate.ts (b2a/*) additionally refuses the
+--      jkkn_pk_ prefix before looking anything up.
+--      lib/mcp/auth-bridge.ts is DIFFERENT (corrected in repair round 4): it
+--      does NOT refuse such a row. It accepts any turned-on, unexpired key
+--      bound to a college and turns {"read": false, "write": false} into "no
+--      modules", so the admin tools' module checks (lib/mcp/tool-helpers.ts)
+--      find nothing allowed. What actually keeps personal keys away from it is
+--      /api/mcp: every jkkn_pk_ key goes to the personal door BEFORE
+--      auth-bridge runs, so auth-bridge never sees one.
 --   b. app/api/v1/transport-requests compares the RAW bearer text with
 --      key_value and checks no permission and no expiry. key_value holds the
 --      SHA-256 of a personal key, and the owner knows the plaintext, so the
@@ -592,6 +598,11 @@ CREATE TRIGGER trg_api_keys_personal_guard
 -- Create: only people holding ai_query.view; at most 3 live keys each; at
 -- most 90 days. Returns the plaintext key ONCE — only its SHA-256 is stored
 -- (same hashing as every other api_keys row).
+-- Repair round 4: a person whose account is switched off in MyJKKN
+-- (profiles.is_active = false or profiles.is_login_disabled = true, or no
+-- profile row at all) cannot make a key. The door re-checks the same on every
+-- request (lib/ai-tools/run-as-user.ts), so a key made before the switch-off
+-- stops working at once.
 CREATE OR REPLACE FUNCTION public.fn_ai_personal_key_create(
   p_name text DEFAULT NULL,
   p_days integer DEFAULT 90
@@ -614,6 +625,18 @@ DECLARE
 BEGIN
   IF v_uid IS NULL THEN
     RAISE EXCEPTION 'Sign in required' USING ERRCODE = '42501';
+  END IF;
+
+  -- Repair round 4: a switched-off account makes no key (fails closed when the
+  -- profile row is missing). Checked before the super-admin bypass below.
+  IF NOT EXISTS (
+    SELECT 1
+      FROM public.profiles p
+     WHERE p.id = v_uid
+       AND p.is_active IS DISTINCT FROM false
+       AND p.is_login_disabled IS DISTINCT FROM true
+  ) THEN
+    RAISE EXCEPTION 'This account cannot make a key' USING ERRCODE = '42501';
   END IF;
 
   IF NOT (public.is_super_admin() OR public.user_has_permission('ai_query.view')) THEN

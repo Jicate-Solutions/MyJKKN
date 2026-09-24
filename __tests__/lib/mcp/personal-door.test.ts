@@ -93,8 +93,18 @@ const userRpc = vi.fn(async (fn: string, args?: Record<string, unknown>) => {
   return { data: { rows: [{ id: 1 }] }, error: null };
 });
 const getUserSessionClient = vi.fn(async (_userId: string) => ({ rpc: userRpc }));
+const { AccountOffError } = vi.hoisted(() => {
+  class AccountOffError extends Error {
+    constructor() {
+      super('Account is not active');
+      this.name = 'AccountOffError';
+    }
+  }
+  return { AccountOffError };
+});
 vi.mock('@/lib/ai-tools/run-as-user', () => ({
   getUserSessionClient: (userId: string) => getUserSessionClient(userId),
+  AccountOffError,
 }));
 
 // ── audit logger ───────────────────────────────────────────────────────────
@@ -335,6 +345,19 @@ describe('refusals', () => {
     const res = await handlePersonalKeyRequest(rpcRequest({ jsonrpc: '2.0', id: 1, method: 'tools/list' }), KEY);
     expect(res.status).toBe(401);
     expect(serviceRpc).not.toHaveBeenCalled();
+  });
+
+  it('a switched-off owner gets EXACTLY the turned-off-key answer (the reason is not revealed)', async () => {
+    keyRow = null;
+    const revoked = await handlePersonalKeyRequest(rpcRequest({ jsonrpc: '2.0', id: 1, method: 'tools/list' }), KEY);
+    const revokedBody = await revoked.json();
+
+    keyRow = liveKey();
+    getUserSessionClient.mockRejectedValueOnce(new AccountOffError());
+    const res = await handlePersonalKeyRequest(rpcRequest({ jsonrpc: '2.0', id: 1, method: 'tools/list' }), KEY);
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual(revokedBody);
+    expect(userRpc).not.toHaveBeenCalled();
   });
 
   it('429 once the key passes 60 requests in a minute', async () => {

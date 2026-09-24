@@ -22,7 +22,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { checkRateLimit } from '@/lib/api-keys/rate-limiter';
 import { logApiUsage } from '@/lib/api-keys/audit-logger';
-import { getUserSessionClient } from '@/lib/ai-tools/run-as-user';
+import { AccountOffError, getUserSessionClient } from '@/lib/ai-tools/run-as-user';
 import {
   callRpcTool,
   fetchToolMenu,
@@ -116,6 +116,14 @@ function jsonResponse(status: number, body: unknown, headers: Record<string, str
   });
 }
 
+/** The one answer for an unknown, turned-off or expired key — and for a switched-off owner. */
+function revokedKeyResponse(): Response {
+  return jsonResponse(401, {
+    error: 'invalid_token',
+    error_description: 'This key is not valid, has been turned off, or has expired.',
+  });
+}
+
 function requestMeta(req: Request): { ipAddress: string | null; userAgent: string | null } {
   const forwarded = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
   return {
@@ -201,12 +209,7 @@ export function doorTools(menu: CatalogTool[]): CatalogTool[] {
  */
 export async function handlePersonalKeyRequest(req: Request, token: string): Promise<Response> {
   const ctx = await verifyPersonalMcpToken(token);
-  if (!ctx) {
-    return jsonResponse(401, {
-      error: 'invalid_token',
-      error_description: 'This key is not valid, has been turned off, or has expired.',
-    });
-  }
+  if (!ctx) return revokedKeyResponse();
 
   const limit = checkRateLimit(ctx.keyId);
   if (!limit.allowed) {
@@ -228,6 +231,9 @@ export async function handlePersonalKeyRequest(req: Request, token: string): Pro
       keyId: ctx.keyId,
       error: err instanceof Error ? err.name : 'unknown',
     });
+    // The owner's account is switched off in MyJKKN: answer exactly as for a
+    // turned-off key, so the holder learns nothing about why.
+    if (err instanceof AccountOffError) return revokedKeyResponse();
     return jsonResponse(401, {
       error: 'invalid_token',
       error_description: 'This key cannot be used right now. Make a new key on the Connect an outside AI page.',

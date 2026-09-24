@@ -2221,8 +2221,8 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
-          // A person's own keys for using MyJKKN from Claude, ChatGPT, Gemini
-          // or Zoho Zia through the MCP door. Same gate as the AI Assistant.
+          // Personal keys for outside AIs that accept a custom MCP server with
+          // a bearer key, through the MCP door. Same gate as the AI Assistant.
           href: '/ai-query/connect',
           label: 'Connect an outside AI',
           active: pathname.startsWith('/ai-query/connect'),

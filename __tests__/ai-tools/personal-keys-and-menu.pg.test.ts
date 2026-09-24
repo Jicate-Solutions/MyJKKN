@@ -19,6 +19,9 @@
  *   repair round 2 — the administrator API Keys screen (which writes as the
  *   role authenticated, through the admin's cookie session) can still rename
  *   a personal key and turn it off, but cannot re-kind, re-enable or extend it.
+ *   repair round 4 — a switched-off account (profiles.is_active = false or
+ *   is_login_disabled = true, or no profile row) cannot make a key, a super
+ *   admin included.
  *
  * REQUIRES a PostgreSQL (CI's postgres:16 service; locally
  * `brew services start postgresql@16`). Fails loudly rather than skipping.
@@ -61,7 +64,9 @@ GRANT USAGE ON SCHEMA auth, extensions, public TO anon, authenticated;
 CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE
   AS $f$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $f$;
 CREATE TABLE auth.users (id uuid PRIMARY KEY);
-CREATE TABLE public.profiles (id uuid PRIMARY KEY, institution_id uuid, is_super_admin boolean DEFAULT false);
+-- is_active / is_login_disabled as on production (repair round 4 reads both)
+CREATE TABLE public.profiles (id uuid PRIMARY KEY, institution_id uuid, is_super_admin boolean DEFAULT false,
+  is_active boolean DEFAULT true, is_login_disabled boolean NOT NULL DEFAULT false);
 CREATE TABLE public.test_perms (user_id uuid, key text);
 CREATE FUNCTION public.is_super_admin() RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
   AS $f$ SELECT COALESCE((SELECT is_super_admin FROM profiles WHERE id = auth.uid()), false) $f$;
@@ -276,6 +281,63 @@ describe('fn_ai_tool_menu', () => {
   it('refuses an unknown audience', async () => {
     const r = await as(A, `SELECT public.fn_ai_tool_menu('everyone')`);
     expect(r.error).toMatch(/Unknown audience/);
+  });
+});
+
+describe('personal keys — a switched-off account (repair round 4)', () => {
+  const OFF = 'eeeeeeee-0000-4000-8000-000000000011'; // is_active = false
+  const LOCKED = 'eeeeeeee-0000-4000-8000-000000000012'; // is_login_disabled = true
+  const OFF_SUPER = 'eeeeeeee-0000-4000-8000-000000000013'; // super admin, is_active = false
+  const NO_PROFILE = 'eeeeeeee-0000-4000-8000-000000000014'; // auth user with the permission, no profile row
+
+  beforeAll(async () => {
+    await db.query(`INSERT INTO auth.users VALUES ($1), ($2), ($3), ($4)`, [OFF, LOCKED, OFF_SUPER, NO_PROFILE]);
+    await db.query(
+      `INSERT INTO public.profiles (id, institution_id, is_super_admin, is_active, is_login_disabled) VALUES
+         ($1, NULL, false, false, false), ($2, NULL, false, true, true), ($3, NULL, true, false, false)`,
+      [OFF, LOCKED, OFF_SUPER]
+    );
+    await db.query(`INSERT INTO public.test_perms VALUES ($1, 'ai_query.view'), ($2, 'ai_query.view'), ($3, 'ai_query.view')`, [
+      OFF,
+      LOCKED,
+      NO_PROFILE,
+    ]);
+  });
+
+  async function keysOf(uid: string): Promise<number> {
+    const r = await db.query(`SELECT count(*)::int AS n FROM public.api_keys WHERE user_id = $1`, [uid]);
+    return r.rows[0].n;
+  }
+
+  it('refuses is_active = false, even with ai_query.view', async () => {
+    const r = await as(OFF, `SELECT public.fn_ai_personal_key_create('off', 10)`);
+    expect(r.error).toMatch(/cannot make a key/);
+    expect(await keysOf(OFF)).toBe(0);
+  });
+
+  it('refuses is_login_disabled = true', async () => {
+    const r = await as(LOCKED, `SELECT public.fn_ai_personal_key_create('locked', 10)`);
+    expect(r.error).toMatch(/cannot make a key/);
+    expect(await keysOf(LOCKED)).toBe(0);
+  });
+
+  it('refuses a switched-off super admin (the bypass does not skip it)', async () => {
+    const r = await as(OFF_SUPER, `SELECT public.fn_ai_personal_key_create('off super', 10)`);
+    expect(r.error).toMatch(/cannot make a key/);
+    expect(await keysOf(OFF_SUPER)).toBe(0);
+  });
+
+  it('refuses when there is no profile row (fails closed)', async () => {
+    const r = await as(NO_PROFILE, `SELECT public.fn_ai_personal_key_create('ghost', 10)`);
+    expect(r.error).toMatch(/cannot make a key/);
+    expect(await keysOf(NO_PROFILE)).toBe(0);
+  });
+
+  it('turning the account back on lets them make one again', async () => {
+    await db.query(`UPDATE public.profiles SET is_active = true WHERE id = $1`, [OFF]);
+    const r = await as(OFF, `SELECT public.fn_ai_personal_key_create('back on', 10) AS k`);
+    expect(r.error).toBeUndefined();
+    expect(await keysOf(OFF)).toBe(1);
   });
 });
 
