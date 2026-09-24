@@ -59,6 +59,7 @@ import {
 } from '@/lib/id-cards/render-card';
 import { makeCode39SvgDataUrl } from '@/lib/id-cards/barcode';
 import { loadCardFonts } from '@/lib/id-cards/card-fonts';
+import { boostArtworkForPrint } from '@/lib/id-cards/artwork-boost.server';
 import { buildFieldReport } from '@/lib/id-cards/field-report';
 import type { ReactElement } from 'react';
 
@@ -236,7 +237,7 @@ export async function GET(
         (backLayout.show_barcode ?? true) && person.idCode
           ? makeCode39SvgDataUrl(person.idCode, { height: 110, scale: 3, showText: false })
           : null;
-      const backBackgroundDataUrl = await resolveBackgroundDataUrl(backLayout.background_image);
+      const backBackgroundDataUrl = await resolveBackgroundDataUrl(backLayout.background_image, boostArtworkForPrint);
       const backElement = buildBackElement(
         {
           person,
@@ -279,10 +280,10 @@ export async function GET(
         await Promise.all([
           resolvePhotoDataUrl(person.photoCandidates),
           makeQrDataUrl(person.qrValue),
-          resolveBackgroundDataUrl(layout?.background_image),
+          resolveBackgroundDataUrl(layout?.background_image, boostArtworkForPrint),
           // Same id-card-assets allowlist as the artwork (fail-soft → null).
-          resolveBackgroundDataUrl(person.institutionLogoUrl),
-          resolveBackgroundDataUrl(person.principalSignatureUrl)
+          resolveBackgroundDataUrl(person.institutionLogoUrl, boostArtworkForPrint),
+          resolveBackgroundDataUrl(person.principalSignatureUrl, boostArtworkForPrint)
         ]);
       photoResolved = photoDataUrl !== null;
       qrResolved = qrDataUrl !== null;
