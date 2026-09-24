@@ -220,7 +220,7 @@ describe('Leave approvals — bulk', { timeout: 20_000 }, () => {
     expect(await within(toolbar).findByRole('button', { name: /approve 1 selected/i })).toBeEnabled();
     expect(within(toolbar).getByRole('button', { name: /reject 2 selected/i })).toBeEnabled();
     expect(
-      within(toolbar).getByText(/can.t approve: 1 you cannot decide, 1 missing biometric/i)
+      within(toolbar).getByText(/can.t approve: 1 you cannot decide, 1 waiting for HR to upload biometric attendance/i)
     ).toBeInTheDocument();
   });
 
