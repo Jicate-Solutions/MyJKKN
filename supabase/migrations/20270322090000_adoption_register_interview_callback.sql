@@ -1,5 +1,5 @@
 -- Adoption loop — register the office side of the interview booking link (#3997, merged
--- 2026-09-24 08:23 IST) so its one staff action can be measured.
+-- 2026-09-24 08:23 IST) so its one office action can be measured.
 --
 -- The link has two sides. The candidate side is public (no sign-in), so fn_feature_used,
 -- which keys on auth.uid(), cannot see it: it stays unmeasured by design. The office side

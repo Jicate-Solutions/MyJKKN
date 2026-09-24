@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { FEATURE_KEYS } from '@/lib/usage/record';
 
 /**
- * Adoption — the office side of the interview booking link (#3997). The one staff
+ * Adoption — the office side of the interview booking link (#3997). The one office
  * action is ringing back a person the link could not book. The call must sit AFTER
  * the guarded update succeeds (a refused or lost-race update is not a use) and on the
  * SESSION client: fn_feature_used keys on auth.uid(), so a service-role client would
