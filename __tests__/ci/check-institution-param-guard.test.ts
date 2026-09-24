@@ -827,3 +827,73 @@ describe('repair round 1 — reviewer item 15: which files a PR changed', () => 
     }
   });
 });
+
+describe('repair round 2 — a check inside a string literal does not count', () => {
+  // Fresh adversarial review, 2026-09-24 (fixtures a08 / a09): comments were
+  // already stripped, but a check that only appears inside a single-quoted
+  // literal still read as a real check.
+  it('FAILS when the only check is text inside a RAISE LOG message (a08)', () => {
+    const { code, out } = runSql(`CREATE OR REPLACE FUNCTION public.fx_str(p_institution_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  RAISE LOG 'TODO: add IF NOT role_has_institution_access(p_institution_id) THEN';
+  RETURN (SELECT jsonb_agg(l) FROM learners_profiles l WHERE l.institution_id = p_institution_id);
+END $$;
+`, 'a08_string_check_leak.sql');
+    expect(code).toBe(1);
+    expect(flagged(out, 'fx_str', 'p_institution_id')).toBe(true);
+  });
+
+  it('FAILS when the check is only named inside a RAISE EXCEPTION message (a09)', () => {
+    const { code, out } = runSql(`CREATE OR REPLACE FUNCTION public.fx_str2(p_institution_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  IF NOT is_super_admin() AND p_institution_id IS NULL THEN
+    RAISE EXCEPTION 'caller must pass role_has_institution_access(p_institution_id)';
+  END IF;
+  RETURN (SELECT jsonb_agg(l) FROM learners_profiles l WHERE l.institution_id = p_institution_id);
+END $$;
+`, 'a09_string_msg_leak.sql');
+    expect(code).toBe(1);
+    expect(flagged(out, 'fx_str2', 'p_institution_id')).toBe(true);
+  });
+
+  it("FAILS when the check is only inside an E'…' literal with an escaped quote", () => {
+    const { code, out } = runSql(DEFINER('fn_probe_estring', 'p_institution_id uuid',
+      `  RAISE LOG E'it\\'s IF NOT role_has_institution_access(p_institution_id) THEN';
+  SELECT count(*) INTO v_n FROM learners_profiles WHERE institution_id = p_institution_id;`), 'estring.sql');
+    expect(code).toBe(1);
+    expect(flagged(out, 'fn_probe_estring', 'p_institution_id')).toBe(true);
+  });
+
+  it("a body given AS '…' is still read: a real check inside it passes", () => {
+    const { code, out } = runSql(`CREATE FUNCTION fx_sq_guard(p_inst_id uuid) RETURNS int
+LANGUAGE sql EXTERNAL SECURITY DEFINER AS 'SELECT count(*)::int FROM learners_profiles WHERE institution_id = p_inst_id AND role_has_institution_access(p_inst_id)';
+`, 'sq-body-guard.sql');
+    expect(code).toBe(0);
+    expect(checked(out)).toBe(1);
+  });
+
+  it("a body given AS '…': a check inside a literal ('') or a comment WITHIN it does not count", () => {
+    const lit = runSql(`CREATE FUNCTION fx_sq_lit(p_inst_id uuid) RETURNS int
+LANGUAGE sql SECURITY DEFINER AS 'SELECT count(*)::int FROM learners_profiles WHERE institution_id = p_inst_id AND note <> ''AND role_has_institution_access(p_inst_id)''';
+`, 'sq-body-literal.sql');
+    expect(lit.code).toBe(1);
+    expect(flagged(lit.out, 'fx_sq_lit', 'p_inst_id')).toBe(true);
+
+    const comment = runSql(`CREATE FUNCTION fx_sq_comment(p_inst_id uuid) RETURNS int
+LANGUAGE sql SECURITY DEFINER AS 'SELECT count(*)::int FROM learners_profiles WHERE institution_id = p_inst_id
+  -- AND role_has_institution_access(p_inst_id)
+';
+`, 'sq-body-comment.sql');
+    expect(comment.code).toBe(1);
+    expect(flagged(comment.out, 'fx_sq_comment', 'p_inst_id')).toBe(true);
+  });
+
+  it("a quoted identifier holding a ' does not upset the literal blanking (the real check still passes)", () => {
+    const { code } = runSql(DEFINER('fn_probe_quoted_ident', 'p_institution_id uuid',
+      `  IF NOT public.role_has_institution_access(p_institution_id) THEN RAISE EXCEPTION 'no access'; END IF;
+  SELECT count(*) INTO v_n FROM "odd'name" WHERE institution_id = p_institution_id;`), 'quoted-ident.sql');
+    expect(code).toBe(0);
+  });
+});

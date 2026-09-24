@@ -157,8 +157,13 @@
  *     institution_scope='all' role, an explicit user_institution_access grant).
  *   - staff_teaches_in_institution(p). Every main call site ORs it with
  *     role_has_institution_access(p), so it never has to stand alone here.
- *   - anything inside a comment. The body is comment-stripped first, so a
- *     commented-out check cannot clear the gate.
+ *   - anything inside a comment or a single-quoted string literal. The body is
+ *     comment-stripped first, and the contents of its string literals are
+ *     blanked (repair round 2), so a commented-out check, or one that only
+ *     appears in a message (`RAISE LOG 'TODO: IF NOT
+ *     role_has_institution_access(p) THEN'`), cannot clear the gate. A body
+ *     given as `AS '…'` is unquoted first, so the literals INSIDE it are
+ *     blanked, not the body itself.
  *
  * ESCAPE HATCH — per function, with a reason:
  *       -- institution-param-guard: allow <reason>
@@ -204,6 +209,24 @@
  *     block) are not seen; only top-level CREATE FUNCTION statements are.
  *   - PG14 `BEGIN ATOMIC … END` bodies are read as the text up to the first
  *     top-level `;` (none on main today).
+ *   - The decision-word match looks up to 200 characters back (or forward, to
+ *     THEN / RAISE) within one statement, so it can reach across neighbouring
+ *     expressions: a check that sits NEXT TO an unscoped subquery, rather than
+ *     in front of the query reading the parameter, can still count — e.g.
+ *     `jsonb_build_object('rows', (SELECT … WHERE institution_id = p),
+ *     'allowed', role_has_institution_access(p))`, where the subquery's WHERE is
+ *     read as the decision word, or `CASE WHEN role_has_institution_access(p)
+ *     THEN … END` computed as a value beside an unscoped count (reviewer
+ *     fixtures a13_r10_reordered.sql and a16_case_value.sql, 2026-09-24).
+ *     Behaviour left as is; review reads the body.
+ *   - CREATE PROCEDURE is not scanned. PostgREST does not expose procedures to
+ *     callers, and there are none on main (2026-09-24).
+ *   - REVOKE / GRANT matching ignores the schema: `REVOKE … ON FUNCTION
+ *     other_schema.f(uuid)` is matched to `public.f(uuid)`. Every REVOKE on main
+ *     names public. (2026-09-24).
+ *   - Only single-quoted literals are blanked inside a body. A dollar-quoted
+ *     string NESTED in the body (`EXECUTE $q$ … $q$`) is kept as text, so a
+ *     check written inside dynamic SQL still counts.
  *
  * WHERE THIS GATE IS RECORDED: this header, and
  * .github/workflows/institution-param-guard.yml. The repo keeps no central list
@@ -291,6 +314,64 @@ export function blankComments(sql) {
         out += tag + blankComments(sql.slice(i + tag.length, innerEnd));
         if (end !== -1) out += tag;
         i = end === -1 ? n : end + tag.length;
+        continue;
+      }
+    }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
+/**
+ * Blank the CONTENTS of every single-quoted string literal in a function body,
+ * keeping the quotes and the length. Handles `''` inside a literal, and backslash
+ * escapes in an E'…' literal. Quoted identifiers ("…") and dollar-quoted strings
+ * nested in the body are copied unchanged (a `'` inside them is not a literal
+ * delimiter). Run on the body only — never on the statement — so parameter
+ * names, SECURITY DEFINER and GRANT/REVOKE parsing are untouched. Without it,
+ * `RAISE LOG 'TODO: IF NOT role_has_institution_access(p) THEN'` read as a check
+ * (fresh review, 2026-09-24).
+ */
+export function blankStringLiterals(text) {
+  let out = '';
+  let i = 0;
+  const n = text.length;
+  while (i < n) {
+    const c = text[i];
+    if (c === "'") {
+      const eString = /[eE]/.test(text[i - 1] ?? '') && !/[A-Za-z0-9_$]/.test(text[i - 2] ?? '');
+      let j = i + 1;
+      while (j < n) {
+        if (eString && text[j] === '\\') { j += 2; continue; }
+        if (text[j] === "'" && text[j + 1] === "'") { j += 2; continue; }
+        if (text[j] === "'") break;
+        j++;
+      }
+      const close = Math.min(j, n);
+      out += "'" + blank(text.slice(i + 1, close)) + (close < n ? "'" : '');
+      i = close < n ? close + 1 : n;
+      continue;
+    }
+    if (c === '"') {
+      let j = i + 1;
+      while (j < n) {
+        if (text[j] === '"' && text[j + 1] === '"') { j += 2; continue; }
+        if (text[j] === '"') { j++; break; }
+        j++;
+      }
+      out += text.slice(i, j);
+      i = j;
+      continue;
+    }
+    if (c === '$') {
+      DOLLAR_TAG.lastIndex = i;
+      const m = DOLLAR_TAG.exec(text);
+      if (m) {
+        const end = text.indexOf(m[0], i + m[0].length);
+        const stop = end === -1 ? n : end + m[0].length;
+        out += text.slice(i, stop);
+        i = stop;
         continue;
       }
     }
@@ -511,16 +592,41 @@ export function institutionParams(paramList) {
 // Function extraction
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** The function's body: the dollar-quoted text after AS, else the statement text. */
-function functionBody(stmt) {
+/**
+ * The function's body, with the contents of its string literals blanked (see
+ * blankStringLiterals): the dollar-quoted text after AS; else the single-quoted
+ * text after AS (`AS '…'` — its `''` un-doubled and its comments blanked, so the
+ * literals INSIDE the body are blanked, not the body itself); else the statement
+ * text. `stmt` is comment-blanked; `top` is the same text with literals and
+ * dollar bodies blanked, used to skip an `AS '` that sits inside a literal.
+ */
+function functionBody(stmt, top) {
   const m = /\bas\s+(\$[A-Za-z_][A-Za-z0-9_]*\$|\$\$)/i.exec(stmt);
   if (m) {
     const tag = m[1];
     const start = m.index + m[0].length;
     const end = stmt.indexOf(tag, start);
-    return end === -1 ? stmt.slice(start) : stmt.slice(start, end);
+    return blankStringLiterals(end === -1 ? stmt.slice(start) : stmt.slice(start, end));
   }
-  return stmt;
+  const asQuote = /\bas\s+([eE]?)'/gi;
+  let q;
+  while ((q = asQuote.exec(stmt)) !== null) {
+    if (!/[a-z]/i.test(top[q.index] ?? '')) continue;          // this AS is inside a literal
+    const eString = q[1] !== '';
+    const open = q.index + q[0].length - 1;
+    let j = open + 1;
+    while (j < stmt.length) {
+      if (eString && stmt[j] === '\\') { j += 2; continue; }
+      if (stmt[j] === "'" && stmt[j + 1] === "'") { j += 2; continue; }
+      if (stmt[j] === "'") break;
+      j++;
+    }
+    let inner = stmt.slice(open + 1, Math.min(j, stmt.length));
+    if (eString) inner = inner.replace(/\\([\s\S])/g, ' $1');   // \' → ' (same length)
+    inner = inner.replace(/''/g, " '");                         // '' → ' (same length)
+    return blankStringLiterals(blankComments(inner));
+  }
+  return blankStringLiterals(stmt);
 }
 
 /** Is the contiguous `--` comment block directly above `offset` carrying the hatch? */
@@ -571,7 +677,7 @@ export function extractFunctions(raw) {
       params: institutionParams(paramText),
       unnamed: inputParams(paramText).filter(p => !p.name).length,
       argTypes: argSignature(paramText),
-      body: functionBody(header),
+      body: functionBody(header, headerTop),
       stmt,
     });
     re.lastIndex = end;
