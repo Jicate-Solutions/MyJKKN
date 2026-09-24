@@ -32,7 +32,13 @@ export interface CallbackRequestRow {
 }
 
 export type LoadCallbackRequestsResult =
-  | { success: true; open: CallbackRequestRow[]; done: CallbackRequestRow[] }
+  | {
+      success: true;
+      open: CallbackRequestRow[];
+      /** Every open request the viewer can see — larger than open.length when the list was capped. */
+      openTotal: number;
+      done: CallbackRequestRow[];
+    }
   | { success: false; error: string };
 
 export type CallbackUpdateResult = { success: true } | { success: false; error: string };
@@ -58,6 +64,16 @@ const CALLBACK_COLUMNS =
 /** How many handled requests sit under "Recently handled". */
 const RECENT_DONE_LIMIT = 20;
 
+/**
+ * Open requests shown at once. Without a cap a backlog past PostgREST's row
+ * limit would drop the newest requests off the list SILENTLY; with one, the
+ * card says how many more are waiting (review finding, 2026-09-24).
+ */
+const OPEN_LIMIT = 200;
+
+/** Upcoming interviews read for the closed-post list, at most. */
+const CLOSED_POST_INTERVIEW_LIMIT = 500;
+
 // Not exported: a 'use server' file may export only async functions.
 const NO_EDIT_ACCESS_MESSAGE =
   "You don't have access to update call-back requests — contact the HR admin.";
@@ -80,9 +96,10 @@ export async function loadCallbackRequests(): Promise<LoadCallbackRequestsResult
   const [open, done] = await Promise.all([
     supabase
       .from('hr_interview_callback_requests')
-      .select(CALLBACK_COLUMNS)
+      .select(CALLBACK_COLUMNS, { count: 'exact' })
       .eq('status', 'open')
-      .order('created_at', { ascending: true }),
+      .order('created_at', { ascending: true })
+      .limit(OPEN_LIMIT),
     supabase
       .from('hr_interview_callback_requests')
       .select(CALLBACK_COLUMNS)
@@ -101,6 +118,7 @@ export async function loadCallbackRequests(): Promise<LoadCallbackRequestsResult
   return {
     success: true,
     open: ((open.data ?? []) as unknown as RawCallbackRow[]).map(toCallbackRow),
+    openTotal: open.count ?? (open.data ?? []).length,
     done: ((done.data ?? []) as unknown as RawCallbackRow[]).map(toCallbackRow),
   };
 }
@@ -192,35 +210,37 @@ interface RawInterview {
 export async function loadClosedPostInterviews(): Promise<LoadClosedPostInterviewsResult> {
   const supabase = await createClient();
 
-  const { data: interviews, error } = await supabase
-    .from('hr_recruitment_interviews')
-    .select('id, job_id, scheduled_at, round_number, round_name, candidate:hr_recruitment_candidates(name)')
-    .eq('status', 'scheduled')
-    .gte('scheduled_at', new Date().toISOString())
-    .not('job_id', 'is', null)
-    .order('scheduled_at', { ascending: true });
-  if (error) {
-    console.error('[interview-booking-hr] loading upcoming interviews failed', error);
-    return { success: false, error: error.message };
-  }
-
-  const rows = (interviews ?? []) as unknown as RawInterview[];
-  const jobIds = [...new Set(rows.map((r) => r.job_id).filter((j): j is string => !!j))];
-  if (jobIds.length === 0) return { success: true, rows: [] };
-
+  // Posts FIRST — there are few (tens), and only filled or closed ones matter —
+  // then only THEIR upcoming interviews. The other way round read every upcoming
+  // interview in the system and passed all their post ids to one .in(), which a
+  // busy season would push past the row cap and silently cut short (review
+  // finding, 2026-09-24). No embed: job_id was created without a foreign key.
   const { data: jobs, error: jobsError } = await supabase
     .from('hr_recruitment_jobs')
     .select('id, title, status')
-    .in('id', jobIds)
     .in('status', ['filled', 'closed']);
   if (jobsError) {
     console.error('[interview-booking-hr] loading posts failed', jobsError);
     return { success: false, error: jobsError.message };
   }
+  const closedJobs = (jobs ?? []) as Array<{ id: string; title: string; status: 'filled' | 'closed' }>;
+  if (closedJobs.length === 0) return { success: true, rows: [] };
 
-  const jobMap = new Map(
-    ((jobs ?? []) as Array<{ id: string; title: string; status: 'filled' | 'closed' }>).map((j) => [j.id, j]),
-  );
+  const { data: interviews, error } = await supabase
+    .from('hr_recruitment_interviews')
+    .select('id, job_id, scheduled_at, round_number, round_name, candidate:hr_recruitment_candidates(name)')
+    .eq('status', 'scheduled')
+    .gte('scheduled_at', new Date().toISOString())
+    .in('job_id', closedJobs.map((j) => j.id))
+    .order('scheduled_at', { ascending: true })
+    .limit(CLOSED_POST_INTERVIEW_LIMIT);
+  if (error) {
+    console.error('[interview-booking-hr] loading upcoming interviews failed', error);
+    return { success: false, error: error.message };
+  }
+  const rows = (interviews ?? []) as unknown as RawInterview[];
+
+  const jobMap = new Map(closedJobs.map((j) => [j.id, j]));
   const out: ClosedPostInterviewRow[] = [];
   for (const r of rows) {
     const job = r.job_id ? jobMap.get(r.job_id) : undefined;
