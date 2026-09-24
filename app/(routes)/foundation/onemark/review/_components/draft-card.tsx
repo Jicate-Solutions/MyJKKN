@@ -40,6 +40,7 @@ import {
   type OptionKey,
   type StemTwin,
 } from '../_lib/drafts';
+import { renderUnderline } from '@/lib/onemark/underline';
 import { AssetAttachPanel } from './asset-attach-panel';
 
 const NO_TOPIC = '__none__';
@@ -80,16 +81,6 @@ function twinStamp(t: StemTwin): string {
   ]
     .filter(Boolean)
     .join(' · ');
-}
-
-/** Show a stem's <u>word</u> span as an underline without trusting any other
- *  markup — no innerHTML. */
-function renderUnderline(stem: string) {
-  const parts = stem.split(/(<u>.*?<\/u>)/g);
-  return parts.map((part, i) => {
-    const m = /^<u>(.*?)<\/u>$/.exec(part);
-    return m ? <u key={i}>{m[1]}</u> : <span key={i}>{part}</span>;
-  });
 }
 
 function optionText(list: ItemOption[] | null | undefined, key: OptionKey): string {

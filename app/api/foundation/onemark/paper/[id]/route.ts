@@ -29,6 +29,7 @@ import {
   isPaperLive,
   generatePaper,
   levelOf,
+  manualDistributionError,
   type EngineContext,
   type ExamRef,
   type PaperAction,
@@ -408,6 +409,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       case 'save': {
         const merged = mergeParams(config.params, body.params, policies.max_series);
         if ('error' in merged) return bad(merged.error);
+        // An English paper is monolingual (PRD English §1): its preview is
+        // English whatever the request says.
+        if (exam.config_key === 'tn_hsc_english') merged.params.preview_language = 'en';
         let title: string | undefined;
         if (body.title !== undefined) {
           if (typeof body.title !== 'string' || body.title.trim().length === 0 || body.title.length > 200) {
@@ -420,7 +424,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           if (![1, 2, 3, 4, 5].includes(body.step as number)) return bad('step must be 1..5');
           step = body.step;
         }
-        const paramsChanged = JSON.stringify(merged.params) !== JSON.stringify(config.params);
+        // The preview language changes only what the preview shows, never the
+        // paper — switching it must not un-finalise anything.
+        const paramsChanged =
+          JSON.stringify({ ...merged.params, preview_language: null }) !==
+          JSON.stringify({ ...config.params, preview_language: null });
         // Changing the filters after finalising re-opens the paper: the
         // fp_assessment_items rows are rewritten on the next finalize.
         const state: PaperConfig['state'] = paramsChanged ? unfinalised(config) : config.state;
@@ -432,6 +440,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       }
 
       case 'generate': {
+        const manualError = manualDistributionError(config.params, exam.config_key);
+        if (manualError) return bad(manualError);
         await regenerate();
         await persist(supabase, loaded, { config });
         return respond(supabase, loaded, g.userId, g.canSeeAnswers);
@@ -442,6 +452,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         // exactly what the filters can supply; nothing is padded.
         const available = config.last_generation?.available ?? 0;
         if (available < 1) return bad('Nothing is available under these filters — widen them instead.');
+        const manualError = manualDistributionError(config.params, exam.config_key);
+        if (manualError) return bad(manualError);
         config = { ...config, params: { ...config.params, question_count: Math.min(available, MAX_QUESTIONS) } };
         await regenerate();
         await persist(supabase, loaded, { config });
@@ -529,6 +541,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         } else {
           const cleaned = cleanOverride((body as any).fields);
           if ('error' in cleaned) return bad(cleaned.error);
+          // An English paper has no Tamil text — never store Tamil overrides on it.
+          if (exam.config_key === 'tn_hsc_english') {
+            delete cleaned.stem_ta;
+            delete cleaned.options_ta;
+            delete cleaned.explanation_ta;
+          }
           if (Object.keys(cleaned).length === 0) delete overrides[itemId];
           else overrides[itemId] = cleaned;
         }

@@ -63,10 +63,16 @@ import { BLOOM_LABELS, useDraftTags, useDraftTopics, useOneMarkExams } from '../
 const ANY_UNIT = '__any_unit';
 const DEFAULT_COUNT = 5;
 
-export function RequestDraftsPanel() {
+interface RequestDraftsPanelProps {
+  /** The page's subject — shared with the queue below, so asking for English
+   *  drafts shows the English queue. */
+  examId: string | null;
+  onSubjectChange: (examId: string) => void;
+}
+
+export function RequestDraftsPanel({ examId, onSubjectChange }: RequestDraftsPanelProps) {
   const { data: exams, isLoading: examsLoading, isError: examsError } = useOneMarkExams();
-  const [examId, setExamId] = useState<string | null>(null);
-  const activeExamId = examId ?? exams?.[0]?.id ?? null;
+  const activeExamId = examId;
   const exam = useMemo(
     () => exams?.find((e) => e.id === activeExamId) ?? null,
     [exams, activeExamId],
@@ -104,7 +110,7 @@ export function RequestDraftsPanel() {
   const disabled = !!refusal || caps.blocked || busy || budget.isLoading;
 
   function pickSubject(id: string) {
-    setExamId(id);
+    onSubjectChange(id);
     setTopicId(ANY_UNIT);
     setTagKeys([]);
   }

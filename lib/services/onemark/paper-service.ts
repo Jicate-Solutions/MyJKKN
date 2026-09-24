@@ -101,6 +101,25 @@ export interface BlueprintShortfall {
   available: number;
 }
 
+/** Decision 11 in manual distribution: a chapter asked for more than it can
+ *  supply. The engine takes what it has and says so — it never tops the paper
+ *  up from another chapter. `chapter_id` null = the no-chapter (grammar) group. */
+export interface ChapterShortfall {
+  chapter_id: string | null;
+  requested: number;
+  available: number;
+}
+
+/** A level in the Senior Learner's own mix asked for more than the eligible
+ *  pool holds at that level. The shortfall is filled from other levels (the
+ *  count is kept — decision 6 levels are a mix, not a gate) and named here so
+ *  the preview can say so. */
+export interface LevelShortfall {
+  level: LevelKey;
+  requested: number;
+  available: number;
+}
+
 export interface GenerationReport {
   requested: number;
   /** Questions the filters can actually place on THIS paper: the locked ones,
@@ -118,6 +137,12 @@ export interface GenerationReport {
   /** Locks that could not keep their slot (decision 12 + 15): moved, never
    *  dropped, never left in a reserved slot they do not qualify for. */
   lock_moves: LockMove[];
+  /** Manual distribution only: chapters asked for more than they hold.
+   *  Absent on reports written before this field existed. */
+  chapter_shortfalls?: ChapterShortfall[];
+  /** Own level mix only: levels asked for more than the pool holds. Absent on
+   *  reports written before this field existed. */
+  level_shortfalls?: LevelShortfall[];
   generated_at: string;
 }
 
@@ -197,7 +222,9 @@ export function defaultParams(input: {
     level_mix: {},
     enforce_board_blueprint: isEnglish,
     series_count: 1,
-    preview_language: 'both',
+    // An English paper is monolingual (PRD English §1; the PDF prints it in
+    // English only), so its preview starts — and stays — in English.
+    preview_language: isEnglish ? 'en' : 'both',
     pdf_include_key: true,
   };
 }
@@ -267,6 +294,36 @@ export function boardShapeConflicts(
  *  can be corrected and published again. */
 export function isPaperLive(config: Pick<PaperConfig, 'outputs'> | null | undefined): boolean {
   return !!config?.outputs?.published_at;
+}
+
+/** A chapter's manual count applies only while that chapter is in scope
+ *  (no chapter_ids = the full syllabus, every chapter in scope). */
+function chapterInScope(id: string, params: Pick<PaperParams, 'chapter_ids'>): boolean {
+  return (params.chapter_ids ?? []).length === 0 || params.chapter_ids.includes(id);
+}
+
+/** Manual distribution needs at least one question asked for. An all-zero
+ *  manual set used to generate a full paper from anywhere (the top-up), which
+ *  is exactly what "manual" promises not to do. Not checked while the English
+ *  board shape is on — the distribution does not apply there. Returns the
+ *  refusal, or null when the params are fine. */
+export function manualDistributionError(
+  params: Pick<PaperParams, 'distribution_mode' | 'chapter_counts' | 'chapter_ids' | 'enforce_board_blueprint'>,
+  examKey: string,
+): string | null {
+  if (params.distribution_mode !== 'manual') return null;
+  if (examKey === 'tn_hsc_english' && params.enforce_board_blueprint) return null;
+  if (manualChapterTotal(params) <= 0) return 'Manual distribution asks for 0 questions — set a count for at least one chapter.';
+  return null;
+}
+
+/** The questions a manual distribution asks for: the sum of the chapter
+ *  counts that are still in scope. The wizard checks it against the question
+ *  count before it lets the Senior Learner preview. */
+export function manualChapterTotal(params: Pick<PaperParams, 'chapter_counts' | 'chapter_ids'>): number {
+  return Object.entries(params.chapter_counts ?? {})
+    .filter(([id]) => chapterInScope(id, params))
+    .reduce((sum, [, n]) => sum + Math.max(0, n ?? 0), 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -424,6 +481,49 @@ export function effectiveLevelMix(
   return apportion(weights, need) as Record<LevelKey, number>;
 }
 
+/** Manual distribution is a request for EXACT counts per chapter, not a set
+ *  of proportions (decision 11): each chapter gets what was asked, capped at
+ *  what it actually holds, and every cap is reported as a shortfall. Only when
+ *  the capped counts still exceed the open slots (locked questions already
+ *  took some, or "use the N available" lowered the count) are they scaled
+ *  down to fit. */
+export function manualChapterPlan(
+  params: Pick<PaperParams, 'chapter_counts' | 'chapter_ids'>,
+  eligible: Pick<PoolItem, 'topic_id'>[],
+  need: number,
+  ctx: Pick<EngineContext, 'examKey' | 'generalTopicIds'>,
+): { targets: Record<string, number>; shortfalls: ChapterShortfall[]; supplied: number } {
+  const keyOf = (t: string | null) => (t === null || isChapterAgnostic({ topic_id: t }, ctx) ? '__none__' : t);
+  const inPool: Record<string, number> = {};
+  for (const it of eligible) inPool[keyOf(it.topic_id)] = (inPool[keyOf(it.topic_id)] ?? 0) + 1;
+
+  // Only chapters in scope count — a figure left behind on a chapter that was
+  // since taken out of scope is not a request (the Step-3 total ignores it too).
+  const asked: Record<string, number> = {};
+  for (const [id, n] of Object.entries(params.chapter_counts ?? {})) {
+    if (!chapterInScope(id, params)) continue;
+    const k = keyOf(id);
+    asked[k] = (asked[k] ?? 0) + Math.max(0, n ?? 0);
+  }
+  // Grammar-general (no chapter) has no input of its own; left unnamed it
+  // takes whatever the named chapters leave of the count, as before.
+  if ('__none__' in inPool && !('__none__' in asked)) {
+    const named = Object.values(asked).reduce((sum, n) => sum + n, 0);
+    asked.__none__ = Math.max(0, need - named);
+  }
+
+  const capped: Record<string, number> = {};
+  const shortfalls: ChapterShortfall[] = [];
+  for (const [k, n] of Object.entries(asked)) {
+    const have = inPool[k] ?? 0;
+    capped[k] = Math.min(n, have);
+    if (n > have) shortfalls.push({ chapter_id: k === '__none__' ? null : k, requested: n, available: have });
+  }
+  const cappedSum = Object.values(capped).reduce((sum, n) => sum + n, 0);
+  const targets = cappedSum > need ? apportion(capped, need) : capped;
+  return { targets, shortfalls, supplied: Math.min(need, cappedSum) };
+}
+
 function chapterTargets(
   params: PaperParams,
   eligible: PoolItem[],
@@ -434,14 +534,8 @@ function chapterTargets(
   const keyOf = (t: string | null) => (t === null || isChapterAgnostic({ topic_id: t }, ctx) ? '__none__' : t);
   for (const it of eligible) weights[keyOf(it.topic_id)] = (weights[keyOf(it.topic_id)] ?? 0) + 0;
   if (params.distribution_mode === 'manual') {
-    for (const k of Object.keys(weights)) weights[k] = params.chapter_counts[k] ?? 0;
-    // A chapter the Senior Learner did not name gets nothing in manual mode;
-    // grammar-general (no chapter) gets the remainder if they left it unnamed.
-    if ('__none__' in weights && !('__none__' in params.chapter_counts)) {
-      const named = Object.values(params.chapter_counts).reduce((s, n) => s + n, 0);
-      weights.__none__ = Math.max(0, need - named);
-    }
-    return apportion(weights, need);
+    // A chapter the Senior Learner did not name gets nothing in manual mode.
+    return manualChapterPlan(params, eligible, need, ctx).targets;
   }
   if (params.distribution_mode === 'equal_per_chapter') {
     for (const k of Object.keys(weights)) weights[k] = 1;
@@ -590,14 +684,35 @@ export function generatePaper(input: {
   let freshPool = [...remaining.values()];
   if (blueprintOn) freshPool = freshPool.filter((it) => !it.tags.some((t) => BLUEPRINT_TAGS.has(t)));
 
+  // Manual distribution (shape off): exact per-chapter counts, capped at what
+  // each chapter holds — no cross-chapter top-up (decision 11).
+  const manualPlan =
+    !blueprintOn && ctx.params.distribution_mode === 'manual' ? manualChapterPlan(ctx.params, freshPool, need, ctx) : null;
+
   // What can actually land on this paper. With the shape off that is the whole
   // eligible pool; with it on, a synonym beyond the three reserved slots has
   // nowhere to go and must not be counted (it is what made "use the N
-  // available" regenerate the same shortfall).
-  const available = blueprintOn ? locked.length + blueprintFilled + freshPool.length : eligible.length + locked.length;
+  // available" regenerate the same shortfall). In manual mode it is what the
+  // chapter counts can supply, for the same reason.
+  const available = blueprintOn
+    ? locked.length + blueprintFilled + freshPool.length
+    : manualPlan
+      ? locked.length + manualPlan.supplied
+      : eligible.length + locked.length;
 
   const levelTarget = effectiveLevelMix(ctx.params, freshPool, need);
   const levelLeft: Record<string, number> = { ...levelTarget };
+  // Only an own mix can ask for more than the pool holds (the default mix is
+  // proportional to the pool itself).
+  const ownMix = LEVEL_KEYS.some((k) => (ctx.params.level_mix?.[k] ?? 0) > 0);
+  const levelShortfalls: LevelShortfall[] = [];
+  if (ownMix) {
+    for (const k of LEVEL_KEYS) {
+      const want = levelTarget[k] ?? 0;
+      const have = freshPool.filter((it) => levelOf(it) === k).length;
+      if (want > have) levelShortfalls.push({ level: k, requested: want, available: have });
+    }
+  }
 
   const picks: PoolItem[] = [];
   if (blueprintOn) {
@@ -631,7 +746,7 @@ export function generatePaper(input: {
       }
     }
   } else {
-    const chapterLeft = chapterTargets(ctx.params, freshPool, need, ctx);
+    const chapterLeft = manualPlan ? { ...manualPlan.targets } : chapterTargets(ctx.params, freshPool, need, ctx);
     const chapterKey = (it: PoolItem) => (isChapterAgnostic(it, ctx) ? '__none__' : (it.topic_id ?? '__none__'));
     const ordered = leastServedOrder(freshPool, rng);
     for (let round = 0; round < 2 && picks.length < need; round++) {
@@ -653,7 +768,9 @@ export function generatePaper(input: {
   }
 
   // 5. Top-up pass (PRD §3.4): whatever is still eligible, least-served first.
-  if (picks.length < need) {
+  //    Not in manual mode: there the Senior Learner named each chapter's count,
+  //    and filling a short chapter from another one is padding (decision 11).
+  if (picks.length < need && !manualPlan) {
     for (const it of leastServedOrder(freshPool, rng)) {
       if (picks.length >= need) break;
       if (taken.has(it.id)) continue;
@@ -686,6 +803,8 @@ export function generatePaper(input: {
       blueprint_shortfalls: blueprintShortfalls,
       blueprint_missing: blueprintShortfalls.reduce((s, b) => s + Math.max(0, b.needed - b.available), 0),
       lock_moves: lockMoves,
+      ...(manualPlan ? { chapter_shortfalls: manualPlan.shortfalls } : {}),
+      ...(ownMix ? { level_shortfalls: levelShortfalls } : {}),
       generated_at: new Date().toISOString(),
     },
   };

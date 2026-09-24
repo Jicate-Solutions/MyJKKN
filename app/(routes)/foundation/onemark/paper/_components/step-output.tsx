@@ -1,12 +1,13 @@
 'use client';
 
-// Step 5 — dual output (PRD §3.2): PDF export through Lane P's route, one
+// Step 5 — dual output (PRD §3.2): PDF export through the paper PDF route, one
 // paper and one answer key per series (decision 16), and DIGITAL_PUBLISH to a
 // cohort with an open/close window (decision 17: same test, same score list).
+// A Publish button that cannot be pressed always says why on screen.
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { ExternalLink, FileDown, KeyRound, Loader2, Send, Undo2 } from 'lucide-react';
+import { AlertTriangle, ExternalLink, FileDown, KeyRound, Loader2, Send, Undo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -22,6 +23,16 @@ interface StepOutputProps {
   disabled: boolean;
 }
 
+/** Why the publish window cannot be used, or null when it can. An empty box
+ *  used to slip through (NaN <= NaN is false) and then throw on toISOString. */
+export function publishWindowError(openAt: string, closeAt: string): string | null {
+  const openMs = new Date(openAt).getTime();
+  const closeMs = new Date(closeAt).getTime();
+  if (Number.isNaN(openMs) || Number.isNaN(closeMs)) return 'Set both an opening and a closing time.';
+  if (closeMs <= openMs) return 'Closes must be later than Opens — move the closing time after the opening time.';
+  return null;
+}
+
 function localInputValue(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -31,18 +42,26 @@ export function StepOutput({ paper, reference, act, disabled }: StepOutputProps)
   const cfg = paper.config;
   const series = SERIES_LETTERS.slice(0, Math.max(1, cfg.params.series_count));
   const published = !!cfg.outputs?.published_at;
+  const english = reference.exam.config_key === 'tn_hsc_english';
+  // Decision 11: the real number, never padded — say so when the paper holds
+  // fewer questions than were asked for (a shortfall, or a dropped question).
+  const held = paper.questions.length;
+  const asked = cfg.params.question_count;
+  const short = held < asked;
+  const [shortAcknowledged, setShortAcknowledged] = useState(false);
 
   const [cohortId, setCohortId] = useState<string>(paper.cohort_id ?? '');
   const [openAt, setOpenAt] = useState(cfg.open_at ? localInputValue(new Date(cfg.open_at)) : localInputValue(new Date(Date.now() + 60 * 60 * 1000)));
   const [closeAt, setCloseAt] = useState(cfg.close_at ? localInputValue(new Date(cfg.close_at)) : localInputValue(new Date(Date.now() + 25 * 60 * 60 * 1000)));
   const [duration, setDuration] = useState<number>(cfg.duration_min ?? 20);
   const [shuffle, setShuffle] = useState<boolean>(cfg.shuffle_options ?? true);
-  /** null = not probed yet; false = the renderer answered (2xx); true = 404. */
+  /** null = not probed yet; false = the PDF route answered (2xx); true = 404. */
   const [pdfMissing, setPdfMissing] = useState<boolean | null>(null);
+  const windowError = publishWindowError(openAt, closeAt);
 
   /** The anchor opens the PDF in a new tab as before; in parallel a HEAD probe
-   *  asks the renderer whether it exists. The export stamp is written only on
-   *  a 2xx — never against a 404 while Lane P is unmerged. */
+   *  asks the PDF route for it. The export stamp is written only on a 2xx —
+   *  never against a 404 (paper not found, no questions, or not permitted). */
   async function probeAndStamp(href: string) {
     try {
       const res = await fetch(href, { method: 'HEAD', cache: 'no-store' });
@@ -51,7 +70,7 @@ export function StepOutput({ paper, reference, act, disabled }: StepOutputProps)
         await act.mutateAsync({ action: 'mark_exported' });
       } else if (res.status === 404) {
         setPdfMissing(true);
-        toast.warning('The PDF renderer is not available yet — nothing was exported.');
+        toast.warning('The PDF could not be made — nothing was exported.');
       }
     } catch {
       /* network hiccup: no stamp, the tab the anchor opened tells the truth */
@@ -68,6 +87,12 @@ export function StepOutput({ paper, reference, act, disabled }: StepOutputProps)
   }
 
   async function publish() {
+    if (windowError || !cohortId) return;
+    if (short && !shortAcknowledged) {
+      setShortAcknowledged(true);
+      toast.warning(`This paper holds ${held} of the ${asked} questions you asked for. Press Publish again to publish ${held} questions.`);
+      return;
+    }
     try {
       await act.mutateAsync({
         action: 'publish',
@@ -85,6 +110,15 @@ export function StepOutput({ paper, reference, act, disabled }: StepOutputProps)
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
+      {short && (
+        <p className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-foreground lg:col-span-2" role="alert">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+          <span>
+            This paper holds {held} of the {asked} questions you asked for. Printing and publishing will use {held}. To make the count match, go
+            Back to Preview and choose &lsquo;Use the {held} available&rsquo;, or widen the chapters and filters.
+          </span>
+        </p>
+      )}
       <section className="space-y-3 rounded-lg border border-border p-4">
         <div>
           <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
@@ -92,7 +126,8 @@ export function StepOutput({ paper, reference, act, disabled }: StepOutputProps)
             Print for the hall
           </h3>
           <p className="text-xs text-muted-foreground">
-            Bilingual board-format PDF, Tamil block then English block. {series.length === 1 ? 'One series.' : `${series.length} series — items reordered and options re-lettered per series.`}
+            {english ? 'Board-format PDF in English.' : 'Bilingual board-format PDF, Tamil block then English block.'}{' '}
+            {series.length === 1 ? 'One series.' : `${series.length} series — items reordered and options re-lettered per series.`}
             {cfg.params.pdf_include_key ? ' Answer key per series.' : ''}
           </p>
         </div>
@@ -129,10 +164,10 @@ export function StepOutput({ paper, reference, act, disabled }: StepOutputProps)
         </ul>
         <p className="text-xs text-muted-foreground">
           {pdfMissing
-            ? 'The PDF renderer answered 404 — it is a separate build (Lane P) and has not been merged yet. No export was recorded.'
+            ? 'The PDF could not be made — the paper has no questions yet, or you cannot open it. No export was recorded.'
             : cfg.outputs?.pdf_exported_at
               ? `Last exported ${new Date(cfg.outputs.pdf_exported_at).toLocaleString()}.`
-              : 'The PDF renderer is a separate build (Lane P); if the link answers 404, it has not been merged yet.'}
+              : 'Not exported yet. Open a series to print it; the export is recorded once the PDF opens.'}
         </p>
       </section>
 
@@ -197,7 +232,15 @@ export function StepOutput({ paper, reference, act, disabled }: StepOutputProps)
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="onemark-close">Closes</Label>
-                <Input id="onemark-close" type="datetime-local" value={closeAt} onChange={(e) => setCloseAt(e.target.value)} disabled={disabled} />
+                <Input
+                  id="onemark-close"
+                  type="datetime-local"
+                  value={closeAt}
+                  onChange={(e) => setCloseAt(e.target.value)}
+                  disabled={disabled}
+                  aria-invalid={!!windowError}
+                  aria-describedby={windowError ? 'onemark-window-error' : undefined}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="onemark-duration">Duration (minutes, 5–180)</Label>
@@ -217,13 +260,23 @@ export function StepOutput({ paper, reference, act, disabled }: StepOutputProps)
                 <Switch checked={shuffle} onCheckedChange={setShuffle} disabled={disabled} aria-label="Shuffle options" />
               </div>
             </div>
+            {windowError && (
+              <p id="onemark-window-error" role="alert" className="text-xs text-destructive">
+                {windowError}
+              </p>
+            )}
+            {!cohortId && reference.cohorts.length > 0 && (
+              <p role="status" className="text-xs text-destructive">
+                Choose a cohort to publish.
+              </p>
+            )}
             <Button
               onClick={publish}
-              disabled={disabled || !cohortId || new Date(closeAt).getTime() <= new Date(openAt).getTime()}
+              disabled={disabled || !cohortId || !!windowError}
               className="bg-[#0b6d41] hover:bg-[#0a5c37]"
             >
               {act.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-              Publish to cohort
+              {short && shortAcknowledged ? `Publish ${held} questions` : 'Publish to cohort'}
             </Button>
             <p className="text-xs text-muted-foreground">
               Publishing freezes the questions, the cohort and the window together. Until the first learner starts you can unpublish to correct any of them; after that nothing changes. Printing stays open before and after.
