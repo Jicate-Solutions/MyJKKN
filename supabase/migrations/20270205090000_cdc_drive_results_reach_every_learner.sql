@@ -32,15 +32,26 @@
 --
 --   THE RULING (Director, 2026-09-18): tell everyone either way.
 --
---     selected      learners with a cdc_placements row for this drive
+--     selected      decision 'selected' in cdc_drive_selections for this
+--                   drive, or a cdc_placements row for this drive
 --                   -> 'You have been selected ...',  key '<base>'
+--     pending       decision 'waitlisted' or 'hold', and not selected
+--                   -> 'Your result is not final yet ...', key '<base>.pending'
 --     not selected  every other learner who declared and did not withdraw
 --                   -> 'You have not been selected for this one ...',
 --                      key '<base>.not_selected'
 --
---   Both rows point at '/cdc/drives/<id>/willingness'. The second key needs its
---   own suffix or ON CONFLICT DO NOTHING drops the second row silently - the
---   same shape as the cancelled split's '.learners'.
+--   Every row points at '/cdc/drives/<id>/willingness'. Each extra key needs its
+--   own suffix or ON CONFLICT DO NOTHING drops that row silently - the same
+--   shape as the cancelled split's '.learners'.
+--
+--   WHY cdc_drive_selections (rework, 2026-09-24). The 19 Sep drive flow
+--   (20260919112000 / 20260919130100, lib/services/cdc/drive-selection.ts)
+--   records the CDC's decision there and never writes cdc_placements. Keyed on
+--   cdc_placements alone, this emitter would have told every learner the CDC
+--   marked 'selected' that they were NOT selected, contradicting the decision
+--   main's learner page shows them. If the table is absent the emitter falls
+--   back to cdc_placements rather than fail the transition.
 --
 -- VERSION. 20270205090000 is numbered past 20260919100000, past every version
 -- on main (highest: 20261231090000, read from jicate/main at f7a67e7a08) and
@@ -79,9 +90,14 @@ DECLARE
   -- cancelled goes to two audiences that can open different pages.
   v_team_ids      uuid[];
   v_learner_ids    uuid[];
-  -- results_announced now speaks to two audiences with two different messages.
+  -- results_announced now speaks to up to three audiences with different messages.
   v_selected_ids   uuid[];
+  v_pending_ids    uuid[];
   v_unselected_ids uuid[];
+  -- learners_profiles ids, resolved once: who was selected, and whose decision
+  -- is still open (waitlisted / hold). Everyone else who declared was not selected.
+  v_selected_learners uuid[];
+  v_pending_learners  uuid[];
 BEGIN
   -- Resolve drive title + URL once.
   SELECT title INTO v_drive_title
@@ -223,24 +239,65 @@ BEGIN
 
   ELSIF p_to_state = 'results_announced' THEN
     -- Everyone who declared hears an outcome, selected or not (Director ruling,
-    -- 2026-09-18: "Tell everyone either way"). Two rows, because one row carries
-    -- one body. Both at the learner page - v_drive_url is deliberately NOT
-    -- reassigned here, because this branch writes its own rows and RETURNs.
+    -- 2026-09-18: "Tell everyone either way"). One row per outcome, because one
+    -- row carries one body. All at the learner page - v_drive_url is deliberately
+    -- NOT reassigned here, because this branch writes its own rows and RETURNs.
     --
-    -- Selected = the learner has a cdc_placements row for this drive. The bucket
-    -- test depends only on w.learner_id, and profiles.learner_id is single
-    -- valued, so a given profile id lands in exactly one of the two arrays.
+    -- WHO WAS SELECTED - read from BOTH places main records it (rework
+    -- 2026-09-24). Since 19 Sep the drive flow records the CDC's decision in
+    -- cdc_drive_selections (20260919112000 / 20260919130100, written by
+    -- lib/services/cdc/drive-selection.ts, shown to the learner on this same
+    -- page as outcome.decision). That flow never writes cdc_placements. The first
+    -- cut of this branch read cdc_placements alone, so every learner the CDC had
+    -- marked 'selected' on the new screen would have been told they were NOT
+    -- selected - undoing, in the bell, the decision main's page shows them.
+    --
+    --   selected      decision 'selected' in cdc_drive_selections for this
+    --                 drive, OR a cdc_placements row for this drive (the older
+    --                 offers path, /cdc/placements/new)
+    --   pending       decision 'waitlisted' or 'hold', and not selected - their
+    --                 result is not final, so they are not told "not selected"
+    --   not selected  every other learner who declared and did not withdraw
+    --
+    -- cdc_drive_selections ships as a file applied out of band. If it is not
+    -- there yet, fall back to cdc_placements alone rather than fail the status
+    -- transition that fires this emitter. PL/pgSQL plans a statement only when
+    -- it first runs, so the reads inside the IF are never planned without it.
+    v_selected_learners := ARRAY(
+      SELECT DISTINCT pl.learner_id FROM public.cdc_placements pl
+      WHERE pl.drive_id = p_drive_id AND pl.learner_id IS NOT NULL
+    );
+    v_pending_learners := ARRAY[]::uuid[];
+
+    IF to_regclass('public.cdc_drive_selections') IS NOT NULL THEN
+      v_selected_learners := v_selected_learners || ARRAY(
+        SELECT s.learner_id FROM public.cdc_drive_selections s
+        WHERE s.drive_id = p_drive_id AND s.decision = 'selected'
+      );
+      v_pending_learners := ARRAY(
+        SELECT s.learner_id FROM public.cdc_drive_selections s
+        WHERE s.drive_id = p_drive_id AND s.decision IN ('waitlisted', 'hold')
+      );
+    END IF;
+
+    -- The bucket test depends only on w.learner_id, and profiles.learner_id is
+    -- single valued, so a given profile id lands in exactly one of the arrays.
     SELECT array_agg(DISTINCT p.id) INTO v_selected_ids
     FROM public.cdc_drive_willingness w
     JOIN public.profiles p ON p.learner_id = w.learner_id
     WHERE w.drive_id = p_drive_id
       AND w.status IS DISTINCT FROM 'withdrawn'
       AND p.id IS NOT NULL
-      AND EXISTS (
-        SELECT 1 FROM public.cdc_placements pl
-        WHERE pl.drive_id = p_drive_id
-          AND pl.learner_id = w.learner_id
-      );
+      AND w.learner_id = ANY (v_selected_learners);
+
+    SELECT array_agg(DISTINCT p.id) INTO v_pending_ids
+    FROM public.cdc_drive_willingness w
+    JOIN public.profiles p ON p.learner_id = w.learner_id
+    WHERE w.drive_id = p_drive_id
+      AND w.status IS DISTINCT FROM 'withdrawn'
+      AND p.id IS NOT NULL
+      AND NOT (w.learner_id = ANY (v_selected_learners))
+      AND w.learner_id = ANY (v_pending_learners);
 
     SELECT array_agg(DISTINCT p.id) INTO v_unselected_ids
     FROM public.cdc_drive_willingness w
@@ -248,11 +305,8 @@ BEGIN
     WHERE w.drive_id = p_drive_id
       AND w.status IS DISTINCT FROM 'withdrawn'
       AND p.id IS NOT NULL
-      AND NOT EXISTS (
-        SELECT 1 FROM public.cdc_placements pl
-        WHERE pl.drive_id = p_drive_id
-          AND pl.learner_id = w.learner_id
-      );
+      AND NOT (w.learner_id = ANY (v_selected_learners))
+      AND NOT (w.learner_id = ANY (v_pending_learners));
 
     IF v_selected_ids IS NOT NULL AND array_length(v_selected_ids, 1) IS NOT NULL THEN
       INSERT INTO public.notifications (
@@ -272,6 +326,29 @@ BEGIN
           'audience', 'selected', 'recipient_count', array_length(v_selected_ids, 1)
         ),
         v_idempotency
+      )
+      ON CONFLICT (idempotency_key) WHERE (idempotency_key IS NOT NULL) DO NOTHING;
+    END IF;
+
+    IF v_pending_ids IS NOT NULL AND array_length(v_pending_ids, 1) IS NOT NULL THEN
+      INSERT INTO public.notifications (
+        title, body, url, created_by, targeting, priority, category, kind,
+        metadata, idempotency_key
+      ) VALUES (
+        'Results Announced: ' || v_drive_title,
+        'Results are out for the drive "' || v_drive_title || '". '
+          || 'Your result is not final yet - the Career Development Centre has '
+          || 'you on its waiting list or on hold. Your drive page has the details.',
+        v_learner_url,
+        v_actor,
+        jsonb_build_object('user_ids', to_jsonb(v_pending_ids)),
+        'normal', 'cdc.drive.results_announced', 'work_item',
+        jsonb_build_object(
+          'drive_id', p_drive_id, 'from_state', p_from_state, 'to_state', p_to_state,
+          'audience', 'pending', 'recipient_count', array_length(v_pending_ids, 1)
+        ),
+        -- Its own suffix, for the same reason as '.not_selected' below.
+        v_idempotency || '.pending'
       )
       ON CONFLICT (idempotency_key) WHERE (idempotency_key IS NOT NULL) DO NOTHING;
     END IF;

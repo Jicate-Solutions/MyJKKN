@@ -148,6 +148,12 @@ CREATE TABLE public.cdc_placements (
   learner_id uuid NOT NULL, drive_id uuid, recruiter_id uuid NOT NULL,
   offer_type_id uuid NOT NULL,
   status public.cdc_placement_status NOT NULL DEFAULT 'offered');
+-- 20260919112000 / 20260919130100: the 19 Sep drive flow's decision per learner.
+CREATE TABLE public.cdc_drive_selections (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  drive_id uuid NOT NULL, learner_id uuid NOT NULL,
+  decision text NOT NULL CHECK (decision IN ('selected', 'waitlisted', 'rejected', 'hold')),
+  CONSTRAINT cdc_drive_selections_one_per_learner UNIQUE (drive_id, learner_id));
 CREATE TABLE public.notifications (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   title text NOT NULL, body text NOT NULL, url text, created_by uuid NOT NULL,
@@ -158,7 +164,8 @@ CREATE UNIQUE INDEX notifications_idem ON public.notifications (idempotency_key)
 `;
 
 const FIXTURE = `
-TRUNCATE public.notifications, public.cdc_placements, public.cdc_drive_willingness,
+TRUNCATE public.notifications, public.cdc_placements, public.cdc_drive_selections,
+         public.cdc_drive_willingness,
          public.cdc_drive_eligibility, public.learners_profiles, public.profiles,
          public.user_roles, public.custom_roles, public.cdc_drives;
 
@@ -415,6 +422,94 @@ describe('results_announced - the lopsided cases', () => {
     const selected = byAudience(rows, 'selected')!;
     expect(ids(selected)).toEqual([L.picked.profile, L.picked2.profile].sort());
     expect(selected.metadata.recipient_count).toBe(2);
+  });
+});
+
+/**
+ * Main's 19 Sep drive flow records the CDC's decision in cdc_drive_selections
+ * (lib/services/cdc/drive-selection.ts) and never writes cdc_placements. The
+ * learner page shows that decision. The bell must say the same thing the page
+ * does - the first cut of this migration read cdc_placements alone and would
+ * have told a learner marked 'selected' on that screen that they were not.
+ */
+describe('results_announced - the decision main records in cdc_drive_selections', () => {
+  const decide = (learner: string, decision: string) =>
+    db.query(
+      `INSERT INTO public.cdc_drive_selections (drive_id, learner_id, decision)
+       VALUES ('${DRIVE}', '${learner}', '${decision}')`
+    );
+
+  it('a learner marked selected on the new screen, with no placement row, is told they were selected', async () => {
+    await db.query(`DELETE FROM public.cdc_placements`);
+    await decide(L.passed.learner, 'selected');
+    const rows = await emit('attendance_day', 'results_announced');
+    const selected = byAudience(rows, 'selected')!;
+    expect(selected).toBeDefined();
+    expect(ids(selected)).toEqual([L.passed.profile]);
+    expect(ids(byAudience(rows, 'not_selected')!)).not.toContain(L.passed.profile);
+  });
+
+  it('waitlisted and on-hold learners are not told "not selected" - their result is not final', async () => {
+    await decide(L.passed.learner, 'waitlisted');
+    await decide(L.passed2.learner, 'hold');
+    const rows = await emit('attendance_day', 'results_announced');
+    const pending = byAudience(rows, 'pending')!;
+    expect(pending).toBeDefined();
+    expect(ids(pending)).toEqual([L.passed.profile, L.passed2.profile].sort());
+    expect(pending.body).toContain('not final');
+    expect(pending.body).not.toContain('not been selected');
+    expect(pending.url).toBe(LEARNER_URL);
+    expect(pending.idempotency_key).toBe(`${BASE_KEY}.pending`);
+    // Nobody left over for a "not selected" row.
+    expect(byAudience(rows, 'not_selected')).toBeUndefined();
+  });
+
+  it('a rejected decision is a "not selected" message', async () => {
+    await decide(L.passed.learner, 'rejected');
+    const rows = await emit('attendance_day', 'results_announced');
+    expect(ids(byAudience(rows, 'not_selected')!)).toContain(L.passed.profile);
+  });
+
+  it('a placement row wins over a waitlisted decision - one message, and it is "selected"', async () => {
+    await decide(L.picked.learner, 'waitlisted');
+    const rows = await emit('attendance_day', 'results_announced');
+    expect(ids(byAudience(rows, 'selected')!)).toContain(L.picked.profile);
+    expect(byAudience(rows, 'pending')).toBeUndefined();
+  });
+
+  it('every declared learner hears exactly one outcome across all three rows', async () => {
+    await decide(L.passed.learner, 'hold');
+    await decide(L.passed2.learner, 'rejected');
+    const rows = await emit('attendance_day', 'results_announced');
+    const reached = rows.flatMap((r) => ids(r)).sort();
+    expect(reached).toEqual(allDeclared);
+    expect(new Set(rows.map((r) => r.idempotency_key)).size).toBe(rows.length);
+  });
+
+  it('a decision on ANOTHER drive does not count here', async () => {
+    await db.query(`DELETE FROM public.cdc_placements`);
+    await db.query(
+      `INSERT INTO public.cdc_drive_selections (drive_id, learner_id, decision)
+       VALUES ('${OTHER_DRIVE}', '${L.passed.learner}', 'selected')`
+    );
+    const rows = await emit('attendance_day', 'results_announced');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].metadata.audience).toBe('not_selected');
+  });
+
+  it('without the selections table (not yet applied) it falls back to placements, and does not fail', async () => {
+    await db.query(`ALTER TABLE public.cdc_drive_selections RENAME TO cdc_drive_selections_parked`);
+    try {
+      const rows = await emit('attendance_day', 'results_announced');
+      expect(ids(byAudience(rows, 'selected')!)).toEqual(
+        [L.picked.profile, L.picked2.profile].sort()
+      );
+      expect(ids(byAudience(rows, 'not_selected')!)).toEqual(
+        [L.passed.profile, L.passed2.profile].sort()
+      );
+    } finally {
+      await db.query(`ALTER TABLE public.cdc_drive_selections_parked RENAME TO cdc_drive_selections`);
+    }
   });
 });
 
