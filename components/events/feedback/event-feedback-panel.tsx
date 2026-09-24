@@ -60,22 +60,12 @@ import {
 } from '@/components/events/feedback/feedback-responses-view';
 import { feedbackFormState, FEEDBACK_STATE_LABELS } from '@/types/event-feedback';
 import type { EventFeedbackFormSummary } from '@/types/event-feedback';
+import { isoToIstLocalInput, istLocalInputToIso } from '@/lib/utils/date-format';
 
-/** A timestamptz as the value a <input type="datetime-local"> expects, in LOCAL time. */
-function toLocalInput(value: string | null): string {
-  if (!value) return '';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '';
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-/** The inverse: a local datetime-local string back to an ISO instant, or null when blank. */
-function fromLocalInput(value: string): string | null {
-  if (!value) return null;
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
-}
+// datetime-local ⇄ ISO, both pinned to IST (lib/utils/date-format.ts) so the
+// window reads and writes India time whatever the coordinator's browser zone.
+const toLocalInput = (value: string | null) => isoToIstLocalInput(value);
+const fromLocalInput = (value: string) => istLocalInputToIso(value);
 
 type View =
   | { kind: 'list' }

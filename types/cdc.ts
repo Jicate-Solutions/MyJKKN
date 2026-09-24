@@ -658,6 +658,9 @@ export interface CdcDriveAssignedResponse {
   summary: CdcDriveAssignedSummary;
   /** Whether profile contact fields were released to this caller. */
   contact_released: boolean;
+  /** Caller may mark learners as Willing by hand (cdc.drives.edit or assigned coordinator, drive stage permitting). */
+  can_mark_willing?: boolean;
+  mark_blocked_reason?: string | null;
 }
 
 export interface CdcLookupsResponse {

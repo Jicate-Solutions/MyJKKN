@@ -322,7 +322,7 @@ beforeAll(async () => {
   for (const role of ['anon', 'authenticated', 'service_role']) {
     await db.query(
       `DO $$ BEGIN CREATE ROLE ${role} NOLOGIN;
-       EXCEPTION WHEN duplicate_object THEN NULL; END $$;`,
+       EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$;`,
     );
   }
 
