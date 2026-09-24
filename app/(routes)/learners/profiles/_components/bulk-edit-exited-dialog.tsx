@@ -172,7 +172,10 @@ export function BulkEditActiveDialog({
   const [selectedSemester, setSelectedSemester] = useState<string>('');
   const [selectedSection, setSelectedSection] = useState<string>('');
 
-  // Get hierarchy data
+  // Get hierarchy data. Gated on `open` — BUG-003307: this dialog is mounted
+  // (closed) alongside a second instance on the profiles page, so an
+  // unconditional fetch here doubled the institutions round-trip the page
+  // paid on every load before either dialog was ever opened.
   const {
     institutions,
     degrees,
@@ -186,7 +189,8 @@ export function BulkEditActiveDialog({
     degreeId: selectedDegree || undefined,
     departmentId: selectedDepartment || undefined,
     programId: selectedProgram || undefined,
-    semesterId: selectedSemester || undefined
+    semesterId: selectedSemester || undefined,
+    enabled: open
   });
 
   // Reset state when dialog opens

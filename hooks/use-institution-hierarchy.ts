@@ -46,6 +46,18 @@ interface UseInstitutionHierarchyProps {
   departmentId?: string;
   programId?: string;
   semesterId?: string;
+  /**
+   * Gate every fetch (including the unconditional institutions list) behind
+   * this flag. Defaults to true so existing callers are unaffected.
+   *
+   * BUG-003307: a dialog that renders this hook unconditionally (e.g. one
+   * that is closed by default) fired the institutions query on every mount
+   * of the PAGE, not just when the dialog was opened. On /learners/profiles
+   * two such dialogs are mounted side by side, so the page paid for two
+   * institutions round-trips before either dialog was ever opened, adding to
+   * an already RLS-heavy page load.
+   */
+  enabled?: boolean;
 }
 
 export function useInstitutionHierarchy({
@@ -53,7 +65,8 @@ export function useInstitutionHierarchy({
   degreeId,
   departmentId,
   programId,
-  semesterId
+  semesterId,
+  enabled = true
 }: UseInstitutionHierarchyProps = {}) {
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [degrees, setDegrees] = useState<Degree[]>([]);
@@ -66,6 +79,8 @@ export function useInstitutionHierarchy({
 
   // Fetch institutions
   useEffect(() => {
+    if (!enabled) return;
+
     const fetchInstitutions = async () => {
       try {
         setIsLoading(true);
@@ -86,11 +101,11 @@ export function useInstitutionHierarchy({
     };
 
     fetchInstitutions();
-  }, []);
+  }, [enabled]);
 
   // Fetch departments when degree changes
   useEffect(() => {
-    if (!degreeId) {
+    if (!enabled || !degreeId) {
       setDepartments([]);
       return;
     }
@@ -116,11 +131,11 @@ export function useInstitutionHierarchy({
     };
 
     fetchDepartments();
-  }, [degreeId]);
+  }, [enabled, degreeId]);
 
   // Fetch programs when department changes
   useEffect(() => {
-    if (!departmentId) {
+    if (!enabled || !departmentId) {
       setPrograms([]);
       return;
     }
@@ -146,11 +161,11 @@ export function useInstitutionHierarchy({
     };
 
     fetchPrograms();
-  }, [departmentId]);
+  }, [enabled, departmentId]);
 
   // Fetch degrees when institution changes
   useEffect(() => {
-    if (!institutionId) {
+    if (!enabled || !institutionId) {
       setDegrees([]);
       return;
     }
@@ -176,11 +191,11 @@ export function useInstitutionHierarchy({
     };
 
     fetchDegrees();
-  }, [institutionId]);
+  }, [enabled, institutionId]);
 
   // Fetch semesters when program changes
   useEffect(() => {
-    if (!programId) {
+    if (!enabled || !programId) {
       setSemesters([]);
       return;
     }
@@ -206,11 +221,11 @@ export function useInstitutionHierarchy({
     };
 
     fetchSemesters();
-  }, [programId]);
+  }, [enabled, programId]);
 
   // Fetch sections when semester changes
   useEffect(() => {
-    if (!semesterId) {
+    if (!enabled || !semesterId) {
       setSections([]);
       return;
     }
@@ -236,7 +251,7 @@ export function useInstitutionHierarchy({
     };
 
     fetchSections();
-  }, [semesterId]);
+  }, [enabled, semesterId]);
 
   return {
     institutions,
