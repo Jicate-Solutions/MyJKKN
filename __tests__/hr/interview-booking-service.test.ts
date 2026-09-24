@@ -89,14 +89,14 @@ describe('getChangeCutoffMin — the policy row is the authority', () => {
 
 describe('toPublicMatches — what a stranger may see about a shared email (#7)', () => {
   const rows: CandidateMatchRow[] = [
-    { id: 'c1', name: 'Ravi Kumar', role_title: 'Assistant Professor, Pharmaceutics', status: 'submitted' },
-    { id: 'c2', name: 'priya', role_title: 'Lab Technician', status: 'rejected' },
+    { id: 'c1', name: 'Ravi Kumar', role_title: 'Accounts Officer, Finance', status: 'submitted' },
+    { id: 'c2', name: 'priya', role_title: 'Office Assistant', status: 'rejected' },
     { id: 'c3', name: '  ', role_title: '', status: 'submitted' },
   ];
   it('shows a first initial and the post, never a full name or a status', () => {
     const out = toPublicMatches(rows);
-    expect(out[0]).toEqual({ id: 'c1', label: 'R. — applied for Assistant Professor, Pharmaceutics' });
-    expect(out[1]).toEqual({ id: 'c2', label: 'P. — applied for Lab Technician' });
+    expect(out[0]).toEqual({ id: 'c1', label: 'R. — applied for Accounts Officer, Finance' });
+    expect(out[1]).toEqual({ id: 'c2', label: 'P. — applied for Office Assistant' });
     const text = JSON.stringify(out);
     expect(text).not.toContain('Ravi');
     expect(text).not.toContain('Kumar');
@@ -123,7 +123,7 @@ describe('findCandidatesByEmail', () => {
 });
 
 describe('resolveCandidateChoice — who is booking is settled BEFORE anything is booked', () => {
-  const match = { id: 'cand-1', name: 'Ravi', role_title: 'Lab Technician', status: 'submitted' };
+  const match = { id: 'cand-1', name: 'Ravi', role_title: 'Office Assistant', status: 'submitted' };
 
   it('an email not on file is a new candidate (#4)', async () => {
     const { db } = fakeDb({ data: [], error: null });
@@ -133,7 +133,7 @@ describe('resolveCandidateChoice — who is booking is settled BEFORE anything i
   it('an email on file must say which person — even with ONE match, because same email is not same person (#7)', async () => {
     const { db } = fakeDb({ data: [match], error: null });
     const r = await resolveCandidateChoice(db, 'fam@x.com', null);
-    expect(r).toEqual({ ok: false, reason: 'needs_choice', matches: [{ id: 'cand-1', label: 'R. — applied for Lab Technician' }] });
+    expect(r).toEqual({ ok: false, reason: 'needs_choice', matches: [{ id: 'cand-1', label: 'R. — applied for Office Assistant' }] });
   });
 
   it('a returning person picks themselves and books their next round (#5)', async () => {
