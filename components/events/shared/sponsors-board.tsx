@@ -20,6 +20,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
 import {
@@ -516,6 +517,7 @@ function AddSponsorDialog({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Add Sponsor</DialogTitle>
+          <DialogDescription className="sr-only">Add a sponsor to this event.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-1">
           <div className="space-y-1">

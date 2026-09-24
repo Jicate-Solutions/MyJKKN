@@ -38,6 +38,8 @@ import {
   Users,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useToast } from '@/hooks/use-toast';
+import { parsePastedEmails } from '@/lib/utils/service-requests/parse-pasted-emails';
 import {
   useCustomRolesForApproval,
   useUsersByRole,
@@ -176,6 +178,30 @@ export function ApprovalStepBuilder({
     });
   };
 
+  /**
+   * Add many users at once (paste-from-Excel). Same role/step_name derivation
+   * as handleToggleUser, but computed once over the merged list.
+   */
+  const handleAddUsers = (index: number, toAdd: UserWithRole[]) => {
+    const current = steps[index].approver_user_ids ?? [];
+    const nextIds = [...current];
+    toAdd.forEach((u) => {
+      if (!nextIds.includes(u.id)) nextIds.push(u.id);
+    });
+    if (nextIds.length === 0 || nextIds.length === current.length) return;
+
+    const firstUser = usersById.get(nextIds[0]) ?? toAdd[0];
+    const role = rolesByKey.get(firstUser.role);
+    updateStep(index, {
+      approver_user_ids: nextIds,
+      approver_role: firstUser.role,
+      step_name: buildStepName(
+        steps[index].step_order,
+        role?.role_name || firstUser.role
+      ),
+    });
+  };
+
   const isSequential = workflowType === 'sequential';
 
   return (
@@ -229,6 +255,7 @@ export function ApprovalStepBuilder({
           roles={roles}
           getRoleLabel={getRoleLabel}
           onToggleUser={(user) => handleToggleUser(index, user)}
+          onAddUsers={(list) => handleAddUsers(index, list)}
           onClearAll={() => handleClearAll(index)}
           onRequiredChange={(req) => updateStep(index, { is_required: req })}
           onRestartFromChange={(val) =>
@@ -272,6 +299,7 @@ interface StepRowProps {
   roles: CustomRole[];
   getRoleLabel: (key: string) => string;
   onToggleUser: (user: UserWithRole) => void;
+  onAddUsers: (users: UserWithRole[]) => void;
   onClearAll: () => void;
   onRequiredChange: (required: boolean) => void;
   onRestartFromChange: (val: number | null) => void;
@@ -289,6 +317,7 @@ function StepRow({
   roles,
   getRoleLabel,
   onToggleUser,
+  onAddUsers,
   onClearAll,
   onRequiredChange,
   onRestartFromChange,
@@ -333,6 +362,43 @@ function StepRow({
         : users.filter((u) => u.role === roleFilter),
     [users, roleFilter]
   );
+
+  const { toast } = useToast();
+
+  // Paste-from-Excel: when the clipboard holds 2+ emails, resolve them all
+  // against the FULL candidate list (ignoring the role filter) and add every
+  // match in one go instead of dumping the blob into the search box.
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData.getData('text');
+    const emails = parsePastedEmails(text);
+    if (emails.length < 2) return; // single value → normal search behaviour
+
+    e.preventDefault();
+    const byEmail = new Map<string, UserWithRole>();
+    users.forEach((u) => {
+      if (u.email) byEmail.set(u.email.toLowerCase(), u);
+    });
+    const matched: UserWithRole[] = [];
+    const missing: string[] = [];
+    emails.forEach((em) => {
+      const u = byEmail.get(em);
+      if (u) matched.push(u);
+      else missing.push(em);
+    });
+
+    if (matched.length > 0) onAddUsers(matched);
+
+    toast({
+      title: `${matched.length} of ${emails.length} approver${emails.length === 1 ? '' : 's'} added`,
+      description:
+        missing.length > 0
+          ? `Not found (not approver-eligible or unknown): ${missing.slice(0, 5).join(', ')}${
+              missing.length > 5 ? ` +${missing.length - 5} more` : ''
+            }`
+          : undefined,
+      variant: matched.length === 0 ? 'destructive' : undefined,
+    });
+  };
 
   return (
     <Card>
@@ -471,7 +537,10 @@ function StepRow({
                           : 0;
                       }}
                     >
-                      <CommandInput placeholder="Search by name, email, or role…" />
+                      <CommandInput
+                        placeholder="Search by name, email, or role… (or paste emails from Excel)"
+                        onPaste={handlePaste}
+                      />
                       <CommandList className="max-h-[320px]">
                         <CommandEmpty>
                           {usersLoading

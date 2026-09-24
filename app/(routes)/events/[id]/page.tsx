@@ -15,6 +15,7 @@
 // and an UPDATE policy exists, so a denial surfaces as an error toast rather
 // than a silent 0-row no-op.
 
+import { formatIstDate, formatIstTime, istLocalInputToIso } from '@/lib/utils/date-format';
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -100,25 +101,17 @@ const formatEventType = (type: string) =>
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(' ');
 
-const formatDate = (value: string | null) => {
-  if (!value) return null;
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleDateString('en-IN', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
-};
+// Dates and times render in IST whatever the viewer's browser zone.
+const formatDate = (value: string | null) => formatIstDate(value) || null;
 
 /** "9:30 am" from a time or timestamp column; null when unparseable. */
 const formatTime = (value: string | null) => {
   if (!value) return null;
-  // start_time/end_time are `time` columns ("09:30:00"), which Date() cannot
-  // parse on its own — give them a date before handing them over.
-  const d = new Date(/^\d{2}:\d{2}/.test(value) ? `1970-01-01T${value}` : value);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
+  // start_time/end_time are `time` columns ("09:30:00") holding an IST wall
+  // clock already — read them as IST so they are not shifted on the way out.
+  const d = /^\d{2}:\d{2}/.test(value) ? `1970-01-01T${value.slice(0, 5)}` : value;
+  const iso = /^\d{2}:\d{2}/.test(value) ? istLocalInputToIso(d) : d;
+  return formatIstTime(iso) || null;
 };
 
 /** A date range that collapses to one date when both ends match (or one is absent). */
@@ -1036,8 +1029,8 @@ export default function GeneralEventDetailPage() {
 
         {/* Review comments — LAST on the page by request: the reviewing
             authority reads the whole console, then writes what is still wrong
-            at the foot of it. The card gates itself (super admin, admin /
-            administrator / event_coordinator with institution access, the
+            at the foot of it. The card gates itself (super admin, the
+            events.review_comments.view permission with institution access, the
             in-charge, the creator) and renders nothing for anyone else, so no
             props decide who sees it — see
             hooks/events/shared/use-event-review-comment-access.ts. */}

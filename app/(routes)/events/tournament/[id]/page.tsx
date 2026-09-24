@@ -15,6 +15,7 @@
 // "Fixtures" tab can mount DivisionFixtures again without rewriting it.
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -50,8 +51,10 @@ import {
   AlertCircle,
   ShieldCheck,
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { formatIstDate } from '@/lib/utils/date-format';
 import toast from 'react-hot-toast';
+import { useQuery } from '@tanstack/react-query';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
   useTournament,
   useUpdateTournament,
@@ -289,6 +292,20 @@ export default function TournamentManagePage() {
   // without holding any view right on the tournament itself. Asked here, above
   // the early returns, because hooks cannot be called conditionally.
   const reviewAccess = useEventReviewCommentAccess(id);
+  // Asked only when the tournament read came back empty — see the !tournament
+  // branch below.
+  const eventExists = useQuery({
+    queryKey: ['event-exists', id],
+    queryFn: async () => {
+      const { data, error } = await (createClientSupabaseClient() as any).rpc('fn_event_exists', {
+        p_event_id: id,
+      });
+      if (error) return null; // unknown: fall back to the no-access wording
+      return data === true;
+    },
+    enabled: !!id && !loadingT && !tournament,
+    staleTime: 60_000,
+  });
   const updateTournament = useUpdateTournament();
   // `entries` still feeds the per-division entry COUNT and the fixtures'
   // entryCount. The per-entry rows — and the mark-paid / payment-link / withdraw
@@ -356,11 +373,31 @@ export default function TournamentManagePage() {
   }
 
   if (!tournament) {
+    // RLS hides a row the caller may not read and a deleted row the same way,
+    // so the old single message read as "access denied" to an in-charge who was
+    // following a link to a tournament that had been deleted and re-created
+    // (BUG-006065). fn_event_exists tells the two apart.
     return (
       <ContentLayout title="Tournament">
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
-            Tournament not found, or you don&apos;t have access to it.
+            {eventExists.isLoading ? (
+              <Loader2 className="mx-auto h-5 w-5 animate-spin" />
+            ) : eventExists.data === false ? (
+              <>
+                This tournament no longer exists — it was deleted. If it was re-created, open
+                the new one from{' '}
+                <Link href="/events/tournament" className="underline">
+                  Sports Tournaments
+                </Link>
+                .
+              </>
+            ) : (
+              <>
+                You don&apos;t have access to this tournament. Ask a sports coordinator to add
+                you as an in-charge or committee member.
+              </>
+            )}
           </CardContent>
         </Card>
       </ContentLayout>
@@ -441,10 +478,10 @@ export default function TournamentManagePage() {
                   {tournament.start_date && (
                     <span className="flex items-center gap-1">
                       <Calendar className="h-3 w-3" />
-                      {format(new Date(tournament.start_date), 'd MMM yyyy')}
+                      {formatIstDate(tournament.start_date)}
                       {tournament.end_date &&
                         tournament.end_date !== tournament.start_date &&
-                        ` – ${format(new Date(tournament.end_date), 'd MMM yyyy')}`}
+                        ` – ${formatIstDate(tournament.end_date)}`}
                     </span>
                   )}
                   {(tournament.venue || tournament.venue_text) && (

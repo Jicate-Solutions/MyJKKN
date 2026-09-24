@@ -39,6 +39,7 @@ import {
   useCreateEventTask,
   useUpdateEventTask,
   useDeleteEventTask,
+  useSetCommitteeLeads,
 } from '@/hooks/events/shared/use-event-committees';
 import { MemberPickerDialog } from './member-picker-dialog';
 import type { MarathonCommittee, MarathonTask } from '@/types/events-marathon';
@@ -163,12 +164,15 @@ function TaskRow({
   eventId,
   canManage,
   canEditTasks,
+  isLead,
 }: {
   task: MarathonTask;
   eventId: string;
   canManage: boolean;
   /** Committee members may tick tasks without managing the event. */
   canEditTasks: boolean;
+  /** This committee's lead — full control of THIS committee's tasks only. */
+  isLead: boolean;
 }) {
   const update = useUpdateEventTask(eventId);
   const del = useDeleteEventTask(eventId);
@@ -181,7 +185,10 @@ function TaskRow({
   // would be filtered by RLS and read as a no-op, so don't offer it. Managers keep
   // full control, and marathon (where canEditTasks defaults to canManage) is unchanged.
   const assignedToMe = !!profile?.id && task.assigned_to === profile.id;
-  const editable = canManage || (canEditTasks && assignedToMe);
+  // A committee lead runs their own committee's list: marathon_tasks_lead_manage
+  // is FOR ALL on any task whose committee names them, so offering the controls
+  // here matches what the database will actually accept.
+  const editable = canManage || isLead || (canEditTasks && assignedToMe);
 
   return (
     <div className="flex items-center gap-2 py-1 text-sm">
@@ -209,7 +216,7 @@ function TaskRow({
           {assignedToMe ? 'You' : task.assigned_to_name}
         </span>
       )}
-      {canManage && (
+      {(canManage || isLead) && (
         <Button
           size="sm"
           variant="ghost"
@@ -231,6 +238,7 @@ function CommitteeCard({
   canEditTasks,
   onAddMember,
   onAddGuest,
+  onEditLeads,
 }: {
   committee: MarathonCommittee;
   eventId: string;
@@ -238,7 +246,16 @@ function CommitteeCard({
   canEditTasks: boolean;
   onAddMember: (c: MarathonCommittee) => void;
   onAddGuest: (c: MarathonCommittee) => void;
+  onEditLeads: (c: MarathonCommittee) => void;
 }) {
+  const { profile } = useAuth();
+  // Leading THIS committee is authority over THIS committee's tasks and nothing
+  // else — not the roster, not the committee itself, not the event. Mirrors
+  // marathon_tasks_lead_manage, which matches lead_id or lead_ids.
+  const isLead =
+    !!profile?.id &&
+    (committee.lead_id === profile.id || (committee.lead_ids ?? []).includes(profile.id));
+  const canManageTasks = canManage || isLead;
   const del = useDeleteEventCommittee(eventId);
   const removeMember = useRemoveInternalMember(eventId);
   const removeGuest = useRemoveExternalMember(eventId);
@@ -252,12 +269,13 @@ function CommitteeCard({
   // slots where member_ids is index-aligned with member_names (see
   // EventCommitteeService.addInternalMembers). Legacy free-text committees have
   // names without ids; those can't be assigned because assigned_to must be an auth
-  // uid for the member to pass event_tasks' UPDATE policy.
+  // uid for the member to pass event_tasks' UPDATE policy. A member added with no
+  // MyJKKN login holds a NULL slot: their task is assigned by name only.
   const memberNames = committee.member_names ?? [];
-  const memberIds = committee.member_ids ?? [];
+  const memberIds: (string | null)[] = committee.member_ids ?? [];
   const assignable =
     memberIds.length === memberNames.length
-      ? memberNames.map((name, i) => ({ idx: String(i), name, id: memberIds[i] }))
+      ? memberNames.map((name, i) => ({ idx: String(i), name, id: memberIds[i] ?? undefined }))
       : [];
 
   const addTask = () => {
@@ -291,11 +309,31 @@ function CommitteeCard({
               <Users className="h-4 w-4 text-muted-foreground" />
               <span className="truncate font-semibold">{committee.name}</span>
             </div>
-            {committee.lead_name && (
-              <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                <Crown className="h-3 w-3" /> {committee.lead_name}
-              </div>
-            )}
+            <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+              {committee.lead_name ? (
+                <>
+                  <Crown className="h-3 w-3" /> {committee.lead_name}
+                  {/* A named lead with no login behind it cannot add tasks, and the
+                      organizer has no other way to find that out. */}
+                  {(committee.lead_ids ?? []).length === 0 && !committee.lead_id && (
+                    <span className="text-[10px] italic">(name only)</span>
+                  )}
+                </>
+              ) : (
+                canManage && <span className="text-[11px] italic">No lead named</span>
+              )}
+              {canManage && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-5 gap-1 px-1.5 text-[10px]"
+                  onClick={() => onEditLeads(committee)}
+                >
+                  <Crown className="h-3 w-3" />
+                  {committee.lead_name ? 'Change lead' : 'Set lead'}
+                </Button>
+              )}
+            </div>
           </div>
           {canManage && (
             <Button
@@ -375,12 +413,15 @@ function CommitteeCard({
                 eventId={eventId}
                 canManage={canManage}
                 canEditTasks={canEditTasks}
+                isLead={isLead}
               />
             ))
           )}
-          {/* Creating tasks is a manage action. It was previously gated on
-              canEditTasks, which showed the box to view-only committee members. */}
-          {canManage && (
+          {/* Creating tasks is a manage action, plus the lead of THIS committee.
+              It was previously gated on canEditTasks, which showed the box to
+              view-only committee members, and then on canManage alone, which
+              hid it from the person actually running the committee. */}
+          {canManageTasks && (
             <div className="mt-2 flex flex-wrap gap-2">
               <Input
                 className="h-8 min-w-[8rem] flex-1 text-xs"
@@ -399,6 +440,7 @@ function CommitteeCard({
                     {assignable.map((a) => (
                       <SelectItem key={a.idx} value={a.idx}>
                         {a.name}
+                        {!a.id && ' (name only)'}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -428,9 +470,11 @@ export function CommitteesBoard({
   const tasksEditable = canEditTasks ?? canManage;
   const { data: committees, isLoading } = useEventCommittees(eventId);
   const addMembers = useAddInternalMembers(eventId);
+  const setLeads = useSetCommitteeLeads(eventId);
   const [addOpen, setAddOpen] = useState(false);
   const [memberFor, setMemberFor] = useState<MarathonCommittee | null>(null);
   const [guestFor, setGuestFor] = useState<MarathonCommittee | null>(null);
+  const [leadFor, setLeadFor] = useState<MarathonCommittee | null>(null);
 
   return (
     <div className="space-y-4">
@@ -466,6 +510,7 @@ export function CommitteesBoard({
               canEditTasks={tasksEditable}
               onAddMember={(cm) => setMemberFor(cm)}
               onAddGuest={(cm) => setGuestFor(cm)}
+              onEditLeads={(cm) => setLeadFor(cm)}
             />
           ))}
         </div>
@@ -478,6 +523,8 @@ export function CommitteesBoard({
         committeeName={memberFor?.name}
         existingNames={memberFor?.member_names ?? []}
         isAdding={addMembers.isPending}
+        // People with no MyJKKN login join the roster by name (member_id null).
+        allowNameOnly
         onAdd={(people) => {
           if (!memberFor || people.length === 0) return;
           addMembers.mutate(
@@ -491,6 +538,24 @@ export function CommitteesBoard({
         onClose={() => setGuestFor(null)}
         committee={guestFor}
         eventId={eventId}
+      />
+      {/* Naming the lead is a roster write, so it stays behind canManage. It
+          REPLACES the lead list rather than appending, which is why it is a
+          separate dialog from the member picker. */}
+      <MemberPickerDialog
+        open={!!leadFor}
+        onClose={() => setLeadFor(null)}
+        committeeName={leadFor?.name}
+        isAdding={setLeads.isPending}
+        title={`Committee Lead${leadFor ? ` — ${leadFor.name}` : ''}`}
+        description="Pick the person (or people) who run this committee. A lead can add, tick and remove their own committee's tasks — nothing else on the event. Picking replaces whoever is named now."
+        // A lead with no MyJKKN login is allowed, and is shown as a name only:
+        // leading means writing tasks, which needs an account.
+        allowNameOnly
+        onAdd={(people) => {
+          if (!leadFor || people.length === 0) return;
+          setLeads.mutate({ committee: leadFor, people }, { onSuccess: () => setLeadFor(null) });
+        }}
       />
     </div>
   );

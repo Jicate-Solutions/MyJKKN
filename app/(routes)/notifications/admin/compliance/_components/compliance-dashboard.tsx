@@ -54,6 +54,10 @@ interface ComplianceData {
     total: number;
     acknowledged: number;
     rate: number;
+    // "Must answer" (2026-09-16)
+    requires_answer?: boolean;
+    answered?: number;
+    answers?: Record<string, number>;
   }>;
   hod_responsiveness: Array<{
     name: string;
@@ -435,6 +439,24 @@ export function ComplianceDashboard() {
                       <span className='text-xs text-muted-foreground whitespace-nowrap'>
                         {notif.acknowledged}/{notif.total}
                       </span>
+                      {notif.requires_answer && (
+                        <span
+                          className='text-xs text-muted-foreground whitespace-nowrap'
+                          data-testid='answers-column'
+                          title='Answers picked on the blocking screen'
+                        >
+                          Answers {notif.answered ?? 0}/{notif.total}
+                          {notif.answers && Object.keys(notif.answers).length > 0 && (
+                            <>
+                              {' · '}
+                              {Object.entries(notif.answers)
+                                .sort((a, b) => b[1] - a[1])
+                                .map(([opt, n]) => `${opt} ${n}`)
+                                .join(' · ')}
+                            </>
+                          )}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </Link>
