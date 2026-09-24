@@ -29,6 +29,7 @@ import {
   type DetailedLearnerOption,
 } from '@/hooks/cdc/use-cdc-pickers';
 import type { CdcTrainingEnrollment } from '@/types/cdc/training';
+import { matchPastedLearnerNumbers } from '@/lib/services/cdc/learner-picker';
 import { Loader2 } from 'lucide-react';
 
 interface Props {
@@ -38,14 +39,6 @@ interface Props {
   // Current enrollments on the page — used to skip learners already enrolled
   // so the bulk insert never produces duplicate rows.
   existingEnrollments: CdcTrainingEnrollment[];
-}
-
-// Picker labels are built server-side as "First Last (REGISTER_NO)".
-// Pull the register number out of the trailing parentheses so a pasted
-// roll/register number can be matched against it case-insensitively.
-function registerNumberFromLabel(label: string): string {
-  const match = label.match(/\(([^)]*)\)\s*$/);
-  return (match ? match[1] : '').trim().toLowerCase();
 }
 
 // Sentinel for the "All" choice in the filter Selects. Radix forbids an
@@ -165,53 +158,43 @@ export function BulkEnrollDialog({ open, onOpenChange, programmeId, existingEnro
   const { data: learnerOptions, isLoading: learnersLoading } = useLearnersForPicker();
   const [raw, setRaw] = useState('');
   const [notFound, setNotFound] = useState<string[]>([]);
-
-  const byRegisterNumber = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const opt of learnerOptions ?? []) {
-      const reg = registerNumberFromLabel(opt.label);
-      if (reg) map.set(reg, opt.value);
-    }
-    return map;
-  }, [learnerOptions]);
+  const [ambiguousLines, setAmbiguousLines] = useState<string[]>([]);
 
   async function handlePasteSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (submitting) return;
 
-    // One register number per line; drop blanks and de-dupe within the paste.
+    // One register or roll number per line; drop blanks and de-dupe within the paste.
     const lines = Array.from(
       new Set(raw.split('\n').map((l) => l.trim()).filter(Boolean)),
     );
     if (lines.length === 0) return;
 
-    const toEnroll: string[] = [];
-    const skipped: string[] = [];
-    const missing: string[] = [];
-
-    for (const line of lines) {
-      const learnerId = byRegisterNumber.get(line.toLowerCase());
-      if (!learnerId) missing.push(line);
-      else if (alreadyEnrolledIds.has(learnerId)) skipped.push(line);
-      else toEnroll.push(learnerId);
-    }
+    // Register OR roll number (BUG-005031) — see lib/services/cdc/learner-picker.ts.
+    const { toEnroll, skipped, missing, ambiguous } = matchPastedLearnerNumbers(
+      lines,
+      learnerOptions ?? [],
+      alreadyEnrolledIds,
+    );
 
     setSubmitting(true);
     const { enrolled, failed } = await bulkEnroll(toEnroll);
     setSubmitting(false);
     setNotFound(missing);
+    setAmbiguousLines(ambiguous);
 
     const parts = [`Enrolled ${enrolled}`];
     if (skipped.length) parts.push(`skipped ${skipped.length} (already enrolled)`);
     if (missing.length) parts.push(`${missing.length} not found`);
+    if (ambiguous.length) parts.push(`${ambiguous.length} match more than one learner`);
     if (failed) parts.push(`${failed} failed`);
     const summary = parts.join(', ');
-    if (enrolled > 0 && failed === 0) toast.success(summary);
-    else if (enrolled === 0 && (skipped.length || missing.length) && failed === 0) toast.info(summary);
+    if (enrolled > 0 && failed === 0 && ambiguous.length === 0) toast.success(summary);
+    else if (enrolled === 0 && (skipped.length || missing.length) && failed === 0 && ambiguous.length === 0) toast.info(summary);
     else toast.warning(summary);
 
     // Keep the dialog open if there are unmatched lines so the user can correct them.
-    if (missing.length === 0) {
+    if (missing.length === 0 && ambiguous.length === 0) {
       setRaw('');
       onOpenChange(false);
     }
@@ -220,6 +203,7 @@ export function BulkEnrollDialog({ open, onOpenChange, programmeId, existingEnro
   function handleClose() {
     setRaw('');
     setNotFound([]);
+    setAmbiguousLines([]);
     setSelectedIds(new Set());
     onOpenChange(false);
   }
@@ -351,7 +335,7 @@ export function BulkEnrollDialog({ open, onOpenChange, programmeId, existingEnro
                   className="font-mono text-sm"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Paste one register number per line. Learners already enrolled are skipped.
+                  Paste one register or roll number per line. Learners already enrolled are skipped.
                 </p>
               </div>
 
@@ -362,6 +346,19 @@ export function BulkEnrollDialog({ open, onOpenChange, programmeId, existingEnro
                   </p>
                   <ul className="mt-1 list-disc pl-5 text-amber-700 max-h-32 overflow-y-auto">
                     {notFound.map((line) => (
+                      <li key={line} className="font-mono text-xs">{line}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {ambiguousLines.length > 0 && (
+                <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm">
+                  <p className="font-medium text-amber-800">
+                    {ambiguousLines.length} not added — the number belongs to more than one learner. Use Add Learner and pick by name:
+                  </p>
+                  <ul className="mt-1 list-disc pl-5 text-amber-700 max-h-32 overflow-y-auto">
+                    {ambiguousLines.map((line) => (
                       <li key={line} className="font-mono text-xs">{line}</li>
                     ))}
                   </ul>

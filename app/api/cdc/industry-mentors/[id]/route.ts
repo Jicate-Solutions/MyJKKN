@@ -6,6 +6,7 @@ import {
   getIndustryMentor,
   updateIndustryMentor,
   deleteIndustryMentor,
+  IndustryMentorEditRefusedError,
 } from '@/lib/services/cdc/industry-mentor-service';
 import type { UpdateIndustryMentorInput } from '@/types/cdc/industry-mentors';
 
@@ -38,6 +39,12 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     const mentor = await updateIndustryMentor(id, body);
     return NextResponse.json(mentor);
   } catch (e) {
+    if (e instanceof IndustryMentorEditRefusedError) {
+      return NextResponse.json({ error: e.message }, { status: 403 });
+    }
+    if ((e as Error).message === 'Mentor not found') {
+      return NextResponse.json({ error: 'Mentor not found' }, { status: 404 });
+    }
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }
 }
