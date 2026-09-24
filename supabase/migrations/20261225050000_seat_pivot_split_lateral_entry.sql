@@ -192,4 +192,5 @@ AS $function$
   ORDER BY group_sort_key, course_short;
 $function$;
 
+REVOKE EXECUTE ON FUNCTION public.fn_seat_analytics_daily_pivot(uuid[], integer, boolean) FROM anon, PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_seat_analytics_daily_pivot(uuid[], integer, boolean) TO authenticated;
