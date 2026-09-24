@@ -43,7 +43,18 @@ export interface DraftTopic {
   id: string;
   config_key: string;
   display_name: string;
+  /** cdc_exam_syllabus_topics.description. For a Physics unit this is its
+   *  Tamil name, e.g. "<Tamil> (Vol. 1)"; for an English unit it is a sentence
+   *  about the unit, not a name. */
+  description: string | null;
   sort_order: number;
+}
+
+/** The unit name as a picker shows it. A bilingual (Physics) unit also shows
+ *  its Tamil name, kept in `description`; an English unit shows its name only. */
+export function topicLabel(topic: Pick<DraftTopic, 'display_name' | 'description'>, examKey: string | null | undefined): string {
+  const tamil = topic.description?.trim();
+  return examKey === OneMarkExamKeys.PHYSICS && tamil ? `${topic.display_name} · ${tamil}` : topic.display_name;
 }
 
 export interface DraftTag {
@@ -134,7 +145,7 @@ export async function listOneMarkExams(): Promise<OneMarkExam[]> {
 export async function listTopicsForExam(examId: string): Promise<DraftTopic[]> {
   const { data, error } = await sb()
     .from('exam_topic_map')
-    .select('sort_order, topic:cdc_exam_syllabus_topics!inner(id, config_key, display_name, is_active)')
+    .select('sort_order, topic:cdc_exam_syllabus_topics!inner(id, config_key, display_name, description, is_active)')
     .eq('exam_definition_id', examId)
     .order('sort_order', { ascending: true });
   if (error) throw error;
@@ -144,6 +155,7 @@ export async function listTopicsForExam(examId: string): Promise<DraftTopic[]> {
       id: r.topic.id,
       config_key: r.topic.config_key,
       display_name: r.topic.display_name,
+      description: r.topic.description ?? null,
       sort_order: r.sort_order ?? 0,
     }));
 }

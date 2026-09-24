@@ -32,6 +32,7 @@ import {
   useItems,
 } from '@/hooks/foundation/use-foundation';
 import type { AssessmentKind } from '@/lib/services/foundation/foundation-service';
+import { JABT_LEVEL_LABELS, levelOf } from '@/lib/services/onemark/paper-service';
 
 const KINDS: { value: AssessmentKind; label: string; hint: string }[] = [
   { value: 'diagnostic', label: 'Diagnostic', hint: 'Baseline the weak spots' },
@@ -43,12 +44,15 @@ interface AssessmentBuilderDialogProps {
   cohortId: string;
   examDefinitionId: string;
   examName?: string;
+  /** OneMark subject exam: show the JABT level, never the 1-5 difficulty (decision 6). */
+  isOneMark?: boolean;
 }
 
 export function AssessmentBuilderDialog({
   cohortId,
   examDefinitionId,
   examName,
+  isOneMark = false,
 }: AssessmentBuilderDialogProps) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
@@ -197,7 +201,9 @@ export function AssessmentBuilderDialog({
                         </span>
                         <span className="mt-1 flex items-center gap-2">
                           <Badge variant="secondary" className="text-[10px]">
-                            D{it.difficulty ?? '?'}
+                            {isOneMark
+                              ? JABT_LEVEL_LABELS[levelOf({ bloom_level: it.bloom_level ?? null })]
+                              : `D${it.difficulty ?? '?'}`}
                           </Badge>
                           <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
                             {it.q_type ?? 'mcq'}

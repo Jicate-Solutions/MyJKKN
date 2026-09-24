@@ -37,7 +37,10 @@ import {
   useRoster,
   useSetCohortResourcePerson,
 } from '@/hooks/foundation/use-foundation';
-import type { FoundationCohort } from '@/lib/services/foundation/foundation-service';
+import {
+  isOneMarkExam,
+  type FoundationCohort,
+} from '@/lib/services/foundation/foundation-service';
 import { ItemAuthorDialog } from './item-author-dialog';
 import { EnrollLearnerDialog } from './enroll-learner-dialog';
 import { AssessmentBuilderDialog } from './assessment-builder-dialog';
@@ -170,6 +173,9 @@ function CohortDetail({ cohort }: { cohort: FoundationCohort }) {
   const canManageCohorts = canAccess('foundation', 'cohorts.manage');
   const examId = cohort.exam_definition_id;
   const examName = cohort.exam_definition?.display_name;
+  // OneMark subject exams get the OneMark rulings in the shared authoring
+  // controls; every other exam is rendered exactly as before.
+  const isOneMark = isOneMarkExam(cohort.exam_definition?.config_key);
 
   return (
     <div className="space-y-6">
@@ -197,13 +203,18 @@ function CohortDetail({ cohort }: { cohort: FoundationCohort }) {
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
           {canAuthorItems && (
-            <ItemAuthorDialog examDefinitionId={examId} examName={examName} />
+            <ItemAuthorDialog
+              examDefinitionId={examId}
+              examName={examName}
+              isOneMark={isOneMark}
+            />
           )}
           {canBuildAssessments && (
             <AssessmentBuilderDialog
               cohortId={cohort.id}
               examDefinitionId={examId}
               examName={examName}
+              isOneMark={isOneMark}
             />
           )}
           {canManageStudents && <EnrollLearnerDialog cohort={cohort} />}
@@ -214,7 +225,7 @@ function CohortDetail({ cohort }: { cohort: FoundationCohort }) {
         <UnassignedCohortNotice cohort={cohort} />
       )}
       <AssessmentStrip cohortId={cohort.id} />
-      <ItemReviewPanel examDefinitionId={examId} />
+      <ItemReviewPanel examDefinitionId={examId} isOneMark={isOneMark} />
       <RosterTable cohort={cohort} canManageStudents={canManageStudents} />
     </div>
   );

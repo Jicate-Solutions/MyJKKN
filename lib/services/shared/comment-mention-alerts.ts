@@ -44,9 +44,16 @@ export interface GrantAndNotifyOptions {
   db: any;
   /** Service-role client — writes the alert and notified_at. */
   service: any;
-  table: 'resource_reservation_comment_mentions' | 'event_review_comment_mentions';
+  table:
+    | 'resource_reservation_comment_mentions'
+    | 'event_review_comment_mentions'
+    // 2026-09-24. The recruitment tag grants NO access — the candidate's
+    // discussion is already readable by whoever can read the candidate — so it
+    // uses this helper only for the resumable "told them yet?" half. The grant
+    // half is a plain upsert either way, so nothing here had to change.
+    | 'hr_recruitment_comment_mentions';
   /** The column pinning the tag to its thread, and its value. */
-  parentColumn: 'reservation_id' | 'event_id';
+  parentColumn: 'reservation_id' | 'event_id' | 'candidate_id';
   parentId: string;
   commentId: string;
   /** Already filtered to people who may be tagged. */

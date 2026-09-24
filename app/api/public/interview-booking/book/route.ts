@@ -30,26 +30,40 @@ import { loadActiveStaffBooker } from './active-staff';
 
 export const dynamic = 'force-dynamic';
 
-// The /meet route's limit, kept — not a new barrier (#8). Without it the
-// account probe inside BookingIdentityService and the "which of these is you?"
-// answer (#7) become an unlimited lookup of who has a MyJKKN account and who
-// has applied here. Active staff are exempt (#1): an office booking several
-// candidates from one IP must not be locked out after the fifth.
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT = 5;
-const RATE_WINDOW_MS = 60 * 60 * 1000;
+// WHAT IS LIMITED is what gives something away — not booking (#8, review
+// findings 2026-09-24). Two answers reveal a fact about SOMEONE ELSE:
+//   login_required — "this email has a MyJKKN account"
+//   needs_choice   — "this email has applied here, for these posts" (#7)
+// Each costs one unit of an hourly budget. A first-time candidate booking
+// normally spends nothing, so a walk-in drive on one campus Wi-Fi (every phone
+// behind one public IP) is never locked out; typing mistakes, slot_taken
+// retries and ordinary bookings are free. Guests are budgeted per IP. Active
+// staff (#1) are budgeted per person, more generously — an office resolves many
+// returning candidates an hour — but not without limit: staff mode skips the
+// identity probe, so an unlimited budget would be an unlimited "who applied?"
+// lookup for anyone with a staff row.
+const REVEAL_BUDGET = { guest: 10, office: 60 };
+const REVEAL_WINDOW_MS = 60 * 60 * 1000;
+const revealLedger = new Map<string, { count: number; resetAt: number }>();
 
-function checkRateLimit(ip: string): boolean {
+/** Spend one unit for `key`. False (and nothing spent) when the budget is used up. */
+function spendReveal(key: string, limit: number): boolean {
   const now = Date.now();
-  const entry = rateLimitMap.get(ip);
+  const entry = revealLedger.get(key);
   if (!entry || now > entry.resetAt) {
-    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    revealLedger.set(key, { count: 1, resetAt: now + REVEAL_WINDOW_MS });
     return true;
   }
-  if (entry.count >= RATE_LIMIT) return false;
+  if (entry.count >= limit) return false;
   entry.count++;
   return true;
 }
+
+const TOO_MANY = () =>
+  NextResponse.json(
+    { error: 'Too many look-ups from here in the last hour. Please try again later, or contact the office.' },
+    { status: 429 },
+  );
 
 // "*" and "%" are refused: the address is matched with a PostgREST ilike, where
 // "*" is a wildcard that cannot be escaped (review finding, 2026-09-24).
@@ -84,16 +98,10 @@ export async function POST(request: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     );
 
-    const staff = await loadActiveStaffBooker(supabase);
-    if (!staff) {
-      const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
-      if (!checkRateLimit(ip)) {
-        return NextResponse.json(
-          { error: 'Too many booking attempts. Please try again later.' },
-          { status: 429 },
-        );
-      }
-    }
+    const officeBooker = await loadActiveStaffBooker(supabase);
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+    const revealKey = officeBooker ? `office:${officeBooker.profileId}` : `ip:${ip}`;
+    const revealLimit = officeBooker ? REVEAL_BUDGET.office : REVEAL_BUDGET.guest;
 
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== 'object') {
@@ -162,16 +170,22 @@ export async function POST(request: NextRequest) {
     let source = INTERVIEW_LINK_SOURCE;
     let createdBy = host.hostProfileId;
 
-    if (staff) {
+    if (officeBooker) {
       source = INTERVIEW_LINK_STAFF_SOURCE;
-      createdBy = staff.profileId;
+      createdBy = officeBooker.profileId;
     } else {
       const identity = await BookingIdentityService.resolve(supabase, email);
       if (identity.kind === 'login_required') {
+        if (!spendReveal(revealKey, revealLimit)) return TOO_MANY();
         return NextResponse.json(
           { error: 'login_required', reason: identity.reason, loginUrl: LOGIN_URL },
           { status: 403 },
         );
+      }
+      if (identity.kind === 'authenticated' && !EMAIL_RE.test((identity.email ?? '').trim())) {
+        // A signed-in account with no usable email would be booked with an empty
+        // address — say so plainly (the page shows the same message).
+        return NextResponse.json({ error: 'account_email_missing' }, { status: 403 });
       }
       if (identity.kind === 'authenticated') {
         attendeeName = identity.name;
@@ -185,6 +199,7 @@ export async function POST(request: NextRequest) {
     const resolution = await resolveCandidateChoice(supabase, attendeeEmail, parseChoice(body.candidateChoice));
     if (resolution.ok === false) {
       if (resolution.reason === 'needs_choice') {
+        if (!spendReveal(revealKey, revealLimit)) return TOO_MANY();
         return NextResponse.json({ error: 'needs_choice', matches: resolution.matches }, { status: 409 });
       }
       return NextResponse.json({ error: 'invalid_choice' }, { status: 400 });

@@ -17,7 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
-import { ExternalLink, AlertTriangle, ArrowRight, GraduationCap, Users, Lightbulb, Bug, Briefcase, Calendar, CheckCircle2, Circle, ClipboardCheck, Mail, Phone, Clock, IndianRupee, Building2, AlertCircle, Loader2, Pencil } from 'lucide-react';
+import { ExternalLink, AlertTriangle, ArrowRight, GraduationCap, Users, Lightbulb, Bug, Briefcase, Calendar, CheckCircle2, Circle, ClipboardCheck, Mail, Phone, Clock, IndianRupee, Building2, AlertCircle, Loader2, Pencil, XCircle } from 'lucide-react';
 import {
   useCandidate,
   usePackages,
@@ -29,6 +29,7 @@ import {
   useApproveCandidate,
   useRejectCandidate,
   useUpdateStepComment,
+  useStartOnboarding,
 } from '@/hooks/hr/use-recruitment';
 import { useAlumniSignal } from '@/hooks/hr/use-alumni-signal';
 import { useRecruitmentInstitutions } from '@/hooks/hr/use-recruitment-institutions';
@@ -152,6 +153,12 @@ export default function CandidateDetailPage() {
   }, [profile]);
   // Index of the step currently being toggled (so we can disable that row only).
   const [togglingStepIndex, setTogglingStepIndex] = useState<number | null>(null);
+
+  // Start Onboarding lives here as well as in the job workspace. It used to
+  // exist ONLY there, and the workspace hid it at status 'joined' — so a hire
+  // put into 'joined' by this page's own "Mark as Joined" button had no screen
+  // anywhere offering the control, even though the API accepted the call.
+  const startOnboarding = useStartOnboarding();
 
   // Approval-chain override context (mirrors the workspace + pending list):
   // the current step is "mine" if pinned to me, or role-only and I hold that
@@ -321,14 +328,65 @@ export default function CandidateDetailPage() {
     }
   };
 
-  // Mark joined
+  // Mark joined. Confirmed, because it is NOT the same as onboarding: it moves
+  // the status and does nothing else — no checklist, no staff record. Used
+  // blind it produced hires sitting at 'joined' who were never employees.
+  const [markJoinedOpen, setMarkJoinedOpen] = useState(false);
+
   const onMarkJoined = async () => {
     try {
       await updateStatus.mutateAsync({ id, status: 'joined' });
       toast.success('Marked as joined');
+      setMarkJoinedOpen(false);
     } catch (err) {
       toast.error((err as Error).message);
     }
+  };
+
+  // ONE Reject, available at every live stage of a candidacy.
+  //
+  // Rejection used to mean two unrelated things depending on where the
+  // candidate stood: a chain decision while approvals ran, and nothing at all
+  // once they had finished — so a hire that fell through after sign-off stayed
+  // "Approved" for ever. This dialog is the single entry point; which write it
+  // performs is decided from the status, not from the person clicking:
+  //
+  //   submitted / pending_approval → the chain RPC, stamping the current step
+  //   approved / package_fixed / offer_issued → a direct status change
+  //
+  // Both end at 'rejected' with the reason stored, so a rejection reads the
+  // same on screen whichever stage produced it.
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  // Post-approval only: the precise endings, when they fit better than the
+  // general one. Defaults to 'rejected' so the common path is reason + confirm.
+  const [rejectKind, setRejectKind] =
+    useState<'rejected' | 'no_show' | 'offer_rescinded'>('rejected');
+
+  const onReject = async () => {
+    const reason = rejectReason.trim();
+    if (!reason) return;
+    try {
+      if (['submitted', 'pending_approval'].includes(candidate.status)) {
+        // Mid-chain: goes through the approval chain so the step is stamped
+        // with who rejected it and why.
+        await rejectCand.mutateAsync({ id, reason });
+      } else {
+        await updateStatus.mutateAsync({ id, status: rejectKind, reason });
+      }
+      toast.success('Candidate rejected');
+      setRejectOpen(false);
+      setRejectReason('');
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  };
+
+  const onStartOnboarding = () => {
+    startOnboarding.mutate(id, {
+      onSuccess: () => toast.success('Onboarding checklist started'),
+      onError: (err) => toast.error(err.message),
+    });
   };
 
   // Issue offer (2026-09-12). The transition package_fixed → offer_issued has
@@ -381,6 +439,40 @@ export default function CandidateDetailPage() {
   const approvalChain = candidate.approval_chain ?? [];
   const canWithdraw = ['submitted', 'pending_approval'].includes(candidate.status);
   const canMarkJoined = ['offer_issued', 'approved'].includes(candidate.status);
+
+  // The onboarding stage: finally approved, no staff record yet. 'joined' is
+  // included because "Mark as Joined" reaches it without creating one — those
+  // hires still need the checklist and the staff record. Mirrors isPostApproval
+  // in the job workspace's candidates tab and ONBOARDABLE_STATUSES on the server.
+  const candidateDetails = (candidate.role_specific_details ?? {}) as Record<string, unknown>;
+  const hasStaffRecord = !!candidateDetails.staff_record_id;
+  const isPostApproval =
+    ['approved', 'package_fixed', 'offer_issued', 'joined'].includes(candidate.status) &&
+    !hasStaffRecord;
+  const onboardingSteps = Array.isArray(candidateDetails.onboarding_steps)
+    ? (candidateDetails.onboarding_steps as Array<{
+        index: number;
+        step: string;
+        completed: boolean;
+        completed_at: string | null;
+        completed_by: string | null;
+      }>)
+    : null;
+  const onboardingStarted = !!onboardingSteps && onboardingSteps.length > 0;
+
+  // Who may reject, and from where.
+  //
+  // Terminal statuses are excluded because nothing transitions out of them —
+  // a Reject button there could only ever fail. 'joined' is excluded too: once
+  // someone IS staff, ending the relationship is an offboarding question, not
+  // a recruitment one.
+  const TERMINAL_STATUSES = ['joined', 'rejected', 'withdrawn', 'no_show', 'offer_rescinded'];
+  const isTerminal = TERMINAL_STATUSES.includes(candidate.status);
+  const isPostApprovalStage =
+    ['approved', 'package_fixed', 'offer_issued'].includes(candidate.status);
+  // Rescinding presumes an offer went out; before that the transition map
+  // refuses it, so the option is hidden rather than offered and refused.
+  const mayRescind = candidate.status === 'offer_issued';
   // 'package_fixed' was in NEITHER of the two lines above, which is why this page
   // rendered no action at all for a hire whose salary was already agreed.
   //
@@ -407,6 +499,18 @@ export default function CandidateDetailPage() {
   const canOverrideStep =
     isSuperAdmin || permissions['hr.recruitment.approve.override'] === true;
   const isStepOverride = isPendingApproval && !isMyStep && canOverrideStep;
+
+  // Whether the Reject button shows, declared here because it depends on the
+  // step context above. Mid-chain rejection is a chain decision, so it needs
+  // the step (or override) — exactly the rule the RPC enforces; showing it more
+  // widely would paint a button the database refuses.
+  const canRejectNow =
+    !isTerminal &&
+    !hasStaffRecord &&
+    (isPendingApproval
+      ? isMyStep || canOverrideStep
+      : isPostApprovalStage &&
+        (isSuperAdmin || permissions['hr.recruitment.edit'] === true));
   // Legacy chains have no step_type — the last step acts as final.
   const isFinalStep =
     currentStep?.step_type === 'final' ||
@@ -606,7 +710,7 @@ export default function CandidateDetailPage() {
           </Card>
 
           {/* Primary actions */}
-          {(canWithdraw || canMarkJoined || canIssueOffer) && (
+          {(canWithdraw || canMarkJoined || canIssueOffer || canRejectNow) && (
             <div className="flex flex-col gap-2">
               {canIssueOffer && (
                 <Button
@@ -619,14 +723,34 @@ export default function CandidateDetailPage() {
                 </Button>
               )}
               {canMarkJoined && (
-                <Button className="w-full" onClick={onMarkJoined} disabled={updateStatus.isPending}>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => setMarkJoinedOpen(true)}
+                  disabled={updateStatus.isPending}
+                >
                   <ArrowRight className="h-4 w-4 mr-1" />
-                  {updateStatus.isPending ? 'Updating…' : 'Mark as Joined'}
+                  Mark as Joined
                 </Button>
               )}
               {canWithdraw && (
                 <Button variant="outline" className="w-full" onClick={() => setWithdrawOpen(true)} disabled={withdraw.isPending}>
                   Withdraw Candidate
+                </Button>
+              )}
+              {canRejectNow && (
+                <Button
+                  variant="outline"
+                  className="w-full text-destructive hover:text-destructive"
+                  onClick={() => {
+                    setRejectKind('rejected');
+                    setRejectReason('');
+                    setRejectOpen(true);
+                  }}
+                  disabled={updateStatus.isPending || rejectCand.isPending}
+                >
+                  <XCircle className="h-4 w-4 mr-1" />
+                  Reject Candidate
                 </Button>
               )}
             </div>
@@ -846,16 +970,52 @@ export default function CandidateDetailPage() {
           </Card>
         )}
 
-        {/* 4. Onboarding progress (ζ FINDING #5) — only for joined candidates with stamped steps */}
-        {candidate.status === 'joined' && Array.isArray((candidate.role_specific_details as Record<string, unknown> | undefined)?.onboarding_steps) && ((candidate.role_specific_details as Record<string, unknown>).onboarding_steps as unknown[]).length > 0 && (() => {
-          const details = (candidate.role_specific_details ?? {}) as Record<string, unknown>;
-          const steps = details.onboarding_steps as Array<{
-            index: number;
-            step: string;
-            completed: boolean;
-            completed_at: string | null;
-            completed_by: string | null;
-          }>;
+        {/* 4a. Onboarding not started yet — offer to start it.
+            This card is the fix for a dead end: Start Onboarding existed only
+            in the job workspace, which hid it at status 'joined', so a hire
+            marked joined from THIS page could never get a checklist from any
+            screen even though the API accepted the call. */}
+        {isPostApproval && !onboardingStarted && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-1.5">
+                <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
+                Onboarding
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-xs text-muted-foreground">
+                The onboarding checklist has not been started. Every step must be
+                completed before this hire can be created as a team-member record.
+              </p>
+              {candidate.status === 'joined' && (
+                <div className="flex items-start gap-2 rounded border border-amber-500/50 bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <span>
+                    This candidate is marked joined but has no team-member record — they
+                    were moved with &ldquo;Mark as Joined&rdquo;, which skips
+                    onboarding. Start the checklist, complete it, then finish
+                    onboarding from the job workspace to create their
+                    team-member record.
+                  </span>
+                </div>
+              )}
+              <Button
+                size="sm"
+                onClick={onStartOnboarding}
+                disabled={startOnboarding.isPending}
+              >
+                <ClipboardCheck className="h-4 w-4 mr-1" />
+                {startOnboarding.isPending ? 'Starting…' : 'Start Onboarding'}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* 4b. Onboarding progress (ζ FINDING #5) — once the steps are stamped */}
+        {onboardingStarted && onboardingSteps && (() => {
+          const details = candidateDetails;
+          const steps = onboardingSteps;
           const checklistName = (details.onboarding_checklist_name as string | undefined) ?? null;
           const startedAt = (details.onboarding_started_at as string | undefined) ?? null;
           const completedCount = steps.filter((s) => s.completed).length;
@@ -1231,6 +1391,126 @@ export default function CandidateDetailPage() {
             <Button variant="outline" onClick={() => setIssueOfferOpen(false)}>Cancel</Button>
             <Button onClick={onIssueOffer} disabled={updateStatus.isPending}>
               {updateStatus.isPending ? 'Issuing…' : 'Confirm Issue Offer'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reject — the one dialog, at every live stage. Reason required; the
+          result is permanent, so the warning says so plainly. */}
+      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject Candidate</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p>
+              End the candidacy for <span className="font-medium">{candidate.name}</span>
+              {candidate.role_title ? ` — ${candidate.role_title}` : ''}.
+              {isPendingApproval
+                ? ' The approval chain stops here and the submitter is notified.'
+                : ' Every approver has already signed off, so this records why the hire did not happen.'}
+            </p>
+
+            <div>
+              <Label htmlFor="rejectReason">
+                Reason <span className="text-destructive">*</span>
+              </Label>
+              <Textarea
+                id="rejectReason"
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                rows={3}
+                placeholder="Why is this candidate being rejected?"
+                autoFocus
+              />
+            </div>
+
+            {/* After approval the outcome can be said more precisely. Optional:
+                'Rejected' is preselected, so the plain path stays reason + confirm. */}
+            {isPostApprovalStage && (
+              <div className="space-y-1">
+                <Label htmlFor="rejectKind" className="text-xs text-muted-foreground">
+                  Record as
+                </Label>
+                <select
+                  id="rejectKind"
+                  value={rejectKind}
+                  onChange={(e) =>
+                    setRejectKind(e.target.value as 'rejected' | 'no_show' | 'offer_rescinded')
+                  }
+                  className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
+                >
+                  <option value="rejected">Rejected — we are not proceeding</option>
+                  <option value="no_show">No Show — the offer stood, they never joined</option>
+                  {mayRescind && (
+                    <option value="offer_rescinded">
+                      Offer Rescinded — JKKN withdrew the offer
+                    </option>
+                  )}
+                </select>
+              </div>
+            )}
+
+            <div className="flex items-start gap-2 rounded border border-amber-500/50 bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              <span>
+                This is final — nothing moves a candidacy back out of
+                &ldquo;{CANDIDATE_STATUS_LABELS[isPendingApproval ? 'rejected' : rejectKind]}&rdquo;.
+                Hiring this person later means submitting them again.
+              </span>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={onReject}
+              disabled={
+                !rejectReason.trim() || updateStatus.isPending || rejectCand.isPending
+              }
+            >
+              {updateStatus.isPending || rejectCand.isPending
+                ? 'Rejecting…'
+                : 'Confirm Reject'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Mark as Joined — says plainly what it does NOT do.
+          This control only moves the status. The route that actually makes
+          someone an employee is the onboarding action in the job workspace, which
+          requires a completed checklist and creates the team-member record. Used
+          without that context this button produced hires stranded at 'joined'
+          with no team-member record, and nothing transitions out of 'joined'. */}
+      <Dialog open={markJoinedOpen} onOpenChange={setMarkJoinedOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Mark as Joined</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p>
+              Record that <span className="font-medium">{candidate.name}</span> has
+              joined as <span className="font-medium">{candidate.role_title}</span>.
+            </p>
+            <div className="flex items-start gap-2 rounded border border-amber-500/50 bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              <span>
+                <span className="font-medium">This only changes the status.</span> It
+                does not create a team-member record and does not complete onboarding.
+                {!onboardingStarted && ' The onboarding checklist has not been started.'}
+                {' '}To make this person an employee, complete the onboarding
+                checklist and finish onboarding from the job workspace
+                instead. Nothing moves a candidacy back out of
+                &ldquo;Joined&rdquo;.
+              </span>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMarkJoinedOpen(false)}>Cancel</Button>
+            <Button onClick={onMarkJoined} disabled={updateStatus.isPending}>
+              {updateStatus.isPending ? 'Updating…' : 'Mark as Joined Anyway'}
             </Button>
           </DialogFooter>
         </DialogContent>

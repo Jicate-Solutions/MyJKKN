@@ -156,8 +156,19 @@ export function charNeedsKatex(ch: string): boolean {
   return !covered;
 }
 
+/**
+ * A token goes to KaTeX when any character needs it (charNeedsKatex) OR holds
+ * a Unicode super/subscript. Tinos happens to carry ¹ ² ³, so before
+ * 2026-09-24 `q²`, `d²` and `1/r²` printed as body text with the font's small
+ * ² while the r² inside `(4πε₀r²)` — promoted by its π — was typeset: two
+ * notations for one quantity on the same line (BUG-006063). Every script now
+ * goes the same way, whether or not the body font could draw it.
+ */
 export function hasNotationTrigger(token: string): boolean {
-  for (const ch of Array.from(token)) if (charNeedsKatex(ch)) return true;
+  for (const ch of Array.from(token)) {
+    if (charNeedsKatex(ch)) return true;
+    if (SUPERSCRIPTS[ch] !== undefined || SUBSCRIPTS[ch] !== undefined) return true;
+  }
   return UNDERSCORE_SCRIPT.test(token) || CARET_SCRIPT.test(token);
 }
 
