@@ -240,6 +240,12 @@ export function useUpdateCdcDrive() {
       qc.invalidateQueries({ queryKey: ['cdc-drives'] });
       qc.invalidateQueries({ queryKey: ['cdc-drive', result.data.id] });
       qc.invalidateQueries({ queryKey: ['cdc-drive-notifications', result.data.id] });
+      qc.invalidateQueries({ queryKey: ['cdc-drive-eligibility', result.data.id] });
+      if (result.targeting_changed) {
+        qc.invalidateQueries({ queryKey: ['cdc-drive-assigned', result.data.id] });
+        qc.invalidateQueries({ queryKey: ['cdc-drive-participants', result.data.id] });
+        qc.invalidateQueries({ queryKey: ['cdc-drive-attendance', result.data.id] });
+      }
     },
   });
 }
@@ -362,6 +368,32 @@ export function useCdcDriveAssigned(driveId: string | undefined, params: UseCdcD
   });
 }
 
+/** Manual willingness: mark chosen learners as Willing on their behalf. */
+export function useMarkCdcWillingManually(driveId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (learnerIds: string[]) => {
+      const res = await fetch(`${BASE}/drives/${driveId}/assigned`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ learner_ids: learnerIds }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Could not mark willingness');
+      }
+      return (await res.json()) as { marked: number; already_willing: number; unknown: number };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cdc-drive-assigned', driveId] });
+      qc.invalidateQueries({ queryKey: ['cdc-drive-responses', driveId] });
+      qc.invalidateQueries({ queryKey: ['cdc-drive-attendance', driveId] });
+      qc.invalidateQueries({ queryKey: ['cdc-drive-participants', driveId] });
+      qc.invalidateQueries({ queryKey: ['cdc-drive', driveId] });
+    },
+  });
+}
+
 /** Excel download URL for the assigned-learner view (same filters as the table). */
 export function cdcDriveAssignedExportUrl(driveId: string, params: UseCdcDriveAssignedParams = {}): string {
   const search = assignedSearchParams(params);
@@ -394,6 +426,11 @@ export function useTransitionCdcDriveWithNotify() {
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['cdc-drives'] });
       qc.invalidateQueries({ queryKey: ['cdc-drive', result.data.id] });
+      // Drive-day screens gate their actions on the status they were served with.
+      qc.invalidateQueries({ queryKey: ['cdc-drive-attendance', result.data.id] });
+      qc.invalidateQueries({ queryKey: ['cdc-drive-selection', result.data.id] });
+      qc.invalidateQueries({ queryKey: ['cdc-drive-participants', result.data.id] });
+      qc.invalidateQueries({ queryKey: ['cdc-coordinating-drives'] });
     },
   });
 }

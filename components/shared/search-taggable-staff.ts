@@ -156,3 +156,28 @@ export function makeRecruitmentPeopleSearch() {
       .map(({ rank: _rank, ...person }) => person);
   };
 }
+
+/**
+ * Institution team members PLUS one named person who may be tagged whatever
+ * their college — the person who raised a booking. A cross-college booker is
+ * not in the resource's staff directory, so without this they could never be
+ * offered even though the server allows the tag
+ * (fn_can_be_tagged_on_reservation). Offered first when they match the query,
+ * and never duplicated if the directory also returns them.
+ */
+export function makeInstitutionStaffSearchWith(
+  institutionId: string | null | undefined,
+  extra: TaggablePerson | null | undefined,
+) {
+  return async (query: string): Promise<TaggablePerson[]> => {
+    const staff = institutionId ? await search(query, institutionId) : [];
+    if (!extra) return staff;
+    const q = query.trim().toLowerCase();
+    const matches =
+      q === '' ||
+      extra.name.toLowerCase().includes(q) ||
+      (extra.subtitle ?? '').toLowerCase().includes(q);
+    if (!matches) return staff;
+    return [extra, ...staff.filter((p) => p.id !== extra.id)];
+  };
+}

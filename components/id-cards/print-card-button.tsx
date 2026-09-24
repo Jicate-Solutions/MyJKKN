@@ -35,6 +35,7 @@ import {
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   enqueuePrintJob,
+  requeuePrintJob,
   fetchIdCardTemplates,
   getLastTemplateId,
   resolveProfileIdByEmail,
@@ -311,7 +312,29 @@ export function PrintCardButton({
           : `ID card for ${personName} queued on “${choice.template.name}”`
       );
     } else if (outcome.status === 'already_queued') {
-      toast(`Already in the print queue`);
+      // Offer to replace the waiting job instead of a dead end.
+      toast(
+        (t) => (
+          <span className="flex items-center gap-3">
+            <span>Already in the print queue.</span>
+            <button
+              type="button"
+              className="rounded-md border px-2 py-1 text-xs font-medium hover:bg-muted"
+              onClick={async () => {
+                toast.dismiss(t.id);
+                setSubmitting(true);
+                const again = await requeuePrintJob(resolvedProfileId, choice.template.id);
+                setSubmitting(false);
+                if (again.status === 'queued') toast.success(`Re-queued ID card for ${personName}`);
+                else toast.error(again.status === 'failed' ? again.message : 'Could not re-queue');
+              }}
+            >
+              Cancel &amp; re-queue
+            </button>
+          </span>
+        ),
+        { duration: 8000 }
+      );
     } else {
       toast.error(outcome.message);
     }

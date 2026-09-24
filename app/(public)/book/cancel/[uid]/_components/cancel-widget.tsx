@@ -15,6 +15,10 @@
 // Light + dark are both painted explicitly here; the page's `colorScheme`
 // viewport export makes the browser's own canvas match, so nothing shows
 // through around the column on a tall phone.
+//
+// 'too-close': an interview-link booking inside its last two hours. The page
+// opens in it, or the action refuses while the page sits open — the window can
+// close under the visitor. Either way the cancel form goes (#11).
 
 import { useState, useSyncExternalStore, useTransition } from 'react';
 import Link from 'next/link';
@@ -53,7 +57,7 @@ const CARD =
 const EYEBROW =
   'text-[11px] font-semibold uppercase tracking-[0.16em] text-[#0b6d41] dark:text-[#4fcb92]';
 
-export type CancelPageState = 'invalid' | 'already-cancelled' | 'past' | 'confirm';
+export type CancelPageState = 'invalid' | 'already-cancelled' | 'past' | 'too-close' | 'confirm';
 
 interface CancelWidgetProps {
   uid: string;
@@ -64,6 +68,8 @@ interface CancelWidgetProps {
   startTime: string; // ISO; empty when state is 'invalid'
   /** Wave-3 lifecycle: free-text policy from the meeting type, or null. */
   cancellationPolicy?: string | null;
+  /** What to tell a candidate inside the change cutoff (#11); the server owns the wording. */
+  tooCloseMessage?: string;
 }
 
 export function CancelWidget({
@@ -74,11 +80,13 @@ export function CancelWidget({
   hostName,
   startTime,
   cancellationPolicy,
+  tooCloseMessage: serverTooCloseMessage = '',
 }: CancelWidgetProps) {
   const [state, setState] = useState<CancelPageState | 'cancelled'>(initialState);
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [tooCloseMessage, setTooCloseMessage] = useState(serverTooCloseMessage);
 
   // The viewer's own zone, resolved post-hydration. IST until then.
   const tz = useSyncExternalStore(subscribeToNothing, readBrowserZone, readServerZone);
@@ -109,6 +117,9 @@ export function CancelWidget({
       const result = await cancelAsAttendee(uid, token, reason);
       if (result.success) {
         setState('cancelled');
+      } else if (result.tooClose) {
+        setTooCloseMessage(result.error || serverTooCloseMessage);
+        setState('too-close');
       } else {
         setError(result.error ?? 'Could not cancel the booking. Please try again.');
       }
@@ -193,6 +204,36 @@ export function CancelWidget({
               </p>
             </div>
             <BookAgainLink />
+          </>
+        )}
+
+        {state === 'too-close' && (
+          <>
+            <p className="mt-2 text-sm text-[#12261D]/60 dark:text-[#e8f0ea]/60">
+              Your booking stays as it is.
+            </p>
+            <div className={`mt-5 px-4 py-5 ${CARD}`} role="status">
+              <p className="text-base font-semibold">{tooCloseMessage}</p>
+              {startTime && (
+                <p className="mt-2 flex items-start gap-2 text-sm font-medium">
+                  <CalendarDays
+                    className="mt-0.5 h-4 w-4 shrink-0 text-[#0b6d41] dark:text-[#4fcb92]"
+                    aria-hidden
+                  />
+                  <span>
+                    {whenLong(startTime)}
+                    <span className="ml-1 font-normal text-[#12261D]/55 dark:text-[#e8f0ea]/55">
+                      {zoneLabel(startTime)}
+                    </span>
+                  </span>
+                </p>
+              )}
+              {meetingTitle && (
+                <p className="mt-1 text-sm text-[#12261D]/75 dark:text-[#e8f0ea]/75">
+                  <span className="font-medium">{meetingTitle}</span> with {hostName}
+                </p>
+              )}
+            </div>
           </>
         )}
 

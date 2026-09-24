@@ -211,6 +211,14 @@ const PUBLIC_PATHS_SET = new Set([
   //                EXACT path, not a prefix: '/events' as a prefix would
   //                unauthenticate the entire module.
   '/employers/submit', // CDC employer self-submit vacancy form — public, no login
+  '/book-interview', // The shared interview booking link (Director #3, Sep 2026) —
+  //                a candidate off the public internet books a hiring
+  //                conversation here, so it must load with no session. Lives
+  //                under app/(public)/book-interview/, but as with '/programmes'
+  //                above, the route group does not make it reachable; this
+  //                entry does. EXACT path, no '/book-interview/' prefix: the
+  //                page has no sub-paths. (Not covered by '/book/' below — that
+  //                prefix needs the slash.) Its APIs sit under /api/public/.
   '/api/admission/leads/refer', // Agent referral API
   '/api/admission/leads/inbound' // Inbound webhook API
 ]);
@@ -277,9 +285,25 @@ const PUBLIC_PATH_PREFIXES = [
   //        course tables REVOKE from anon, so these routes are the only public
   //        path to that data and they project columns explicitly — no tenant ids
   //        reach the browser.
+  '/api/public/careers/', // Public job listings + external apply for jkkn.ac.in
+  //        (spec 2026-09-21-public-careers-api-design). Service-role routes with a
+  //        column whitelist, an origin allowlist and a per-IP limit; the HR tables
+  //        themselves stay closed to anon.
 ];
 
 // Regex for static assets - single check instead of multiple endsWith
+// Service-worker scripts: same-origin, `.js`, and therefore caught by
+// STATIC_ASSET_PATTERN below — but they must be revalidated against origin on
+// every update check, never served from the CDN. Registered at:
+// /sw.js (components/pwa/pwa-provider.tsx), /sw-dashboard.js
+// (components/dashboard/push-subscribe-button.tsx), /parent-sw.js
+// (components/parent/parent-sw-register.tsx).
+const SERVICE_WORKER_PATHS = new Set([
+  '/sw.js',
+  '/sw-dashboard.js',
+  '/parent-sw.js'
+]);
+
 const STATIC_ASSET_PATTERN =
   /^\/(_next|icons)|\.(?:js|css|png|ico|svg|json|xml|html|woff2?)$/;
 
@@ -400,6 +424,17 @@ export async function proxy(request: NextRequest) {
       // Cache-Control header in-route (e.g. /api/parent/attachment).
       if (currentPath.startsWith('/api')) {
         res.headers.set('Cache-Control', 'private, no-store, max-age=0, must-revalidate');
+      } else if (SERVICE_WORKER_PATHS.has(currentPath)) {
+        // A service-worker script must never be CDN-cached. next.config.ts
+        // already declares `no-cache, no-store, must-revalidate` for /sw.js,
+        // but this branch runs after it and silently overwrote it: /sw.js
+        // matches STATIC_ASSET_PATTERN (any path ending in `.js`), so it was
+        // being served `public, s-maxage=30, stale-while-revalidate=60`.
+        // Measured live on 2026-09-18: `x-vercel-cache: HIT`, `age: 11071`
+        // — a three-hour-old worker script, i.e. a whole deploy's worth of
+        // clients revalidating against a stale precache manifest, and an
+        // update check that can be answered by the edge instead of origin.
+        res.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
       } else {
         res.headers.set('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=60');
       }

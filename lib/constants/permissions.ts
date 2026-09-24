@@ -2090,6 +2090,17 @@ export const PERMISSION_CATEGORIES = [
       // button that always fails. Renaming or removing either of these two
       // closes the department status review queue on /solutions/departments.
       { key: 'solutions.societal.approve', label: 'Approve Community Engagements' },
+      // Joint initiatives (2026-09-18). One community initiative can be run by
+      // several departments across colleges; each named department confirms its
+      // OWN part, with hours. This key gates the UPDATE policy on
+      // `sh_community_engagement_participants`
+      // (20261226113000_community_engagement_joint_departments.sql), paired
+      // there with `department_id = sh_user_department_id()` so the key alone
+      // never lets one department confirm on another's behalf. Leaving it
+      // unregistered would make confirmation permanently admin-only, and the
+      // shared-credit rule it protects would count every department a lead
+      // chose to name.
+      { key: 'solutions.societal.confirm', label: 'Confirm Community Engagement Participation' },
 
       // Settings (tier-2 chip-leak sweep 2026-04-27)
       { key: 'solutions.settings.view', label: 'View Solutions Settings' }
@@ -2262,6 +2273,14 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.fees.config', label: 'Configure Fee Structure' },
       { key: 'campus_living.fees.waive', label: 'Waive Fee' },
       { key: 'campus_living.fees.refund', label: 'Refund Fee' },
+
+      // Billing Audit — hostel-learner bill coverage, fee-band and upgrade
+      // audit (/campus-living/billing-audit). Granted by migration
+      // 20260922120000 to hostel_office, chief_warden, executive_admin_officer,
+      // ceo, managing_director and accounts. Wardens deliberately excluded —
+      // this reads every hostel learner's band fee and outstanding balance.
+      { key: 'campus_living.billing_audit.view', label: 'View Hostel Billing Audit' },
+      { key: 'campus_living.billing_audit.export', label: 'Export Hostel Billing Audit' },
 
       // Deposits
       { key: 'campus_living.deposits.view', label: 'View Deposits' },

@@ -1068,7 +1068,12 @@ export class RecruitmentService {
         experience_months: application.experience_months,
       },
       is_emergency: options?.is_emergency ?? false,
-      source: application.applicant_user_id ? 'public_careers_page' : 'hr_submission',
+      // Website applicants have no account (applicant_user_id NULL) but ARE careers-page
+      // candidates; keying on the user id alone mislabelled every one as an HR submission.
+      source:
+        application.source === 'external_website' || application.applicant_user_id
+          ? 'public_careers_page'
+          : 'hr_submission',
       submitted_by: promotedBy,
     } as HRRecruitmentCandidateInsert);
 
@@ -1337,7 +1342,7 @@ export class RecruitmentService {
     const [appsRes, candidates] = await Promise.all([
       supabase
         .from('hr_job_applications')
-        .select('id, status, submitted_at, reviewed_at, applicant_user_id')
+        .select('id, status, submitted_at, reviewed_at, source')
         .eq('job_id', jobId)
         .limit(1000),
       this.listCandidatesForJob(supabase, jobId),
@@ -1348,18 +1353,18 @@ export class RecruitmentService {
       status: JobApplicationStatus;
       submitted_at: string;
       reviewed_at: string | null;
-      applicant_user_id: string | null;
+      source: 'internal' | 'external_website';
     };
     const apps = (appsRes.data ?? []) as AppRow[];
 
     const byApp: Record<JobApplicationStatus, number> = {
       pending: 0, reviewed: 0, shortlisted: 0, rejected: 0, promoted: 0,
     };
-    let withAccount = 0;
+    let website = 0;
     const screenDays: number[] = [];
     for (const a of apps) {
       byApp[a.status] += 1;
-      if (a.applicant_user_id) withAccount += 1;
+      if (a.source === 'external_website') website += 1;
       if (a.reviewed_at) {
         const days =
           (new Date(a.reviewed_at).getTime() - new Date(a.submitted_at).getTime()) / 86400000;
@@ -1385,7 +1390,7 @@ export class RecruitmentService {
       applications_total: apps.length,
       by_application_status: byApp,
       by_candidate_status: byCandidate,
-      source_split: { with_account: withAccount, anonymous: apps.length - withAccount },
+      source_split: { internal: apps.length - website, website },
       avg_days_to_screen: avg(screenDays),
       avg_days_in_approval: avg(approvalDays),
     };

@@ -613,6 +613,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "FileText",
     "children": [
       {
+        "path": "/admin/adoption",
+        "label": "Feature adoption",
+        "iconName": "TrendingUp",
+        "children": []
+      },
+      {
         "path": "/admin/ai-models",
         "label": "AI Models",
         "iconName": "Sparkles",
@@ -719,6 +725,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/admin/loops/charters",
             "label": "Loop Charters",
             "iconName": "ClipboardCheck",
+            "children": []
+          },
+          {
+            "path": "/admin/loops/live",
+            "label": "Live Loops",
+            "iconName": "Activity",
             "children": []
           },
           {
@@ -1705,6 +1717,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/adoption",
+    "label": "Adoption",
+    "iconName": "TrendingUp",
+    "children": []
+  },
+  {
     "path": "/ai-pulse",
     "label": "Ai Pulse",
     "iconName": "FileText",
@@ -2569,6 +2587,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/campus-living/billing-audit",
+        "label": "Billing Audit",
+        "iconName": "Wallet",
+        "children": [
+          {
+            "path": "/campus-living/billing-audit/learners",
+            "label": "Learners",
+            "iconName": "GraduationCap",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/campus-living/blocks",
         "label": "Blocks",
         "iconName": "Building",
@@ -3386,6 +3417,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Drives",
         "iconName": "FileText",
         "children": [
+          {
+            "path": "/cdc/drives/coordinating",
+            "label": "Coordinating",
+            "iconName": "ClipboardCheck",
+            "children": []
+          },
           {
             "path": "/cdc/drives/new",
             "label": "New",
@@ -4609,6 +4646,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/hr/leave/eligibility",
+            "label": "Eligibility",
+            "iconName": "CalendarOff",
+            "children": []
+          },
+          {
             "path": "/hr/leave/encashment",
             "label": "Encashment",
             "iconName": "CalendarOff",
@@ -4783,6 +4826,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/hr/staff-photos",
+        "label": "Staff Photos",
+        "iconName": "Users",
+        "children": []
       },
       {
         "path": "/hr/staff-specializations",
@@ -5862,6 +5911,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
   {
     "path": "/my-kit",
     "label": "My Kit",
+    "iconName": "FileText",
+    "children": []
+  },
+  {
+    "path": "/my-photo",
+    "label": "My Photo",
     "iconName": "FileText",
     "children": []
   },
@@ -7010,6 +7065,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Paradigm Shift",
         "iconName": "FileText",
         "children": [
+          {
+            "path": "/solutions/paradigm-shift/confirmations",
+            "label": "Confirmations",
+            "iconName": "FileText",
+            "children": []
+          },
           {
             "path": "/solutions/paradigm-shift/leaderboard",
             "label": "Leaderboard",

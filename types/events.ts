@@ -401,7 +401,7 @@ export interface UpdateEventDto extends Partial<CreateEventDto> {
   status?: EventStatus;
   registration_open_date?: string;
   registration_close_date?: string;
-  hero_image_url?: string;
+  hero_image_url?: string | null;
   hero_video_url?: string;
   route_config?: Record<string, unknown>;
   // Deliberately no `cancellation_reason`: it is not a column on `events`. See

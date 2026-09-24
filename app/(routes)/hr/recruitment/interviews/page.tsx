@@ -27,6 +27,8 @@ import { useInterviews } from '@/hooks/hr/use-recruitment-interviews';
 import { useCandidates, useJobs } from '@/hooks/hr/use-recruitment';
 import { InterviewStatusBadge } from '@/features/hr/recruitment/interview-status-badge';
 import { ScheduleInterviewDialog } from '@/features/hr/recruitment/schedule-interview-dialog';
+import { CallbackRequestsCard } from './_components/callback-requests-card';
+import { ClosedPostInterviewsCard } from './_components/closed-post-interviews-card';
 import {
   INTERVIEW_MODE_LABELS,
   type InterviewStatus,
@@ -123,6 +125,10 @@ export default function InterviewsListPage() {
             Schedule Interview
           </Button>
         </div>
+
+        {/* Interview booking link: who to ring (#14), posts no longer open (#13) */}
+        <CallbackRequestsCard />
+        <ClosedPostInterviewsCard />
 
         {/* Status filter tabs */}
         <div className="flex flex-wrap gap-1.5 border-b pb-2">

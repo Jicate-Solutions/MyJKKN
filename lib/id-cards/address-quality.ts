@@ -32,24 +32,23 @@
 // ============================================================================
 
 /**
- * The default card back renders ADDRESS through `backInfoRow`, which cuts at 60
- * characters (lib/id-cards/render-card.tsx). This is the TIGHTEST cut any back
- * applies, and it is reported as a flag on the assessment — but it deliberately
- * does NOT raise an issue. Measured on production 2026-08-14, 4,194 of 4,825
- * active learners (86.9%) are over 60, because a correctly-entered Tamil Nadu
- * address is simply longer than that once the taluk, district, state and PIN
- * are joined on. A rule that fires on seven learners in eight is a renderer
- * problem being mis-filed as a data problem, and it would bury the 373 records
- * that actually need a person.
+ * Printable address capacity (re-measured 2026-09-23 for the wrapping renderer).
+ *
+ * The card no longer CUTS an address at a character count: the value wraps in
+ * its box (476 px beside the icon column) and only shrinks from the 26 px value
+ * size towards a 16 px floor when it must. Two thresholds remain useful:
+ *
+ *   DEFAULT_BACK_MAX — up to here the address prints at the full value size in
+ *     ≤ 3 lines. Beyond it the renderer starts shrinking the type. Reported as
+ *     a flag only (a correctly entered Tamil Nadu address with taluk + district
+ *     is often over 80), never an issue.
+ *   CUSTOM_BACK_MAX — past this the type is well below the value size and the
+ *     card starts to look crowded; the record needs a person to shorten it. This raises
+ *     `over_printable_length`.
  */
-export const PRINTABLE_ADDRESS_DEFAULT_BACK_MAX = 60;
+export const PRINTABLE_ADDRESS_DEFAULT_BACK_MAX = 70;
 
-/**
- * A template-designed back places ADDRESS as a free overlay element, cut at 80
- * characters. Past this the address is cut on every layout the repo ships, so
- * this is the width that raises `over_printable_length`.
- */
-export const PRINTABLE_ADDRESS_CUSTOM_BACK_MAX = 80;
+export const PRINTABLE_ADDRESS_CUSTOM_BACK_MAX = 100;
 
 /** The five columns the card back joins, in the order it joins them. */
 export interface AddressParts {
@@ -229,14 +228,21 @@ const containsWord = (haystack: string, needle: string): boolean => {
 };
 
 /**
- * Join the five columns exactly the way the card back does
- * (lib/id-cards/render-data.ts): trim each part, drop the empties, comma-join.
+ * Join the columns exactly the way the card back does
+ * (lib/id-cards/render-data.ts): `Street, Taluk, District, State - PIN`. Each part is
+ * trimmed and empties are dropped; the taluk IS printed (final format 2026-09-23).
  */
 export function joinPrintableAddress(parts: AddressParts): string {
-  return [parts.street, parts.taluk, parts.district, parts.state, parts.pinCode]
+  // District carries the "(DT)" tag on the card (2026-09-23) so the reader
+  // can tell "NAMAKKAL, NAMAKKAL (DT)" (town, district) apart at a glance.
+  // FINAL card address (2026-09-23): Street, Taluk, District, State - PIN.
+  const body = [parts.street, parts.taluk, parts.district, parts.state]
     .map(clean)
     .filter(Boolean)
     .join(', ');
+  const pinCode = clean(parts.pinCode);
+  if (!pinCode) return body;
+  return body ? `${body} - ${pinCode}` : pinCode;
 }
 
 export interface AddressAssessment {
@@ -252,7 +258,7 @@ export interface AddressAssessment {
   severity: AddressIssueSeverity | null;
   /** Every distinct PIN code seen, when they disagree. Empty otherwise. */
   conflictingPinCodes: string[];
-  /** Which parts the street repeats: 'district' | 'state' | 'taluk' | 'PIN code'. */
+  /** Which parts the street repeats: 'district' | 'state' | 'PIN code'. */
   duplicatedParts: string[];
   /** True when the address is over the tighter, default-back limit. */
   overDefaultBack: boolean;
@@ -305,7 +311,6 @@ export function assessAddress(parts: AddressParts): AddressAssessment {
   const duplicatedParts: string[] = [];
   if (district && containsWord(street, district)) duplicatedParts.push('district');
   if (state && containsWord(street, state)) duplicatedParts.push('state');
-  if (taluk && containsWord(street, taluk)) duplicatedParts.push('taluk');
   if (pinCode && streetPinCodes.includes(pinCode)) duplicatedParts.push('PIN code');
   if (duplicatedParts.length > 0) issues.add('duplicated_part');
 

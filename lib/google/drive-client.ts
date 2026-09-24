@@ -47,7 +47,32 @@ export function isDriveConfigured(): boolean {
   );
 }
 
-export function createDriveClient() {
+type DriveClient = ReturnType<typeof google.drive>;
+
+// Reused across requests in a warm server process. Keyed on the credentials in
+// use, so a changed env (or a switch between the two auth paths) builds a new one.
+let cachedClient: { key: string; client: DriveClient } | null = null;
+
+function credentialKey(): string {
+  return hasOAuth2Credentials()
+    ? `oauth:${process.env.GOOGLE_DRIVE_OAUTH_CLIENT_ID}:${(process.env.GOOGLE_DRIVE_REFRESH_TOKEN ?? '').slice(-12)}`
+    : `jwt:${process.env.GOOGLE_DRIVE_CLIENT_EMAIL}:${process.env.GOOGLE_DRIVE_IMPERSONATE_SUBJECT ?? ''}`;
+}
+
+/**
+ * The shared Drive client. The auth object caches its access token (and
+ * refreshes it on expiry), so reusing the client removes a token round trip
+ * from every Drive call after the first.
+ */
+export function createDriveClient(): DriveClient {
+  const key = credentialKey();
+  if (cachedClient && cachedClient.key === key) return cachedClient.client;
+  const client = buildDriveClient();
+  cachedClient = { key, client };
+  return client;
+}
+
+function buildDriveClient(): DriveClient {
   if (hasOAuth2Credentials()) {
     const oauth2 = new google.auth.OAuth2(
       process.env.GOOGLE_DRIVE_OAUTH_CLIENT_ID,

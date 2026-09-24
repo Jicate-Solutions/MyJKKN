@@ -70,6 +70,13 @@ export interface GrantAndNotifyResult {
   grantError?: { code?: string; message?: string };
   /** User ids tagged on the comment after this call (new and existing). */
   tagged: string[];
+  /**
+   * User ids whose tag THIS call created — the rows the insert returned.
+   * Existing tags are skipped by the conflict rule and never appear here, and
+   * of two concurrent calls only one gets the row, so this is the one honest
+   * answer to "did somebody just get tagged?" whatever happens to the alert.
+   */
+  created: string[];
   /** Told for the first time by this call. */
   notified: string[];
   /** Already told; this call sent a reminder. */
@@ -85,6 +92,7 @@ export interface GrantAndNotifyResult {
 export async function grantAndNotifyTags(o: GrantAndNotifyOptions): Promise<GrantAndNotifyResult> {
   const result: GrantAndNotifyResult = {
     tagged: [],
+    created: [],
     notified: [],
     reminded: [],
     recentlyNotified: [],
@@ -92,15 +100,24 @@ export async function grantAndNotifyTags(o: GrantAndNotifyOptions): Promise<Gran
   };
 
   // 1. Grant. Idempotent: an existing tag is left as it is.
-  const { error: grantError } = await o.db.from(o.table).upsert(
-    o.userIds.map((id) => ({
-      comment_id: o.commentId,
-      [o.parentColumn]: o.parentId,
-      mentioned_user_id: id,
-    })),
-    { onConflict: 'comment_id,mentioned_user_id', ignoreDuplicates: true },
-  );
+  //    The insert hands back only the rows it created (ON CONFLICT DO NOTHING
+  //    RETURNING). Safe under RLS: the insert policy already requires the read
+  //    policy's own check, so a row that may be inserted may be returned.
+  const { data: createdRows, error: grantError } = await o.db
+    .from(o.table)
+    .upsert(
+      o.userIds.map((id) => ({
+        comment_id: o.commentId,
+        [o.parentColumn]: o.parentId,
+        mentioned_user_id: id,
+      })),
+      { onConflict: 'comment_id,mentioned_user_id', ignoreDuplicates: true },
+    )
+    .select('mentioned_user_id');
   if (grantError) return { ...result, grantError };
+  result.created = ((createdRows ?? []) as { mentioned_user_id: string }[]).map(
+    (r) => r.mentioned_user_id,
+  );
 
   // 2. Read back what is actually granted — new rows and ones that already
   //    existed — through the session, so only tags the caller may see count.

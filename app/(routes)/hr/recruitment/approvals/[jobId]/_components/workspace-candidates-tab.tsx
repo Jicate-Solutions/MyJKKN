@@ -389,6 +389,11 @@ function CandidateRow({
             <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${meta.badge}`}>
               {meta.label}
             </Badge>
+            {app?.source === 'external_website' && (
+              <Badge variant="outline" className="border-sky-300 bg-sky-50 text-[10px] px-1.5 py-0 text-sky-800 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-300">
+                Website
+              </Badge>
+            )}
             {candidate?.is_emergency && (
               <Badge variant="outline" className="border-red-500 text-red-700 dark:text-red-300 text-[10px] px-1.5 py-0 flex items-center gap-1">
                 <AlertTriangle className="h-3 w-3" />

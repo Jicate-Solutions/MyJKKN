@@ -19,11 +19,13 @@ export const dynamic = 'force-dynamic';
 // alert are one resumable step (grantAndNotifyTags): a tag whose alert failed
 // is finished by the next request for that person — the author's Resend.
 //
-// Tagging grants the tagged person read access to this booking's thread, and
-// only people of the booking's institution can be tagged. Untagging is a
-// direct, RLS-checked delete from the browser (no notification to send). See
-// supabase/migrations/20261224090000_resource_reservation_comment_mentions.sql
-// and 20261224103700_reservation_comment_mentions_same_institution_untag.sql.
+// Tagging grants the tagged person read access to this booking's thread. Only
+// people of the booking's institution — or the person who raised the booking,
+// whatever their college — can be tagged. Untagging is a direct, RLS-checked
+// delete from the browser (no notification to send). See
+// supabase/migrations/20261224090000_resource_reservation_comment_mentions.sql,
+// 20261224103700_reservation_comment_mentions_same_institution_untag.sql and
+// 20270206090100_reservation_comment_tag_booker_any_institution.sql.
 // ============================================================================
 
 import { NextResponse, type NextRequest } from 'next/server';
@@ -35,6 +37,7 @@ import {
 import { grantAndNotifyTags } from '@/lib/services/shared/comment-mention-alerts';
 import { commentWriteMessage } from '@/lib/services/shared/comment-threads';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
 
 const MOD = 'resource-management/reservation-comment-mentions';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -116,7 +119,8 @@ export async function POST(
     return NextResponse.json(
       {
         success: false,
-        error: "Only team members of this booking's institution can be tagged.",
+        error:
+          "Only the person who raised this booking or team members of its institution can be tagged.",
         skipped: ineligible.map((uid) => names.get(uid) ?? 'Unknown'),
       },
       { status: 400 },
@@ -172,6 +176,15 @@ export async function POST(
       };
     },
   });
+
+  // Adoption loop: count the use only when this call created a tag — repeats
+  // and reminders create nothing, and a new tag counts even if its alert is
+  // still to be retried. Recorded BEFORE the error branch: a tag that was
+  // saved and then failed its read-back is still a tag, and a retry would
+  // create nothing to count. `db` is the session client; the helper never throws.
+  if (outcome.created.length > 0) {
+    await recordFeatureUse(db, FEATURE_KEYS.RESOURCES_TAG_COLLEAGUE);
+  }
 
   if (outcome.grantError) {
     logger.error(MOD, 'Tag insert refused', {

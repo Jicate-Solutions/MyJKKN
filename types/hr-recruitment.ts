@@ -63,7 +63,8 @@ export type CandidateSource =
   | 'internal_transfer'
   | 'learner_graduate'
   | 'public_careers_page'
-  | 'email_ingest';
+  | 'email_ingest'
+  | 'interview_booking';
 
 export type PackageStatus =
   | 'proposed'
@@ -83,7 +84,11 @@ export interface HRRecruitmentCandidate {
   name: string;
   email: string;
   phone: string | null;
-  cvviz_url: string;                    // R3.4: CV link mandatory
+  // R3.4: CV link mandatory — except for a candidate the interview booking link
+  // created (source 'interview_booking'), who may arrive without one. Enforced by
+  // hr_recruitment_candidates_cv_required. Staff-created candidates still must
+  // supply it (RecruitmentService.createCandidate), so the Insert type stays string.
+  cvviz_url: string | null;
 
   role_category: RoleCategory;
   role_title: string;
@@ -293,6 +298,7 @@ export const CANDIDATE_SOURCE_LABELS: Record<CandidateSource, string> = {
   learner_graduate: 'Graduating Learner',
   public_careers_page: 'Public Career Page',
   email_ingest: 'Email (Auto-Ingest)',
+  interview_booking: 'Interview booking link',
 };
 
 // =====================================================================================
@@ -673,6 +679,9 @@ export const JOB_APPLICATION_STATUS_LABELS: Record<JobApplicationStatus, string>
   promoted: 'In Approval Pipeline',
 };
 
+/** 'external_website' = applied anonymously through /api/public/careers (jkkn.ac.in). */
+export type JobApplicationSource = 'internal' | 'external_website';
+
 export interface HRJobApplication {
   id: string;
   job_id: string;
@@ -703,6 +712,11 @@ export interface HRJobApplication {
   applicant_user_id: string | null;
   /** Set when a shortlisted application is promoted into the approval pipeline. */
   promoted_candidate_id: string | null;
+  source: JobApplicationSource;
+  consent_at: string | null;
+  utm_source: string | null;
+  confirmation_email_sent_at: string | null;
+  confirmation_email_error: string | null;
   submitted_at: string;
   created_at: string;
   updated_at: string;
@@ -876,8 +890,8 @@ export interface JobAnalytics {
   applications_total: number;
   by_application_status: Record<JobApplicationStatus, number>;
   by_candidate_status: Partial<Record<CandidateStatus, number>>;
-  /** Applications submitted by a logged-in account vs anonymous careers-page. */
-  source_split: { with_account: number; anonymous: number };
+  /** Applications keyed in inside MyJKKN vs submitted from the public website (source column). */
+  source_split: { internal: number; website: number };
   /** Mean days from application submit to first screening decision. */
   avg_days_to_screen: number | null;
   /** Mean days a promoted candidate spent (or has spent) in the approval chain. */
