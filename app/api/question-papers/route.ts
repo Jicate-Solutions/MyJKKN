@@ -61,7 +61,9 @@ export async function GET(request: NextRequest) {
     //   HOD, another department's program → only the courses their department
     //     teaches there (allied / generic elective / non-major)
     //   super_admin / admin w/o plans → the whole institution
-    const qpScope = await resolveQpScope(supabase, user.id, scope.isSuperAdmin, scope.role);
+    const qpScope = await resolveQpScope(supabase, user.id, scope.isSuperAdmin, scope.role, {
+      includeDepartmentOfferings: true,
+    });
     if (qpScope.level === 'course') {
       if (qpScope.courseCodes.length === 0) return NextResponse.json({ data: [] });
       params.course_code = qpScope.courseCodes.join(',');

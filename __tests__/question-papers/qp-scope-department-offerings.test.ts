@@ -56,18 +56,40 @@ const db: Record<string, Row[]> = {
   ],
 };
 
-/** Minimal PostgREST-style fake: eq / in / lte / gte filters, then await or maybeSingle. */
-function fakeSupabase(roleKeys: string[]) {
+/**
+ * Minimal PostgREST-style fake: eq / in / lte / gte filters, then await or
+ * maybeSingle. Supports the one embed the resolver uses —
+ * `staff_plans!inner(...)` on staff_plan_courses, with `staff_plans.<col>`
+ * filters applied to the embedded plan (inner join: unmatched rows drop).
+ * `failTables` makes a read return { data: null, error } like supabase-js does.
+ */
+function fakeSupabase(roleKeys: string[], failTables: string[] = [], data = db) {
   const query = (table: string) => {
-    let rows = [...(db[table] ?? [])];
+    let rows = [...(data[table] ?? [])];
+    const field = (r: Row, col: string) => {
+      const [head, tail] = col.split('.');
+      return tail ? r[head]?.[tail] : r[col];
+    };
     const q: any = {
-      select: () => q,
-      eq: (col: string, v: any) => ((rows = rows.filter((r) => r[col] === v)), q),
-      in: (col: string, vs: any[]) => ((rows = rows.filter((r) => vs.includes(r[col]))), q),
-      lte: (col: string, v: any) => ((rows = rows.filter((r) => r[col] <= v)), q),
-      gte: (col: string, v: any) => ((rows = rows.filter((r) => r[col] >= v)), q),
+      select: (cols: string) => {
+        if (/staff_plans!inner/.test(cols ?? '')) {
+          rows = rows
+            .map((r) => ({ ...r, staff_plans: data.staff_plans.find((p) => p.id === r.staff_plan_id) }))
+            .filter((r) => r.staff_plans);
+        }
+        return q;
+      },
+      eq: (col: string, v: any) => ((rows = rows.filter((r) => field(r, col) === v)), q),
+      in: (col: string, vs: any[]) => ((rows = rows.filter((r) => vs.includes(field(r, col)))), q),
+      lte: (col: string, v: any) => ((rows = rows.filter((r) => field(r, col) <= v)), q),
+      gte: (col: string, v: any) => ((rows = rows.filter((r) => field(r, col) >= v)), q),
       maybeSingle: async () => ({ data: rows[0] ?? null, error: null }),
-      then: (resolve: any) => resolve({ data: rows, error: null }),
+      then: (resolve: any) =>
+        resolve(
+          failTables.includes(table)
+            ? { data: null, error: { code: '500', message: `${table} failed` } }
+            : { data: rows, error: null }
+        ),
     };
     return q;
   };
@@ -77,9 +99,11 @@ function fakeSupabase(roleKeys: string[]) {
   };
 }
 
+const withOfferings = { includeDepartmentOfferings: true };
+
 describe('resolveQpScope — HOD department offerings', () => {
   it('opens only the department courses in another department\'s program', async () => {
-    const scope = await resolveQpScope(fakeSupabase(['hod']), 'u-hod', false, 'hod');
+    const scope = await resolveQpScope(fakeSupabase(['hod']), 'u-hod', false, 'hod', withOfferings);
     expect(scope.level).toBe('program');
     expect(scope.programCodes).toEqual(['UZO']);
     const uch = departmentCourseCodesFor(scope, 'UCH', 1).sort();
@@ -91,19 +115,61 @@ describe('resolveQpScope — HOD department offerings', () => {
   });
 
   it('does not duplicate the HOD\'s own programs as offerings', async () => {
-    const scope = await resolveQpScope(fakeSupabase(['hod']), 'u-hod', false, 'hod');
+    const scope = await resolveQpScope(fakeSupabase(['hod']), 'u-hod', false, 'hod', withOfferings);
     expect(departmentCourseCodesFor(scope, 'UZO')).toEqual([]);
   });
 
   it('gives the course tier no department offerings', async () => {
-    const scope = await resolveQpScope(fakeSupabase(['faculty']), 'u-peer', false, 'faculty');
+    const scope = await resolveQpScope(fakeSupabase(['faculty']), 'u-peer', false, 'faculty', withOfferings);
     expect(scope.level).toBe('course');
     expect(scope.departmentOfferings).toEqual([]);
   });
 
   it('super admin carries an empty offerings list', async () => {
-    const scope = await resolveQpScope(fakeSupabase([]), 'u-x', true, null);
+    const scope = await resolveQpScope(fakeSupabase([]), 'u-x', true, null, withOfferings);
     expect(scope.departmentOfferings).toEqual([]);
+  });
+
+  it('is OFF unless asked for — mark entry (no flag) gets no offerings', async () => {
+    // Mark entry's guard checks programCodes alone; an offering there would be
+    // a program in the dropdown that 403s on every course.
+    const scope = await resolveQpScope(fakeSupabase(['hod']), 'u-hod', false, 'hod', {
+      activeWithin: { from: '2026-09-01', to: '2026-09-30' },
+    });
+    expect(scope.level).toBe('program');
+    expect(scope.departmentOfferings).toEqual([]);
+  });
+
+  it('finds the department through departments.head_of_department_id too', async () => {
+    const data = {
+      ...db,
+      staff: db.staff.map((s) => (s.id === 'st-hod' ? { ...s, department_id: null } : s)),
+      departments: db.departments.map((d) =>
+        d.id === 'd-zoo' ? { ...d, head_of_department_id: 'u-hod' } : d
+      ),
+    };
+    const scope = await resolveQpScope(fakeSupabase(['hod'], [], data), 'u-hod', false, 'hod', withOfferings);
+    expect(departmentCourseCodesFor(scope, 'UCH', 1).sort()).toEqual(['24UZOGE1', '24UZONM2']);
+  });
+
+  it('logs a failed read instead of passing it off as "teaches nothing"', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const scope = await resolveQpScope(
+        fakeSupabase(['hod'], ['staff_plan_courses']),
+        'u-hod',
+        false,
+        'hod',
+        withOfferings
+      );
+      expect(scope.departmentOfferings).toEqual([]);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('staff_plan_courses read failed'),
+        expect.objectContaining({ userId: 'u-hod' })
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 

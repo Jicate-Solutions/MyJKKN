@@ -36,7 +36,7 @@ export interface QpScope {
   /**
    * HOD tier only: courses the HOD's department teaches into programs OUTSIDE
    * `programCodes` (allied / generic elective / non-major). Empty for every
-   * other tier.
+   * other tier, and empty unless the caller passed includeDepartmentOfferings.
    */
   departmentOfferings: DepartmentOffering[];
 }
@@ -112,6 +112,13 @@ export interface QpScopeOptions {
    * would hold the course in the same term anyway.
    */
   activeWithin?: { from?: string | null; to?: string | null };
+  /**
+   * QUESTION PAPERS ONLY. Also resolve `departmentOfferings` for an HOD — the
+   * courses their department teaches into OTHER programs. Off by default so a
+   * caller that does not honour offerings (mark entry, whose guard checks
+   * `programCodes` alone) never has other programs put in front of the user.
+   */
+  includeDepartmentOfferings?: boolean;
 }
 
 /**
@@ -231,7 +238,7 @@ export async function resolveQpScope(
 
   const level = pickLevel(courseCodes.length > 0);
   const departmentOfferings =
-    level === 'program'
+    level === 'program' && options.includeDepartmentOfferings
       ? await resolveDepartmentOfferings(
           supabase,
           userId,
@@ -247,12 +254,20 @@ export async function resolveQpScope(
 
 /**
  * Courses the HOD's department(s) teach, in active plans, into programs the HOD
- * does not already see in full. Department = departments.head_of_department_id
- * pointing at the user, plus the HOD's own staff.department_id.
+ * does not already see in full. Department = the HOD's own staff.department_id
+ * (the live source), plus any departments.head_of_department_id pointing at the
+ * user (kept for when that column is populated — migrations on main record it as
+ * NULL for every department today, so staff.department_id carries the feature).
+ *
+ * Scope limit: the department is resolved by id only. At CAS, Self-Financing and
+ * Aided each carry their own departments row, so staff filed under the OTHER
+ * half's department are not scanned here.
  *
  * Reads through the caller's own client, so RLS still applies: if a row is not
  * visible to the HOD the offering is simply absent (fails closed — the same as
- * before this existed). Never throws; any read error yields no offerings.
+ * before this existed). Never throws. A read ERROR also yields no offerings, but
+ * is logged, so "the department teaches nothing" and "the read failed" can be
+ * told apart in the server logs.
  */
 async function resolveDepartmentOfferings(
   supabase: any,
@@ -262,49 +277,53 @@ async function resolveDepartmentOfferings(
   windowStart: string,
   windowEnd: string
 ): Promise<DepartmentOffering[]> {
+  const warn = (step: string, error: unknown) =>
+    console.warn(`[qp-scope] department offerings: ${step} read failed`, { userId, error });
   try {
     const departmentIds = new Set<string>();
     if (ownDepartmentId) departmentIds.add(ownDepartmentId);
-    const { data: headed } = await supabase
+    const { data: headed, error: headedErr } = await supabase
       .from('departments')
       .select('id')
       .eq('head_of_department_id', userId);
+    if (headedErr) warn('departments', headedErr);
     for (const d of (headed ?? []) as any[]) if (d?.id) departmentIds.add(d.id);
     if (departmentIds.size === 0) return [];
 
-    const { data: deptStaff } = await supabase
+    const { data: deptStaff, error: staffErr } = await supabase
       .from('staff')
       .select('id')
       .in('department_id', [...departmentIds]);
+    if (staffErr) warn('staff', staffErr);
     const deptStaffIds = [...new Set((deptStaff ?? []).map((s: any) => s.id).filter(Boolean))];
     if (deptStaffIds.length === 0) return [];
 
-    const { data: spc } = await supabase
+    // Active plans only, filtered IN THE DATABASE through the inner join — never
+    // the department's all-time plan history, and no long list of plan ids in
+    // the query string.
+    const { data: rows, error: spcErr } = await supabase
       .from('staff_plan_courses')
-      .select('course_id, staff_plan_id')
-      .in('staff_id', deptStaffIds);
-    const planIds = [...new Set((spc ?? []).map((r: any) => r.staff_plan_id).filter(Boolean))];
-    if (planIds.length === 0) return [];
+      .select('course_id, staff_plans!inner(id, program_id, semester_id)')
+      .in('staff_id', deptStaffIds)
+      .eq('staff_plans.is_active', true)
+      .lte('staff_plans.start_date', windowEnd)
+      .gte('staff_plans.end_date', windowStart);
+    if (spcErr) warn('staff_plan_courses', spcErr);
+    const activeRows = ((rows ?? []) as any[]).filter((r) => r?.course_id && r?.staff_plans);
+    if (activeRows.length >= POSTGREST_ROW_CAP) {
+      console.warn('[qp-scope] department offerings: active plan rows hit the row cap', {
+        userId,
+        rows: activeRows.length,
+      });
+    }
+    if (activeRows.length === 0) return [];
 
-    const { data: plans } = await supabase
-      .from('staff_plans')
-      .select('id, program_id, semester_id')
-      .in('id', planIds)
-      .eq('is_active', true)
-      .lte('start_date', windowEnd)
-      .gte('end_date', windowStart);
-    const planById = new Map((plans ?? []).map((p: any) => [p.id, p]));
-    if (planById.size === 0) return [];
-
-    const activeRows = (spc ?? []).filter(
-      (r: any) => r.course_id && planById.has(r.staff_plan_id)
-    );
-    const courseIds = [...new Set(activeRows.map((r: any) => r.course_id))];
+    const courseIds = [...new Set(activeRows.map((r) => r.course_id))];
     const programIds = [
-      ...new Set([...planById.values()].map((p: any) => p.program_id).filter(Boolean)),
+      ...new Set(activeRows.map((r) => r.staff_plans.program_id).filter(Boolean)),
     ];
     const semesterIds = [
-      ...new Set([...planById.values()].map((p: any) => p.semester_id).filter(Boolean)),
+      ...new Set(activeRows.map((r) => r.staff_plans.semester_id).filter(Boolean)),
     ];
 
     const [coursesRes, progsRes, semsRes] = await Promise.all([
@@ -312,16 +331,21 @@ async function resolveDepartmentOfferings(
       supabase.from('programs').select('id, program_id').in('id', programIds),
       supabase.from('semesters').select('id, semester_order').in('id', semesterIds),
     ]);
+    if (coursesRes.error) warn('courses', coursesRes.error);
+    if (progsRes.error) warn('programs', progsRes.error);
+    if (semsRes.error) warn('semesters', semsRes.error);
     const courseCodeById = new Map((coursesRes.data ?? []).map((c: any) => [c.id, c.course_code]));
     const programCodeById = new Map((progsRes.data ?? []).map((p: any) => [p.id, p.program_id]));
     const semesterById = new Map((semsRes.data ?? []).map((s: any) => [s.id, s.semester_order]));
 
     const seen = new Set<string>();
     const offerings: DepartmentOffering[] = [];
-    for (const r of activeRows as any[]) {
-      const plan: any = planById.get(r.staff_plan_id);
-      const programCode = programCodeById.get(plan?.program_id) as string | undefined;
-      const semesterOrder = semesterById.get(plan?.semester_id);
+    for (const r of activeRows) {
+      const plan = r.staff_plans;
+      const programCode = programCodeById.get(plan.program_id) as string | undefined;
+      // A semester with no semester_order is skipped — the same rule the
+      // planned-scopes dropdown applies, so the two never disagree.
+      const semesterOrder = semesterById.get(plan.semester_id);
       const courseCode = courseCodeById.get(r.course_id) as string | undefined;
       if (!programCode || semesterOrder == null || !courseCode) continue;
       // Programs the HOD already sees in full need no per-course opening.
@@ -332,7 +356,11 @@ async function resolveDepartmentOfferings(
       offerings.push({ programCode, semesterNumber: Number(semesterOrder), courseCode });
     }
     return offerings;
-  } catch {
+  } catch (error) {
+    warn('unexpected', error);
     return [];
   }
 }
+
+/** PostgREST's default max-rows; a result this long may have been truncated. */
+const POSTGREST_ROW_CAP = 1000;

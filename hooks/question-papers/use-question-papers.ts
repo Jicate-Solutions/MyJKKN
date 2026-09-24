@@ -53,7 +53,9 @@ export function useQuestionPaperTemplates(institutionId: string | undefined) {
 export function usePlannedScopes(
   institutionId: string | undefined,
   academicYearId: string | undefined,
-  examStartDate: string | undefined
+  examStartDate: string | undefined,
+  /** Question Papers only: add the HOD's department offerings (see qp-scope). */
+  includeDepartmentOfferings = false
 ) {
   return useQuery({
     queryKey: [
@@ -62,9 +64,15 @@ export function usePlannedScopes(
       institutionId,
       academicYearId,
       examStartDate,
+      includeDepartmentOfferings,
     ],
     queryFn: () =>
-      IaPaperService.listPlannedScopes(institutionId!, academicYearId, examStartDate),
+      IaPaperService.listPlannedScopes(
+        institutionId!,
+        academicYearId,
+        examStartDate,
+        includeDepartmentOfferings
+      ),
     // Either an explicit academic year OR an exam date (server resolves the year) works.
     enabled: !!institutionId && (!!academicYearId || !!examStartDate),
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
