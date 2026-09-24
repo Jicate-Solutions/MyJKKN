@@ -62,12 +62,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   // Zero rows is a legitimate answer here — an empty queue and "you may see
   // nothing" look identical on purpose, because RLS is what decided.
-  if (list.length === 0) {
-    return NextResponse.json({ success: true, submissions: [], count: 0 });
-  }
+  // NB: no early return for an empty queue. An orphaned object outlives the
+  // decision that created it, so the one moment a reviewer has time to notice
+  // it is exactly when there is nothing waiting.
+  const isEmpty = list.length === 0;
 
   const admin = createServiceRoleClient();
-  const { data: signed } = await admin.storage
+  const { data: signed } = isEmpty ? { data: [] } : await admin.storage
     .from(BUCKET)
     .createSignedUrls(
       list.map((r) => (r as { storage_path: string }).storage_path),
@@ -118,5 +119,48 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     };
   });
 
-  return NextResponse.json({ success: true, submissions, count: submissions.length });
+  // Photographs a failed delete left behind. Not part of the queue — a
+  // separate, smaller thing the reviewer nonetheless has to be able to SEE,
+  // because BUG-006145's actual harm was a picture of a person sitting in a
+  // bucket with nothing surfacing it. Recording it in a column and never
+  // rendering it would have moved the silence one layer down.
+  // Scoped by the same RLS as everything else here.
+  const { data: orphanRows } = await supabase
+    .from('hr_staff_photo_submissions')
+    .select('id, orphaned_objects, status, person:staff_id (first_name, last_name)')
+    .neq('orphaned_objects', '[]')
+    .limit(50);
+
+  // Flattened: one entry per stranded OBJECT, not per submission, because a
+  // single submission can strand both its private copy and its public one and
+  // whoever cleans up needs every object named with its bucket.
+  const orphans: { id: string; bucket: string; path: string; name: string; status: string }[] = [];
+  for (const r of orphanRows ?? []) {
+    const row = r as unknown as {
+      id: string;
+      orphaned_objects: unknown;
+      status: string;
+      person: { first_name: string | null; last_name: string | null } | null;
+    };
+    const name = [row.person?.first_name, row.person?.last_name].filter(Boolean).join(' ') || 'Unnamed';
+    const list = Array.isArray(row.orphaned_objects) ? row.orphaned_objects : [];
+    for (const o of list) {
+      const item = o as { bucket?: unknown; path?: unknown };
+      if (typeof item?.path !== 'string') continue;
+      orphans.push({
+        id: row.id,
+        bucket: typeof item.bucket === 'string' ? item.bucket : 'unknown',
+        path: item.path,
+        name,
+        status: row.status,
+      });
+    }
+  }
+
+  return NextResponse.json({
+    success: true,
+    submissions,
+    count: submissions.length,
+    orphans,
+  });
 }
