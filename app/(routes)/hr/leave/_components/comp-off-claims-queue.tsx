@@ -78,16 +78,34 @@ export function CompOffClaimsQueue() {
    * and read it as "comp off is not displayed" (BUG-006194). Display only:
    * who may decide a claim is unchanged.
    */
-  // A failed permissions load reads as "no grant" (canAccess → false), so the
-  // note below would tell a real HR approver the opposite of the table under
-  // it. Say nothing then; offer a retry instead (CLAUDE.md #27).
+  // canAccess answers "no grant" whenever it has no permission map to read —
+  // while loading, and equally when the first load failed, never started (no
+  // profile) or is paused offline, and those last three are neither loading
+  // nor erroring. And it reads a map it still holds when only a later
+  // background refresh failed (it never looks at `error`). So the note keys
+  // on a map being IN HAND and saying no, not on `!isLoading && !error`: that
+  // told a real HR approver "only your own claims" over a table of everyone's
+  // when no map had loaded, and hid the note from the step approver it is for
+  // when a refresh failed with the map still loaded.
+  //
+  // "In hand" is read from the map itself: the hook hands back an empty map
+  // until one has loaded (a super admin's loaded map is also empty, and is
+  // marked by isSuperAdmin instead). A role whose map is genuinely empty then
+  // gets no note — silence, never a wrong claim. With no map and an error,
+  // offer a retry instead (CLAUDE.md #27).
   const {
     canAccess,
+    permissions,
+    isSuperAdmin,
     isLoading: permsLoading,
     error: permsError,
     refetch: refetchPerms,
   } = usePermissions();
   const decidesOthersClaims = canAccess('hr.leave', 'approve');
+  const permsInHand = isSuperAdmin || Object.keys(permissions ?? {}).length > 0;
+  // canAccess also says no while isLoading is true, even with an older map.
+  const knownNotToDecideOthers = permsInHand && !permsLoading && !decidesOthersClaims;
+  const permsFailed = !permsInHand && !permsLoading && Boolean(permsError);
   const { data, isLoading, error, refetch, isFetching, dataUpdatedAt } = useCompOffClaimsQueue();
   const decide = useDecideCompOffClaim();
   const revoke = useRevokeCompOffClaim();
@@ -341,7 +359,7 @@ export function CompOffClaimsQueue() {
         </AlertDescription>
       </Alert>
 
-      {permsError && (
+      {permsFailed && (
         <Alert>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription className="text-xs">
@@ -353,7 +371,7 @@ export function CompOffClaimsQueue() {
         </Alert>
       )}
 
-      {!permsLoading && !permsError && !decidesOthersClaims && (
+      {knownNotToDecideOthers && (
         <Alert>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription className="text-xs">

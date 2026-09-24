@@ -24,7 +24,7 @@ const credit = (over: Partial<CompOffCredit>): CompOffCredit => ({
   days_until_expiry: 20, ...over,
 });
 
-const ledger = vi.hoisted(() => ({ credits: [] as unknown[] }));
+const ledger = vi.hoisted(() => ({ credits: [] as unknown[], balanceLoading: false }));
 const spies = vi.hoisted(() => ({ refetchBookings: vi.fn(), refetchBalance: vi.fn() }));
 
 /** Local YYYY-MM-DD, n days from today. */
@@ -45,12 +45,16 @@ vi.mock('@/hooks/hr/use-leave', () => ({
 }));
 vi.mock('@/hooks/hr/use-comp-off', () => ({
   useWithdrawCompOffClaim: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useCompOffBalance: () => ({
-    data: { earned: 0, available: 0, expired: 0, consumed: 0, pending: 1, credits: ledger.credits },
-    isLoading: false,
-    refetch: spies.refetchBalance,
-    isFetching: false,
-  }),
+  // The claims arrive with the balance; balanceLoading holds them back.
+  useCompOffBalance: () =>
+    ledger.balanceLoading
+      ? { data: undefined, isLoading: true, refetch: spies.refetchBalance, isFetching: true }
+      : {
+          data: { earned: 0, available: 0, expired: 0, consumed: 0, pending: 1, credits: ledger.credits },
+          isLoading: false,
+          refetch: spies.refetchBalance,
+          isFetching: false,
+        },
 }));
 // Renders only what the page nests inside the shell; the shell's own props
 // (title, sub-tabs) are dropped.
@@ -92,6 +96,7 @@ import CompensatoryOffPage from '@/app/(routes)/hr/leave/compensatory-off/page';
 afterEach(() => {
   cleanup();
   ledger.credits = [];
+  ledger.balanceLoading = false;
   vi.clearAllMocks();
 });
 
@@ -153,6 +158,15 @@ describe('Compensatory Off › Request tab shows the claim, not only the booking
     render(<CompensatoryOffPage />);
     expect(screen.queryByText(/No compensatory off requests yet/)).not.toBeInTheDocument();
     expect(screen.getByText(/your claim above is awaiting approval/)).toBeInTheDocument();
+  });
+
+  it('waits for the claims before saying there are no requests', () => {
+    // Bookings are in (none), the balance — and with it the claims — is not.
+    // Without the balance in the table's loading state, "No compensatory off
+    // requests yet" rendered over a claim that had not arrived yet.
+    ledger.balanceLoading = true;
+    render(<CompensatoryOffPage />);
+    expect(screen.queryByText(/No compensatory off/)).not.toBeInTheDocument();
   });
 
   it('offers Cancel on a pending claim only, as the Balance tab does', () => {

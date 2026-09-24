@@ -359,7 +359,10 @@ export default function CompensatoryOffPage() {
               { key: 'days', label: 'Total Days', align: 'right' },
               { key: 'status', label: 'Status' },
             ]}
-            isLoading={isLoading || ctx.isLoading}
+            // The empty message below is chosen from the claims, which come
+            // with the balance. Until it arrives, "no requests yet" would sit
+            // over a claim the table has not been told about (BUG-006097).
+            isLoading={isLoading || ctx.isLoading || balanceLoading}
             isEmpty={rows.length === 0}
             emptyMessage={
               hasPendingClaim
