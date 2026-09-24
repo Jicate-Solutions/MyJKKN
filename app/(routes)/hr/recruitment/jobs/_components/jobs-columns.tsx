@@ -17,7 +17,7 @@ import {
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { JOB_STATUS_LABELS, type HRRecruitmentJob } from '@/types/hr-recruitment';
 
-import { ROLE_CATEGORY_LABELS } from './labels';
+import { ROLE_CATEGORY_LABELS, ROLE_CATEGORY_SHORT_LABELS } from './labels';
 
 interface JobColumnHelpers {
   institutionNameById: ReadonlyMap<string, string>;
@@ -86,14 +86,20 @@ export function getJobColumns({
         <DataTableColumnHeader column={column} title='Role category' />
       ),
       cell: ({ row }) => (
-        <span className='text-sm'>
-          {ROLE_CATEGORY_LABELS[row.original.role_category] ??
+        <span
+          className='text-sm whitespace-nowrap'
+          title={
+            ROLE_CATEGORY_LABELS[row.original.role_category] ??
+            row.original.role_category
+          }
+        >
+          {ROLE_CATEGORY_SHORT_LABELS[row.original.role_category] ??
             row.original.role_category}
         </span>
       ),
-      size: 160,
-      minSize: 120,
-      maxSize: 200,
+      size: 120,
+      minSize: 90,
+      maxSize: 160,
     },
     {
       id: 'institution',

@@ -115,7 +115,7 @@ export default function CandidateDetailPage() {
   const params = useParams();
   const id = typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : '';
 
-  const { data: candidate, isLoading } = useCandidate(id);
+  const { data: candidate, isLoading, error: candidateError } = useCandidate(id);
   const { data: alumniSignal } = useAlumniSignal(id);
   const { data: packages = [] } = usePackages(id);
   const propose = useProposePackage();
@@ -366,9 +366,14 @@ export default function CandidateDetailPage() {
   }
 
   if (!candidate) {
+    // 403 = the viewer has no Recruitment access (say so, and who can help);
+    // anything else keeps the "not found" wording the server chose.
+    const noAccess = (candidateError as { status?: number } | null)?.status === 403;
     return (
-      <ContentLayout title="Not Found">
-        <p className="text-sm text-muted-foreground mt-6">Candidate not found.</p>
+      <ContentLayout title={noAccess ? 'No Access' : 'Not Found'}>
+        <p className="text-sm text-muted-foreground mt-6">
+          {candidateError?.message || 'Candidate not found.'}
+        </p>
       </ContentLayout>
     );
   }

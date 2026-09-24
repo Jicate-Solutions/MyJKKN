@@ -90,10 +90,21 @@ export function useCandidate(id: string | undefined) {
     queryKey: ['hr-recruitment-candidate', id],
     queryFn: async () => {
       const res = await fetch(`${BASE}/candidates/${id}`);
-      if (!res.ok) throw new Error(`Candidate fetch failed: ${res.status}`);
+      if (!res.ok) {
+        // Keep the server's sentence and status: the page shows a "no access"
+        // message for 403 instead of a misleading "not found".
+        const body = await res.json().catch(() => ({}));
+        throw Object.assign(
+          new Error(body?.error || `Candidate fetch failed: ${res.status}`),
+          { status: res.status }
+        );
+      }
       return ((await res.json()).data) as HRRecruitmentCandidate;
     },
     enabled: !!id,
+    // A 403/404 will not change on retry; show the message at once.
+    retry: (failureCount, err) =>
+      ![403, 404].includes((err as { status?: number }).status ?? 0) && failureCount < 3,
   });
 }
 
