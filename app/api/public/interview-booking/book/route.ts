@@ -51,7 +51,9 @@ function checkRateLimit(ip: string): boolean {
   return true;
 }
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// "*" and "%" are refused: the address is matched with a PostgREST ilike, where
+// "*" is a wildcard that cannot be escaped (review finding, 2026-09-24).
+const EMAIL_RE = /^[^\s@*%]+@[^\s@*%]+\.[^\s@*%]+$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const WHY_MIN = 20;
 const WHY_MAX = 2000;
@@ -248,6 +250,7 @@ export async function POST(request: NextRequest) {
             end: (bookingRow.end_time as string | null) ?? booking.end ?? null,
             videoUrl,
           },
+          locationMode: meetingType.locationMode,
           hostProfileId: host.hostProfileId,
           createdBy,
           post,

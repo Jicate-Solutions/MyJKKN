@@ -233,19 +233,27 @@ export async function findCandidatesByEmail(
   email: string,
 ): Promise<CandidateMatchRow[]> {
   const normalized = email.trim().toLowerCase();
-  if (!normalized) return [];
-  // ilike without wildcards is a case-insensitive equality, and the migration's
-  // lower(email) index serves it. Escape the two ilike metacharacters so a typed
-  // "%" or "_" cannot widen the match to other people's rows.
+  // PostgREST treats "*" in a like/ilike pattern as "%", and a backslash does
+  // NOT escape it. An address containing one is refused outright rather than
+  // searched: "*@*.*" would otherwise list every candidate, and the id check in
+  // resolveCandidateChoice would then accept any of them (review finding,
+  // 2026-09-24). The booking routes refuse "*" too; this is the second lock.
+  if (!normalized || normalized.includes('*')) return [];
+  // With "*" gone, escaping "%" and "_" leaves a pattern with no wildcards: a
+  // case-insensitive equality, served by the migration's lower(email) index.
   const pattern = normalized.replace(/[\\%_]/g, (c) => `\\${c}`);
   const { data, error } = await serviceDb
     .from('hr_recruitment_candidates')
-    .select('id, name, role_title, status')
+    .select('id, name, role_title, status, email')
     .ilike('email', pattern)
     .order('created_at', { ascending: true })
     .limit(20);
   if (error) throw error;
-  return (data ?? []) as CandidateMatchRow[];
+  // Belt and braces: keep only rows whose address really IS the typed one. If
+  // any pattern ever widens again, it can still never return someone else.
+  return ((data ?? []) as Array<CandidateMatchRow & { email: string | null }>)
+    .filter((r) => (r.email ?? '').trim().toLowerCase() === normalized)
+    .map(({ id, name, role_title, status }) => ({ id, name, role_title, status }));
 }
 
 /** 'new' = a person the office has not seen; 'existing' = one of the matches. */
@@ -302,6 +310,13 @@ export interface RecordInterviewInput {
     end: string | null;
     videoUrl: string | null;
   };
+  /**
+   * The interview meeting type's own mode. The interview's mode comes from THIS,
+   * not from whether a video link happened to exist when the row was written — a
+   * Meet link can be attached after createBooking returns, and an online
+   * interview must not be filed as in person (review finding, 2026-09-24).
+   */
+  locationMode: 'in_person' | 'phone' | 'online';
   /** The meeting host — the Director (#12). Sits on the panel and owns the record. */
   hostProfileId: string;
   /** Who made the booking: the host for a self-booking, the staff member for #1. */
@@ -310,6 +325,16 @@ export interface RecordInterviewInput {
   person: { name: string; email: string; phone: string | null };
   answers: InterviewAnswers;
   choice: CandidateChoice;
+}
+
+/** Interview statuses that count as a round (#5). */
+export const ROUND_STATUSES = ['scheduled', 'completed', 'no_show'];
+
+/** hr_recruitment_interviews.mode for a meeting type's location mode. */
+export function interviewModeFor(locationMode: 'in_person' | 'phone' | 'online'): 'in_person' | 'phone' | 'video' {
+  if (locationMode === 'online') return 'video';
+  if (locationMode === 'phone') return 'phone';
+  return 'in_person';
 }
 
 export type RecordInterviewResult =
@@ -373,11 +398,15 @@ export async function recordInterviewBooking(
     createdCandidate = true;
   }
 
-  // Counted, not assumed — a returning person is their next round (#5).
+  // Counted, not assumed — a returning person is their next round (#5). Only
+  // sittings that happened or are still to happen count: a cancelled interview
+  // was never a round, and HR's reschedule leaves the old row 'rescheduled'
+  // beside the new one, so counting every row would skip a round.
   const { count, error: countError } = await serviceDb
     .from('hr_recruitment_interviews')
     .select('id', { count: 'exact', head: true })
-    .eq('candidate_id', candidateId);
+    .eq('candidate_id', candidateId)
+    .in('status', ROUND_STATUSES);
   if (countError) return { success: false, error: `round count failed: ${countError.message}` };
   const round = (count ?? 0) + 1;
 
@@ -395,7 +424,7 @@ export async function recordInterviewBooking(
       round_name: `Round ${round} — booked through the interview link`,
       scheduled_at: booking.start,
       ...(durationMinutes && durationMinutes > 0 ? { duration_minutes: durationMinutes } : {}),
-      mode: booking.videoUrl ? 'video' : 'in_person',
+      mode: interviewModeFor(input.locationMode),
       location_or_link: booking.videoUrl,
       // NOT NULL with array_length > 0. The host is the panel (#12), which is
       // also what lets them see the row under the panel-member SELECT policy.
@@ -460,23 +489,35 @@ async function closeCallbackRequestsFor(
   serviceDb: SupabaseClient,
   args: { jobId: string; email: string; phone: string | null; bookingId: string },
 ): Promise<void> {
-  // Two plain .eq() updates, never one .or() filter string. The email and phone
-  // are typed by an anonymous visitor, and an .or() string is PostgREST syntax:
-  // a crafted value containing a comma could add conditions of its own and close
-  // other people's requests.
+  // Plain .eq() updates, never one .or() filter string: the email and phone are
+  // typed by an anonymous visitor, and an .or() string is PostgREST syntax.
+  //
+  // WHO it may close. A matching email closes the request. A matching phone
+  // closes one ONLY when that request carries no email — otherwise anyone who
+  // knew a person's phone number could book this post with it and quietly close
+  // that person's request, and the office would never ring them (review
+  // finding, 2026-09-24).
   const patch = { status: 'done', closed_by_booking_id: args.bookingId, handled_at: new Date().toISOString() };
-  const keys: Array<['email' | 'phone', string]> = [['email', args.email.trim().toLowerCase()]];
+  const email = args.email.trim().toLowerCase();
   const phone = (args.phone ?? '').trim();
-  if (phone) keys.push(['phone', phone]);
-  for (const [column, value] of keys) {
-    const { error } = await serviceDb
-      .from('hr_interview_callback_requests')
-      .update(patch)
-      .eq('job_id', args.jobId)
-      .eq('status', 'open')
-      .eq(column, value);
-    if (error) console.error(`[interview-booking] closing call-back requests by ${column} failed`, error);
-  }
+
+  const byEmail = await serviceDb
+    .from('hr_interview_callback_requests')
+    .update(patch)
+    .eq('job_id', args.jobId)
+    .eq('status', 'open')
+    .eq('email', email);
+  if (byEmail.error) console.error('[interview-booking] closing call-back requests by email failed', byEmail.error);
+
+  if (!phone) return;
+  const byPhone = await serviceDb
+    .from('hr_interview_callback_requests')
+    .update(patch)
+    .eq('job_id', args.jobId)
+    .eq('status', 'open')
+    .eq('phone', phone)
+    .is('email', null);
+  if (byPhone.error) console.error('[interview-booking] closing call-back requests by phone failed', byPhone.error);
 }
 
 // ---------------------------------------------------------------------------

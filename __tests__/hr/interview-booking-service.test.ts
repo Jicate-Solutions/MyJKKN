@@ -123,7 +123,7 @@ describe('findCandidatesByEmail', () => {
 });
 
 describe('resolveCandidateChoice — who is booking is settled BEFORE anything is booked', () => {
-  const match = { id: 'cand-1', name: 'Ravi', role_title: 'Office Assistant', status: 'submitted' };
+  const match = { id: 'cand-1', name: 'Ravi', role_title: 'Office Assistant', status: 'submitted', email: 'fam@x.com' };
 
   it('an email not on file is a new candidate (#4)', async () => {
     const { db } = fakeDb({ data: [], error: null });
@@ -177,5 +177,139 @@ describe('priorOutcomeAtBooking — warn about a decision taken BEFORE the booki
     for (const s of ['submitted', 'approved', 'offer_issued', 'withdrawn', 'no_show']) {
       expect(priorOutcomeAtBooking(s, null, booked)).toBeNull();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Review fixes, 2026-09-24
+// ---------------------------------------------------------------------------
+
+import {
+  ROUND_STATUSES,
+  interviewModeFor,
+  recordInterviewBooking,
+  type RecordInterviewInput,
+} from '@/lib/services/hr/interview-booking-service';
+
+describe('findCandidatesByEmail — a "*" cannot turn the lookup into a wildcard (review #1)', () => {
+  it('refuses an address containing "*" without querying at all', async () => {
+    const { db, calls } = fakeDb({ data: [], error: null });
+    for (const email of ['*@*.*', 'a*@x.com', '*']) {
+      expect(await findCandidatesByEmail(db, email)).toEqual([]);
+    }
+    expect(calls).toHaveLength(0);
+  });
+  it('drops any row whose address is not exactly the typed one, whatever the query returned', async () => {
+    const { db } = fakeDb({
+      data: [
+        { id: 'mine', name: 'A', role_title: 'Accounts Officer', status: 'submitted', email: 'Me@X.com ' },
+        { id: 'not-mine', name: 'B', role_title: 'Office Assistant', status: 'submitted', email: 'someone-else@x.com' },
+      ],
+      error: null,
+    });
+    const rows = await findCandidatesByEmail(db, 'me@x.com');
+    expect(rows.map((r) => r.id)).toEqual(['mine']);
+    expect(rows[0]).not.toHaveProperty('email');
+  });
+});
+
+describe('interviewModeFor — the meeting type decides, not a link that may arrive later (review #5)', () => {
+  it('maps each location mode', () => {
+    expect(interviewModeFor('online')).toBe('video');
+    expect(interviewModeFor('phone')).toBe('phone');
+    expect(interviewModeFor('in_person')).toBe('in_person');
+  });
+});
+
+/**
+ * A query-builder double that records every call per table and resolves each
+ * awaited chain from a queue keyed by `${table}:${op}` (op = insert | select | update).
+ */
+function recordingDb(results: Record<string, Array<{ data?: unknown; error?: unknown; count?: number }>>) {
+  const log: Array<{ table: string; op: string; calls: Array<[string, unknown[]]> }> = [];
+  const from = (table: string) => {
+    const entry = { table, op: 'select', calls: [] as Array<[string, unknown[]]> };
+    log.push(entry);
+    const chain: Record<string, unknown> = {};
+    for (const m of ['select', 'insert', 'update', 'eq', 'in', 'is', 'order', 'limit', 'single', 'maybeSingle']) {
+      chain[m] = (...args: unknown[]) => {
+        entry.calls.push([m, args]);
+        if (m === 'insert' || m === 'update') entry.op = m;
+        return chain;
+      };
+    }
+    chain.then = (resolve: (v: unknown) => void) => {
+      const q = results[`${table}:${entry.op}`] ?? [];
+      resolve(q.shift() ?? { data: null, error: null });
+    };
+    return chain;
+  };
+  return { db: { from } as never, log };
+}
+
+const baseInput = (over: Partial<RecordInterviewInput> = {}): RecordInterviewInput => ({
+  booking: { id: 'bk-1', start: '2026-10-01T04:30:00Z', end: '2026-10-01T05:00:00Z', videoUrl: null },
+  locationMode: 'online',
+  hostProfileId: 'host-1',
+  createdBy: 'host-1',
+  post: { id: 'job-1', title: 'Accounts Officer', role_category: 'non_teaching', institution_id: 'inst-1', hr_organization_id: 'org-1', status: 'open' },
+  person: { name: 'Cand', email: 'Cand@X.com', phone: '9000000001' },
+  answers: { currentJob: 'x', payExpectation: 'y', whyThisRole: 'z'.repeat(25) },
+  choice: { kind: 'existing', candidateId: 'cand-1' },
+  ...over,
+});
+
+describe('recordInterviewBooking', () => {
+  it('counts only real sittings for the round — a cancelled or HR-rescheduled row is not a round (review #3)', async () => {
+    const { db, log } = recordingDb({
+      'hr_recruitment_interviews:select': [{ count: 1, error: null }],
+      'hr_recruitment_interviews:insert': [{ data: { id: 'iv-1' }, error: null }],
+    });
+    const r = await recordInterviewBooking(db, baseInput());
+    expect(r).toEqual({ success: true, candidateId: 'cand-1', interviewId: 'iv-1', round: 2, createdCandidate: false });
+    const count = log.find((e) => e.table === 'hr_recruitment_interviews' && e.op === 'select');
+    expect(count?.calls).toContainEqual(['in', ['status', ROUND_STATUSES]]);
+    expect(ROUND_STATUSES).toEqual(['scheduled', 'completed', 'no_show']);
+  });
+
+  it('files an online interview as video even when no link exists yet (review #5)', async () => {
+    const { db, log } = recordingDb({
+      'hr_recruitment_interviews:select': [{ count: 0, error: null }],
+      'hr_recruitment_interviews:insert': [{ data: { id: 'iv-1' }, error: null }],
+    });
+    await recordInterviewBooking(db, baseInput({ locationMode: 'online' }));
+    const insert = log.find((e) => e.table === 'hr_recruitment_interviews' && e.op === 'insert');
+    const row = insert?.calls.find(([m]) => m === 'insert')?.[1][0] as Record<string, unknown>;
+    expect(row.mode).toBe('video');
+    expect(row.panel_member_ids).toEqual(['host-1']);
+    expect(row.booking_id).toBe('bk-1');
+  });
+
+  it('closes call-back requests by email, and by phone ONLY on requests that carry no email (review #4)', async () => {
+    const { db, log } = recordingDb({
+      'hr_recruitment_interviews:select': [{ count: 0, error: null }],
+      'hr_recruitment_interviews:insert': [{ data: { id: 'iv-1' }, error: null }],
+    });
+    await recordInterviewBooking(db, baseInput());
+    const updates = log.filter((e) => e.table === 'hr_interview_callback_requests' && e.op === 'update');
+    expect(updates).toHaveLength(2);
+    const [byEmail, byPhone] = updates;
+    expect(byEmail.calls).toContainEqual(['eq', ['email', 'cand@x.com']]);
+    expect(byEmail.calls.some(([m, a]) => m === 'eq' && a[0] === 'phone')).toBe(false);
+    expect(byPhone.calls).toContainEqual(['eq', ['phone', '9000000001']]);
+    expect(byPhone.calls).toContainEqual(['is', ['email', null]]);
+    for (const u of updates) {
+      expect(u.calls).toContainEqual(['eq', ['job_id', 'job-1']]);
+      expect(u.calls).toContainEqual(['eq', ['status', 'open']]);
+    }
+  });
+
+  it('does not attempt a phone close when no phone was given', async () => {
+    const { db, log } = recordingDb({
+      'hr_recruitment_interviews:select': [{ count: 0, error: null }],
+      'hr_recruitment_interviews:insert': [{ data: { id: 'iv-1' }, error: null }],
+    });
+    await recordInterviewBooking(db, baseInput({ person: { name: 'C', email: 'c@x.com', phone: null } }));
+    expect(log.filter((e) => e.table === 'hr_interview_callback_requests')).toHaveLength(1);
   });
 });

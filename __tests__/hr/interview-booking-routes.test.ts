@@ -192,6 +192,15 @@ describe('book — nothing is booked on a refusal', () => {
     expect(m.createBooking).not.toHaveBeenCalled();
   });
 
+  it('refuses an email containing a "*" wildcard before any lookup — it would list every candidate (review #1)', async () => {
+    for (const email of ['*@*.*', 'a*@mail.com', 'a%@mail.com']) {
+      const res = await book(bookReq({ ...VALID, email }));
+      expect(res.status).toBe(400);
+    }
+    expect(m.resolveCandidateChoice).not.toHaveBeenCalled();
+    expect(m.createBooking).not.toHaveBeenCalled();
+  });
+
   it('refuses a missing phone and a non-uuid post', async () => {
     expect((await book(bookReq({ ...VALID, phone: '  ' }))).status).toBe(400);
     expect((await book(bookReq({ ...VALID, jobId: 'abc' }))).status).toBe(400);

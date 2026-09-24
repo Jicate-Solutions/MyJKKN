@@ -39,7 +39,9 @@ function checkRateLimit(ip: string): boolean {
   return true;
 }
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// "*" and "%" are refused: the address is matched with a PostgREST ilike, where
+// "*" is a wildcard that cannot be escaped (review finding, 2026-09-24).
+const EMAIL_RE = /^[^\s@*%]+@[^\s@*%]+\.[^\s@*%]+$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function POST(request: NextRequest) {

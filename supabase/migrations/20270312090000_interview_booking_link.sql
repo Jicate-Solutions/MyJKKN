@@ -36,6 +36,26 @@
 -- matches every literal the services write. If production holds a source value
 -- outside it, ADD CONSTRAINT fails loudly on validation — it cannot silently
 -- drop a value.
+-- Checked BEFORE anything is dropped: if production holds a source value
+-- outside the list below, stop here with the offending values named, rather
+-- than dropping the old CHECK and failing on the new one (which, run outside a
+-- single transaction, would leave the table with no source CHECK at all).
+DO $$
+DECLARE
+  v_unknown text;
+BEGIN
+  SELECT string_agg(DISTINCT source, ', ')
+    INTO v_unknown
+    FROM public.hr_recruitment_candidates
+   WHERE source NOT IN (
+     'hr_submission', 'principal_submission', 'hod_submission', 'internal_transfer',
+     'learner_graduate', 'public_careers_page', 'email_ingest', 'interview_booking'
+   );
+  IF v_unknown IS NOT NULL THEN
+    RAISE EXCEPTION 'hr_recruitment_candidates holds source value(s) this migration does not know: %. Add them to the list in §1 before applying.', v_unknown;
+  END IF;
+END $$;
+
 DO $$
 DECLARE
   v_name text;
@@ -241,3 +261,63 @@ WHERE NOT EXISTS (
    WHERE policy_key = 'hr.recruitment.interview_booking.change_cutoff_min'
      AND scope_type = 'global' AND scope_id IS NULL
 );
+
+-- ============================================================================
+-- 6. An interview follows its booking when the booking is cancelled or moved
+-- ============================================================================
+-- THE GAP (review finding, 2026-09-24). Before this link only the host moved a
+-- hiring meeting. Now the candidate can cancel or reschedule it themselves from
+-- their email link (#11). Nothing carried that change to the interview row, so:
+--   * a cancelled interview stayed 'scheduled'; once its time passed the host
+--     was offered "Mark as no-show", and one click would follow the candidate
+--     into every later interview as "did not turn up last time" (#10);
+--   * a moved interview kept its OLD time on the HR lists.
+--
+-- WHY A TRIGGER, not a line in each code path. A booking is cancelled or moved
+-- from at least four places (the candidate's cancel and reschedule links, the
+-- host's meeting page, the host's inbox), and more will come. A rule written
+-- into each of them is a rule that the fifth one forgets. This fires on the
+-- row itself, whoever changed it. It only ever touches interview rows joined to
+-- that booking (booking_id is unique), and only while they are 'scheduled' — a
+-- completed, no-show or already-cancelled interview is history and is left alone.
+--
+-- SECURITY DEFINER because the person cancelling (an anonymous candidate via
+-- the service role, or a host with no HR permission) may not be allowed to
+-- write hr_recruitment_interviews under RLS, and the interview must still
+-- follow. It reads nothing from the caller and writes only the joined rows.
+CREATE OR REPLACE FUNCTION public.hr_interview_follow_booking()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF NEW.status = 'cancelled' AND OLD.status IS DISTINCT FROM 'cancelled' THEN
+    UPDATE public.hr_recruitment_interviews
+       SET status = 'cancelled'
+     WHERE booking_id = NEW.id
+       AND status = 'scheduled';
+  ELSIF NEW.status = 'confirmed'
+    AND (NEW.start_time IS DISTINCT FROM OLD.start_time
+         OR NEW.end_time IS DISTINCT FROM OLD.end_time) THEN
+    UPDATE public.hr_recruitment_interviews
+       SET scheduled_at = NEW.start_time,
+           duration_minutes = GREATEST(1, round(EXTRACT(EPOCH FROM (NEW.end_time - NEW.start_time)) / 60)::int)
+     WHERE booking_id = NEW.id
+       AND status = 'scheduled';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION public.hr_interview_follow_booking() IS
+  'Keeps an interview in step with the booking it is held as: a cancelled booking cancels its scheduled interview, a moved booking moves it. Only rows still ''scheduled'' are touched.';
+
+-- A trigger function is never called directly; nobody needs EXECUTE on it.
+REVOKE ALL ON FUNCTION public.hr_interview_follow_booking() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS meeting_bookings_interview_follows ON public.meeting_bookings;
+CREATE TRIGGER meeting_bookings_interview_follows
+  AFTER UPDATE OF status, start_time, end_time ON public.meeting_bookings
+  FOR EACH ROW
+  EXECUTE FUNCTION public.hr_interview_follow_booking();

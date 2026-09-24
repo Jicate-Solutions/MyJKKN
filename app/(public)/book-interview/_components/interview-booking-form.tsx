@@ -74,7 +74,9 @@ interface Match {
 }
 
 const WHY_MIN = 20;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// "*" and "%" are refused: the address is matched with a PostgREST ilike, where
+// "*" is a wildcard that cannot be escaped (review finding, 2026-09-24).
+const EMAIL_RE = /^[^\s@*%]+@[^\s@*%]+\.[^\s@*%]+$/;
 const LOGIN_HREF = `/auth/login?redirectedFrom=${encodeURIComponent('/book-interview')}`;
 const NEW_PERSON = '__new__';
 const GENERIC_ERROR = 'We could not book that just now. Please try again.';
