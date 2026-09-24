@@ -167,7 +167,7 @@ export async function POST(
       {
         error:
           outcome.grantError.code === '42501'
-            ? 'You can only tag active staff accounts, on your own comment.'
+            ? 'You can only tag active team members, on your own comment.'
             : outcome.grantError.message || 'Could not tag people on this comment.',
       },
       { status: outcome.grantError.code === '42501' ? 403 : 400 },

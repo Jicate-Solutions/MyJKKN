@@ -981,17 +981,17 @@ export default function CandidateDetailPage() {
             <CardContent className="space-y-3">
               <p className="text-xs text-muted-foreground">
                 The onboarding checklist has not been started. Every step must be
-                completed before this hire can be created as a staff record.
+                completed before this hire can be created as a team-member record.
               </p>
               {candidate.status === 'joined' && (
                 <div className="flex items-start gap-2 rounded border border-amber-500/50 bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                   <span>
-                    This candidate is marked joined but has no staff record — they
+                    This candidate is marked joined but has no team-member record — they
                     were moved with &ldquo;Mark as Joined&rdquo;, which skips
-                    onboarding. Start the checklist, complete it, then use
-                    &ldquo;Onboard to Staff&rdquo; in the job workspace to create
-                    the staff record.
+                    onboarding. Start the checklist, complete it, then finish
+                    onboarding from the job workspace to create their
+                    team-member record.
                   </span>
                 </div>
               )}
@@ -1475,10 +1475,10 @@ export default function CandidateDetailPage() {
 
       {/* Mark as Joined — says plainly what it does NOT do.
           This control only moves the status. The route that actually makes
-          someone an employee is "Onboard to Staff" in the job workspace, which
-          requires a completed checklist and creates the staff record. Used
+          someone an employee is the onboarding action in the job workspace, which
+          requires a completed checklist and creates the team-member record. Used
           without that context this button produced hires stranded at 'joined'
-          with no staff record, and nothing transitions out of 'joined'. */}
+          with no team-member record, and nothing transitions out of 'joined'. */}
       <Dialog open={markJoinedOpen} onOpenChange={setMarkJoinedOpen}>
         <DialogContent>
           <DialogHeader>
@@ -1493,11 +1493,11 @@ export default function CandidateDetailPage() {
               <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
               <span>
                 <span className="font-medium">This only changes the status.</span> It
-                does not create a staff record and does not complete onboarding.
+                does not create a team-member record and does not complete onboarding.
                 {!onboardingStarted && ' The onboarding checklist has not been started.'}
                 {' '}To make this person an employee, complete the onboarding
-                checklist and use &ldquo;Onboard to Staff&rdquo; in the job
-                workspace instead. Nothing moves a candidacy back out of
+                checklist and finish onboarding from the job workspace
+                instead. Nothing moves a candidacy back out of
                 &ldquo;Joined&rdquo;.
               </span>
             </div>
