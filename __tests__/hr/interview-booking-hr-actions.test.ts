@@ -190,7 +190,7 @@ describe('loadClosedPostInterviews (#13)', () => {
               ],
               error: null,
             }
-          : { data: [{ id: 'j-filled', title: 'Assistant Professor', status: 'filled' }], error: null },
+          : { data: [{ id: 'j-filled', title: 'Accounts Officer', status: 'filled' }], error: null },
     });
     state.client = f.client;
     const before = Date.now();
@@ -210,7 +210,7 @@ describe('loadClosedPostInterviews (#13)', () => {
       success: true,
       rows: [
         {
-          id: 'i1', candidate_name: 'Anitha', job_id: 'j-filled', post_title: 'Assistant Professor',
+          id: 'i1', candidate_name: 'Anitha', job_id: 'j-filled', post_title: 'Accounts Officer',
           post_status: 'filled', scheduled_at: '2026-10-01T05:30:00Z', round_number: 2, round_name: 'Panel',
         },
       ],

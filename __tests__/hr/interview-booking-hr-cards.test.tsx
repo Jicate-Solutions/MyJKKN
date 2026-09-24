@@ -24,7 +24,7 @@ const wrap = (ui: React.ReactElement) =>
   );
 
 const req = (p: Record<string, unknown>) => ({
-  id: 'r1', job_id: 'j1', post_title: 'Lab Assistant', name: 'Kavya', phone: '+919876543210',
+  id: 'r1', job_id: 'j1', post_title: 'Office Assistant', name: 'Kavya', phone: '+919876543210',
   email: null, status: 'open', outcome_note: null, handled_at: null, handled_by: null,
   handler_name: null, closed_by_booking_id: null, created_at: new Date(Date.now() - 3 * 3600_000).toISOString(), ...p,
 });
@@ -54,7 +54,7 @@ describe('CallbackRequestsCard', () => {
     wrap(<CallbackRequestsCard />);
     expect(await screen.findByText('Kavya')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /\+919876543210/ })).toHaveAttribute('href', 'tel:+919876543210');
-    expect(screen.getByText('Lab Assistant')).toBeInTheDocument();
+    expect(screen.getByText('Office Assistant')).toBeInTheDocument();
     expect(screen.getByText('k@x.in')).toBeInTheDocument();
     expect(screen.getByText(/asked about 3 hours ago/)).toBeInTheDocument();
   });
@@ -108,7 +108,7 @@ describe('ClosedPostInterviewsCard', () => {
     actions.loadClosedPostInterviews.mockResolvedValue({
       success: true,
       rows: [{
-        id: 'i1', candidate_name: 'Anitha', job_id: 'j1', post_title: 'Assistant Professor', post_status: 'closed',
+        id: 'i1', candidate_name: 'Anitha', job_id: 'j1', post_title: 'Accounts Officer', post_status: 'closed',
         scheduled_at: '2026-10-01T05:30:00Z', round_number: 2, round_name: 'Panel',
       }],
     });
