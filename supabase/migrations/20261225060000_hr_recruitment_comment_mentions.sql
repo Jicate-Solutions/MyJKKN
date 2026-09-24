@@ -156,4 +156,7 @@ CREATE POLICY hr_recruitment_comment_mentions_delete
 
 -- No UPDATE policy for authenticated: notified_at is the service role's alone.
 
+-- Supabase's default privileges grant the anon key everything on a new public
+-- table, and an RLS policy written TO PUBLIC still applies to anon. Lock it.
+REVOKE ALL ON TABLE public.hr_recruitment_comment_mentions FROM anon, PUBLIC;
 GRANT SELECT, INSERT, DELETE ON public.hr_recruitment_comment_mentions TO authenticated;
