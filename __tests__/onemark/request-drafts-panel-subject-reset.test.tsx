@@ -19,9 +19,9 @@ vi.mock('@/components/ui/select', () => {
       {children}
     </select>
   );
-  const Pass = ({ children }: any) => <>{children}</>;
+  const Pass = (p: any) => <>{p.children}</>;
   const Nothing = () => null;
-  const SelectItem = ({ value, children }: any) => <option value={value}>{children}</option>;
+  const SelectItem = (p: any) => <option value={p.value}>{p.children}</option>;
   return { Select, SelectContent: Pass, SelectItem, SelectTrigger: Nothing, SelectValue: Nothing };
 });
 
