@@ -41,6 +41,7 @@ import { CategoryService } from '@/lib/services/staff/category-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { useAuth } from '@/hooks/use-auth';
 import { StaffService } from '@/lib/services/staff/staff-service';
+import { describeStaffEmailConflict } from '@/lib/services/staff/synthetic-email';
 import { StaffImageUpload } from '@/components/ImageUpload/staff-image-upload';
 import { DateInput } from '@/components/ui/date-input';
 import { StorageService } from '@/lib/storage/storage-service';
@@ -734,36 +735,44 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
         // OTHER row. Those differ often enough to be worth reporting, and the
         // holder is frequently at a college this operator cannot see.
         const isInstitutionField = errorMessage.includes('staff_institution_email_key');
-        const field = isInstitutionField ? 'institution_email' : 'email';
-        const entered = (form.getValues(field) ?? '').trim();
-        const holder = await StaffService.findStaffEmailConflict(entered).catch(() => null);
+        const emailField = isInstitutionField ? 'institution_email' : 'email';
+        const entered = (form.getValues(emailField) ?? '').trim();
+        const holder = entered
+          ? await StaffService.findStaffEmailConflict(entered).catch(() => null)
+          : null;
 
         const heldAs =
-          holder && holder.matchedField !== field
+          holder && holder.matchedField !== emailField
             ? holder.matchedField === 'email'
               ? ' — stored there as their personal email'
               : ' — stored there as their institution email'
             : '';
 
-        form.setError(field, {
-          type: 'manual',
-          message: holder
-            ? `Already used by ${holder.name}${holder.staff_id ? ` (${holder.staff_id})` : ''} at ${holder.institution}.`
-            : isInstitutionField
-              ? 'This institution email is already registered.'
-              : 'This email is already registered.'
+        // A blank box means the address was generated from Staff ID / phone for
+        // this view-only record, so the error belongs on that field instead.
+        const conflict = describeStaffEmailConflict({
+          kind: isInstitutionField ? 'institution' : 'personal',
+          address: entered,
+          staffId: form.getValues('staff_id'),
+          phone: form.getValues('phone'),
+          holder: holder
+            ? {
+                name: holder.name,
+                staff_id: holder.staff_id,
+                institution: holder.institution
+              }
+            : null
         });
 
+        form.setError(conflict.field, { type: 'manual', message: conflict.message });
+
         toast.error(
-          holder
-            ? `"${entered}" is already registered to ${holder.name}${
-                holder.staff_id ? ` (${holder.staff_id})` : ''
-              } at ${holder.institution}${heldAs}${
-                holder.is_active ? '' : ' (inactive)'
-              }. Each email can belong to only one team member record.`
-            : isInstitutionField
-              ? 'That institution email is already registered to another team member.'
-              : 'That email is already registered to another team member.'
+          holder && entered
+            ? `${conflict.toast.replace(
+                /\.$/,
+                ''
+              )}${heldAs}${holder.is_active ? '' : ' (inactive)'}.`
+            : conflict.toast
         );
       }
       // Check for other common validation patterns

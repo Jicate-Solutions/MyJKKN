@@ -5,13 +5,19 @@
 // Lists registrations with BIB numbers, shows their QR pass (generated or pending), and lets a manager
 // generate passes (server-side, via the event-agnostic QR generate route) or download per-pass / all-as-ZIP.
 // Read-only (download only) when canManage=false.
+//
+// Sports tournaments do not use this board: their entries carry no BIB number,
+// so it would always be empty with "Generate" disabled [BUG-004570, BUG-004566].
+// Their passes live on /events/tournament/[id]/passes and their registration QR
+// on the registration-form page — TournamentQrLinks below points at both.
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { CheckCircle2, Clock, Download, Loader2, Lock, QrCode, RefreshCw, Search, Users } from 'lucide-react';
+import { CheckCircle2, Clock, Download, ExternalLink, Loader2, Lock, QrCode, RefreshCw, Search, Users } from 'lucide-react';
 import {
   useEventQrRegistrations,
   useGenerateQrPasses,
@@ -19,6 +25,54 @@ import {
 
 const qrSrc = (eventId: string, bib: string, refreshKey: number) =>
   `/api/events/marathon/${eventId}/qr/${bib}${refreshKey > 0 ? `?v=${refreshKey}` : ''}`;
+
+/**
+ * The QR tab for a sports tournament. Tournament entry passes are keyed on
+ * entries, not BIB numbers, and are generated on their own page; the QR people
+ * scan to REGISTER is per registration form. This tab only routes to the two.
+ */
+export function TournamentQrLinks({
+  eventId,
+  canManage = true,
+}: {
+  eventId: string;
+  canManage?: boolean;
+}) {
+  return (
+    <Card>
+      <CardContent className="space-y-4 py-8 text-center">
+        <QrCode className="mx-auto h-10 w-10 text-muted-foreground opacity-50" />
+        <div className="mx-auto max-w-xl space-y-1.5 text-sm text-muted-foreground">
+          <p>
+            Tournament entry passes are issued per entry on the tournament passes page, where you
+            can generate, print and download them for gate check-in.
+          </p>
+          <p>
+            The QR code people scan to register is on the registration form page — use the
+            <span className="font-medium"> Share</span> button next to the form.
+          </p>
+          {!canManage && (
+            <p className="text-xs">Both pages are open to tournament organizers and in-charges.</p>
+          )}
+        </div>
+        <div className="flex flex-col items-center justify-center gap-2 sm:flex-row">
+          <Button asChild size="sm" className="gap-1.5">
+            <Link href={`/events/tournament/${eventId}/passes`}>
+              <QrCode className="h-4 w-4" />
+              Open tournament passes
+            </Link>
+          </Button>
+          <Button asChild size="sm" variant="outline" className="gap-1.5">
+            <Link href={`/events/tournament/${eventId}/registration-form`}>
+              <ExternalLink className="h-4 w-4" />
+              Registration QR code
+            </Link>
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 export function QrBoard({ eventId, canManage = true }: { eventId: string; canManage?: boolean }) {
   const { data: registrations, isLoading } = useEventQrRegistrations(eventId);

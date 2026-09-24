@@ -77,6 +77,8 @@ const nextConfig: NextConfig = {
   // (Open Sans), which is what made the minutes' narrative box overflow in
   // production while looking correct locally.
   outputFileTracingIncludes: {
+    // ID-card compositor fonts (satori needs TTF; see lib/id-cards/card-fonts.ts).
+    '/api/id-cards/templates/*/render': ['./lib/id-cards/fonts/**/*'],
     '/api/bos/meetings/*/notify-members': [
       './node_modules/@sparticuz/chromium/**/*',
       './public/fonts/pdf/**/*',

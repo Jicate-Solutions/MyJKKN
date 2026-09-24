@@ -29,9 +29,10 @@ import {
   Info,
   ClipboardPaste,
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
 import {
   parseRosterFile,
+  parseRosterText,
+  RosterImportError,
   validateRosterRows,
   useEventCategoryCodes,
   useImportRoster,
@@ -149,37 +150,15 @@ export function BulkImportBoard({
   // ── Paste CSV ───────────────────────────────────────────────────────────────
   const handlePasteParse = useCallback(() => {
     setParseError('');
-    try {
-      const text = pasteText.trim();
-      if (!text) {
-        setParseError('Nothing pasted.');
-        return;
-      }
-      const workbook = XLSX.read(text, { type: 'string' });
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const jsonRows = XLSX.utils.sheet_to_json(sheet, { defval: '' }) as Record<string, unknown>[];
-      const filtered = jsonRows.filter((row) => {
-        for (const k of ['participant_name', 'Name *', 'Name']) {
-          const v = row[k];
-          if (v !== undefined && v !== null && String(v).trim() !== '') return true;
-        }
-        return false;
-      });
-      if (filtered.length === 0) {
-        setParseError('No data rows found. The first line must be column headers.');
-        return;
-      }
-      if (filtered.length > 1000) {
-        setParseError(`Pasted ${filtered.length} rows. Maximum is 1000 per import.`);
-        return;
-      }
-      setParsedRows(filtered);
-      setFileName('Pasted data');
-      setPasteOpen(false);
-      setPhase('preview');
-    } catch {
-      setParseError('Could not parse the pasted data as CSV.');
+    const { rows, error } = parseRosterText(pasteText);
+    if (error) {
+      setParseError(error);
+      return;
     }
+    setParsedRows(rows);
+    setFileName('Pasted data');
+    setPasteOpen(false);
+    setPhase('preview');
   }, [pasteText]);
 
   // ── Import ───────────────────────────────────────────────────────────────────
@@ -189,7 +168,14 @@ export function BulkImportBoard({
       const res = await importMutation.mutateAsync({ eventId, rows: parsedRows, categoryCodes });
       setResult(res);
       setPhase('result');
-    } catch {
+    } catch (err) {
+      // A rejected batch with per-row errors (e.g. 422 "All rows failed validation") is shown in the
+      // result view so the user can see which row failed and why, not just a toast.
+      if (err instanceof RosterImportError && err.result) {
+        setResult(err.result);
+        setPhase('result');
+        return;
+      }
       setPhase('preview');
     }
   }, [eventId, parsedRows, categoryCodes, importMutation]);
@@ -238,7 +224,10 @@ export function BulkImportBoard({
           >
             <Upload className="mx-auto mb-3 h-10 w-10 text-muted-foreground/50" />
             <p className="mb-1 text-sm font-medium">Drag &amp; drop your Excel or CSV file here</p>
-            <p className="mb-3 text-xs text-muted-foreground">Supports .xlsx and .csv (max 1000 rows, 5MB)</p>
+            <p className="mb-1 text-xs text-muted-foreground">Supports .xlsx and .csv (max 1000 rows, 5MB)</p>
+            <p className="mb-3 text-xs text-muted-foreground">
+              From Google Sheets: File → Download → Comma-separated values (.csv), then upload it here.
+            </p>
             <div className="flex items-center justify-center gap-2">
               <label>
                 <input type="file" accept=".xlsx,.csv" className="hidden" onChange={handleSelect} />
@@ -266,7 +255,8 @@ export function BulkImportBoard({
           {pasteOpen && (
             <div className="space-y-2 rounded-md border bg-muted/20 p-3">
               <p className="text-xs text-muted-foreground">
-                Paste comma-separated rows. First line must be the headers (e.g. <code>Name *,Phone *,Category Code</code>).
+                Paste comma-separated rows. First line must be the headers (e.g. <code>Name,Phone,Email,Gender</code>
+                {' '}— common variants like <code>Learner Name</code>, <code>Mobile Number</code> or <code>Email ID</code> also work).
               </p>
               <textarea
                 className="h-32 w-full rounded-md border bg-background p-2 font-mono text-xs"
@@ -288,7 +278,7 @@ export function BulkImportBoard({
           {parseError && (
             <div className="flex items-start gap-2 rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              {parseError}
+              <span className="min-w-0 break-words">{parseError}</span>
             </div>
           )}
         </div>

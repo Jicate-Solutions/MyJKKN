@@ -27,6 +27,7 @@ import {
   type SessionShareRow,
 } from '@/lib/services/induction/induction-sharing-service';
 import { SessionQuestionService } from '@/lib/services/session-questions/session-question-service';
+import { istLocalInputToIso, isoToIstLocalInput, IST_TIME_ZONE } from '@/lib/utils/date-format';
 import { VenueRoomPicker } from '@/app/(routes)/meetings/manage/_components/venue-room-picker';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -45,15 +46,12 @@ import { Plus, Pencil, Trash2, MapPin, User, Users, Target, LinkIcon, X, Star, C
 interface Batch { id: string; label: string; }
 const COMBINED = '__combined__';
 
-// ISO <-> <input type="datetime-local"> ('YYYY-MM-DDTHH:mm', local time)
+// ISO <-> <input type="datetime-local"> ('YYYY-MM-DDTHH:mm'), pinned to IST.
 function isoToLocal(iso: string): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return isoToIstLocalInput(iso);
 }
 function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: IST_TIME_ZONE });
 }
 
 export function SessionsSection({
@@ -286,8 +284,9 @@ export function SessionsSection({
       try {
         const rows = await PersonAvailabilityService.getPeopleConflicts(
           speakers.map((s) => s.id),
-          new Date(start).toISOString(),
-          new Date(end).toISOString(),
+          // Pinned to IST: same wall-clock the save below sends.
+          istLocalInputToIso(start) ?? '',
+          istLocalInputToIso(end) ?? '',
           // the session being saved is never a clash with itself — same id the
           // upsert below reuses, so a retry after a failed speaker-write is
           // excluded too.
@@ -335,8 +334,9 @@ export function SessionsSection({
         sessionId,
         dayNumber: Number(day) || null,
         batchId: batchId === COMBINED ? null : batchId,
-        startAt: new Date(start).toISOString(),
-        endAt: new Date(end).toISOString(),
+        // Pinned to IST: the datetime-local values are read as IST wall-clock.
+        startAt: istLocalInputToIso(start) ?? start,
+        endAt: istLocalInputToIso(end) ?? end,
         title: title.trim(),
         speakerText: speaker.trim() || null,
         // STRICT: send only the chosen room id — the RPC derives venue_text from

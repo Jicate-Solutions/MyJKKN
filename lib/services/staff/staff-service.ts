@@ -28,7 +28,7 @@ import {
   resolveStaffFiltersForUser
 } from '@/lib/utils/staff-search';
 import { RESERVED_STAFF_ROLE_KEYS } from '@/types/staff';
-import { generateSyntheticEmail } from './synthetic-email';
+import { generateSyntheticEmail, describeStaffEmailConflict } from './synthetic-email';
 
 interface CreateStaffDto {
   first_name: string;
@@ -309,18 +309,32 @@ export class StaffService {
         }
       }
 
-      // Check if a staff member with this institution_email already exists
+      // Check if a staff member with this institution_email already exists.
+      // The message names the Staff ID when the address was generated from it —
+      // otherwise it points at a field the operator left blank.
       if (data.institution_email) {
         const { data: existingStaff } = await this.supabase
           .from('staff')
-          .select('id, first_name, last_name, institution_email')
+          .select('id, first_name, last_name, staff_id, institution_email')
           .eq('institution_email', data.institution_email)
-          .single();
+          .maybeSingle();
 
         if (existingStaff) {
-          throw new Error(
-            `Staff member with email ${data.institution_email} already exists`
-          );
+          const holderRow = existingStaff as any;
+          const { toast: conflictText } = describeStaffEmailConflict({
+            kind: 'institution',
+            address: data.institution_email,
+            staffId: data.staff_id,
+            phone: data.phone,
+            holder: {
+              name: `${holderRow.first_name ?? ''} ${holderRow.last_name ?? ''}`.trim() ||
+                'another team member',
+              staff_id: holderRow.staff_id ?? null
+            }
+          });
+          // Keep the constraint name in the message: the form's error ladder
+          // and the API route both discriminate on it.
+          throw new Error(`staff_institution_email_key — ${conflictText}`);
         }
       }
 
@@ -828,6 +842,9 @@ export class StaffService {
       department_id?: string;
       institution_id?: string;
       is_super_admin?: boolean;
+      // Holds the digital_coordinator role as ANY of their roles (primary or
+      // secondary) — profiles.role only carries the primary one.
+      is_digital_coordinator?: boolean;
     }
   ): Promise<StaffListResponse> {
     try {
@@ -839,6 +856,18 @@ export class StaffService {
       // Super admins see all staff
       if (userProfile?.is_super_admin) {
         return await this.getStaff(effectiveFilters);
+      }
+
+      // Digital coordinators manage their own institution's staff. Checked
+      // before the faculty branch: most coordinators are faculty by primary
+      // role and would otherwise see only their own record. Filtered to the
+      // institution explicitly because RLS alone is wider for coordinators
+      // who also hold an all-institutions role such as admission_counselor.
+      if (userProfile?.is_digital_coordinator && userProfile.institution_id) {
+        return await this.getStaffOptimizedForHOD(
+          effectiveFilters,
+          userProfile.institution_id
+        );
       }
 
       // Faculty users can only view their own staff record

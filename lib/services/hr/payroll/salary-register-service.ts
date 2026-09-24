@@ -41,6 +41,7 @@ import { getErrorMessage } from '@/lib/utils';
 import { resolveTds } from '@/lib/hr/payroll/tds-slabs';
 import { TdsSlabService } from '@/lib/services/hr/payroll/tds-slab-service';
 import type {
+  HRSalaryRegisterDeletedRun,
   HRSalaryRegisterLine,
   HRSalaryRegisterRun,
   SalaryClosePreview,
@@ -66,7 +67,40 @@ import type {
  */
 const ON_DUTY_LEAVE_CODES = new Set(['OD', 'CD']);
 
+/**
+ * Leave-type codes that are CASUAL LEAVE, the one type the register names.
+ *
+ * Matched on hr_leave_types.leave_type_code, which is 'CL' at all 14
+ * institutions (one Casual Leave type each, verified 2026-09-22 — CL is 163 of
+ * the 219 leave days ever recorded on a summary). A second casual type under
+ * another code would land in Other paid leave: visible and still inside the
+ * total, never lost, and this set is one line to extend.
+ *
+ * Presentation only, like ON_DUTY_LEAVE_CODES: it decides which of three PAID
+ * columns a day prints in and cannot move a rupee.
+ */
+const CASUAL_LEAVE_CODES = new Set(['CL']);
+
 /** PostgREST returns numeric as a string. Every figure is coerced through this. */
+/**
+ * The most common value, smallest on a tie — the answer Postgres' mode() gives,
+ * which is what the close writes. Empty input yields 0 so a month with no
+ * projection rows divides by nothing rather than by NaN.
+ */
+function modeOf(values: number[]): number {
+  const counts = new Map<number, number>();
+  for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
+  let best = 0;
+  let bestCount = 0;
+  for (const [v, c] of counts) {
+    if (c > bestCount || (c === bestCount && v < best)) {
+      best = v;
+      bestCount = c;
+    }
+  }
+  return best;
+}
+
 function num(v: unknown): number {
   if (v === null || v === undefined) return 0;
   return typeof v === 'number' ? v : Number(v) || 0;
@@ -195,36 +229,41 @@ export interface AttendanceSummaryRow {
   leave_by_type: Record<string, number>;
   unprocessed_days: number;
   /**
-   * Days the resolver expected this person to work in the month, pattern-aware
-   * (2026-09-04). NULL on months closed before the column existed.
+   * Days the resolver expected this person to work in the month: calendar
+   * days minus week-offs minus holidays, pattern/role/person aware, NOT
+   * clamped to joining. The register's Business Working Days and this line's
+   * divisor (2026-09-22). NULL only on rows frozen before 2026-09-04 that the
+   * backfill could not resolve.
    */
   scheduled_days: number | null;
-  /**
-   * The work pattern held on any day of the month. When set, the day rate
-   * divides by scheduled_days — the person's own week — instead of the
-   * institution standard. See registerBasisFor.
-   */
+  /** The work pattern held on any day of the month. Informational since 2026-09-22. */
   work_pattern_id: string | null;
 }
 
 /**
  * The divisor for one register line.
  *
- * A person on a work pattern (a 3-day or 5-day week at an institution that
- * otherwise runs six) is paid on THEIR scheduled days, not the institution's
- * month standard — dividing a Tue/Wed/Thu person's salary by 26 would charge
- * them ~13 unpaid days every month. Everyone else keeps the period basis.
+ * scheduled_days is the resolver's FULL-MONTH expectation for this person —
+ * calendar days minus week-offs minus holidays, pattern-aware — frozen at
+ * close. It is NOT the person's recorded working days: a mid-month joiner is
+ * unpaid for the days before they joined, not paid a full month for half of
+ * one. A 3-day-week pattern member gets their own 13, not the institution's
+ * 23; everyone else's scheduled_days IS the institution's 23.
  *
- * scheduled_days is the resolver's full-month expectation, NOT the person's
- * recorded working days, for the same reason the institution basis is used for
- * everyone else: a mid-month joiner is unpaid for the days before they joined,
- * not paid a full month for half of one.
+ * WHY NOT THE PERIOD'S working_days_count. Until 2026-09-22 that column was
+ * MAX(working_days) over every summary in the month, and working_days was
+ * counted from RECORDS. One person whose 23-day leave had been stamped over
+ * three Sundays and three holidays counted 29 working days, and all 50 people
+ * on the Pharmacy August register were divided by 29 while being credited at
+ * most 23 — six unpaid days each, on a month nobody missed. The period figure
+ * is now the MODE of scheduled_days and is only the fallback for months
+ * closed before the column existed.
  */
 export function registerBasisFor(
-  summary: Pick<AttendanceSummaryRow, 'scheduled_days' | 'work_pattern_id'>,
+  summary: Pick<AttendanceSummaryRow, 'scheduled_days'>,
   periodBasis: number,
 ): number {
-  if (summary.work_pattern_id && (summary.scheduled_days ?? 0) > 0) {
+  if ((summary.scheduled_days ?? 0) > 0) {
     return summary.scheduled_days as number;
   }
   return periodBasis;
@@ -233,7 +272,12 @@ export function registerBasisFor(
 /** The computed half of a register row — everything that is not identity. */
 export interface RegisterLineFigures {
   business_working_days: number;
+  /** The paid-leave TOTAL. The three columns below partition it exactly. */
   paid_leave_days: number;
+  casual_leave_days: number;
+  comp_off_days: number;
+  /** Clinical, PH.D, WFH — every paid type that is neither of the two above. */
+  other_paid_leave_days: number;
   unpaid_leave_days: number;
   on_duty_days: number;
   worked_days: number;
@@ -269,6 +313,9 @@ export interface RegisterLineFigures {
 export const ZERO_FIGURES: RegisterLineFigures = {
   business_working_days: 0,
   paid_leave_days: 0,
+  casual_leave_days: 0,
+  comp_off_days: 0,
+  other_paid_leave_days: 0,
   unpaid_leave_days: 0,
   on_duty_days: 0,
   worked_days: 0,
@@ -296,6 +343,15 @@ export const ZERO_FIGURES: RegisterLineFigures = {
  *   Paid Days   = Business Working Days - Unpaid
  *   Paid Days   = Worked + Paid Leave + On Duty
  *   Worked      = Business Working Days - Paid Leave - Unpaid - On Duty
+ *
+ * and, since the detail table prints the paid-leave columns separately
+ * (2026-09-22), a fourth that makes that row close:
+ *   Paid Leave  = Casual + Comp Off + Other Paid Leave
+ *
+ * HOLIDAYS ARE OUTSIDE THE BUSINESS WORKING DAYS AND ARE NOT PAID DAYS (HR,
+ * 2026-09-22): the basis is calendar minus week-offs minus holidays, and the
+ * attendance page's cards print the same unit, so the two screens agree on
+ * every figure for the same person.
  */
 export function computeRegisterLine(input: {
   monthlyGross: number;
@@ -335,11 +391,26 @@ export function computeRegisterLine(input: {
   // them across so the On Duty column means on duty. Both are paid, so this
   // cannot change net pay — it decides which column a day is printed in.
   let odLeaveDays = 0;
+  let casualLeaveDays = 0;
   for (const [code, days] of Object.entries(s.leave_by_type ?? {})) {
     if (ON_DUTY_LEAVE_CODES.has(code)) odLeaveDays += num(days);
+    else if (CASUAL_LEAVE_CODES.has(code)) casualLeaveDays += num(days);
   }
 
   const paidLeaveDays = Math.max(0, s.leave_days - odLeaveDays) + s.comp_off_days;
+
+  /**
+   * The paid-leave total, taken apart for the detail table's columns.
+   *
+   * DERIVED BY SUBTRACTION, not by summing the named types. leave_by_type is
+   * keyed per leave-type code and paid_leave_days is computed from leave_days,
+   * so adding up the codes the app happens to know would drop any type it does
+   * not — silently, on the register that decides pay. Taking the remainder
+   * makes the partition exact by construction: whatever is neither casual nor
+   * comp-off is Other, including a type created tomorrow.
+   */
+  const compOffDays = Math.max(0, s.comp_off_days);
+  const otherPaidLeaveDays = Math.max(0, paidLeaveDays - casualLeaveDays - compOffDays);
   const onDutyDays = s.on_duty_days + odLeaveDays;
   const workedDays = s.present_days;
 
@@ -406,6 +477,9 @@ export function computeRegisterLine(input: {
   return {
     business_working_days: basis,
     paid_leave_days: paidLeaveDays,
+    casual_leave_days: casualLeaveDays,
+    comp_off_days: compOffDays,
+    other_paid_leave_days: otherPaidLeaveDays,
     unpaid_leave_days: unpaidLeaveDays,
     on_duty_days: onDutyDays,
     worked_days: workedDays,
@@ -819,12 +893,12 @@ export class SalaryRegisterService {
       });
     }
 
-    // The month standard, derived exactly as the close derives it: the largest
-    // working_days across the projection is what it writes into
-    // hr_attendance_periods.working_days_count.
-    const periodBasis = rows.reduce(
-      (max, r) => Math.max(max, Number(r.working_days ?? 0)),
-      0,
+    // The month standard, derived exactly as the close derives it: the MODE of
+    // scheduled_days across the projection is what it writes into
+    // hr_attendance_periods.working_days_count. A display figure and the
+    // fallback divisor only — each line divides by its own scheduled_days.
+    const periodBasis = modeOf(
+      rows.map((r) => Number(r.scheduled_days ?? 0)).filter((n) => n > 0),
     );
 
     const payable: SalaryClosePreviewRow[] = [];
@@ -1283,6 +1357,105 @@ export class SalaryRegisterService {
     return { run_id: runId, included, excluded };
   }
 
+  /**
+   * Remove one register and every line on it. SUPER ADMIN ONLY, and
+   * irreversible — a frozen register is payroll history, and this is the one
+   * path that rewrites it.
+   *
+   * The route checks is_super_admin() before calling; the DELETE policies on
+   * both tables (migration 20260922072528) refuse everyone else at the
+   * database, so a forged request cannot get past a missing check here.
+   *
+   * ZERO ROWS BACK IS A REFUSAL, NOT A SUCCESS. An RLS-denied DELETE returns
+   * no error and no rows — the same shape as "already gone". The snapshot is
+   * loaded first so the two can be told apart (P0002 vs 42501) and so the
+   * receipt can name the register after the row no longer exists.
+   *
+   * A predecessor this run superseded STAYS superseded (its superseded_by
+   * FK is SET NULL by the cascade; superseded_at is left alone): the month
+   * then has no live register until someone generates again. Nothing ever
+   * silently becomes "in force" because something else was deleted.
+   */
+  static async deleteRun(
+    supabase: SupabaseClient,
+    runId: string,
+    actorId: string,
+  ): Promise<HRSalaryRegisterDeletedRun> {
+    const { data: run, error: loadErr } = await (supabase as any)
+      .from('hr_salary_register_runs')
+      .select(
+        'id, hr_organization_id, institution_id, period_year, period_month, staff_total, included_count, total_net, generated_at, superseded_at, hr_organizations:hr_organization_id(name)'
+      )
+      .eq('id', runId)
+      .maybeSingle();
+
+    if (loadErr) throw new Error(`Failed to load the register: ${getErrorMessage(loadErr)}`);
+    if (!run) {
+      throw Object.assign(new Error('This register no longer exists.'), { code: 'P0002' });
+    }
+
+    const receipt: HRSalaryRegisterDeletedRun = {
+      id: run.id,
+      hr_organization_id: run.hr_organization_id,
+      organisation_name: run.hr_organizations?.name ?? 'Unknown institution',
+      institution_id: run.institution_id,
+      period_year: run.period_year,
+      period_month: run.period_month,
+      staff_total: num(run.staff_total),
+      included_count: num(run.included_count),
+      total_net: num(run.total_net),
+      generated_at: run.generated_at,
+      was_superseded: run.superseded_at != null,
+    };
+
+    const { data: deleted, error: delErr } = await (supabase as any)
+      .from('hr_salary_register_runs')
+      .delete()
+      .eq('id', runId)
+      .select('id');
+
+    if (delErr) throw new Error(`Failed to delete the register: ${getErrorMessage(delErr)}`);
+    if (!deleted || deleted.length === 0) {
+      throw Object.assign(
+        new Error('Only a super admin can delete a salary register.'),
+        { code: '42501' },
+      );
+    }
+
+    // After the delete, never before: a log line for a delete that then failed
+    // would be the worse lie. logActivity swallows its own errors, so a logging
+    // fault cannot undo or mask a delete that has already happened.
+    //
+    // IMPORTED HERE, NOT AT THE TOP. activity-logger reaches ActivityService ->
+    // BaseService -> the browser Supabase client, which is constructed at import
+    // time and throws without env — and this module's pure pay arithmetic is
+    // unit-tested with no env at all. A top-level import broke every register
+    // test at load.
+    const { logActivity } = await import('@/lib/utils/activity-logger');
+    await logActivity({
+      userId: actorId,
+      actionType: 'delete',
+      resourceType: 'hr_salary_register_run',
+      resourceId: receipt.id,
+      resourceName: `${receipt.organisation_name} · ${monthLabel(receipt.period_year, receipt.period_month)}`,
+      description: `Deleted the salary register for ${receipt.organisation_name}, ${monthLabel(receipt.period_year, receipt.period_month)} (${receipt.included_count} payable lines, net ${receipt.total_net.toFixed(2)})`,
+      metadata: {
+        institution_id: receipt.institution_id,
+        hr_organization_id: receipt.hr_organization_id,
+        period_year: receipt.period_year,
+        period_month: receipt.period_month,
+        staff_total: receipt.staff_total,
+        included_count: receipt.included_count,
+        total_net: receipt.total_net,
+        generated_at: receipt.generated_at,
+        was_superseded: receipt.was_superseded,
+      },
+      institutionId: receipt.institution_id,
+    });
+
+    return receipt;
+  }
+
   // ───────────────────────────────────────────────────────────────────────
   // Reads
   // ───────────────────────────────────────────────────────────────────────
@@ -1467,6 +1640,9 @@ export class SalaryRegisterService {
       serial_no: num(l.serial_no),
       business_working_days: num(l.business_working_days),
       paid_leave_days: num(l.paid_leave_days),
+      casual_leave_days: num(l.casual_leave_days),
+      comp_off_days: num(l.comp_off_days),
+      other_paid_leave_days: num(l.other_paid_leave_days),
       unpaid_leave_days: num(l.unpaid_leave_days),
       on_duty_days: num(l.on_duty_days),
       worked_days: num(l.worked_days),

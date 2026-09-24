@@ -1,5 +1,7 @@
 import { BaseService } from '@/lib/services/base-service';
 import type {
+  CourseApplicantMatch,
+  CourseApplicationStats,
   CourseApplication,
   CourseApplicationCounts,
   CourseApplicationFilters,
@@ -43,12 +45,9 @@ const SELECT = `
   package:course_packages!course_applications_package_id_fkey(id, name, total_amount),
   decided_by_profile:profiles!course_applications_decided_by_fkey(id, full_name),
   enrollment:course_enrollments!course_enrollments_application_id_fkey(
-    id, enrollment_number, status, total_payable, total_paid, balance
+    id, enrollment_number, status, total_payable, total_paid, balance, participant_type
   ),
-  profile:profiles!course_applications_profile_id_fkey(
-    id,
-    jkkn_identities(jkkn_id)
-  )
+  jkkn_id
 `;
 
 export class CourseApplicationService extends BaseService {
@@ -69,6 +68,9 @@ export class CourseApplicationService extends BaseService {
 
     if (filters.status) query = query.eq('status', filters.status);
     if (filters.applicant_type) query = query.eq('applicant_type', filters.applicant_type);
+    if (filters.applicant_origin) {
+      query = query.eq('applicant_origin' as never, filters.applicant_origin as never);
+    }
 
     const search = filters.search?.trim();
     if (search) {
@@ -194,6 +196,44 @@ export class CourseApplicationService extends BaseService {
     }
 
     return { ...counts, total: (data ?? []).length };
+  }
+
+  /**
+   * Aggregates for the statistics card.
+   *
+   * Straight to the RPC: fn_course_application_stats is SECURITY DEFINER and
+   * runs the same predicate as course_applications_select, so it cannot show a
+   * course this caller could not already open. It reads only.
+   */
+  static async statsByCourse(courseEventId: string): Promise<CourseApplicationStats> {
+    const { data, error } = await this.supabase.rpc('fn_course_application_stats', {
+      p_course_event_id: courseEventId,
+    } as never);
+
+    if (error) throw error;
+    return data as unknown as CourseApplicationStats;
+  }
+
+  /**
+   * Is this applicant already somebody MyJKKN knows?
+   *
+   * Straight to the RPC: fn_course_resolve_applicant is SECURITY DEFINER and
+   * runs its own courses.applications.decide gate, and it only ever READS. The
+   * approve route asks the same question again server-side before provisioning
+   * anything — this call exists so the dialog can say who the person is BEFORE
+   * the admin clicks, not to be the thing that decides.
+   */
+  static async resolveApplicant(
+    email: string | null,
+    phone: string | null,
+  ): Promise<CourseApplicantMatch> {
+    const { data, error } = await this.supabase.rpc('fn_course_resolve_applicant', {
+      p_email: email || null,
+      p_phone: phone || null,
+    } as any);
+
+    if (error) throw error;
+    return data as unknown as CourseApplicantMatch;
   }
 
   // ── decisions ──────────────────────────────────────────────────────────────

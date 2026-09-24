@@ -149,20 +149,28 @@ function Content() {
   const [notFound, setNotFound] = useState(false);
   const [notes, setNotes] = useState('');
   const [acting, setActing] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await fetch(`/api/cdc/requirements/${id}`, { cache: 'no-store' });
-    if (res.status === 404 || res.status === 403) { setNotFound(true); setLoading(false); return; }
-    const j = await res.json();
-    if (res.ok) { setReq(j.data); setNotes(j.data?.review_notes ?? ''); }
-    setLoading(false);
+    try {
+      const res = await fetch(`/api/cdc/requirements/${id}`, { cache: 'no-store' });
+      if (res.status === 404 || res.status === 403) { setNotFound(true); return; }
+      const j = await res.json().catch(() => ({}));
+      if (res.ok) { setReq(j.data); setNotes(j.data?.review_notes ?? ''); }
+      else setActionError(j.error || `Could not load this requirement (${res.status}).`);
+    } catch {
+      setActionError('Could not reach the server. Check your connection and try again.');
+    } finally {
+      setLoading(false);
+    }
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
 
   const moderate = async (status: 'approved' | 'rejected') => {
     setActing(true);
+    setActionError(null);
     try {
       const res = await fetch(`/api/cdc/requirements/${id}`, {
         method: 'PATCH',
@@ -170,6 +178,12 @@ function Content() {
         body: JSON.stringify({ status, review_notes: notes || null }),
       });
       if (res.ok) await load();
+      else {
+        const j = await res.json().catch(() => ({}));
+        setActionError(j.error || `Could not ${status === 'approved' ? 'approve' : 'reject'} this requirement (${res.status}).`);
+      }
+    } catch {
+      setActionError('Could not reach the server. Nothing was changed.');
     } finally { setActing(false); }
   };
 
@@ -224,6 +238,9 @@ function Content() {
                 </Button>
               </div>
             </div>
+          )}
+          {actionError && (
+            <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{actionError}</p>
           )}
           {req.review_notes && !isPending && <p className="mt-3 text-xs text-slate-400">Review note: {req.review_notes}</p>}
         </CardContent>
