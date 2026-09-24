@@ -1,7 +1,8 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, connection } from 'next/server';
-import { getAuthSession } from '@/lib/supabase/server';
+import { getAuthSession, createServerSupabaseClient } from '@/lib/supabase/server';
+import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
 import { ServiceRequestService } from '@/lib/services/service-requests/service-request-service';
 
 export async function POST(
@@ -17,6 +18,11 @@ export async function POST(
     }
 
     const result = await ServiceRequestService.submitRequest(id, session.user.id);
+    // Adoption loop: the draft / returned path to a raised request.
+    await recordFeatureUse(
+      await createServerSupabaseClient(),
+      FEATURE_KEYS.SERVICE_REQUESTS_RAISE
+    );
     return NextResponse.json(result);
   } catch (error) {
     console.error('[service-requests] POST submit error:', error);
