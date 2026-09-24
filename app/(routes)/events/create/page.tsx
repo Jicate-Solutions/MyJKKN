@@ -43,6 +43,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { formatIstDate, formatIstTime } from '@/lib/utils/date-format';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
@@ -103,21 +104,10 @@ const DETAIL_TABS: { key: FormTabKey; label: string }[] = [
 const COMPETITION_FORMATS: EventFormat[] = ['tournament'];
 
 const dayLabel = (iso: string) =>
-  new Date(iso).toLocaleDateString('en-IN', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-  });
+  formatIstDate(iso, { weekday: 'short', day: 'numeric', month: 'short' });
 
-const timeRangeLabel = (startIso: string, endIso: string) => {
-  const fmt = (iso: string) =>
-    new Date(iso).toLocaleTimeString('en-IN', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    });
-  return `${fmt(startIso)}–${fmt(endIso)}`;
-};
+const timeRangeLabel = (startIso: string, endIso: string) =>
+  `${formatIstTime(startIso)}–${formatIstTime(endIso)}`;
 
 export default function CreateEventPage() {
   const router = useRouter();

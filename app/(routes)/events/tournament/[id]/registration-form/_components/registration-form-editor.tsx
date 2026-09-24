@@ -30,6 +30,7 @@ import type { SaveFormSectionPayload } from '@/lib/services/events/tournament/ev
 import { DynamicFieldInput, isFieldVisible } from '@/components/events/dynamic-field-input';
 import { StandardFieldsCard, StandardFieldsPreview } from './standard-fields-card';
 import { FORM_FIELD_TYPES } from '@/types/tournament';
+import { REGISTRATION_PREFILL_SOURCES } from '@/lib/services/events/registration/form-prefill';
 import type {
   EventRegistrationFormField,
   FormFieldType,
@@ -61,6 +62,8 @@ interface EditableField {
   condition: FormFieldCondition | null;
   /** Public image URL for an 'image_display' field; null for every other type. */
   media_url: string | null;
+  /** Profile attribute to seed the answer from for a signed-in registrant. */
+  prefill_source: string | null;
 }
 
 interface EditableSection {
@@ -103,6 +106,7 @@ function toEditableField(f: EventRegistrationFormField): EditableField {
     pattern: f.pattern,
     condition: f.condition,
     media_url: f.media_url ?? null,
+    prefill_source: f.prefill_source ?? null,
   };
 }
 
@@ -123,6 +127,7 @@ function newField(): EditableField {
     pattern: null,
     condition: null,
     media_url: null,
+    prefill_source: null,
   };
 }
 
@@ -166,6 +171,7 @@ function serialize(sections: EditableSection[]): SaveFormSectionPayload[] {
       // Without this the save RPC (which DELETEs and reinserts every field)
       // would wipe the organizer's image on any unrelated edit.
       media_url: f.media_url,
+      prefill_source: f.prefill_source,
     })),
   }));
 }
@@ -192,9 +198,149 @@ function toPreviewField(f: EditableField, index: number): EventRegistrationFormF
     options: f.options,
     condition: f.condition,
     media_url: f.media_url,
+    prefill_source: f.prefill_source,
     created_at: '',
     updated_at: '',
   };
+}
+
+// ── Show-only-when (conditional visibility) ──────────────────────────────────
+//
+// A field may depend on the answer to ANOTHER field on the same form — the
+// classic "Category = Parent → show parent fields, = Learner → show learner
+// fields". The engine (isFieldVisible in dynamic-field-input.tsx) already
+// honoured `condition`; this is the editor for it. A field is addressed by its
+// field_key, so a brand-new source field is given its key the moment it is
+// chosen (see ensureFieldKey) rather than at save time.
+
+/** What one field can be conditioned on: another field's key, label and options. */
+export interface ConditionSourceField {
+  uid: string;
+  key: string | null;
+  label: string;
+  type: FormFieldType;
+  options: FormFieldOption[] | null;
+}
+
+const CONDITION_OPS: { value: FormFieldCondition['op']; label: string; needsValue: boolean }[] = [
+  { value: 'eq', label: 'is', needsValue: true },
+  { value: 'neq', label: 'is not', needsValue: true },
+  { value: 'contains', label: 'contains', needsValue: true },
+  { value: 'not_empty', label: 'is answered', needsValue: false },
+  { value: 'empty', label: 'is not answered', needsValue: false },
+];
+
+function ConditionEditor({
+  condition,
+  sources,
+  onChange,
+  onPickSource,
+}: {
+  condition: FormFieldCondition | null;
+  sources: ConditionSourceField[];
+  onChange: (next: FormFieldCondition | null) => void;
+  /** Returns the (possibly newly assigned) field_key of the chosen source. */
+  onPickSource: (uid: string) => string;
+}) {
+  const source = condition ? sources.find((s) => s.key === condition.field) ?? null : null;
+  const op = CONDITION_OPS.find((o) => o.value === condition?.op) ?? CONDITION_OPS[0];
+  const choices = source?.options ?? null;
+  const sourceValue = source ? source.uid : '__none';
+
+  return (
+    <div className="space-y-2 rounded-md border border-dashed p-2.5">
+      <Label className="text-xs">Show only when</Label>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <Select
+          value={sourceValue}
+          onValueChange={(uid) => {
+            if (uid === '__none') {
+              onChange(null);
+              return;
+            }
+            const key = onPickSource(uid);
+            const picked = sources.find((s) => s.uid === uid);
+            // Default to "is <first option>" for a choice field, "is answered" otherwise.
+            const firstOpt = picked?.options?.[0]?.value ?? '';
+            onChange(
+              picked?.options?.length
+                ? { field: key, op: 'eq', value: firstOpt }
+                : { field: key, op: 'not_empty', value: '' },
+            );
+          }}
+        >
+          <SelectTrigger className="h-9">
+            <SelectValue placeholder="Always shown" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__none">Always shown</SelectItem>
+            {sources.map((s) => (
+              <SelectItem key={s.uid} value={s.uid}>
+                {s.label || 'Untitled field'}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {condition && source && (
+          <Select
+            value={op.value}
+            onValueChange={(v) => {
+              const nextOp = CONDITION_OPS.find((o) => o.value === v) ?? op;
+              onChange({
+                field: condition.field,
+                op: nextOp.value,
+                value: nextOp.needsValue ? condition.value : '',
+              });
+            }}
+          >
+            <SelectTrigger className="h-9">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CONDITION_OPS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {condition && source && op.needsValue && (
+          choices && choices.length > 0 && op.value !== 'contains' ? (
+            <Select
+              value={condition.value}
+              onValueChange={(v) => onChange({ ...condition, value: v })}
+            >
+              <SelectTrigger className="h-9">
+                <SelectValue placeholder="Choose an option" />
+              </SelectTrigger>
+              <SelectContent>
+                {choices.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input
+              className="h-9"
+              value={condition.value}
+              onChange={(e) => onChange({ ...condition, value: e.target.value })}
+              placeholder="Value"
+            />
+          )
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {condition && source
+          ? `Hidden unless "${source.label || 'that field'}" ${op.label}${op.needsValue ? ` "${choices?.find((c) => c.value === condition.value)?.label ?? condition.value}"` : ''}. A hidden field is never required.`
+          : 'Shown to everyone. Pick a dropdown or choice field to show this only for some answers — e.g. Category is "Parent".'}
+      </p>
+    </div>
+  );
 }
 
 // ── Display-image picker ─────────────────────────────────────────────────────
@@ -282,6 +428,8 @@ function FieldRow({
   onDelete,
   eventId,
   formId,
+  conditionSources,
+  onPickConditionSource,
 }: {
   field: EditableField;
   isFirst: boolean;
@@ -292,6 +440,10 @@ function FieldRow({
   /** Needed to upload a display image against the right form. */
   eventId: string;
   formId: string;
+  /** Every OTHER field on the form this one may be conditioned on. */
+  conditionSources: ConditionSourceField[];
+  /** Assigns a stable field_key to a not-yet-saved source field; returns it. */
+  onPickConditionSource: (uid: string) => string;
 }) {
   const needsOptions =
     field.field_type === 'select' || field.field_type === 'multi_select' || field.field_type === 'radio';
@@ -372,6 +524,40 @@ function FieldRow({
           placeholder="Shown under the field"
         />
       </div>
+
+      <ConditionEditor
+        condition={field.condition}
+        sources={conditionSources}
+        onChange={(next) => onUpdate({ condition: next })}
+        onPickSource={onPickConditionSource}
+      />
+
+      {!isDisplayImage && (
+        <div className="space-y-1.5">
+          <Label>Prefill from profile (signed-in MyJKKN users)</Label>
+          <Select
+            value={field.prefill_source ?? '__none'}
+            onValueChange={(v) => onUpdate({ prefill_source: v === '__none' ? null : v })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Not prefilled" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none">Not prefilled</SelectItem>
+              {REGISTRATION_PREFILL_SOURCES.map((s) => (
+                <SelectItem key={s.value} value={s.value}>
+                  {s.label}
+                  <span className="ml-1 text-xs text-muted-foreground">· {s.group}</span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            A learner or learning facilitator who is logged in sees this filled from their
+            record and can still change it. Guests type it.
+          </p>
+        </div>
+      )}
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -521,6 +707,52 @@ export function RegistrationFormEditor({
         s.uid === sectionUid ? { ...s, fields: s.fields.filter((f) => f.uid !== fieldUid) } : s
       )
     );
+  }
+
+  /**
+   * Give a not-yet-saved field its field_key NOW so another field can depend
+   * on it. serialize() would otherwise mint the key at save time, and the
+   * condition written before that would point at nothing.
+   */
+  function ensureFieldKey(fieldUid: string): string {
+    const used = new Set<string>();
+    let target: EditableField | null = null;
+    for (const s of sections) {
+      for (const f of s.fields) {
+        if (f.field_key) used.add(f.field_key);
+        if (f.uid === fieldUid) target = f;
+      }
+    }
+    if (!target) return '';
+    if (target.field_key) return target.field_key;
+    const base = slugifyKey(target.field_label);
+    let key = base;
+    let n = 2;
+    while (used.has(key)) {
+      key = `${base}_${n}`;
+      n += 1;
+    }
+    applyLocal(
+      sections.map((s) => ({
+        ...s,
+        fields: s.fields.map((f) => (f.uid === fieldUid ? { ...f, field_key: key } : f)),
+      }))
+    );
+    return key;
+  }
+
+  /** Fields a given field may be conditioned on: every other answerable field on the form. */
+  function conditionSourcesFor(fieldUid: string): ConditionSourceField[] {
+    return sections
+      .flatMap((s) => s.fields)
+      .filter((f) => f.uid !== fieldUid && f.field_type !== 'image_display')
+      .map((f) => ({
+        uid: f.uid,
+        key: f.field_key,
+        label: f.field_label,
+        type: f.field_type,
+        options: f.options,
+      }));
   }
   function moveField(sectionUid: string, index: number, direction: 'up' | 'down') {
     applyLocal(
@@ -697,6 +929,8 @@ export function RegistrationFormEditor({
                     onDelete={() => deleteField(section.uid, field.uid)}
                     eventId={eventId}
                     formId={formId}
+                    conditionSources={conditionSourcesFor(field.uid)}
+                    onPickConditionSource={ensureFieldKey}
                   />
                 ))}
               </div>
