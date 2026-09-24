@@ -5,7 +5,7 @@ import { STREAMS } from '@/app/(routes)/bos/syllabus/_components/syllabus-filter
 // (Science/SCIENCE/science), incl. 22 of the Zoology papers behind
 // BUG-005789/005787/005779/005774/005798/005542 — but the Stream filter
 // offered no Science choice, so they could never be listed by stream.
-describe('BOS syllabus Stream filter options', () => {
+describe('BOS Stream filter options', () => {
   it('offers Science alongside Arts', () => {
     expect(STREAMS).toContain('Arts');
     expect(STREAMS).toContain('Science');

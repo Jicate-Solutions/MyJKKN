@@ -138,7 +138,7 @@ import { GET as listSyllabi, POST as createSyllabus } from '@/app/api/bos/syllab
 import { PUT as updateSyllabus } from '@/app/api/bos/syllabus/[id]/route';
 import { GET as syllabusMetrics } from '@/app/api/bos/syllabus/metrics/route';
 
-const syllabus = (id: string, stream: string | null): Row => ({
+const row = (id: string, stream: string | null): Row => ({
   id,
   course_code: id,
   course_name: `Course ${id}`,
@@ -154,16 +154,16 @@ const syllabus = (id: string, stream: string | null): Row => ({
 });
 
 const STREAM_ROWS: Row[] = [
-  syllabus('A1', 'Arts'),
-  syllabus('A2', 'ARTS'),
-  syllabus('A3', 'arts'),
-  syllabus('A4', 'Arts '),
-  syllabus('A5', '  arts'),
-  syllabus('X1', 'Arts and Science'),
-  syllabus('X2', 'Fine Arts'),
-  syllabus('S1', 'Science'),
-  syllabus('S2', 'SCIENCE '),
-  syllabus('N1', null),
+  row('A1', 'Arts'),
+  row('A2', 'ARTS'),
+  row('A3', 'arts'),
+  row('A4', 'Arts '),
+  row('A5', '  arts'),
+  row('X1', 'Arts and Science'),
+  row('X2', 'Fine Arts'),
+  row('S1', 'Science'),
+  row('S2', 'SCIENCE '),
+  row('N1', null),
 ];
 
 async function list(stream: string): Promise<string[]> {
@@ -229,7 +229,7 @@ describe('GET /api/bos/syllabus/metrics — By Stream facet', () => {
   });
 });
 
-describe('Syllabus save — Stream is trimmed', () => {
+describe('Save — Stream is trimmed', () => {
   it('POST /api/bos/syllabus stores "  Arts  " as "Arts"', async () => {
     const res = await createSyllabus(
       new NextRequest('http://x/api/bos/syllabus', {
