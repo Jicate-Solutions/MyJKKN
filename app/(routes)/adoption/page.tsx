@@ -34,11 +34,15 @@ import { Badge } from '@/components/ui/badge';
 import {
   DEAD_AFTER_DAYS,
   DEAD_WEEKLY_PCT,
+  activeShareLabel,
   isDeadFeature,
+  isSkipped,
+  isTermFeature,
   shippedAgo,
   summariseAdoption,
   toNumber,
   type AdoptionMetricRow,
+  rollingWeekStart,
 } from '@/lib/adoption/summarise';
 
 /** Beyond this the list stops being something a person reads and starts being
@@ -112,8 +116,11 @@ export default async function AdoptionPage() {
 
   const supabase = await createServerSupabaseClient();
 
+  // One clock for the whole render: the rolling window and the dead rule must agree.
+  const now = new Date();
   const { data: metricsData, error: metricsError } = await supabase.rpc('fn_adoption_metrics', {
-    p_week_start: null,
+    // A ROLLING seven days, not the calendar week (see rollingWeekStart).
+    p_week_start: rollingWeekStart(now),
     p_institution_id: institutionId,
   });
 
@@ -129,17 +136,20 @@ export default async function AdoptionPage() {
     );
   }
 
-  const now = new Date();
   const rows = (metricsData ?? []) as AdoptionMetricRow[];
   const { labelled, measured, dead, groups } = summariseAdoption(rows, now);
   const institutionName = profile.institutions?.name ?? null;
+  // Features skipped on purpose are out of the three numbers, so they are out
+  // of the list too — otherwise the headline would count two and the page
+  // would show three. A principal has no decision to make about them.
+  const tracked = groups.filter((group) => !isSkipped(group));
 
   // Names, one read per feature. Scoped to this person's own institution and
   // nothing else: no other id is ever passed, so a principal cannot reach
   // another college's people even by accident.
   const peopleByFeature = new Map<string, PeopleResult>(
     await Promise.all(
-      groups.map(async (group): Promise<[string, PeopleResult]> => {
+      tracked.map(async (group): Promise<[string, PeopleResult]> => {
         const { data, error } = await supabase.rpc('fn_adoption_people', {
           p_feature_key: group.feature_key,
           p_institution_id: institutionId,
@@ -159,10 +169,12 @@ export default async function AdoptionPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Adoption</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            What share of the people a feature was built for actually used it this week
+            What share of the people a feature was built for actually used it in the last
+            seven days
             {institutionName ? ` at ${institutionName}` : ''}. A feature counts as dead when
             it is at least {DEAD_AFTER_DAYS} days old and under {DEAD_WEEKLY_PCT}% for every
-            role it was meant for.
+            role it was meant for. A seasonal feature is judged on the last completed term
+            instead, never on the one running.
           </p>
         </div>
 
@@ -174,7 +186,7 @@ export default async function AdoptionPage() {
           />
           <Headline
             value={measured}
-            label="Measured this week"
+            label="Measured"
             hint="Labelled features with intended people here."
           />
           <Headline
@@ -184,15 +196,16 @@ export default async function AdoptionPage() {
           />
         </div>
 
-        {groups.length === 0 ? (
+        {tracked.length === 0 ? (
           <div className="rounded-xl border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
-            No features are labelled yet, so nothing is being measured here.
+            Nothing is being measured here yet.
           </div>
         ) : null}
 
-        {groups.map((group) => {
+        {tracked.map((group) => {
           const result = peopleByFeature.get(group.feature_key);
           const featureIsDead = isDeadFeature(group, now);
+          const seasonal = isTermFeature(group);
           const people = result?.kind === 'names' ? result.people : [];
           const shown = people.slice(0, PEOPLE_LIMIT);
           const notUsed = people.filter((person) => !person.ever_used).length;
@@ -212,6 +225,17 @@ export default async function AdoptionPage() {
                     {group.feature_key} · shipped {group.shipped_at.slice(0, 10)} (
                     {shippedAgo(group.shipped_at, now)})
                   </p>
+                  {/* "Last term" means nothing without the dates it covers. */}
+                  {seasonal ? (
+                    <p className="text-xs text-muted-foreground/70">
+                      {group.prev_term_start && group.prev_term_end
+                        ? `last term ${group.prev_term_start} → ${group.prev_term_end}`
+                        : 'no completed term yet'}
+                      {group.term_start && group.term_end
+                        ? ` · current term ${group.term_start} → ${group.term_end}`
+                        : ''}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="flex items-center gap-2">
                   {featureIsDead ? (
@@ -234,8 +258,15 @@ export default async function AdoptionPage() {
                     <TableRow>
                       <TableHead>For whom</TableHead>
                       <TableHead className="text-right">Intended</TableHead>
-                      <TableHead className="text-right">Used this week</TableHead>
-                      <TableHead className="text-right">Weekly</TableHead>
+                      {/* A seasonal feature gets two cells: the term running now,
+                          and the last completed term — which is the one that
+                          decides whether anybody actually uses it. */}
+                      <TableHead className="text-right">
+                        {seasonal ? activeShareLabel(group) : 'Used in the last 7 days'}
+                      </TableHead>
+                      <TableHead className="text-right">
+                        {seasonal ? 'Last term' : activeShareLabel(group)}
+                      </TableHead>
                       <TableHead className="text-right">Ever</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -249,10 +280,29 @@ export default async function AdoptionPage() {
                           {toNumber(row.intended_count)}
                         </TableCell>
                         <TableCell className="text-right text-sm tabular-nums">
-                          {toNumber(row.weekly_active)}
+                          {seasonal ? (
+                            <>
+                              {toNumber(row.pct_term).toFixed(1)}%
+                              <div className="text-xs text-muted-foreground">
+                                {toNumber(row.term_active)} of {toNumber(row.intended_count)}
+                              </div>
+                            </>
+                          ) : (
+                            toNumber(row.weekly_active)
+                          )}
                         </TableCell>
                         <TableCell className="text-right text-sm tabular-nums text-foreground">
-                          {toNumber(row.pct_weekly).toFixed(1)}%
+                          {seasonal ? (
+                            <>
+                              {toNumber(row.pct_prev_term).toFixed(1)}%
+                              <div className="text-xs text-muted-foreground">
+                                {toNumber(row.prev_term_active)} of{' '}
+                                {toNumber(row.intended_count)}
+                              </div>
+                            </>
+                          ) : (
+                            `${toNumber(row.pct_weekly).toFixed(1)}%`
+                          )}
                         </TableCell>
                         <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
                           {toNumber(row.pct_ever).toFixed(1)}%
