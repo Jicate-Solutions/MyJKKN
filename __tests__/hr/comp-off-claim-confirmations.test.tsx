@@ -55,6 +55,15 @@ vi.mock('@/hooks/hr/use-comp-off', () => ({
 vi.mock('@/hooks/hr/use-time-off-context', () => ({
   useTimeOffContext: () => ({ employeeId: 'someone-else' }),
 }));
+// Whether the viewer holds hr.leave.approve — the only grant hcoc_select
+// honours for someone else's claim. Default: an HR approver.
+const perms = vi.hoisted(() => ({ hrApprove: true }));
+vi.mock('@/hooks/use-permissions', () => ({
+  usePermissions: () => ({
+    isLoading: false,
+    canAccess: (m: string, a: string) => m === 'hr.leave' && a === 'approve' && perms.hrApprove,
+  }),
+}));
 
 vi.mock('@/components/data-table/data-table', async () => {
   const React = await import('react');
@@ -106,6 +115,7 @@ import { CompOffClaimsQueue } from '@/app/(routes)/hr/leave/_components/comp-off
 beforeEach(() => {
   mutateAsync.mockResolvedValue(undefined);
   table.selectAll = false;
+  perms.hrApprove = true;
 });
 afterEach(() => {
   cleanup();
@@ -235,5 +245,20 @@ describe('Comp-off claim queue — bulk', () => {
     expect(mutateAsync).toHaveBeenCalledWith({
       creditId: 'claim-kumar', decision: 'rejected', rejectionReason: 'Not a holiday',
     });
+  });
+});
+
+// BUG-006194: a leave-step approver opened this tab to an empty table and read
+// it as "comp off is not displayed". The tab now says why.
+describe('Comp-off claim queue — who confirms claims', () => {
+  it('tells a leave-step approver without hr.leave.approve that HR confirms claims', () => {
+    perms.hrApprove = false;
+    render(<CompOffClaimsQueue />);
+    expect(screen.getByText(/claims are confirmed by HR/i)).toBeInTheDocument();
+  });
+
+  it('says nothing extra to an HR approver', () => {
+    render(<CompOffClaimsQueue />);
+    expect(screen.queryByText(/claims are confirmed by HR/i)).not.toBeInTheDocument();
   });
 });

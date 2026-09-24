@@ -87,6 +87,24 @@ export default function CompensatoryOffPage() {
   const credits = balance?.credits ?? [];
   const available = balance?.available ?? 0;
 
+  /**
+   * A comp off lives in TWO tables: the claim in hr_comp_off_credits, the
+   * booking in hr_leave_applications. The request table below reads only the
+   * booking, so a claim someone had just submitted appeared nowhere on this
+   * tab — "No compensatory off requests yet" sat directly under the Claim
+   * button they had pressed (BUG-006097, "applied but visible as not
+   * applied"). Claims that have not become credit — awaiting a decision, or
+   * refused — are listed here too; approved ones are already counted in
+   * Available and listed on the Balance tab.
+   */
+  const undecidedOrRefusedClaims = useMemo(
+    () =>
+      (balance?.credits ?? []).filter(
+        (c) => c.source === 'claim' && (c.status === 'pending' || c.status === 'rejected')
+      ),
+    [balance?.credits]
+  );
+
   return (
     <TimeOffShell title="Compensatory Off" subTabs={SUB_TABS}>
       {!ctx.isLoading && !ctx.hasEmployeeRecord ? (
@@ -259,6 +277,44 @@ export default function CompensatoryOffPage() {
                 )}
               </AlertDescription>
             </Alert>
+          )}
+
+          {undecidedOrRefusedClaims.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium">Your worked-day claims</h3>
+              <RequestTable
+                columns={[
+                  { key: 'worked', label: 'Worked Date' },
+                  { key: 'days', label: 'Days', align: 'right' },
+                  { key: 'status', label: 'Status' },
+                ]}
+              >
+                {undecidedOrRefusedClaims.map((c) => (
+                  <RequestRow key={c.id} status={c.status === 'rejected' ? 'rejected' : 'pending'}>
+                    <TableCell className="pl-4 font-medium">{fmtDate(c.worked_date)}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatDays(c.credit_days)}
+                    </TableCell>
+                    <TableCell>
+                      <span
+                        className={cn(
+                          'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium',
+                          CREDIT_TONE[c.effective_status]
+                        )}
+                        title={c.status === 'rejected' ? c.rejection_reason ?? undefined : undefined}
+                      >
+                        {COMP_OFF_STATUS_LABELS[c.effective_status]}
+                      </span>
+                      {c.status === 'rejected' && c.rejection_reason && (
+                        <span className="mt-0.5 block max-w-[220px] truncate text-xs text-muted-foreground">
+                          {c.rejection_reason}
+                        </span>
+                      )}
+                    </TableCell>
+                  </RequestRow>
+                ))}
+              </RequestTable>
+            </div>
           )}
 
           <RequestTable

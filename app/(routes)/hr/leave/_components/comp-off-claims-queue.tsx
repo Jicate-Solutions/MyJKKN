@@ -64,10 +64,22 @@ import {
   useRevokeCompOffClaim,
 } from '@/hooks/hr/use-comp-off';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
+import { usePermissions } from '@/hooks/use-permissions';
 import { getErrorMessage } from '@/lib/utils';
 
 export function CompOffClaimsQueue() {
   const ctx = useTimeOffContext();
+  /**
+   * Who sees other people's claims here. hcoc_select / hcoc_update admit a
+   * claim that is not your own only to a holder of hr.leave.approve (plus
+   * super admins). The Approvals tab itself opens for more people than that —
+   * hr_can_approve_leave() also admits anyone named on a leave approval step —
+   * so a step approver opened this tab to an empty table with no reason given
+   * and read it as "comp off is not displayed" (BUG-006194). Display only:
+   * who may decide a claim is unchanged.
+   */
+  const { canAccess, isLoading: permsLoading } = usePermissions();
+  const decidesOthersClaims = canAccess('hr.leave', 'approve');
   const { data, isLoading, error, refetch, isFetching, dataUpdatedAt } = useCompOffClaimsQueue();
   const decide = useDecideCompOffClaim();
   const revoke = useRevokeCompOffClaim();
@@ -320,6 +332,17 @@ export function CompOffClaimsQueue() {
           compensatory off on a day inside that month.
         </AlertDescription>
       </Alert>
+
+      {!permsLoading && !decidesOthersClaims && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="text-xs">
+            Compensatory off claims are confirmed by HR, not by the leave approval steps.
+            You approve leave and short time off on the other tabs; other people&apos;s
+            worked-day claims do not appear here for you. Only your own claims are listed.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {lapsedPending > 0 && (
         <Alert variant="destructive">
