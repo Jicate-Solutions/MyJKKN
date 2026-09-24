@@ -16,6 +16,7 @@ import { UsageBeacon } from '@/components/analytics/usage-beacon';
 import { Navbar } from '@/components/Navbar/Navbar';
 import { FeePaymentNoticeBanner } from '@/components/billing/fee-payment-notice-banner';
 import { HandoverLauncher } from '@/components/director-desk/handover-launcher';
+import { AskAssistantButton } from '@/components/ai-query/AskAssistantButton';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -98,6 +99,12 @@ const Dashboardlayout = ({ children }: DashboardLayoutProps) => {
           current and future authenticated page with no per-route wiring.
          */}
         <HandoverLauncher key='director-handover' />
+        {/*
+          AskAssistantButton: the AI Assistant one click away on every page,
+          knowing which page it was asked from. Fifth slot of the right-edge
+          floating column. Renders null without ai_query.view and on /ai-query.
+         */}
+        <AskAssistantButton key='ask-assistant' />
       </AdminPanelLayout>
       </AcknowledgmentGate>
     </QueryClientProvider>
