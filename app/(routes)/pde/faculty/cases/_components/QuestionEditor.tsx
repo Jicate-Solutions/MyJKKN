@@ -1,7 +1,13 @@
 'use client';
 
 // QuestionEditor — edit a single clinical-case question.
-// Supports the 3 clinical Q types: free_text_socratic, mcq_warmup, image_tag.
+// Supports the 6 clinical Q types: free_text_socratic, mcq_warmup, image_tag,
+// multi_select, matching, sequencing.
+//
+// On a STAGED case the editor also carries the stage the question belongs to.
+// Every question in a staged case must sit in a stage: an unplaced question
+// would never appear for a learner working stage by stage, with nothing on
+// screen to explain the gap.
 
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -24,11 +30,15 @@ import type {
   ImageTagRegion,
 } from '@/types/pde';
 import { ImageTagRegionAuthor } from './ImageTagRegionAuthor';
+import { MultiSelectEditor, MatchingEditor, SequencingEditor } from './ClinicalAnswerFormats';
 
 const TYPE_LABELS: Record<ClinicalQuestionType, string> = {
   free_text_socratic: 'Free-text (Socratic)',
   mcq_warmup: 'MCQ Warm-up',
   image_tag: 'Image Tag (Click Region)',
+  multi_select: 'Multi-select (choose all that apply)',
+  matching: 'Matching (item → option)',
+  sequencing: 'Sequencing (put in order)',
 };
 
 const DOMAIN_OPTIONS: { key: OSCEDomain; label: string }[] = [
@@ -46,9 +56,19 @@ interface Props {
   onChange: (next: CreateClinicalQuestionInput) => void;
   onRemove: () => void;
   onMove: (delta: -1 | 1) => void;
+  /** Stage titles in order. Empty = the case is flat and the picker is hidden. */
+  stageTitles?: string[];
 }
 
-export function QuestionEditor({ index, total, question, onChange, onRemove, onMove }: Props) {
+export function QuestionEditor({
+  index,
+  total,
+  question,
+  onChange,
+  onRemove,
+  onMove,
+  stageTitles = [],
+}: Props) {
   const setMetadata = (patch: Partial<typeof question.metadata>) => {
     onChange({ ...question, metadata: { ...question.metadata, ...patch } });
   };
@@ -133,6 +153,9 @@ export function QuestionEditor({ index, total, question, onChange, onRemove, onM
               <SelectItem value="free_text_socratic">Free-text (Socratic)</SelectItem>
               <SelectItem value="mcq_warmup">MCQ Warm-up</SelectItem>
               <SelectItem value="image_tag">Image Tag (Click Region)</SelectItem>
+              <SelectItem value="multi_select">Multi-select (choose all that apply)</SelectItem>
+              <SelectItem value="matching">Matching (item → option)</SelectItem>
+              <SelectItem value="sequencing">Sequencing (put in order)</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -155,6 +178,39 @@ export function QuestionEditor({ index, total, question, onChange, onRemove, onM
           </Select>
         </div>
       </div>
+
+      {/*
+        Stage picker — only on a staged case. Values are stage INDICES as
+        strings, never an empty string: an empty SelectItem value is a Radix
+        footgun this repo has a CI check for.
+      */}
+      {stageTitles.length > 0 ? (
+        <div className="mb-3">
+          <Label className="text-xs">Stage</Label>
+          <Select
+            value={
+              typeof question.stage_index === 'number' ? String(question.stage_index) : undefined
+            }
+            onValueChange={(v) => onChange({ ...question, stage_index: Number(v) })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Choose which stage this question belongs to…" />
+            </SelectTrigger>
+            <SelectContent>
+              {stageTitles.map((t, i) => (
+                <SelectItem key={i} value={String(i)}>
+                  Stage {i + 1}
+                  {t ? ` — ${t}` : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Move a question between stages by changing this. Learners only see a stage once
+            they have passed the one before it.
+          </p>
+        </div>
+      ) : null}
 
       <div className="mb-3">
         <Label className="text-xs">Question Text</Label>
@@ -229,6 +285,18 @@ export function QuestionEditor({ index, total, question, onChange, onRemove, onM
             }
           />
         </div>
+      ) : null}
+
+      {question.question_type === 'multi_select' ? (
+        <MultiSelectEditor index={index} question={question} onChange={onChange} />
+      ) : null}
+
+      {question.question_type === 'matching' ? (
+        <MatchingEditor index={index} question={question} onChange={onChange} />
+      ) : null}
+
+      {question.question_type === 'sequencing' ? (
+        <SequencingEditor index={index} question={question} onChange={onChange} />
       ) : null}
 
       {/* Ground truth + key concepts (shared across all types) */}

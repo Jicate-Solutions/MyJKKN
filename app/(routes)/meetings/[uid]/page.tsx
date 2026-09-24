@@ -47,6 +47,7 @@ import {
   switchRequestState,
   switchSourceMode,
 } from '@/lib/services/meetings/meeting-mode-switch';
+import { EndRecordingButton } from './_components/end-recording-button';
 import { CancelBookingButton } from './_components/cancel-booking-button';
 import { RescheduleBookingButton } from './_components/reschedule-booking-button';
 import { SwitchToOnlineButton } from './_components/switch-to-online-button';
@@ -337,7 +338,13 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
   const { data: mayRecord } = happensInARoom
     ? await supabase.rpc('fn_may_record_meetings')
     : { data: false };
-  const canRecordHere = happensInARoom && !isCancelled && !isPast && mayRecord === true;
+  // NOT gated on isPast (Director, 23 Sep: "unable to see record button for past
+  // meetings"). A meeting is "past" the moment its end time passes, which is
+  // exactly when a room is still full and running over — the case the recorder
+  // was built for. It also covers recording a conversation that happened
+  // without a booking being moved, and adding audio to a meeting after the
+  // fact. Cancelled still hides it: a meeting called off is not one to record.
+  const canRecordHere = happensInARoom && !isCancelled && mayRecord === true;
 
   const { data: recordingRows } = await supabase
     .from('meeting_recordings')
@@ -735,6 +742,11 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
                       {r.status === 'recording' ? ' · still recording' : ''}
                     </p>
                     {problem ? <p className="text-amber-600 dark:text-amber-500">{problem}</p> : null}
+                    {/* A recording whose Stop button went away with the tab that
+                        started it can only be ended from here. */}
+                    {r.status === 'recording' ? (
+                      <EndRecordingButton recordingId={r.id as string} />
+                    ) : null}
                   </div>
                 );
               })}

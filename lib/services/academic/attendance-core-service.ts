@@ -10,13 +10,16 @@ import {
   formatPeriodTime
 } from '@/lib/utils/academic/period-time-window';
 import { istBusinessDate } from '@/lib/utils/date-format';
+import {
+  mergeAttendancePeriod,
+  otherBatchStudentIds
+} from '@/lib/utils/academic/merge-attendance-period';
 import type {
   StudentAttendance,
   UpdateStudentAttendanceDto,
   BatchUpdateAttendanceDto,
   ConsolidatedStudentAttendance,
   ConsolidatedAttendanceData,
-  ConsolidatedAttendanceStudent,
   ConsolidatedAttendancePeriod,
   UpsertConsolidatedAttendanceDto,
   AttendanceAuditEntry
@@ -45,32 +48,6 @@ export function computeAttendanceDiff(
       old_status: old.status,
       new_status: newMap.get(old.student_id)!,
     }))
-}
-
-/**
- * Merges an incoming attendance period into the existing stored period,
- * unioning `students` by student_id instead of replacing the array.
- * Practical periods split students across batches that all share one
- * period_id — each batch only submits its own students, so a plain
- * object-replace here would let the second batch's write wipe out the
- * first batch's Present markers.
- */
-function mergeAttendancePeriod(
-  existing: ConsolidatedAttendancePeriod | undefined,
-  incoming: ConsolidatedAttendancePeriod
-): ConsolidatedAttendancePeriod {
-  if (!existing) return incoming;
-
-  const studentMap = new Map<string, ConsolidatedAttendanceStudent>(
-    (existing.students || []).map((s) => [s.student_id, s])
-  );
-  (incoming.students || []).forEach((s) => studentMap.set(s.student_id, s));
-
-  return {
-    ...existing,
-    ...incoming,
-    students: Array.from(studentMap.values())
-  };
 }
 
 /**
@@ -582,11 +559,30 @@ export class AttendanceCoreService {
         // unions students instead of replacing the first batch's array.
         const existingAttendanceData =
           ((currentRecord as any)?.attendance_data as ConsolidatedAttendanceData) || {};
+        // Updated: 2026-09-23 (BUG-006196) - For a practical batch save, read the
+        // slot's current batches so the merge keeps only OTHER batches' stored
+        // learners; a learner moved out of the saving batch no longer sticks.
+        const needsBatches = Object.keys(enrichedAttendanceData).some(
+          (k) => existingAttendanceData[k] && (enrichedAttendanceData[k] as any)?.batch_selected?.batch_id
+        );
+        let slotTimetableData: unknown = null;
+        if (needsBatches) {
+          const { data: ttRow } = await (this.supabase as any)
+            .from('timetables')
+            .select('timetable_data')
+            .eq('id', data.timetable_id)
+            .maybeSingle();
+          slotTimetableData = ttRow?.timetable_data ?? null;
+        }
+
         const mergedAttendanceData: ConsolidatedAttendanceData = { ...existingAttendanceData };
         Object.keys(enrichedAttendanceData).forEach((periodKey) => {
+          const incoming = enrichedAttendanceData[periodKey];
+          const ownBatchId = (incoming as any)?.batch_selected?.batch_id;
           mergedAttendanceData[periodKey] = mergeAttendancePeriod(
             existingAttendanceData[periodKey],
-            enrichedAttendanceData[periodKey]
+            incoming,
+            ownBatchId ? otherBatchStudentIds(slotTimetableData, periodKey, ownBatchId) : null
           );
         });
 
