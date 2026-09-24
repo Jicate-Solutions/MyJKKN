@@ -567,3 +567,74 @@ describe('REVIEW-4 — the short-paper alert names a control that is really ther
     expect(out).toContain('Use the 12 available');
   });
 });
+
+// ---------------------------------------------------------------------------
+// PR #4010 blind review, round 3 — point 1: locks over a chapter's figure
+// ---------------------------------------------------------------------------
+
+describe('R3-1 — locks beyond a chapter figure are reported, never silently redistributed', () => {
+  // U1 holds 10 (K1), U2 holds 20 (K3); five U1 questions are locked.
+  function bigPool(): PoolItem[] {
+    const mk = (id: string, topic: string, lv: string): PoolItem => ({
+      id,
+      topic_id: topic,
+      bloom_level: lv,
+      tags: [],
+      source_key: 'past_board_exam',
+      source_year: 2023,
+      times_served: 0,
+    });
+    return [
+      ...Array.from({ length: 10 }, (_, i) => mk(`u1-${i}`, U1, 'K1')),
+      ...Array.from({ length: 20 }, (_, i) => mk(`u2-${i}`, U2, 'K3')),
+    ];
+  }
+  const locks = ['u1-0', 'u1-1', 'u1-2', 'u1-3', 'u1-4'];
+  const gen = (counts: Record<string, number>) =>
+    generatePaper({
+      pool: bigPool(),
+      ctx: ectx({ question_count: 15, distribution_mode: 'manual', chapter_counts: counts }),
+      lockedIds: locks,
+      previousIds: locks,
+    });
+
+  it('U1 2 / U2 13 with five U1 locks: every lock kept, and BOTH the overrun and the cut are named', () => {
+    const r = gen({ [U1]: 2, [U2]: 13 });
+    expect(r.report.selected).toBe(15);
+    expect(fromChapter(r.slots, 'u1-')).toBe(5);
+    expect(fromChapter(r.slots, 'u2-')).toBe(10);
+    for (const id of locks) expect(r.slots).toContain(id);
+    expect(r.report.chapter_lock_overruns).toEqual([{ chapter_id: U1, requested: 2, locked: 5 }]);
+    expect(r.report.chapter_trims).toEqual([{ chapter_id: U2, requested: 13, placed: 10 }]);
+  });
+
+  it('locks within their figures add no warning', () => {
+    const r = gen({ [U1]: 5, [U2]: 10 });
+    expect(r.report.chapter_lock_overruns).toBeUndefined();
+    expect(r.report.chapter_trims).toBeUndefined();
+  });
+
+  it('Step 4 shows the warning with the real numbers', () => {
+    const d = physicsParams({ question_count: 15, distribution_mode: 'manual' });
+    const p = paper('tn_hsc_physics', d, [question()]);
+    p.config.last_generation = {
+      requested: 15,
+      available: 15,
+      selected: 15,
+      missing: 0,
+      blueprint_shortfalls: [],
+      blueprint_missing: 0,
+      lock_moves: [],
+      chapter_shortfalls: [],
+      chapter_lock_overruns: [{ chapter_id: 'u1', requested: 2, locked: 5 }],
+      chapter_trims: [{ chapter_id: 'u2', requested: 13, placed: 10 }],
+      generated_at: '2026-09-24T00:00:00Z',
+    };
+    const out = html(
+      <StepPreview paper={p} draft={d} patch={noop} reference={reference('tn_hsc_physics')} act={act} disabled={false} />,
+    );
+    expect(out).toContain('Locked questions go past your chapter counts');
+    expect(out).toContain('Unit 1: 5 locked; you set 2.');
+    expect(out).toContain('Unit 2: you set 13; 10 on the paper.');
+  });
+});

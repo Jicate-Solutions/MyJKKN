@@ -108,6 +108,31 @@ export interface ChapterShortfall {
   chapter_id: string | null;
   requested: number;
   available: number;
+  /** The no-chapter group only: the typed chapter ids folded into it (the
+   *  English grammar-general topic), so "Use the N available" can lower the
+   *  figure the Senior Learner actually typed. */
+  chapter_ids?: string[];
+}
+
+/** Manual distribution: a chapter holds more LOCKED questions than its
+ *  figure (or has no figure at all). Every lock stays on the paper (decision
+ *  12), so the extra locks take slots the other chapters' figures asked for —
+ *  named here, never hidden (decision 11: show the real number). */
+export interface ChapterLockOverrun {
+  chapter_id: string | null;
+  /** The figure typed for this chapter (0 = none). */
+  requested: number;
+  locked: number;
+}
+
+/** Manual distribution: a chapter that got fewer than its figure because
+ *  over-quota locks elsewhere took its slots (not because its pool ran out —
+ *  that is a ChapterShortfall). */
+export interface ChapterTrim {
+  chapter_id: string | null;
+  requested: number;
+  /** Questions from this chapter on the paper (its locks + fresh picks). */
+  placed: number;
 }
 
 /** A level in the Senior Learner's own mix that the paper did not get as
@@ -142,6 +167,11 @@ export interface GenerationReport {
   /** Manual distribution only: chapters asked for more than they hold.
    *  Absent on reports written before this field existed. */
   chapter_shortfalls?: ChapterShortfall[];
+  /** Manual distribution only, and only when a chapter holds more locked
+   *  questions than its figure: those chapters, and the chapters that got
+   *  fewer than their figure because of it. */
+  chapter_lock_overruns?: ChapterLockOverrun[];
+  chapter_trims?: ChapterTrim[];
   /** Own level mix only: levels the paper got fewer of than asked. Absent on
    *  reports written before this field existed. */
   level_shortfalls?: LevelShortfall[];
@@ -506,33 +536,49 @@ export function effectiveLevelMix(
  *  what it actually holds, and every cap is reported as a shortfall. A locked
  *  question already on the paper counts toward its own chapter's figure, so
  *  only the rest of that figure is drawn fresh — five U1 locks against "U1 5,
- *  U2 10" leave U1 nothing more to draw. Only when the capped counts still
- *  exceed the open slots are they scaled down to fit. */
+ *  U2 10" leave U1 nothing more to draw. A chapter holding MORE locks than
+ *  its figure keeps every one (decision 12); the extra locks take open slots,
+ *  so the capped counts are scaled down to fit — and both sides are reported
+ *  (decision 11, show the real number): the over-quota chapter as an overrun,
+ *  each chapter that got fewer because of it as a trim. */
 export function manualChapterPlan(
   params: Pick<PaperParams, 'chapter_counts' | 'chapter_ids'>,
   eligible: Pick<PoolItem, 'topic_id'>[],
   need: number,
   ctx: Pick<EngineContext, 'examKey' | 'generalTopicIds'>,
   locked: Pick<PoolItem, 'topic_id'>[] = [],
-): { targets: Record<string, number>; shortfalls: ChapterShortfall[]; supplied: number } {
+): {
+  targets: Record<string, number>;
+  shortfalls: ChapterShortfall[];
+  supplied: number;
+  overruns: ChapterLockOverrun[];
+  trims: ChapterTrim[];
+} {
   const keyOf = (t: string | null) => (t === null || isChapterAgnostic({ topic_id: t }, ctx) ? '__none__' : t);
+  const idOf = (k: string) => (k === '__none__' ? null : k);
   const inPool: Record<string, number> = {};
   for (const it of eligible) inPool[keyOf(it.topic_id)] = (inPool[keyOf(it.topic_id)] ?? 0) + 1;
 
   // Only chapters in scope count — a figure left behind on a chapter that was
   // since taken out of scope is not a request (the Step-3 total ignores it too).
   const asked: Record<string, number> = {};
+  // Typed ids folded into the no-chapter group (English grammar-general).
+  const noneIds: string[] = [];
   for (const [id, n] of Object.entries(params.chapter_counts ?? {})) {
     if (!chapterInScope(id, params)) continue;
     const k = keyOf(id);
     asked[k] = (asked[k] ?? 0) + Math.max(0, n ?? 0);
+    if (k === '__none__') noneIds.push(id);
   }
-  // Locked questions already fill part of their chapter's figure.
-  const lockedIn: Record<string, number> = {};
+  const typed = { ...asked };
+  // Every lock, by chapter. Those in a chapter with a figure fill part of it.
+  const lockedAll: Record<string, number> = {};
   for (const it of locked) {
     const k = keyOf(it.topic_id);
-    if (k in asked) lockedIn[k] = (lockedIn[k] ?? 0) + 1;
+    lockedAll[k] = (lockedAll[k] ?? 0) + 1;
   }
+  const lockedIn: Record<string, number> = {};
+  for (const k of Object.keys(asked)) if (lockedAll[k]) lockedIn[k] = lockedAll[k];
   const toDraw: Record<string, number> = {};
   for (const [k, n] of Object.entries(asked)) toDraw[k] = Math.max(0, n - (lockedIn[k] ?? 0));
   // Grammar-general (no chapter) has no input of its own; left unnamed it
@@ -551,12 +597,28 @@ export function manualChapterPlan(
     // Reported in the Senior Learner's own terms: the figure they typed, and
     // what the chapter can put on the paper (its locks plus its fresh pool).
     if (draw > have) {
-      shortfalls.push({ chapter_id: k === '__none__' ? null : k, requested: n, available: have + (lockedIn[k] ?? 0) });
+      shortfalls.push({
+        chapter_id: idOf(k),
+        requested: n,
+        available: have + (lockedIn[k] ?? 0),
+        ...(k === '__none__' && noneIds.length > 0 ? { chapter_ids: noneIds } : {}),
+      });
     }
+  }
+  const overruns: ChapterLockOverrun[] = [];
+  for (const [k, n] of Object.entries(lockedAll)) {
+    const figure = typed[k] ?? 0;
+    if (n > figure) overruns.push({ chapter_id: idOf(k), requested: figure, locked: n });
   }
   const cappedSum = Object.values(capped).reduce((sum, n) => sum + n, 0);
   const targets = cappedSum > need ? apportion(capped, need) : capped;
-  return { targets, shortfalls, supplied: Math.min(need, cappedSum) };
+  const trims: ChapterTrim[] = [];
+  for (const [k, n] of Object.entries(capped)) {
+    if ((targets[k] ?? 0) < n) {
+      trims.push({ chapter_id: idOf(k), requested: typed[k] ?? 0, placed: (lockedIn[k] ?? 0) + (targets[k] ?? 0) });
+    }
+  }
+  return { targets, shortfalls, supplied: Math.min(need, cappedSum), overruns, trims };
 }
 
 function chapterTargets(
@@ -845,6 +907,9 @@ export function generatePaper(input: {
       blueprint_missing: blueprintShortfalls.reduce((s, b) => s + Math.max(0, b.needed - b.available), 0),
       lock_moves: lockMoves,
       ...(manualPlan ? { chapter_shortfalls: manualPlan.shortfalls } : {}),
+      ...(manualPlan && manualPlan.overruns.length > 0
+        ? { chapter_lock_overruns: manualPlan.overruns, chapter_trims: manualPlan.trims }
+        : {}),
       ...(ownMix ? { level_shortfalls: levelShortfalls } : {}),
       generated_at: new Date().toISOString(),
     },

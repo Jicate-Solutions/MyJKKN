@@ -57,6 +57,8 @@ export function StepPreview({ paper, draft, patch, reference, act, disabled }: S
   const boardOn = draft.enforce_board_blueprint && english;
   const chapterShortfalls = report?.chapter_shortfalls ?? [];
   const levelShortfalls = report?.level_shortfalls ?? [];
+  const lockOverruns = report?.chapter_lock_overruns ?? [];
+  const chapterTrims = report?.chapter_trims ?? [];
   const chapterName = (id: string | null) =>
     id === null ? 'Grammar (no chapter)' : (reference?.chapters.find((c) => c.id === id)?.display_name ?? 'A chapter');
   const levelName = (k: keyof typeof JABT_LEVEL_LABELS) => JABT_LEVEL_LABELS[k].split(' · ')[0];
@@ -179,6 +181,28 @@ export function StepPreview({ paper, draft, patch, reference, act, disabled }: S
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {lockOverruns.length > 0 && (
+        <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm" role="alert">
+          <p className="flex items-center gap-2 font-medium text-foreground">
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+            Locked questions go past your chapter counts — every lock stays, so the paper does not match the counts you set.
+          </p>
+          <ul className="list-disc pl-6 text-xs text-foreground">
+            {lockOverruns.map((o) => (
+              <li key={`over-${o.chapter_id ?? 'none'}`}>
+                {chapterName(o.chapter_id)}: {o.locked} locked; you set {o.requested}.
+              </li>
+            ))}
+            {chapterTrims.map((t) => (
+              <li key={`trim-${t.chapter_id ?? 'none'}`}>
+                {chapterName(t.chapter_id)}: you set {t.requested}; {t.placed} on the paper.
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-muted-foreground">Unlock some of those questions, or change the chapter counts on Step 3 to match.</p>
         </div>
       )}
 

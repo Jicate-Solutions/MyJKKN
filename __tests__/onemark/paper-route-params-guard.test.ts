@@ -54,11 +54,26 @@ vi.mock('@/lib/supabase/server', () => ({
   createServiceRoleClient: () => ({}),
 }));
 
-// U1 holds 3 items, U2 holds 20.
-const pool = [
+// English grammar-general "chapter" (is_general) — only in the pool when a
+// test adds it.
+const G = '44444444-4444-4444-8444-444444444444';
+let withGeneral = false;
+
+// U1 holds 3 items, U2 holds 20 (and G holds 2 when withGeneral).
+const item = (p: { id: string; topic_id: string }) => ({
+  ...p,
+  bloom_level: 'K1',
+  tags: [],
+  source_key: null,
+  source_year: null,
+  times_served: 0,
+});
+const basePool = [
   ...Array.from({ length: 3 }, (_, i) => ({ id: `a${i}`, topic_id: U1 })),
   ...Array.from({ length: 20 }, (_, i) => ({ id: `b${i}`, topic_id: U2 })),
-].map((p) => ({ ...p, bloom_level: 'K1', tags: [], source_key: null, source_year: null, times_served: 0 }));
+].map(item);
+const generalPool = Array.from({ length: 2 }, (_, i) => item({ id: `g${i}`, topic_id: G }));
+const pool = () => (withGeneral ? [...basePool, ...generalPool] : basePool);
 
 vi.mock('@/app/api/foundation/onemark/paper/_shared', async (orig) => {
   const real = await orig<typeof import('@/app/api/foundation/onemark/paper/_shared')>();
@@ -67,10 +82,13 @@ vi.mock('@/app/api/foundation/onemark/paper/_shared', async (orig) => {
     gate: async () => ({ userId: 'user-1', canManage: true, canSeeAnswers: true }),
     loadExam: async () => ({ id: 'exam-1', config_key: examKey, display_name: 'Subject' }),
     readPolicies: async () => ({ question_count: 15, question_count_by_exam: {}, max_series: 4 }),
-    loadPool: async () => pool,
+    loadPool: async () => pool(),
     loadChapters: async () => [
       { id: U1, config_key: 'u1', display_name: 'Unit 1', sort_order: 1, is_general: false },
       { id: U2, config_key: 'u2', display_name: 'Unit 2', sort_order: 2, is_general: false },
+      ...(withGeneral
+        ? [{ id: G, config_key: 'onemark_eng_grammar_general', display_name: 'Grammar', sort_order: 99, is_general: true }]
+        : []),
     ],
     loadCategoryWeights: async () => ({}),
     recentlyUsedIds: async () => new Set<string>(),
@@ -96,6 +114,7 @@ function config(params: Record<string, unknown>) {
 
 beforeEach(() => {
   examKey = 'tn_hsc_physics';
+  withGeneral = false;
   updates = [];
 });
 
@@ -156,5 +175,39 @@ describe('PATCH use_available — manual counts keep adding up', () => {
     const again = await patch({ action: 'generate' });
     expect(again.status).toBe(200);
     expect(storedConfig.resolved_item_ids).toHaveLength(13);
+  });
+
+  it('a report saved before chapter_shortfalls existed: the chapter figures are worked out afresh, not left as they were', async () => {
+    storedConfig = config({ question_count: 15, distribution_mode: 'manual', chapter_counts: { [U1]: 5, [U2]: 10 } });
+    expect((await patch({ action: 'generate' })).status).toBe(200);
+    // What every production report looks like today (0 of 7 carry the field).
+    delete storedConfig.last_generation.chapter_shortfalls;
+
+    expect((await patch({ action: 'use_available' })).status).toBe(200);
+    expect(storedConfig.params.chapter_counts).toEqual({ [U1]: 3, [U2]: 10 });
+    expect(storedConfig.params.question_count).toBe(13);
+    expect(storedConfig.resolved_item_ids).toHaveLength(13);
+    expect((await patch({ action: 'generate' })).status).toBe(200);
+  });
+
+  it('English: a short grammar-general figure (the no-chapter group) is lowered too', async () => {
+    examKey = 'tn_hsc_english';
+    withGeneral = true;
+    storedConfig = config({
+      question_count: 15,
+      distribution_mode: 'manual',
+      enforce_board_blueprint: false,
+      chapter_counts: { [U2]: 10, [G]: 5 },
+    });
+    expect((await patch({ action: 'generate' })).status).toBe(200);
+    expect(storedConfig.last_generation.chapter_shortfalls).toEqual([
+      { chapter_id: null, requested: 5, available: 2, chapter_ids: [G] },
+    ]);
+
+    expect((await patch({ action: 'use_available' })).status).toBe(200);
+    expect(storedConfig.params.chapter_counts).toEqual({ [U2]: 10, [G]: 2 });
+    expect(storedConfig.params.question_count).toBe(12);
+    expect(storedConfig.resolved_item_ids).toHaveLength(12);
+    expect(storedConfig.last_generation.chapter_shortfalls).toEqual([]);
   });
 });

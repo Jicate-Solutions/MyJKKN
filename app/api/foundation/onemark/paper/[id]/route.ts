@@ -23,6 +23,7 @@ import {
   BLUEPRINT_SLOTS,
   LEVEL_KEYS,
   JABT_LEVEL_LABELS,
+  apportion,
   boardOf,
   boardShapeConflicts,
   findSwap,
@@ -467,9 +468,28 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           // Manual counts must keep adding up to the question count (the
           // Regenerate button checks it again), so each short chapter's figure
           // drops to what that chapter can supply, and the count follows.
+          // A report saved before chapter_shortfalls existed carries only the
+          // total, so the per-chapter figures are worked out afresh on the
+          // paper as it stands (same locks, same board) — never guessed.
+          let shortfalls = config.last_generation?.chapter_shortfalls;
+          if (!shortfalls) {
+            const { pool, ctx } = await withEngine();
+            shortfalls =
+              generatePaper({ pool, ctx, lockedIds: config.locked_ids, previousIds: boardOf(config) }).report
+                .chapter_shortfalls ?? [];
+          }
           const chapter_counts = { ...config.params.chapter_counts };
-          for (const sf of config.last_generation?.chapter_shortfalls ?? []) {
-            if (sf.chapter_id !== null && sf.chapter_id in chapter_counts) chapter_counts[sf.chapter_id] = sf.available;
+          for (const sf of shortfalls) {
+            if (sf.chapter_id !== null) {
+              if (sf.chapter_id in chapter_counts) chapter_counts[sf.chapter_id] = sf.available;
+              continue;
+            }
+            // The no-chapter group (English grammar-general): the typed figures
+            // folded into it share what it can supply, in their own proportion.
+            const ids = (sf.chapter_ids ?? []).filter((cid) => cid in chapter_counts);
+            if (ids.length === 0) continue;
+            const shares = apportion(Object.fromEntries(ids.map((cid) => [cid, chapter_counts[cid]])), sf.available);
+            for (const cid of ids) chapter_counts[cid] = shares[cid];
           }
           const total = manualChapterTotal({ ...config.params, chapter_counts });
           if (total < 1) return bad('Nothing is available under these filters — widen them instead.');
