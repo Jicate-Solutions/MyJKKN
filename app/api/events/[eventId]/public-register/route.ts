@@ -222,11 +222,18 @@ export async function POST(
 
     // ---- custom fields, validated BY form_id ----
     // By event_id it would demand answers to every other month's questions.
-    const { data: customFieldDefs } = await (svc as any)
-      .from('event_registration_form_fields')
-      .select('*')
-      .eq('form_id', formRow.id);
-    const customFieldsError = validateCustomFields(customFieldDefs ?? [], dto.custom_fields);
+    const [{ data: customFieldDefs }, { data: customSectionDefs }] = await Promise.all([
+      (svc as any).from('event_registration_form_fields').select('*').eq('form_id', formRow.id),
+      (svc as any)
+        .from('event_registration_form_sections')
+        .select('id, condition')
+        .eq('form_id', formRow.id),
+    ]);
+    const customFieldsError = validateCustomFields(
+      customFieldDefs ?? [],
+      dto.custom_fields,
+      customSectionDefs ?? [],
+    );
     if (customFieldsError) {
       return NextResponse.json({ error: customFieldsError }, { status: 422 });
     }

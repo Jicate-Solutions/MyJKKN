@@ -59,6 +59,19 @@ describe('CallbackRequestsCard', () => {
     expect(screen.getByText(/asked about 3 hours ago/)).toBeInTheDocument();
   });
 
+  it('says how many MORE are waiting when the list is capped (review #8)', async () => {
+    actions.loadCallbackRequests.mockResolvedValue({ success: true, open: [req({})], openTotal: 201, done: [] });
+    wrap(<CallbackRequestsCard />);
+    expect(await screen.findByText(/200 more are\s+waiting/)).toBeInTheDocument();
+  });
+
+  it('says nothing extra when every waiting person is shown', async () => {
+    actions.loadCallbackRequests.mockResolvedValue({ success: true, open: [req({})], openTotal: 1, done: [] });
+    wrap(<CallbackRequestsCard />);
+    await screen.findByText('Kavya');
+    expect(screen.queryByText(/more are/)).not.toBeInTheDocument();
+  });
+
   it('mark as called sends the note, and a refusal is shown as the explicit message', async () => {
     actions.loadCallbackRequests.mockResolvedValue({ success: true, open: [req({})], done: [] });
     actions.markCallbackRequestCalled.mockResolvedValue({

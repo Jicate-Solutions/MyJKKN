@@ -87,9 +87,9 @@ const ADDRESS_MIN_FONT = 16;
 // larger and the small print (valid-until, wrapped address, college contact
 // lines) one step smaller. Authored element sizes no longer override these —
 // fitText still shrinks a value that would not fit its box.
-const VALUE_FONT = 26;
+const VALUE_FONT = 30; // 2026-09-24: raised from 26 — values read small on the printed card
 const PREFERRED_VALUE_FONT: Record<string, number> = {
-  name_line_1: 34,
+  name_line_1: 38,
   roll_number: VALUE_FONT,
   father_name: VALUE_FONT,
   course: VALUE_FONT,
@@ -100,7 +100,7 @@ const PREFERRED_VALUE_FONT: Record<string, number> = {
   blood_group: VALUE_FONT,
   date_of_birth: VALUE_FONT,
   guardian: VALUE_FONT,
-  address: VALUE_FONT,
+  address: 26, // wraps to 4–5 lines; one step under the values so it stays in its band
   contact_phone: VALUE_FONT,
   institution_email: VALUE_FONT,
   institution_phone: VALUE_FONT,
@@ -150,6 +150,9 @@ function elementBox(
 ): { width: number; height: number } {
   const width = element.width ?? Math.max(40, canvasWidth - element.x - 24);
   if (element.height !== undefined) return { width, height: element.height };
+  // The name is a single headline: the FATHER row sits close under it by
+  // design, so measuring to the next element would shrink it. Width only.
+  if (element.field === 'name_line_1') return { width, height: 200 };
   const left = element.x;
   const right = element.x + width;
   let nextY = canvasHeight - 12;
@@ -173,6 +176,25 @@ function artworkObjectFit(dataUrl: string, boxW: number, boxH: number): 'fill' |
   if (!dims) return 'fill';
   const p = artworkPlacement(boxW, boxH, dims.width, dims.height);
   return p && p.left === 0 && p.top === 0 && p.width === boxW && p.height === boxH ? 'fill' : 'contain';
+}
+
+
+// ── Print density ────────────────────────────────────────────────────────────
+// Card printers lay black with the K resin panel ONLY for pure #000000; any
+// other dark colour (our #111827 / #374151 greys) is dithered from Y+M+C and
+// prints visibly lighter than on screen. Every dark text colour is therefore
+// snapped to pure black for the card; brand colours (green, red) stay as is.
+function printColor(color: string | undefined, fallback = '#000000'): string {
+  const c = (color ?? fallback).trim();
+  const m = /^#([0-9a-f]{6})$/i.exec(c);
+  if (!m) return c;
+  const r = parseInt(m[1].slice(0, 2), 16);
+  const g = parseInt(m[1].slice(2, 4), 16);
+  const b = parseInt(m[1].slice(4, 6), 16);
+  // Dark and low-saturation → black. Keeps #0b6d41 green and #c8102e red.
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  return max < 0x60 && max - min < 0x30 ? '#000000' : c;
 }
 
 /** Style + text for a template-placed value element, sized to its box. */
@@ -845,7 +867,7 @@ function qrIdLine(person: CardPersonData, width: number): ReactElement | null {
         lineHeight: 1.05,
         fontWeight: 700,
         letterSpacing: 1,
-        color: '#111827'
+        color: '#000000'
       }}
     >
       {fit.text}
@@ -915,7 +937,7 @@ function defaultDesign(input: CardRenderInput, headerOverrides?: FrontLayout['he
         width: CARD_WIDTH,
         height: CARD_HEIGHT,
         backgroundColor: backgroundDataUrl
-          ? 'transparent'
+          ? '#ffffff' // never transparent — the card-printer driver washes alpha out
           : (input.layout?.background_color ?? '#ffffff'),
         fontFamily: 'Poppins, sans-serif'
       }}
@@ -1001,7 +1023,7 @@ function defaultDesign(input: CardRenderInput, headerOverrides?: FrontLayout['he
                     width: colWidth,
                     fontSize: nameFit.fontSize,
                     fontWeight: 800,
-                    color: '#111827',
+                    color: '#000000',
                     lineHeight: VALUE_LINE_HEIGHT
                   }}
                 >
@@ -1016,7 +1038,7 @@ function defaultDesign(input: CardRenderInput, headerOverrides?: FrontLayout['he
                       fontSize: idFit.fontSize,
                       fontWeight: 700,
                       lineHeight: VALUE_LINE_HEIGHT,
-                      color: '#1f2937',
+                      color: '#000000',
                       marginTop: 14
                     }}
                   >
@@ -1032,7 +1054,7 @@ function defaultDesign(input: CardRenderInput, headerOverrides?: FrontLayout['he
                       fontSize: courseFit.fontSize,
                       fontWeight: 700,
                       lineHeight: VALUE_LINE_HEIGHT,
-                      color: '#374151',
+                      color: '#000000',
                       marginTop: 10
                     }}
                   >
@@ -1187,7 +1209,12 @@ export function learnerFrontRows(elements: readonly FrontLayoutElement[]): Front
   const isValidUpto = (el: FrontLayoutElement) =>
     el.field === 'valid_until' ||
     (el.field === 'static_text' && /VALID\s*(UP\s*TO|UNTIL|THRU|THROUGH)/i.test(el.text ?? ''));
-  const kept = elements.filter((el) => !isValidUpto(el));
+  const kept = elements
+    .filter((el) => !isValidUpto(el))
+    // Headings keep pace with the larger values: never below 24px.
+    .map((el) =>
+      el.field === 'static_text' && (el.font_size ?? 26) < 24 ? { ...el, font_size: 24 } : el
+    );
   if (kept.some((el) => el.field === 'father_name')) return kept; // authored explicitly
   const roll = kept.find((el) => el.field === 'roll_number');
   if (!roll) return kept;
@@ -1439,7 +1466,7 @@ function customDesign(
           fontSize: sized.fontSize,
           lineHeight: VALUE_LINE_HEIGHT,
           fontWeight: sized.fontWeight,
-          color: element.color ?? '#111827'
+          color: printColor(element.color, '#111827')
         }}
       >
         {sized.text}
@@ -1455,7 +1482,7 @@ function customDesign(
         width,
         height,
         backgroundColor: backgroundDataUrl
-          ? 'transparent'
+          ? '#ffffff' // never transparent — the card-printer driver washes alpha out
           : (layout.background_color ?? '#ffffff'),
         fontFamily: 'Poppins, sans-serif'
       }}
@@ -1495,7 +1522,7 @@ function portraitFieldRow(key: string, label: string, value: string): ReactEleme
           fontSize: 18,
           fontWeight: 700,
           letterSpacing: 2,
-          color: '#374151',
+          color: '#000000',
           marginTop: 3
         }}
       >
@@ -1508,7 +1535,7 @@ function portraitFieldRow(key: string, label: string, value: string): ReactEleme
           fontSize: fit.fontSize,
           lineHeight: VALUE_LINE_HEIGHT,
           fontWeight: 700,
-          color: '#111827'
+          color: '#000000'
         }}
       >
         {fit.text}
@@ -1568,7 +1595,7 @@ function portraitDefaultDesign(input: CardRenderInput): ReactElement {
         width: PORTRAIT_WIDTH,
         height: PORTRAIT_HEIGHT,
         backgroundColor: backgroundDataUrl
-          ? 'transparent'
+          ? '#ffffff' // never transparent — the card-printer driver washes alpha out
           : (input.layout?.background_color ?? '#ffffff'),
         fontFamily: 'Poppins, sans-serif'
       }}
@@ -1974,7 +2001,7 @@ function backInfoRow(
             fontSize: 18,
             fontWeight: 700,
             letterSpacing: 1,
-            color: '#374151',
+            color: '#000000',
             marginTop: 4
           }}
         >
@@ -1988,7 +2015,7 @@ function backInfoRow(
           fontSize: fit.fontSize,
           lineHeight: VALUE_LINE_HEIGHT,
           fontWeight: options?.valueWeight ?? 700,
-          color: options?.valueColor ?? '#111827'
+          color: printColor(options?.valueColor, '#111827')
         }}
       >
         {fit.text}
@@ -2222,7 +2249,7 @@ export function buildBackElement(input: BackRenderInput, options: BuildOptions =
           fontSize: sized.fontSize,
           lineHeight: VALUE_LINE_HEIGHT,
           fontWeight: sized.fontWeight,
-          color: element.field === 'blood_group' ? '#111827' : (element.color ?? '#111827')
+          color: element.field === 'blood_group' ? '#000000' : printColor(element.color, '#111827')
         }}
       >
         {sized.text}
@@ -2239,7 +2266,7 @@ export function buildBackElement(input: BackRenderInput, options: BuildOptions =
         width: canvasWidth,
         height: canvasHeight,
         backgroundColor: backgroundDataUrl
-          ? 'transparent'
+          ? '#ffffff' // never transparent — the card-printer driver washes alpha out
           : (layout.background_color ?? '#ffffff'),
         fontFamily: 'Poppins, sans-serif'
       }}
@@ -2317,7 +2344,7 @@ export function buildBackElement(input: BackRenderInput, options: BuildOptions =
                       fontSize: fit.fontSize,
                       lineHeight: VALUE_LINE_HEIGHT,
                       fontWeight: 700,
-                      color: '#111827',
+                      color: '#000000',
                       marginTop: i === 0 ? 0 : 4
                     }}
                   >
@@ -2353,7 +2380,7 @@ export function buildBackElement(input: BackRenderInput, options: BuildOptions =
                   fontSize: 24,
                   fontWeight: 600,
                   letterSpacing: 6,
-                  color: '#111827',
+                  color: '#000000',
                   marginTop: 6
                 }}
               >
