@@ -18,6 +18,7 @@ import { NextResponse, after, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { LeaveService } from '@/lib/services/hr/leave-service';
+import { errorMessage } from '@/lib/utils/supabase-error';
 import {
   recomputeForRevokedLeave,
   recomputeForShortTimeOff,
@@ -131,6 +132,6 @@ export async function POST(
     return NextResponse.json({ data: updated, warning });
   } catch (err) {
     console.error('[hr/leave/applications/:id/revoke] error', err);
-    return NextResponse.json({ error: err instanceof Error ? err.message : 'Unknown error' }, { status: 400 });
+    return NextResponse.json({ error: errorMessage(err, 'Unknown error') }, { status: 400 });
   }
 }

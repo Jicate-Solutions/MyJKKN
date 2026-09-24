@@ -6,6 +6,7 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { LeaveService } from '@/lib/services/hr/leave-service';
+import { errorMessage } from '@/lib/utils/supabase-error';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -41,7 +42,7 @@ export async function GET(
     return NextResponse.json({ data: comments });
   } catch (err) {
     console.error('[hr/leave/applications/:id/comments] GET error', err);
-    return NextResponse.json({ error: err instanceof Error ? err.message : 'Unknown error' }, { status: 500 });
+    return NextResponse.json({ error: errorMessage(err, 'Unknown error') }, { status: 500 });
   }
 }
 
@@ -64,6 +65,6 @@ export async function POST(
     return NextResponse.json({ data: comment }, { status: 201 });
   } catch (err) {
     console.error('[hr/leave/applications/:id/comments] POST error', err);
-    return NextResponse.json({ error: err instanceof Error ? err.message : 'Unknown error' }, { status: 400 });
+    return NextResponse.json({ error: errorMessage(err, 'Unknown error') }, { status: 400 });
   }
 }
