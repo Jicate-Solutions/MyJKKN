@@ -41,6 +41,7 @@ import {
   isOneMarkExam,
   type FoundationCohort,
 } from '@/lib/services/foundation/foundation-service';
+import { isPaperLive } from '@/lib/services/onemark/paper-service';
 import { ItemAuthorDialog } from './item-author-dialog';
 import { EnrollLearnerDialog } from './enroll-learner-dialog';
 import { AssessmentBuilderDialog } from './assessment-builder-dialog';
@@ -315,6 +316,7 @@ function AssessmentStrip({ cohortId }: { cohortId: string }) {
             <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
               {a.title}
             </span>
+            <OneMarkPublishChip config={a.config} />
             <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
               {a.item_count ?? 0} Q
             </span>
@@ -322,6 +324,34 @@ function AssessmentStrip({ cohortId }: { cohortId: string }) {
         ))}
       </div>
     </div>
+  );
+}
+
+/**
+ * A OneMark paper keeps its cohort after it is unpublished (so a wrong window
+ * can be corrected and published again), so being listed here does not mean
+ * it is live. isPaperLive — the one authority on that — decides the label
+ * (BUG-006062/006063 PBUG-25). Other Foundation assessments get no chip.
+ */
+function OneMarkPublishChip({ config }: { config: any }) {
+  if (config?.onemark !== true) return null;
+  const live = isPaperLive(config);
+  return (
+    <span
+      className={cn(
+        'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+        live
+          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
+          : 'bg-muted text-muted-foreground',
+      )}
+      title={
+        live
+          ? 'Published to this cohort from the paper builder.'
+          : 'Not published: it was withdrawn or is being edited in the paper builder.'
+      }
+    >
+      {live ? 'Published' : 'Not published'}
+    </span>
   );
 }
 
