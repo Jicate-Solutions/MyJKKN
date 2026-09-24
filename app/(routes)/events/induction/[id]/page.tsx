@@ -204,7 +204,7 @@ export default function InductionDetailPage() {
   const assigned = batches.reduce((s, b) => s + b.count, 0);
   const unbatched = Math.max(0, enrolled - assigned);
   const dateRange = event.start_date
-    ? `${new Date(event.start_date).toLocaleDateString()}${event.end_date ? ` – ${new Date(event.end_date).toLocaleDateString()}` : ''}`
+    ? `${new Date(event.start_date).toLocaleDateString(undefined, { timeZone: 'Asia/Kolkata' })}${event.end_date ? ` – ${new Date(event.end_date).toLocaleDateString(undefined, { timeZone: 'Asia/Kolkata' })}` : ''}`
     : null;
   const isMultiTarget = (targetInstitutionIds?.length ?? 0) > 0;
   const scopeLabel = isMultiTarget

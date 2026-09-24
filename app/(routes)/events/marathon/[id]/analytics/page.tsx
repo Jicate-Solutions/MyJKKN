@@ -82,6 +82,7 @@ function RegistrationTrendChart({
                     return new Date(d).toLocaleDateString('en-IN', {
                       day: 'numeric',
                       month: 'short',
+                      timeZone: 'Asia/Kolkata',
                     });
                   } catch {
                     return d;
@@ -96,6 +97,7 @@ function RegistrationTrendChart({
                       day: 'numeric',
                       month: 'long',
                       year: 'numeric',
+                      timeZone: 'Asia/Kolkata',
                     });
                   } catch {
                     return String(d);

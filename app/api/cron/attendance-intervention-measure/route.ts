@@ -34,12 +34,18 @@ export const maxDuration = 120;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { recordLoopMeasurement } from '@/lib/services/loops/loop-bar-measurement';
 
 type MeasureRow = {
   enrolled: number;
   measured: number;
   insufficient: number;
 };
+
+/** loop_registry.loop_key for the attendance → intervention loop. */
+const ATTENDANCE_LOOP_KEY = 'attendance-intervention';
+/** Recent settled effects averaged into the run's headline number. */
+const HEADLINE_SAMPLE = 200;
 
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
@@ -69,10 +75,36 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // Loop bars (Director rulings 2026-09-16, G3): every run records where this
+  // loop landed against its bar. The headline number is the mean net_effect
+  // (percentage points) of the most recent settled effects — read back off the
+  // rows the fn just wrote, so nothing about WHAT this loop measures changes.
+  // A failure here is reported alongside the run, never raised over it.
+  const { data: effects } = await admin
+    .from('attendance_intervention_effects')
+    .select('net_effect')
+    .not('net_effect', 'is', null)
+    .order('measured_at', { ascending: false })
+    .limit(HEADLINE_SAMPLE);
+  const values = ((effects ?? []) as { net_effect: number | null }[])
+    .map((e) => e.net_effect)
+    .filter((n): n is number => typeof n === 'number' && Number.isFinite(n));
+  const headline =
+    values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : null;
+
+  const barRun = await recordLoopMeasurement(admin, {
+    loopKey: ATTENDANCE_LOOP_KEY,
+    value: headline,
+    runId: `attendance-intervention-measure:${new Date().toISOString().slice(0, 10)}`,
+  });
+
   return NextResponse.json({
     ok: true,
     enrolled: row.enrolled,
     measured: row.measured,
     insufficient: row.insufficient,
+    headline,
+    bar_recorded: barRun.recorded,
+    bar_met: barRun.met,
   });
 }

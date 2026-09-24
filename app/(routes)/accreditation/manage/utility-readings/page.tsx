@@ -159,7 +159,7 @@ function AccessDenied() {
 function UtilityReadingsInner() {
   const router = useRouter();
   const { profile } = useAuth();
-  const { isSuperAdmin, canAccess } = usePermissions();
+  const { isSuperAdmin, canAccess, hasAllInstitutionsScope } = usePermissions();
   const qc = useQueryClient();
 
   const canManage =
@@ -174,20 +174,20 @@ function UtilityReadingsInner() {
   const { data: pickableInstitutions = [] } = useQuery({
     queryKey: ['utility-readings', 'institutions'],
     queryFn: fetchInstitutions,
-    enabled: isSuperAdmin,
+    enabled: hasAllInstitutionsScope,
   });
 
   const [pickedInstId, setPickedInstId] = useState<string>('');
 
   useEffect(() => {
-    if (isSuperAdmin && !pickedInstId && pickableInstitutions.length > 0) {
+    if (hasAllInstitutionsScope && !pickedInstId && pickableInstitutions.length > 0) {
       setPickedInstId(pickableInstitutions[0].id);
     }
-  }, [isSuperAdmin, pickedInstId, pickableInstitutions]);
+  }, [hasAllInstitutionsScope, pickedInstId, pickableInstitutions]);
 
   const institutionId = useMemo(
-    () => (isSuperAdmin ? pickedInstId : profile?.institution_id ?? ''),
-    [isSuperAdmin, pickedInstId, profile?.institution_id]
+    () => (hasAllInstitutionsScope ? pickedInstId : profile?.institution_id ?? ''),
+    [hasAllInstitutionsScope, pickedInstId, profile?.institution_id]
   );
 
   const { data: rows, isLoading, error } = useQuery({
@@ -324,7 +324,7 @@ function UtilityReadingsInner() {
               </p>
             </div>
             <div className="flex flex-wrap items-end gap-2">
-              {isSuperAdmin && (
+              {hasAllInstitutionsScope && (
                 <div className="w-56">
                   <Label className="text-xs">Campus</Label>
                   <Select

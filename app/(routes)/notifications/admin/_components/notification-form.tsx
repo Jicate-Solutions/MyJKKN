@@ -94,6 +94,9 @@ const notificationSchema = z.object({
   // Mandatory acknowledgment fields
   requires_acknowledgment: z.boolean().optional(),
   acknowledgment_deadline_hours: z.number().min(1).max(168).optional(),
+  // "Must answer" (2026-09-16): one option per line, 2-6 of them
+  requires_answer: z.boolean().optional(),
+  answer_options_text: z.string().optional(),
   // Action Required fields
   action_type: z.enum(['urgent', 'tracked']).optional(),
   action_response_type: z.enum(['text', 'file', 'form', 'link']).optional(),
@@ -106,6 +109,20 @@ const notificationSchema = z.object({
 });
 
 type NotificationFormData = z.infer<typeof notificationSchema>;
+
+/** One option per line; blanks dropped; duplicates dropped; max 6, 40 chars each. */
+export function parseAnswerOptions(text: string | undefined): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const line of (text ?? '').split('\n')) {
+    const o = line.trim().slice(0, 40);
+    if (!o || seen.has(o)) continue;
+    seen.add(o);
+    out.push(o);
+    if (out.length === 6) break;
+  }
+  return out;
+}
 
 // Allowed file types for notification attachments
 const ALLOWED_FILE_TYPES = [
@@ -208,6 +225,8 @@ export function NotificationForm() {
       audience_ids: [],
       requires_acknowledgment: false,
       acknowledgment_deadline_hours: 4,
+      requires_answer: false,
+      answer_options_text: 'Yes\nNo\nCan\'t tell',
       action_type: undefined,
       action_response_type: undefined,
       action_form_items: [],
@@ -511,6 +530,11 @@ export function NotificationForm() {
         setUploadingFiles(false);
       }
 
+      if (data.requires_answer && parseAnswerOptions(data.answer_options_text).length < 2) {
+        toast.error('A must-answer announcement needs at least 2 options (one per line).');
+        return;
+      }
+
       // Prepare the notification data
       const notificationData = {
         title: data.title,
@@ -550,6 +574,8 @@ export function NotificationForm() {
         acknowledgment_deadline_hours: data.requires_acknowledgment
           ? (data.acknowledgment_deadline_hours || 4)
           : undefined,
+        requires_answer: data.requires_answer || false,
+        answer_options: data.requires_answer ? parseAnswerOptions(data.answer_options_text) : undefined,
         action_type: data.action_type || undefined,
         action_config: data.action_type ? {
           response_type: data.action_response_type || 'text',
@@ -1399,6 +1425,68 @@ export function NotificationForm() {
                       <FormDescription>
                         After this deadline, non-compliance is escalated to
                         supervisors
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Must answer (2026-09-16) */}
+          <div>
+            <div className='mb-4'>
+              <h3 className='text-lg font-medium'>Must answer</h3>
+              <p className='text-sm text-muted-foreground mt-1'>
+                Recipients pick one of your options on the blocking screen
+                before they can use MyJKKN. Their pick is recorded and shown on
+                the compliance page.
+              </p>
+            </div>
+            <div className='space-y-4'>
+              <FormField
+                control={form.control}
+                name='requires_answer'
+                render={({ field }) => (
+                  <FormItem className='flex items-center justify-between rounded-lg border p-4'>
+                    <div className='space-y-0.5'>
+                      <FormLabel className='text-base font-medium'>
+                        Require an answer
+                      </FormLabel>
+                      <FormDescription>
+                        Answering also counts as the acknowledgment.
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value || false}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              {watchedValues.requires_answer && (
+                <FormField
+                  control={form.control}
+                  name='answer_options_text'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Answer options (one per line, 2 to 6)</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          rows={4}
+                          placeholder={'Yes\nNo\nCan\'t tell'}
+                          value={field.value ?? ''}
+                          onChange={field.onChange}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {parseAnswerOptions(field.value).length} option(s) will be offered.
                       </FormDescription>
                       <FormMessage />
                     </FormItem>

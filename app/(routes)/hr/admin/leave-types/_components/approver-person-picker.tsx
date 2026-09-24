@@ -80,8 +80,12 @@ export function ApproverPersonPicker({
 
   return (
     <div className="space-y-2">
-      <div className="grid gap-2 sm:grid-cols-[1fr_11rem]">
-        <div>
+      {/* Side by side only once there is room for both. `sm` fired at 640px of
+          VIEWPORT, not of this container — inside a dialog column the two
+          controls still landed at ~180px each, so the role filter truncated its
+          own placeholder. At `md` this block has the dialog's full width. */}
+      <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_12rem]">
+        <div className="min-w-0">
           <Label>Person</Label>
           <div className="relative mt-1">
             <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -94,7 +98,7 @@ export function ApproverPersonPicker({
           </div>
         </div>
 
-        <div>
+        <div className="min-w-0">
           <Label>Filter by role</Label>
           <RolePicker
             roles={roles}
@@ -175,9 +179,25 @@ export function ApproverPersonPicker({
                   {c.role_names ?? 'No role assigned'}
                 </span>
               </span>
+              {/* NOT A BLOCKER, WHICH IS WHY THIS IS NOT DESTRUCTIVE.
+                  can_approve means "holds hr.leave.approve", and 723 of the
+                  735 candidates do not — so this used to paint almost the whole
+                  list red with "cannot approve", which is the opposite of true.
+                  Pinning a person by name admits them at every layer:
+                  fn_leave_step_admits matches approver_user_id BEFORE the
+                  permission/scope CASE and is exempt from it,
+                  fn_is_configured_leave_approver lets them reach the queue from
+                  any institution, and RLS hla_update admits
+                  fn_is_designated_leave_approver in USING and WITH CHECK.
+                  What is genuinely true is narrower: with no general key they
+                  see only the requests they are named on. */}
               {!c.can_approve && (
-                <Badge variant="destructive" className="shrink-0 text-[10px]">
-                  cannot approve
+                <Badge
+                  variant="outline"
+                  className="shrink-0 text-[10px] font-normal text-muted-foreground"
+                  title="No general leave-approval permission. Pinned here they can approve this step, but they will only see requests they are personally named on — not a full queue."
+                >
+                  named-only
                 </Badge>
               )}
             </button>
