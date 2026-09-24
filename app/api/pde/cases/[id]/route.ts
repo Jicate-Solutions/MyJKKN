@@ -7,6 +7,10 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import {
+  validateClinicalQuestion,
+  validateStages,
+} from '@/lib/services/pde/clinical-question-validation';
 import type {
   ClinicalCaseWithQuestions,
   UpdateClinicalCaseInput,
@@ -40,7 +44,17 @@ async function loadFull(supabase: any, id: string): Promise<ClinicalCaseWithQues
     .order('order_index', { ascending: true });
   if (qErr) throw qErr;
 
+  // Stages, in order. Empty on a flat case — which is every case authored
+  // before stages existed, and stays a supported shape.
+  const { data: stages, error: sErr } = await supabase
+    .from('pde_case_stages')
+    .select('*')
+    .eq('assessment_id', id)
+    .order('stage_order', { ascending: true });
+  if (sErr) throw sErr;
+
   return {
+    stages: stages || [],
     id: a.id,
     course_id: a.course_id,
     lesson_id: a.lesson_id,
@@ -196,11 +210,63 @@ export async function PATCH(
 
     // Replace questions if provided (delete-then-insert keeps order_index stable)
     if (Array.isArray(body.questions)) {
+      for (let i = 0; i < body.questions.length; i++) {
+        const qErr = validateClinicalQuestion(body.questions[i], `questions[${i}]`);
+        if (qErr) return NextResponse.json({ error: qErr }, { status: 400 });
+      }
+
       const { error: delErr } = await (supabase as any)
         .from('pde_assessment_questions')
         .delete()
         .eq('assessment_id', id);
       if (delErr) throw delErr;
+
+      // Stages are rebuilt in the same breath as the questions that live in
+      // them, because the two are authored together and a question points at a
+      // stage by position. Replacing one without the other would leave the case
+      // half-wired, so this branch only runs alongside a question replacement.
+      let stageIds: string[] = [];
+      if (Array.isArray(body.stages)) {
+        const stErr = validateStages(body.stages);
+        if (stErr) return NextResponse.json({ error: stErr }, { status: 400 });
+        if (body.stages.length > 0) {
+          for (let i = 0; i < body.questions.length; i++) {
+            const si = (body.questions[i] as { stage_index?: number | null }).stage_index;
+            if (typeof si !== 'number' || si < 0 || si >= body.stages.length) {
+              return NextResponse.json(
+                { error: `questions[${i}]: assign this question to a stage` },
+                { status: 400 }
+              );
+            }
+          }
+        }
+
+        const { error: delSErr } = await (supabase as any)
+          .from('pde_case_stages')
+          .delete()
+          .eq('assessment_id', id);
+        if (delSErr) throw delSErr;
+
+        if (body.stages.length > 0) {
+          const { data: stageRows, error: insSErr } = await (supabase as any)
+            .from('pde_case_stages')
+            .insert(
+              body.stages.map((s, idx) => ({
+                assessment_id: id,
+                stage_order: s.order_index ?? idx + 1,
+                title: s.title,
+                scenario_text: s.scenario_text ?? '',
+                image_url: s.image_url || null,
+              }))
+            )
+            .select('id, stage_order');
+          if (insSErr) throw insSErr;
+          stageIds = (stageRows || [])
+            .slice()
+            .sort((a: any, b: any) => a.stage_order - b.stage_order)
+            .map((r: any) => r.id);
+        }
+      }
 
       const newQs = body.questions.map((q, idx) => ({
         assessment_id: id,
@@ -212,6 +278,8 @@ export async function PATCH(
         expected_regions: q.expected_regions ?? null,
         points: q.points ?? 10,
         order_index: q.order_index ?? idx + 1,
+        stage_id:
+          typeof q.stage_index === 'number' ? (stageIds[q.stage_index] ?? null) : null,
         metadata: q.metadata,
       }));
       if (newQs.length) {
@@ -220,6 +288,12 @@ export async function PATCH(
           .insert(newQs);
         if (insErr) throw insErr;
       }
+    } else if (Array.isArray(body.stages)) {
+      // Stages without questions would cascade-delete every staged question.
+      return NextResponse.json(
+        { error: 'stages can only be changed together with questions' },
+        { status: 400 }
+      );
     }
 
     const refreshed = await loadFull(supabase as any, id);
