@@ -5,7 +5,7 @@
 // Drift guard: __tests__/director-desk/route-gate-map.test.ts
 //
 // Every route whose real gate is NOT simply its MENU_PERMISSIONS key.
-// 119 routes cannot be handed over at all; 394 declare
+// 119 routes cannot be handed over at all; 396 declare
 // their own permission keys through PermissionGuard / PolicyPageShell.
 // ============================================================================
 
@@ -279,6 +279,8 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/bos/taxonomy": { keys: ['academic.bos-taxonomy.view'] },
   "/bos/taxonomy/new": { keys: ['academic.bos-taxonomy.create'] },
   "/campus-living/allocations/audit": { keys: ['campus_living.allocations.audit'] },
+  "/campus-living/billing-audit": { keys: ['campus_living.billing_audit.view'] },
+  "/campus-living/billing-audit/learners": { keys: ['campus_living.billing_audit.view'] },
   "/campus-living/mess/caterer-management": { blocked: 'superAdmin' },
   "/campus-living/mess/insights": { blocked: 'superAdmin' },
   "/campus-living/mess/library": { blocked: 'superAdmin' },

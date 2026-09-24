@@ -63,7 +63,8 @@ export type CandidateSource =
   | 'internal_transfer'
   | 'learner_graduate'
   | 'public_careers_page'
-  | 'email_ingest';
+  | 'email_ingest'
+  | 'interview_booking';
 
 export type PackageStatus =
   | 'proposed'
@@ -83,7 +84,11 @@ export interface HRRecruitmentCandidate {
   name: string;
   email: string;
   phone: string | null;
-  cvviz_url: string;                    // R3.4: CV link mandatory
+  // R3.4: CV link mandatory — except for a candidate the interview booking link
+  // created (source 'interview_booking'), who may arrive without one. Enforced by
+  // hr_recruitment_candidates_cv_required. Staff-created candidates still must
+  // supply it (RecruitmentService.createCandidate), so the Insert type stays string.
+  cvviz_url: string | null;
 
   role_category: RoleCategory;
   role_title: string;
@@ -293,6 +298,7 @@ export const CANDIDATE_SOURCE_LABELS: Record<CandidateSource, string> = {
   learner_graduate: 'Graduating Learner',
   public_careers_page: 'Public Career Page',
   email_ingest: 'Email (Auto-Ingest)',
+  interview_booking: 'Interview booking link',
 };
 
 // =====================================================================================
