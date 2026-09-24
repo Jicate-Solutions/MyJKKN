@@ -36,7 +36,7 @@ import type { NextRequest } from 'next/server';
 import * as XLSX from 'xlsx';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { CdcDriveService } from '@/lib/services/cdc/drive-service';
-import { CdcWillingnessService } from '@/lib/services/cdc/willingness-service';
+import { CdcWillingnessService, isReopenedForLearner } from '@/lib/services/cdc/willingness-service';
 import { formatArrearsForExport } from '@/lib/services/cdc/academic-standing';
 import type { CdcDriveResponseRow, CdcWillingnessStatus } from '@/types/cdc';
 
@@ -163,6 +163,16 @@ export async function GET(
         data_consent_at: (r.data_consent_at as string | null) ?? null,
         status: r.status as CdcWillingnessStatus,
         declared_at: r.declared_at as string,
+        // A standing CDC reopening, read exactly as the learner's page reads it,
+        // so the team sees "Reopened" instead of a bare "Declined" with a live
+        // Reopen button that would only reopen it again.
+        reopened: isReopenedForLearner(
+          {
+            status: r.status as CdcWillingnessStatus,
+            willingness_audit: (r.willingness_audit as unknown[] | null) ?? [],
+          },
+          drive
+        ),
       });
     }
 

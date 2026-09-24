@@ -136,6 +136,11 @@ function ResponsesContent({ params }: { params: Promise<{ id: string }> }) {
   // disabled only once that day has passed; the server refuses it regardless, so
   // a stale page cannot reopen a drive whose day is over.
   const driveDayNotPassed = driveDayNotPassedIst(drive?.drive_date);
+  // Mirrors REOPEN_REFUSING_DRIVE_STATUSES in willingness-service.ts (the
+  // authority; the server refuses regardless). A cancelled or closed drive is not
+  // going to happen, so no declined answer on it can be reopened.
+  const driveRefusesReopen = drive?.status === 'cancelled' || drive?.status === 'closed';
+  const reopenAllowed = driveDayNotPassed && !driveRefusesReopen;
   const qc = useQueryClient();
   const reopen = useMutation({
     mutationFn: async (willingnessId: string) => {
@@ -340,15 +345,24 @@ function ResponsesContent({ params }: { params: Promise<{ id: string }> }) {
                           {new Date(r.declared_at).toLocaleString()}
                         </TableCell>
                         <TableCell className="text-right">
-                          {r.status === 'withdrawn' ? (
+                          {r.status === 'withdrawn' && r.reopened ? (
+                            <Badge
+                              variant="outline"
+                              title="Reopened by the Career Development Centre. The learner can answer again up to the end of the drive day."
+                            >
+                              Reopened
+                            </Badge>
+                          ) : r.status === 'withdrawn' ? (
                             <Button
                               variant="outline"
                               size="sm"
-                              disabled={!driveDayNotPassed || reopen.isPending}
+                              disabled={!reopenAllowed || reopen.isPending}
                               title={
-                                driveDayNotPassed
-                                  ? 'Let this learner answer again, up to the end of the drive day'
-                                  : 'The drive day has passed — a declined response can no longer be reopened'
+                                driveRefusesReopen
+                                  ? `This drive is ${drive?.status} — a declined response can no longer be reopened`
+                                  : driveDayNotPassed
+                                    ? 'Let this learner answer again, up to the end of the drive day'
+                                    : 'The drive day has passed — a declined response can no longer be reopened'
                               }
                               onClick={() => reopen.mutate(r.willingness_id)}
                             >

@@ -392,7 +392,7 @@ export class CdcWillingnessService {
   ): Promise<CdcDriveWillingness> {
     const { data: driveRow, error: driveErr } = await supabase
       .from('cdc_drives')
-      .select('id, drive_date')
+      .select('id, drive_date, status')
       .eq('id', driveId)
       .maybeSingle();
     if (driveErr) throw driveErr;
@@ -409,8 +409,11 @@ export class CdcWillingnessService {
 
     const existing = row as CdcDriveWillingness;
     const gate = canReopenDeclinedResponse(
-      { drive_date: (driveRow.drive_date as string | null) ?? null },
-      existing.status,
+      {
+        drive_date: (driveRow.drive_date as string | null) ?? null,
+        status: driveRow.status as CdcDriveStatus,
+      },
+      existing,
       now
     );
     if (!gate.allowed) throw new Error(gate.reason ?? 'This response cannot be reopened.');
@@ -427,13 +430,24 @@ export class CdcWillingnessService {
       via: REOPEN_AUDIT_VIA,
     };
 
-    const { data, error } = await supabase
+    // Compare-and-set on `updated_at`: two team members pressing Reopen at the
+    // same moment both pass the "already reopened?" gate above on the same read.
+    // Only the first write matches the row as it was read; the second matches
+    // nothing and is refused, so the audit gets ONE reopen entry and the learner
+    // ONE notification (the notification's idempotency key is keyed on
+    // updated_at, so a second write would otherwise be a second message).
+    let upd = supabase
       .from('cdc_drive_willingness')
       .update({ willingness_audit: [...previousAudit, auditEntry], updated_at: at })
-      .eq('id', willingnessId)
-      .select()
-      .single();
+      .eq('id', willingnessId);
+    upd = existing.updated_at ? upd.eq('updated_at', existing.updated_at) : upd.is('updated_at', null);
+    const { data, error } = await upd.select().maybeSingle();
     if (error) throw error;
+    if (!data) {
+      throw new Error(
+        'This response changed while you were reopening it. Refresh the page and check it again.'
+      );
+    }
     return data as CdcDriveWillingness;
   }
 
@@ -911,16 +925,37 @@ export function driveDayNotPassed(driveDate: string | null, now: Date = new Date
 }
 
 /**
+ * Drive statuses on which a declined answer can never be reopened, and on which
+ * an earlier reopening stops counting. A cancelled or closed drive is not going
+ * to happen (or is over), so letting a learner declare 'willing' on it would
+ * record a yes to nothing. The drive DATE alone is not enough of a boundary: a
+ * drive can be cancelled days before its date.
+ */
+export const REOPEN_REFUSING_DRIVE_STATUSES: ReadonlySet<CdcDriveStatus> = new Set<CdcDriveStatus>([
+  'cancelled',
+  'closed',
+]);
+
+/**
  * May a CDC team member reopen THIS response right now? Only a declined
- * ('withdrawn') answer can be reopened, and only up to and including the drive
- * day — see `driveDayNotPassed` for where that boundary falls.
+ * ('withdrawn') answer can be reopened, only on a drive that is neither
+ * cancelled nor closed, only once (a reopening the learner has not yet used is
+ * still standing — reopening it again would only add another audit entry and
+ * send the learner the same message twice), and only up to and including the
+ * drive day — see `driveDayNotPassed` for where that boundary falls.
  */
 export function canReopenDeclinedResponse(
-  drive: { drive_date: string | null },
-  willingnessStatus: CdcWillingnessStatus,
+  drive: { drive_date: string | null; status: CdcDriveStatus },
+  willingness: Pick<CdcDriveWillingness, 'status' | 'willingness_audit'>,
   now: Date = new Date()
 ): { allowed: boolean; reason: string | null } {
-  if (willingnessStatus !== 'withdrawn') {
+  if (REOPEN_REFUSING_DRIVE_STATUSES.has(drive.status)) {
+    return {
+      allowed: false,
+      reason: `This drive is ${drive.status}. A declined response can no longer be reopened.`,
+    };
+  }
+  if (willingness.status !== 'withdrawn') {
     return {
       allowed: false,
       reason: 'Only a declined response can be reopened — this learner has not declined.',
@@ -930,6 +965,13 @@ export function canReopenDeclinedResponse(
     return {
       allowed: false,
       reason: 'The drive day has passed. A declined response can no longer be reopened.',
+    };
+  }
+  if (lastAuditEntryIsReopen(willingness.willingness_audit)) {
+    return {
+      allowed: false,
+      reason:
+        'This response is already reopened. The learner can answer again up to the end of the drive day.',
     };
   }
   return { allowed: true, reason: null };
@@ -944,13 +986,22 @@ export function canReopenDeclinedResponse(
  */
 export function isReopenedForLearner(
   willingness: Pick<CdcDriveWillingness, 'status' | 'willingness_audit'> | null,
-  drive: { drive_date: string | null },
+  drive: { drive_date: string | null; status: CdcDriveStatus },
   now: Date = new Date()
 ): boolean {
   if (!willingness) return false;
   if (willingness.status !== 'withdrawn') return false;
+  // A reopening granted before the drive was cancelled or closed does not
+  // survive it: the learner must not be able to declare 'willing' on a drive
+  // that is not going to happen.
+  if (REOPEN_REFUSING_DRIVE_STATUSES.has(drive.status)) return false;
   if (!driveDayNotPassed(drive.drive_date, now)) return false;
-  const audit = Array.isArray(willingness.willingness_audit) ? willingness.willingness_audit : [];
+  return lastAuditEntryIsReopen(willingness.willingness_audit);
+}
+
+/** Is the LAST entry of a willingness_audit a CDC reopening? */
+function lastAuditEntryIsReopen(auditRaw: unknown): boolean {
+  const audit = Array.isArray(auditRaw) ? auditRaw : [];
   const last = audit[audit.length - 1];
   if (!last || typeof last !== 'object') return false;
   return (last as { via?: unknown }).via === REOPEN_AUDIT_VIA;

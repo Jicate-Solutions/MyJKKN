@@ -45,8 +45,29 @@
 -- as pressure.
 --
 -- IDEMPOTENCY. Keyed on the willingness row plus the moment of the reopening, so
--- reopening the same answer twice on two different days tells the learner twice
--- (each is a real, fresh invitation) while one UPDATE can only ever write one.
+-- one UPDATE can only ever write one. And the trigger speaks only on the
+-- TRANSITION into "reopened": an UPDATE whose OLD row already ended in a
+-- standing CDC reopening is not news, so a second Reopen press (which the
+-- service now refuses anyway) could never send the learner the same message
+-- twice even if it got through (review repair, 2026-09-24).
+--
+-- WHO MAY SPEAK FOR THE CDC (review repair, 2026-09-24). `willingness_audit` is
+-- on the learner's own row, and the learner's RLS lets them write that row. A
+-- learner could therefore append a {via:'cdc-reopen', actor:<anyone>} entry
+-- themselves through PostgREST. The trigger does not treat such an entry as a
+-- CDC reopening: when the writing session's role is `authenticated` or `anon`
+-- (the learner's own client) it neither notifies nor takes the `actor` uuid
+-- from that learner-writable JSON as notifications.created_by. The CDC path
+-- writes through the service role (app/api/cdc/drives/[id]/responses, POST).
+-- `current_setting('role')` is used, not `current_user`: inside a SECURITY
+-- DEFINER function `current_user` is always the owner, while the `role`
+-- setting still names the caller's role.
+--
+-- DRIVE STATUS. A cancelled or closed drive gets no reopen message — the same
+-- REOPEN_REFUSING_DRIVE_STATUSES rule the service applies before writing.
+--
+-- NUMBERING. Renumbered from 20260918193000 to sit past every migration on main
+-- at the time of the repair (highest was 20270210090000).
 --
 -- FILE ONLY / NOT APPLIED — the operator applies it at merge.
 
@@ -69,6 +90,7 @@ DECLARE
   v_updated_at  timestamptz;
   v_drive_title text;
   v_drive_date  date;
+  v_drive_status text;
   v_user_id     uuid;
   v_actor       uuid;
   v_body        text;
@@ -83,14 +105,20 @@ BEGIN
     RETURN;  -- row vanished mid-transaction
   END IF;
 
-  SELECT d.title, d.drive_date, COALESCE(p_actor, d.created_by)
-    INTO v_drive_title, v_drive_date, v_actor
+  SELECT d.title, d.drive_date, d.status::text, COALESCE(p_actor, d.created_by)
+    INTO v_drive_title, v_drive_date, v_drive_status, v_actor
   FROM public.cdc_drives d
   WHERE d.id = v_drive_id;
 
   -- Drive gone, or no identifiable actor and notifications.created_by is
   -- NOT NULL. Either way there is nothing that can be written.
   IF v_drive_title IS NULL OR v_actor IS NULL THEN
+    RETURN;
+  END IF;
+
+  -- A cancelled or closed drive cannot be reopened (REOPEN_REFUSING_DRIVE_STATUSES
+  -- in willingness-service.ts); never invite a learner to answer one.
+  IF v_drive_status IN ('cancelled', 'closed') THEN
     RETURN;
   END IF;
 
@@ -168,10 +196,19 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $function$
 DECLARE
-  v_audit jsonb;
-  v_last  jsonb;
-  v_actor uuid;
+  v_audit     jsonb;
+  v_last      jsonb;
+  v_old_audit jsonb;
+  v_old_last  jsonb;
+  v_actor     uuid;
 BEGIN
+  -- The learner's own client (PostgREST as authenticated/anon) can write this
+  -- row, including its audit. A reopen marker it wrote is not a CDC reopening:
+  -- do not notify, and never lift `actor` out of learner-written JSON.
+  IF COALESCE(current_setting('role', true), 'none') IN ('authenticated', 'anon') THEN
+    RETURN NEW;
+  END IF;
+
   v_audit := NEW.willingness_audit;
 
   IF v_audit IS NULL OR jsonb_typeof(v_audit) <> 'array' OR jsonb_array_length(v_audit) = 0 THEN
@@ -187,6 +224,21 @@ BEGIN
   -- Must agree with REOPEN_AUDIT_VIA in lib/services/cdc/willingness-service.ts.
   IF (v_last ->> 'via') IS DISTINCT FROM 'cdc-reopen' THEN
     RETURN NEW;
+  END IF;
+
+  -- Only the transition INTO a standing reopening is news. If the OLD row was
+  -- already a withdrawn answer whose last entry was a CDC reopening, the learner
+  -- has already been told.
+  v_old_audit := OLD.willingness_audit;
+  IF OLD.status = 'withdrawn'
+     AND v_old_audit IS NOT NULL
+     AND jsonb_typeof(v_old_audit) = 'array'
+     AND jsonb_array_length(v_old_audit) > 0 THEN
+    v_old_last := v_old_audit -> (jsonb_array_length(v_old_audit) - 1);
+    IF jsonb_typeof(v_old_last) = 'object'
+       AND (v_old_last ->> 'via') IS NOT DISTINCT FROM 'cdc-reopen' THEN
+      RETURN NEW;
+    END IF;
   END IF;
 
   -- The audit entry names who did it. A malformed or absent actor falls back to

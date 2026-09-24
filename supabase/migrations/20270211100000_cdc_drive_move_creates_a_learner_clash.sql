@@ -34,9 +34,25 @@
 -- so `p_when_changed` gates the whole thing — the caller already works out which
 -- half moved.
 --
+-- EACH LEARNER IS TOLD ONLY THEIR OWN CLASH (review repair, 2026-09-24). The
+-- drives a learner collides with are worked out PER LEARNER: learner A who said
+-- yes to X and learner B who said yes to Y, both on the new day, must each read
+-- only the drive THEY answered — never "X, Y. You said yes to both", which is
+-- false for both of them. Learners whose clashing drives are the same set share
+-- one notification (one body is true for all of them); a different set is a
+-- different notification. So there is one notification per distinct set, never
+-- one shared list.
+--
 -- IDEMPOTENCY. Same shape as the move notification it rides with: keyed on the
--- drive plus the moment of the change, so a drive that moves onto a clashing day
--- three times warns three times, while one UPDATE cannot warn twice.
+-- drive plus the moment of the change, plus a hash of the clashing-drive names so
+-- each distinct set gets its own key. A drive that moves onto a clashing day
+-- three times warns three times, while one UPDATE cannot warn the same learner
+-- twice.
+--
+-- NUMBERING. Renumbered from 20260918113000 to sit past every migration on main
+-- at the time of the repair (highest was 20270210090000). Nothing on main
+-- redefines this function after 20260912200000, whose body is carried here
+-- verbatim ahead of the clash block.
 --
 -- FILE ONLY / NOT APPLIED — the operator applies it at merge.
 
@@ -61,8 +77,7 @@ DECLARE
   v_updated_at  timestamptz;
   v_actor       uuid;
   v_user_ids    uuid[];
-  v_clash_ids   uuid[];
-  v_clash_names text;
+  v_group       record;
   v_what        text;
   v_title       text;
   v_body        text;
@@ -140,76 +155,69 @@ BEGIN
     RETURN;
   END IF;
 
-  SELECT array_agg(DISTINCT p.id) INTO v_clash_ids
-  FROM public.cdc_drive_willingness w
-  JOIN public.profiles p ON p.learner_id = w.learner_id
-  JOIN public.cdc_drive_willingness other
-    ON other.learner_id = w.learner_id
-   AND other.drive_id <> p_drive_id
-   AND other.status IS DISTINCT FROM 'withdrawn'
-   AND other.status IS DISTINCT FROM 'no_show'
-  JOIN public.cdc_drives od
-    ON od.id = other.drive_id
-   AND od.drive_date = v_drive_date
-   AND od.status NOT IN ('cancelled', 'closed')
-  WHERE w.drive_id = p_drive_id
-    AND w.status IS DISTINCT FROM 'withdrawn'
-    AND w.status IS DISTINCT FROM 'no_show'
-    AND p.id IS NOT NULL;
-
-  IF v_clash_ids IS NULL OR array_length(v_clash_ids, 1) IS NULL THEN
-    RETURN;
-  END IF;
-
-  -- Name the drives they collide with, so the notification is actionable
-  -- without opening anything. Distinct titles only, at most three — a
-  -- notification body is not a list view.
-  SELECT string_agg(t.title, ', ' ORDER BY t.title)
-    INTO v_clash_names
-  FROM (
-    SELECT DISTINCT od.title
-    FROM public.cdc_drives od
-    WHERE od.id <> p_drive_id
-      AND od.drive_date = v_drive_date
-      AND od.status NOT IN ('cancelled', 'closed')
-      AND EXISTS (
-        SELECT 1
-        FROM public.cdc_drive_willingness ow
-        JOIN public.profiles op ON op.learner_id = ow.learner_id
-        WHERE ow.drive_id = od.id
-          AND ow.status IS DISTINCT FROM 'withdrawn'
-          AND ow.status IS DISTINCT FROM 'no_show'
-          AND op.id = ANY (v_clash_ids)
-      )
-    ORDER BY od.title
-    LIMIT 3
-  ) t;
-
-  INSERT INTO public.notifications (
-    title, body, url, created_by, targeting, priority, category, kind,
-    metadata, idempotency_key
-  ) VALUES (
-    'Two drives on the same day: ' || v_drive_title,
-    '"' || v_drive_title || '" has moved to ' || to_char(v_drive_date, 'DD Mon YYYY')
-      || ', the same day as '
-      || COALESCE(v_clash_names, 'another drive you said yes to')
-      || '. You said yes to both. Check the timings and tell the Career Development Centre '
-      || 'if you need to change one of your answers.',
-    '/cdc/drives/' || p_drive_id::text || '/willingness',
-    v_actor,
-    jsonb_build_object('user_ids', to_jsonb(v_clash_ids)),
-    'high',
-    'cdc.drive.same_day_clash',
-    'work_item',
-    jsonb_build_object(
-      'drive_id',        p_drive_id,
-      'drive_date',      v_drive_date,
-      'recipient_count', array_length(v_clash_ids, 1)
-    ),
-    'cdc.drive.' || p_drive_id::text || '.clash.'
-      || to_char(COALESCE(v_updated_at, now()) AT TIME ZONE 'UTC', 'YYYYMMDDHH24MISSUS')
-  )
-  ON CONFLICT (idempotency_key) WHERE (idempotency_key IS NOT NULL) DO NOTHING;
+  -- One row per learner who now has a clash, carrying the names of THEIR OWN
+  -- clashing drives (distinct titles, at most three — a notification body is not
+  -- a list view); then grouped, so learners with the same set share one
+  -- notification and nobody is told about a drive they never answered.
+  FOR v_group IN
+    SELECT c.names,
+           array_agg(DISTINCT c.user_id ORDER BY c.user_id) AS user_ids
+    FROM (
+      SELECT p.id AS user_id,
+             (
+               SELECT string_agg(t.title, ', ' ORDER BY t.title)
+               FROM (
+                 SELECT DISTINCT od.title
+                 FROM public.cdc_drive_willingness other
+                 JOIN public.cdc_drives od ON od.id = other.drive_id
+                 WHERE other.learner_id = w.learner_id
+                   AND other.drive_id <> p_drive_id
+                   AND other.status IS DISTINCT FROM 'withdrawn'
+                   AND other.status IS DISTINCT FROM 'no_show'
+                   AND od.drive_date = v_drive_date
+                   AND od.status NOT IN ('cancelled', 'closed')
+                 ORDER BY od.title
+                 LIMIT 3
+               ) t
+             ) AS names
+      FROM public.cdc_drive_willingness w
+      JOIN public.profiles p ON p.learner_id = w.learner_id
+      WHERE w.drive_id = p_drive_id
+        AND w.status IS DISTINCT FROM 'withdrawn'
+        AND w.status IS DISTINCT FROM 'no_show'
+        AND p.id IS NOT NULL
+    ) c
+    WHERE c.names IS NOT NULL
+    GROUP BY c.names
+    ORDER BY c.names
+  LOOP
+    INSERT INTO public.notifications (
+      title, body, url, created_by, targeting, priority, category, kind,
+      metadata, idempotency_key
+    ) VALUES (
+      'Two drives on the same day: ' || v_drive_title,
+      '"' || v_drive_title || '" has moved to ' || to_char(v_drive_date, 'DD Mon YYYY')
+        || ', the same day as ' || v_group.names
+        || '. You said yes to both. Check the timings and tell the Career Development Centre '
+        || 'if you need to change one of your answers.',
+      '/cdc/drives/' || p_drive_id::text || '/willingness',
+      v_actor,
+      jsonb_build_object('user_ids', to_jsonb(v_group.user_ids)),
+      'high',
+      'cdc.drive.same_day_clash',
+      'work_item',
+      jsonb_build_object(
+        'drive_id',        p_drive_id,
+        'drive_date',      v_drive_date,
+        'clashes_with',    v_group.names,
+        'recipient_count', array_length(v_group.user_ids, 1)
+      ),
+      'cdc.drive.' || p_drive_id::text || '.clash.'
+        || to_char(COALESCE(v_updated_at, now()) AT TIME ZONE 'UTC', 'YYYYMMDDHH24MISSUS')
+        || '.' || md5(v_group.names)
+    )
+    ON CONFLICT (idempotency_key) WHERE (idempotency_key IS NOT NULL) DO NOTHING;
+  END LOOP;
 END;
 $function$;
 

@@ -102,13 +102,23 @@ describe('Ruling A — findSameDayClashes', () => {
   });
 });
 
+/** A willingness row in the given state with a plain learner-ui history. */
+function declined(
+  status: CdcDriveWillingness['status'],
+  audit: unknown[] = [{ via: 'learner-ui' }]
+): Pick<CdcDriveWillingness, 'status' | 'willingness_audit'> {
+  return { status, willingness_audit: audit };
+}
+
 describe('Ruling B — canReopenDeclinedResponse', () => {
   const beforeTheDay = new Date('2026-09-16T12:00:00+05:30');
   const onTheDay = new Date('2026-09-17T09:00:00+05:30');
   const afterTheDay = new Date('2026-09-18T09:00:00+05:30');
 
   it('is ALLOWED before the drive date', () => {
-    const r = canReopenDeclinedResponse({ drive_date: '2026-09-17' }, 'withdrawn', beforeTheDay);
+    const r = canReopenDeclinedResponse(
+      { drive_date: '2026-09-17', status: 'willingness_open' },
+      declined('withdrawn'), beforeTheDay);
     expect(r.allowed).toBe(true);
     expect(r.reason).toBeNull();
   });
@@ -118,7 +128,9 @@ describe('Ruling B — canReopenDeclinedResponse', () => {
   // learner who turned up on the morning and asked to be let back in could not
   // be. The boundary is now the END of the drive day, read in Asia/Kolkata.
   it('is ALLOWED on the drive date itself', () => {
-    const r = canReopenDeclinedResponse({ drive_date: '2026-09-17' }, 'withdrawn', onTheDay);
+    const r = canReopenDeclinedResponse(
+      { drive_date: '2026-09-17', status: 'willingness_open' },
+      declined('withdrawn'), onTheDay);
     expect(r.allowed).toBe(true);
     expect(r.reason).toBeNull();
   });
@@ -131,7 +143,9 @@ describe('Ruling B — canReopenDeclinedResponse', () => {
     const lateOnTheDay = new Date('2026-09-17T23:55:00+05:30');
     expect(istDayKey(lateOnTheDay)).toBe('2026-09-17');
     expect(
-      canReopenDeclinedResponse({ drive_date: '2026-09-17' }, 'withdrawn', lateOnTheDay).allowed
+      canReopenDeclinedResponse(
+      { drive_date: '2026-09-17', status: 'willingness_open' },
+      declined('withdrawn'), lateOnTheDay).allowed
     ).toBe(true);
   });
 
@@ -143,8 +157,8 @@ describe('Ruling B — canReopenDeclinedResponse', () => {
     expect(justAfterMidnightIst.toISOString().slice(0, 10)).toBe('2026-09-17'); // what UTC would say
     expect(istDayKey(justAfterMidnightIst)).toBe('2026-09-18'); // what IST says
     const r = canReopenDeclinedResponse(
-      { drive_date: '2026-09-17' },
-      'withdrawn',
+      { drive_date: '2026-09-17', status: 'willingness_open' },
+      declined('withdrawn'),
       justAfterMidnightIst
     );
     expect(r.allowed).toBe(false);
@@ -153,20 +167,26 @@ describe('Ruling B — canReopenDeclinedResponse', () => {
 
   it('is REFUSED the day after the drive date', () => {
     expect(
-      canReopenDeclinedResponse({ drive_date: '2026-09-17' }, 'withdrawn', afterTheDay).allowed
+      canReopenDeclinedResponse(
+      { drive_date: '2026-09-17', status: 'willingness_open' },
+      declined('withdrawn'), afterTheDay).allowed
     ).toBe(false);
   });
 
   it('refuses an answer that is not a decline', () => {
     for (const status of ['willing', 'confirmed', 'no_show'] as const) {
-      const r = canReopenDeclinedResponse({ drive_date: '2026-09-17' }, status, beforeTheDay);
+      const r = canReopenDeclinedResponse(
+      { drive_date: '2026-09-17', status: 'willingness_open' },
+      declined(status), beforeTheDay);
       expect(r.allowed).toBe(false);
       expect(r.reason).toMatch(/only a declined response/i);
     }
   });
 
   it('allows a drive with no date at all — it has not happened', () => {
-    expect(canReopenDeclinedResponse({ drive_date: null }, 'withdrawn', afterTheDay).allowed).toBe(
+    expect(canReopenDeclinedResponse(
+      { drive_date: null, status: 'willingness_open' },
+      declined('withdrawn'), afterTheDay).allowed).toBe(
       true
     );
   });
@@ -189,7 +209,7 @@ describe('Ruling B — canReopenDeclinedResponse', () => {
 
 describe('Ruling B — isReopenedForLearner (the audit entry IS the state)', () => {
   const now = new Date('2026-09-16T12:00:00+05:30');
-  const drive = { drive_date: '2026-09-17' };
+  const drive = { drive_date: '2026-09-17', status: 'willingness_open' as const };
 
   function row(audit: unknown[], status: CdcDriveWillingness['status'] = 'withdrawn') {
     return { status, willingness_audit: audit } as Pick<
@@ -260,5 +280,69 @@ describe('Ruling B — isReopenedForLearner (the audit entry IS the state)', () 
 
   it('does not apply to an answer that is not a decline', () => {
     expect(isReopenedForLearner(row([reopenEntry], 'willing'), drive, now)).toBe(false);
+  });
+});
+
+describe('Ruling B repair — a reopen respects the drive status (review, 2026-09-24)', () => {
+  const now = new Date('2026-09-16T12:00:00+05:30');
+  const reopenEntry = { at: '2026-09-16T06:30:00.000Z', actor: 'cdc-user-1', via: REOPEN_AUDIT_VIA };
+
+  it('refuses to reopen on a cancelled or closed drive, even before its date', () => {
+    for (const status of ['cancelled', 'closed'] as const) {
+      const r = canReopenDeclinedResponse(
+        { drive_date: '2026-09-17', status },
+        declined('withdrawn'),
+        now
+      );
+      expect(r.allowed).toBe(false);
+      expect(r.reason).toMatch(new RegExp(`drive is ${status}`));
+    }
+  });
+
+  it('still allows every other live drive status', () => {
+    for (const status of ['announced', 'willingness_open', 'eligibility_locked', 'attendance_day'] as const) {
+      expect(
+        canReopenDeclinedResponse({ drive_date: '2026-09-17', status }, declined('withdrawn'), now)
+          .allowed
+      ).toBe(true);
+    }
+  });
+
+  it('drops a standing reopening once the drive is cancelled or closed — the learner cannot say yes to it', () => {
+    const r = declined('withdrawn', [{ via: 'learner-ui' }, reopenEntry]);
+    expect(
+      isReopenedForLearner(r, { drive_date: '2026-09-17', status: 'willingness_open' }, now)
+    ).toBe(true);
+    expect(isReopenedForLearner(r, { drive_date: '2026-09-17', status: 'cancelled' }, now)).toBe(
+      false
+    );
+    expect(isReopenedForLearner(r, { drive_date: '2026-09-17', status: 'closed' }, now)).toBe(
+      false
+    );
+  });
+});
+
+describe('Ruling B repair — a reopening is granted once (review, 2026-09-24)', () => {
+  const now = new Date('2026-09-16T12:00:00+05:30');
+  const drive = { drive_date: '2026-09-17', status: 'willingness_open' as const };
+  const reopenEntry = { at: '2026-09-16T06:30:00.000Z', actor: 'cdc-user-1', via: REOPEN_AUDIT_VIA };
+
+  it('refuses a second reopen while the first is still standing', () => {
+    const r = canReopenDeclinedResponse(
+      drive,
+      declined('withdrawn', [{ via: 'learner-ui' }, reopenEntry]),
+      now
+    );
+    expect(r.allowed).toBe(false);
+    expect(r.reason).toMatch(/already reopened/i);
+  });
+
+  it('allows a fresh reopen once the learner used the first one and declined again', () => {
+    const r = canReopenDeclinedResponse(
+      drive,
+      declined('withdrawn', [reopenEntry, { via: 'learner-ui' }]),
+      now
+    );
+    expect(r.allowed).toBe(true);
   });
 });
