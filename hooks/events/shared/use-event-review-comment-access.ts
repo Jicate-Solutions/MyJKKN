@@ -56,6 +56,13 @@ export interface EventReviewCommentAccess {
   isSuperAdmin: boolean;
   /** True until the answer is known — treat as "not yet", never as "no". */
   isLoading: boolean;
+  /**
+   * The viewer is a learner. Almost every learner is refused, so a surface
+   * that would paint a placeholder while the answer is pending should paint
+   * nothing for them instead — otherwise every learner on every event page
+   * sees a card-shaped skeleton flash and vanish.
+   */
+  isLearner: boolean;
 }
 
 export function useEventReviewCommentAccess(eventId: string): EventReviewCommentAccess {
@@ -109,5 +116,6 @@ export function useEventReviewCommentAccess(eventId: string): EventReviewComment
     isSuperAdmin,
     isLoading:
       permsLoading || (enabled && readLoading) || (adminEnabled && adminLoading),
+    isLearner: isStudent,
   };
 }
