@@ -29,7 +29,9 @@ import {
   isPaperLive,
   generatePaper,
   levelOf,
+  manualChapterTotal,
   manualDistributionError,
+  selectionModeError,
   type EngineContext,
   type ExamRef,
   type PaperAction,
@@ -412,6 +414,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         // An English paper is monolingual (PRD English §1): its preview is
         // English whatever the request says.
         if (exam.config_key === 'tn_hsc_english') merged.params.preview_language = 'en';
+        const modeError = selectionModeError(merged.params, exam.config_key);
+        if (modeError) return bad(modeError);
         let title: string | undefined;
         if (body.title !== undefined) {
           if (typeof body.title !== 'string' || body.title.trim().length === 0 || body.title.length > 200) {
@@ -440,8 +444,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       }
 
       case 'generate': {
-        const manualError = manualDistributionError(config.params, exam.config_key);
-        if (manualError) return bad(manualError);
+        const paramsError =
+          selectionModeError(config.params, exam.config_key) ?? manualDistributionError(config.params, exam.config_key);
+        if (paramsError) return bad(paramsError);
         await regenerate();
         await persist(supabase, loaded, { config });
         return respond(supabase, loaded, g.userId, g.canSeeAnswers);
@@ -452,9 +457,29 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         // exactly what the filters can supply; nothing is padded.
         const available = config.last_generation?.available ?? 0;
         if (available < 1) return bad('Nothing is available under these filters — widen them instead.');
-        const manualError = manualDistributionError(config.params, exam.config_key);
-        if (manualError) return bad(manualError);
-        config = { ...config, params: { ...config.params, question_count: Math.min(available, MAX_QUESTIONS) } };
+        const paramsError =
+          selectionModeError(config.params, exam.config_key) ?? manualDistributionError(config.params, exam.config_key);
+        if (paramsError) return bad(paramsError);
+        const manualApplies =
+          config.params.distribution_mode === 'manual' &&
+          !(exam.config_key === 'tn_hsc_english' && config.params.enforce_board_blueprint);
+        if (manualApplies) {
+          // Manual counts must keep adding up to the question count (the
+          // Regenerate button checks it again), so each short chapter's figure
+          // drops to what that chapter can supply, and the count follows.
+          const chapter_counts = { ...config.params.chapter_counts };
+          for (const sf of config.last_generation?.chapter_shortfalls ?? []) {
+            if (sf.chapter_id !== null && sf.chapter_id in chapter_counts) chapter_counts[sf.chapter_id] = sf.available;
+          }
+          const total = manualChapterTotal({ ...config.params, chapter_counts });
+          if (total < 1) return bad('Nothing is available under these filters — widen them instead.');
+          config = {
+            ...config,
+            params: { ...config.params, chapter_counts, question_count: Math.min(total, MAX_QUESTIONS) },
+          };
+        } else {
+          config = { ...config, params: { ...config.params, question_count: Math.min(available, MAX_QUESTIONS) } };
+        }
         await regenerate();
         await persist(supabase, loaded, { config });
         return respond(supabase, loaded, g.userId, g.canSeeAnswers);

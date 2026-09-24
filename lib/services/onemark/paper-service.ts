@@ -110,13 +110,15 @@ export interface ChapterShortfall {
   available: number;
 }
 
-/** A level in the Senior Learner's own mix asked for more than the eligible
- *  pool holds at that level. The shortfall is filled from other levels (the
- *  count is kept — decision 6 levels are a mix, not a gate) and named here so
- *  the preview can say so. */
+/** A level in the Senior Learner's own mix that the paper did not get as
+ *  many of as asked. The rest came from other levels (the count is kept —
+ *  decision 6 levels are a mix, not a gate) and is named here so the preview
+ *  can say so. */
 export interface LevelShortfall {
   level: LevelKey;
   requested: number;
+  /** Questions at this level actually placed on the paper (fresh picks; the
+   *  mix applies to the open slots, so locks are not counted). */
   available: number;
 }
 
@@ -140,7 +142,7 @@ export interface GenerationReport {
   /** Manual distribution only: chapters asked for more than they hold.
    *  Absent on reports written before this field existed. */
   chapter_shortfalls?: ChapterShortfall[];
-  /** Own level mix only: levels asked for more than the pool holds. Absent on
+  /** Own level mix only: levels the paper got fewer of than asked. Absent on
    *  reports written before this field existed. */
   level_shortfalls?: LevelShortfall[];
   generated_at: string;
@@ -302,18 +304,36 @@ function chapterInScope(id: string, params: Pick<PaperParams, 'chapter_ids'>): b
   return (params.chapter_ids ?? []).length === 0 || params.chapter_ids.includes(id);
 }
 
-/** Manual distribution needs at least one question asked for. An all-zero
- *  manual set used to generate a full paper from anywhere (the top-up), which
- *  is exactly what "manual" promises not to do. Not checked while the English
- *  board shape is on — the distribution does not apply there. Returns the
- *  refusal, or null when the params are fine. */
+/** Manual distribution needs its chapter counts to add up to the question
+ *  count — the same check the wizard makes before Step 4. An all-zero manual
+ *  set used to generate a full paper from anywhere (the top-up), and a total
+ *  that differs from the count left the paper and the Senior Learner's own
+ *  figures disagreeing. Not checked while the English board shape is on — the
+ *  distribution does not apply there. Returns the refusal, or null when the
+ *  params are fine. */
 export function manualDistributionError(
-  params: Pick<PaperParams, 'distribution_mode' | 'chapter_counts' | 'chapter_ids' | 'enforce_board_blueprint'>,
+  params: Pick<
+    PaperParams,
+    'distribution_mode' | 'chapter_counts' | 'chapter_ids' | 'enforce_board_blueprint' | 'question_count'
+  >,
   examKey: string,
 ): string | null {
   if (params.distribution_mode !== 'manual') return null;
   if (examKey === 'tn_hsc_english' && params.enforce_board_blueprint) return null;
-  if (manualChapterTotal(params) <= 0) return 'Manual distribution asks for 0 questions — set a count for at least one chapter.';
+  const total = manualChapterTotal(params);
+  if (total <= 0) return 'Manual distribution asks for 0 questions — set a count for at least one chapter.';
+  if (total !== params.question_count) {
+    return `The chapter counts add up to ${total}, not ${params.question_count} — change them on Step 3 so they match the question count.`;
+  }
+  return null;
+}
+
+/** English is one book with no volumes; "By volume" is a Physics scope
+ *  (Volume 1 = units 1–6, Volume 2 = 7–11). Returns the refusal, or null. */
+export function selectionModeError(params: Pick<PaperParams, 'selection_mode'>, examKey: string): string | null {
+  if (params.selection_mode === 'volume' && examKey === 'tn_hsc_english') {
+    return 'English has no volumes — choose a single chapter, chosen chapters, units or the full list.';
+  }
   return null;
 }
 
@@ -483,15 +503,17 @@ export function effectiveLevelMix(
 
 /** Manual distribution is a request for EXACT counts per chapter, not a set
  *  of proportions (decision 11): each chapter gets what was asked, capped at
- *  what it actually holds, and every cap is reported as a shortfall. Only when
- *  the capped counts still exceed the open slots (locked questions already
- *  took some, or "use the N available" lowered the count) are they scaled
- *  down to fit. */
+ *  what it actually holds, and every cap is reported as a shortfall. A locked
+ *  question already on the paper counts toward its own chapter's figure, so
+ *  only the rest of that figure is drawn fresh — five U1 locks against "U1 5,
+ *  U2 10" leave U1 nothing more to draw. Only when the capped counts still
+ *  exceed the open slots are they scaled down to fit. */
 export function manualChapterPlan(
   params: Pick<PaperParams, 'chapter_counts' | 'chapter_ids'>,
   eligible: Pick<PoolItem, 'topic_id'>[],
   need: number,
   ctx: Pick<EngineContext, 'examKey' | 'generalTopicIds'>,
+  locked: Pick<PoolItem, 'topic_id'>[] = [],
 ): { targets: Record<string, number>; shortfalls: ChapterShortfall[]; supplied: number } {
   const keyOf = (t: string | null) => (t === null || isChapterAgnostic({ topic_id: t }, ctx) ? '__none__' : t);
   const inPool: Record<string, number> = {};
@@ -505,19 +527,32 @@ export function manualChapterPlan(
     const k = keyOf(id);
     asked[k] = (asked[k] ?? 0) + Math.max(0, n ?? 0);
   }
+  // Locked questions already fill part of their chapter's figure.
+  const lockedIn: Record<string, number> = {};
+  for (const it of locked) {
+    const k = keyOf(it.topic_id);
+    if (k in asked) lockedIn[k] = (lockedIn[k] ?? 0) + 1;
+  }
+  const toDraw: Record<string, number> = {};
+  for (const [k, n] of Object.entries(asked)) toDraw[k] = Math.max(0, n - (lockedIn[k] ?? 0));
   // Grammar-general (no chapter) has no input of its own; left unnamed it
   // takes whatever the named chapters leave of the count, as before.
   if ('__none__' in inPool && !('__none__' in asked)) {
-    const named = Object.values(asked).reduce((sum, n) => sum + n, 0);
-    asked.__none__ = Math.max(0, need - named);
+    const named = Object.values(toDraw).reduce((sum, n) => sum + n, 0);
+    asked.__none__ = toDraw.__none__ = Math.max(0, need - named);
   }
 
   const capped: Record<string, number> = {};
   const shortfalls: ChapterShortfall[] = [];
   for (const [k, n] of Object.entries(asked)) {
     const have = inPool[k] ?? 0;
-    capped[k] = Math.min(n, have);
-    if (n > have) shortfalls.push({ chapter_id: k === '__none__' ? null : k, requested: n, available: have });
+    const draw = toDraw[k] ?? 0;
+    capped[k] = Math.min(draw, have);
+    // Reported in the Senior Learner's own terms: the figure they typed, and
+    // what the chapter can put on the paper (its locks plus its fresh pool).
+    if (draw > have) {
+      shortfalls.push({ chapter_id: k === '__none__' ? null : k, requested: n, available: have + (lockedIn[k] ?? 0) });
+    }
   }
   const cappedSum = Object.values(capped).reduce((sum, n) => sum + n, 0);
   const targets = cappedSum > need ? apportion(capped, need) : capped;
@@ -687,7 +722,9 @@ export function generatePaper(input: {
   // Manual distribution (shape off): exact per-chapter counts, capped at what
   // each chapter holds — no cross-chapter top-up (decision 11).
   const manualPlan =
-    !blueprintOn && ctx.params.distribution_mode === 'manual' ? manualChapterPlan(ctx.params, freshPool, need, ctx) : null;
+    !blueprintOn && ctx.params.distribution_mode === 'manual'
+      ? manualChapterPlan(ctx.params, freshPool, need, ctx, locked.map((id) => byId.get(id)!))
+      : null;
 
   // What can actually land on this paper. With the shape off that is the whole
   // eligible pool; with it on, a synonym beyond the three reserved slots has
@@ -705,14 +742,6 @@ export function generatePaper(input: {
   // Only an own mix can ask for more than the pool holds (the default mix is
   // proportional to the pool itself).
   const ownMix = LEVEL_KEYS.some((k) => (ctx.params.level_mix?.[k] ?? 0) > 0);
-  const levelShortfalls: LevelShortfall[] = [];
-  if (ownMix) {
-    for (const k of LEVEL_KEYS) {
-      const want = levelTarget[k] ?? 0;
-      const have = freshPool.filter((it) => levelOf(it) === k).length;
-      if (want > have) levelShortfalls.push({ level: k, requested: want, available: have });
-    }
-  }
 
   const picks: PoolItem[] = [];
   if (blueprintOn) {
@@ -776,6 +805,18 @@ export function generatePaper(input: {
       if (taken.has(it.id)) continue;
       picks.push(it);
       taken.add(it.id);
+    }
+  }
+
+  // The level mix is measured on what was actually PICKED, not on what the
+  // pool holds: a level can be in the pool and still miss out when the
+  // chapter (or tag) quotas take other items first.
+  const levelShortfalls: LevelShortfall[] = [];
+  if (ownMix) {
+    for (const k of LEVEL_KEYS) {
+      const want = levelTarget[k] ?? 0;
+      const placed = picks.filter((it) => levelOf(it) === k).length;
+      if (want > placed) levelShortfalls.push({ level: k, requested: want, available: placed });
     }
   }
 

@@ -83,6 +83,15 @@ export function RequestDraftsPanel({ examId, onSubjectChange }: RequestDraftsPan
 
   const [topicId, setTopicId] = useState<string>(ANY_UNIT);
   const [tagKeys, setTagKeys] = useState<string[]>([]);
+  // A unit and tags belong to ONE subject. The subject can change from here
+  // or from the queue's tabs below, so the reset follows the prop, not this
+  // panel's own picker (reset during render — no stale frame, no effect).
+  const [unitsFor, setUnitsFor] = useState<string | null>(activeExamId);
+  if (unitsFor !== activeExamId) {
+    setUnitsFor(activeExamId);
+    setTopicId(ANY_UNIT);
+    setTagKeys([]);
+  }
   const [count, setCount] = useState<number>(DEFAULT_COUNT);
   const [bloom, setBloom] = useState<BloomLevel>('K1');
   const [outcome, setOutcome] = useState<RequestOutcome | null>(null);
@@ -111,8 +120,6 @@ export function RequestDraftsPanel({ examId, onSubjectChange }: RequestDraftsPan
 
   function pickSubject(id: string) {
     onSubjectChange(id);
-    setTopicId(ANY_UNIT);
-    setTagKeys([]);
   }
 
   function toggleTag(key: string) {

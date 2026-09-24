@@ -14,7 +14,13 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { usePaperAction } from '@/hooks/onemark/use-paper';
-import { PaperService, SERIES_LETTERS, type ExamReference, type PaperDetail } from '@/lib/services/onemark/paper-service';
+import {
+  PaperService,
+  SERIES_LETTERS,
+  type ExamReference,
+  type GenerationReport,
+  type PaperDetail,
+} from '@/lib/services/onemark/paper-service';
 
 interface StepOutputProps {
   paper: PaperDetail;
@@ -31,6 +37,17 @@ export function publishWindowError(openAt: string, closeAt: string): string | nu
   if (Number.isNaN(openMs) || Number.isNaN(closeMs)) return 'Set both an opening and a closing time.';
   if (closeMs <= openMs) return 'Closes must be later than Opens — move the closing time after the opening time.';
   return null;
+}
+
+/** What a short paper's alert tells the Senior Learner to do. It names the
+ *  Preview control that is actually there: "Use the N available" appears only
+ *  when the last generation itself came up short, so a paper that was full
+ *  and then lost a dropped question is sent to "Regenerate unlocked" instead. */
+export function shortPaperAdvice(report: Pick<GenerationReport, 'available' | 'requested'> | null | undefined): string {
+  if (report && report.available < report.requested && report.available >= 1) {
+    return `To make the count match, go Back to Preview and choose ‘Use the ${report.available} available’, or widen the chapters and filters.`;
+  }
+  return 'To fill the gap, go Back to Preview, lock the questions you want to keep and press ‘Regenerate unlocked’.';
 }
 
 function localInputValue(d: Date): string {
@@ -114,8 +131,8 @@ export function StepOutput({ paper, reference, act, disabled }: StepOutputProps)
         <p className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-foreground lg:col-span-2" role="alert">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
           <span>
-            This paper holds {held} of the {asked} questions you asked for. Printing and publishing will use {held}. To make the count match, go
-            Back to Preview and choose &lsquo;Use the {held} available&rsquo;, or widen the chapters and filters.
+            This paper holds {held} of the {asked} questions you asked for. Printing and publishing will use {held}.{' '}
+            {shortPaperAdvice(cfg.last_generation)}
           </span>
         </p>
       )}

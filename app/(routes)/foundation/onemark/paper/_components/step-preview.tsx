@@ -171,11 +171,11 @@ export function StepPreview({ paper, draft, patch, reference, act, disabled }: S
 
       {levelShortfalls.length > 0 && (
         <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm" role="status">
-          <p className="font-medium text-foreground">Your level mix could not be met from these filters — the rest came from other levels.</p>
+          <p className="font-medium text-foreground">Your level mix could not be met with these chapters and filters — the rest came from other levels.</p>
           <ul className="mt-1 list-disc pl-6 text-xs text-muted-foreground">
             {levelShortfalls.map((l) => (
               <li key={l.level}>
-                {levelName(l.level)}: asked for {l.requested}; {l.available} available.
+                {levelName(l.level)}: asked for {l.requested}; {l.available} on the paper.
               </li>
             ))}
           </ul>

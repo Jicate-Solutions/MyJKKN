@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { renderUnderline } from '@/lib/onemark/underline';
 import { Bilingual } from '@/app/(routes)/foundation/onemark/practice/_components/bilingual';
 import { QuestionCard } from '@/app/(routes)/foundation/onemark/paper/_components/question-card';
-import { StepOutput, publishWindowError } from '@/app/(routes)/foundation/onemark/paper/_components/step-output';
+import { StepOutput, publishWindowError, shortPaperAdvice } from '@/app/(routes)/foundation/onemark/paper/_components/step-output';
 import { StepPreview } from '@/app/(routes)/foundation/onemark/paper/_components/step-preview';
 import { StepQuantity } from '@/app/(routes)/foundation/onemark/paper/_components/step-quantity';
 import { resolveReviewSubject } from '@/app/(routes)/foundation/onemark/review/_components/draft-queue';
@@ -18,6 +18,7 @@ import {
   generatePaper,
   manualChapterTotal,
   manualDistributionError,
+  selectionModeError,
   type EngineContext,
   type ExamReference,
   type PaperDetail,
@@ -324,7 +325,11 @@ describe('MANUAL-DIST — decision 11 in manual distribution', () => {
   it('(C) a level mix beyond the pool is reported, not silently re-levelled', () => {
     const r = run({ level_mix: { K1: 15 } as any });
     expect(r.report.selected).toBe(15);
-    expect(r.report.level_shortfalls).toContainEqual({ level: 'K1', requested: 15, available: 5 });
+    // The pool holds 5 K1, but U1's proportional share is 3 — the report says
+    // what the paper GOT (3), not what the pool held (PR #4010 review, point 2).
+    const k1OnPaper = r.slots.filter((s) => s?.startsWith('u1-')).length;
+    expect(k1OnPaper).toBe(3);
+    expect(r.report.level_shortfalls).toContainEqual({ level: 'K1', requested: 15, available: 3 });
   });
 
   it('(D) manual 2 + 3 means exactly 2 and 3 — never scaled up to the count', () => {
@@ -441,5 +446,124 @@ describe('REVIEW-DEFAULT — the review page opens on the chosen subject', () =>
   it('nothing chosen: the first subject, as before', () => {
     expect(resolveReviewSubject(exams, [null, null])).toBe('phy');
     expect(resolveReviewSubject([], ['tn_hsc_english'])).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PR #4010 blind review — points 1 to 4
+// ---------------------------------------------------------------------------
+
+describe('REVIEW-1 — manual counts net out the locked questions already on the paper', () => {
+  // U1 holds 10 (K1), U2 holds 20 (K3).
+  function bigPool(): PoolItem[] {
+    const mk = (id: string, topic: string, lv: string): PoolItem => ({
+      id,
+      topic_id: topic,
+      bloom_level: lv,
+      tags: [],
+      source_key: 'past_board_exam',
+      source_year: 2023,
+      times_served: 0,
+    });
+    return [
+      ...Array.from({ length: 10 }, (_, i) => mk(`u1-${i}`, U1, 'K1')),
+      ...Array.from({ length: 20 }, (_, i) => mk(`u2-${i}`, U2, 'K3')),
+    ];
+  }
+  const locks = ['u1-0', 'u1-1', 'u1-2', 'u1-3', 'u1-4'];
+
+  it('U1 5 / U2 10 with five U1 locks: exactly 5 from U1 and 10 from U2', () => {
+    const r = generatePaper({
+      pool: bigPool(),
+      ctx: ectx({ question_count: 15, distribution_mode: 'manual', chapter_counts: { [U1]: 5, [U2]: 10 } }),
+      lockedIds: locks,
+      previousIds: locks,
+    });
+    expect(r.report.selected).toBe(15);
+    expect(fromChapter(r.slots, 'u1-')).toBe(5);
+    expect(fromChapter(r.slots, 'u2-')).toBe(10);
+    for (const id of locks) expect(r.slots).toContain(id);
+  });
+
+  it('a short chapter is reported in the figures the Senior Learner typed (locks count as supplied)', () => {
+    // U1 asks 8; 5 are locked and only 1 fresh U1 item is left in the pool.
+    const pool = bigPool().filter((it) => !['u1-5', 'u1-6', 'u1-7', 'u1-8'].includes(it.id));
+    const r = generatePaper({
+      pool,
+      ctx: ectx({ question_count: 15, distribution_mode: 'manual', chapter_counts: { [U1]: 8, [U2]: 7 } }),
+      lockedIds: locks,
+      previousIds: locks,
+    });
+    expect(r.report.chapter_shortfalls).toEqual([{ chapter_id: U1, requested: 8, available: 6 }]);
+    expect(fromChapter(r.slots, 'u1-')).toBe(6);
+    expect(fromChapter(r.slots, 'u2-')).toBe(7);
+    expect(r.report.available).toBe(13);
+  });
+});
+
+describe('REVIEW-2 — level shortfalls are measured on the selected paper', () => {
+  it('K1 is in the pool (5) but the chapter quota let only 3 on: the shortfall is reported', () => {
+    // Proportional: U1 gets 3 of 15. All K1 sits in U1.
+    const r = run({ level_mix: { K1: 5, K3: 10 } as any });
+    expect(fromChapter(r.slots, 'u1-')).toBe(3);
+    expect(r.report.level_shortfalls).toEqual([{ level: 'K1', requested: 5, available: 3 }]);
+  });
+
+  it('a mix the paper meets reports nothing', () => {
+    const r = run({ level_mix: { K1: 3, K3: 12 } as any });
+    expect(r.report.level_shortfalls).toEqual([]);
+  });
+});
+
+describe('REVIEW-3 — the paper route refuses what the wizard refuses', () => {
+  it('a manual total that differs from the question count is refused, with both numbers', () => {
+    const params = physicsParams({ question_count: 15, distribution_mode: 'manual', chapter_counts: { [U1]: 4, [U2]: 8 } });
+    expect(manualDistributionError(params, 'tn_hsc_physics')).toMatch(/add up to 12, not 15/);
+  });
+  it('a balanced manual set is fine', () => {
+    const params = physicsParams({ question_count: 15, distribution_mode: 'manual', chapter_counts: { [U1]: 5, [U2]: 10 } });
+    expect(manualDistributionError(params, 'tn_hsc_physics')).toBeNull();
+  });
+  it('English with the board shape on is not checked (the distribution is unused there)', () => {
+    const params = englishParams({ distribution_mode: 'manual', chapter_counts: { [U1]: 4 }, enforce_board_blueprint: true });
+    expect(manualDistributionError(params, 'tn_hsc_english')).toBeNull();
+  });
+  it('"By volume" is refused for English and allowed for Physics', () => {
+    expect(selectionModeError({ selection_mode: 'volume' }, 'tn_hsc_english')).toMatch(/English has no volumes/);
+    expect(selectionModeError({ selection_mode: 'volume' }, 'tn_hsc_physics')).toBeNull();
+    expect(selectionModeError({ selection_mode: 'unit' }, 'tn_hsc_english')).toBeNull();
+  });
+});
+
+describe('REVIEW-4 — the short-paper alert names a control that is really there', () => {
+  const genReport = (available: number, requested: number) =>
+    ({
+      requested,
+      available,
+      selected: available,
+      missing: requested - available,
+      blueprint_shortfalls: [],
+      blueprint_missing: 0,
+      lock_moves: [],
+      generated_at: '2026-09-24T00:00:00Z',
+    }) as any;
+
+  it('a full paper that lost a dropped question is sent to Regenerate, not to a missing "Use available"', () => {
+    const d = physicsParams({ question_count: 2 });
+    const p = paper('tn_hsc_physics', d, [question()]);
+    p.config.last_generation = genReport(2, 2);
+    const out = html(<StepOutput paper={p} reference={reference('tn_hsc_physics')} act={act} disabled={false} />);
+    expect(out).toContain('This paper holds 1 of the 2 questions you asked for');
+    expect(out).not.toContain('Use the');
+    expect(out).toContain('Regenerate unlocked');
+  });
+
+  it('a generation that came up short points to the Use-available button with ITS number', () => {
+    expect(shortPaperAdvice(genReport(12, 15))).toContain('Use the 12 available');
+    const d = physicsParams({ question_count: 15 });
+    const p = paper('tn_hsc_physics', d, [question()]);
+    p.config.last_generation = genReport(12, 15);
+    const out = html(<StepOutput paper={p} reference={reference('tn_hsc_physics')} act={act} disabled={false} />);
+    expect(out).toContain('Use the 12 available');
   });
 });
