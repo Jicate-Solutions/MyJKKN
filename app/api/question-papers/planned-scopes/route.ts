@@ -6,7 +6,7 @@ import {
   resolveCoeInstitutionId,
   resolveCoeInstitutionById,
 } from '@/lib/utils/internal-marks/internal-marks-access';
-import { resolveQpScope } from '@/lib/utils/question-papers/qp-scope';
+import { resolveQpScope, isDepartmentOfferedScope } from '@/lib/utils/question-papers/qp-scope';
 import { istToday } from '@/types/internal-marks';
 import type { PlannedScope } from '@/types/ia-question-paper';
 
@@ -125,10 +125,16 @@ export async function GET(request: NextRequest) {
     // Restrict the Program dropdown to the user's OWN program(s) whenever they are
     // a staff member with plans (faculty, HOD, and teaching CoE staff alike). Only
     // a super_admin / admin with no staff plans sees every planned program.
+    // An HOD also gets each (program, semester) their department teaches into —
+    // allied / generic-elective / non-major papers they must approve.
     const qpScope = await resolveQpScope(supabase, user.id, scope.isSuperAdmin, scope.role);
     const visible =
       qpScope.programCodes.length > 0
-        ? scopes.filter((s) => qpScope.programCodes.includes(s.program_code))
+        ? scopes.filter(
+            (s) =>
+              qpScope.programCodes.includes(s.program_code) ||
+              isDepartmentOfferedScope(qpScope, s.program_code, s.semester_number)
+          )
         : scopes;
 
     return NextResponse.json({ data: visible });

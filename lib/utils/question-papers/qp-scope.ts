@@ -13,6 +13,13 @@
  *   auth.uid() → staff.profile_id → staff.id
  *   → staff_plan_courses.staff_id → courses.course_code   (their courses)
  *   → staff_plan_courses → staff_plans.program_id → programs.program_id (their programs)
+ *
+ * An HOD also approves papers their DEPARTMENT sets for OTHER programs — allied,
+ * generic-elective and non-major (NME/EDC) courses, e.g. Zoology's
+ * 24UZOGE1 "Generic Elective Zoology-I" taught to I B.Sc Chemistry. Those programs
+ * are not among the HOD's own teaching programs, so they are carried separately
+ * in `departmentOfferings` and open ONLY those course codes — never the other
+ * department's whole program.
  */
 
 import { istToday } from '@/types/internal-marks';
@@ -26,6 +33,53 @@ export interface QpScope {
   programCodes: string[];
   /** COE course codes (courses.course_code) the user is assigned to teach. */
   courseCodes: string[];
+  /**
+   * HOD tier only: courses the HOD's department teaches into programs OUTSIDE
+   * `programCodes` (allied / generic elective / non-major). Empty for every
+   * other tier.
+   */
+  departmentOfferings: DepartmentOffering[];
+}
+
+/** One (program, semester, course) a department teaches into someone else's program. */
+export interface DepartmentOffering {
+  programCode: string;
+  semesterNumber: number;
+  courseCode: string;
+}
+
+/** True when the HOD's department teaches into this (program, semester). */
+export function isDepartmentOfferedScope(
+  scope: Pick<QpScope, 'departmentOfferings'>,
+  programCode: string,
+  semesterNumber: number
+): boolean {
+  return (scope.departmentOfferings ?? []).some(
+    (o) => o.programCode === programCode && o.semesterNumber === semesterNumber
+  );
+}
+
+/**
+ * Course codes the HOD's department teaches into `programCode` (optionally one
+ * semester). Empty when the department teaches nothing there.
+ */
+export function departmentCourseCodesFor(
+  scope: Pick<QpScope, 'departmentOfferings'>,
+  programCode: string | undefined,
+  semesterNumber?: number | null
+): string[] {
+  if (!programCode) return [];
+  return [
+    ...new Set(
+      (scope.departmentOfferings ?? [])
+        .filter(
+          (o) =>
+            o.programCode === programCode &&
+            (semesterNumber == null || o.semesterNumber === semesterNumber)
+        )
+        .map((o) => o.courseCode)
+    ),
+  ];
 }
 
 // Leadership that ALWAYS sees everything, even if they also teach (principal &
@@ -72,7 +126,13 @@ export async function resolveQpScope(
   options: QpScopeOptions = {}
 ): Promise<QpScope> {
   if (isSuperAdmin) {
-    return { level: 'all', staffId: null, programCodes: [], courseCodes: [] };
+    return {
+      level: 'all',
+      staffId: null,
+      programCodes: [],
+      courseCodes: [],
+      departmentOfferings: [],
+    };
   }
 
   // Collect every role_key the user holds (union), not just profiles.role.
@@ -98,12 +158,18 @@ export async function resolveQpScope(
   // depends on whether the user actually TEACHES (has course codes).
   const { data: staff } = await supabase
     .from('staff')
-    .select('id')
+    .select('id, department_id')
     .eq('profile_id', userId)
     .maybeSingle();
   const staffId: string | null = staff?.id ?? null;
   if (!staffId) {
-    return { level: pickLevel(false), staffId: null, programCodes: [], courseCodes: [] };
+    return {
+      level: pickLevel(false),
+      staffId: null,
+      programCodes: [],
+      courseCodes: [],
+      departmentOfferings: [],
+    };
   }
 
   // Their course + plan ids from staff_plan_courses (keyed on staff.id).
@@ -163,5 +229,110 @@ export async function resolveQpScope(
     ...new Set((progsRes.data ?? []).map((p: any) => p.program_id).filter(Boolean)),
   ] as string[];
 
-  return { level: pickLevel(courseCodes.length > 0), staffId, programCodes, courseCodes };
+  const level = pickLevel(courseCodes.length > 0);
+  const departmentOfferings =
+    level === 'program'
+      ? await resolveDepartmentOfferings(
+          supabase,
+          userId,
+          staff?.department_id ?? null,
+          new Set(programCodes),
+          windowStart,
+          windowEnd
+        )
+      : [];
+
+  return { level, staffId, programCodes, courseCodes, departmentOfferings };
+}
+
+/**
+ * Courses the HOD's department(s) teach, in active plans, into programs the HOD
+ * does not already see in full. Department = departments.head_of_department_id
+ * pointing at the user, plus the HOD's own staff.department_id.
+ *
+ * Reads through the caller's own client, so RLS still applies: if a row is not
+ * visible to the HOD the offering is simply absent (fails closed — the same as
+ * before this existed). Never throws; any read error yields no offerings.
+ */
+async function resolveDepartmentOfferings(
+  supabase: any,
+  userId: string,
+  ownDepartmentId: string | null,
+  ownProgramCodes: Set<string>,
+  windowStart: string,
+  windowEnd: string
+): Promise<DepartmentOffering[]> {
+  try {
+    const departmentIds = new Set<string>();
+    if (ownDepartmentId) departmentIds.add(ownDepartmentId);
+    const { data: headed } = await supabase
+      .from('departments')
+      .select('id')
+      .eq('head_of_department_id', userId);
+    for (const d of (headed ?? []) as any[]) if (d?.id) departmentIds.add(d.id);
+    if (departmentIds.size === 0) return [];
+
+    const { data: deptStaff } = await supabase
+      .from('staff')
+      .select('id')
+      .in('department_id', [...departmentIds]);
+    const deptStaffIds = [...new Set((deptStaff ?? []).map((s: any) => s.id).filter(Boolean))];
+    if (deptStaffIds.length === 0) return [];
+
+    const { data: spc } = await supabase
+      .from('staff_plan_courses')
+      .select('course_id, staff_plan_id')
+      .in('staff_id', deptStaffIds);
+    const planIds = [...new Set((spc ?? []).map((r: any) => r.staff_plan_id).filter(Boolean))];
+    if (planIds.length === 0) return [];
+
+    const { data: plans } = await supabase
+      .from('staff_plans')
+      .select('id, program_id, semester_id')
+      .in('id', planIds)
+      .eq('is_active', true)
+      .lte('start_date', windowEnd)
+      .gte('end_date', windowStart);
+    const planById = new Map((plans ?? []).map((p: any) => [p.id, p]));
+    if (planById.size === 0) return [];
+
+    const activeRows = (spc ?? []).filter(
+      (r: any) => r.course_id && planById.has(r.staff_plan_id)
+    );
+    const courseIds = [...new Set(activeRows.map((r: any) => r.course_id))];
+    const programIds = [
+      ...new Set([...planById.values()].map((p: any) => p.program_id).filter(Boolean)),
+    ];
+    const semesterIds = [
+      ...new Set([...planById.values()].map((p: any) => p.semester_id).filter(Boolean)),
+    ];
+
+    const [coursesRes, progsRes, semsRes] = await Promise.all([
+      supabase.from('courses').select('id, course_code').in('id', courseIds),
+      supabase.from('programs').select('id, program_id').in('id', programIds),
+      supabase.from('semesters').select('id, semester_order').in('id', semesterIds),
+    ]);
+    const courseCodeById = new Map((coursesRes.data ?? []).map((c: any) => [c.id, c.course_code]));
+    const programCodeById = new Map((progsRes.data ?? []).map((p: any) => [p.id, p.program_id]));
+    const semesterById = new Map((semsRes.data ?? []).map((s: any) => [s.id, s.semester_order]));
+
+    const seen = new Set<string>();
+    const offerings: DepartmentOffering[] = [];
+    for (const r of activeRows as any[]) {
+      const plan: any = planById.get(r.staff_plan_id);
+      const programCode = programCodeById.get(plan?.program_id) as string | undefined;
+      const semesterOrder = semesterById.get(plan?.semester_id);
+      const courseCode = courseCodeById.get(r.course_id) as string | undefined;
+      if (!programCode || semesterOrder == null || !courseCode) continue;
+      // Programs the HOD already sees in full need no per-course opening.
+      if (ownProgramCodes.has(programCode)) continue;
+      const key = `${programCode}:${semesterOrder}:${courseCode}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      offerings.push({ programCode, semesterNumber: Number(semesterOrder), courseCode });
+    }
+    return offerings;
+  } catch {
+    return [];
+  }
 }
