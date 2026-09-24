@@ -211,6 +211,14 @@ const PUBLIC_PATHS_SET = new Set([
   //                EXACT path, not a prefix: '/events' as a prefix would
   //                unauthenticate the entire module.
   '/employers/submit', // CDC employer self-submit vacancy form — public, no login
+  '/book-interview', // The shared interview booking link (Director #3, Sep 2026) —
+  //                a candidate off the public internet books a hiring
+  //                conversation here, so it must load with no session. Lives
+  //                under app/(public)/book-interview/, but as with '/programmes'
+  //                above, the route group does not make it reachable; this
+  //                entry does. EXACT path, no '/book-interview/' prefix: the
+  //                page has no sub-paths. (Not covered by '/book/' below — that
+  //                prefix needs the slash.) Its APIs sit under /api/public/.
   '/api/admission/leads/refer', // Agent referral API
   '/api/admission/leads/inbound' // Inbound webhook API
 ]);

@@ -64,6 +64,8 @@ import {
   type JobOption,
   type LinkedInterview,
 } from './_components/interview-link-section';
+import { InterviewFlagsCard } from './_components/interview-flags-card';
+import { loadInterviewFlags } from './interview-flags-data';
 
 const BREADCRUMB_ITEMS = [
   { label: 'Home', href: '/' },
@@ -219,6 +221,9 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
         };
       })()
     : null;
+  // Round, prior outcome, earlier no-shows, missing application (#5 #6 #10 #15).
+  // null — not an interview, not visible to this viewer, or failed (logged).
+  const interviewFlags = await loadInterviewFlags(supabase, booking.id);
 
   // host display info (native bookings store the profile id only)
   const { data: host } = await supabase
@@ -518,6 +523,10 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
               />
             </CardContent>
           </Card>
+        ) : null}
+
+        {interviewFlags ? (
+          <InterviewFlagsCard {...interviewFlags} meetingEnded={isPast} />
         ) : null}
 
         <Card>
