@@ -3,12 +3,13 @@
  * Row actions for the Learner Onboarding DataTable.
  *
  * Actions:
- *   - View Detail        → /learners/profiles/[id]
+ *   - View Learner       → /learners/profiles/[id]
  *   - Complete Profile   → /learners/profiles/[id]/edit?focus=missing (full edit)
  *   - Quick Complete     → side drawer with only the missing fields
  *   - Activate Learner   → admitted + complete only; promotes to active and
  *                          provisions the login (see LearnerProfileService
  *                          .activateIfReady)
+ *   - View Progress      → Awaiting Payment rows; fee position in a dialog
  *   - View Bills         → Awaiting Payment rows; /billing/schedule/students/[id]
  *                          in a new tab; billing.schedule.view
  *   - Re-evaluate Status → Awaiting Payment rows whose rule is met but whose
@@ -22,7 +23,7 @@ import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import type { Row } from '@tanstack/react-table';
 import { DotsHorizontalIcon } from '@radix-ui/react-icons';
-import { Eye, FileEdit, Zap, UserCheck, Loader2, RefreshCw, Receipt, ExternalLink } from 'lucide-react';
+import { Eye, FileEdit, Zap, UserCheck, Loader2, RefreshCw, Receipt, ExternalLink, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -38,6 +39,7 @@ import { OnboardingService } from '@/lib/services/billing/onboarding/onboarding-
 import { getErrorMessage } from '@/lib/utils';
 import { STUCK_REASONS, type OnboardingProfileRow } from '@/types/learner-onboarding';
 import { QuickCompleteDrawer } from './quick-complete-drawer';
+import { PaymentProgressDialog } from './payment-progress-dialog';
 
 interface OnboardingRowActionsProps<TData> {
   row: Row<TData>;
@@ -50,6 +52,7 @@ export function OnboardingRowActions<TData>({ row }: OnboardingRowActionsProps<T
   const canEdit = isSuperAdmin || canAccess('learners', 'onboarding.edit' as any);
 
   const [quickOpen, setQuickOpen] = useState(false);
+  const [progressOpen, setProgressOpen] = useState(false);
   const activateMutation = useActivateLearner();
 
   const hasMissingFields = learner.missing_count > 0;
@@ -125,8 +128,16 @@ export function OnboardingRowActions<TData>({ row }: OnboardingRowActionsProps<T
 
           <DropdownMenuItem onSelect={() => router.push(`/learners/profiles/${learner.id}`)}>
             <Eye className="mr-2 h-4 w-4" />
-            View Detail
+            View Learner
           </DropdownMenuItem>
+
+          {/* Awaiting Payment only: the fee position lives here, not in the table. */}
+          {learner.payment && (
+            <DropdownMenuItem onSelect={() => setProgressOpen(true)}>
+              <BarChart3 className="mr-2 h-4 w-4 text-sky-600" />
+              View Progress
+            </DropdownMenuItem>
+          )}
 
           {/* Awaiting Payment rows only (the only tier that carries fee data).
               Opens in a new tab so the operator keeps their place in the queue. */}
@@ -218,6 +229,15 @@ export function OnboardingRowActions<TData>({ row }: OnboardingRowActionsProps<T
 
       {/* Mounted only when there is something to fill, so the drawer's
           per-missing-field effects never run against an empty field list. */}
+      {learner.payment && (
+        <PaymentProgressDialog
+          learner={learner}
+          open={progressOpen}
+          onOpenChange={setProgressOpen}
+          canViewBills={canViewBills}
+        />
+      )}
+
       {hasMissingFields && (
         <QuickCompleteDrawer
           open={quickOpen}

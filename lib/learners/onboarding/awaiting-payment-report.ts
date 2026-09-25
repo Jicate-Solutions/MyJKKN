@@ -42,6 +42,8 @@ export interface AwaitingPaymentReportRow {
   next_due_date: string | null;
   next_due_amount: number | null;
   need_to_admit: number | null;
+  /** Rupees to settle the program's fee-structure rule for Admitted; null = no rule. */
+  rule_to_admit: number | null;
   profile_filled: number;
 }
 
@@ -71,6 +73,10 @@ function reasonDetail(r: OnboardingProfileRow, thresholdPct: number | null): str
   if (!p) return '';
   const thr = thresholdPct != null ? `${thresholdPct}%` : 'threshold';
   switch (p.blocked_reason) {
+    case 'no_gate_in_program':
+      return `No Application / University fee in this program — straight to Admitted${
+        p.rule_to_admit != null ? ` · program rule needs ${inr(p.rule_to_admit)} more` : ''
+      }`;
     case 'gate_no_bills':
       return 'No Application / University fee bills raised — cannot auto-reserve';
     case 'gate_unpaid': {
@@ -84,13 +90,13 @@ function reasonDetail(r: OnboardingProfileRow, thresholdPct: number | null): str
     case 'threshold_met_stuck':
       return `${p.achieved_pct.toFixed(1)}% paid — threshold met, status not updated (re-evaluate)`;
     case 'nothing_due': {
-      const bits = ['Nothing due yet'];
+      const bits = [p.threshold_basis === 'billed_to_date' ? 'Nothing billed yet' : 'Nothing due yet'];
       if (p.pct_billed_to_date > 0) bits.push(`${p.pct_billed_to_date.toFixed(1)}% of total bill paid in advance`);
       if (p.next_due_date) bits.push(`next due ${formatReportDate(p.next_due_date)}`);
       return bits.join(' · ');
     }
     case 'below_threshold':
-      return `${p.achieved_pct.toFixed(1)}% of ${thr} due paid · ${inr(p.amount_to_threshold ?? 0)} to go`;
+      return `${p.achieved_pct.toFixed(1)}% paid of ${thr} needed · ${inr(p.amount_to_threshold ?? 0)} to go`;
     default:
       return '';
   }
@@ -125,6 +131,7 @@ export function toReportRows(rows: OnboardingProfileRow[]): AwaitingPaymentRepor
       next_due_date: p?.next_due_date ?? null,
       next_due_amount: p?.next_due_amount ?? null,
       need_to_admit: p?.amount_to_threshold ?? null,
+      rule_to_admit: p?.rule_to_admit ?? null,
       profile_filled: r.filled_count
     };
   });

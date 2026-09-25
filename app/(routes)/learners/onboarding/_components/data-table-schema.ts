@@ -33,6 +33,7 @@ export const onboardingStatusSchema = z
 /** Awaiting Payment pipeline blocker; anything unknown means "all reasons". */
 export const onboardingBlockedReasonSchema = z
   .enum([
+    'no_gate_in_program',
     'gate_no_bills',
     'gate_unpaid',
     'gate_met_stuck',

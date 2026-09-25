@@ -45618,8 +45618,8 @@ GRANT EXECUTE ON FUNCTION public.fn_hostel_allocation_audit(text, uuid, uuid, uu
 -- The learner-visibility predicate is re-applied by hand, copied from
 -- learners_profiles_select_policy, so DEFINER never widens who can see a learner.
 -- Aggregates only; never bill rows.
--- Current body: supabase/migrations/20260925130000_onboarding_progress_gate_stage.sql
--- (next-instalment columns 2026-08-22; gate stage + blocked_reason 2026-09-25)
+-- Current body: supabase/migrations/20260925160000_onboarding_progress_program_rules.sql
+-- (next instalment 2026-08-22; gate stage + blocked_reason, program rules 2026-09-25)
 DROP FUNCTION IF EXISTS public.fn_onboarding_payment_progress(uuid[]);
 
 CREATE FUNCTION public.fn_onboarding_payment_progress(p_learner_ids uuid[])
@@ -45637,7 +45637,11 @@ RETURNS TABLE(
   uni_bills integer, uni_billed numeric, uni_paid numeric,
   gate_bills integer, gate_settled integer,
   pct_billed_to_date numeric,
-  blocked_reason text
+  blocked_reason text,
+  -- ADDED 2026-09-25 (program rules)
+  rule_lines jsonb,
+  rule_to_admit numeric,
+  gate_in_program boolean
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -45747,6 +45751,76 @@ BEGIN
       AND b.status NOT IN ('cancelled', 'superseded')
     GROUP BY b.student_id
   ),
+  -- Program rules, exactly as fn_learner_status_apply_item_rules sees them.
+  rule_tranche AS (
+    SELECT
+      b.student_id,
+      i.promotes_to_status_code AS target,
+      bc.category_name::text AS category,
+      i.label,
+      i.sequence_no AS seq,
+      (COUNT(*) OVER (PARTITION BY i.bill_id))::int AS n_of,
+      i.amount,
+      i.due_date,
+      LEAST(
+        GREATEST(
+          GREATEST(0, b.final_amount - COALESCE(b.balance_amount, b.final_amount))
+          - COALESCE(SUM(i.amount) OVER (
+              PARTITION BY i.bill_id ORDER BY i.due_date, i.sequence_no
+              ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0),
+          0),
+        i.amount) AS paid
+    FROM public.billing_bill_instalments i
+    JOIN public.billing_student_bills b ON b.id = i.bill_id
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id
+    WHERE b.student_id IN (SELECT id FROM visible)
+      AND b.status::text NOT IN ('cancelled', 'superseded')
+  ),
+  rule_unscheduled AS (
+    SELECT
+      b.student_id,
+      fsi.promotes_to_status_code AS target,
+      bc.category_name::text AS category,
+      NULL::text AS label,
+      1 AS seq,
+      1 AS n_of,
+      b.final_amount AS amount,
+      b.due_date,
+      GREATEST(0, b.final_amount - COALESCE(b.balance_amount, b.final_amount)) AS paid,
+      (COALESCE(b.status::text = 'paid', false)
+       OR COALESCE(b.balance_amount, b.final_amount) <= 0) AS settled
+    FROM public.billing_student_bills b
+    JOIN public.admission_fee_structure_items fsi ON fsi.id = b.fee_structure_item_id
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id
+    WHERE b.student_id IN (SELECT id FROM visible)
+      AND b.status::text NOT IN ('cancelled', 'superseded')
+      AND fsi.promotes_to_status_code IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM public.billing_bill_instalments i WHERE i.bill_id = b.id)
+  ),
+  rule_rows AS (
+    SELECT student_id, target, category, label, seq, n_of, amount, due_date, paid,
+           (paid >= amount) AS settled
+    FROM rule_tranche WHERE target IS NOT NULL
+    UNION ALL
+    SELECT student_id, target, category, label, seq, n_of, amount, due_date, paid, settled
+    FROM rule_unscheduled
+  ),
+  rules AS (
+    SELECT
+      r.student_id,
+      jsonb_agg(jsonb_build_object(
+        'target', r.target, 'category', r.category, 'label', r.label,
+        'seq', r.seq, 'of', r.n_of, 'amount', r.amount, 'paid', r.paid,
+        'settled', r.settled, 'due_date', r.due_date)
+        ORDER BY r.target, r.due_date, r.category, r.seq) AS lines,
+      bool_or(r.target = 'reserved') AS has_reserved,
+      COALESCE(bool_and(r.settled) FILTER (WHERE r.target = 'reserved'), false) AS reserved_met,
+      bool_or(r.target = 'admitted') AS has_admitted,
+      COALESCE(bool_and(r.settled) FILTER (WHERE r.target = 'admitted'), false) AS admitted_met,
+      SUM(GREATEST(0, r.amount - r.paid)) FILTER (WHERE r.target = 'admitted') AS to_admit
+    FROM rule_rows r
+    GROUP BY r.student_id
+  ),
   progress AS (
     SELECT
       vis.id AS lid,
@@ -45778,9 +45852,16 @@ BEGIN
       COALESCE(g.n_app, 0) + COALESCE(g.n_uni, 0) AS g_bills,
       COALESCE(g.n_settled, 0)                    AS g_settled,
       (v_threshold IS NOT NULL AND COALESCE(p.b_billed, 0) > 0
-        AND COALESCE(p.pct, 0) >= v_threshold)    AS meets
+        AND COALESCE(p.pct, 0) >= v_threshold)    AS meets,
+      ru.lines                                    AS r_lines,
+      COALESCE(ru.has_reserved, false)            AS r_has_reserved,
+      COALESCE(ru.reserved_met, false)            AS r_reserved_met,
+      COALESCE(ru.has_admitted, false)            AS r_has_admitted,
+      COALESCE(ru.admitted_met, false)            AS r_admitted_met,
+      ru.to_admit                                 AS r_to_admit
     FROM progress p
     LEFT JOIN gate g ON g.student_id = p.lid
+    LEFT JOIN rules ru ON ru.student_id = p.lid
   )
   SELECT
     j.lid,
@@ -45812,14 +45893,22 @@ BEGIN
     j.g_settled,
     COALESCE(j.pct_billed, 0),
     CASE
-      WHEN j.status NOT IN ('account', 'reserved') THEN 'none'
-      WHEN j.meets                                 THEN 'threshold_met_stuck'
-      WHEN j.status = 'account' AND j.g_bills = 0  THEN 'gate_no_bills'
-      WHEN j.status = 'account' AND j.g_settled < j.g_bills THEN 'gate_unpaid'
-      WHEN j.status = 'account'                    THEN 'gate_met_stuck'
-      WHEN COALESCE(j.b_billed, 0) <= 0            THEN 'nothing_due'
-      ELSE                                              'below_threshold'
-    END
+      WHEN j.status NOT IN ('account', 'reserved')            THEN 'none'
+      -- Either admit path satisfied: the pooled floor or the program rule.
+      WHEN j.meets OR (j.r_has_admitted AND j.r_admitted_met) THEN 'threshold_met_stuck'
+      WHEN j.status = 'account' AND j.r_has_reserved AND j.r_reserved_met THEN 'gate_met_stuck'
+      -- No App / Univ fee billed and no rule naming 'reserved': this program
+      -- goes account -> admitted directly.
+      WHEN j.status = 'account' AND j.g_bills = 0 AND NOT j.r_has_reserved THEN 'no_gate_in_program'
+      WHEN j.status = 'account' AND j.g_bills = 0             THEN 'gate_no_bills'
+      WHEN j.status = 'account' AND j.g_settled < j.g_bills   THEN 'gate_unpaid'
+      WHEN j.status = 'account'                               THEN 'gate_met_stuck'
+      WHEN COALESCE(j.b_billed, 0) <= 0 AND NOT j.r_has_admitted THEN 'nothing_due'
+      ELSE                                                         'below_threshold'
+    END,
+    COALESCE(j.r_lines, '[]'::jsonb),
+    j.r_to_admit,
+    (j.g_bills > 0 OR j.r_has_reserved)
   FROM judged j
   LEFT JOIN gate     g  ON g.student_id  = j.lid
   LEFT JOIN sched    sc ON sc.student_id = j.lid
@@ -45828,7 +45917,7 @@ END;
 $function$;
 
 COMMENT ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) IS
-  'Fee position for the Awaiting Payment tier (account + reserved). Percentages come from vw_learner_payment_progress so the number on screen and the number in the promotion gate cannot drift. Returns the next unsettled instalment (2026-08-22) and, since 2026-09-25, the Application/University fee gate per fee plus blocked_reason: the first pipeline stage (account->reserved, then reserved->admitted) that is holding the learner back.';
+  'Fee position for the Awaiting Payment tier (account + reserved). Percentages come from vw_learner_payment_progress so the number on screen and the number in the promotion gate cannot drift. Returns the next unsettled instalment (2026-08-22) and, since 2026-09-25, the Application/University fee gate per fee plus blocked_reason: the first pipeline stage (account->reserved, then reserved->admitted) that is holding the learner back. Since 20260925160000 also the program fee-structure rules (rule_lines, rule_to_admit, gate_in_program), evaluated exactly as fn_learner_status_apply_item_rules does.';
 
 REVOKE ALL ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_onboarding_payment_progress(uuid[])

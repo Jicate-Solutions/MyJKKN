@@ -1214,6 +1214,15 @@ export function DataTable<TData extends ExportableData, TValue>({
       >
         <Table
           className={tableConfig.enableColumnResizing ? 'resizable-table' : ''}
+          style={
+            tableConfig.fixedColumnWidths
+              ? {
+                  tableLayout: 'fixed',
+                  width: table.getTotalSize(),
+                  minWidth: '100%'
+                }
+              : undefined
+          }
         >
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (

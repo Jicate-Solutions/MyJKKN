@@ -303,16 +303,19 @@ export async function getOnboardingLearners(
         });
     }
 
-    // 'all' keeps its original meaning — the three INCOMPLETE tiers. The two
-    // terminal tiers are reachable only by selecting them, so the default view
-    // stays the triage queue it has always been.
-    //
     // 2026-09-25: Awaiting Payment selects by STATUS, not by row tier — every
     // account + reserved learner is blocked on fees whether or not their four
     // fields are filled, so it deliberately overlaps the incomplete tiers.
+    //
+    // 2026-09-25: tabs cut to four. 'all' = EVERY learner in the workspace;
+    // 'critical' = every learner with ANY required field missing (the old
+    // critical + needs_work + almost buckets together). needs_work / almost
+    // are no longer tabs; an old bookmark to them lands on the same set.
     let tierFiltered =
       tier === 'all'
-        ? enriched.filter((r) => (INCOMPLETE_TIERS as readonly string[]).includes(r.tier))
+        ? enriched
+        : tier === 'critical' || tier === 'needs_work' || tier === 'almost'
+          ? enriched.filter((r) => (INCOMPLETE_TIERS as readonly string[]).includes(r.tier))
         : tier === 'awaiting_payment'
           ? enriched.filter((r) =>
               (FEE_BLOCKED_STATUSES as readonly string[]).includes(r.lifecycle_status ?? '')

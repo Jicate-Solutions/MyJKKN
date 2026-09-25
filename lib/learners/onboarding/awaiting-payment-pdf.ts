@@ -136,7 +136,7 @@ export function buildAwaitingPaymentPdf(report: AwaitingPaymentReport): Blob {
       head: [[
         '#', 'Learner / Roll No', 'Institution / Program', 'Status',
         'App Fee\npaid / billed', 'Univ Fee\npaid / billed', 'Total\npaid / billed',
-        '% of\nbilled', '% of\ndue', 'Need to\nAdmit', 'Next\nInstalment', 'Reason detail'
+        '% of\nbilled', '% for\nrule', 'Need to\nAdmit', 'Next\nInstalment', 'Reason detail'
       ]],
       body: detailRows(rows),
       theme: 'grid',

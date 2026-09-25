@@ -173,6 +173,26 @@ export interface OnboardingPaymentProgress {
   /** Share of everything billed that is paid — explains "paid, but nothing due yet". */
   pct_billed_to_date: number;
   blocked_reason: BlockedReason;
+  // ── Program fee-structure rules (2026-09-25) ─────────────────────────────
+  /** Each rule row from the learner's fee structure, as the engine evaluates it. */
+  rule_lines: ProgramRuleLine[];
+  /** Rupees still needed to settle every rule row naming 'admitted'; null = none. */
+  rule_to_admit: number | null;
+  /** False when the program bills no Application / University fee (goes straight to admitted). */
+  gate_in_program: boolean;
+}
+
+/** One promotion rule row from the learner's program fee structure. */
+export interface ProgramRuleLine {
+  target: string;
+  category: string;
+  label: string | null;
+  seq: number;
+  of: number;
+  amount: number;
+  paid: number;
+  settled: boolean;
+  due_date: string | null;
 }
 
 /**
@@ -180,6 +200,7 @@ export interface OnboardingPaymentProgress {
  * fn_onboarding_payment_progress next to the engine's own predicates.
  */
 export type BlockedReason =
+  | 'no_gate_in_program'
   | 'gate_no_bills'
   | 'gate_unpaid'
   | 'gate_met_stuck'
@@ -190,6 +211,7 @@ export type BlockedReason =
 
 /** In pipeline order: stage ① reasons first, then stage ②, then the "stuck" ones. */
 export const BLOCKED_REASONS = [
+  'no_gate_in_program',
   'gate_no_bills',
   'gate_unpaid',
   'gate_met_stuck',
@@ -199,10 +221,11 @@ export const BLOCKED_REASONS = [
 ] as const satisfies readonly BlockedReason[];
 
 export const BLOCKED_REASON_LABELS: Record<BlockedReason, string> = {
+  no_gate_in_program: 'No App / Univ fee in program',
   gate_no_bills: 'No App / Univ fee bills',
   gate_unpaid: 'App / Univ fee unpaid',
   gate_met_stuck: 'Gate met — status not updated',
-  nothing_due: 'Nothing due yet',
+  nothing_due: 'Nothing due / billed yet',
   below_threshold: 'Below threshold',
   threshold_met_stuck: 'Threshold met — status not updated',
   none: '—'
@@ -346,6 +369,7 @@ export function summarisePaymentProgress(
     account: 0,
     reserved: 0,
     reasons: {
+      no_gate_in_program: 0,
       gate_no_bills: 0,
       gate_unpaid: 0,
       gate_met_stuck: 0,

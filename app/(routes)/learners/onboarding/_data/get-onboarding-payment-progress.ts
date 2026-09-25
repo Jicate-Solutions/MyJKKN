@@ -95,7 +95,22 @@ export async function getOnboardingPaymentProgress(
         gate_bills: Number(row.gate_bills ?? 0),
         gate_settled: Number(row.gate_settled ?? 0),
         pct_billed_to_date: Number(row.pct_billed_to_date ?? 0),
-        blocked_reason: isBlockedReason(row.blocked_reason) ? row.blocked_reason : 'none'
+        blocked_reason: isBlockedReason(row.blocked_reason) ? row.blocked_reason : 'none',
+        rule_lines: Array.isArray(row.rule_lines)
+          ? (row.rule_lines as Record<string, unknown>[]).map((l) => ({
+              target: String(l.target ?? ''),
+              category: String(l.category ?? ''),
+              label: (l.label as string) ?? null,
+              seq: Number(l.seq ?? 1),
+              of: Number(l.of ?? 1),
+              amount: Number(l.amount ?? 0),
+              paid: Number(l.paid ?? 0),
+              settled: l.settled === true,
+              due_date: (l.due_date as string) ?? null
+            }))
+          : [],
+        rule_to_admit: row.rule_to_admit == null ? null : Number(row.rule_to_admit),
+        gate_in_program: row.gate_in_program === true
       });
     }
 
