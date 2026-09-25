@@ -10,7 +10,8 @@
 // amount spent/received, which the original board never exposed). Mobile-first: summary tiles
 // stack 1→3, line rows keep amounts + actions reachable at 375px with no horizontal scroll.
 
-import { useState } from 'react';
+import { useRef, useState, type ChangeEvent } from 'react';
+import toast from 'react-hot-toast';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -47,7 +48,13 @@ import {
   ChevronDown,
   ChevronRight,
   ListPlus,
+  Paperclip,
+  X,
 } from 'lucide-react';
+import {
+  BUDGET_ATTACHMENT_ACCEPT,
+  budgetAttachmentError,
+} from '@/lib/utils/events/budget-attachment';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   useEventBudgetItems,
@@ -66,6 +73,8 @@ import {
   useSubmitEventBudget,
   useApproveEventBudget,
   useReopenEventBudget,
+  useUploadBudgetAttachment,
+  useRemoveBudgetAttachment,
 } from '@/hooks/events/shared/use-event-budget';
 import type {
   MarathonBudgetItem,
@@ -655,13 +664,101 @@ function ItemDialog({
 /** What a row needs to draw itself and act. Passed in, so these components are
  *  defined once rather than rebuilt on every render of the board. */
 interface RowActions {
+  eventId: string;
   canEdit: boolean;
+  /**
+   * May attach a bill. Wider than canEdit: after sign-off the plan is frozen
+   * but bills are reporting, which the lock trigger still accepts until the
+   * books are closed.
+   */
+  canAttach: boolean;
   deleting: boolean;
   isOpen: (id: string) => boolean;
   onToggle: (id: string) => void;
   onEdit: (item: MarathonBudgetItem) => void;
   onAddChild: (item: MarathonBudgetItem) => void;
   onDelete: (id: string) => void;
+}
+
+/**
+ * A budget line's one attachment — bill, quotation or receipt — stored on
+ * Google Drive (BUG-004627). Shows a link when attached; managers can attach,
+ * replace or remove.
+ */
+function BudgetAttachment({ item, a }: { item: MarathonBudgetItem; a: RowActions }) {
+  const upload = useUploadBudgetAttachment(a.eventId);
+  const remove = useRemoveBudgetAttachment(a.eventId);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const busy = upload.isPending || remove.isPending;
+  const safeHref = item.receipt_url?.startsWith('https://') ? item.receipt_url : null;
+
+  const onPick = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow picking the same file again
+    if (!file) return;
+    const problem = budgetAttachmentError(file);
+    if (problem) {
+      toast.error(problem);
+      return;
+    }
+    upload.mutate({ itemId: item.id, file });
+  };
+
+  if (!safeHref && !a.canAttach) return null;
+
+  return (
+    <div className="mt-0.5 flex min-w-0 items-center gap-1 text-[11px]">
+      {safeHref ? (
+        <a
+          href={safeHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex min-w-0 items-center gap-1 text-blue-700 hover:underline dark:text-blue-400"
+          title="Open attachment"
+        >
+          <Paperclip className="h-3 w-3 shrink-0" />
+          <span className="truncate">{item.receipt_name || 'Attachment'}</span>
+        </a>
+      ) : null}
+      {a.canAttach && (
+        <>
+          <input
+            ref={inputRef}
+            type="file"
+            className="hidden"
+            accept={BUDGET_ATTACHMENT_ACCEPT}
+            onChange={onPick}
+          />
+          <button
+            type="button"
+            className="flex shrink-0 items-center gap-1 text-muted-foreground hover:text-foreground disabled:opacity-50"
+            disabled={busy}
+            onClick={() => inputRef.current?.click()}
+            aria-label={`${safeHref ? 'Replace' : 'Attach'} a file for ${item.category}`}
+          >
+            {upload.isPending ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              !safeHref && <Paperclip className="h-3 w-3" />
+            )}
+            {safeHref ? 'Replace' : 'Attach bill'}
+          </button>
+          {safeHref && (
+            <button
+              type="button"
+              className="shrink-0 text-muted-foreground hover:text-destructive disabled:opacity-50"
+              disabled={busy}
+              onClick={() => remove.mutate(item.id)}
+              aria-label={`Remove the attachment of ${item.category}`}
+              title="Remove attachment"
+            >
+              {remove.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />}
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
 function BudgetRow({
@@ -711,6 +808,7 @@ function BudgetRow({
         {item.vendor && (
           <div className="truncate text-[11px] text-muted-foreground">{item.vendor}</div>
         )}
+        <BudgetAttachment item={item} a={a} />
       </div>
       <div className="shrink-0 text-right">
         <div className="font-medium tabular-nums">{rupee(item.estimated_amount)}</div>
@@ -932,7 +1030,10 @@ export function BudgetBoard({ eventId, canManage = true }: { eventId: string; ca
     });
 
   const rowActions: RowActions = {
+    eventId,
     canEdit,
+    // Closed books accept nothing; otherwise the server + lock trigger decide.
+    canAttach: canManage && status !== 'locked',
     deleting: del.isPending,
     isOpen: (id) => !collapsed.has(id),
     onToggle: toggle,
