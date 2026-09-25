@@ -20,32 +20,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { EventRegistrationFormField, FormFieldCondition } from '@/types/tournament';
+import type { EventRegistrationFormField } from '@/types/tournament';
 
-/** Whether `field` should be shown given the current answers to ALL fields on the form. */
-export function isFieldVisible(
-  field: EventRegistrationFormField,
-  allValues: Record<string, unknown>
-): boolean {
-  const condition = field.condition as FormFieldCondition | null;
-  if (!condition) return true;
-  const dependentValue = allValues[condition.field];
-  const asString = dependentValue == null ? '' : String(dependentValue);
-  switch (condition.op) {
-    case 'eq':
-      return asString === condition.value;
-    case 'neq':
-      return asString !== condition.value;
-    case 'contains':
-      return asString.includes(condition.value);
-    case 'not_empty':
-      return asString.trim() !== '';
-    case 'empty':
-      return asString.trim() === '';
-    default:
-      return true;
-  }
-}
+// The rule evaluator lives in a pure module so the public-register API can
+// apply the same show-when logic on the server. Re-exported here so existing
+// client imports keep working.
+export {
+  conditionHolds,
+  isFieldVisible,
+  isSectionVisible,
+} from '@/lib/services/events/registration/form-visibility';
 
 /**
  * Where an upload should go. Absent on the BUILDER'S PREVIEW, which renders the

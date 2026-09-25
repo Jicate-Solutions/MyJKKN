@@ -87,10 +87,11 @@ const ADDRESS_MIN_FONT = 16;
 // larger and the small print (valid-until, wrapped address, college contact
 // lines) one step smaller. Authored element sizes no longer override these —
 // fitText still shrinks a value that would not fit its box.
-const VALUE_FONT = 26;
+const VALUE_FONT = 30; // 2026-09-24: raised from 26 — values read small on the printed card
 const PREFERRED_VALUE_FONT: Record<string, number> = {
-  name_line_1: 34,
+  name_line_1: 38,
   roll_number: VALUE_FONT,
+  father_name: VALUE_FONT,
   course: VALUE_FONT,
   department: VALUE_FONT,
   study_period: VALUE_FONT,
@@ -99,7 +100,7 @@ const PREFERRED_VALUE_FONT: Record<string, number> = {
   blood_group: VALUE_FONT,
   date_of_birth: VALUE_FONT,
   guardian: VALUE_FONT,
-  address: VALUE_FONT,
+  address: 26, // wraps to 4–5 lines; one step under the values so it stays in its band
   contact_phone: VALUE_FONT,
   institution_email: VALUE_FONT,
   institution_phone: VALUE_FONT,
@@ -110,6 +111,7 @@ const PREFERRED_VALUE_FONT: Record<string, number> = {
 const BOLD_VALUE_FIELDS = new Set([
   'name_line_1',
   'roll_number',
+  'father_name',
   'course',
   'department',
   'study_period',
@@ -148,6 +150,9 @@ function elementBox(
 ): { width: number; height: number } {
   const width = element.width ?? Math.max(40, canvasWidth - element.x - 24);
   if (element.height !== undefined) return { width, height: element.height };
+  // The name is a single headline: the FATHER row sits close under it by
+  // design, so measuring to the next element would shrink it. Width only.
+  if (element.field === 'name_line_1') return { width, height: 200 };
   const left = element.x;
   const right = element.x + width;
   let nextY = canvasHeight - 12;
@@ -173,6 +178,25 @@ function artworkObjectFit(dataUrl: string, boxW: number, boxH: number): 'fill' |
   return p && p.left === 0 && p.top === 0 && p.width === boxW && p.height === boxH ? 'fill' : 'contain';
 }
 
+
+// ── Print density ────────────────────────────────────────────────────────────
+// Card printers lay black with the K resin panel ONLY for pure #000000; any
+// other dark colour (our #111827 / #374151 greys) is dithered from Y+M+C and
+// prints visibly lighter than on screen. Every dark text colour is therefore
+// snapped to pure black for the card; brand colours (green, red) stay as is.
+function printColor(color: string | undefined, fallback = '#000000'): string {
+  const c = (color ?? fallback).trim();
+  const m = /^#([0-9a-f]{6})$/i.exec(c);
+  if (!m) return c;
+  const r = parseInt(m[1].slice(0, 2), 16);
+  const g = parseInt(m[1].slice(2, 4), 16);
+  const b = parseInt(m[1].slice(4, 6), 16);
+  // Dark and low-saturation → black. Keeps #0b6d41 green and #c8102e red.
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  return max < 0x60 && max - min < 0x30 ? '#000000' : c;
+}
+
 /** Style + text for a template-placed value element, sized to its box. */
 function fitElementText(
   element: BoxLike & { font_size?: number; font_weight?: number },
@@ -182,14 +206,17 @@ function fitElementText(
   canvasHeight: number
 ): { text: string; fontSize: number; fontWeight: number; width: number; lines: number } {
   const box = elementBox(element, all, canvasWidth, canvasHeight);
-  const preferred = PREFERRED_VALUE_FONT[element.field] ?? VALUE_FONT;
+  // Uniform floor per field; a template may author a LARGER size (e.g. a 40px
+  // name) but never a smaller one — small authored sizes made cards unreadable.
+  const preferred = Math.max(PREFERRED_VALUE_FONT[element.field] ?? VALUE_FONT, element.font_size ?? 0);
   // ONE weight for every value: authored 600 / 700 / 800 mixes read as different
   // fonts on the printed card. The name keeps its heavier weight.
-  const fontWeight = element.field === 'name_line_1' ? 800 : BOLD_VALUE_FIELDS.has(element.field) ? 700 : 400;
+  // Authored weight wins (a template can set values regular, as the Matric
+  // sample does); otherwise the uniform rule: name 800, key values 700.
+  const fontWeight =
+    element.font_weight ?? (element.field === 'name_line_1' ? 800 : BOLD_VALUE_FIELDS.has(element.field) ? 700 : 400);
   const isAddress = element.field === 'address' || element.field === 'institution_address';
-  // "NAGAR,KUMARAPALAYAM,NAMAKKAL," has no break opportunity and ran off the
-  // card: a space after every comma lets the line wrap where it should.
-  if (isAddress) value = value.replace(/,(?=[^ ])/g, ', ');
+  if (isAddress) value = prepareAddressForCard(value);
   const fit = fitText(value, {
     maxWidth: box.width,
     maxHeight: box.height,
@@ -201,6 +228,28 @@ function fitElementText(
     preserveTail: isAddress
   });
   return { text: fit.text, fontSize: fit.fontSize, fontWeight, width: box.width, lines: fit.lines };
+}
+
+/**
+ * Line-break hygiene for a postal address before fitText sees it. Pure; the
+ * same string goes through both the template-element path and the default
+ * back address row, so both print the same breaks.
+ *
+ *  1. "NAGAR,KUMARAPALAYAM,NAMAKKAL," has no break opportunity and ran off
+ *     the card: a space after every comma lets the line wrap where it should.
+ *  2. A parenthesised qualifier — "(DT)", "(TK)", "(PO)", "(EAST)" — belongs to
+ *     the word before it. Left as a plain space it became the first token of
+ *     the next line ("… SALEM, SALEM" / "(DT), TAMIL NADU …"), which reads as
+ *     a stray. Glue it with U+00A0 so the pair wraps down together.
+ *  3. "TAMIL NADU - 638005" must not split across lines: glue the final
+ *     "STATE - PIN" segment with non-breaking spaces so the whole tail wraps
+ *     down together (UAX#14 never breaks beside U+00A0).
+ */
+export function prepareAddressForCard(raw: string): string {
+  let value = raw.replace(/,(?=[^ ])/g, ', ');
+  value = value.replace(/ +(\([A-Za-z.]{1,6}\))/g, (_m, paren) => ` ${paren}`);
+  value = value.replace(/(, |^)([^,]*\S\s-\s\d{6})$/, (_m, sep, tail) => sep + tail.replace(/ /g, ' '));
+  return value;
 }
 
 /** Template-opt-in portrait orientations; absent/anything-else = landscape. */
@@ -800,14 +849,14 @@ function courseLine(person: CardPersonData): string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** The MyJKKN ID the QR encodes, centred right under it (bare value); nothing when only a UUID was available. */
-function qrIdLine(person: CardPersonData, width: number): ReactElement | null {
+function qrIdLine(person: CardPersonData, width: number, maxFont = 16): ReactElement | null {
   if (!person.qrId) return null;
   const text = person.qrId;
   const fit = fitText(text, {
     maxWidth: width,
-    // Same value size as every other field; shrinks only to stay under the QR.
-    maxFontSize: VALUE_FONT,
-    minFontSize: 12,
+    // Small print under the QR, never wider than the code itself.
+    maxFontSize: maxFont,
+    minFontSize: 8,
     maxLines: 1,
     lineHeight: VALUE_LINE_HEIGHT,
     bold: true
@@ -822,8 +871,8 @@ function qrIdLine(person: CardPersonData, width: number): ReactElement | null {
         fontSize: fit.fontSize,
         lineHeight: 1.05,
         fontWeight: 700,
-        letterSpacing: 1,
-        color: '#111827'
+        letterSpacing: 0.5,
+        color: '#000000'
       }}
     >
       {fit.text}
@@ -893,7 +942,7 @@ function defaultDesign(input: CardRenderInput, headerOverrides?: FrontLayout['he
         width: CARD_WIDTH,
         height: CARD_HEIGHT,
         backgroundColor: backgroundDataUrl
-          ? 'transparent'
+          ? '#ffffff' // never transparent — the card-printer driver washes alpha out
           : (input.layout?.background_color ?? '#ffffff'),
         fontFamily: 'Poppins, sans-serif'
       }}
@@ -979,7 +1028,7 @@ function defaultDesign(input: CardRenderInput, headerOverrides?: FrontLayout['he
                     width: colWidth,
                     fontSize: nameFit.fontSize,
                     fontWeight: 800,
-                    color: '#111827',
+                    color: '#000000',
                     lineHeight: VALUE_LINE_HEIGHT
                   }}
                 >
@@ -994,7 +1043,7 @@ function defaultDesign(input: CardRenderInput, headerOverrides?: FrontLayout['he
                       fontSize: idFit.fontSize,
                       fontWeight: 700,
                       lineHeight: VALUE_LINE_HEIGHT,
-                      color: '#1f2937',
+                      color: '#000000',
                       marginTop: 14
                     }}
                   >
@@ -1010,7 +1059,7 @@ function defaultDesign(input: CardRenderInput, headerOverrides?: FrontLayout['he
                       fontSize: courseFit.fontSize,
                       fontWeight: 700,
                       lineHeight: VALUE_LINE_HEIGHT,
-                      color: '#374151',
+                      color: '#000000',
                       marginTop: 10
                     }}
                   >
@@ -1128,6 +1177,8 @@ function elementValue(
       );
     case 'staff_id':
       return resolveMappedValue('staff_id', mappings, person.valueBag, person.staffId ?? '');
+    case 'father_name':
+      return person.kind === 'learner' ? (person.guardianName ?? '') : '';
     case 'principal_name':
       return [person.principalName, person.principalDesignation].filter(Boolean).join(', ');
     case 'institution_email':
@@ -1151,6 +1202,58 @@ function elementValue(
  * rotated ancestor — see rotationSafeCoverImg). Landscape defaults stay
  * byte-identical.
  */
+/**
+ * Learner front rows (2026-09-23, every institution): a FATHER row goes ABOVE
+ * ROLL NO / ADM. NO., and VALID UPTO is dropped. Works on any authored layout:
+ * the roll-number row (value + the heading on its row) is the geometry model —
+ * the father row is a clone one row-pitch above it and the roll / course / year
+ * rows move down so the group stays under the name. Templates without a
+ * roll_number element are returned untouched.
+ */
+export function learnerFrontRows(elements: readonly FrontLayoutElement[]): FrontLayoutElement[] {
+  const isValidUpto = (el: FrontLayoutElement) =>
+    el.field === 'valid_until' ||
+    (el.field === 'static_text' && /VALID\s*(UP\s*TO|UNTIL|THRU|THROUGH)/i.test(el.text ?? ''));
+  const kept = elements
+    .filter((el) => !isValidUpto(el))
+    // Headings keep pace with the larger values: never below 24px.
+    .map((el) =>
+      el.field === 'static_text' && (el.font_size ?? 26) < 24 ? { ...el, font_size: 24 } : el
+    );
+  if (kept.some((el) => el.field === 'father_name')) return kept; // authored explicitly
+  const roll = kept.find((el) => el.field === 'roll_number');
+  if (!roll) return kept;
+  const headingOf = (value: FrontLayoutElement) =>
+    kept.find(
+      (el) => el.field === 'static_text' && Math.abs(el.y - value.y) <= 12 && el.x < value.x
+    );
+  const rollHeading = headingOf(roll);
+  const course = kept.find((el) => el.field === 'course');
+  const pitch = course && course.y > roll.y ? course.y - roll.y : 48;
+  // Shift the ROLL / COURSE / YEAR rows (values + headings) down to make room.
+  const shift = Math.round(pitch * 0.6);
+  const rowFields = new Set(['roll_number', 'course', 'study_period']);
+  const moving = new Set<FrontLayoutElement>();
+  for (const el of kept) {
+    if (rowFields.has(el.field)) {
+      moving.add(el);
+      const h = headingOf(el);
+      if (h) moving.add(h);
+    }
+  }
+  const out = kept.map((el) => (moving.has(el) ? { ...el, y: el.y + shift } : el));
+  const father: FrontLayoutElement = { ...roll, field: 'father_name', y: roll.y + shift - pitch };
+  const fatherHeading: FrontLayoutElement | null = rollHeading
+    ? { ...rollHeading, text: 'FATHER :', y: rollHeading.y + shift - pitch }
+    : null;
+  // Insert ahead of the roll row (its heading first, when it has one).
+  const rollIdx = out.findIndex((e) => e.field === 'roll_number');
+  const headIdx = rollHeading ? out.findIndex((e) => e === out.find((m) => m.text === rollHeading.text && m.field === 'static_text' && Math.abs(m.y - (rollHeading.y + shift)) <= 1)) : -1;
+  const at = headIdx >= 0 ? Math.min(headIdx, rollIdx) : rollIdx;
+  const insert = fatherHeading ? [fatherHeading, father] : [father];
+  return [...out.slice(0, Math.max(0, at)), ...insert, ...out.slice(Math.max(0, at))];
+}
+
 function customDesign(
   input: CardRenderInput,
   layout: FrontLayout,
@@ -1198,11 +1301,15 @@ function customDesign(
     );
   }
 
-  (layout.elements ?? []).forEach((element, index) => {
+  const elements = person.kind === 'learner' ? learnerFrontRows(layout.elements ?? []) : (layout.elements ?? []);
+  elements.forEach((element, index) => {
     const key = `el-${index}`;
     if (element.field === 'photo') {
       const w = element.width ?? 300;
       const h = element.height ?? 380;
+      // align:'center' centres the photo on the card like the name, whatever
+      // x the template authored (templates were often off by a few px).
+      const px = element.align === 'center' ? Math.round((width - w) / 2) : element.x;
       if (rotationSafeImages && photoDataUrl) {
         // No overflow:'hidden' and no objectFit under the rotated wrapper —
         // both mispaint (see rotationSafeCoverImg). The bitmap is cropped and
@@ -1214,7 +1321,7 @@ function customDesign(
             style={{
               display: 'flex',
               position: 'absolute',
-              left: element.x,
+              left: px,
               top: element.y,
               width: w,
               height: h,
@@ -1233,7 +1340,7 @@ function customDesign(
           style={{
             display: 'flex',
             position: 'absolute',
-            left: element.x,
+            left: px,
             top: element.y,
             width: w,
             height: h,
@@ -1271,7 +1378,10 @@ function customDesign(
       // The MyJKKN ID prints UNDER the QR inside the QR's own authored box: the
       // code shrinks by one value line so the pair never grows into the footer
       // band (the earlier overlap) and never moves the authored top-left.
-      const idLineH = person.qrId ? Math.round(VALUE_FONT * 1.05) : 0;
+      // The ID is small print scaled to the QR: 18% of the box, 10–16 px, so a
+      // 72 px QR keeps ~58 px of code and the text stays within the QR width.
+      const idFont = person.qrId ? Math.round(Math.min(16, Math.max(10, box * 0.18))) : 0;
+      const idLineH = idFont ? Math.round(idFont * 1.15) : 0;
       const size = box - idLineH;
       children.push(
         <img
@@ -1297,13 +1407,13 @@ function customDesign(
             style={{
               display: 'flex',
               position: 'absolute',
-              left: element.x - 30,
+              left: element.x,
               top: element.y + size,
-              width: size + 60,
+              width: size,
               justifyContent: 'center'
             }}
           >
-            {qrIdLine(person, size + 60)}
+            {qrIdLine(person, size, idFont)}
           </div>
         );
       }
@@ -1343,7 +1453,7 @@ function customDesign(
               lines: 1
             };
           })()
-        : fitElementText(element, value, layout.elements ?? [], width, height);
+        : fitElementText(element, value, elements, width, height);
     children.push(
       <div
         key={key}
@@ -1367,7 +1477,7 @@ function customDesign(
           fontSize: sized.fontSize,
           lineHeight: VALUE_LINE_HEIGHT,
           fontWeight: sized.fontWeight,
-          color: element.color ?? '#111827'
+          color: printColor(element.color, '#111827')
         }}
       >
         {sized.text}
@@ -1383,7 +1493,7 @@ function customDesign(
         width,
         height,
         backgroundColor: backgroundDataUrl
-          ? 'transparent'
+          ? '#ffffff' // never transparent — the card-printer driver washes alpha out
           : (layout.background_color ?? '#ffffff'),
         fontFamily: 'Poppins, sans-serif'
       }}
@@ -1423,7 +1533,7 @@ function portraitFieldRow(key: string, label: string, value: string): ReactEleme
           fontSize: 18,
           fontWeight: 700,
           letterSpacing: 2,
-          color: '#374151',
+          color: '#000000',
           marginTop: 3
         }}
       >
@@ -1436,7 +1546,7 @@ function portraitFieldRow(key: string, label: string, value: string): ReactEleme
           fontSize: fit.fontSize,
           lineHeight: VALUE_LINE_HEIGHT,
           fontWeight: 700,
-          color: '#111827'
+          color: '#000000'
         }}
       >
         {fit.text}
@@ -1462,6 +1572,7 @@ function portraitDefaultDesign(input: CardRenderInput): ReactElement {
 
   const fieldRows: ReactElement[] = [];
   if (person.kind === 'learner') {
+    if (person.guardianName) fieldRows.push(portraitFieldRow('father', 'FATHER', person.guardianName));
     if (person.rollNumber)
       fieldRows.push(
         portraitFieldRow('roll', person.isSchool ? 'ADM. NO.' : 'ROLL NO', person.rollNumber)
@@ -1495,7 +1606,7 @@ function portraitDefaultDesign(input: CardRenderInput): ReactElement {
         width: PORTRAIT_WIDTH,
         height: PORTRAIT_HEIGHT,
         backgroundColor: backgroundDataUrl
-          ? 'transparent'
+          ? '#ffffff' // never transparent — the card-printer driver washes alpha out
           : (input.layout?.background_color ?? '#ffffff'),
         fontFamily: 'Poppins, sans-serif'
       }}
@@ -1647,7 +1758,8 @@ function portraitDefaultDesign(input: CardRenderInput): ReactElement {
 
         {principalBlock(input, 'portrait')}
 
-        {/* Small VALID UPTO */}
+        {/* Small VALID UPTO — team-member cards only (learner cards dropped it 2026-09-23) */}
+        {person.kind === 'learner' ? null : (
         <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: 12 }}>
           <div
             style={{
@@ -1671,6 +1783,7 @@ function portraitDefaultDesign(input: CardRenderInput): ReactElement {
             {validUntilLabel}
           </div>
         </div>
+        )}
 
         {/* QR bottom area + "QR ID: <MyJKKN ID>" beneath */}
         {qrDataUrl ? (
@@ -1748,6 +1861,15 @@ export type BuildOptions = {
    * invariant (1014x638 landscape output) is untouched.
    */
   upright?: boolean;
+  /**
+   * Card-printer path only (the bridge's format=png download): the Evolis
+   * prints the back after flipping the card on its LONG edge, so a portrait
+   * back composed the same way as the front comes out upside-down on the
+   * plastic (reported 2026-09-23). Rotating the back the OTHER way (a 180°
+   * difference on the landscape canvas) lands it upright. Never set for
+   * previews / A4 sheets — those show the back as designed.
+   */
+  printerBack?: boolean;
 };
 
 /** Output canvas for a front layout under the given options. */
@@ -1890,7 +2012,7 @@ function backInfoRow(
             fontSize: 18,
             fontWeight: 700,
             letterSpacing: 1,
-            color: '#374151',
+            color: '#000000',
             marginTop: 4
           }}
         >
@@ -1904,7 +2026,7 @@ function backInfoRow(
           fontSize: fit.fontSize,
           lineHeight: VALUE_LINE_HEIGHT,
           fontWeight: options?.valueWeight ?? 700,
-          color: options?.valueColor ?? '#111827'
+          color: printColor(options?.valueColor, '#111827')
         }}
       >
         {fit.text}
@@ -2009,7 +2131,7 @@ export function buildBackElement(input: BackRenderInput, options: BuildOptions =
   }
   if (showAddress && person.address) {
     infoRows.push(
-      backInfoRow('address', 'ADDRESS', person.address, canvasWidth, {
+      backInfoRow('address', 'ADDRESS', prepareAddressForCard(person.address), canvasWidth, {
         showLabel: showLabels,
         valueSize: 24,
         preserveTail: true
@@ -2138,7 +2260,7 @@ export function buildBackElement(input: BackRenderInput, options: BuildOptions =
           fontSize: sized.fontSize,
           lineHeight: VALUE_LINE_HEIGHT,
           fontWeight: sized.fontWeight,
-          color: element.field === 'blood_group' ? '#111827' : (element.color ?? '#111827')
+          color: element.field === 'blood_group' ? '#000000' : printColor(element.color, '#111827')
         }}
       >
         {sized.text}
@@ -2155,7 +2277,7 @@ export function buildBackElement(input: BackRenderInput, options: BuildOptions =
         width: canvasWidth,
         height: canvasHeight,
         backgroundColor: backgroundDataUrl
-          ? 'transparent'
+          ? '#ffffff' // never transparent — the card-printer driver washes alpha out
           : (layout.background_color ?? '#ffffff'),
         fontFamily: 'Poppins, sans-serif'
       }}
@@ -2233,7 +2355,7 @@ export function buildBackElement(input: BackRenderInput, options: BuildOptions =
                       fontSize: fit.fontSize,
                       lineHeight: VALUE_LINE_HEIGHT,
                       fontWeight: 700,
-                      color: '#111827',
+                      color: '#000000',
                       marginTop: i === 0 ? 0 : 4
                     }}
                   >
@@ -2269,7 +2391,7 @@ export function buildBackElement(input: BackRenderInput, options: BuildOptions =
                   fontSize: 24,
                   fontWeight: 600,
                   letterSpacing: 6,
-                  color: '#111827',
+                  color: '#000000',
                   marginTop: 6
                 }}
               >
@@ -2310,7 +2432,13 @@ export function buildBackElement(input: BackRenderInput, options: BuildOptions =
     </div>
   );
 
-  return portrait && layout.orientation && !options.upright
-    ? rotatePortraitIntoCanvas(content, layout.orientation)
-    : content;
+  if (!portrait || !layout.orientation || options.upright) return content;
+  // Printer path: always the opposite rotation direction (180° relative to
+  // the front) — the card printer flips on the long edge; not configurable.
+  const orientation = options.printerBack
+    ? layout.orientation === 'portrait'
+      ? 'portrait-flipped'
+      : 'portrait'
+    : layout.orientation;
+  return rotatePortraitIntoCanvas(content, orientation);
 }

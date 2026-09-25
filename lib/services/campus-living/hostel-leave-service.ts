@@ -1,5 +1,6 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
 import { ApprovalChainService } from '@/lib/services/approval-chain-service';
 import type { StageDefinition } from '@/types/approval-chain';
 import type {
@@ -147,6 +148,10 @@ export class HostelLeaveService {
       }
 
       const row = data as unknown as HostelLeaveRequest;
+
+      // Adoption loop: the application is saved — that is the apply moment,
+      // whichever way the engine run below goes.
+      await recordFeatureUse(supabase, FEATURE_KEYS.CAMPUS_LIVING_LEAVE_APPLY);
 
       // If caller created a non-draft request (legacy expectation), auto-submit
       // to start the engine run so the request is routable to parent/warden.

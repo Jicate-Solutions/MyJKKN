@@ -728,6 +728,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admin/loops/live",
+            "label": "Live Loops",
+            "iconName": "Activity",
+            "children": []
+          },
+          {
             "path": "/admin/loops/pillars",
             "label": "Mission Pillars",
             "iconName": "Landmark",
@@ -2576,6 +2582,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/campus-living/attendance/mark",
             "label": "Mark",
             "iconName": "CheckSquare",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/campus-living/billing-audit",
+        "label": "Billing Audit",
+        "iconName": "Wallet",
+        "children": [
+          {
+            "path": "/campus-living/billing-audit/learners",
+            "label": "Learners",
+            "iconName": "GraduationCap",
             "children": []
           }
         ]

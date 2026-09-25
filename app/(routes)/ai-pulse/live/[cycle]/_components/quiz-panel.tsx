@@ -45,6 +45,27 @@ interface QuizPanelProps {
   asyncWindowHours?: number; // policy-driven async make-up window; default 48
   alreadySubmitted: boolean;
   existingScore?: number;
+  /**
+   * The verdict the submit service STORED (engagement_signals.quiz_passed).
+   * It is the one the engagement gate reads, so a saved attempt shows it rather
+   * than re-judging the score against a threshold this panel may never load.
+   */
+  existingPassed?: boolean;
+  /** engagement_signals.quiz_async_makeup — which window the attempt was in. */
+  existingAsyncMakeup?: boolean;
+  /**
+   * True once the session's end time has passed. With both quiz windows shut,
+   * this is what tells "the quiz has not opened yet" apart from "the quiz has
+   * closed" — a week-old session must not promise that its quiz is coming.
+   */
+  sessionEnded?: boolean;
+}
+
+/** A submitted attempt, as far as this panel knows it. */
+interface QuizResult {
+  score: number | null;
+  passed: boolean | null;
+  asyncMakeup: boolean;
 }
 
 interface QuizQuestion {
@@ -61,15 +82,23 @@ export function QuizPanel({
   asyncWindowHours = 48,
   alreadySubmitted,
   existingScore,
+  existingPassed,
+  existingAsyncMakeup,
+  sessionEnded = false,
 }: QuizPanelProps) {
   const submitQuiz = useSubmitQuiz(cycleId);
   const [questions, setQuestions] = useState<QuizQuestion[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [picks, setPicks] = useState<Record<string, string>>({});
   const [feedback, setFeedback] = useState('');
-  const [submitted, setSubmitted] = useState(alreadySubmitted);
-  const [shownScore, setShownScore] = useState<number | null>(
-    existingScore ?? null,
+  const [result, setResult] = useState<QuizResult | null>(
+    alreadySubmitted
+      ? {
+          score: existingScore ?? null,
+          passed: typeof existingPassed === 'boolean' ? existingPassed : null,
+          asyncMakeup: existingAsyncMakeup === true,
+        }
+      : null,
   );
   // Pass thresholds come from the authored quiz (config.quiz). These literals
   // mirror DEFAULT_QUIZ in quiz-service.ts — live 50 (raised from 40 on
@@ -164,27 +193,17 @@ export function QuizPanel({
     };
   }, [questions, picks]);
 
-  if (!quizOpen && !asyncWindowOpen) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <ScrollText className="h-4 w-4" aria-hidden />
-            Post-Session Quiz
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            The quiz unlocks when the session ends. You&apos;ll
-            have 60 minutes for the live window, then {asyncWindowHours} hours for
-            the async make-up.
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (submitted) {
+  // A saved attempt is shown FIRST, whatever the clock says. This check used
+  // to sit below the window check, so a learner who took the quiz and came
+  // back after both windows shut was told "The quiz unlocks when the session
+  // ends" — their attempt hidden behind a promise about the future
+  // (BUG-005876, BUG-006153: "My quiz not showing", weeks after the session).
+  if (result) {
+    // The stored verdict is the one the engagement gate reads. Only a legacy
+    // row without one is judged here, against the threshold for its window.
+    const resultThreshold = result.asyncMakeup ? thresholds.async : thresholds.live;
+    const passed =
+      result.passed ?? (result.score !== null && result.score >= resultThreshold);
     return (
       <Card>
         <CardHeader>
@@ -196,21 +215,57 @@ export function QuizPanel({
         <CardContent className="space-y-2">
           <div className="flex items-center gap-2 text-sm">
             <CheckCircle2 className="h-4 w-4 text-green-600" />
-            <span>
-              Submitted ({asyncMakeup ? 'async make-up' : 'live'} window).
-              {shownScore !== null && (
+            <span data-testid="ai-pulse-quiz-result">
+              Submitted ({result.asyncMakeup ? 'async make-up' : 'live'} window).
+              {result.score !== null && (
                 <>
                   {' '}
-                  Score: <strong>{shownScore}%</strong> —{' '}
-                  {shownScore >= passThreshold ? 'passed' : `did not pass (need ${passThreshold}%)`}.
+                  Score: <strong>{result.score}%</strong> —{' '}
+                  {passed
+                    ? 'passed'
+                    : result.passed === false
+                      ? 'did not pass'
+                      : `did not pass (need ${resultThreshold}%)`}
+                  .
                 </>
               )}
             </span>
           </div>
-          {asyncMakeup && (
+          {result.asyncMakeup && (
             <p className="text-xs text-muted-foreground">
               Async make-up counts toward engagement only if all other gates
               also pass.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!quizOpen && !asyncWindowOpen) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <ScrollText className="h-4 w-4" aria-hidden />
+            Post-Session Quiz
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {sessionEnded ? (
+            <p
+              className="text-sm text-muted-foreground"
+              data-testid="ai-pulse-quiz-closed"
+            >
+              The quiz for this session has closed. It was open for 60 minutes
+              after the session ended, then {asyncWindowHours} hours for the async
+              make-up.
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              The quiz unlocks when the session ends. You&apos;ll
+              have 60 minutes for the live window, then {asyncWindowHours} hours for
+              the async make-up.
             </p>
           )}
         </CardContent>
@@ -235,11 +290,15 @@ export function QuizPanel({
     }
     const score = computeScore();
     try {
-      await submitQuiz.mutateAsync({ score, asyncMakeup, feedback });
-      setShownScore(score);
-      setSubmitted(true);
+      const saved = await submitQuiz.mutateAsync({ score, asyncMakeup, feedback });
+      // Show the verdict the service stored, not a second opinion from here.
+      const passed =
+        typeof saved?.quiz_passed === 'boolean'
+          ? saved.quiz_passed
+          : score >= passThreshold;
+      setResult({ score, passed, asyncMakeup });
       toast.success(
-        score >= passThreshold ? `Quiz passed (${score}%)` : `Quiz submitted (${score}%)`,
+        passed ? `Quiz passed (${score}%)` : `Quiz submitted (${score}%)`,
       );
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Could not submit quiz.';

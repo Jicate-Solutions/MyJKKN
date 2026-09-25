@@ -125,6 +125,7 @@ export function useUpdateRegistrationForm(eventId: string) {
         fee_label?: string | null;
         starts_at?: string | null;
         ends_at?: string | null;
+        contact_block?: 'top' | 'bottom' | 'hidden';
       };
     }) => EventRegistrationFormService.updateForm(formId, updates),
     onSuccess: () => invalidateForms(qc, eventId),

@@ -91958,6 +91958,8 @@ export type Database = {
           bank_account_number: string | null
           basic_pay: number
           business_working_days: number
+          casual_leave_days: number
+          comp_off_days: number
           created_at: string
           date_of_joining: string | null
           department_name: string | null
@@ -91970,6 +91972,7 @@ export type Database = {
           is_included: boolean
           net_pay: number
           on_duty_days: number
+          other_paid_leave_days: number
           paid_by_name: string | null
           paid_by_organization_id: string | null
           paid_days: number
@@ -91995,6 +91998,8 @@ export type Database = {
           bank_account_number?: string | null
           basic_pay?: number
           business_working_days?: number
+          casual_leave_days?: number
+          comp_off_days?: number
           created_at?: string
           date_of_joining?: string | null
           department_name?: string | null
@@ -92007,6 +92012,7 @@ export type Database = {
           is_included?: boolean
           net_pay?: number
           on_duty_days?: number
+          other_paid_leave_days?: number
           paid_by_name?: string | null
           paid_by_organization_id?: string | null
           paid_days?: number
@@ -92032,6 +92038,8 @@ export type Database = {
           bank_account_number?: string | null
           basic_pay?: number
           business_working_days?: number
+          casual_leave_days?: number
+          comp_off_days?: number
           created_at?: string
           date_of_joining?: string | null
           department_name?: string | null
@@ -92044,6 +92052,7 @@ export type Database = {
           is_included?: boolean
           net_pay?: number
           on_duty_days?: number
+          other_paid_leave_days?: number
           paid_by_name?: string | null
           paid_by_organization_id?: string | null
           paid_days?: number
@@ -206452,6 +206461,71 @@ export type Database = {
           total_count: number
         }[]
       }
+      fn_cl_billing_audit_bill_class: {
+        Args: { p_category_name: string; p_fee_source: string; p_kind: string }
+        Returns: string
+      }
+      fn_cl_billing_audit_rows: {
+        Args: {
+          p_academic_year_id?: string
+          p_allocated_only?: boolean
+          p_block_id?: string
+          p_gender?: string
+          p_institution_ids?: string[]
+          p_program_id?: string
+          p_room_category_id?: string
+        }
+        Returns: {
+          out_band_fee: number
+          out_band_status: string
+          out_bed_number: string
+          out_bills: Json
+          out_block_id: string
+          out_block_name: string
+          out_category_mess_rate: number
+          out_category_room_rate: number
+          out_entitled_category_name: string
+          out_expected_mess_fee: number
+          out_expected_room_fee: number
+          out_expected_upgrade_fee: number
+          out_findings: string[]
+          out_full_name: string
+          out_gender: string
+          out_institution_id: string
+          out_institution_name: string
+          out_is_allocated: boolean
+          out_learner_id: string
+          out_lifecycle_status: string
+          out_mess_billed: number
+          out_mess_category_name: string
+          out_mess_due_date: string
+          out_mess_paid: number
+          out_mess_status: string
+          out_overdue_amount: number
+          out_overdue_count: number
+          out_program_name: string
+          out_register_number: string
+          out_roll_number: string
+          out_room_billed: number
+          out_room_due_date: string
+          out_room_number: string
+          out_room_paid: number
+          out_room_status: string
+          out_seated_category_name: string
+          out_semester_name: string
+          out_tagged_category_id: string
+          out_tagged_category_name: string
+          out_target_academic_year_name: string
+          out_total_billed: number
+          out_total_outstanding: number
+          out_total_paid: number
+          out_upgrade_billed: number
+          out_upgrade_due_date: string
+          out_upgrade_paid: number
+          out_upgrade_status: string
+          out_year_of_study: number
+        }[]
+      }
       fn_cl_category_room_sources: {
         Args: { p_category_id: string }
         Returns: {
@@ -216897,6 +216971,86 @@ export type Database = {
       }
       get_campaigns_overview_stats: {
         Args: { p_end_date?: string; p_start_date?: string }
+        Returns: Json
+      }
+      get_cl_billing_audit_learners: {
+        Args: {
+          p_academic_year_id?: string
+          p_allocated_only?: boolean
+          p_block_id?: string
+          p_finding?: string
+          p_gender?: string
+          p_institution_ids?: string[]
+          p_page?: number
+          p_page_size?: number
+          p_program_id?: string
+          p_room_category_id?: string
+          p_search?: string
+          p_sort_by?: string
+          p_sort_dir?: string
+        }
+        Returns: {
+          out_band_fee: number
+          out_band_status: string
+          out_bed_number: string
+          out_bills: Json
+          out_block_id: string
+          out_block_name: string
+          out_category_mess_rate: number
+          out_category_room_rate: number
+          out_entitled_category_name: string
+          out_expected_mess_fee: number
+          out_expected_room_fee: number
+          out_expected_upgrade_fee: number
+          out_findings: string[]
+          out_full_name: string
+          out_gender: string
+          out_institution_id: string
+          out_institution_name: string
+          out_is_allocated: boolean
+          out_learner_id: string
+          out_lifecycle_status: string
+          out_mess_billed: number
+          out_mess_category_name: string
+          out_mess_due_date: string
+          out_mess_paid: number
+          out_mess_status: string
+          out_overdue_amount: number
+          out_overdue_count: number
+          out_program_name: string
+          out_register_number: string
+          out_roll_number: string
+          out_room_billed: number
+          out_room_due_date: string
+          out_room_number: string
+          out_room_paid: number
+          out_room_status: string
+          out_seated_category_name: string
+          out_semester_name: string
+          out_tagged_category_id: string
+          out_tagged_category_name: string
+          out_target_academic_year_name: string
+          out_total_billed: number
+          out_total_count: number
+          out_total_outstanding: number
+          out_total_paid: number
+          out_upgrade_billed: number
+          out_upgrade_due_date: string
+          out_upgrade_paid: number
+          out_upgrade_status: string
+          out_year_of_study: number
+        }[]
+      }
+      get_cl_billing_audit_summary: {
+        Args: {
+          p_academic_year_id?: string
+          p_allocated_only?: boolean
+          p_block_id?: string
+          p_gender?: string
+          p_institution_ids?: string[]
+          p_program_id?: string
+          p_room_category_id?: string
+        }
         Returns: Json
       }
       get_correct_faculty_by_course: {

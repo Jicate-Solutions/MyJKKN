@@ -15,6 +15,13 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { BulkLearnerEditService, type BulkEditRow } from '@/lib/services/bulk-learner-edit-service';
 import { LearnerValidationService } from '@/lib/services/learner-validation-service';
 import { parseExcelFile, mapColumns, sanitizeValue, hasColumn, listColumns } from '@/lib/utils/excel-parser';
+import {
+  ID_CARD_TEMPLATE,
+  ID_CARD_DOB_HEADER,
+  ID_CARD_PHOTO_HEADER,
+  pickIdCardMapping,
+  normalizeIdCardDate,
+} from '@/lib/services/bulk-learner-id-card-template';
 import { NameToIdResolver } from '@/lib/services/name-to-id-resolver';
 import { normalizeDropdownValue, BLOOD_GROUP_VALUES } from '@/lib/constants/learner-dropdown-values';
 
@@ -33,7 +40,7 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   // block must stay in sync with the identical one in bulk-edit-preview.
   'first_name_tamil': ['First Name (Tamil)', 'first_name_tamil'],
   'last_name_tamil': ['Last Name (Tamil)', 'last_name_tamil'],
-  'date_of_birth': ['Date of Birth', 'DOB', 'date_of_birth', 'dob'],
+  'date_of_birth': ['Date of Birth', ID_CARD_DOB_HEADER, 'DOB', 'date_of_birth', 'dob'],
   'gender': ['Gender', 'gender'],
   'religion': ['Religion', 'religion'],
   // FK-backed fields ship as a paired "<Field> ID" + readable label column.
@@ -134,7 +141,7 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'register_number': ['Register Number', 'register_number'],
   'quota_id': ['Quota ID', 'quota_id'],
   'quota': ['Quota', 'quota'],
-  'student_photo_url': ['Photo URL', 'photo_url', 'student_photo_url'],
+  'student_photo_url': ['Photo URL', ID_CARD_PHOTO_HEADER, 'photo_url', 'student_photo_url'],
 };
 
 /**
@@ -229,6 +236,11 @@ export async function POST(request: NextRequest) {
     // 3. Parse file from form data
     const formData = await request.formData();
     const file = formData.get('file') as File;
+    // `template=id_card` → ID Card Data upload: only that sheet's columns are
+    // mapped (anything else in the file is ignored) and Date of Birth is read
+    // as DD-MM-YYYY / YYYY-MM-DD. Must match bulk-edit-preview exactly.
+    const isIdCard = formData.get('template') === ID_CARD_TEMPLATE;
+    const columnMapping = isIdCard ? pickIdCardMapping(COLUMN_MAPPING) : COLUMN_MAPPING;
 
     if (!file) {
       return NextResponse.json(
@@ -298,12 +310,15 @@ export async function POST(request: NextRequest) {
 
     for (const parsedRow of parseResult.rows) {
       // Map columns
-      const mappedData = mapColumns(parsedRow.data, COLUMN_MAPPING);
+      const mappedData = mapColumns(parsedRow.data, columnMapping);
 
       // Sanitize values (only non-empty values)
       const sanitizedData: any = {
         id: mappedData.id, // Always required
       };
+      // Format failures found while sanitising (ID-card DOB) — merged into the
+      // row validation below so the gate refuses them like any other error.
+      const sanitizeIssues: Array<{ field: string; message: string }> = [];
 
       // SECTION 1: Basic Details
       if (mappedData.first_name) {
@@ -322,7 +337,13 @@ export async function POST(request: NextRequest) {
         sanitizedData.last_name_tamil = String(mappedData.last_name_tamil).trim();
       }
       if (mappedData.date_of_birth) {
-        sanitizedData.date_of_birth = sanitizeValue(mappedData.date_of_birth, 'date');
+        if (isIdCard) {
+          const dob = normalizeIdCardDate(mappedData.date_of_birth);
+          if (dob) sanitizedData.date_of_birth = dob;
+          else sanitizeIssues.push({ field: 'date_of_birth', message: 'Date of Birth must be DD-MM-YYYY (or YYYY-MM-DD)' });
+        } else {
+          sanitizedData.date_of_birth = sanitizeValue(mappedData.date_of_birth, 'date');
+        }
       }
       if (mappedData.gender) {
         sanitizedData.gender = sanitizeValue(mappedData.gender, 'text');
@@ -675,7 +696,12 @@ export async function POST(request: NextRequest) {
       }
 
       // Validate row
-      const validation = LearnerValidationService.validateBulkEditExited(sanitizedData);
+      const serviceValidation = LearnerValidationService.validateBulkEditExited(sanitizedData);
+      const validation = {
+        ...serviceValidation,
+        errors: [...serviceValidation.errors, ...sanitizeIssues],
+        isValid: serviceValidation.isValid && sanitizeIssues.length === 0,
+      };
 
       bulkEditRows.push({
         rowNumber: parsedRow.rowNumber,

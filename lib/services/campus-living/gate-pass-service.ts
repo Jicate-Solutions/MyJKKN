@@ -1,5 +1,6 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
 import { getErrorMessage } from '@/lib/utils';
 import type {
   CreateHostelGatePassDTO,
@@ -532,6 +533,10 @@ export class GatePassService {
         logger.error(LOG, 'Failed to request gate pass', error);
         throw new Error(getErrorMessage(error));
       }
+
+      // Adoption loop: a learner asked for a gate pass.
+      await recordFeatureUse(supabase, FEATURE_KEYS.CAMPUS_LIVING_GATE_PASS_REQUEST);
+
       return data as unknown as HostelGatePass;
     } catch (error) {
       logger.error(LOG, 'Unexpected error in requestGatePass', error);

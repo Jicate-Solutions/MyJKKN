@@ -45,12 +45,13 @@ import {
 import { useCdcDriveEligibility } from '@/hooks/cdc/use-cdc-drive-eligibility';
 import { DriveEligibilityCard } from './_components/eligibility-card';
 import type { CdcDriveStatus } from '@/types/cdc';
-import { CDC_DRIVE_STATE_GRAPH, CDC_DRIVE_STATUS_LABELS } from '@/types/cdc';
+import { CDC_DRIVE_STATE_GRAPH, CDC_DRIVE_STATUS_LABELS, previousDriveStatus } from '@/types/cdc';
 import { driveCircularOf } from '@/lib/services/cdc/drive-service';
 import { DriveStatusBadge, STATUS_BADGE_VARIANT } from '../_components/drive-status-badge';
 import { describeTargeting } from '../_components/institution-semester-picker';
 import { CircularAttachment } from '../_components/circular-attachment';
 import { DriveDayCard } from '../_components/drive-day-card';
+import { MoveBackButton } from '../_components/move-back-dialog';
 
 const TRANSITION_HINT: Partial<Record<CdcDriveStatus, string>> = {
   announced: 'Coordinators and heads are informed. Learners are not notified yet.',
@@ -519,9 +520,14 @@ function CdcDriveDetailContent({ params }: { params: Promise<{ id: string }> }) 
               </CardHeader>
               <CardContent className="space-y-3">
                 {allowedNext.size === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    This drive is in a terminal state. No further transitions are possible.
-                  </p>
+                  <div className="space-y-3">
+                    <p className="text-sm text-muted-foreground">
+                      {drive.status === 'closed'
+                        ? 'This drive is closed. It can be reopened one stage back if something needs correcting.'
+                        : 'This drive is in a terminal state. No further transitions are possible.'}
+                    </p>
+                    <MoveBackButton driveId={id} status={drive.status} className="w-full justify-start" />
+                  </div>
                 ) : pendingStatus ? (
                   <div className="space-y-3">
                     <p className="text-sm">
@@ -605,6 +611,14 @@ function CdcDriveDetailContent({ params }: { params: Promise<{ id: string }> }) 
                         {CDC_DRIVE_STATUS_LABELS[nextStatus]}
                       </Button>
                     ))}
+                    {previousDriveStatus(drive.status) ? (
+                      <div className="pt-2 border-t">
+                        <MoveBackButton driveId={id} status={drive.status} className="w-full justify-start" />
+                        <p className="mt-1.5 text-xs text-muted-foreground">
+                          Steps back one stage. Nothing already recorded is deleted; a reason is required.
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
                 )}
               </CardContent>

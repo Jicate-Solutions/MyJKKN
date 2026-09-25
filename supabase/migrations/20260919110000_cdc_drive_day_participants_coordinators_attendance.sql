@@ -89,7 +89,19 @@ ALTER TABLE public.cdc_drive_participants  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cdc_drive_coordinators  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cdc_drive_activity_log  ENABLE ROW LEVEL SECURITY;
 
+-- Anon lock: Supabase default privileges grant ALL on new tables to anon.
+-- Reads go through RLS as authenticated; writes are service-role only.
+REVOKE ALL ON TABLE public.cdc_drive_participants FROM anon, PUBLIC;
+GRANT SELECT ON TABLE public.cdc_drive_participants TO authenticated;
+REVOKE ALL ON TABLE public.cdc_drive_coordinators FROM anon, PUBLIC;
+GRANT SELECT ON TABLE public.cdc_drive_coordinators TO authenticated;
+REVOKE ALL ON TABLE public.cdc_drive_activity_log FROM anon, PUBLIC;
+GRANT SELECT ON TABLE public.cdc_drive_activity_log TO authenticated;
+
 -- Is the caller an assigned coordinator of this drive?
+-- ci:allow-secdef-authenticated self-check only: answers about auth.uid() and nobody
+-- else, returns a bare boolean, and is called from the RLS policies below, which
+-- run as the signed-in user - so authenticated must keep EXECUTE.
 CREATE OR REPLACE FUNCTION public.is_cdc_drive_coordinator(p_drive_id uuid)
 RETURNS boolean
 LANGUAGE sql

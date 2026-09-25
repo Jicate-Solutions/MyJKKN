@@ -9,16 +9,19 @@
  * independent sources for one list is how a heading comes to advertise a total
  * the table cannot show.
  *
- * NO ROW SELECTION. Nothing here is a bulk operation — generating is per
- * institution-month and exporting is per register — so the checkbox column is
- * deliberately absent.
+ * ROW SELECTION EXISTS FOR ONE OPERATION — a super admin deleting several
+ * registers at once (2026-09-22). Generating is per institution-month and
+ * exporting is per register, so for everyone else the checkbox column is
+ * absent and the table is what it always was.
  */
 
 import { useCallback, useMemo } from 'react';
+import { Trash2 } from 'lucide-react';
 
 import { DataTable, type DataFetchParams } from '@/components/data-table/data-table';
 import type { ExportableData } from '@/components/data-table/utils/export-utils';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import type { HRSalaryRegisterRun } from '@/types/hr-payroll';
 
 import { MONTHS, getRunColumns, inr } from './run-columns';
@@ -47,10 +50,44 @@ interface Props {
   runs: HRSalaryRegisterRun[];
   filters: RunFilterState;
   orgNameById: Map<string, string>;
+  /**
+   * Super admin only — see RunColumnActions.onDelete. Single rows through the
+   * row menu; a selection through the toolbar button. Both open the same
+   * dialog. `resetSelection` is handed back so the page can clear the
+   * checkboxes once the delete has actually happened, not when it was asked for.
+   */
+  onDelete?: (runs: HRSalaryRegisterRun[], resetSelection?: () => void) => void;
 }
 
-export function RunsDataTable({ runs, filters, orgNameById }: Props) {
-  const columns = useMemo(() => getRunColumns({ orgNameById }), [orgNameById]);
+export function RunsDataTable({ runs, filters, orgNameById, onDelete }: Props) {
+  const columns = useMemo(
+    () => getRunColumns({ orgNameById, onDelete: onDelete ? (r) => onDelete([r]) : undefined }),
+    [orgNameById, onDelete],
+  );
+
+  const renderToolbarContent = useCallback(
+    ({
+      selectedRows,
+      totalSelectedCount,
+      resetSelection,
+    }: {
+      selectedRows: unknown[];
+      totalSelectedCount: number;
+      resetSelection: () => void;
+    }) =>
+      onDelete && totalSelectedCount > 0 ? (
+        <Button
+          size="sm"
+          variant="destructive"
+          className="h-8"
+          onClick={() => onDelete(selectedRows as HRSalaryRegisterRun[], resetSelection)}
+        >
+          <Trash2 className="mr-2 h-4 w-4" />
+          Delete {totalSelectedCount} selected
+        </Button>
+      ) : null,
+    [onDelete],
+  );
 
   const nameOf = useCallback(
     (r: HRSalaryRegisterRun) => orgNameById.get(r.hr_organization_id) ?? r.hr_organization_id,
@@ -163,8 +200,11 @@ export function RunsDataTable({ runs, filters, orgNameById }: Props) {
       fetchAllItemsFn={fetchAllItems as never}
       getColumns={() => columns as never}
       renderMobileRow={renderMobileRow as never}
+      // `as never` like its siblings: TData collapses once fetchDataFn is cast,
+      // and a typed toolbar renderer would otherwise drag idField down to never.
+      renderToolbarContent={renderToolbarContent as never}
       idField="id"
-      config={{ enableRowSelection: false }}
+      config={{ enableRowSelection: Boolean(onDelete) }}
       exportConfig={{
         entityName: 'salary-registers',
         columnMapping: Object.fromEntries(EXPORT_COLUMNS.map((c) => [c.key, c.label])),

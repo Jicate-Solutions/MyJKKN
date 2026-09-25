@@ -77,6 +77,7 @@ export async function GET(
           .from('service_requests')
           .select('service_type:service_types(approval_steps:service_request_approval_steps(approver_user_ids))')
           .eq('id', id)
+          .eq('service_type.approval_steps.is_active', true)
           .maybeSingle(),
       ]);
       const steps: Array<{ approver_user_ids: string[] | null }> =

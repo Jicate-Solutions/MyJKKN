@@ -8629,9 +8629,9 @@ CREATE TABLE IF NOT EXISTS public.hr_attendance_period_summaries (
 );
 
 COMMENT ON COLUMN public.hr_attendance_period_summaries.scheduled_days IS
-  'Days the shift-timing resolver expected this person to work in the month (pattern-aware, full month, holidays removed). NULL on periods closed before 2026-09.';
+  'Full-month working days per the shift-timing resolver: calendar days minus week-offs minus holidays (pattern/role/person aware; not clamped to joining). The salary register''s Business Working Days and this line''s day-rate divisor (2026-09-22); the attendance page''s cards print the same unit.';
 COMMENT ON COLUMN public.hr_attendance_period_summaries.work_pattern_id IS
-  'The work pattern held on any day of the month (most recent if several). When set, the salary register divides by scheduled_days instead of the period standard.';
+  'The work pattern held on any day of the month (most recent if several). Informational since 2026-09-22: every line divides by its own scheduled_days.';
 
 CREATE INDEX IF NOT EXISTS hr_attendance_period_summaries_staff_idx
   ON public.hr_attendance_period_summaries (staff_id);
@@ -8896,7 +8896,14 @@ CREATE TABLE IF NOT EXISTS public.hr_salary_register_lines (
   -- a mid-month joiner has no records before their start date, so lop_days is 0
   -- and paying on it would hand them a full month's gross for half a month.
   business_working_days  numeric(5,1) NOT NULL DEFAULT 0,
+  -- The paid-leave TOTAL, and the three columns that partition it exactly
+  -- (casual + comp_off + other = paid_leave_days, 2026-09-22). "Other" is
+  -- derived by subtraction so a paid type nobody has enumerated still lands
+  -- in a column instead of vanishing from the register row.
   paid_leave_days        numeric(5,1) NOT NULL DEFAULT 0,
+  casual_leave_days      numeric(5,1) NOT NULL DEFAULT 0,
+  comp_off_days          numeric(5,1) NOT NULL DEFAULT 0,
+  other_paid_leave_days  numeric(5,1) NOT NULL DEFAULT 0,
   unpaid_leave_days      numeric(5,1) NOT NULL DEFAULT 0,
   on_duty_days           numeric(5,1) NOT NULL DEFAULT 0,
   worked_days            numeric(5,1) NOT NULL DEFAULT 0,

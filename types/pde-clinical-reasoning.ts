@@ -1,7 +1,7 @@
 // types/pde-clinical-reasoning.ts
 // AICBL → PDE Clinical Reasoning sprint, Agent C
 // ----------------------------------------------------------------------------
-// Types for the student-facing clinical case attempt experience.
+// Types for the learner-facing clinical case attempt experience.
 // Follows the spec at specs/aicbl-as-pde-clinical-reasoning-2026-05-21.md.
 //
 // Spec-vs-reality notes:
@@ -44,7 +44,13 @@ export interface ClinicalCaseScenario {
 // Question variants (pde_assessment_questions)
 // ============================================================================
 
-export type ClinicalQuestionType = 'free_text_socratic' | 'mcq_warmup' | 'image_tag';
+export type ClinicalQuestionType =
+  | 'free_text_socratic'
+  | 'mcq_warmup'
+  | 'image_tag'
+  | 'multi_select'
+  | 'matching'
+  | 'sequencing';
 
 export type OsceDomain =
   | 'data_gathering'
@@ -53,11 +59,35 @@ export type OsceDomain =
   | 'patient_communication'
   | 'professionalism';
 
+/** One left-hand item of a `matching` question, with its own option list. */
+export interface ClinicalMatchPair {
+  id: string;
+  left: string;
+  options: string[];
+}
+
+/** One step of a `sequencing` question, as displayed (not in answer order). */
+export interface ClinicalSequenceItem {
+  id: string;
+  text: string;
+}
+
 export interface ClinicalQuestionMetadata {
   q_number: number;
   osce_domain: OsceDomain;
+  /** Absent on the wire during an attempt — fn_pde_get_case_questions strips it. */
   ground_truth: string;
+  /** Absent on the wire during an attempt — fn_pde_get_case_questions strips it. */
   key_concepts: string[];
+  /**
+   * `multi_select` only. Also stripped during an attempt: it names the tempting
+   * wrong option, so it would give the set away. Released at review.
+   */
+  exclusion_rationale?: string;
+  /** `matching` only. Ships to the browser WITHOUT the correct option. */
+  match_pairs?: ClinicalMatchPair[];
+  /** `sequencing` only. Ships in display order; the true order is the key. */
+  sequence_items?: ClinicalSequenceItem[];
 }
 
 export interface MCQWarmupOption {
@@ -84,13 +114,66 @@ export interface ClinicalQuestion {
   options: MCQWarmupOption[] | null;
   correct_answer: string | null;
   order_index: number;
+  /** Owning stage, or null on a flat (unstaged) case. */
+  stage_id: string | null;
   metadata: ClinicalQuestionMetadata;
   expected_regions: ImageTagRegion[] | null;
 }
 
 // ============================================================================
+// Stages (fn_pde_get_case_stages)
+// ============================================================================
+
+/**
+ * A stage as the LEARNER sees it.
+ *
+ * While `is_unlocked` is false, `title`, `scenario_text` and `image_url` all
+ * come back null. That is not an oversight in the payload — the database
+ * withholds them. A later stage's narrative states the earlier stage's answer
+ * ("The patient is confirmed to have Pemphigus Vulgaris"), and even a title can
+ * give it away, so nothing but the position is released until the gate opens.
+ */
+export interface ClinicalStageView {
+  id: string;
+  stage_order: number;
+  is_unlocked: boolean;
+  is_passed: boolean;
+  score_pct: number | null;
+  threshold_pct: number;
+  title: string | null;
+  scenario_text: string | null;
+  image_url: string | null;
+}
+
+/** What fn_pde_submit_stage returns after marking a stage server-side. */
+export interface ClinicalStageResult {
+  stage_id: string;
+  attempt_number: number;
+  score_pct: number | null;
+  threshold_pct: number;
+  passed: boolean;
+  scored_count: number;
+  question_count: number;
+  has_next_stage: boolean;
+  next_unlocked: boolean;
+}
+
+// ============================================================================
 // Case bundle returned from the server component
 // ============================================================================
+
+/**
+ * The clinical-case pass mark when the policy row cannot be read: 80 since
+ * 2026-09-18 (Director) — see
+ * supabase/migrations/20260918140400_clinical_reasoning_pass_mark_80.sql.
+ *
+ * It lives in this types module because BOTH sides need the same number and
+ * this file imports nothing server-only: the scoring route falls back to it
+ * when the RPC fails, and the attempt page's client hands it to the provisional
+ * `passed` stamp when the bundle carries no resolved value. Defining it twice
+ * is how the old literal 60 survived in the client after the server moved on.
+ */
+export const DEFAULT_CLINICAL_PASSING_THRESHOLD_PCT = 80;
 
 export interface ClinicalCaseBundle {
   assessment: {
@@ -104,10 +187,27 @@ export interface ClinicalCaseBundle {
   };
   scenario: ClinicalCaseScenario;
   questions: ClinicalQuestion[];
+  /** Empty array = flat case = pre-stages behaviour, unchanged. */
+  stages: ClinicalStageView[];
   attemptsUsed: number;
   attemptsCap: number; // policy-driven (default 5)
   bestSubmission: ClinicalSubmissionSummary | null;
   capReached: boolean;
+  /**
+   * True only when a notice about this learner being capped provably exists for
+   * their Senior Learner. Optional, and absence means no, on purpose: the cap
+   * screen may only claim someone was told when that is confirmed, so anything
+   * other than `true` falls back to the ask-them wording.
+   */
+  facultyNotified?: boolean;
+  /**
+   * clinical_reasoning.scoring.passing_threshold_pct, resolved server-side and
+   * handed to the client so the provisional `passed` stamp on a new attempt is
+   * decided by the policy rather than by a literal. Optional only so older
+   * bundles still type-check; absent falls back to
+   * DEFAULT_CLINICAL_PASSING_THRESHOLD_PCT, never to the old 60.
+   */
+  passingThresholdPct?: number;
   learnerProfileId: string; // profiles.id (auth.uid())
 }
 
@@ -190,6 +290,17 @@ export interface ClinicalAnswerEnvelope {
   click_point?: ImageTagClickPoint; // image_tag
   coach_feedback?: string; // free_text_socratic — Socratic reply
   region_score?: number; // image_tag — 0..100 from /api/pde/clinical-reasoning/score
+  /** multi_select — the option ids the learner ticked. */
+  selected_option_ids?: string[];
+  /** matching — { [match_pair.id]: chosen option text }. */
+  match_selections?: Record<string, string>;
+  /** sequencing — item ids in the order the learner arranged them. */
+  sequence_order?: string[];
+  /**
+   * multi_select / matching / sequencing — 0..100 from fn_pde_mark_clinical_answer.
+   * Partial credit, so these are NOT simply right or wrong.
+   */
+  partial_score?: number;
   submitted_at: string; // ISO
 }
 

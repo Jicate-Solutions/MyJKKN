@@ -25,7 +25,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Loader2, GitBranch, CalendarClock, RefreshCw, Swords, Trophy, Medal, Network } from 'lucide-react';
-import { format } from 'date-fns';
+import { formatIstDate, formatIstTime } from '@/lib/utils/date-format';
 import type { TournamentMatch, RecordResultDto } from '@/types/tournament';
 import {
   useGenerateFixtures,
@@ -36,6 +36,7 @@ import {
 } from '@/hooks/events/use-tournament-fixtures';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { MobileScoreSheet } from './mobile-score-sheet';
+import { istLocalInputToIso } from '@/lib/utils/date-format';
 
 function MatchStatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
@@ -70,7 +71,8 @@ function ScheduleDialog({
     await schedule.mutateAsync({
       matchId: match.id,
       dto: {
-        scheduled_at: new Date(when).toISOString(),
+        // Pinned to IST: the datetime-local input is read as IST wall-clock.
+        scheduled_at: istLocalInputToIso(when) ?? new Date(when).toISOString(),
         venue_text: venue.trim() || null,
         official_name: official.trim() || null,
       },
@@ -372,7 +374,7 @@ export function DivisionFixtures({
                   </span>
                   {m.scheduled_at && (
                     <span className="text-[11px] text-muted-foreground">
-                      {format(new Date(m.scheduled_at), 'd MMM, h:mma')}
+                      {formatIstDate(m.scheduled_at, { day: 'numeric', month: 'short' })}, {formatIstTime(m.scheduled_at, { hour: 'numeric', minute: '2-digit', hour12: true })}
                     </span>
                   )}
                   <MatchStatusBadge status={m.status} />

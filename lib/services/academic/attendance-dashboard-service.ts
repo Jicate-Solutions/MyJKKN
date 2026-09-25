@@ -670,9 +670,14 @@ export class AttendanceDashboardService {
           if (l.start_date > date || l.end_date < date) return false
           const inScope = (ids: string[] | null, id: string | null) =>
             !ids || ids.length === 0 || (!!id && ids.includes(id))
+          // `sections` is the to-one join `sections(id, section_name)` above -
+          // an object, not an array. Treating it as an array threw
+          // "sections?.map is not a function" for every college that had an
+          // approved leave in the window (BUG: CAS Self pending report).
+          const joined = timetable.sections
           const sectionIds: string[] = [
             timetable.section_id,
-            ...((timetable.sections as any[] | null)?.map((s: any) => s?.id) ?? [])
+            ...(Array.isArray(joined) ? joined.map((s: any) => s?.id) : [joined?.id])
           ].filter(Boolean)
           return (
             inScope(l.department_ids, timetable.department_id) &&

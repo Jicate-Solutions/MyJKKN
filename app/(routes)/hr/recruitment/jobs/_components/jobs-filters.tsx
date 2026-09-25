@@ -23,7 +23,6 @@ export interface JobsFilterState {
   role_category?: RoleCategory;
   institution_id?: string;
   department_id?: string;
-  is_public?: boolean;
 }
 
 interface JobsFiltersProps {
@@ -137,31 +136,6 @@ function JobsFiltersComponent({
         </SelectContent>
       </Select>
 
-      {/* Public visibility */}
-      <Select
-        value={
-          filters.is_public === true
-            ? 'public'
-            : filters.is_public === false
-            ? 'hidden'
-            : ALL
-        }
-        onValueChange={(value) =>
-          onFilterChange({
-            is_public:
-              value === 'public' ? true : value === 'hidden' ? false : undefined,
-          })
-        }
-      >
-        <SelectTrigger>
-          <SelectValue placeholder='Show on website' />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={ALL}>Public &amp; hidden</SelectItem>
-          <SelectItem value='public'>On /careers</SelectItem>
-          <SelectItem value='hidden'>Hidden</SelectItem>
-        </SelectContent>
-      </Select>
     </div>
   );
 }

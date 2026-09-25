@@ -507,32 +507,78 @@ describe('computeRegisterLine — TDS', () => {
 });
 
 /**
- * Work patterns (2026-09-04): a person on a 3-day or 5-day week at a 6-day
- * institution is paid on THEIR scheduled days. The basis choice is a pure
- * function so it can be pinned here; the arithmetic on top is unchanged.
+ * BUSINESS WORKING DAYS EXCLUDE HOLIDAYS, AND EACH LINE DIVIDES BY ITS OWN
+ * (HR, 2026-09-22).
+ *
+ * THE INCIDENT. Pharmacy August 2026: the register said 29 business days, 23
+ * paid, 6 unpaid, and docked 16,882.76 from someone with no absence at all.
+ * The divisor was MAX of every person's RECORD-counted working days, and one
+ * mis-stamped leave (LEAVE written over three Sundays and three holidays) took
+ * it to 29 while 51 of 53 people counted 23.
+ *
+ * The rule now: the divisor is the resolver's full-month scheduled_days for
+ * the person — calendar minus week-offs minus holidays, pattern-aware, never
+ * clamped to joining — and Paid Days = worked + paid leave + on duty. Pharmacy
+ * August, DR. SEKAR V: 31 − 5 − 3 = 23 scheduled, 21 + 1 + 1 = 23 paid, nothing
+ * deducted. The attendance page prints the same 23 / 23.
  */
-describe('registerBasisFor — a work pattern replaces the institution basis', () => {
-  it("uses the pattern member's own scheduled days", () => {
-    expect(registerBasisFor({ work_pattern_id: 'p1', scheduled_days: 13 }, 26)).toBe(13);
+describe('computeRegisterLine — DR. SEKAR V, Pharmacy August 2026', () => {
+  it('pays a full month on the 23-day basis', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 81600,
+      workingDaysBasis: registerBasisFor({ scheduled_days: 23 }, 29),
+      summary: summary({
+        present_days: 21,
+        leave_days: 2,
+        leave_by_type: { CL: 1, OD: 1 },
+        payable_days: 23,
+      }),
+    });
+
+    expect(r.business_working_days).toBe(23);
+    expect(r.paid_days).toBe(23);
+    expect(r.on_duty_days).toBe(1);
+    expect(r.paid_leave_days).toBe(1);
+    expect(r.unpaid_leave_days).toBe(0);
+    expect(r.unpaid_leave_deduction).toBe(0);
+    expect(r.net_pay).toBe(81600);
   });
 
-  it('keeps the period basis for everyone without a pattern', () => {
-    expect(registerBasisFor({ work_pattern_id: null, scheduled_days: 13 }, 26)).toBe(26);
-    expect(registerBasisFor({ work_pattern_id: null, scheduled_days: null }, 26)).toBe(26);
+  it('is what the register used to get wrong: 29 as the divisor', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 81600,
+      workingDaysBasis: 29,
+      summary: summary({ present_days: 21, leave_days: 2, leave_by_type: { CL: 1, OD: 1 }, payable_days: 23 }),
+    });
+    expect(r.unpaid_leave_days).toBe(6);
+    expect(r.unpaid_leave_deduction).toBe(16882.76);
+  });
+});
+
+describe('registerBasisFor — scheduled_days is the divisor for everyone', () => {
+  it('uses the frozen scheduled_days when the close recorded one', () => {
+    expect(registerBasisFor({ scheduled_days: 23 }, 29)).toBe(23);
+    // A pattern member's scheduled_days is already pattern-aware.
+    expect(registerBasisFor({ scheduled_days: 13 }, 26)).toBe(13);
   });
 
-  it('falls back to the period basis when the pattern month has no scheduled days recorded', () => {
-    // A month closed before the column existed, or a pattern week of all-off
-    // days: dividing by zero is never the answer.
-    expect(registerBasisFor({ work_pattern_id: 'p1', scheduled_days: null }, 26)).toBe(26);
-    expect(registerBasisFor({ work_pattern_id: 'p1', scheduled_days: 0 }, 26)).toBe(26);
+  it("never lets one person's over-counted month become the divisor", () => {
+    // The period basis is only a fallback for months closed before
+    // scheduled_days existed; when the row carries its own, it is not consulted.
+    expect(registerBasisFor({ scheduled_days: 23 }, 29)).not.toBe(29);
+  });
+
+  it('falls back to the period basis for a month closed before the column existed', () => {
+    // Dividing by zero is never the answer either.
+    expect(registerBasisFor({ scheduled_days: null }, 26)).toBe(26);
+    expect(registerBasisFor({ scheduled_days: 0 }, 26)).toBe(26);
   });
 
   it('prices a 3-day week person against 13 scheduled days, not 26', () => {
     // 26,000 gross over 13 scheduled days = 2,000/day. Worked 12 -> 1 unpaid.
     const r = computeRegisterLine({
       monthlyGross: 26000,
-      workingDaysBasis: registerBasisFor({ work_pattern_id: 'p1', scheduled_days: 13 }, 26),
+      workingDaysBasis: registerBasisFor({ scheduled_days: 13 }, 26),
       summary: summary({ present_days: 12, payable_days: 12 }),
     });
     expect(r.business_working_days).toBe(13);
@@ -541,16 +587,132 @@ describe('registerBasisFor — a work pattern replaces the institution basis', (
     expect(r.net_pay).toBe(24000);
   });
 
-  it('still charges a mid-month joiner on a pattern for the scheduled days before they joined', () => {
+  it('still charges a mid-month joiner for the scheduled days before they joined', () => {
     // scheduled_days is the FULL month's expectation, never clamped to the
-    // joining date — the same rule the institution basis follows.
+    // joining date: the days before joining are unpaid, not non-existent.
     const r = computeRegisterLine({
       monthlyGross: 26000,
-      workingDaysBasis: registerBasisFor({ work_pattern_id: 'p1', scheduled_days: 13 }, 26),
+      workingDaysBasis: registerBasisFor({ scheduled_days: 13 }, 26),
       summary: summary({ present_days: 6, payable_days: 6 }),
     });
     expect(r.unpaid_leave_days).toBe(7);
     expect(r.unpaid_leave_deduction).toBe(14000);
     expect(r.net_pay).toBe(12000);
+  });
+});
+
+/**
+ * THE PAID-LEAVE BREAKDOWN (2026-09-22).
+ *
+ * The register detail table shows Casual leave, Comp off and Other paid leave
+ * as their own columns, so the three have to be a real partition of
+ * paid_leave_days — never a re-derivation on the screen that can drift, and
+ * never a pair that quietly loses a Clinical day.
+ *
+ * OD- and CD-typed leave stays OUT of the split: it is already moved into the
+ * On Duty column, so it is outside paid_leave_days to begin with.
+ */
+describe('computeRegisterLine — the paid-leave breakdown', () => {
+  it('splits CL out of a leave_by_type that also carries CD', () => {
+    // COP019, Pharmacy August 2026: CL 1 + CD 3, 17.5 worked, 21.5 paid.
+    const r = computeRegisterLine({
+      monthlyGross: 23000,
+      workingDaysBasis: 23,
+      summary: summary({
+        present_days: 17.5,
+        leave_days: 4,
+        leave_by_type: { CL: 1, CD: 3 },
+        payable_days: 21.5,
+      }),
+    });
+
+    expect(r.casual_leave_days).toBe(1);
+    expect(r.comp_off_days).toBe(0);
+    expect(r.other_paid_leave_days).toBe(0);
+    // Unchanged by the breakdown: CD is on duty, and the total is still 1.
+    expect(r.on_duty_days).toBe(3);
+    expect(r.paid_leave_days).toBe(1);
+  });
+
+  it('gives comp-off its own column, inside the paid-leave total', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 23000,
+      workingDaysBasis: 23,
+      summary: summary({
+        present_days: 20,
+        leave_days: 1,
+        comp_off_days: 2,
+        leave_by_type: { CL: 1 },
+        payable_days: 23,
+      }),
+    });
+
+    expect(r.casual_leave_days).toBe(1);
+    expect(r.comp_off_days).toBe(2);
+    expect(r.other_paid_leave_days).toBe(0);
+    expect(r.paid_leave_days).toBe(3);
+  });
+
+  it('catches Clinical and PH.D in other paid leave rather than losing them', () => {
+    // The case the third column exists for: 30 paid day-leave types exist and
+    // Clinical already appears on real summaries.
+    const r = computeRegisterLine({
+      monthlyGross: 23000,
+      workingDaysBasis: 23,
+      summary: summary({
+        present_days: 19,
+        leave_days: 4,
+        leave_by_type: { CL: 1, Clinical: 2, PHD: 1 },
+        payable_days: 23,
+      }),
+    });
+
+    expect(r.casual_leave_days).toBe(1);
+    expect(r.comp_off_days).toBe(0);
+    expect(r.other_paid_leave_days).toBe(3);
+    expect(r.paid_leave_days).toBe(4);
+  });
+
+  it('partitions paid leave exactly, and the row still closes', () => {
+    // payable_days stays <= the basis on every case: a person credited MORE
+    // than a full month has paid_days capped at the basis on purpose, and a
+    // capped row cannot add up by definition (covered by the cross-institution
+    // case above). Each fixture is internally consistent — payable is
+    // present + every paid leave day + on duty + comp-off.
+    const cases: Array<Parameters<typeof computeRegisterLine>[0]['summary']> = [
+      summary({ present_days: 21, leave_days: 2, leave_by_type: { CL: 1, OD: 1 }, payable_days: 23 }),
+      summary({ present_days: 18, leave_days: 4, comp_off_days: 1, leave_by_type: { CL: 1, Clinical: 2, CD: 1 }, payable_days: 23 }),
+      summary({ present_days: 23, payable_days: 23 }),
+      summary({ present_days: 0, payable_days: 0 }),
+    ];
+
+    for (const s of cases) {
+      const r = computeRegisterLine({ monthlyGross: 23000, workingDaysBasis: 23, summary: s });
+
+      expect(r.casual_leave_days + r.comp_off_days + r.other_paid_leave_days).toBe(r.paid_leave_days);
+      expect(r.paid_days).toBe(
+        r.worked_days + r.casual_leave_days + r.comp_off_days + r.other_paid_leave_days + r.on_duty_days,
+      );
+      expect(r.other_paid_leave_days).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('leaves the money alone — a breakdown is not a recalculation', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 15000,
+      workingDaysBasis: 22,
+      summary: summary({
+        present_days: 18,
+        leave_days: 1,
+        on_duty_days: 2,
+        leave_by_type: { CL: 1 },
+        payable_days: 21,
+      }),
+    });
+
+    // MANIKANDAN P from the hand-kept register, unchanged to the paisa.
+    expect(r.unpaid_leave_deduction).toBe(681.82);
+    expect(r.net_pay).toBe(14318);
+    expect(r.paid_leave_days).toBe(1);
   });
 });

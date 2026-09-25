@@ -4,9 +4,10 @@ interface Props {
   params: Promise<{ id: string }>;
 }
 
-// Hub for /cdc/drives/[id]/documents. The only child route is bulk-upload; a
-// drive's documents are listed and managed per learner on the Selected page.
-export default async function CdcDriveDocumentsRedirect({ params }: Props) {
+// Hub for /cdc/drives/[id]/documents — there is no standalone documents index;
+// the only screen under it is ./bulk-upload. Bounce a bare hit there so the URL
+// never 404s.
+export default async function DriveDocumentsHubRedirect({ params }: Props) {
   const { id } = await params;
-  redirect(`/cdc/drives/${id}/selected`);
+  redirect(`/cdc/drives/${id}/documents/bulk-upload`);
 }
