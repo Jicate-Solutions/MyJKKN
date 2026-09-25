@@ -211976,6 +211976,7 @@ export type Database = {
           basis_paid: number
           blocked_reason: string
           gate_bills: number
+          gate_in_program: boolean
           gate_settled: number
           has_basis_due: boolean
           instalments_settled: number
@@ -211986,6 +211987,8 @@ export type Database = {
           next_due_amount: number
           next_due_date: string
           pct_billed_to_date: number
+          rule_lines: Json
+          rule_to_admit: number
           target_code: string
           target_label: string
           threshold_basis: string

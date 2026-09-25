@@ -36,7 +36,7 @@ import {
 } from '@/components/ui/collapsible';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { ProgramService } from '@/lib/services/organization/program-service';
@@ -71,8 +71,14 @@ const FILTER_KEYS = [
 export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, hasAllInstitutionsScope } = usePermissions();
   const { profile } = useAuth();
+  // Institution options = what this user can actually see (scope 'all' roles,
+  // user_institution_access grants, CAS siblings) — not "super admin or own
+  // institution". Branching on isSuperAdmin locked scope-'all' roles such as
+  // Admission Officer to their home institution, although RLS allows every one.
+  const { institutions } = useInstitutionsWithAccess();
+  const canPickInstitution = hasAllInstitutionsScope || institutions.length > 1;
   const router = useRouter();
   const currentSearchParams = useSearchParams();
 
@@ -109,7 +115,6 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
     blocked_reason: searchParams.blocked_reason || undefined
   });
 
-  const [institutions, setInstitutions] = useState<any[]>([]);
   const [degrees, setDegrees] = useState<any[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
   const [programs, setPrograms] = useState<any[]>([]);
@@ -193,15 +198,6 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
       blocked_reason: searchParams.blocked_reason || undefined
     });
   }, [searchParams]);
-
-  useEffect(() => {
-    OrganizationService.getInstitutions({ page: 1, limit: 1000, isActive: true })
-      .then((res) => setInstitutions(res.data || []))
-      .catch((err) => {
-        console.error('[onboarding-filters] institutions:', err);
-        setInstitutions([]);
-      });
-  }, []);
 
   useEffect(() => {
     if (!localFilters.institution_id) {
@@ -339,12 +335,12 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
   const { data: admissionYears, isLoading: loadingAdmissionYears } =
     useGroupAdmissionYears(localFilters.institution_id ? [localFilters.institution_id] : null);
 
-  // Auto-select institution / department for scoped roles
+  // Auto-select the institution only for users who can see just one.
   useEffect(() => {
-    if (profile?.institution_id && !isSuperAdmin && !localFilters.institution_id) {
+    if (profile?.institution_id && !canPickInstitution && !localFilters.institution_id) {
       setLocalFilters((prev) => ({ ...prev, institution_id: profile.institution_id || undefined }));
     }
-  }, [profile?.institution_id, localFilters.institution_id, isSuperAdmin]);
+  }, [profile?.institution_id, localFilters.institution_id, canPickInstitution]);
 
   useEffect(() => {
     if (
@@ -427,12 +423,12 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
             <Select
               value={localFilters.institution_id || ''}
               onValueChange={handleInstitutionChange}
-              disabled={!isSuperAdmin}
+              disabled={!canPickInstitution}
             >
               <SelectTrigger>
                 <SelectValue
                   placeholder={
-                    !isSuperAdmin && profile?.institution_id
+                    !canPickInstitution && profile?.institution_id
                       ? 'Your institution is auto-selected'
                       : 'Select Institution'
                   }

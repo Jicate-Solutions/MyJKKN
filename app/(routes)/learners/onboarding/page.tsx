@@ -30,28 +30,18 @@ import {
 } from './_components/data-table-schema';
 
 /**
- * Tier tabs, in triage order: the incomplete buckets first (most urgent left),
- * then the two terminal buckets.
- *
- * 'all' means the three INCOMPLETE tiers — NOT everything on the page. Renaming
- * it would break existing bookmarks, so the label carries the meaning instead.
+ * Tier tabs (four since 2026-09-25):
+ *   all               every learner in the workspace
+ *   critical          any required field missing (old critical + needs work + almost)
+ *   ready_to_activate admitted + complete
+ *   awaiting_payment  account + reserved, blocked on fees
  */
 const ONBOARDING_TIER_TABS = [
-  { value: 'all', label: 'All Incomplete', className: '' },
+  { value: 'all', label: 'All', className: '' },
   {
     value: 'critical',
     label: 'Critical',
     className: 'text-red-600 data-[state=active]:text-red-700'
-  },
-  {
-    value: 'needs_work',
-    label: 'Needs Work',
-    className: 'text-amber-600 data-[state=active]:text-amber-700'
-  },
-  {
-    value: 'almost',
-    label: 'Almost Complete',
-    className: 'text-emerald-600 data-[state=active]:text-emerald-700'
   },
   {
     value: 'ready_to_activate',
@@ -138,7 +128,7 @@ export default async function LearnerOnboardingPage({ searchParams }: Onboarding
         {/* Six tabs no longer fit a phone, so the strip scrolls horizontally on
             small screens and only becomes a fixed grid from `lg` up. */}
         <Tabs defaultValue={activeTier} className="w-full">
-          <TabsList className="flex w-full justify-start gap-1 overflow-x-auto lg:grid lg:grid-cols-6 lg:w-auto lg:gap-0 lg:overflow-visible">
+          <TabsList className="flex w-full justify-start gap-1 overflow-x-auto lg:grid lg:grid-cols-4 lg:w-auto lg:gap-0 lg:overflow-visible">
             {ONBOARDING_TIER_TABS.map((tab) => (
               <TabsTrigger key={tab.value} value={tab.value} className={tab.className}>
                 {tab.label}
