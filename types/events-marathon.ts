@@ -363,6 +363,8 @@ export interface CreateMarathonSponsorDto {
   amount_pledged?: number;
   benefits?: string;
   pipeline_stage?: SponsorPipelineStage;
+  /** Free-text notes about this sponsor (BUG-006143). */
+  notes?: string | null;
 }
 
 export interface CreateMarathonCommitteeDto {
