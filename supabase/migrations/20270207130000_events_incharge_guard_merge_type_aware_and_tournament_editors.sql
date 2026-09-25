@@ -9,11 +9,11 @@
 --     events.logistics.manage holders may change the in-charge roster
 --     (lecture creators were being refused).
 --
---   20270207090000_tournament_incharge_roster_editable_by_edit_and_creator.sql
+--   20270207094731_tournament_incharge_roster_editable_by_edit_and_creator.sql
 --     tournaments: also sports.tournaments.edit holders and the creator
 --     (BUG-006177 — the COO could not correct a tournament's in-charges).
 --
--- 20270207090000 was applied after 20260922110000 and so reverted the
+-- 20270207094731 was applied after 20260922110000 and so reverted the
 -- non-tournament rule. This body is the union of both:
 --
 --   sports_tournament : super admin, sports.tournaments.manage,

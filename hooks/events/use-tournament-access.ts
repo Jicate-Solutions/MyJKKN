@@ -35,7 +35,7 @@ export function getIncharges(event: Pick<Event, 'config'> | null | undefined): E
  * sports.tournaments.manage or sports.tournaments.edit holders, or the event's
  * creator. Being an in-charge alone is NOT enough — that would let an in-charge
  * appoint more in-charges or evict whoever appointed them. Mirrors tier 1 of
- * fn_guard_event_privileged_fields (migration 20270207090000).
+ * fn_guard_event_privileged_fields (migration 20270207094731).
  */
 export function canAssignTournamentIncharge(opts: {
   hasManagePerm: boolean;
