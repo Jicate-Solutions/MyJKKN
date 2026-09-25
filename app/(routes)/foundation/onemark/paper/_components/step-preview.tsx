@@ -36,10 +36,14 @@ interface StepPreviewProps {
   /** For chapter names in the shortfall banner. */
   reference: ExamReference | null;
   act: ReturnType<typeof usePaperAction>;
+  /** Asks before an action that un-finalises a finalised paper (regenerate,
+   *  use-available, board shape off, swap, drop); true when it may go ahead.
+   *  Lock, edit and the preview language leave a finalised paper finalised. */
+  confirmReopen?: () => Promise<boolean>;
   disabled: boolean;
 }
 
-export function StepPreview({ paper, draft, patch, reference, act, disabled }: StepPreviewProps) {
+export function StepPreview({ paper, draft, patch, reference, act, confirmReopen, disabled }: StepPreviewProps) {
   const [exhausted, setExhausted] = useState<Record<string, string>>({});
   const report = paper.config.last_generation;
   const questions = paper.questions;
@@ -92,6 +96,12 @@ export function StepPreview({ paper, draft, patch, reference, act, disabled }: S
     }
   }
 
+  /** An action that changes the question list: asks first on a finalised paper. */
+  async function reopening(fn: () => Promise<void>) {
+    if (confirmReopen && !(await confirmReopen())) return;
+    await fn();
+  }
+
   const levelTally = questions.reduce<Record<string, number>>((acc, q) => {
     const k = levelOf(q);
     acc[k] = (acc[k] ?? 0) + 1;
@@ -137,7 +147,7 @@ export function StepPreview({ paper, draft, patch, reference, act, disabled }: S
               ))}
             </div>
           )}
-          <Button variant="outline" size="sm" disabled={disabled} onClick={() => run({ action: 'generate' }, 'Regenerated — locked questions kept their slots')}>
+          <Button variant="outline" size="sm" disabled={disabled} onClick={() => reopening(() => run({ action: 'generate' }, 'Regenerated — locked questions kept their slots'))}>
             {act.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1.5 h-4 w-4" />}
             Regenerate unlocked
           </Button>
@@ -163,7 +173,7 @@ export function StepPreview({ paper, draft, patch, reference, act, disabled }: S
           )}
           <p className="text-xs text-muted-foreground">Nothing is padded from other chapters, other sources, or unapproved drafts. Choose:</p>
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" disabled={disabled || report.available < 1} onClick={() => run({ action: 'use_available' }, `Paper set to ${report.available} questions`)}>
+            <Button size="sm" variant="outline" disabled={disabled || report.available < 1} onClick={() => reopening(() => run({ action: 'use_available' }, `Paper set to ${report.available} questions`))}>
               Use the {report.available} available
             </Button>
             <span className="self-center text-xs text-muted-foreground">or go back and widen the chapters, tags, sources or years.</span>
@@ -228,10 +238,12 @@ export function StepPreview({ paper, draft, patch, reference, act, disabled }: S
               size="sm"
               variant="outline"
               disabled={disabled || !boardOn}
-              onClick={async () => {
-                await run({ action: 'save', params: { enforce_board_blueprint: false } });
-                await run({ action: 'generate' }, 'Board shape off — the paper no longer matches the official board structure; synonyms and antonyms are ordinary tags now');
-              }}
+              onClick={() =>
+                reopening(async () => {
+                  await run({ action: 'save', params: { enforce_board_blueprint: false } });
+                  await run({ action: 'generate' }, 'Board shape off — the paper no longer matches the official board structure; synonyms and antonyms are ordinary tags now');
+                })
+              }
             >
               Switch board shape off
             </Button>
@@ -298,9 +310,9 @@ export function StepPreview({ paper, draft, patch, reference, act, disabled }: S
                   canSeeAnswers={paper.can_see_answers}
                   disabled={disabled}
                   exhaustedReason={exhausted[row.q.item_id] ?? (row.q.swap_available ? null : 'No unused question left with the same chapter, tag and level.')}
-                  onSwap={() => run({ action: 'swap', item_id: row.q.item_id })}
+                  onSwap={() => reopening(() => run({ action: 'swap', item_id: row.q.item_id }))}
                   onLock={(locked) => run({ action: 'lock', item_id: row.q.item_id, locked })}
-                  onDrop={() => run({ action: 'drop', item_id: row.q.item_id }, 'Dropped from this paper')}
+                  onDrop={() => reopening(() => run({ action: 'drop', item_id: row.q.item_id }, 'Dropped from this paper'))}
                   onOverride={(fields: QuestionOverride | null) => run({ action: 'override', item_id: row.q.item_id, fields }, fields ? 'Saved for this paper only' : 'Edit removed')}
                 />
               </li>
