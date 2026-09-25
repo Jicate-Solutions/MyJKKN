@@ -24,7 +24,12 @@
 
 import { revalidatePath } from 'next/cache';
 
-import { createClient } from '@/lib/supabase/server';
+import {
+  applyNoteToBooking,
+  noteFollowupInputFromStored,
+} from '@/lib/services/meetings/meeting-note-followups';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 export interface LinkNoteResult {
   success: boolean;
@@ -68,6 +73,41 @@ export async function linkMeetingNote(input: {
     return { success: false, error: error.message };
   }
 
+  await applyLinkedNote(noteId, bookingId);
+
   revalidatePath(UNMATCHED_PATH);
   return { success: true };
+}
+
+/**
+ * A hand-linked note becomes follow-ups exactly as an auto-matched one does —
+ * the same shared path, the same once-only stamp, so unlinking and linking
+ * again never creates a second copy.
+ *
+ * This runs on the SERVICE-ROLE client, and only AFTER fn_link_meeting_note
+ * succeeded: that function is the authorization. The linker usually cannot see
+ * the note any more (see the header), let alone write the meeting's tasks.
+ *
+ * The link is already made and is the thing the person asked for; a failure
+ * here is logged and the link still reports success.
+ */
+async function applyLinkedNote(noteId: string, bookingId: string): Promise<void> {
+  try {
+    const service = createServiceRoleClient();
+    const { data: note, error } = await service
+      .from('meeting_notes')
+      .select('id, booking_id, title, summary, occurred_at, duration_minutes, raw')
+      .eq('id', noteId)
+      .maybeSingle();
+
+    // Re-read, not assumed: apply only to the booking the note is on NOW.
+    if (error || !note || note.booking_id !== bookingId) return;
+
+    await applyNoteToBooking(service, noteId, bookingId, noteFollowupInputFromStored(note));
+  } catch (error) {
+    logger.warn('meetings/notes-link', 'Linked the note but could not create its follow-ups', {
+      noteId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
