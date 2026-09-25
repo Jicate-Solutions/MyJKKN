@@ -10,8 +10,7 @@
 //    keeps the column header repeating across page breaks.
 //  - Cash lists "Collected By"; Online lists "Reference / Txn No" — the one
 //    column a counter reconciles each mode against.
-//  - "MYJKKN ID" is printed blank: the column is part of the format the
-//    accounts office uses, but no such learner field exists yet.
+//  - "MYJKKN ID" is the learner's jkkn_identities.jkkn_id (RPC column jkkn_id).
 //
 // Letterhead data comes from the institutions table (name, logo_url, address,
 // university_affiliation_name) looked up by the institution name the report
@@ -44,10 +43,10 @@ const money = (n: number) => `Rs. ${inr.format(n)}`;
 
 const num = (v: unknown) => Number(v) || 0;
 
-function longDate(iso: string): string {
-  const d = new Date(`${iso.slice(0, 10)}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+/** 25.09.2026 — the format the accounts office prints. */
+function dotDate(iso: string): string {
+  const [y, m, d] = iso.slice(0, 10).split('-');
+  return y && m && d ? `${d}.${m}.${y}` : iso;
 }
 
 export interface CollectionPdfInstitution {
@@ -193,10 +192,10 @@ function drawHeader(
   doc.text(title, cx, y, { align: 'center' });
   y += 5.5;
 
-  doc.setFont('times', 'normal');
+  doc.setFont('times', 'bold');
   doc.setFontSize(10);
-  doc.text(dateLine, cx, y, { align: 'center' });
-  return y + 4;
+  doc.text(dateLine, pageWidth - MARGIN, y, { align: 'right' });
+  return y + 3;
 }
 
 const COLUMNS = (mode: CollectionPdfMode) => [
@@ -206,11 +205,42 @@ const COLUMNS = (mode: CollectionPdfMode) => [
   'MYJKKN ID',
   'Roll No',
   'Program',
-  'Semester',
+  'Sem / Year',
   'Fee Category',
   mode === 'cash' ? 'Collected By' : 'Reference / Txn No',
   'Receipt Amount'
 ];
+
+const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
+const ROMAN_RE = /^(?:X{0,1}(?:IX|IV|V?I{0,3}))$/i;
+
+/**
+ * "Semester 1" / "Semester I" / "Sem-1" / "1st Semester" / "Year 2" / "II Year"
+ * / "First Year" → "I", "II", … so the column can be narrow (2026-09-25).
+ * Anything it cannot read is returned unchanged.
+ */
+export function shortSemesterLabel(name: string | null | undefined): string {
+  const raw = (name ?? '').trim();
+  if (!raw) return '';
+  const words: Record<string, number> = {
+    first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10,
+  };
+  const stripped = raw
+    .replace(/\b(semester|sem|year|yr)\b\.?/gi, ' ')
+    .replace(/[-_/:]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  // "4th" → "4"; a word like "First" keeps its letters.
+  const token = stripped.replace(/(\d)(st|nd|rd|th)$/i, '$1').trim();
+  if (!token) return raw;
+  if (/^\d{1,2}$/.test(token)) {
+    const n = Number(token);
+    return ROMAN[n] ?? raw;
+  }
+  if (ROMAN_RE.test(token)) return token.toUpperCase();
+  const w = words[token.toLowerCase()];
+  return w ? ROMAN[w] : raw;
+}
 
 /** Build the PDF for one payment mode; the caller saves it. */
 export async function generateCollectionModePdf(opts: CollectionModePdfOptions): Promise<jsPDF> {
@@ -221,8 +251,8 @@ export async function generateCollectionModePdf(opts: CollectionModePdfOptions):
 
   const dateLine =
     dateFrom === dateTo
-      ? `Date: ${longDate(dateFrom)}`
-      : `Period: ${longDate(dateFrom)} to ${longDate(dateTo)}`;
+      ? `DATE : ${dotDate(dateFrom)}`
+      : `DATE : ${dotDate(dateFrom)} TO ${dotDate(dateTo)}`;
 
   const byInstitution = new Map<string, CollectionDaywiseRow[]>();
   for (const r of rows) {
@@ -254,7 +284,7 @@ export async function generateCollectionModePdf(opts: CollectionModePdfOptions):
       if (multiDay) {
         body.push([
           {
-            content: longDate(day.date),
+            content: `DATE : ${dotDate(day.date)}`,
             colSpan: header.length,
             styles: { fontStyle: 'bold'}
           }
@@ -269,10 +299,10 @@ export async function generateCollectionModePdf(opts: CollectionModePdfOptions):
           String(sno),
           r.receipt_number || '',
           learnerName(r),
-          '',
+          r.jkkn_id || '',
           r.roll_number || '',
           r.program_name || '',
-          r.semester_name || '',
+          shortSemesterLabel(r.semester_name),
           r.categories || '',
           mode === 'cash' ? r.collected_by || 'System' : r.payment_reference_number || '',
           money(amount)
@@ -309,7 +339,9 @@ export async function generateCollectionModePdf(opts: CollectionModePdfOptions):
 
     // Widths as fractions of the usable width (277mm on A4 landscape).
     const usable = pageWidth - 2 * MARGIN;
-    const frac = [0.04, 0.095, 0.13, 0.065, 0.075, 0.17, 0.075, 0.14, 0.115, 0.095];
+    // 2026-09-25: S.No, Roll No and Sem/Year (roman numerals) trimmed so
+    // Receipt No and Reference / Txn No get the room a full number needs.
+    const frac = [0.03, 0.12, 0.13, 0.065, 0.06, 0.16, 0.045, 0.14, 0.15, 0.10];
 
     autoTable(doc, {
       startY,
@@ -318,8 +350,8 @@ export async function generateCollectionModePdf(opts: CollectionModePdfOptions):
       theme: 'grid',
       margin: { left: MARGIN, right: MARGIN, top: MARGIN, bottom: 14 },
       styles: {
-        font: 'helvetica',
-        fontSize: 8,
+        font: 'times',
+        fontSize: 9,
         cellPadding: 1.5,
         lineColor: GRID,
         lineWidth: 0.25,
@@ -352,7 +384,7 @@ export async function generateCollectionModePdf(opts: CollectionModePdfOptions):
   const generated = `Generated on ${new Date().toLocaleString('en-IN')}`;
   for (let p = 1; p <= pages; p++) {
     doc.setPage(p);
-    doc.setFont('helvetica', 'normal');
+    doc.setFont('times', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(100, 116, 139);
     doc.text(generated, MARGIN, pageHeight - 6);

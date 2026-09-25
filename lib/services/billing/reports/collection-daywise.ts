@@ -180,6 +180,7 @@ export const DAYWISE_EXPORT_HEADER = [
   'Date',
   'Receipt No',
   'Learner',
+  'MyJKKN ID',
   'Roll No',
   'Institution',
   'Program',
@@ -202,9 +203,9 @@ export const DAYWISE_EXPORT_HEADER = [
 ] as const;
 
 /** Column indexes (0-based) of the three money columns in the detail sheets. */
-export const DETAIL_MONEY_COLS = { gross: 19, refunds: 20, net: 21 } as const;
+export const DETAIL_MONEY_COLS = { gross: 20, refunds: 21, net: 22 } as const;
 /** 0-based index of the Payment Mode column in the detail sheets. */
-export const DETAIL_MODE_COL = 8;
+export const DETAIL_MODE_COL = 9;
 
 function totalCells(
   date: string,
@@ -242,6 +243,7 @@ export function buildDetailRows(
           day.date,
           r.receipt_number,
           learnerName(r),
+          r.jkkn_id ?? '',
           r.roll_number ?? '',
           r.institution_name ?? '',
           r.program_name ?? '',

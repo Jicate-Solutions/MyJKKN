@@ -177,7 +177,7 @@ function labelOf(mode: string): string {
 
 // ── Detail sheets ────────────────────────────────────────────────────────────
 
-const DETAIL_WIDTHS = [12, 18, 28, 12, 34, 30, 12, 28, 14, 24, 16, 16, 20, 12, 14, 26, 14, 20, 30, 15, 12, 15];
+const DETAIL_WIDTHS = [12, 18, 28, 14, 12, 34, 30, 12, 28, 14, 24, 16, 16, 20, 12, 14, 26, 14, 20, 30, 15, 12, 15];
 
 function writeDetail(wb: ExcelJS.Workbook, name: string, rows: ExportRow[], mode: string | null) {
   const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', ySplit: 1 }] });
