@@ -25,6 +25,7 @@
 
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { renderUnderline } from '@/lib/onemark/underline';
 
 export type Lang = 'ta' | 'en';
 
@@ -134,7 +135,9 @@ export function Bilingual({
   if (!picked.text) return null;
   return (
     <span className={cn('block', className)} lang={picked.lang}>
-      {picked.text}
+      {/* An English synonym / antonym stem marks its target as <u>word</u>;
+          show the underline, never the tags. */}
+      {renderUnderline(picked.text)}
     </span>
   );
 }

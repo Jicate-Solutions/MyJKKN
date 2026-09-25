@@ -8,6 +8,8 @@ import { describe, it, expect } from 'vitest';
 import {
   applyRegistrationPrefill,
   buildRegistrationPrefill,
+  deriveContactFromAnswers,
+  formCanSupplyName,
   isRegistrationPrefillSource,
   REGISTRATION_PREFILL_SOURCES,
 } from '@/lib/services/events/registration/form-prefill';
@@ -103,5 +105,37 @@ describe('catalog', () => {
     expect(new Set(vals).size).toBe(vals.length);
     for (const v of vals) expect(isRegistrationPrefillSource(v)).toBe(true);
     expect(isRegistrationPrefillSource('email_address')).toBe(false);
+  });
+});
+
+describe('deriveContactFromAnswers (hidden contact block)', () => {
+  const fields = [
+    { field_key: 'cat', field_label: 'Category', field_type: 'select' },
+    { field_key: 'parent_name', field_label: 'Parent name', field_type: 'text' },
+    { field_key: 'learner_name', field_label: 'Learners name', field_type: 'text' },
+    { field_key: 'mob', field_label: 'Mobile number', field_type: 'phone' },
+    { field_key: 'mail', field_label: 'Email ID', field_type: 'text' },
+    { field_key: 'mapped', field_label: 'Whatever', field_type: 'text', prefill_source: 'full_name' },
+  ];
+
+  it('a field mapped to full_name wins over label guesses', () => {
+    const c = deriveContactFromAnswers(fields, { mapped: 'Mapped Person', learner_name: 'L', mob: '9', mail: 'a@b' });
+    expect(c).toEqual({ name: 'Mapped Person', email: 'a@b', phone: '9' });
+  });
+
+  it('without a mapping, prefers a non-relative "name" text field, then any name field', () => {
+    const noMap = fields.filter((f) => f.field_key !== 'mapped');
+    expect(deriveContactFromAnswers(noMap, { learner_name: 'Anu', parent_name: 'Dad' }).name).toBe('Anu');
+    expect(deriveContactFromAnswers(noMap, { parent_name: 'Dad' }).name).toBe('Dad');
+  });
+
+  it('email falls back to an "email" label; empty answers yield empty strings', () => {
+    expect(deriveContactFromAnswers(fields, { mail: 'x@y' }).email).toBe('x@y');
+    expect(deriveContactFromAnswers(fields, {})).toEqual({ name: '', email: '', phone: '' });
+  });
+
+  it('formCanSupplyName is true only when a name-capable field exists', () => {
+    expect(formCanSupplyName(fields)).toBe(true);
+    expect(formCanSupplyName([{ field_key: 'x', field_label: 'Remarks', field_type: 'textarea' }])).toBe(false);
   });
 });
