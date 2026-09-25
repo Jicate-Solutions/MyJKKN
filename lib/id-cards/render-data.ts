@@ -871,7 +871,8 @@ export async function resolvePhotoDataUrl(candidates: string[]): Promise<string 
  * card renders without artwork rather than erroring).
  */
 export async function resolveBackgroundDataUrl(
-  backgroundImageUrl: string | null | undefined
+  backgroundImageUrl: string | null | undefined,
+  transform?: (dataUrl: string | null) => Promise<string | null>
 ): Promise<string | null> {
   const url = (backgroundImageUrl ?? '').trim();
   if (url === '') return null;
@@ -890,8 +891,15 @@ export async function resolveBackgroundDataUrl(
     );
     return null;
   }
-  return cachedAsset(url, () => fetchImageAsDataUrl(url, BACKGROUND_MAX_BYTES));
+  // `transform` (server-only print boost, passed by the render route) is part
+  // of the cache key so boosted and raw copies never mix.
+  const key = transform ? `${url}#print` : url;
+  return cachedAsset(key, async () => {
+    const raw = await fetchImageAsDataUrl(url, BACKGROUND_MAX_BYTES);
+    return transform ? transform(raw) : raw;
+  });
 }
+
 
 // ── Asset cache ───────────────────────────────────────────────────────────────
 // Template assets (card artwork, logo, principal signature) are the SAME bytes

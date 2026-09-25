@@ -29,6 +29,7 @@ import {
   BLOOM_LEVELS,
   OPTION_KEYS,
   approvalBlockers,
+  topicLabel,
   useApproveDraft,
   useSaveDraft,
   type BloomLevel,
@@ -40,6 +41,7 @@ import {
   type OptionKey,
   type StemTwin,
 } from '../_lib/drafts';
+import { renderUnderline } from '@/lib/onemark/underline';
 import { AssetAttachPanel } from './asset-attach-panel';
 
 const NO_TOPIC = '__none__';
@@ -80,16 +82,6 @@ function twinStamp(t: StemTwin): string {
   ]
     .filter(Boolean)
     .join(' · ');
-}
-
-/** Show a stem's <u>word</u> span as an underline without trusting any other
- *  markup — no innerHTML. */
-function renderUnderline(stem: string) {
-  const parts = stem.split(/(<u>.*?<\/u>)/g);
-  return parts.map((part, i) => {
-    const m = /^<u>(.*?)<\/u>$/.exec(part);
-    return m ? <u key={i}>{m[1]}</u> : <span key={i}>{part}</span>;
-  });
 }
 
 function optionText(list: ItemOption[] | null | undefined, key: OptionKey): string {
@@ -332,7 +324,10 @@ export function DraftCard({ draft, examId, examKey, topics, tags, userId, twins 
               onChange={(e) => setStem(e.target.value)}
               rows={2}
               className="text-[15px] leading-relaxed"
-              placeholder="English stem — mark an underlined word as <u>word</u>"
+              placeholder={
+                // The <u>word</u> hint is for English synonym / antonym items only.
+                examKey === 'tn_hsc_english' ? 'English stem — mark an underlined word as <u>word</u>' : 'English stem'
+              }
             />
             <div className="grid gap-2 sm:grid-cols-2">
               {OPTION_KEYS.map((k) => (
@@ -438,7 +433,7 @@ export function DraftCard({ draft, examId, examKey, topics, tags, userId, twins 
                 <SelectItem value={NO_TOPIC}>Not anchored to a unit</SelectItem>
                 {topics.map((t) => (
                   <SelectItem key={t.id} value={t.id}>
-                    {t.display_name}
+                    {topicLabel(t, examKey)}
                   </SelectItem>
                 ))}
               </SelectContent>
