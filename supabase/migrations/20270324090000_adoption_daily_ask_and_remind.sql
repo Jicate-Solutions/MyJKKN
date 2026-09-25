@@ -217,7 +217,7 @@ DECLARE
   v_today   date := COALESCE(p_as_of, (now() AT TIME ZONE 'Asia/Kolkata')::date);
   v_from    date;   -- "no use since" boundary: term start for term features, forever for weekly
 BEGIN
-  PERFORM pg_advisory_xact_lock(hashtext('fn_adoption_ask_why'));
+  PERFORM pg_advisory_xact_lock(hashtext('adoption_messages'));
 
   IF NOT COALESCE(public.fn_get_policy_bool('adoption.loop.enabled', false), false) THEN
     RETURN jsonb_build_object('success', false, 'error', 'adoption loop is switched off (policy adoption.loop.enabled)');
@@ -286,6 +286,9 @@ BEGIN
                       WHERE aa.user_id = pr.user_id AND aa.feature_key = p_feature_key)
       AND NOT EXISTS (SELECT 1 FROM public.adoption_asks aa
                       WHERE aa.user_id = pr.user_id AND aa.asked_at > now() - interval '7 days')
+      -- one adoption message per person per IST day, whoever sends it (review 3)
+      AND NOT EXISTS (SELECT 1 FROM public.adoption_reminders ar
+                      WHERE ar.user_id = pr.user_id AND ar.sent_at >= (date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata') AT TIME ZONE 'Asia/Kolkata'))
       AND NOT (pr.user_id = ANY (COALESCE(p_exclude, '{}'::uuid[])))
     ORDER BY pr.user_id
     LIMIT CASE WHEN p_limit IS NULL THEN NULL ELSE GREATEST(p_limit, 0) END
@@ -353,12 +356,24 @@ VOLATILE
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+  v_left integer;
 BEGIN
   IF NOT COALESCE(is_super_admin(), false) THEN
     RAISE EXCEPTION 'super admin required' USING ERRCODE = '42501';
   END IF;
 
-  RETURN public.fn_adoption_ask_why_core(p_feature_key, p_as_of, auth.uid(), false, NULL, '{}'::uuid[])
+  -- The button shares the daily run's budget and its one-message-per-day rule
+  -- (review 3): a press after the run has spent the day's budget sends nothing.
+  -- It does NOT read the exclusion list — that list steers the automatic run;
+  -- a super admin pressing Ask why on a feature is a deliberate choice.
+  v_left := public.fn_adoption_day_remaining();
+  IF v_left <= 0 THEN
+    RETURN jsonb_build_object('success', false,
+      'error', 'today''s adoption message budget is used up — try again tomorrow');
+  END IF;
+
+  RETURN public.fn_adoption_ask_why_core(p_feature_key, p_as_of, auth.uid(), false, v_left, '{}'::uuid[])
          - 'targets' - 'dry_run';
 END;
 $$;
@@ -401,7 +416,7 @@ DECLARE
   v_targets uuid[] := '{}'::uuid[];
   v_body    text;
 BEGIN
-  PERFORM pg_advisory_xact_lock(hashtext('fn_adoption_remind'));
+  PERFORM pg_advisory_xact_lock(hashtext('adoption_messages'));
 
   IF NOT COALESCE(public.fn_get_policy_bool('adoption.loop.enabled', false), false) THEN
     RETURN jsonb_build_object('success', false, 'error', 'adoption loop is switched off (policy adoption.loop.enabled)');
@@ -621,7 +636,7 @@ BEGIN
 
   -- same lock as the daily run: the day's budget is read and spent by one
   -- caller at a time
-  PERFORM pg_advisory_xact_lock(hashtext('fn_adoption_daily_tick'));
+  PERFORM pg_advisory_xact_lock(hashtext('adoption_messages'));
 
   v_excluded := public.fn_adoption_tick_excluded();
   IF v_excluded IS NULL THEN
@@ -705,7 +720,7 @@ BEGIN
   END IF;
 
   -- one run at a time: a manual run and the scheduled one cannot interleave
-  PERFORM pg_advisory_xact_lock(hashtext('fn_adoption_daily_tick'));
+  PERFORM pg_advisory_xact_lock(hashtext('adoption_messages'));
 
   -- Features this run leaves alone entirely. FAIL CLOSED: if the list
   -- cannot be read, nothing is sent at all, and the run says why.

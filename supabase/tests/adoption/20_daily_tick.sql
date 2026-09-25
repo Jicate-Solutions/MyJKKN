@@ -382,6 +382,35 @@ END $$;
 INSERT INTO platform_policies (policy_key, scope_type, value, data_type, is_active)
 VALUES ('adoption.tick.exclude_features', 'global', '[]'::jsonb, 'array', true);
 
+-- ===== review 3: the button shares the day's budget and the one-message-a-day rule =====
+\echo '--- button with the day budget spent: EXPECT refused, nothing sent'
+SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);
+SELECT set_config('request.jwt.claim.role','authenticated',false);
+UPDATE platform_policies SET value = '0'::jsonb WHERE policy_key = 'adoption.tick.max_notifications';
+DO $$ DECLARE r jsonb; n0 int; BEGIN
+  SELECT count(*) INTO n0 FROM adoption_asks;
+  r := fn_adoption_ask_why('cap.thing');
+  IF (r->>'success')::boolean IS NOT FALSE OR r->>'error' NOT ILIKE '%budget%' THEN RAISE EXCEPTION 'FAIL button over budget: %', r; END IF;
+  IF (SELECT count(*) FROM adoption_asks) <> n0 THEN RAISE EXCEPTION 'FAIL button over budget wrote asks'; END IF;
+  RAISE NOTICE 'button budget: ok';
+END $$;
+UPDATE platform_policies SET value = '100'::jsonb WHERE policy_key = 'adoption.tick.max_notifications';
+UPDATE adoption_asks SET asked_at = now() - interval '10 days';
+UPDATE adoption_reminders SET sent_at = now() - interval '40 days';
+\echo '--- someone reminded today is not asked why the same IST day, by the button or the run'
+SELECT fn_adoption_register('button.thing','Button thing','do the button thing','{student}',NULL,NULL, now() - interval '45 days', true)->>'success' AS rb;
+DO $$ DECLARE r jsonb; x uuid; n uuid; BEGIN
+  r := fn_adoption_ask_why_core('button.thing', NULL, '20000000-0000-0000-0000-000000000001', true, NULL, '{}'::uuid[]);
+  x := (r->'targets'->>0)::uuid;
+  IF x IS NULL THEN RAISE EXCEPTION 'FAIL setup: nobody left to ask on button.thing: %', r; END IF;
+  SELECT notification_id INTO n FROM adoption_reminders WHERE notification_id IS NOT NULL LIMIT 1;
+  INSERT INTO adoption_reminders (user_id, feature_key, notification_id, sent_at) VALUES (x, 'used.thing', n, now());
+  r := fn_adoption_ask_why_core('button.thing', NULL, '20000000-0000-0000-0000-000000000001', true, NULL, '{}'::uuid[]);
+  IF r->'targets' @> to_jsonb(ARRAY[x]) THEN RAISE EXCEPTION 'FAIL: reminded today but still asked: %', r; END IF;
+  DELETE FROM adoption_reminders WHERE user_id = x AND sent_at > now() - interval '1 minute';
+  RAISE NOTICE 'same-day ask: ok';
+END $$;
+
 -- ===== the button still behaves exactly as before =====
 \echo '--- fn_adoption_ask_why as super admin: EXPECT the old answer shape (no person ids)'
 SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);
