@@ -70,13 +70,20 @@ export async function PATCH(
     }
     await RecruitmentService.assertMayUpdateStatus(supabase, candidate);
 
+    // Why, for the terminal negatives. The candidacy ends there — nothing
+    // transitions out of no_show or offer_rescinded — so this sentence is the
+    // whole record of why an approved hire never started.
+    const reason = typeof body.reason === 'string' ? body.reason.slice(0, 2000) : undefined;
+
     // Special case: no_show uses its own service method with validation
     if (body.status === 'no_show') {
-      const updated = await RecruitmentService.markNoShow(supabase, id);
+      const updated = await RecruitmentService.markNoShow(supabase, id, reason);
       return NextResponse.json({ data: updated });
     }
 
-    const updated = await RecruitmentService.updateStatus(supabase, id, body.status as CandidateStatus);
+    const updated = await RecruitmentService.updateStatus(
+      supabase, id, body.status as CandidateStatus, reason,
+    );
     return NextResponse.json({ data: updated });
   } catch (err) {
     // A permission refusal is a 403 with its own reason — never folded into the

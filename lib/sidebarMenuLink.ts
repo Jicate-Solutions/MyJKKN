@@ -914,6 +914,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ai-query/admin': 'super_admin', // Super admin only - AI Query Tools Registry
   '/admin/ai-models': 'super_admin', // Super admin only - AI Model Config (provider/model picker + spend caps + usage)
   '/admin/loops': 'super_admin', // Super admin only - Loop Control Tower (live health of every self-improving/cadence/accountability loop)
+  '/admin/loops/live': 'super_admin', // Super admin only - Live Loops (per loop: last measurement, its bar, the gap; in-progress readings greyed)
   '/admin/adoption': 'super_admin', // Super admin only - Feature Adoption (the three adoption numbers per shipped feature, why-not answers, simplify/retrain/retire cards)
   '/admin/learner-notes': 'super_admin', // Super admin only - Learner Notes approval queue (AI-drafted support notes reviewed before students see them)
   '/admin/page-metadata': 'super_admin', // Super admin only - Page Search Metadata
@@ -2009,6 +2010,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/pde/faculty/cases/new': 'pde.faculty.view',
   '/pde/faculty/cases/[id]/edit': 'pde.faculty.view',
   '/pde/faculty/cases/[id]/preview': 'pde.faculty.view',
+  '/pde/faculty/cases/[id]/export': 'pde.faculty.view',
   '/pde/faculty/cases/[id]/attempts': 'pde.faculty.view',
   '/pde/faculty/cases/[id]/attempts/[studentId]': 'pde.faculty.view',
   '/pde/learn/cases/[caseSlug]': 'pde.profile.view',

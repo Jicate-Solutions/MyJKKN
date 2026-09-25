@@ -23,6 +23,7 @@ import type { NextRequest } from 'next/server';
 import * as alumniSignal from './handlers/alumni-signal';
 import * as approve from './handlers/approve';
 import * as candidate from './handlers/candidate';
+import * as commentMentions from './handlers/comment-mentions';
 import * as comments from './handlers/comments';
 import * as onboardToStaff from './handlers/onboard-to-staff';
 import * as onboardingCompleteStep from './handlers/onboarding-complete-step';
@@ -73,6 +74,7 @@ export const CANDIDATE_ROUTES: readonly CandidateRouteEntry[] = [
   { key: 'alumni-signal', path: 'alumni-signal', segments: ['alumni-signal'], methods: ['GET'], module: alumniSignal },
   { key: 'approve', path: 'approve', segments: ['approve'], methods: ['POST'], module: approve },
   { key: 'comments', path: 'comments', segments: ['comments'], methods: ['GET', 'POST'], module: comments },
+  { key: 'comment-mentions', path: 'comments/mentions', segments: ['comments', 'mentions'], methods: ['POST'], module: commentMentions },
   { key: 'onboard-to-staff', path: 'onboard-to-staff', segments: ['onboard-to-staff'], methods: ['POST'], module: onboardToStaff },
   { key: 'onboarding-complete-step', path: 'onboarding/complete-step', segments: ['onboarding', 'complete-step'], methods: ['POST'], module: onboardingCompleteStep },
   { key: 'onboarding-start', path: 'onboarding/start', segments: ['onboarding', 'start'], methods: ['POST'], module: onboardingStart },

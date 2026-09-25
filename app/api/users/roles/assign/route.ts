@@ -15,6 +15,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
 import { isPushOptedOut } from '@/lib/push/opt-out';
 import webpush from 'web-push';
 
@@ -205,6 +206,9 @@ export async function POST(request: NextRequest) {
     } catch (e) {
       console.error('[roles/assign] web push failed (role still assigned):', e);
     }
+
+    // Adoption loop: a role was saved onto someone's account.
+    await recordFeatureUse(supabase, FEATURE_KEYS.USERS_ASSIGN_ROLE);
 
     return NextResponse.json({
       ok: true,

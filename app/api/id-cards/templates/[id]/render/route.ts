@@ -59,6 +59,7 @@ import {
 } from '@/lib/id-cards/render-card';
 import { makeCode39SvgDataUrl } from '@/lib/id-cards/barcode';
 import { loadCardFonts } from '@/lib/id-cards/card-fonts';
+import { boostArtworkForPrint } from '@/lib/id-cards/artwork-boost.server';
 import { buildFieldReport } from '@/lib/id-cards/field-report';
 import type { ReactElement } from 'react';
 
@@ -226,13 +227,17 @@ export async function GET(
     // rendered at the built-in font's single regular weight.
     const fonts = await loadCardFonts();
 
+    // The Windows print bridge fetches side=back&format=png; that (and only
+    // that) gets the duplex-corrected back. JSON callers are previews.
+    const printerBack = side === 'back' && format === 'png';
+
     const renderBack = async (): Promise<ArrayBuffer> => {
       const backLayout = parseBackLayout(templateRow.back_layout_json) ?? {};
       const barcodeDataUrl =
         (backLayout.show_barcode ?? true) && person.idCode
           ? makeCode39SvgDataUrl(person.idCode, { height: 110, scale: 3, showText: false })
           : null;
-      const backBackgroundDataUrl = await resolveBackgroundDataUrl(backLayout.background_image);
+      const backBackgroundDataUrl = await resolveBackgroundDataUrl(backLayout.background_image, boostArtworkForPrint);
       const backElement = buildBackElement(
         {
           person,
@@ -242,7 +247,7 @@ export async function GET(
           mappings: parseFieldMappings(templateRow.field_mappings),
           validUntilLabel
         },
-        buildOptions
+        { ...buildOptions, printerBack }
       );
       const size = backCanvasSize(backLayout, buildOptions);
       return new ImageResponse(backElement, { width: size.width, height: size.height, fonts }).arrayBuffer();
@@ -275,10 +280,10 @@ export async function GET(
         await Promise.all([
           resolvePhotoDataUrl(person.photoCandidates),
           makeQrDataUrl(person.qrValue),
-          resolveBackgroundDataUrl(layout?.background_image),
+          resolveBackgroundDataUrl(layout?.background_image, boostArtworkForPrint),
           // Same id-card-assets allowlist as the artwork (fail-soft → null).
-          resolveBackgroundDataUrl(person.institutionLogoUrl),
-          resolveBackgroundDataUrl(person.principalSignatureUrl)
+          resolveBackgroundDataUrl(person.institutionLogoUrl, boostArtworkForPrint),
+          resolveBackgroundDataUrl(person.principalSignatureUrl, boostArtworkForPrint)
         ]);
       photoResolved = photoDataUrl !== null;
       qrResolved = qrDataUrl !== null;

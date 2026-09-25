@@ -2,7 +2,8 @@
 
 // Step 3 — quantity preset, distribution mode, the JABT level mix
 // (decision 6 — never a difficulty scale), the English board shape
-// (decision 15), series count (decision 16) and preview language.
+// (decision 15) and series count (decision 16). The preview language lives on
+// Step 4, the only step that shows question text.
 
 import { useMemo } from 'react';
 import { Input } from '@/components/ui/input';
@@ -21,7 +22,6 @@ import {
   type LevelKey,
   type PaperParams,
   type PaperPolicies,
-  type PreviewLanguage,
 } from '@/lib/services/onemark/paper-service';
 
 interface StepQuantityProps {
@@ -58,9 +58,15 @@ export function StepQuantity({ draft, patch, reference, policies, disabled }: St
   }, [reference.levels, draft.question_count]);
   const shownMix = mixSet ? draft.level_mix : poolMix;
 
+  // Manual distribution: the counts must add up to the question count, and a
+  // chapter cannot be asked for more than it holds (decision 11 — no padding).
+  const manualTotal = scopedChapters.reduce((s, c) => s + (draft.chapter_counts[c.id] ?? 0), 0);
+  const manualBalanced = manualTotal > 0 && manualTotal === draft.question_count;
+
   function setLevel(k: LevelKey, n: number) {
     const next: PaperParams['level_mix'] = { ...(mixSet ? draft.level_mix : poolMix) };
-    next[k] = Math.max(0, Math.min(draft.question_count, Math.round(n)));
+    // A level cannot ask for more questions than the pool holds at that level.
+    next[k] = Math.max(0, Math.min(draft.question_count, reference.levels[k] ?? 0, Math.round(n)));
     patch({ level_mix: next });
   }
   function balance() {
@@ -130,6 +136,7 @@ export function StepQuantity({ draft, patch, reference, policies, disabled }: St
           <Switch checked={draft.enforce_board_blueprint} disabled={disabled} onCheckedChange={(v) => patch({ enforce_board_blueprint: v })} aria-label="Board shape" />
         </div>
       )}
+      {isEnglish && !draft.enforce_board_blueprint && <BoardShapeOffNote />}
 
       {!(isEnglish && draft.enforce_board_blueprint) && (
         <div className="space-y-2">
@@ -165,7 +172,8 @@ export function StepQuantity({ draft, patch, reference, policies, disabled }: St
                     disabled={disabled}
                     onChange={(e) => {
                       const n = Number.parseInt(e.target.value, 10);
-                      patch({ chapter_counts: { ...draft.chapter_counts, [c.id]: Number.isFinite(n) ? Math.max(0, n) : 0 } });
+                      const capped = Number.isFinite(n) ? Math.max(0, Math.min(c.pool_count, n)) : 0;
+                      patch({ chapter_counts: { ...draft.chapter_counts, [c.id]: capped } });
                     }}
                     className="w-20 text-right"
                     aria-label={`Questions from ${c.display_name}`}
@@ -174,6 +182,21 @@ export function StepQuantity({ draft, patch, reference, policies, disabled }: St
                 </li>
               ))}
             </ul>
+          )}
+          {draft.distribution_mode === 'manual' && (
+            <p
+              className={['text-xs', manualBalanced ? 'text-muted-foreground' : 'text-destructive'].join(' ')}
+              role={manualBalanced ? undefined : 'alert'}
+            >
+              <span className="font-mono tabular-nums">
+                {manualTotal} / {draft.question_count}
+              </span>{' '}
+              {manualTotal === 0
+                ? '— set a count for at least one chapter.'
+                : manualTotal !== draft.question_count
+                  ? `— the chapter counts must add up to ${draft.question_count}.`
+                  : 'questions placed.'}
+            </p>
           )}
         </div>
       )}
@@ -209,7 +232,7 @@ export function StepQuantity({ draft, patch, reference, policies, disabled }: St
                 <Slider
                   value={[value]}
                   min={0}
-                  max={Math.max(1, draft.question_count)}
+                  max={Math.max(1, Math.min(draft.question_count, inPool))}
                   step={1}
                   disabled={disabled || inPool === 0}
                   onValueChange={(v) => setLevel(k, v[0] ?? 0)}
@@ -249,26 +272,19 @@ export function StepQuantity({ draft, patch, reference, policies, disabled }: St
             </span>
           </div>
         </div>
-        <div className="space-y-2">
-          <Label>Preview language</Label>
-          <div className="flex items-center gap-1.5">
-            {(['ta', 'en', 'both'] as PreviewLanguage[]).map((l) => (
-              <button
-                key={l}
-                type="button"
-                disabled={disabled}
-                onClick={() => patch({ preview_language: l })}
-                className={[
-                  'h-9 rounded-md border px-3 text-sm transition-colors',
-                  draft.preview_language === l ? 'border-[#0b6d41] bg-[#0b6d41] text-white' : 'border-border hover:bg-muted',
-                ].join(' ')}
-              >
-                {l === 'ta' ? 'தமிழ்' : l === 'en' ? 'English' : 'Both'}
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
     </div>
+  );
+}
+
+/** Decision 15 lets the board shape be switched off; the PRD (English §3.3)
+ *  still asks that the Senior Learner is told what that means. A note, never
+ *  a block. Shared with Step 4. */
+export function BoardShapeOffNote() {
+  return (
+    <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-foreground" role="status">
+      Board shape is off — this paper will no longer match the official board structure (Q1–3 synonyms, Q4–6 antonyms). Fine for a practice sheet;
+      switch it back on for a mock or hall paper.
+    </p>
   );
 }

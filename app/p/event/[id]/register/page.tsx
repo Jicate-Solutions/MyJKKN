@@ -17,6 +17,12 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { createClient as createAnonOrService } from '@supabase/supabase-js';
 import { createClient as createSessionClient } from '@/lib/supabase/server';
+import { findLiveRegistration } from '@/lib/services/events/waitlist-service';
+import {
+  isContactBlockMode,
+  type RegistrationPrefill,
+} from '@/lib/services/events/registration/form-prefill';
+import { resolveMyjkknRegistrant } from '@/lib/services/events/registration/registrant-profile';
 import { Ban, CalendarClock, CalendarDays, MapPin, Ticket } from 'lucide-react';
 import { effectiveFee, formRegistrationState, isFormOpen } from '@/types/tournament';
 import {
@@ -216,6 +222,10 @@ export default async function PublicEventRegisterPage({
   let viewerProfileId: string | null = null;
   let signedInName: string | null = null;
   let signedInEmail: string | null = null;
+  // "Prefill from profile": what this signed-in person's record says, keyed by
+  // the sources a field may name. Empty for a guest. Resolved with the service
+  // client because a learner's own row is RLS-scoped and the public page is anon.
+  let prefill: RegistrationPrefill = {};
   try {
     const session = await createSessionClient();
     const {
@@ -230,6 +240,14 @@ export default async function PublicEventRegisterPage({
       viewerProfileId = profile?.id ?? null;
       signedInName = profile?.full_name ?? user.email ?? null;
       signedInEmail = user.email ?? null;
+
+      if (profile) {
+        const resolved = await resolveMyjkknRegistrant(svc as any, user.id);
+        if (resolved) {
+          prefill = resolved.prefill;
+          signedInName = resolved.fullName ?? signedInName;
+        }
+      }
     }
   } catch {
     /* no session — guest flow */
@@ -269,7 +287,7 @@ export default async function PublicEventRegisterPage({
 
   const formQuery = svc
     .from('event_registration_forms')
-    .select('id, slug, name, description, is_enabled, starts_at, ends_at, fee_enabled, fee_amount, fee_label')
+    .select('id, slug, name, description, is_enabled, starts_at, ends_at, fee_enabled, fee_amount, fee_label, contact_block')
     .eq('event_id', id);
 
   const { data: formRows } = requestedSlug
@@ -321,6 +339,12 @@ export default async function PublicEventRegisterPage({
       />
     );
   }
+
+  // A signed-in person who already holds a live registration on THIS form is
+  // told so up front instead of being handed a form that will refuse them.
+  const alreadyRegistered = viewerProfileId
+    ? !!(await findLiveRegistration(svc as never, id, formRow.id, viewerProfileId).catch(() => null))
+    : false;
 
   // Fields by form_id, NEVER event_id — filtering by event renders every other
   // month's questions on this month's form.
@@ -382,49 +406,67 @@ export default async function PublicEventRegisterPage({
   const when = ev.event_date ?? ev.start_date;
   const where = ev.venue || ev.venue_text;
 
+  // This page is what the public sees when a link is forwarded, so it is
+  // deliberately colourful (2026-09-24): a tinted backdrop, a gradient title
+  // band and coloured meta chips — and wider than the old one-column card.
   return (
-    <main className="mx-auto max-w-xl px-4 py-8">
-      <header className="mb-5 rounded-xl border bg-card p-5 shadow-sm">
-        <div className="flex items-start gap-3">
-          <div className="rounded-lg bg-primary/10 p-2.5">
-            <Ticket className="h-6 w-6 text-primary" />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-lg font-bold leading-tight">{ev.name}</h1>
-            {formRow.description && (
-              <p className="mt-1 text-sm text-muted-foreground">{formRow.description}</p>
-            )}
-            <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-              {when && (
-                <p className="flex items-center gap-1.5">
-                  <CalendarDays className="h-3.5 w-3.5" />
-                  {new Date(when).toLocaleDateString('en-IN', {
-                    day: 'numeric',
-                    month: 'long',
-                    year: 'numeric',
-                  })}
-                </p>
-              )}
-              {where && (
-                <p className="flex items-center gap-1.5">
-                  <MapPin className="h-3.5 w-3.5" />
-                  {where}
-                </p>
-              )}
-              {ev.registration_close_date && (
-                <p className="flex items-center gap-1.5">
-                  <CalendarClock className="h-3.5 w-3.5" />
-                  Registration closes{' '}
-                  {new Date(ev.registration_close_date).toLocaleDateString('en-IN', {
-                    day: 'numeric',
-                    month: 'short',
-                    year: 'numeric',
-                  })}
-                </p>
+    <div className="min-h-screen bg-gradient-to-b from-emerald-50 via-sky-50/60 to-white dark:from-emerald-950/40 dark:via-sky-950/20 dark:to-background">
+    <main className="mx-auto max-w-3xl px-4 py-6 sm:py-10">
+      <header className="mb-6 overflow-hidden rounded-2xl border border-emerald-200/70 bg-card shadow-md dark:border-emerald-900">
+        {/* The event's banner (Registration forms → Banner, or events.hero_image_url). */}
+        {ev.hero_image_url && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={ev.hero_image_url}
+            alt=""
+            className="block w-full object-cover"
+          />
+        )}
+        <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-sky-600 px-5 py-5 text-white sm:px-7">
+          <div className="flex items-start gap-3">
+            <div className="rounded-xl bg-white/20 p-2.5 ring-1 ring-white/40">
+              <Ticket className="h-6 w-6" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-white/80">Event registration</p>
+              <h1 className="mt-0.5 text-2xl font-bold leading-tight sm:text-3xl">{ev.name}</h1>
+              {formRow.description && (
+                <p className="mt-1.5 text-sm text-white/90">{formRow.description}</p>
               )}
             </div>
           </div>
         </div>
+        {(when || where || ev.registration_close_date) && (
+          <div className="flex flex-wrap gap-2 px-5 py-4 sm:px-7">
+            {when && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-medium text-sky-800 dark:border-sky-900 dark:bg-sky-950/60 dark:text-sky-200">
+                <CalendarDays className="h-3.5 w-3.5" />
+                {new Date(when).toLocaleDateString('en-IN', {
+                  day: 'numeric',
+                  month: 'long',
+                  year: 'numeric',
+                })}
+              </span>
+            )}
+            {where && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-medium text-violet-800 dark:border-violet-900 dark:bg-violet-950/60 dark:text-violet-200">
+                <MapPin className="h-3.5 w-3.5" />
+                {where}
+              </span>
+            )}
+            {ev.registration_close_date && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-200">
+                <CalendarClock className="h-3.5 w-3.5" />
+                Registration closes{' '}
+                {new Date(ev.registration_close_date).toLocaleDateString('en-IN', {
+                  day: 'numeric',
+                  month: 'short',
+                  year: 'numeric',
+                })}
+              </span>
+            )}
+          </div>
+        )}
       </header>
 
       <EventRegisterForm
@@ -435,6 +477,9 @@ export default async function PublicEventRegisterPage({
         feeLabel={formRow.fee_label ?? null}
         signedInName={signedInName}
         signedInEmail={signedInEmail}
+        prefill={prefill}
+        contactBlock={isContactBlockMode(formRow.contact_block) ? formRow.contact_block : 'top'}
+        alreadyRegistered={alreadyRegistered}
         full={full}
         claimOnly={windowClosedButHoldsAPlace}
         sections={sections as never}
@@ -444,5 +489,6 @@ export default async function PublicEventRegisterPage({
         JKKN Institutions · Event registration
       </footer>
     </main>
+    </div>
   );
 }

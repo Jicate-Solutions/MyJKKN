@@ -44,13 +44,20 @@ import {
   canAskWhy,
   daysSinceShipped,
   isDeadFeature,
+  isSkipped,
   isStale,
   isOldEnoughToJudge,
+  isTermFeature,
   shippedAgo,
+  skippedGroups,
   summariseAdoption,
   toNumber,
   type AdoptionMetricRow,
   type Numeric,
+  rollingWeekStart,
+  isEventFeature,
+  countsWhat,
+  COUNTS_WHAT_LABEL,
 } from '@/lib/adoption/summarise';
 import { FeatureActions, type PendingProposal } from './_components/feature-actions';
 import { RegisterFeatureForm } from './_components/register-feature-form';
@@ -177,8 +184,15 @@ export default async function FeatureAdoptionPage() {
   });
   const loopEnabled = loopEnabledData === true;
 
+  const now = new Date();
   const [metricsResult, loginsResult, proposalsResult] = await Promise.all([
-    supabase.rpc('fn_adoption_metrics', { p_week_start: null, p_institution_id: null }),
+    // One clock for the whole render: the rolling window and the dead rule must agree.
+    supabase.rpc('fn_adoption_metrics', {
+      // A ROLLING seven days, not the calendar week: on a Monday or Tuesday a
+      // calendar week is barely begun and every share reads as a collapse.
+      p_week_start: rollingWeekStart(now),
+      p_institution_id: null,
+    }),
     supabase.rpc('fn_adoption_logins_daily', { p_days: 30, p_institution_id: null }),
     supabase
       .from('adoption_proposals')
@@ -207,9 +221,13 @@ export default async function FeatureAdoptionPage() {
     }
   }
 
-  const now = new Date();
   const { labelled, measured, dead, groups } = summariseAdoption(rows, now);
   const weekStart = rows[0]?.week_start ?? null;
+  // Skipped features are labelled but deliberately not measured. They are out
+  // of the three numbers and out of the table; they get a plain list at the
+  // bottom instead, so the decision stays visible and reversible.
+  const tracked = groups.filter((group) => !isSkipped(group));
+  const skipped = skippedGroups(groups);
 
   return (
     <ContentLayout title="Feature adoption" fullWidth>
@@ -219,10 +237,13 @@ export default async function FeatureAdoptionPage() {
             Feature adoption
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            What share of the people a feature was built for actually used it this week
-            {weekStart ? ` (week beginning ${weekStart})` : ''}. A feature is called dead
+            What share of the people a feature was built for actually used it in the last
+            seven days{weekStart ? ` (since ${weekStart})` : ''}. A feature is called dead
             when it is at least {DEAD_AFTER_DAYS} days old and under {DEAD_WEEKLY_PCT}% for
-            every role it was meant for.
+            every role it was meant for. A seasonal feature — marked{' '}
+            <span className="font-medium text-foreground">term</span> — is judged on the LAST
+            COMPLETED term, never the one running, and only if it shipped before that term
+            began.
           </p>
         </div>
 
@@ -250,7 +271,7 @@ export default async function FeatureAdoptionPage() {
           />
           <Headline
             value={measured}
-            label="Measured this week"
+            label="Measured"
             hint="Labelled features that something records and that have intended people."
           />
           <Headline
@@ -283,10 +304,10 @@ export default async function FeatureAdoptionPage() {
           <SyncUsageButton disabled={!loopEnabled} />
         </div>
 
-        {groups.length === 0 ? (
+        {tracked.length === 0 ? (
           <div className="rounded-xl border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
-            No features are labelled yet, so nothing is being measured. Label one above and
-            it will appear here from the next use onward.
+            Nothing is being measured yet. Label a feature above and it will appear here
+            from the next use onward.
           </div>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm dark:shadow-none">
@@ -297,7 +318,12 @@ export default async function FeatureAdoptionPage() {
                   <TableHead>For whom</TableHead>
                   <TableHead>Core action</TableHead>
                   <TableHead>Shipped</TableHead>
-                  <TableHead className="text-right">Weekly</TableHead>
+                  {/* One table, two cadences: the column header stays neutral and
+                      each cell says which share it is showing. */}
+                  <TableHead className="text-right">Active</TableHead>
+                  {/* Only a term feature has a last term, and for it this is the
+                      column that decides. Weekly features leave it blank. */}
+                  <TableHead className="text-right">Last term</TableHead>
                   <TableHead className="text-right">Ever</TableHead>
                   <TableHead className="text-right">Asked</TableHead>
                   <TableHead>Answers</TableHead>
@@ -306,12 +332,13 @@ export default async function FeatureAdoptionPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {groups.map((group) => {
+                {tracked.map((group) => {
                   const span = group.rows.length;
                   const daysOld = daysSinceShipped(group.shipped_at, now);
                   const featureIsDead = isDeadFeature(group, now);
                   const answers = Object.entries(group.answers);
                   const pending = pendingByFeature.get(group.feature_key) ?? null;
+                  const seasonal = isTermFeature(group);
 
                   return group.rows.map((row, index) => (
                     <TableRow key={`${group.feature_key}-${row.role ?? index}`}>
@@ -321,6 +348,23 @@ export default async function FeatureAdoptionPage() {
                           <div className="text-xs text-muted-foreground">
                             {group.feature_key}
                           </div>
+                          {seasonal ? (
+                            <div className="text-xs text-muted-foreground">
+                              <div>judged by last term</div>
+                              {group.prev_term_start && group.prev_term_end ? (
+                                <div>
+                                  last term {group.prev_term_start} → {group.prev_term_end}
+                                </div>
+                              ) : (
+                                <div>no completed term yet</div>
+                              )}
+                              {group.term_start && group.term_end ? (
+                                <div>
+                                  current term {group.term_start} → {group.term_end}
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : null}
                           {group.module ? (
                             <div className="text-xs text-muted-foreground">
                               {group.module}
@@ -361,19 +405,49 @@ export default async function FeatureAdoptionPage() {
                         </TableCell>
                       ) : null}
 
+                      {/* The RUNNING share. For a seasonal feature this is the
+                          term in progress: shown, never judged, because the
+                          season it belongs to may not have come round yet. */}
                       <TableCell className="align-top text-right text-sm tabular-nums">
                         <span
                           className={
-                            toNumber(row.pct_weekly) < DEAD_WEEKLY_PCT && featureIsDead
+                            !seasonal &&
+                            toNumber(row.pct_weekly) < DEAD_WEEKLY_PCT &&
+                            featureIsDead
                               ? 'font-semibold text-red-600 dark:text-red-400'
                               : 'text-foreground'
                           }
                         >
-                          {pct(row.pct_weekly)}
+                          {pct(seasonal ? row.pct_term : row.pct_weekly)}
                         </span>
                         <div className="text-xs text-muted-foreground">
-                          {toNumber(row.weekly_active)} of {toNumber(row.intended_count)}
+                          {toNumber(seasonal ? row.term_active : row.weekly_active)} of{' '}
+                          {toNumber(row.intended_count)} {seasonal ? 'this term' : 'in 7 days'}
                         </div>
+                      </TableCell>
+
+                      {/* The LAST COMPLETED term — the number a term feature is
+                          actually judged on. */}
+                      <TableCell className="align-top text-right text-sm tabular-nums">
+                        {seasonal ? (
+                          <>
+                            <span
+                              className={
+                                toNumber(row.pct_prev_term) < DEAD_WEEKLY_PCT && featureIsDead
+                                  ? 'font-semibold text-red-600 dark:text-red-400'
+                                  : 'text-foreground'
+                              }
+                            >
+                              {pct(row.pct_prev_term)}
+                            </span>
+                            <div className="text-xs text-muted-foreground">
+                              {toNumber(row.prev_term_active)} of{' '}
+                              {toNumber(row.intended_count)} last term
+                            </div>
+                          </>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
                       </TableCell>
 
                       <TableCell className="align-top text-right text-sm tabular-nums text-muted-foreground">
@@ -410,12 +484,26 @@ export default async function FeatureAdoptionPage() {
 
                       {index === 0 ? (
                         <TableCell rowSpan={span} className="align-top">
-                          <Badge
-                            variant="outline"
-                            className={STATUS_TONE[group.status] ?? 'text-foreground'}
-                          >
-                            {group.status}
-                          </Badge>
+                          <div className="flex flex-wrap items-center gap-1">
+                            <Badge
+                              variant="outline"
+                              className={STATUS_TONE[group.status] ?? 'text-foreground'}
+                            >
+                              {group.status}
+                            </Badge>
+                            <Badge variant="outline" className="text-muted-foreground">
+                              {isEventFeature(group) ? 'when needed' : seasonal ? 'term' : 'weekly'}
+                            </Badge>
+                            {countsWhat(group) ? (
+                              <Badge
+                                variant="outline"
+                                className="text-muted-foreground"
+                                title={COUNTS_WHAT_LABEL[countsWhat(group)!].hint}
+                              >
+                                {COUNTS_WHAT_LABEL[countsWhat(group)!].label}
+                              </Badge>
+                            ) : null}
+                          </div>
                           {featureIsDead ? (
                             <div className="mt-1 text-xs font-medium text-red-600 dark:text-red-400">
                               dead
@@ -449,6 +537,7 @@ export default async function FeatureAdoptionPage() {
                             canAsk={canAskWhy(group, now)}
                             askedCount={group.asked_count}
                             pendingProposal={pending}
+                            cadence={group.cadence}
                           />
                         </TableCell>
                       ) : null}
@@ -459,6 +548,28 @@ export default async function FeatureAdoptionPage() {
             </Table>
           </div>
         )}
+
+        {skipped.length > 0 ? (
+          <div className="rounded-xl border border-border bg-muted/30 p-4">
+            <p className="text-sm font-medium text-foreground">Skipped on purpose</p>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Labelled so the list stays complete, then kept out of every number above.
+              These are not dead and nobody is asked about them. Clear the skip reason on a
+              label to start measuring it again.
+            </p>
+            <ul className="space-y-1.5">
+              {skipped.map((group) => (
+                <li key={group.feature_key} className="text-sm">
+                  <span className="font-medium text-foreground">{group.title}</span>
+                  <span className="text-muted-foreground"> · {group.feature_key}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {group.skip_reason}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </div>
     </ContentLayout>
   );
