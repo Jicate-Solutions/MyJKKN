@@ -305,3 +305,119 @@ export async function fetchRecentFirefliesTranscripts(options?: {
 
   return { ok: true, data: transcripts };
 }
+
+/** One spoken line of a transcript, as the note-drafter reads it. */
+export interface FirefliesSentence {
+  speakerName: string | null;
+  text: string;
+}
+
+/**
+ * The spoken lines of ONE transcript — the input the AI note-drafter needs
+ * when Fireflies returned no summary (app/api/cron/meeting-note-drafts).
+ *
+ * A SEPARATE query on purpose. TRANSCRIPTS_QUERY above is untouched: a field
+ * Fireflies rejects there fails the whole ingest, while one rejected field here
+ * fails only the draft for one note.
+ *
+ * UNVERIFIED AGAINST THE LIVE API. `transcript(id:)`, `sentences`,
+ * `speaker_name` and `text` come from Fireflies' published schema and have not
+ * been exercised against a real response. A rejection comes back as
+ * `reason: 'rejected'` with Fireflies' own message — that is the signal to fix
+ * this string.
+ */
+const TRANSCRIPT_SENTENCES_QUERY = `
+  query MyJkknTranscriptSentences($id: String!) {
+    transcript(id: $id) {
+      sentences { speaker_name text }
+    }
+  }
+`;
+
+export async function fetchFirefliesTranscriptSentences(
+  id: string,
+): Promise<FirefliesResult<FirefliesSentence[]>> {
+  const apiKey = (process.env.FIREFLIES_API_KEY ?? '').trim();
+  if (!apiKey) {
+    return {
+      ok: false,
+      reason: 'not_connected',
+      message: 'Fireflies is not connected yet. Add a FIREFLIES_API_KEY to read transcripts.',
+    };
+  }
+  const transcriptId = asString(id);
+  if (!transcriptId) {
+    return { ok: false, reason: 'unreadable', message: 'No Fireflies transcript id was given.' };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(FIREFLIES_GRAPHQL_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ query: TRANSCRIPT_SENTENCES_QUERY, variables: { id: transcriptId } }),
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+  } catch (error) {
+    const aborted = error instanceof Error && error.name === 'AbortError';
+    return {
+      ok: false,
+      reason: 'unreachable',
+      message: aborted
+        ? `Fireflies did not answer within ${REQUEST_TIMEOUT_MS / 1000}s.`
+        : `Could not reach Fireflies: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!response.ok) {
+    return { ok: false, reason: 'rejected', message: `Fireflies answered ${response.status}.` };
+  }
+
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    return { ok: false, reason: 'unreadable', message: 'Fireflies returned a body that is not JSON.' };
+  }
+
+  const body = (payload ?? {}) as { data?: unknown; errors?: unknown };
+  if (Array.isArray(body.errors) && body.errors.length > 0) {
+    const first = body.errors[0] as { message?: unknown };
+    return {
+      ok: false,
+      reason: 'rejected',
+      message: asString(first?.message) ?? 'Fireflies rejected the sentences query.',
+    };
+  }
+
+  const transcript = (body.data as { transcript?: unknown } | undefined)?.transcript as
+    | { sentences?: unknown }
+    | null
+    | undefined;
+  if (!transcript || !Array.isArray(transcript.sentences)) {
+    return {
+      ok: false,
+      reason: 'unreadable',
+      message: 'Fireflies returned no sentences for this transcript.',
+    };
+  }
+
+  const sentences: FirefliesSentence[] = [];
+  for (const entry of transcript.sentences) {
+    if (!entry || typeof entry !== 'object') continue;
+    const row = entry as Record<string, unknown>;
+    const text = asString(row.text);
+    if (!text) continue;
+    sentences.push({ speakerName: asString(row.speaker_name), text });
+  }
+  return { ok: true, data: sentences };
+}

@@ -17,7 +17,10 @@ import knownJobTypes from './known-job-types.json';
 // the 06:37 IST schedule row), the snapshot below was refreshed to 61 job
 // types, and the entry was deleted — which is exactly what the staleness test
 // at the bottom of this file exists to force.
-const KNOWN_UNREGISTERED: Record<string, string> = {};
+const KNOWN_UNREGISTERED: Record<string, string> = {
+  'meetings.note_draft':
+    'Registered by supabase/migrations/20270402120000_meetings_note_draft_job.sql (FILE ONLY, applied at merge, ships enabled=false). Remove this entry and refresh known-job-types.json once applied.',
+};
 
 // ---------------------------------------------------------------------------
 // featureKey coverage invariant.
