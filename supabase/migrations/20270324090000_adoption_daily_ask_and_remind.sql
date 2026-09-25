@@ -367,6 +367,9 @@ BEGIN
   -- (review 3): a press after the run has spent the day's budget sends nothing.
   -- It does NOT read the exclusion list — that list steers the automatic run;
   -- a super admin pressing Ask why on a feature is a deliberate choice.
+  -- The shared lock is taken BEFORE the budget is read (review 4): two presses,
+  -- or a press during the daily run, cannot both spend the same remainder.
+  PERFORM pg_advisory_xact_lock(hashtext('adoption_messages'));
   v_left := public.fn_adoption_day_remaining();
   IF v_left <= 0 THEN
     RETURN jsonb_build_object('success', false,

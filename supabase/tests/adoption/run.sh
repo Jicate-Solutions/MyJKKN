@@ -31,3 +31,6 @@ psql -d "$DB" -v ON_ERROR_STOP=1 -f "$HERE/10_scenarios.sql" | grep -E "FAIL|ALL
 # Migration E (2026-09-24, rulings 9 + 10): the daily run asks why and reminds on its own.
 build
 psql -d "$DB" -v ON_ERROR_STOP=1 -f "$HERE/20_daily_tick.sql" 2>&1 | grep -E "FAIL|ERROR|DAILY TICK SCENARIOS PASSED"
+
+# Review 4 (2026-09-25): two simultaneous Ask-why presses cannot overspend the day's budget.
+bash "$HERE/21_concurrency.sh" "$DB"
