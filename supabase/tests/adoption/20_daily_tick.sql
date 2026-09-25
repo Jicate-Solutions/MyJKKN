@@ -417,6 +417,61 @@ DO $$ DECLARE w jsonb; BEGIN
   RAISE NOTICE 'first before repeat: ok';
 END $$;
 ROLLBACK;
+-- ===== review 6: floor share, and repeats ranked across features =====
+SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);
+SELECT fn_adoption_register('mid.thing','Mid thing','do the mid thing','{student}',NULL,NULL, now() - interval '40 days', true)->>'success' AS rm;
+INSERT INTO feature_usage (user_id, feature_key, day, count) VALUES
+  ('30000000-0000-0000-0000-000000000001','mid.thing',(now() AT TIME ZONE 'Asia/Kolkata')::date - 1,1);
+\echo '--- floor share: budget 4, three features, eight never-users: EXPECT every feature reminded (2/1/1), never 2/2/0'
+BEGIN;
+INSERT INTO profiles (id, email, full_name, role, institution_id, is_super_admin)
+SELECT ('30000000-0000-0000-0000-0000000000'||lpad(g::text,2,'0'))::uuid, 'lx'||g||'@x', 'Learner '||g, 'student','aaaaaaaa-0000-0000-0000-000000000001', false
+FROM generate_series(6,10) g;
+UPDATE feature_registry SET status = 'retired' WHERE feature_key NOT IN ('old.thing','big.thing','mid.thing','app.login');
+UPDATE adoption_asks SET asked_at = now() - interval '40 days';
+DELETE FROM adoption_reminders WHERE feature_key IN ('old.thing','big.thing','mid.thing');
+UPDATE adoption_reminders SET sent_at = now() - interval '40 days';
+UPDATE platform_policies SET value = '4'::jsonb WHERE policy_key = 'adoption.tick.max_notifications';
+SELECT set_config('request.jwt.claim.sub','',false);
+DO $$ DECLARE w jsonb; BEGIN
+  w := fn_adoption_daily_tick(true);
+  IF COALESCE((w->'features'->'old.thing'->>'reminded')::int,0) < 1
+     OR COALESCE((w->'features'->'mid.thing'->>'reminded')::int,0) < 1
+     OR COALESCE((w->'features'->'big.thing'->>'reminded')::int,0) < 1
+     OR (w->>'reminded')::int <> 4 THEN
+    RAISE EXCEPTION 'FAIL floor share: %', w->'features'; END IF;
+  RAISE NOTICE 'floor share: ok';
+END $$;
+ROLLBACK;
+\echo '--- repeats across features: budget 1, everyone had a first reminder on both, the OLDER feature''s reminder is older: EXPECT it wins'
+BEGIN;
+SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);
+UPDATE feature_registry SET status = 'retired' WHERE feature_key NOT IN ('old.thing','big.thing','app.login');
+UPDATE adoption_asks SET asked_at = now() - interval '40 days';
+DELETE FROM adoption_reminders WHERE feature_key IN ('old.thing','big.thing');
+UPDATE adoption_reminders SET sent_at = now() - interval '40 days';
+-- learner 2 is due only on big.thing (31 days); learner 3 only on old.thing (60 days);
+-- learner 4 on neither. Per-feature order (newest first) would pick learner 2.
+INSERT INTO adoption_reminders (user_id, feature_key, notification_id, sent_at)
+SELECT v.u::uuid, v.f, (SELECT notification_id FROM adoption_reminders WHERE notification_id IS NOT NULL LIMIT 1), now() - v.ago
+FROM (VALUES
+  ('30000000-0000-0000-0000-000000000002','big.thing', interval '31 days'),
+  ('30000000-0000-0000-0000-000000000002','old.thing', interval '10 days'),
+  ('30000000-0000-0000-0000-000000000003','old.thing', interval '60 days'),
+  ('30000000-0000-0000-0000-000000000003','big.thing', interval '10 days'),
+  ('30000000-0000-0000-0000-000000000004','old.thing', interval '10 days'),
+  ('30000000-0000-0000-0000-000000000004','big.thing', interval '10 days')) AS v(u, f, ago);
+UPDATE platform_policies SET value = '1'::jsonb WHERE policy_key = 'adoption.tick.max_notifications';
+SELECT set_config('request.jwt.claim.sub','',false);
+DO $$ DECLARE w jsonb; BEGIN
+  w := fn_adoption_daily_tick(true);
+  IF COALESCE((w->'features'->'old.thing'->>'reminded')::int,0) <> 1
+     OR COALESCE((w->'features'->'big.thing'->>'reminded')::int,0) <> 0 THEN
+    RAISE EXCEPTION 'FAIL repeats across features: %', w->'features'; END IF;
+  RAISE NOTICE 'repeats across features: ok';
+END $$;
+ROLLBACK;
+UPDATE feature_registry SET status = 'retired' WHERE feature_key = 'mid.thing';
 SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);
 UPDATE feature_registry SET status = 'retired' WHERE feature_key IN ('old.thing','big.thing');
 

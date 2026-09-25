@@ -30,6 +30,7 @@ vi.mock('@/lib/supabase/server', () => ({
 }));
 
 import { GET, summariseTick } from '@/app/api/cron/adoption-daily-tick/route';
+import { summarizeRoutineResult } from '@/lib/ai-routines/summarize-routine-result';
 
 const SECRET = 'test-cron-secret';
 
@@ -108,6 +109,17 @@ describe('what the run does and reports', () => {
     const res = await GET(request({ bearer: SECRET }));
     expect(res.status).toBe(500);
     expect((await res.json()).error).toContain('no sender');
+  });
+
+  it('puts the totals at the top level so the dispatcher status line shows them', async () => {
+    const res = await GET(request({ bearer: SECRET }));
+    const body = await res.json();
+    expect(body.sent).toBe(10);
+    expect(body.asked).toBe(3);
+    expect(body.reminded).toBe(7);
+    const line = summarizeRoutineResult(200, body);
+    expect(line).toContain('sent 10');
+    expect(line).toContain('reminded 7');
   });
 
   it('is a 500 when the database answered nothing at all', async () => {

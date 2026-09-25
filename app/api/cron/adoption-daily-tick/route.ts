@@ -15,8 +15,10 @@
 //     the button uses (once per feature ever, once per person per 7 days);
 //   * a reminder only to people who never did the core action, at most once a
 //     month per person per feature;
-//   * at most adoption.tick.max_notifications people per run, one adoption
-//     message per person per run;
+//   * at most adoption.tick.max_notifications people per IST day (shared with
+//     the Ask why button), one adoption message per person per IST day;
+//   * a fair order: questions first, then first reminders, each feature an
+//     equal share; repeats last, oldest reminder first across all features;
 //   * nothing at all while adoption.loop.enabled is off.
 // This route adds no rule of its own, so it cannot loosen one.
 //
@@ -109,9 +111,18 @@ export async function GET(request: NextRequest) {
     dry_run: result.dry_run ?? dryRun,
   });
 
+  // The counters sit at the TOP level too: the AI-routine dispatcher's status
+  // line (lib/ai-routines/summarize-routine-result.ts) reads top-level numbers
+  // only, so nested ones would leave last_status at a bare "HTTP 200".
+  // 'sent' is a headline key and prints even at zero.
+  const asked = Number(result.asked ?? 0);
+  const reminded = Number(result.reminded ?? 0);
   return NextResponse.json({
     ok: true,
     summary,
+    sent: asked + reminded,
+    asked,
+    reminded,
     elapsed_ms: Date.now() - started,
     result,
   });
