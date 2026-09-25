@@ -11,11 +11,12 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import {
   AlertCircle, AlertTriangle, ArrowUpRight, CalendarClock, CheckCircle2, Clock,
-  ClipboardCheck, Eye, FileText, Inbox, Loader2, Mail, Phone, Settings, Star,
-  Trash2, UserPlus, XCircle,
+  ClipboardCheck, Eye, FileText, Inbox, Loader2, Mail, Phone, Search, Settings,
+  Star, Trash2, UserPlus, X, XCircle,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -128,6 +129,12 @@ export function WorkspaceCandidatesTab({ jobId }: { jobId: string }) {
   const [chip, setChip] = useState<StageKey | 'all'>('all');
   const [userId, setUserId] = useState<string | null>(null);
 
+  // ?q= is set by the approvals people-search ("Open in job"), so a hit there
+  // lands on the person instead of the top of a 40-row pipeline. It only seeds
+  // the box — typing afterwards is free, and clearing it is one click.
+  const searchParams = useSearchParams();
+  const [nameQuery, setNameQuery] = useState(() => searchParams.get('q') ?? '');
+
   useEffect(() => {
     const supabase = createClientSupabaseClient();
     supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
@@ -183,19 +190,51 @@ export function WorkspaceCandidatesTab({ jobId }: { jobId: string }) {
     );
   }, [appsData, candidates]);
 
-  const counts = useMemo(() => {
-    const c = new Map<StageKey | 'all', number>([['all', rows.length]]);
-    for (const r of rows) c.set(r.stage, (c.get(r.stage) ?? 0) + 1);
-    return c;
-  }, [rows]);
+  // Name/email narrowing runs BEFORE the chip counts, so the chips describe the
+  // list actually on screen rather than the whole pipeline behind it.
+  const matched = useMemo(() => {
+    const q = nameQuery.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(
+      (r) => r.name.toLowerCase().includes(q) || r.email.toLowerCase().includes(q),
+    );
+  }, [rows, nameQuery]);
 
-  const visible = chip === 'all' ? rows : rows.filter((r) => r.stage === chip);
+  const counts = useMemo(() => {
+    const c = new Map<StageKey | 'all', number>([['all', matched.length]]);
+    for (const r of matched) c.set(r.stage, (c.get(r.stage) ?? 0) + 1);
+    return c;
+  }, [matched]);
+
+  const visible = chip === 'all' ? matched : matched.filter((r) => r.stage === chip);
 
   // T8.5 — JKKN history badges, one bulk fetch for all visible emails.
   const { data: alumniMap } = useAlumniSignalBulk(rows.map((r) => r.email));
 
   return (
     <div className="space-y-3">
+      {/* Narrow this job's pipeline by person */}
+      <div className="relative sm:max-w-xs">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          value={nameQuery}
+          onChange={(e) => setNameQuery(e.target.value)}
+          placeholder="Search this job's candidates…"
+          className="pl-8 pr-8 h-9"
+          aria-label="Search candidates in this job by name or email"
+        />
+        {nameQuery && (
+          <button
+            type="button"
+            onClick={() => setNameQuery('')}
+            aria-label="Clear candidate search"
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
       {/* Quick-filter chips */}
       <div className="flex flex-wrap gap-1.5">
         {CHIP_ORDER.map((key) => {
@@ -250,13 +289,28 @@ export function WorkspaceCandidatesTab({ jobId }: { jobId: string }) {
           <CardContent className="py-12 flex flex-col items-center gap-2 text-center">
             <Inbox className="h-8 w-8 text-muted-foreground/60" />
             <p className="text-sm font-medium">
-              {chip === 'all' ? 'No candidates yet' : `No ${STAGE_META[chip as StageKey].label.toLowerCase()} candidates`}
+              {nameQuery.trim()
+                ? `No candidate matches “${nameQuery.trim()}”`
+                : chip === 'all'
+                ? 'No candidates yet'
+                : `No ${STAGE_META[chip as StageKey].label.toLowerCase()} candidates`}
             </p>
             <p className="text-xs text-muted-foreground max-w-sm">
-              {chip === 'all'
+              {nameQuery.trim()
+                ? 'This job has no applicant by that name or email.'
+                : chip === 'all'
                 ? 'Applications submitted from the careers page or the Apply flow will appear here.'
                 : 'Try another filter.'}
             </p>
+            {nameQuery.trim() && (
+              <button
+                type="button"
+                onClick={() => setNameQuery('')}
+                className="mt-1 text-xs text-primary underline-offset-2 hover:underline cursor-pointer"
+              >
+                Clear search
+              </button>
+            )}
           </CardContent>
         </Card>
       )}
@@ -656,9 +710,16 @@ function RowActions({
   // enforces the same gate).
   const startOnboarding = useStartOnboarding();
   const [checklistOpen, setChecklistOpen] = useState(false);
+  // 'joined' is included deliberately. "Mark as Joined" on the candidate profile
+  // sets that status WITHOUT creating a staff record, so excluding it here made
+  // both onboarding controls vanish for exactly the people who still needed
+  // them — and nothing transitions out of 'joined' to get them back. The
+  // staff_record_id test below is the real "already onboarded" condition, and
+  // it still hides these controls the moment a staff record exists. The server
+  // agrees: ONBOARDABLE_STATUSES has always admitted 'joined'.
   const isPostApproval =
     !!candidate &&
-    ['approved', 'package_fixed', 'offer_issued'].includes(candidate.status) &&
+    ['approved', 'package_fixed', 'offer_issued', 'joined'].includes(candidate.status) &&
     !(candidate.role_specific_details as Record<string, unknown> | null)?.staff_record_id;
   const onboardingSteps = candidate ? getOnboardingSteps(candidate) : null;
   const onboardingStarted = !!onboardingSteps && onboardingSteps.length > 0;
