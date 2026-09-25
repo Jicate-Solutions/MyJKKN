@@ -20,8 +20,15 @@ import type { LearnerProfile, LearnerProfileFilters } from './learner-profile';
  * Widening the QUEUE does not widen the fee gate: see `resolveOnboardingTier`
  * and LearnerProfileService.activateIfReady — only 'admitted' can reach
  * 'active'. A completed 'reserved' learner waits in `awaiting_payment`.
+ *
+ * 2026-09-25: 'account' added. Those learners have not cleared the
+ * Application / University fee gate yet; listing them lets their fields be
+ * filled early and puts them in Awaiting Payment with the reason they are stuck.
+ * They can never be activated from here (see `activationBlockedReason`).
  */
-export const ONBOARDING_STATUSES = ['reserved', 'admitted'] as const;
+export const ONBOARDING_STATUSES = ['account', 'reserved', 'admitted'] as const;
+/** Statuses the Awaiting Payment tab lists — every learner still blocked on fees. */
+export const FEE_BLOCKED_STATUSES = ['account', 'reserved'] as const;
 export type OnboardingStatus = (typeof ONBOARDING_STATUSES)[number];
 
 export function isOnboardingStatus(v: unknown): v is OnboardingStatus {
@@ -150,6 +157,62 @@ export interface OnboardingPaymentProgress {
   /** 0 when the learner has no schedule at all. */
   instalments_total: number;
   instalments_settled: number;
+  // ── Pipeline stage (2026-09-25) ──────────────────────────────────────────
+  lifecycle_status: string;
+  /** Application Fee bills (count, billed, paid). */
+  app_bills: number;
+  app_billed: number;
+  app_paid: number;
+  /** University Fee bills (count, billed, paid). */
+  uni_bills: number;
+  uni_billed: number;
+  uni_paid: number;
+  /** Gate bills (application + university) and how many carry a payment — the engine's Stage A test. */
+  gate_bills: number;
+  gate_settled: number;
+  /** Share of everything billed that is paid — explains "paid, but nothing due yet". */
+  pct_billed_to_date: number;
+  blocked_reason: BlockedReason;
+}
+
+/**
+ * The first pipeline stage holding a learner back, decided by
+ * fn_onboarding_payment_progress next to the engine's own predicates.
+ */
+export type BlockedReason =
+  | 'gate_no_bills'
+  | 'gate_unpaid'
+  | 'gate_met_stuck'
+  | 'nothing_due'
+  | 'below_threshold'
+  | 'threshold_met_stuck'
+  | 'none';
+
+/** In pipeline order: stage ① reasons first, then stage ②, then the "stuck" ones. */
+export const BLOCKED_REASONS = [
+  'gate_no_bills',
+  'gate_unpaid',
+  'gate_met_stuck',
+  'nothing_due',
+  'below_threshold',
+  'threshold_met_stuck'
+] as const satisfies readonly BlockedReason[];
+
+export const BLOCKED_REASON_LABELS: Record<BlockedReason, string> = {
+  gate_no_bills: 'No App / Univ fee bills',
+  gate_unpaid: 'App / Univ fee unpaid',
+  gate_met_stuck: 'Gate met — status not updated',
+  nothing_due: 'Nothing due yet',
+  below_threshold: 'Below threshold',
+  threshold_met_stuck: 'Threshold met — status not updated',
+  none: '—'
+};
+
+/** Reasons where the rule is already satisfied — only a re-evaluation is missing. */
+export const STUCK_REASONS: readonly BlockedReason[] = ['gate_met_stuck', 'threshold_met_stuck'];
+
+export function isBlockedReason(v: unknown): v is BlockedReason {
+  return (BLOCKED_REASONS as readonly string[]).includes(v as string);
 }
 
 /**
@@ -200,8 +263,10 @@ export interface OnboardingFilters
   extends Omit<LearnerProfileFilters, 'is_profile_complete' | 'lifecycle_status'> {
   tier?: OnboardingTier;
   missing_field?: MissingField;
-  /** Narrow to one of the two onboarding statuses; omit for both. */
+  /** Narrow to one onboarding status; omit for all. */
   lifecycle_status?: OnboardingStatus;
+  /** Awaiting Payment only: narrow to one pipeline blocker. */
+  blocked_reason?: BlockedReason;
 }
 
 /**
@@ -226,9 +291,10 @@ export interface OnboardingStats {
   needs_work: number;          // 2 fields filled
   almost: number;              // 3 fields filled
   ready_to_activate: number;   // 4 of 4 + admitted — actionable now
-  awaiting_payment: number;    // 4 of 4 + reserved — blocked on fees
-  completion_rate: number;     // % of the reserved+admitted cohort that is complete (0-100)
+  awaiting_payment: number;    // every account + reserved learner — blocked on fees
+  completion_rate: number;     // % of the account+reserved+admitted cohort that is complete (0-100)
   /** Per-status totals so the header can show the split at a glance. */
+  account_total: number;
   reserved_total: number;
   admitted_total: number;
 }
@@ -252,6 +318,11 @@ export interface OnboardingPaymentSummary {
   meets_threshold: number;
   /** No bill has come due yet; these are waiting on a date, not on money. */
   nothing_due: number;
+  /** Per-status split of the cohort. */
+  account: number;
+  reserved: number;
+  /** How many learners each pipeline blocker holds. */
+  reasons: Record<BlockedReason, number>;
 }
 
 /**
@@ -271,10 +342,24 @@ export function summarisePaymentProgress(
     balance: 0,
     amount_to_threshold: 0,
     meets_threshold: 0,
-    nothing_due: 0
+    nothing_due: 0,
+    account: 0,
+    reserved: 0,
+    reasons: {
+      gate_no_bills: 0,
+      gate_unpaid: 0,
+      gate_met_stuck: 0,
+      nothing_due: 0,
+      below_threshold: 0,
+      threshold_met_stuck: 0,
+      none: 0
+    }
   };
 
   for (const r of rows) {
+    if (r.lifecycle_status === 'account') summary.account++;
+    else if (r.lifecycle_status === 'reserved') summary.reserved++;
+    summary.reasons[r.blocked_reason] = (summary.reasons[r.blocked_reason] ?? 0) + 1;
     summary.billed += r.basis_billed;
     summary.paid += r.basis_paid;
     summary.balance += r.basis_balance;
@@ -352,6 +437,9 @@ export function activationBlockedReason(
   missingCount: number
 ): string | undefined {
   if (missingCount > 0) return 'Required onboarding fields are still missing.';
+  if (profile.lifecycle_status === 'account') {
+    return 'Application / University fees are not paid yet — the learner is still Account.';
+  }
   if (profile.lifecycle_status === 'reserved') {
     return 'Balance fees have not cleared the threshold yet — activation is gated on payment.';
   }
