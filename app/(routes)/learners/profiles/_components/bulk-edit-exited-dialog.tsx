@@ -567,7 +567,7 @@ export function BulkEditActiveDialog({
                     </p>
                     {isIdCard && (
                       <p className="text-xs text-muted-foreground mt-2">
-                        ID Card sheet: only its 18 columns are read and validated. Date of Birth is
+                        ID Card sheet: only its 19 columns are read and validated. Date of Birth is
                         DD-MM-YYYY (YYYY-MM-DD also accepted).
                       </p>
                     )}

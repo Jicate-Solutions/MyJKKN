@@ -18,6 +18,7 @@ import {
 } from '@/hooks/bos/use-bos-po-pso';
 import { OutcomeTable, type OutcomeTableRow } from './outcome-table';
 import { CourseMappingMatrix } from './course-mapping-matrix';
+import { PoPsoPdfDownloadButton } from './po-pso-pdf-button';
 
 interface BosInstitutionOption { id: string; name: string; institution_code: string; myjkkn_institution_ids: string[]; }
 interface Regulation { id: string; title: string; regulation_year: string; regulation_code: string; }
@@ -152,10 +153,27 @@ export function PoPsoPageClient() {
       },
     });
 
-  const canPickInstitution = boardScope.isSuperAdmin || institutions.length > 1;
+  // HOD / Principal are pinned to their OWN institution(s) on this page: the
+  // BoS observer view grants (which the hod/principal roles hold) make
+  // /api/bos/institutions return every institution, but the server routes
+  // refuse foreign institutions for them (isPoPsoReadAll) and the regulations
+  // table's RLS is own-institution anyway. Board membership elsewhere still
+  // counts (institutionsOf), so a cross-institution member gets a picker.
+  const pinToOwn = !boardScope.isSuperAdmin && (boardScope.isHod || boardScope.isPrincipal);
+  const visibleInstitutions = useMemo(() => {
+    if (!pinToOwn) return institutions;
+    const own = new Set<string>([
+      ...boardScope.allInstitutionIds,
+      ...boardScope.institutionsOf,
+      ...(boardScope.institutionsId ? [boardScope.institutionsId] : []),
+    ]);
+    return institutions.filter((i) => i.myjkkn_institution_ids.some((id) => own.has(id)));
+  }, [pinToOwn, institutions, boardScope.allInstitutionIds, boardScope.institutionsOf, boardScope.institutionsId]);
+
+  const canPickInstitution = boardScope.isSuperAdmin || visibleInstitutions.length > 1;
   const institutionsId = canPickInstitution
     ? selectedInstitutionId
-    : (ownCtx?.myjkkn_id ?? institutions[0]?.id ?? null);
+    : (ownCtx?.myjkkn_id ?? visibleInstitutions[0]?.id ?? null);
 
   // Departments + programmes (HOD-locked server-side).
   const context = useBosPoPsoContext(institutionsId);
@@ -171,10 +189,19 @@ export function PoPsoPageClient() {
       : hodLocked && departments.length === 1
         ? departments[0].id
         : null;
-  const programmeOptions = useMemo(
-    () => (departmentId ? programmes.filter((p) => p.department_id === departmentId) : programmes),
-    [programmes, departmentId]
-  );
+  // One option per programme CODE: CAS Aided + Self each carry a `programs`
+  // row for UEN / UMA / PCM, and the PO/PSO scope (and the option value) is
+  // the code, so the sibling duplicate would only render a duplicate key.
+  const programmeOptions = useMemo(() => {
+    const pool = departmentId ? programmes.filter((p) => p.department_id === departmentId) : programmes;
+    const seen = new Set<string>();
+    return pool.filter((p) => {
+      const code = p.program_code.toUpperCase();
+      if (seen.has(code)) return false;
+      seen.add(code);
+      return true;
+    });
+  }, [programmes, departmentId]);
   const programmeCode =
     selectedProgrammeCode && programmeOptions.some((p) => p.program_code === selectedProgrammeCode)
       ? selectedProgrammeCode
@@ -249,7 +276,7 @@ export function PoPsoPageClient() {
                   setSelectedProgrammeCode(null);
                   setSelectedRegulationId(null);
                 }}
-                options={institutions.map((i) => ({ value: i.id, label: i.name }))}
+                options={visibleInstitutions.map((i) => ({ value: i.id, label: i.name }))}
                 loading={institutionsLoading}
                 className='w-full'
                 placeholder='Select institution…'
@@ -258,7 +285,7 @@ export function PoPsoPageClient() {
             ) : (
               <div className='flex h-9 items-center gap-2 rounded-md border bg-muted/40 px-3 text-sm'>
                 <Building2 className='h-3.5 w-3.5 text-muted-foreground shrink-0' />
-                <span className='truncate'>{ownCtx?.name ?? institutions[0]?.name ?? '—'}</span>
+                <span className='truncate'>{ownCtx?.name ?? visibleInstitutions[0]?.name ?? '—'}</span>
               </div>
             )}
           </div>
@@ -338,6 +365,16 @@ export function PoPsoPageClient() {
             <Badge variant='secondary' className='text-xs'>
               {regulations.find((r) => r.id === regulationId)?.regulation_code ?? 'Regulation'}
             </Badge>
+            <div className='ml-auto'>
+              <PoPsoPdfDownloadButton
+                scopeKey={scopeKey}
+                fileStem={[
+                  programmeCode,
+                  regulations.find((r) => r.id === regulationId)?.regulation_code ?? '',
+                  'PO-PSO',
+                ].filter(Boolean).join('-')}
+              />
+            </div>
           </div>
           <ProgrammeOutcomesWorkspace
             key={`${institutionsId}:${programmeCode}:${regulationId}`}
