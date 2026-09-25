@@ -24,7 +24,8 @@
 --   fn_adoption_ask_why        unchanged for people: super admin only, same
 --                              signature, same answers
 --   fn_adoption_remind_core    ruling 10 (see its header for every limit)
---   fn_adoption_remind         super admin or the service role
+--   fn_adoption_remind         super admin only; same day cap and exclusion list
+--   fn_adoption_day_remaining / fn_adoption_tick_excluded  the two shared limits
 --   fn_adoption_daily_tick     service role only: ask on near-zero features,
 --                              remind on eligible ones, at most
 --                              adoption.tick.max_notifications people per run
@@ -46,13 +47,15 @@
 --     admin; not an event / skipped / unrecorded / retired / stale / under-14-day
 --     feature, never the sign-in line. Tighter than the ruling on purpose:
 --     nobody gets a reminder on a day they already had an adoption message.
---   per run: at most adoption.tick.max_notifications recipients (default 100),
---     and one adoption message per person. Questions go out before reminders;
+--   per IST day: at most adoption.tick.max_notifications recipients (default
+--     100), counting every why-not question and reminder already sent that
+--     day, whoever sent it; one adoption message per person per run. Questions go out before reminders;
 --     reminders newest feature first. Whoever the cap leaves out is reached on
 --     a later day.
 --   excluded features: adoption.tick.exclude_features (seeded with
---     induction.my_sessions_open and guide.open) — the daily run neither asks
---     nor reminds.
+--     induction.my_sessions_open, guide.open and learners.create_profile) —
+--     the daily run neither asks nor reminds. If that row is missing,
+--     inactive, not a list or unreadable, the run sends NOTHING (fail closed).
 --   master switch adoption.loop.enabled: off = nothing is asked or reminded.
 --
 -- Rehearsed on production inside BEGIN … ROLLBACK with p_dry_run => true
@@ -148,7 +151,14 @@ WHERE NOT EXISTS (
 -- for. Fix the label, then take the key out of this list.
 -- Also guide.open: a blocking "why not?" to 6,450 people about opening the
 -- help guide is a nag, not a question worth their time (coordinator,
--- 2026-09-24). The Ask why button is not affected by this row.
+-- 2026-09-24).
+-- Also learners.create_profile: its recording is a browser beacon that has
+-- seen 6 people EVER, while learners_profiles.created_by shows 426 profiles
+-- made by admission and 125 by admission_staff in the last 90 days (W12 desk
+-- review, 2026-09-25). The beacon misses the real work, so the heaviest real
+-- users would be asked why they never create profiles. Take it off this list
+-- once its recording counts the profiles actually created.
+-- The Ask why button is not affected by this row.
 INSERT INTO public.platform_policies
   (policy_key, scope_type, scope_id, value, description, data_type,
    classification, ui_category, is_system, is_active, publication_state)
@@ -156,8 +166,8 @@ SELECT
   'adoption.tick.exclude_features',
   'global',
   NULL,
-  '["induction.my_sessions_open", "guide.open"]'::jsonb,
-  'Feature keys the adoption loop''s daily run skips completely: nobody is asked why or reminded about them. Use it for a feature whose "intended for" label is wider than the people it really serves, until the label is corrected. Starts with induction.my_sessions_open (labelled for every learner, faculty member and HOD; used mainly by new learners) and guide.open (a blocking question to everyone about opening the help guide is a nag, not a question worth their time). Does not affect the Ask why button on /admin/adoption.',
+  '["induction.my_sessions_open", "guide.open", "learners.create_profile"]'::jsonb,
+  'Feature keys the adoption loop''s daily run skips completely: nobody is asked why or reminded about them. Use it for a feature whose "intended for" label is wider than the people it really serves, until the label is corrected. Starts with induction.my_sessions_open (labelled for every learner, faculty member and HOD; used mainly by new learners) guide.open (a blocking question to everyone about opening the help guide is a nag, not a question worth their time) and learners.create_profile (its recording misses the profiles admission really creates). If this row is missing, switched off or not a list, the daily run sends nothing at all. Does not affect the Ask why button on /admin/adoption.',
   'array',
   'major',
   'analytics',
@@ -458,7 +468,7 @@ BEGIN
   END IF;
 
   v_body := 'MyJKKN has "' || v_feat.title || '" so you can ' || v_feat.core_action ||
-            '. You have not used it yet.' ||
+            '. We have not seen you use it recently.' ||
             CASE WHEN v_feat.href IS NOT NULL THEN ' Open this notice to go straight to it.' ELSE '' END;
 
   INSERT INTO public.notifications
@@ -516,11 +526,80 @@ REVOKE EXECUTE ON FUNCTION public.fn_adoption_loop_sender() FROM anon, authentic
 GRANT  EXECUTE ON FUNCTION public.fn_adoption_loop_sender() TO service_role;
 
 -- ---------------------------------------------------------------------
+-- 7b) The two shared limits: the day's remaining budget and the exclusion list
+-- ---------------------------------------------------------------------
+-- The cap is per Indian calendar DAY, not per call: a second run, a manual
+-- run or a reminder sent by hand all draw from the same daily budget. Every
+-- why-not question and reminder sent since midnight IST counts, including
+-- questions sent with the Ask why button.
+CREATE OR REPLACE FUNCTION public.fn_adoption_day_remaining()
+RETURNS integer
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_cap        integer;
+  v_day_start  timestamptz := date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata') AT TIME ZONE 'Asia/Kolkata';
+  v_sent       integer;
+BEGIN
+  v_cap := GREATEST(COALESCE(public.fn_get_policy_int('adoption.tick.max_notifications', 100), 100), 0);
+  SELECT (SELECT count(*) FROM public.adoption_asks WHERE asked_at >= v_day_start)
+       + (SELECT count(*) FROM public.adoption_reminders WHERE sent_at >= v_day_start)
+    INTO v_sent;
+  RETURN GREATEST(v_cap - COALESCE(v_sent, 0), 0);
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_day_remaining() FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_adoption_day_remaining() TO service_role;
+
+-- The exclusion list FAILS CLOSED: NULL means "cannot tell what is excluded",
+-- and every caller then sends nothing. That covers a missing row, a
+-- switched-off row, a value that is not a list, and any element that is not
+-- a text key. An empty list [] is a deliberate "exclude nothing" and is fine.
+CREATE OR REPLACE FUNCTION public.fn_adoption_tick_excluded()
+RETURNS text[]
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_value  jsonb;
+  v_active boolean;
+  v_keys   text[];
+BEGIN
+  SELECT pp.value, pp.is_active INTO v_value, v_active
+  FROM public.platform_policies pp
+  WHERE pp.policy_key = 'adoption.tick.exclude_features'
+    AND pp.scope_type = 'global' AND pp.scope_id IS NULL
+  ORDER BY pp.updated_at DESC NULLS LAST
+  LIMIT 1;
+  IF NOT FOUND OR NOT COALESCE(v_active, false) OR v_value IS NULL
+     OR jsonb_typeof(v_value) <> 'array' THEN
+    RETURN NULL;
+  END IF;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_value) e WHERE jsonb_typeof(e) <> 'string') THEN
+    RETURN NULL;
+  END IF;
+  SELECT COALESCE(array_agg(e), '{}'::text[]) INTO v_keys FROM jsonb_array_elements_text(v_value) e;
+  RETURN v_keys;
+EXCEPTION WHEN OTHERS THEN
+  RETURN NULL;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_tick_excluded() FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_adoption_tick_excluded() TO service_role;
+
+-- ---------------------------------------------------------------------
 -- 8) fn_adoption_remind — the callable reminder
 -- ---------------------------------------------------------------------
--- A super admin (sends as themself) or the service role (sends as the loop
--- owner). Returns counts only — never who.
--- ci:allow-secdef-authenticated the body RAISES 42501 unless is_super_admin() or the caller is the service role (auth.role()).
+-- Super admins only; the daily run goes through the core directly. A call
+-- obeys the same two limits as the run: it never sends more than what is
+-- left of today's cap, and it refuses a feature on the exclusion list (or
+-- anything at all while that list cannot be read). Returns counts only.
+-- ci:allow-secdef-authenticated the body RAISES 42501 unless is_super_admin().
 CREATE OR REPLACE FUNCTION public.fn_adoption_remind(p_feature_key text, p_dry_run boolean DEFAULT false)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -529,22 +608,40 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_actor uuid;
+  v_excluded text[];
+  v_left     integer;
 BEGIN
-  IF COALESCE(is_super_admin(), false) THEN
-    v_actor := auth.uid();
-  ELSIF auth.uid() IS NULL AND COALESCE(auth.role(), '') = 'service_role' THEN
-    v_actor := public.fn_adoption_loop_sender();
-  ELSE
+  IF NOT COALESCE(is_super_admin(), false) THEN
     RAISE EXCEPTION 'super admin required' USING ERRCODE = '42501';
   END IF;
 
-  RETURN public.fn_adoption_remind_core(p_feature_key, v_actor, COALESCE(p_dry_run, false), NULL, '{}'::uuid[])
+  -- same lock as the daily run: the day's budget is read and spent by one
+  -- caller at a time
+  PERFORM pg_advisory_xact_lock(hashtext('fn_adoption_daily_tick'));
+
+  v_excluded := public.fn_adoption_tick_excluded();
+  IF v_excluded IS NULL THEN
+    RETURN jsonb_build_object('success', false,
+      'error', 'the exclusion list (policy adoption.tick.exclude_features) is missing, switched off or not a list — nothing is sent until it is fixed');
+  END IF;
+  IF p_feature_key = ANY (v_excluded) THEN
+    RETURN jsonb_build_object('success', false,
+      'error', 'this feature is on the exclusion list (policy adoption.tick.exclude_features)');
+  END IF;
+
+  v_left := public.fn_adoption_day_remaining();
+  IF v_left <= 0 THEN
+    RETURN jsonb_build_object('success', false,
+      'error', 'today''s limit (policy adoption.tick.max_notifications) is already used up');
+  END IF;
+
+  RETURN public.fn_adoption_remind_core(p_feature_key, auth.uid(), COALESCE(p_dry_run, false), v_left, '{}'::uuid[])
          - 'targets';
 END;
 $$;
 REVOKE EXECUTE ON FUNCTION public.fn_adoption_remind(text, boolean) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_adoption_remind(text, boolean) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_remind(text, boolean) FROM service_role;
+GRANT  EXECUTE ON FUNCTION public.fn_adoption_remind(text, boolean) TO authenticated;
 
 -- ---------------------------------------------------------------------
 -- 9) fn_adoption_daily_tick — the clock's one call
@@ -562,8 +659,9 @@ GRANT  EXECUTE ON FUNCTION public.fn_adoption_remind(text, boolean) TO authentic
 --      not to know a feature exists are the ones it was built for last month,
 --      not last year.
 -- Features listed in adoption.tick.exclude_features are skipped in both
--- passes. Stops at adoption.tick.max_notifications people; people left over are
--- reached on the next day's run. Nobody gets more than one adoption message
+-- passes (and if that list cannot be read, nothing is sent). Stops when the
+-- day's adoption.tick.max_notifications budget is used up, counting what was
+-- already sent today; people left over are reached on a later day. Nobody gets more than one adoption message
 -- from one run, and nobody reminded in the last 20 hours is messaged again.
 -- Service role only: a signed-in person cannot run it (EXECUTE is not granted
 -- and the body refuses any caller with a user id).
@@ -591,8 +689,7 @@ DECLARE
   v_total_rem integer := 0;
   v_rows      jsonb := '{}'::jsonb;   -- feature_key → what this run did
   v_capped    boolean := false;
-  v_excluded  text[] := '{}'::text[];
-  v_raw       jsonb;
+  v_excluded  text[];
 BEGIN
   IF auth.uid() IS NOT NULL THEN
     RAISE EXCEPTION 'the adoption daily run is started by the scheduler, not by a person' USING ERRCODE = '42501';
@@ -606,20 +703,19 @@ BEGIN
   -- one run at a time: a manual run and the scheduled one cannot interleave
   PERFORM pg_advisory_xact_lock(hashtext('fn_adoption_daily_tick'));
 
-  v_cap := GREATEST(COALESCE(public.fn_get_policy_int('adoption.tick.max_notifications', 100), 100), 0);
-  v_left := v_cap;
-
-  -- Features this run leaves alone entirely (config row, text array). An
-  -- unreadable row excludes nothing extra — every other limit still holds.
-  BEGIN
-    v_raw := public.fn_get_policy('adoption.tick.exclude_features', NULL);
-  EXCEPTION WHEN OTHERS THEN
-    v_raw := NULL;
-  END;
-  IF v_raw IS NOT NULL AND jsonb_typeof(v_raw) = 'array' THEN
-    SELECT COALESCE(array_agg(e), '{}'::text[]) INTO v_excluded
-    FROM jsonb_array_elements_text(v_raw) e;
+  -- Features this run leaves alone entirely. FAIL CLOSED: if the list
+  -- cannot be read, nothing is sent at all, and the run says why.
+  v_excluded := public.fn_adoption_tick_excluded();
+  IF v_excluded IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'dry_run', v_dry, 'asked', 0, 'reminded', 0,
+      'error', 'the exclusion list (policy adoption.tick.exclude_features) is missing, switched off or not a list — nothing was sent');
   END IF;
+
+  -- The cap is per IST day: whatever was already sent today (by an earlier
+  -- run, a manual run or the Ask why button) comes off it.
+  v_cap := GREATEST(COALESCE(public.fn_get_policy_int('adoption.tick.max_notifications', 100), 100), 0);
+  v_left := public.fn_adoption_day_remaining();
+  v_capped := v_left <= 0;
 
   v_actor := public.fn_adoption_loop_sender();
   IF v_actor IS NULL AND NOT v_dry THEN
@@ -735,6 +831,7 @@ BEGIN
     'success',  true,
     'dry_run',  v_dry,
     'cap',      v_cap,
+    'day_left', v_left,
     'capped',   v_capped,
     'excluded', to_jsonb(v_excluded),
     'asked',    v_total_ask,

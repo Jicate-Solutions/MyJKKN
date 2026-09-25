@@ -27,8 +27,8 @@ DO $$ BEGIN
     RAISE EXCEPTION 'FAIL: schedule row missing'; END IF;
   IF (SELECT (value)::int FROM platform_policies WHERE policy_key='adoption.tick.max_notifications') <> 100 THEN
     RAISE EXCEPTION 'FAIL: cap row missing or not 100 (first-rollout default)'; END IF;
-  IF (SELECT value FROM platform_policies WHERE policy_key='adoption.tick.exclude_features') <> '["induction.my_sessions_open", "guide.open"]'::jsonb THEN
-    RAISE EXCEPTION 'FAIL: exclusion row missing or not seeded with induction.my_sessions_open + guide.open'; END IF;
+  IF (SELECT value FROM platform_policies WHERE policy_key='adoption.tick.exclude_features') <> '["induction.my_sessions_open", "guide.open", "learners.create_profile"]'::jsonb THEN
+    RAISE EXCEPTION 'FAIL: exclusion row missing or not seeded with induction + guide + learner-profile creation'; END IF;
 END $$;
 
 -- ===== label features as the super admin =====
@@ -100,11 +100,11 @@ END $$;
 -- ===== the master switch =====
 \echo '--- switch off: EXPECT nothing asked or reminded, by the run or by a call'
 UPDATE platform_policies SET value = 'false'::jsonb WHERE policy_key = 'adoption.loop.enabled';
-SELECT set_config('request.jwt.claim.sub','',false);
-SELECT set_config('request.jwt.claim.role','service_role',false);
+SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);
 DO $$ DECLARE r jsonb; BEGIN
-  r := fn_adoption_remind('used.thing');
+  r := fn_adoption_remind('used.thing');   -- as the super admin
   IF (r->>'success')::boolean THEN RAISE EXCEPTION 'FAIL: reminded while off: %', r; END IF;
+  PERFORM set_config('request.jwt.claim.sub','',false);   -- now the scheduler
   r := fn_adoption_daily_tick();
   IF r->>'skipped' IS NULL OR (r->>'asked')::int <> 0 OR (r->>'reminded')::int <> 0 THEN RAISE EXCEPTION 'FAIL: run acted while off: %', r; END IF;
   IF (SELECT count(*) FROM notifications) + (SELECT count(*) FROM adoption_reminders) + (SELECT count(*) FROM adoption_asks) <> 0 THEN
@@ -112,6 +112,15 @@ DO $$ DECLARE r jsonb; BEGIN
   RAISE NOTICE 'switch off: ok';
 END $$;
 UPDATE platform_policies SET value = 'true'::jsonb WHERE policy_key = 'adoption.loop.enabled';
+SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);
+
+\echo '--- the service role cannot call the reminder directly (the daily run goes through the core, under the day cap)'
+SET ROLE service_role;
+DO $$ BEGIN
+  BEGIN PERFORM fn_adoption_remind('used.thing', true); RAISE EXCEPTION 'FAIL: service role called fn_adoption_remind';
+  EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'service role refused: ok'; END;
+END $$;
+RESET ROLE;
 
 -- ===== features that must never be reminded about =====
 \echo '--- event / skipped / unrecorded / new / retired / sign-in: EXPECT all refused, 0 rows'
@@ -139,6 +148,7 @@ END $$;
 
 -- ===== the daily run: dry, then real, and they agree =====
 \echo '--- run 1: learner.thing is at 0 % → its four never-users are asked why; nobody gets a second message'
+SELECT set_config('request.jwt.claim.sub','',false);
 SELECT set_config('request.jwt.claim.role','',false);
 CREATE TEMP TABLE dry AS SELECT fn_adoption_daily_tick(true) AS r;
 SELECT r FROM dry;
@@ -187,6 +197,8 @@ DO $$ DECLARE n record; BEGIN
      OR n.created_by <> '20000000-0000-0000-0000-000000000001' OR n.expires_at IS NULL THEN
     RAISE EXCEPTION 'FAIL reminder shape: %', n; END IF;
   IF n.body NOT LIKE '%Learner thing%do the learner thing%' THEN RAISE EXCEPTION 'FAIL body: %', n.body; END IF;
+  -- recording history is short (bridged usage starts 23 Aug 2026): never claim "never"
+  IF n.body ILIKE '%never%' OR n.body NOT LIKE '%recently%' THEN RAISE EXCEPTION 'FAIL wording: %', n.body; END IF;
 END $$;
 \echo '--- run 2 again the same day: EXPECT nothing (30-day rule; one reminder per person per day)'
 DO $$ DECLARE w jsonb; BEGIN
@@ -196,7 +208,8 @@ END $$;
 
 \echo '--- two days later: the 30-day rule holds per feature (learner.thing 0), a different feature may still remind (used.thing 3)'
 UPDATE adoption_reminders SET sent_at = now() - interval '2 days';
-SELECT set_config('request.jwt.claim.role','service_role',false);
+SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);
+SELECT set_config('request.jwt.claim.role','authenticated',false);
 DO $$ DECLARE r jsonb; BEGIN
   r := fn_adoption_remind('learner.thing');
   IF (r->>'reminded')::int <> 0 THEN RAISE EXCEPTION 'FAIL: reminded inside 30 days: %', r; END IF;
@@ -215,7 +228,7 @@ DO $$ DECLARE r jsonb; BEGIN
   IF (r->>'reminded')::int <> 0 THEN RAISE EXCEPTION 'FAIL: reminded twice in a row: %', r; END IF;
 END $$;
 
--- ===== the per-run cap =====
+-- ===== the per-day cap =====
 \echo '--- cap 2: a new dead feature with 4 never-users: EXPECT exactly 2 messaged, run says capped'
 UPDATE adoption_reminders SET sent_at = now() - interval '40 days';
 UPDATE adoption_asks SET asked_at = now() - interval '40 days';
@@ -236,6 +249,32 @@ DO $$ DECLARE w jsonb; before int; BEGIN
   IF (w->>'asked')::int + (w->>'reminded')::int <> 2 OR NOT (w->>'capped')::boolean THEN RAISE EXCEPTION 'FAIL cap: %', w; END IF;
   IF (SELECT count(*) FROM user_notifications) - before <> 2 THEN RAISE EXCEPTION 'FAIL: cap not honoured in rows'; END IF;
 END $$;
+\echo '--- a second run the same day with cap 2: EXPECT 0 more (2 in total for the day), though people are still eligible'
+DO $$ DECLARE w jsonb; before int; d jsonb; BEGIN
+  -- control: with the day's budget ignored, someone would still be messaged
+  d := fn_adoption_ask_why_core('cap.thing', NULL, NULL, true);
+  IF (d->>'asked')::int = 0 THEN RAISE EXCEPTION 'FAIL: control — nobody left to ask, the test proves nothing'; END IF;
+  SELECT count(*) INTO before FROM user_notifications;
+  w := fn_adoption_daily_tick();
+  RAISE NOTICE 'second run same day: %', w;
+  IF (w->>'asked')::int + (w->>'reminded')::int <> 0 OR (w->>'day_left')::int <> 0 OR NOT (w->>'capped')::boolean THEN
+    RAISE EXCEPTION 'FAIL: the day cap was not carried across runs: %', w; END IF;
+  IF (SELECT count(*) FROM user_notifications) <> before THEN RAISE EXCEPTION 'FAIL: rows written past the day cap'; END IF;
+  IF (SELECT count(*) FROM adoption_asks WHERE asked_at >= date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata') AT TIME ZONE 'Asia/Kolkata')
+   + (SELECT count(*) FROM adoption_reminders WHERE sent_at >= date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata') AT TIME ZONE 'Asia/Kolkata') <> 2 THEN
+    RAISE EXCEPTION 'FAIL: more than 2 adoption messages today'; END IF;
+END $$;
+\echo '--- and a super admin''s reminder that day is refused too (no call exceeds what is left of the day)'
+SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);
+DO $$ DECLARE r jsonb; BEGIN
+  r := fn_adoption_remind('learner.thing');
+  IF (r->>'success')::boolean OR r->>'error' NOT LIKE '%limit%used up%' THEN RAISE EXCEPTION 'FAIL: reminder past the day cap: %', r; END IF;
+  UPDATE platform_policies SET value = '3'::jsonb WHERE policy_key = 'adoption.tick.max_notifications';
+  r := fn_adoption_remind('learner.thing', true);
+  IF (r->>'reminded')::int > 1 THEN RAISE EXCEPTION 'FAIL: a single call went past the one left today: %', r; END IF;
+  UPDATE platform_policies SET value = '2'::jsonb WHERE policy_key = 'adoption.tick.max_notifications';
+END $$;
+SELECT set_config('request.jwt.claim.sub','',false);
 \echo '--- cap 0: EXPECT nothing'
 UPDATE platform_policies SET value = '0'::jsonb WHERE policy_key = 'adoption.tick.max_notifications';
 UPDATE adoption_reminders SET sent_at = now() - interval '40 days';
@@ -276,6 +315,46 @@ DO $$ DECLARE w jsonb; BEGIN
   IF (SELECT count(*) FROM adoption_asks WHERE feature_key = 'excl.thing') <> 1 THEN RAISE EXCEPTION 'FAIL: excl.thing ask row'; END IF;
   RAISE NOTICE 'exclusion lifted: asked again ok';
 END $$;
+
+\echo '--- a super admin cannot remind about an excluded feature either'
+UPDATE platform_policies SET value = '["used.thing"]'::jsonb WHERE policy_key = 'adoption.tick.exclude_features';
+SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);
+DO $$ DECLARE r jsonb; BEGIN
+  r := fn_adoption_remind('used.thing', true);
+  IF (r->>'success')::boolean OR r->>'error' NOT LIKE '%exclusion list%' THEN RAISE EXCEPTION 'FAIL: reminded about an excluded feature: %', r; END IF;
+END $$;
+UPDATE platform_policies SET value = '[]'::jsonb WHERE policy_key = 'adoption.tick.exclude_features';
+
+-- ===== the exclusion list fails CLOSED =====
+\echo '--- exclusion row not a list / non-text entry / switched off / missing: EXPECT the run sends nothing and says why'
+UPDATE adoption_reminders SET sent_at = now() - interval '40 days';
+UPDATE adoption_asks SET asked_at = now() - interval '40 days';
+DO $$ DECLARE w jsonb; before int; bad jsonb; r jsonb; BEGIN
+  PERFORM set_config('request.jwt.claim.sub','',false);
+  -- control: with a readable list, this run would send something
+  w := fn_adoption_daily_tick(true);
+  IF (w->>'asked')::int + (w->>'reminded')::int = 0 THEN RAISE EXCEPTION 'FAIL: control — nothing to send, the test proves nothing: %', w; END IF;
+  SELECT count(*) INTO before FROM user_notifications;
+  FOREACH bad IN ARRAY ARRAY['"induction.my_sessions_open"'::jsonb, '["ok.thing", 5]'::jsonb, '{"a":1}'::jsonb] LOOP
+    UPDATE platform_policies SET value = bad WHERE policy_key = 'adoption.tick.exclude_features';
+    w := fn_adoption_daily_tick();
+    IF (w->>'success')::boolean OR w->>'error' NOT LIKE '%exclusion list%' THEN RAISE EXCEPTION 'FAIL: ran with an unreadable list %: %', bad, w; END IF;
+  END LOOP;
+  UPDATE platform_policies SET value = '[]'::jsonb, is_active = false WHERE policy_key = 'adoption.tick.exclude_features';
+  w := fn_adoption_daily_tick();
+  IF (w->>'success')::boolean THEN RAISE EXCEPTION 'FAIL: ran with the list switched off: %', w; END IF;
+  PERFORM set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);
+  r := fn_adoption_remind('learner.thing', true);
+  IF (r->>'success')::boolean THEN RAISE EXCEPTION 'FAIL: a super admin reminded with the list switched off: %', r; END IF;
+  PERFORM set_config('request.jwt.claim.sub','',false);
+  DELETE FROM platform_policies WHERE policy_key = 'adoption.tick.exclude_features';
+  w := fn_adoption_daily_tick();
+  IF (w->>'success')::boolean THEN RAISE EXCEPTION 'FAIL: ran with the list missing: %', w; END IF;
+  IF (SELECT count(*) FROM user_notifications) <> before THEN RAISE EXCEPTION 'FAIL: something was sent with an unreadable list'; END IF;
+  RAISE NOTICE 'fail closed: ok';
+END $$;
+INSERT INTO platform_policies (policy_key, scope_type, value, data_type, is_active)
+VALUES ('adoption.tick.exclude_features', 'global', '[]'::jsonb, 'array', true);
 
 -- ===== the button still behaves exactly as before =====
 \echo '--- fn_adoption_ask_why as super admin: EXPECT the old answer shape (no person ids)'
