@@ -263,13 +263,20 @@ function SponsorAvatar({ sponsor }: { sponsor: MarathonSponsor }) {
  * from dropdowns. Stored in event_sponsorship_notes.
  */
 function SponsorshipNotesCard({ eventId, canManage }: { eventId: string; canManage: boolean }) {
-  const { data: saved = '', isLoading } = useEventSponsorshipNotes(eventId);
+  const { data: saved = '', isLoading, isError } = useEventSponsorshipNotes(eventId);
   const save = useSaveEventSponsorshipNotes(eventId);
   const [draft, setDraft] = useState<string | null>(null);
   const value = draft ?? saved;
   const dirty = draft !== null && draft !== saved;
 
   if (isLoading) return null;
+  // Don't offer a box whose save is bound to fail (e.g. the notes table is not
+  // deployed yet) — the rest of the Sponsors tab keeps working.
+  if (isError) {
+    return canManage ? (
+      <p className="text-xs text-muted-foreground">Sponsorship notes are unavailable right now.</p>
+    ) : null;
+  }
   // Nothing to show a read-only viewer when no note has been written.
   if (!canManage && !saved.trim()) return null;
 

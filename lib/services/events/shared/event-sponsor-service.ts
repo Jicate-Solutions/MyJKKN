@@ -367,8 +367,15 @@ export class EventSponsorService {
       .eq('event_id', eventId)
       .maybeSingle();
     if (error) {
-      logger.error(MOD, 'Failed to fetch sponsorship notes', { eventId, error });
-      throw error;
+      // PostgrestError does not serialise to anything useful ("{}"), so log its
+      // fields. PGRST205 / 42P01 = the table is missing: migration
+      // 20270207100000_event_sponsorship_notes.sql has not been applied.
+      logger.error(MOD, 'Failed to fetch sponsorship notes', {
+        eventId,
+        code: error.code,
+        message: error.message,
+      });
+      throw new Error(error.message || 'Failed to fetch sponsorship notes');
     }
     return (data?.notes as string | undefined) ?? '';
   }
@@ -385,8 +392,12 @@ export class EventSponsorService {
       .select('notes')
       .maybeSingle();
     if (error) {
-      logger.error(MOD, 'Failed to save sponsorship notes', { eventId, error });
-      throw error;
+      logger.error(MOD, 'Failed to save sponsorship notes', {
+        eventId,
+        code: error.code,
+        message: error.message,
+      });
+      throw new Error(error.message || 'Failed to save sponsorship notes');
     }
     if (!data) {
       throw new Error('You do not have permission to edit the sponsorship notes of this event');
