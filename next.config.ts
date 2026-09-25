@@ -91,6 +91,12 @@ const nextConfig: NextConfig = {
       './node_modules/@sparticuz/chromium/**/*',
       './public/fonts/pdf/**/*',
     ],
+    // Meeting record PDF (lib/pdf/meeting-record-pdf.ts). Same Chromium and
+    // embedded fonts — without them Tamil in summaries and names prints as boxes.
+    '/api/meetings/record/*': [
+      './node_modules/@sparticuz/chromium/**/*',
+      './public/fonts/pdf/**/*',
+    ],
     // OneMark board-format paper + answer key (lib/onemark/pdf). Same Chromium
     // and body fonts as the BoS sheets, plus KaTeX's own faces for notation —
     // without this entry the deployed function prints Tamil and every

@@ -28,6 +28,7 @@ import {
   ExternalLink,
   UserSearch,
   Mic,
+  Download,
 } from 'lucide-react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -425,6 +426,8 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
     !isPast &&
     switchRequestState(booking, meetingType?.min_notice_min) === 'pending';
 
+  const canDownloadRecord = isPast && (!!meetingNote || actionItems.length > 0);
+
   const answers: Record<string, string> =
     booking.answers && typeof booking.answers === 'object' && !Array.isArray(booking.answers)
       ? booking.answers
@@ -550,6 +553,19 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
               ) : null}
             </CardContent>
           </Card>
+        ) : null}
+
+        {/* The finished record as a document someone can keep or forward.
+            Only for a meeting that is over AND has something to put in it —
+            a note or at least one follow-up. The route re-reads everything as
+            this viewer, so it can never print more than this page shows. */}
+        {canDownloadRecord ? (
+          <Button asChild variant="outline" className="w-full justify-start">
+            <a href={`/api/meetings/record/${encodeURIComponent(booking.uid)}`} download>
+              <Download className="mr-2 h-4 w-4" aria-hidden />
+              Download record (PDF)
+            </a>
+          </Button>
         ) : null}
 
         {/* Only rendered when there is something to show or something the
