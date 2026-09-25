@@ -112,15 +112,16 @@ export default async function LearnerOnboardingPage({ searchParams }: Onboarding
         <div className="space-y-2">
           <h1 className="text-2xl font-bold py-1">Learner Onboarding</h1>
           <p className="text-sm sm:text-base text-muted-foreground">
-            Learners with status <span className="font-semibold">Reserved</span> or{' '}
+            Learners with status <span className="font-semibold">Account</span>,{' '}
+            <span className="font-semibold">Reserved</span> or{' '}
             <span className="font-semibold">Admitted</span> need College Email, Academic
             Year, Semester, and Section filled. <span className="font-semibold">Admitted</span>{' '}
             learners (balance fees past the threshold) activate as soon as those four are
-            complete. <span className="font-semibold">Reserved</span> learners can be
-            prepared here too, but stay reserved until their fees clear — they wait in{' '}
-            <span className="font-semibold">Awaiting Payment</span>, where each learner&apos;s
-            progress against the configured fee threshold and the amount still needed to
-            promote them are shown per row.
+            complete. <span className="font-semibold">Account</span> and{' '}
+            <span className="font-semibold">Reserved</span> learners can be prepared here too,
+            but wait on fees — <span className="font-semibold">Awaiting Payment</span> lists
+            every one of them and shows, stage by stage (Account → Reserved → Admitted),
+            exactly what is holding each learner back.
           </p>
         </div>
 

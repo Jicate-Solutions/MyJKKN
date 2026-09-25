@@ -26,7 +26,20 @@ export const onboardingTierSchema = z
  * back to "both" rather than reaching `.in()` and matching zero rows.
  */
 export const onboardingStatusSchema = z
-  .enum(['reserved', 'admitted'])
+  .enum(['account', 'reserved', 'admitted'])
+  .optional()
+  .catch(undefined);
+
+/** Awaiting Payment pipeline blocker; anything unknown means "all reasons". */
+export const onboardingBlockedReasonSchema = z
+  .enum([
+    'gate_no_bills',
+    'gate_unpaid',
+    'gate_met_stuck',
+    'nothing_due',
+    'below_threshold',
+    'threshold_met_stuck'
+  ])
   .optional()
   .catch(undefined);
 
@@ -70,6 +83,7 @@ export const onboardingSearchParamsSchema = z.object({
   tier: onboardingTierSchema,
   missing_field: onboardingMissingFieldSchema,
   lifecycle_status: onboardingStatusSchema,
+  blocked_reason: onboardingBlockedReasonSchema,
 
   // Cascading filters
   institution_id: z.string().uuid().optional().catch(undefined),

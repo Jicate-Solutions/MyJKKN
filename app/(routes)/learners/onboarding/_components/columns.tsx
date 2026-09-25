@@ -10,10 +10,9 @@
  *     (admitted/pending/approved), so we render an em-dash placeholder rather
  *     than alarm-looking text.
  *
- * COLUMNS VARY BY TIER (see `getOnboardingColumns`). On `awaiting_payment` the
- * two triage columns above are structurally dead — that tier is defined as 4/4
- * fields filled, so "Missing Fields" is always blank and "Completion" always
- * 4/4 — and are swapped for the fee columns that explain the real blocker.
+ * COLUMNS VARY BY TIER (see `getOnboardingColumns`). On `awaiting_payment`
+ * "Missing Fields" is swapped for the Blocked At + fee columns that explain the
+ * real blocker.
  */
 
 import { ColumnDef } from '@tanstack/react-table';
@@ -36,6 +35,7 @@ import {
   basisHint,
   NextInstalmentCell
 } from './payment-progress-cell';
+import { BlockedAtCell } from './blocked-at-cell';
 import { OnboardingRowActions } from './row-actions';
 
 function isPersonalEmail(email: string | null | undefined): boolean {
@@ -133,34 +133,29 @@ export const onboardingColumns: ColumnDef<OnboardingProfileRow>[] = [
     maxSize: 60
   },
   {
-    accessorKey: 'roll_number',
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Roll Number" />,
-    cell: ({ row }) => (
-      <div className="font-mono text-sm">
-        {row.original.roll_number || (
-          <span className="text-muted-foreground italic">—</span>
-        )}
-      </div>
-    ),
-    size: 120
-  },
-  {
+    // Name + roll number in one cell. Sorts by name; roll-number sorting stays
+    // available from the toolbar's Sort dropdown.
     accessorKey: 'first_name',
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Learner Name" />,
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Learner" />,
     cell: ({ row }) => {
       const learner = row.original;
       const name = `${learner.first_name} ${learner.last_name || ''}`.trim();
       return (
-        <Link
-          href={`/learners/profiles/${learner.id}/edit?focus=missing`}
-          className="font-medium text-primary hover:underline"
-          title="Open edit form focused on missing fields"
-        >
-          {name}
-        </Link>
+        <div className="space-y-0.5 whitespace-normal break-words">
+          <Link
+            href={`/learners/profiles/${learner.id}/edit?focus=missing`}
+            className="font-medium text-primary hover:underline"
+            title="Open edit form focused on missing fields"
+          >
+            {name}
+          </Link>
+          <div className="font-mono text-xs text-muted-foreground">
+            {learner.roll_number || <span className="italic">No roll no.</span>}
+          </div>
+        </div>
       );
     },
-    size: 180
+    size: 230
   },
   {
     accessorKey: 'college_email',
@@ -169,20 +164,20 @@ export const onboardingColumns: ColumnDef<OnboardingProfileRow>[] = [
     size: 260
   },
   {
-    accessorKey: 'institution.name',
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Institution" />,
-    cell: ({ row }) => (
-      <div className="text-sm">{row.original.institution?.name || 'N/A'}</div>
+    id: 'institution_program',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Institution / Program" />
     ),
-    size: 180
-  },
-  {
-    accessorKey: 'program.program_name',
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Program" />,
     cell: ({ row }) => (
-      <div className="text-sm">{row.original.program?.program_name || '—'}</div>
+      <div className="space-y-0.5 whitespace-normal break-words">
+        <div className="text-sm">{row.original.institution?.name || 'N/A'}</div>
+        <div className="text-xs text-muted-foreground">
+          {row.original.program?.program_name || '—'}
+        </div>
+      </div>
     ),
-    size: 140
+    size: 300,
+    enableSorting: false
   },
   {
     id: 'admission_year',
@@ -190,7 +185,7 @@ export const onboardingColumns: ColumnDef<OnboardingProfileRow>[] = [
       (row as any).admission_year_obj?.year ?? (row as any).admission_year ?? null,
     header: ({ column }) => <DataTableColumnHeader column={column} title="Admission Year" />,
     cell: ({ row }) => (
-      <div className="text-sm">{formatAdmissionYear(row.original as any) || '—'}</div>
+      <div className="text-sm whitespace-normal">{formatAdmissionYear(row.original as any) || '—'}</div>
     ),
     size: 150
   },
@@ -211,13 +206,13 @@ export const onboardingColumns: ColumnDef<OnboardingProfileRow>[] = [
         percent={row.original.completion_percent}
       />
     ),
-    size: 110
+    size: 130
   },
   {
     accessorKey: 'lifecycle_status',
     header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
     cell: ({ row }) => <LifecycleStatusBadge status={row.original.lifecycle_status} />,
-    size: 120
+    size: 130
   },
   {
     id: 'actions',
@@ -252,6 +247,10 @@ export const onboardingColumns: ColumnDef<OnboardingProfileRow>[] = [
 function paymentColumns(basis: Parameters<typeof basisHint>[0]): ColumnDef<OnboardingProfileRow>[] {
   const hint = basisHint(basis);
 
+  // DataTable cells are `truncate` (nowrap + clip at the column width); these
+  // multi-line cells must wrap inside their column instead of being cut off.
+  const wrap = (node: React.ReactNode) => <div className="whitespace-normal break-words">{node}</div>;
+
   const moneyHeader = (label: string, tooltip: string) => (
     <div className="text-right" title={tooltip}>
       {label}
@@ -260,10 +259,22 @@ function paymentColumns(basis: Parameters<typeof basisHint>[0]): ColumnDef<Onboa
 
   return [
     {
+      id: 'blocked_at',
+      header: () => (
+        <span title="Where this learner is stuck in Account → Reserved → Admitted, and why.">
+          Blocked At
+        </span>
+      ),
+      cell: ({ row }) => wrap(<BlockedAtCell payment={row.original.payment} />),
+      size: 560,
+      maxSize: 560,
+      enableSorting: false
+    },
+    {
       id: 'payment_progress',
       header: () => <span title={hint}>Progress to Threshold</span>,
-      cell: ({ row }) => <PaymentProgressCell payment={row.original.payment} />,
-      size: 160,
+      cell: ({ row }) => wrap(<PaymentProgressCell payment={row.original.payment} />),
+      size: 200,
       enableSorting: false
     },
     {
@@ -296,8 +307,8 @@ function paymentColumns(basis: Parameters<typeof basisHint>[0]): ColumnDef<Onboa
           Next Instalment
         </span>
       ),
-      cell: ({ row }) => <NextInstalmentCell payment={row.original.payment} />,
-      size: 140,
+      cell: ({ row }) => wrap(<NextInstalmentCell payment={row.original.payment} />),
+      size: 170,
       enableSorting: false
     },
     {
@@ -307,8 +318,8 @@ function paymentColumns(basis: Parameters<typeof basisHint>[0]): ColumnDef<Onboa
           'Need to Admit',
           'Further payment required before the status engine promotes this learner.'
         ),
-      cell: ({ row }) => <AmountToThresholdCell payment={row.original.payment} />,
-      size: 130,
+      cell: ({ row }) => wrap(<AmountToThresholdCell payment={row.original.payment} />),
+      size: 150,
       enableSorting: false
     }
   ];
@@ -317,9 +328,10 @@ function paymentColumns(basis: Parameters<typeof basisHint>[0]): ColumnDef<Onboa
 /**
  * The column set for one tier.
  *
- * Only `awaiting_payment` differs: its two triage columns carry no information
- * (that tier is *defined* as 4/4 fields filled) and are replaced by the fee
- * columns. Every other tier keeps the original layout exactly.
+ * Only `awaiting_payment` differs: "Missing Fields" is replaced by the stage and
+ * fee columns. "Completion" stays — since 2026-09-25 that tab lists every
+ * account + reserved learner, complete or not. Every other tier keeps the
+ * original layout exactly.
  */
 export function getOnboardingColumns(
   tier: OnboardingTier,
@@ -335,7 +347,7 @@ export function getOnboardingColumns(
 
   const before = onboardingColumns.slice(0, swapAt);
   const after = onboardingColumns.filter(
-    (c) => c.id !== 'missing_fields' && c.id !== 'completion' && !before.includes(c)
+    (c) => c.id !== 'missing_fields' && !before.includes(c)
   );
 
   return [...before, ...paymentColumns(basis), ...after];

@@ -71,7 +71,7 @@ export default function IssueGatePassPage() {
 
   const institutionId = profile?.institution_id ?? '';
   const { data: hostelites, isLoading: hostelitesLoading } = useLearnerHostelites(institutionId);
-  const { hostelLeaveTypes, loading: typesLoading } = useActiveHostelLeaveTypes(institutionId);
+  const { hostelLeaveTypes, loading: typesLoading } = useActiveHostelLeaveTypes();
 
   const [learnerId, setLearnerId] = useState('');
   const [leaveTypeId, setLeaveTypeId] = useState('');

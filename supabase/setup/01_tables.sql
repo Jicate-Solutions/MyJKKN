@@ -8972,6 +8972,15 @@ CREATE UNIQUE INDEX uq_hr_salary_register_runs_live
   ON public.hr_salary_register_runs (institution_id, period_year, period_month)
   WHERE superseded_at IS NULL;
 
+-- 2026-09-23: the register is grouped by PAYING institution again
+-- (20260923120000). Where someone works is snapshotted per line instead.
+ALTER TABLE public.hr_salary_register_lines
+  ADD COLUMN IF NOT EXISTS work_institution_id uuid REFERENCES public.institutions(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS work_institution_name text;
+
+CREATE INDEX IF NOT EXISTS idx_hr_salary_register_lines_work_institution
+  ON public.hr_salary_register_lines (work_institution_id);
+
 -- ============================================================================
 -- 2026-08-31 — leave approval flows: parallel/sequential, ladder
 -- Migration: 20260831120000_hr_leave_approval_flow_parallel_ladder.sql

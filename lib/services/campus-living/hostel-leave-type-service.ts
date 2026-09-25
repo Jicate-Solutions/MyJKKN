@@ -38,9 +38,6 @@ export class HostelLeaveTypeService {
       .order('leave_type_name', { ascending: true })
       .range(from, to);
 
-    if (filters.institution_id) {
-      query = query.eq('institution_id', filters.institution_id);
-    }
     if (filters.is_active !== undefined) {
       query = query.eq('is_active', filters.is_active);
     }
@@ -69,41 +66,16 @@ export class HostelLeaveTypeService {
   }
 
   /**
-   * Institution-aware listing for non-super-admin users.
-   * Falls through to getHostelLeaveTypes(filters) if allInstitutions=true.
-   */
-  static async getHostelLeaveTypesWithAccess(
-    filters: HostelLeaveTypeFilters,
-    userInstitutionId: string | null | undefined,
-    allInstitutions: boolean
-  ): Promise<HostelLeaveTypeListResponse> {
-    if (allInstitutions) {
-      return this.getHostelLeaveTypes(filters);
-    }
-    if (!userInstitutionId) {
-      return { data: [], metadata: { total: 0, page: 1, limit: filters.limit ?? 100, totalPages: 0 } };
-    }
-    return this.getHostelLeaveTypes({
-      ...filters,
-      institution_id: userInstitutionId
-    });
-  }
-
-  /**
    * Active-only listing — consumed by UI that needs to let users PICK a leave
    * type (e.g. the leave-request form). Not used by the settings CRUD page.
    */
-  static async getActiveHostelLeaveTypes(
-    institutionId: string | undefined
-  ): Promise<HostelLeaveType[]> {
-    let q = this.supabase
+  static async getActiveHostelLeaveTypes(): Promise<HostelLeaveType[]> {
+    const { data, error } = await this.supabase
       .from('hostel_leave_types')
       .select('*')
       .eq('is_active', true)
       .order('sort_order', { ascending: true })
       .order('leave_type_name', { ascending: true });
-    if (institutionId) q = q.eq('institution_id', institutionId);
-    const { data, error } = await q;
 
     if (error) {
       logger.error('campus-living/leave-types', 'Database error listing active', error);
@@ -202,22 +174,14 @@ export class HostelLeaveTypeService {
   }
 
   /**
-   * Checks whether a leave_type_code is already used within an institution
-   * (or across all institutions when called by super_admin with
-   * institutionId=undefined).
+   * Checks whether a leave_type_code is already used. Codes are unique across
+   * the whole (institution-agnostic) list.
    *
-   * Conventions:
-   * - `institutionId: string | undefined` + truthy-guard on `.eq()` matches the
-   *   campus-living service convention locked 2026-04-23 (empty-UUID blitz,
-   *   PRs #358/#362/#363/#366). Prevents `invalid input syntax for type uuid`
-   *   crash when a super_admin session (institution_id=null) hits this path.
-   *   See memory: feedback_service_institution_id_signature_convention.md.
-   * - `.maybeSingle()` matches PR #446 convention: read paths that may return
-   *   0 rows must not throw PGRST116. A "code exists" check CAN return 0 rows
-   *   — that's the whole point.
+   * `.maybeSingle()` matches PR #446 convention: read paths that may return
+   * 0 rows must not throw PGRST116. A "code exists" check CAN return 0 rows
+   * — that's the whole point.
    */
   static async isHostelLeaveTypeCodeExists(
-    institutionId: string | undefined,
     code: string,
     excludeId?: string
   ): Promise<boolean> {
@@ -225,7 +189,6 @@ export class HostelLeaveTypeService {
       .from('hostel_leave_types')
       .select('id')
       .eq('leave_type_code', code);
-    if (institutionId) q = q.eq('institution_id', institutionId);
     if (excludeId) q = q.neq('id', excludeId);
     q = q.limit(1);
     const { data, error } = await q.maybeSingle();

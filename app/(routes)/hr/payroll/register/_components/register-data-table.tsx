@@ -72,7 +72,7 @@ const EXPORT_COLUMNS: Array<{ key: string; label: string; width: number }> = [
   { key: 'm_earnings', label: 'Total Earnings', width: 15 },
   { key: 'm_deductions', label: 'Total Deductions', width: 15 },
   { key: 'm_net', label: 'Net Pay', width: 15 },
-  { key: 'payer', label: 'Paid By', width: 28 },
+  { key: 'payer', label: 'Works At', width: 28 },
   { key: 'note', label: 'Remarks', width: 30 },
 ];
 
@@ -117,7 +117,7 @@ export function RegisterDataTable({
           (l.employee_code ?? '').toLowerCase().includes(term) ||
           (l.designation ?? '').toLowerCase().includes(term) ||
           (l.department_name ?? '').toLowerCase().includes(term) ||
-          (l.paid_by_name ?? '').toLowerCase().includes(term)
+          (l.work_institution_name ?? '').toLowerCase().includes(term)
         );
       });
 
@@ -131,7 +131,7 @@ export function RegisterDataTable({
           const av = a[sortBy as keyof HRSalaryRegisterLine];
           const bv = b[sortBy as keyof HRSalaryRegisterLine];
           if (av == null && bv == null) return 0;
-          // Nulls last regardless of direction: an unrecorded payer sorting into
+          // Nulls last regardless of direction: an unrecorded value sorting into
           // the middle of a column reads as a data error.
           if (av == null) return 1;
           if (bv == null) return -1;
@@ -176,7 +176,7 @@ export function RegisterDataTable({
           (l.employee_code ?? '').toLowerCase().includes(term) ||
           (l.designation ?? '').toLowerCase().includes(term) ||
           (l.department_name ?? '').toLowerCase().includes(term) ||
-          (l.paid_by_name ?? '').toLowerCase().includes(term)
+          (l.work_institution_name ?? '').toLowerCase().includes(term)
         );
       });
     },
@@ -201,8 +201,8 @@ export function RegisterDataTable({
           <Badge variant="outline" className="font-normal">
             {days(l.paid_days)} paid days
           </Badge>
-          {l.paid_by_name && (
-            <Badge variant="outline" className="font-normal">{l.paid_by_name}</Badge>
+          {l.work_institution_name && (
+            <Badge variant="outline" className="font-normal">{l.work_institution_name}</Badge>
           )}
           {!l.is_included && (
             <Badge
@@ -274,7 +274,7 @@ export function RegisterDataTable({
             m_earnings: m(l.total_earnings),
             m_deductions: m(l.total_deductions),
             m_net: m(l.net_pay),
-            payer: l.paid_by_name ?? '',
+            payer: l.work_institution_name ?? '',
             note: l.remarks ?? '',
           };
         },

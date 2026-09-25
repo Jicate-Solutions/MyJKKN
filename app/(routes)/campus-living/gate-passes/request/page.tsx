@@ -110,7 +110,7 @@ export default function RequestGatePassPage() {
   const canRequest = isSuperAdmin || canAccess('campus_living.gate_passes', 'create');
 
   const institutionId = profile?.institution_id ?? '';
-  const { hostelLeaveTypes, loading: typesLoading } = useActiveHostelLeaveTypes(institutionId);
+  const { hostelLeaveTypes, loading: typesLoading } = useActiveHostelLeaveTypes();
   const requestPass = useRequestGatePass();
 
   const [leaveTypeId, setLeaveTypeId] = useState('');

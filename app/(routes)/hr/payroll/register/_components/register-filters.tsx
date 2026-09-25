@@ -28,13 +28,13 @@ export type RegisterStatusFilter = 'paid' | 'excluded' | 'all';
 
 export interface RegisterFilterState {
   status: RegisterStatusFilter;
-  /** hr_organizations.id of the payer, or null for every payer. */
-  payerId: string | null;
+  /** institutions.id of the work location, or null for every location. */
+  workId: string | null;
 }
 
 export const DEFAULT_REGISTER_FILTERS: RegisterFilterState = {
   status: 'paid',
-  payerId: null,
+  workId: null,
 };
 
 export function matchesRegisterFilters(
@@ -43,23 +43,23 @@ export function matchesRegisterFilters(
 ): boolean {
   if (filters.status === 'paid' && !line.is_included) return false;
   if (filters.status === 'excluded' && line.is_included) return false;
-  // `?? ''` not `|| ''`: a null payer is a real category — 105 active staff have
-  // no payer recorded — and it gets its own option rather than vanishing.
-  if (filters.payerId !== null && (line.paid_by_organization_id ?? '') !== filters.payerId) {
+  // `?? ''` not `|| ''`: lines generated before 2026-09-23 have no work location
+  // recorded, and that gets its own option rather than vanishing.
+  if (filters.workId !== null && (line.work_institution_id ?? '') !== filters.workId) {
     return false;
   }
   return true;
 }
 
-/** The distinct payers on this register, in name order, plus the unrecorded bucket. */
-export function payerOptions(
+/** The distinct work locations on this register, in name order, plus the unrecorded bucket. */
+export function workLocationOptions(
   lines: HRSalaryRegisterLine[]
 ): Array<{ id: string; label: string }> {
   const byId = new Map<string, string>();
   let hasUnrecorded = false;
   for (const l of lines) {
-    if (l.paid_by_organization_id) {
-      byId.set(l.paid_by_organization_id, l.paid_by_name ?? l.paid_by_organization_id);
+    if (l.work_institution_id) {
+      byId.set(l.work_institution_id, l.work_institution_name ?? l.work_institution_id);
     } else {
       hasUnrecorded = true;
     }
@@ -67,7 +67,7 @@ export function payerOptions(
   const out = [...byId.entries()]
     .map(([id, label]) => ({ id, label }))
     .sort((a, b) => a.label.localeCompare(b.label));
-  if (hasUnrecorded) out.push({ id: '', label: 'No payer recorded' });
+  if (hasUnrecorded) out.push({ id: '', label: 'Work location not recorded' });
   return out;
 }
 
@@ -80,7 +80,7 @@ interface Props {
 export function RegisterFilters({ lines, filters, onChange }: Props) {
   const paid = lines.filter((l) => l.is_included).length;
   const excluded = lines.length - paid;
-  const payers = payerOptions(lines);
+  const payers = workLocationOptions(lines);
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -107,16 +107,16 @@ export function RegisterFilters({ lines, filters, onChange }: Props) {
           // travels as '__none__' and must be translated, or the option would
           // silently match nobody.
           value={
-            filters.payerId === null
+            filters.workId === null
               ? '__all__'
-              : filters.payerId === ''
+              : filters.workId === ''
                 ? '__none__'
-                : filters.payerId
+                : filters.workId
           }
           onValueChange={(v) =>
             onChange({
               ...filters,
-              payerId: v === '__all__' ? null : v === '__none__' ? '' : v,
+              workId: v === '__all__' ? null : v === '__none__' ? '' : v,
             })
           }
         >
@@ -124,7 +124,7 @@ export function RegisterFilters({ lines, filters, onChange }: Props) {
             <SelectValue placeholder="Paid by" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="__all__">Every payer</SelectItem>
+            <SelectItem value="__all__">Every work location</SelectItem>
             {payers.map((p) => (
               <SelectItem key={p.id || '__none__'} value={p.id || '__none__'}>
                 {p.label}
@@ -143,7 +143,7 @@ export function RegisterFilters({ lines, filters, onChange }: Props) {
         </Badge>
       )}
 
-      {(filters.status !== 'paid' || filters.payerId !== null) && (
+      {(filters.status !== 'paid' || filters.workId !== null) && (
         <Button
           variant="ghost"
           size="sm"

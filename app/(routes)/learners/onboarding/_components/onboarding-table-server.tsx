@@ -26,6 +26,7 @@ import {
 import { ArrowRight, ArrowUpDown, UserCheck, Loader2 } from 'lucide-react';
 import { getOnboardingColumns } from './columns';
 import { PaymentThresholdBanner } from './payment-threshold-banner';
+import { AwaitingPaymentExportButton } from './awaiting-payment-export-button';
 import type {
   OnboardingProfileRow,
   OnboardingTier,
@@ -246,6 +247,8 @@ export function OnboardingTableServer({
             ))}
           </SelectContent>
         </Select>
+
+        {tier === 'awaiting_payment' && <AwaitingPaymentExportButton />}
 
         {/* On the Ready to Activate tier the useful bulk action is activation,
             not "assign academic info" — those fields are already filled, which

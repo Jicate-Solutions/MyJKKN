@@ -7,19 +7,11 @@
 import { ColumnDef } from '@tanstack/react-table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
-import { Building2, Shield, Paperclip, UserCheck, Lock } from 'lucide-react';
+import { Shield, Paperclip, UserCheck, Lock } from 'lucide-react';
 import type { HostelLeaveType } from '@/types/hostel-leave-types';
 import { HostelLeaveTypeRowActions } from './row-actions';
 
-interface ColumnsConfig {
-  institutionMap: Map<string, string>;
-  isSuperAdmin: boolean;
-}
-
-export const createColumns = ({
-  institutionMap,
-  isSuperAdmin
-}: ColumnsConfig): ColumnDef<HostelLeaveType>[] => {
+export const createColumns = (): ColumnDef<HostelLeaveType>[] => {
   const columns: ColumnDef<HostelLeaveType>[] = [
     {
       id: 'select',
@@ -88,24 +80,6 @@ export const createColumns = ({
       }
     }
   ];
-
-  if (isSuperAdmin) {
-    columns.push({
-      accessorKey: 'institution_id',
-      header: 'Institution',
-      cell: ({ row }) => {
-        const name = institutionMap.get(row.original.institution_id);
-        return (
-          <div className='flex items-center gap-2'>
-            <Building2 className='h-4 w-4 text-muted-foreground flex-shrink-0' />
-            <span className='text-sm truncate max-w-[200px]' title={name}>
-              {name || 'Unknown'}
-            </span>
-          </div>
-        );
-      }
-    });
-  }
 
   columns.push(
     {

@@ -16,11 +16,12 @@ import {
   UserCheck,
   Wallet
 } from 'lucide-react';
+import type { OnboardingStatus } from '@/types/learner-onboarding';
 import { getOnboardingStats } from '../_data/get-onboarding-stats';
 
 interface OnboardingStatsCardsProps {
   filters: {
-    lifecycle_status?: 'reserved' | 'admitted';
+    lifecycle_status?: OnboardingStatus;
     institution_id?: string;
     degree_id?: string;
     department_id?: string;
@@ -89,7 +90,7 @@ export async function OnboardingStatsCards({ filters }: OnboardingStatsCardsProp
       key: 'awaiting_payment',
       label: 'Awaiting Payment',
       value: stats.awaiting_payment,
-      sub: 'Reserved, all 4 filled — fees pending',
+      sub: `${stats.account_total} Account + ${stats.reserved_total} Reserved — fees pending`,
       icon: Wallet,
       accent: 'text-sky-600 dark:text-sky-400',
       bg: 'bg-sky-50 dark:bg-sky-950/20',

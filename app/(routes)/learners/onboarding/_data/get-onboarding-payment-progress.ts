@@ -16,7 +16,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server';
-import type { OnboardingPaymentProgress } from '@/types/learner-onboarding';
+import { isBlockedReason, type OnboardingPaymentProgress } from '@/types/learner-onboarding';
 
 /**
  * Ceiling on ids per call. The tier is ~207 learners today and the scan cap
@@ -84,7 +84,18 @@ export async function getOnboardingPaymentProgress(
         next_due_amount:
           row.next_due_amount == null ? null : Number(row.next_due_amount),
         instalments_total: Number(row.instalments_total ?? 0),
-        instalments_settled: Number(row.instalments_settled ?? 0)
+        instalments_settled: Number(row.instalments_settled ?? 0),
+        lifecycle_status: (row.lifecycle_status as string) ?? '',
+        app_bills: Number(row.app_bills ?? 0),
+        app_billed: Number(row.app_billed ?? 0),
+        app_paid: Number(row.app_paid ?? 0),
+        uni_bills: Number(row.uni_bills ?? 0),
+        uni_billed: Number(row.uni_billed ?? 0),
+        uni_paid: Number(row.uni_paid ?? 0),
+        gate_bills: Number(row.gate_bills ?? 0),
+        gate_settled: Number(row.gate_settled ?? 0),
+        pct_billed_to_date: Number(row.pct_billed_to_date ?? 0),
+        blocked_reason: isBlockedReason(row.blocked_reason) ? row.blocked_reason : 'none'
       });
     }
 

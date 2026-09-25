@@ -12,11 +12,16 @@
  * read as the cohort's, which is the kind of number that ends up in a report.
  */
 
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
 import { Wallet, Target, TrendingUp, AlertTriangle } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import {
+  BLOCKED_REASONS,
+  BLOCKED_REASON_LABELS,
+  STUCK_REASONS,
   THRESHOLD_BASIS_SHORT,
+  type BlockedReason,
   type OnboardingPaymentSummary
 } from '@/types/learner-onboarding';
 
@@ -115,7 +120,76 @@ export function PaymentThresholdBanner({ summary }: { summary?: OnboardingPaymen
             </div>
           </div>
         </div>
+
+        <BlockedReasonChips summary={summary} />
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * One chip per pipeline blocker, in pipeline order, with its count. Clicking
+ * filters the table to that reason via `?blocked_reason=`; clicking the active
+ * chip clears it. Counts cover the whole tab, so they stay visible while one
+ * reason is selected.
+ */
+function BlockedReasonChips({ summary }: { summary: OnboardingPaymentSummary }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const active = searchParams.get('blocked_reason');
+
+  const select = (reason: BlockedReason | null) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (reason) params.set('blocked_reason', reason);
+    else params.delete('blocked_reason');
+    params.set('tier', 'awaiting_payment');
+    params.delete('page');
+    router.push(`${pathname}?${params.toString()}`, { scroll: false });
+  };
+
+  return (
+    <div className="mt-4 space-y-2 border-t border-sky-200/70 pt-3 dark:border-sky-900/40">
+      <p className="text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">{summary.account}</span> Account ·{' '}
+        <span className="font-medium text-foreground">{summary.reserved}</span> Reserved — why
+        they are not moving (Account → Reserved → Admitted):
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {BLOCKED_REASONS.map((reason) => {
+          const count = summary.reasons[reason] ?? 0;
+          const stuck = STUCK_REASONS.includes(reason);
+          if (count === 0 && stuck) return null;
+          const isActive = active === reason;
+          return (
+            <button
+              key={reason}
+              type="button"
+              disabled={count === 0 && !isActive}
+              onClick={() => select(isActive ? null : reason)}
+              className={`rounded-full border px-3 py-1 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                isActive
+                  ? 'border-sky-600 bg-sky-600 text-white'
+                  : stuck
+                    ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300'
+                    : 'border-border bg-background hover:bg-muted'
+              }`}
+            >
+              {BLOCKED_REASON_LABELS[reason]}{' '}
+              <span className="font-semibold tabular-nums">{count}</span>
+            </button>
+          );
+        })}
+        {active && (
+          <button
+            type="button"
+            onClick={() => select(null)}
+            className="rounded-full px-2 py-1 text-xs text-muted-foreground underline-offset-2 hover:underline"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+    </div>
   );
 }

@@ -45,6 +45,7 @@ import { SectionService } from '@/lib/services/organization/section-service';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import { LookupService } from '@/lib/services/admission/lookup-service';
 import { useGroupAdmissionYears } from '@/hooks/admission/use-group-admission-years';
+import { BLOCKED_REASONS, BLOCKED_REASON_LABELS } from '@/types/learner-onboarding';
 import type { OnboardingSearchParams } from './data-table-schema';
 
 interface OnboardingFiltersProps {
@@ -63,7 +64,8 @@ const FILTER_KEYS = [
   'gender',
   'accommodation_type_id',
   'missing_field',
-  'lifecycle_status'
+  'lifecycle_status',
+  'blocked_reason'
 ] as const;
 
 export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
@@ -88,6 +90,7 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
     accommodation_type_id?: string;
     missing_field?: string;
     lifecycle_status?: string;
+    blocked_reason?: string;
   }>({
     institution_id: searchParams.institution_id || undefined,
     degree_id: searchParams.degree_id || undefined,
@@ -102,7 +105,8 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
     gender: searchParams.gender || undefined,
     accommodation_type_id: searchParams.accommodation_type_id || undefined,
     missing_field: searchParams.missing_field || undefined,
-    lifecycle_status: searchParams.lifecycle_status || undefined
+    lifecycle_status: searchParams.lifecycle_status || undefined,
+    blocked_reason: searchParams.blocked_reason || undefined
   });
 
   const [institutions, setInstitutions] = useState<any[]>([]);
@@ -160,7 +164,8 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
       gender: undefined,
       accommodation_type_id: undefined,
       missing_field: undefined,
-      lifecycle_status: undefined
+      lifecycle_status: undefined,
+      blocked_reason: undefined
     });
     const params = new URLSearchParams(currentSearchParams.toString());
     FILTER_KEYS.forEach((key) => params.delete(key));
@@ -184,7 +189,8 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
       gender: searchParams.gender || undefined,
       accommodation_type_id: searchParams.accommodation_type_id || undefined,
       missing_field: searchParams.missing_field || undefined,
-      lifecycle_status: searchParams.lifecycle_status || undefined
+      lifecycle_status: searchParams.lifecycle_status || undefined,
+      blocked_reason: searchParams.blocked_reason || undefined
     });
   }, [searchParams]);
 
@@ -677,9 +683,34 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
                 <SelectValue placeholder="Filter by Status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Reserved &amp; Admitted</SelectItem>
+                <SelectItem value="all">All pre-active (Account, Reserved, Admitted)</SelectItem>
+                <SelectItem value="account">Account only</SelectItem>
                 <SelectItem value="reserved">Reserved only</SelectItem>
                 <SelectItem value="admitted">Admitted only</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {/* Why a learner is not moving Account → Reserved → Admitted.
+                Applies to the Awaiting Payment tab only; other tabs ignore it. */}
+            <Select
+              value={localFilters.blocked_reason || ''}
+              onValueChange={(v) =>
+                setLocalFilters((prev) => ({
+                  ...prev,
+                  blocked_reason: v === 'all' ? undefined : v
+                }))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Blocked At (Awaiting Payment)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any reason</SelectItem>
+                {BLOCKED_REASONS.map((reason) => (
+                  <SelectItem key={reason} value={reason}>
+                    {BLOCKED_REASON_LABELS[reason]}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
