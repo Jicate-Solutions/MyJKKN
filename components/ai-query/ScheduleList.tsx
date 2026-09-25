@@ -349,7 +349,8 @@ export function ScheduleList({
       </div>
 
       <AlertDialog open={confirmDelete !== null} onOpenChange={(o) => !o && setConfirmDelete(null)}>
-        <AlertDialogContent>
+        {/* Inside the History sheet (z-[90]): lift the box above it so it can be clicked. */}
+        <AlertDialogContent className="z-[100]">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this schedule?</AlertDialogTitle>
             <AlertDialogDescription>

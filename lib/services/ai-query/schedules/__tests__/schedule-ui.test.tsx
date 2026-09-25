@@ -146,6 +146,8 @@ describe('Scheduled tab', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Delete/ }));
     const dialog = await screen.findByRole('alertdialog');
+    // Inside the History sheet (z-[90]) the box must sit above it to be clickable.
+    expect(dialog.className).toContain('z-[100]');
     fireEvent.click(Array.from(dialog.querySelectorAll('button')).find((b) => b.textContent === 'Delete')!);
     await waitFor(() => expect(svc.deleteSchedule).toHaveBeenCalledWith(row().id));
   });
@@ -222,6 +224,17 @@ describe('History → Repeat… → Save', () => {
         channels: ['in_app', 'email'],
       }),
     );
+  });
+
+  it('the Repeat dialog opens ABOVE the History sheet, not dimmed behind it', async () => {
+    // The sheet sits at z-[85]/z-[90] (components/ui/sheet.tsx); a dialog left at
+    // the default z-50 renders behind it and cannot be clicked (found 2026-09-26).
+    render(<ChatHistorySheet />);
+    fireEvent.click(screen.getByRole('button', { name: /History/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Repeat the question/ }));
+    const title = await screen.findByText('Repeat this question');
+    const dialog = title.closest('[role="dialog"]') as HTMLElement;
+    expect(dialog.className).toContain('z-[100]');
   });
 
   it('unticking both channels blocks Save', async () => {

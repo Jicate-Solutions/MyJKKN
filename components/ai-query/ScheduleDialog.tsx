@@ -136,7 +136,10 @@ export function ScheduleDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      {/* Opens from INSIDE the History sheet (z-[85]/z-[90], components/ui/sheet.tsx):
+          raise the dialog and its backdrop above it, or it renders dimmed and
+          unclickable behind the sheet. Same fix as request-eligibility-dialog. */}
+      <DialogContent className="z-[100] sm:max-w-md" overlayClassName="z-[95]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <CalendarClock className="h-4 w-4 text-primary" />
