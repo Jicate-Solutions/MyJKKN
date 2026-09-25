@@ -153,6 +153,10 @@ export interface MarathonBudgetItem {
   approved_by: string | null;
   vendor: string | null;
   receipt_url: string | null;
+  /** Drive file id behind receipt_url (BUG-004627). */
+  receipt_drive_file_id?: string | null;
+  /** Original filename of the attachment (BUG-004627). */
+  receipt_name?: string | null;
   notes: string | null;
   institution_id: string | null;
   /** The line this one itemises. One level only — a sub-line has no sub-lines. */
