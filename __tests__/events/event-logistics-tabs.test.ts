@@ -180,3 +180,17 @@ describe('sensitive tabs', () => {
     expect(keys(tabs).sort()).toEqual(['kit', 'messages', 'registrations']);
   });
 });
+
+// BUG-006175 — every chess/carrom registrant showed up in the Kit / T-shirt
+// distribution list: KitBoard lists every non-cancelled registration, and the
+// tab was mounted on every event type. Tournaments hand out no kit.
+describe('Kit / T-shirt tab', () => {
+  it('is not offered on sports tournaments', () => {
+    expect(keys(visibleLogisticsTabs({ eventType: 'sports_tournament' }))).not.toContain('kit');
+  });
+
+  it('stays on marathons and other event types', () => {
+    expect(keys(visibleLogisticsTabs({ eventType: 'marathon' }))).toContain('kit');
+    expect(keys(visibleLogisticsTabs({ eventType: 'lecture' }))).toContain('kit');
+  });
+});
