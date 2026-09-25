@@ -13,6 +13,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { BulkLearnerEditService, type BulkEditRow } from '@/lib/services/bulk-learner-edit-service';
+import { getLearnerBulkEditInstitutionIds } from '@/lib/auth/learner-bulk-edit-scope';
 import { LearnerValidationService } from '@/lib/services/learner-validation-service';
 import { parseExcelFile, mapColumns, sanitizeValue, hasColumn, listColumns } from '@/lib/utils/excel-parser';
 import {
@@ -233,6 +234,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Institutions this uploader may edit: every institution the role grants
+    // (Admission spans several), not just profiles.institution_id.
+    const institutionScope: string[] | undefined = profile.is_super_admin
+      ? undefined
+      : await getLearnerBulkEditInstitutionIds(supabase, user.id, profile.institution_id);
+
     // 3. Parse file from form data
     const formData = await request.formData();
     const file = formData.get('file') as File;
@@ -306,11 +313,37 @@ export async function POST(request: NextRequest) {
       return result;
     };
 
+    // Name labels (Program, Section, Academic Year, …) must resolve against the
+    // LEARNER's institution, not the uploader's: resolving against the
+    // uploader's picked a same-named row from another institution, which the
+    // learner scope guard then rejected ("belongs to institution X, not the
+    // learner's institution Y"). Falls back to the uploader's institution only
+    // when the learner row can't be read.
+    const learnerInstitutionById = new Map<string, string>();
+    {
+      const ids = Array.from(new Set(
+        parseResult.rows
+          .map((r) => String(mapColumns(r.data, columnMapping).id ?? '').trim())
+          .filter(Boolean)
+      ));
+      for (let i = 0; i < ids.length; i += 200) {
+        const { data: instRows } = await supabase
+          .from('learners_profiles')
+          .select('id, institution_id')
+          .in('id', ids.slice(i, i + 200));
+        for (const r of instRows ?? []) {
+          if (r.institution_id) learnerInstitutionById.set(r.id, r.institution_id);
+        }
+      }
+    }
+
     const bulkEditRows: BulkEditRow[] = [];
 
     for (const parsedRow of parseResult.rows) {
       // Map columns
       const mappedData = mapColumns(parsedRow.data, columnMapping);
+      const resolveInstitutionId: string | null =
+        learnerInstitutionById.get(String(mappedData.id ?? '').trim()) ?? profile.institution_id;
 
       // Sanitize values (only non-empty values)
       const sanitizedData: any = {
@@ -420,8 +453,8 @@ export async function POST(request: NextRequest) {
       // Degree (resolve name to ID if name provided)
       if (mappedData.degree_name && !mappedData.degree_id) {
         const degreeResult = await cachedResolve(
-          `degree:${mappedData.degree_name}:${profile.institution_id}`,
-          () => NameToIdResolver.resolveDegreeId(mappedData.degree_name, profile.institution_id || undefined)
+          `degree:${mappedData.degree_name}:${resolveInstitutionId}`,
+          () => NameToIdResolver.resolveDegreeId(mappedData.degree_name, resolveInstitutionId || undefined)
         );
         if (degreeResult.found && degreeResult.id) {
           sanitizedData.degree_id = degreeResult.id;
@@ -435,8 +468,8 @@ export async function POST(request: NextRequest) {
       // Department (resolve name to ID if name provided)
       if (mappedData.department_name && !mappedData.department_id) {
         const deptResult = await cachedResolve(
-          `dept:${mappedData.department_name}:${profile.institution_id}`,
-          () => NameToIdResolver.resolveDepartmentId(mappedData.department_name, profile.institution_id || undefined)
+          `dept:${mappedData.department_name}:${resolveInstitutionId}`,
+          () => NameToIdResolver.resolveDepartmentId(mappedData.department_name, resolveInstitutionId || undefined)
         );
         if (deptResult.found && deptResult.id) {
           sanitizedData.department_id = deptResult.id;
@@ -450,8 +483,8 @@ export async function POST(request: NextRequest) {
       // Program (resolve name to ID if name provided)
       if (mappedData.program_name && !mappedData.program_id) {
         const progResult = await cachedResolve(
-          `prog:${mappedData.program_name}:${profile.institution_id}:${sanitizedData.department_id}`,
-          () => NameToIdResolver.resolveProgramId(mappedData.program_name, profile.institution_id || undefined, sanitizedData.department_id)
+          `prog:${mappedData.program_name}:${resolveInstitutionId}:${sanitizedData.department_id}`,
+          () => NameToIdResolver.resolveProgramId(mappedData.program_name, resolveInstitutionId || undefined, sanitizedData.department_id)
         );
         if (progResult.found && progResult.id) {
           sanitizedData.program_id = progResult.id;
@@ -476,8 +509,8 @@ export async function POST(request: NextRequest) {
       // Semester (resolve name to ID if name provided)
       if (mappedData.semester_name && !mappedData.semester_id) {
         const semResult = await cachedResolve(
-          `sem:${mappedData.semester_name}:${profile.institution_id}:${sanitizedData.program_id}`,
-          () => NameToIdResolver.resolveSemesterId(mappedData.semester_name, profile.institution_id || undefined, sanitizedData.program_id)
+          `sem:${mappedData.semester_name}:${resolveInstitutionId}:${sanitizedData.program_id}`,
+          () => NameToIdResolver.resolveSemesterId(mappedData.semester_name, resolveInstitutionId || undefined, sanitizedData.program_id)
         );
         if (semResult.found && semResult.id) {
           sanitizedData.semester_id = semResult.id;
@@ -491,8 +524,8 @@ export async function POST(request: NextRequest) {
       // Section (resolve name to ID if name provided)
       if (mappedData.section_name && !mappedData.section_id) {
         const secResult = await cachedResolve(
-          `sec:${mappedData.section_name}:${profile.institution_id}:${sanitizedData.semester_id}`,
-          () => NameToIdResolver.resolveSectionId(mappedData.section_name, profile.institution_id || undefined, sanitizedData.semester_id)
+          `sec:${mappedData.section_name}:${resolveInstitutionId}:${sanitizedData.semester_id}`,
+          () => NameToIdResolver.resolveSectionId(mappedData.section_name, resolveInstitutionId || undefined, sanitizedData.semester_id)
         );
         if (secResult.found && secResult.id) {
           sanitizedData.section_id = secResult.id;
@@ -506,8 +539,8 @@ export async function POST(request: NextRequest) {
       // Academic Year (resolve name to ID if name provided)
       if (mappedData.academic_year_name && !mappedData.academic_year_id) {
         const yearResult = await cachedResolve(
-          `year:${mappedData.academic_year_name}:${profile.institution_id}`,
-          () => NameToIdResolver.resolveAcademicYearId(mappedData.academic_year_name, profile.institution_id || undefined)
+          `year:${mappedData.academic_year_name}:${resolveInstitutionId}`,
+          () => NameToIdResolver.resolveAcademicYearId(mappedData.academic_year_name, resolveInstitutionId || undefined)
         );
         if (yearResult.found && yearResult.id) {
           sanitizedData.academic_year_id = yearResult.id;
@@ -521,8 +554,8 @@ export async function POST(request: NextRequest) {
       // Regulation (resolve name to ID if name provided)
       if (mappedData.regulation_name && !mappedData.regulation_id) {
         const regResult = await cachedResolve(
-          `reg:${mappedData.regulation_name}:${profile.institution_id}`,
-          () => NameToIdResolver.resolveRegulationId(mappedData.regulation_name, profile.institution_id || undefined)
+          `reg:${mappedData.regulation_name}:${resolveInstitutionId}`,
+          () => NameToIdResolver.resolveRegulationId(mappedData.regulation_name, resolveInstitutionId || undefined)
         );
         if (regResult.found && regResult.id) {
           sanitizedData.regulation_id = regResult.id;
@@ -537,7 +570,7 @@ export async function POST(request: NextRequest) {
       if (mappedData.batch_name && !mappedData.batch_id) {
         const batchResult = await NameToIdResolver.resolveBatchId(
           mappedData.batch_name,
-          profile.institution_id || undefined
+          resolveInstitutionId || undefined
         );
         if (batchResult.found && batchResult.id) {
           sanitizedData.batch_id = batchResult.id;
@@ -745,7 +778,7 @@ export async function POST(request: NextRequest) {
     // 7. Process bulk edit
     const result = await BulkLearnerEditService.processBulkEdit(
       bulkEditRows,
-      profile.institution_id || undefined,
+      institutionScope,
       !!profile.is_super_admin,
       user.id
     );
