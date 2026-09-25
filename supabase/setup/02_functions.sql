@@ -71796,7 +71796,8 @@ CREATE OR REPLACE FUNCTION public.fn_adoption_remind_core(
   p_actor       uuid,
   p_dry_run     boolean DEFAULT false,
   p_limit       integer DEFAULT NULL,
-  p_exclude     uuid[]  DEFAULT '{}'::uuid[]
+  p_exclude     uuid[]  DEFAULT '{}'::uuid[],
+  p_first_only  boolean DEFAULT false
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -71861,6 +71862,10 @@ BEGIN
       AND NOT EXISTS (SELECT 1 FROM public.adoption_reminders ar
                       WHERE ar.user_id = pr.user_id AND ar.feature_key = p_feature_key
                         AND ar.sent_at > now() - interval '30 days')
+      -- p_first_only: only people never reminded about THIS feature (the tick's
+      -- first rounds, so a big backlog on one feature cannot hold back others)
+      AND NOT (COALESCE(p_first_only, false) AND EXISTS (SELECT 1 FROM public.adoption_reminders ar
+                      WHERE ar.user_id = pr.user_id AND ar.feature_key = p_feature_key))
       -- one adoption message per person per day, reminders and questions together
       AND NOT EXISTS (SELECT 1 FROM public.adoption_reminders ar
                       WHERE ar.user_id = pr.user_id AND ar.sent_at >= (date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata') AT TIME ZONE 'Asia/Kolkata'))
@@ -71911,8 +71916,8 @@ BEGIN
                             'notification_id', v_nid, 'targets', to_jsonb(v_targets));
 END;
 $$;
-REVOKE EXECUTE ON FUNCTION public.fn_adoption_remind_core(text, uuid, boolean, integer, uuid[]) FROM anon, authenticated, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_adoption_remind_core(text, uuid, boolean, integer, uuid[]) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_remind_core(text, uuid, boolean, integer, uuid[], boolean) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_adoption_remind_core(text, uuid, boolean, integer, uuid[], boolean) TO service_role;
 
 -- ---------------------------------------------------------------------
 -- 7) fn_adoption_loop_sender — who a machine-sent notice is from
@@ -72104,6 +72109,10 @@ DECLARE
   v_rows      jsonb := '{}'::jsonb;   -- feature_key → what this run did
   v_capped    boolean := false;
   v_excluded  text[];
+  v_keys      text[] := '{}'::text[];  -- features for the current pass, in order
+  v_key       text;
+  v_share     integer;
+  v_round     integer;
 BEGIN
   IF auth.uid() IS NOT NULL THEN
     RAISE EXCEPTION 'the adoption daily run is started by the scheduler, not by a person' USING ERRCODE = '42501';
@@ -72189,28 +72198,47 @@ BEGIN
     v_rows := v_rows || jsonb_build_object(v_feat.feature_key,
       jsonb_build_object('near_zero', v_near_zero, 'asked', 0, 'reminded', 0));
 
-    IF NOT v_near_zero THEN
-      CONTINUE;
-    END IF;
-    IF v_left <= 0 THEN
-      v_capped := true;
-      v_rows := jsonb_set(v_rows, ARRAY[v_feat.feature_key, 'ask_note'], to_jsonb('run cap reached'::text));
-      CONTINUE;
-    END IF;
-
-    v_res := public.fn_adoption_ask_why_core(v_feat.feature_key, NULL, v_actor, v_dry, v_left, v_touched);
-    IF COALESCE((v_res->>'success')::boolean, false) THEN
-      v_n := COALESCE((v_res->>'asked')::integer, 0);
-      v_touched := v_touched || ARRAY(SELECT jsonb_array_elements_text(COALESCE(v_res->'targets', '[]'::jsonb))::uuid);
-      v_left := v_left - v_n;
-      v_total_ask := v_total_ask + v_n;
-      v_rows := jsonb_set(v_rows, ARRAY[v_feat.feature_key, 'asked'], to_jsonb(v_n));
-    ELSE
-      v_rows := jsonb_set(v_rows, ARRAY[v_feat.feature_key, 'ask_note'], to_jsonb(v_res->>'error'));
+    IF v_near_zero THEN
+      v_keys := v_keys || v_feat.feature_key;
     END IF;
   END LOOP;
 
-  -- ---- pass 2: remind the never-users, newest feature first ----
+  -- Fair order (review 5): round 1 gives every near-zero feature an equal share
+  -- of what is left today, oldest feature first; round 2 spends any leftover in
+  -- the same order. A feature with thousands to ask cannot hold the others back.
+  -- Questions come before reminders on purpose: a question backlog can pause
+  -- reminders, never the other way round.
+  FOR v_round IN 1..2 LOOP
+    v_share := CASE WHEN cardinality(v_keys) = 0 THEN 0
+                    ELSE GREATEST(1, ceil(v_left::numeric / cardinality(v_keys))::integer) END;
+    FOREACH v_key IN ARRAY v_keys LOOP
+      IF v_left <= 0 THEN
+        v_capped := true;
+        v_rows := jsonb_set(v_rows, ARRAY[v_key, 'ask_note'], to_jsonb('run cap reached'::text));
+        CONTINUE;
+      END IF;
+      v_res := public.fn_adoption_ask_why_core(v_key, NULL, v_actor, v_dry,
+                 CASE WHEN v_round = 1 THEN LEAST(v_share, v_left) ELSE v_left END, v_touched);
+      IF COALESCE((v_res->>'success')::boolean, false) THEN
+        v_n := COALESCE((v_res->>'asked')::integer, 0);
+        v_touched := v_touched || ARRAY(SELECT jsonb_array_elements_text(COALESCE(v_res->'targets', '[]'::jsonb))::uuid);
+        v_left := v_left - v_n;
+        v_total_ask := v_total_ask + v_n;
+        v_rows := jsonb_set(v_rows, ARRAY[v_key, 'asked'],
+                    to_jsonb(COALESCE((v_rows->v_key->>'asked')::integer, 0) + v_n));
+      ELSE
+        v_rows := jsonb_set(v_rows, ARRAY[v_key, 'ask_note'], to_jsonb(v_res->>'error'));
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  -- ---- pass 2: remind the never-users ----
+  -- Fair order (review 5), in three rounds over the eligible features, newest first:
+  --   1. first reminders only, an equal share of what is left today per feature
+  --   2. first reminders only, any leftover
+  --   3. repeat reminders (30 days on), oldest reminder first, any leftover
+  -- So nobody gets a repeat while anyone on any feature still awaits a first one.
+  v_keys := '{}'::text[];
   FOR v_feat IN
     SELECT fr.feature_key
     FROM public.feature_registry fr
@@ -72223,22 +72251,32 @@ BEGIN
       AND NOT (fr.feature_key = ANY (v_excluded))
     ORDER BY fr.shipped_at DESC, fr.feature_key
   LOOP
-    IF v_left <= 0 THEN
-      v_capped := true;
-      v_rows := jsonb_set(v_rows, ARRAY[v_feat.feature_key, 'remind_note'], to_jsonb('run cap reached'::text));
-      CONTINUE;
-    END IF;
+    v_keys := v_keys || v_feat.feature_key;
+  END LOOP;
 
-    v_res := public.fn_adoption_remind_core(v_feat.feature_key, v_actor, v_dry, v_left, v_touched);
-    IF COALESCE((v_res->>'success')::boolean, false) THEN
-      v_n := COALESCE((v_res->>'reminded')::integer, 0);
-      v_touched := v_touched || ARRAY(SELECT jsonb_array_elements_text(COALESCE(v_res->'targets', '[]'::jsonb))::uuid);
-      v_left := v_left - v_n;
-      v_total_rem := v_total_rem + v_n;
-      v_rows := jsonb_set(v_rows, ARRAY[v_feat.feature_key, 'reminded'], to_jsonb(v_n));
-    ELSE
-      v_rows := jsonb_set(v_rows, ARRAY[v_feat.feature_key, 'remind_note'], to_jsonb(v_res->>'error'));
-    END IF;
+  FOR v_round IN 1..3 LOOP
+    v_share := CASE WHEN cardinality(v_keys) = 0 THEN 0
+                    ELSE GREATEST(1, ceil(v_left::numeric / cardinality(v_keys))::integer) END;
+    FOREACH v_key IN ARRAY v_keys LOOP
+      IF v_left <= 0 THEN
+        v_capped := true;
+        v_rows := jsonb_set(v_rows, ARRAY[v_key, 'remind_note'], to_jsonb('run cap reached'::text));
+        CONTINUE;
+      END IF;
+      v_res := public.fn_adoption_remind_core(v_key, v_actor, v_dry,
+                 CASE WHEN v_round = 1 THEN LEAST(v_share, v_left) ELSE v_left END,
+                 v_touched, v_round < 3);
+      IF COALESCE((v_res->>'success')::boolean, false) THEN
+        v_n := COALESCE((v_res->>'reminded')::integer, 0);
+        v_touched := v_touched || ARRAY(SELECT jsonb_array_elements_text(COALESCE(v_res->'targets', '[]'::jsonb))::uuid);
+        v_left := v_left - v_n;
+        v_total_rem := v_total_rem + v_n;
+        v_rows := jsonb_set(v_rows, ARRAY[v_key, 'reminded'],
+                    to_jsonb(COALESCE((v_rows->v_key->>'reminded')::integer, 0) + v_n));
+      ELSE
+        v_rows := jsonb_set(v_rows, ARRAY[v_key, 'remind_note'], to_jsonb(v_res->>'error'));
+      END IF;
+    END LOOP;
   END LOOP;
 
   RETURN jsonb_build_object(

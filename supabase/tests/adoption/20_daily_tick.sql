@@ -382,6 +382,44 @@ END $$;
 INSERT INTO platform_policies (policy_key, scope_type, value, data_type, is_active)
 VALUES ('adoption.tick.exclude_features', 'global', '[]'::jsonb, 'array', true);
 
+-- ===== review 5: fair order ACROSS features =====
+-- Two features only (the rest retired inside a rolled-back transaction). learner 1 used
+-- both, so neither is near-zero (no questions); learners 2-4 are never-users of both.
+SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);
+SELECT set_config('request.jwt.claim.role','authenticated',false);
+SELECT fn_adoption_register('old.thing','Old thing','do the old thing','{student}',NULL,NULL, now() - interval '60 days', true)->>'success' AS ro;
+SELECT fn_adoption_register('big.thing','Big thing','do the big thing','{student}',NULL,NULL, now() - interval '20 days', true)->>'success' AS rbg;
+INSERT INTO feature_usage (user_id, feature_key, day, count) VALUES
+  ('30000000-0000-0000-0000-000000000001','old.thing',(now() AT TIME ZONE 'Asia/Kolkata')::date - 1,1),
+  ('30000000-0000-0000-0000-000000000001','big.thing',(now() AT TIME ZONE 'Asia/Kolkata')::date - 1,1);
+\echo '--- share: budget 2, newest feature has the bigger backlog: EXPECT each feature reminds 1, not newest 2'
+BEGIN;
+UPDATE feature_registry SET status = 'retired' WHERE feature_key NOT IN ('old.thing','big.thing','app.login');
+UPDATE adoption_asks SET asked_at = now() - interval '40 days';
+UPDATE adoption_reminders SET sent_at = now() - interval '40 days';
+UPDATE platform_policies SET value = '2'::jsonb WHERE policy_key = 'adoption.tick.max_notifications';
+SELECT set_config('request.jwt.claim.sub','',false);
+DO $$ DECLARE w jsonb; BEGIN
+  w := fn_adoption_daily_tick(true);
+  IF (w->'features'->'old.thing'->>'reminded')::int <> 1 OR (w->'features'->'big.thing'->>'reminded')::int <> 1 THEN
+    RAISE EXCEPTION 'FAIL fair share across features: %', w->'features'; END IF;
+  RAISE NOTICE 'share across features: ok';
+END $$;
+\echo '--- first before repeat: budget 1, the newest feature has only repeat-due people, an older one a first-timer: EXPECT the first-timer'
+INSERT INTO adoption_reminders (user_id, feature_key, notification_id, sent_at)
+SELECT u, 'big.thing', (SELECT notification_id FROM adoption_reminders WHERE notification_id IS NOT NULL LIMIT 1), now() - interval '31 days'
+FROM unnest(ARRAY['30000000-0000-0000-0000-000000000002','30000000-0000-0000-0000-000000000003','30000000-0000-0000-0000-000000000004']::uuid[]) u;
+UPDATE platform_policies SET value = '1'::jsonb WHERE policy_key = 'adoption.tick.max_notifications';
+DO $$ DECLARE w jsonb; BEGIN
+  w := fn_adoption_daily_tick(true);
+  IF (w->'features'->'old.thing'->>'reminded')::int <> 1 OR COALESCE((w->'features'->'big.thing'->>'reminded')::int, 0) <> 0 THEN
+    RAISE EXCEPTION 'FAIL first before repeat: %', w->'features'; END IF;
+  RAISE NOTICE 'first before repeat: ok';
+END $$;
+ROLLBACK;
+SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);
+UPDATE feature_registry SET status = 'retired' WHERE feature_key IN ('old.thing','big.thing');
+
 -- ===== review 3: the button shares the day's budget and the one-message-a-day rule =====
 \echo '--- button with the day budget spent: EXPECT refused, nothing sent'
 SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);
