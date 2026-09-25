@@ -7,6 +7,16 @@
 //   answer  : { correct: 'A' }
 // The grading RPC (fn_fp_record_attempt) compares fp_responses.chosen.key
 // against fp_items.answer.correct. Keep the two in lockstep.
+//
+// The console is shared with the two OneMark subject exams (tn_hsc_physics /
+// tn_hsc_english). For those, and ONLY those (`isOneMark`), the form applies
+// the OneMark rulings (specs/onemark-decisions-2026-09-02.md):
+//   - Topic lists only the chapters mapped to this exam (BUG-006062 — Physics
+//     offered English chapters);
+//   - all four options are required, with the reason on screen (BUG-006063);
+//   - no 1-5 Difficulty: decision 6 is JABT only, fp_items.difficulty is not
+//     used for OneMark, so nothing is sent and the column default stands.
+// Every other Foundation exam keeps the original form exactly.
 
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -31,9 +41,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useCreateItem, useTopics } from '@/hooks/foundation/use-foundation';
+import {
+  useCreateItem,
+  useTopics,
+  useTopicsForExam,
+} from '@/hooks/foundation/use-foundation';
 
 const OPTION_KEYS = ['A', 'B', 'C', 'D'] as const;
+/** A OneMark MCQ always has four options (approve-rules.ts OPTIONS_PER_ITEM). */
+export const ONEMARK_OPTIONS_REQUIRED = 4;
+/** Every other Foundation exam: the original minimum. */
+const GENERIC_MIN_OPTIONS = 2;
 const DIFFICULTIES = [
   { value: '1', label: '1 · Recall' },
   { value: '2', label: '2 · Easy' },
@@ -45,11 +63,14 @@ const DIFFICULTIES = [
 interface ItemAuthorDialogProps {
   examDefinitionId: string;
   examName?: string;
+  /** The exam is a OneMark subject (see isOneMarkExam in foundation-service). */
+  isOneMark?: boolean;
 }
 
 export function ItemAuthorDialog({
   examDefinitionId,
   examName,
+  isOneMark = false,
 }: ItemAuthorDialogProps) {
   const [open, setOpen] = useState(false);
   const [topicId, setTopicId] = useState<string>('');
@@ -65,7 +86,11 @@ export function ItemAuthorDialog({
   const [explanation, setExplanation] = useState('');
   const [source, setSource] = useState('');
 
-  const { data: topics } = useTopics();
+  const { data: allTopics } = useTopics(!isOneMark);
+  const { data: examTopics } = useTopicsForExam(
+    isOneMark ? examDefinitionId : null,
+  );
+  const topics = isOneMark ? examTopics : allTopics;
   const createItem = useCreateItem();
 
   const filledOptions = useMemo(
@@ -73,9 +98,12 @@ export function ItemAuthorDialog({
     [options],
   );
 
+  const minOptions = isOneMark ? ONEMARK_OPTIONS_REQUIRED : GENERIC_MIN_OPTIONS;
+  const tooFewOptions = filledOptions.length < minOptions;
+
   const canSubmit =
     stem.trim().length > 0 &&
-    filledOptions.length >= 2 &&
+    !tooFewOptions &&
     options[correct].trim().length > 0 &&
     !createItem.isPending;
 
@@ -95,7 +123,7 @@ export function ItemAuthorDialog({
       await createItem.mutateAsync({
         exam_definition_id: examDefinitionId,
         topic_id: topicId || null,
-        difficulty: Number(difficulty),
+        ...(isOneMark ? {} : { difficulty: Number(difficulty) }),
         q_type: 'mcq',
         stem: stem.trim(),
         options: filledOptions.map((k) => ({ key: k, text: options[k].trim() })),
@@ -129,13 +157,22 @@ export function ItemAuthorDialog({
         <DialogHeader>
           <DialogTitle>Author a question</DialogTitle>
           <DialogDescription>
-            Adds one MCQ to the {examName ?? 'exam'} question bank. At least two
-            options and a marked answer are required.
+            {isOneMark ? (
+              <>
+                Adds one MCQ to the {examName ?? 'exam'} question bank. A
+                OneMark question needs all four options and a marked answer.
+              </>
+            ) : (
+              <>
+                Adds one MCQ to the {examName ?? 'exam'} question bank. At least two
+                options and a marked answer are required.
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          <div className="grid grid-cols-2 gap-3">
+          <div className={isOneMark ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-2 gap-3'}>
             <div className="space-y-1.5">
               <Label>Topic</Label>
               <Select value={topicId} onValueChange={setTopicId}>
@@ -151,21 +188,23 @@ export function ItemAuthorDialog({
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label>Difficulty</Label>
-              <Select value={difficulty} onValueChange={setDifficulty}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {DIFFICULTIES.map((d) => (
-                    <SelectItem key={d.value} value={d.value}>
-                      {d.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {!isOneMark && (
+              <div className="space-y-1.5">
+                <Label>Difficulty</Label>
+                <Select value={difficulty} onValueChange={setDifficulty}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DIFFICULTIES.map((d) => (
+                      <SelectItem key={d.value} value={d.value}>
+                        {d.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -204,6 +243,15 @@ export function ItemAuthorDialog({
                 />
               </div>
             ))}
+            {isOneMark && tooFewOptions && (
+              <p
+                role="status"
+                className="text-xs text-amber-700 dark:text-amber-400"
+              >
+                A OneMark question needs all four options (A–D).{' '}
+                {filledOptions.length} of {ONEMARK_OPTIONS_REQUIRED} filled.
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">

@@ -25,6 +25,7 @@ import type {
   ClinicalCaseBundle,
   ClinicalCaseScenario,
   ClinicalQuestion,
+  ClinicalStageView,
   ClinicalSubmissionSummary,
 } from '@/types/pde-clinical-reasoning';
 import { DEFAULT_CLINICAL_PASSING_THRESHOLD_PCT } from '@/types/pde-clinical-reasoning';
@@ -186,6 +187,23 @@ export default async function CaseAttemptPage({ params }: CasePageProps) {
   });
   const questions: ClinicalQuestion[] = Array.isArray(qData)
     ? (qData as ClinicalQuestion[])
+    : [];
+
+  // ---- 3b. Stages (server-gated the same way the questions are) ----
+  // fn_pde_get_case_stages decides in the database which stages are open to
+  // this learner in this attempt, and returns null title / scenario / image for
+  // every stage that is still locked. A later stage's narrative states an
+  // earlier stage's answer — her Stage 3 opens "The patient is confirmed to
+  // have Pemphigus Vulgaris" — so that text must not be in the payload at all,
+  // not merely hidden by CSS.
+  //
+  // An empty array means the case has no stages, which is every case authored
+  // before this feature. The attempt then runs exactly as it did before.
+  const { data: stageData } = await sb.rpc('fn_pde_get_case_stages', {
+    p_assessment_id: assessment.id,
+  });
+  const stages: ClinicalStageView[] = Array.isArray(stageData)
+    ? (stageData as ClinicalStageView[])
     : [];
 
   if (questions.length === 0) {
@@ -353,6 +371,7 @@ export default async function CaseAttemptPage({ params }: CasePageProps) {
     },
     scenario,
     questions,
+    stages,
     attemptsUsed,
     attemptsCap,
     bestSubmission,

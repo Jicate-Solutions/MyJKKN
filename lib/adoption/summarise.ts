@@ -74,6 +74,29 @@ export function isStale(group: FeatureGroup, now: Date = new Date()): boolean {
   return ageMs > STALE_AFTER_DAYS * 86_400_000;
 }
 
+/** What a measured feature's number counts. A bridged key is pulled from the
+ *  browser usage log, written when the page or button is used, so it counts
+ *  people who TRIED it. A direct key is recorded on the server after the write
+ *  succeeds, so it counts people who DID it. The two are not comparable, and
+ *  the table says which is which. Null for a feature nothing records yet. */
+export type CountsWhat = 'tried' | 'did';
+
+export function countsWhat(group: Pick<FeatureGroup, 'usage_wired' | 'usage_bridged'>): CountsWhat | null {
+  if (!group.usage_wired) return null;
+  return group.usage_bridged ? 'tried' : 'did';
+}
+
+export const COUNTS_WHAT_LABEL: Record<CountsWhat, { label: string; hint: string }> = {
+  tried: {
+    label: 'counts: tried it',
+    hint: 'Counted when the page or button is used, whether or not the action finished.',
+  },
+  did: {
+    label: 'counts: did it',
+    hint: 'Counted only after the action was saved.',
+  },
+};
+
 /** Postgres `numeric` and `bigint` may arrive as a JSON number or, depending on
  *  the driver, as a string. Every count is read through toNumber. */
 export type Numeric = number | string | null | undefined;
