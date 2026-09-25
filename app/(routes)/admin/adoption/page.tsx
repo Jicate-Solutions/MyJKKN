@@ -56,6 +56,8 @@ import {
   type Numeric,
   rollingWeekStart,
   isEventFeature,
+  countsWhat,
+  COUNTS_WHAT_LABEL,
 } from '@/lib/adoption/summarise';
 import { FeatureActions, type PendingProposal } from './_components/feature-actions';
 import { RegisterFeatureForm } from './_components/register-feature-form';
@@ -492,6 +494,15 @@ export default async function FeatureAdoptionPage() {
                             <Badge variant="outline" className="text-muted-foreground">
                               {isEventFeature(group) ? 'when needed' : seasonal ? 'term' : 'weekly'}
                             </Badge>
+                            {countsWhat(group) ? (
+                              <Badge
+                                variant="outline"
+                                className="text-muted-foreground"
+                                title={COUNTS_WHAT_LABEL[countsWhat(group)!].hint}
+                              >
+                                {COUNTS_WHAT_LABEL[countsWhat(group)!].label}
+                              </Badge>
+                            ) : null}
                           </div>
                           {featureIsDead ? (
                             <div className="mt-1 text-xs font-medium text-red-600 dark:text-red-400">

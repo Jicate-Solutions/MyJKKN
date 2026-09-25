@@ -80,6 +80,7 @@ export function EventRegisterForm({
   signedInEmail,
   prefill,
   contactBlock = 'top',
+  alreadyRegistered = false,
   full = false,
   claimOnly = false,
   sections,
@@ -96,6 +97,8 @@ export function EventRegisterForm({
   prefill?: RegistrationPrefill;
   /** Where the built-in name/phone/email block sits, or 'hidden'. */
   contactBlock?: ContactBlockMode;
+  /** The signed-in visitor already holds a live registration on this form. */
+  alreadyRegistered?: boolean;
   /**
    * The event has no places left AND its cap_behavior is 'waitlist', so this
    * form is still open on purpose for a signed-in person: sending it joins the
@@ -124,6 +127,8 @@ export function EventRegisterForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  // Told by the page (pre-check) or by the API (a second Register tap).
+  const [already, setAlready] = useState(alreadyRegistered);
   /**
    * The event was full and this person went onto the waiting list instead
    * (HTTP 202). Its own state: 202 is an `ok` response, so without this branch
@@ -203,6 +208,10 @@ export function EventRegisterForm({
       if (!res.ok && res.status !== 207) {
         throw new Error(body.error || `Registration failed (${res.status})`);
       }
+      if (body.already_registered) {
+        setAlready(true);
+        return;
+      }
       if (res.status === 202 && body.waitlisted) {
         setQueued({
           position: typeof body.position === 'number' ? body.position : null,
@@ -258,6 +267,19 @@ export function EventRegisterForm({
           If a place frees up it is offered to whoever is at the front of the queue and
           held for them for 24 hours. You will be told in MyJKKN — then come back to this
           page, signed in, and send the form again to take the place up.
+        </p>
+      </div>
+    );
+  }
+
+  if (already) {
+    return (
+      <div className="rounded-xl border bg-card p-6 text-center shadow-sm">
+        <CheckCircle2 className="mx-auto mb-2 h-10 w-10 text-emerald-600" />
+        <h2 className="text-lg font-semibold">You&apos;re already registered</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          This account has a registration for {formName ? `"${formName}"` : 'this event'} already,
+          so there is nothing more to do. See you there.
         </p>
       </div>
     );
