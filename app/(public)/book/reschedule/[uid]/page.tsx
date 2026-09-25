@@ -11,6 +11,9 @@
 //
 // Pattern: app/(public)/book/cancel/[uid]/page.tsx (token-gated server load
 // → client widget).
+//
+// An interview-link booking inside its last two hours opens as 'too-close'
+// (no picker): the candidate contacts the office instead (#11).
 
 import type { Metadata, Viewport } from 'next';
 import { createClient } from '@supabase/supabase-js';
@@ -19,6 +22,12 @@ import {
   switchRequestState,
   switchSourceMode,
 } from '@/lib/services/meetings/meeting-mode-switch';
+import {
+  CHANGE_CUTOFF_MESSAGE,
+  getChangeCutoffMin,
+  isInsideChangeCutoff,
+  isInterviewLinkSource,
+} from '@/lib/services/hr/interview-booking-service';
 import { RescheduleWidget } from './_components/reschedule-widget';
 
 export const dynamic = 'force-dynamic';
@@ -58,6 +67,8 @@ interface BookingView {
   canAskForVideo: boolean;
   /** A request is already in, still inside the notice window, awaiting the host. */
   switchRequestPending: boolean;
+  /** Interview-link booking inside the change cutoff — the candidate may not move it (#11). */
+  tooClose: boolean;
 }
 
 async function loadBooking(uid: string, token: string): Promise<BookingView | null> {
@@ -71,7 +82,7 @@ async function loadBooking(uid: string, token: string): Promise<BookingView | nu
     // One string literal, never a concatenation: supabase-js infers the row
     // type from the literal, and a runtime-built string collapses it to
     // GenericStringError, taking every field access down with it.
-    .select('cancel_token, status, start_time, meeting_type_id, host_profile_id, location_mode_override, mode_switch_request_status')
+    .select('cancel_token, status, start_time, meeting_type_id, host_profile_id, location_mode_override, mode_switch_request_status, source')
     .eq('uid', uid)
     .maybeSingle();
   // Token gate BEFORE any detail leaves the server.
@@ -117,6 +128,11 @@ async function loadBooking(uid: string, token: string): Promise<BookingView | nu
     // An expired request reads as declined (decision B) — showing "waiting for
     // the host" for one would be a promise nobody is going to keep.
     switchRequestPending: switchRequestState(booking, minNotice) === 'pending',
+    // After the token gate, so a wrong link learns nothing. The policy is only
+    // read for interview-link bookings; ordinary meetings never reach it.
+    tooClose:
+      isInterviewLinkSource(booking.source as string | null) &&
+      isInsideChangeCutoff(booking.start_time as string, await getChangeCutoffMin(supabase)),
   };
 }
 
@@ -129,7 +145,9 @@ export default async function RescheduleBookingPage({ params, searchParams }: Re
     ? ('invalid' as const)
     : booking.status !== 'confirmed'
       ? ('not-confirmed' as const)
-      : ('pick' as const);
+      : booking.tooClose
+        ? ('too-close' as const)
+        : ('pick' as const);
 
   return (
     <RescheduleWidget
@@ -141,6 +159,8 @@ export default async function RescheduleBookingPage({ params, searchParams }: Re
       currentStart={booking?.startTime ?? ''}
       canAskForVideo={booking?.canAskForVideo ?? false}
       switchRequestPending={booking?.switchRequestPending ?? false}
+      // A fixed sentence, not booking data — safe to send with any link state.
+      tooCloseMessage={CHANGE_CUTOFF_MESSAGE}
     />
   );
 }

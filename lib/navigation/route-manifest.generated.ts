@@ -728,6 +728,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admin/loops/live",
+            "label": "Live Loops",
+            "iconName": "Activity",
+            "children": []
+          },
+          {
             "path": "/admin/loops/pillars",
             "label": "Mission Pillars",
             "iconName": "Landmark",

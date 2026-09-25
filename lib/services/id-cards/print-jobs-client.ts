@@ -164,7 +164,7 @@ export async function resolveProfileIdByEmail(
 
 export type EnqueueOutcome =
   | { status: 'queued' }
-  | { status: 'already_queued' }
+  | { status: 'already_queued'; jobId: string | null }
   | { status: 'failed'; message: string };
 
 /**
@@ -183,7 +183,16 @@ export async function enqueuePrintJob(
     });
 
     if (res.status === 201) return { status: 'queued' };
-    if (res.status === 409) return { status: 'already_queued' };
+    if (res.status === 409) {
+      let jobId: string | null = null;
+      try {
+        const body = await res.json();
+        jobId = typeof body?.data?.id === 'string' ? body.data.id : null;
+      } catch {
+        // no body — caller can still fall back to "already queued"
+      }
+      return { status: 'already_queued', jobId };
+    }
 
     let message = `Request failed (${res.status})`;
     try {
@@ -199,4 +208,38 @@ export async function enqueuePrintJob(
       message: err instanceof Error ? err.message : 'Network error'
     };
   }
+}
+
+/** Cancel an active (not yet printed) job. Resolves false when the server refused. */
+export async function cancelPrintJob(jobId: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    const res = await fetch(`/api/id-cards/jobs/${jobId}`, { method: 'DELETE' });
+    if (res.ok) return { ok: true };
+    let message = `Cancel failed (${res.status})`;
+    try {
+      const body = await res.json();
+      if (body?.error?.message) message = body.error.message;
+    } catch {
+      // keep the status message
+    }
+    return { ok: false, message };
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : 'Network error' };
+  }
+}
+
+/**
+ * Enqueue; when a job is already active for the person, cancel it and enqueue
+ * again ("re-queue"). Used by the Print ID Card button's "Cancel & re-queue"
+ * action and by the bulk dialog's re-queue option.
+ */
+export async function requeuePrintJob(
+  profileId: string,
+  templateId: string
+): Promise<EnqueueOutcome> {
+  const first = await enqueuePrintJob(profileId, templateId);
+  if (first.status !== 'already_queued' || !first.jobId) return first;
+  const cancelled = await cancelPrintJob(first.jobId);
+  if (cancelled.ok === false) return { status: 'failed', message: cancelled.message };
+  return enqueuePrintJob(profileId, templateId);
 }
