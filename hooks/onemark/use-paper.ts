@@ -7,6 +7,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { foundationKeys } from '@/hooks/foundation/use-foundation';
 import {
   PaperService,
   type ActionResult,
@@ -57,6 +58,10 @@ export function usePaperAction(paperId: string | null) {
     onSuccess: (result) => {
       qc.setQueryData(paperKeys.detail(result.paper.id), result.paper);
       qc.invalidateQueries({ queryKey: [...paperKeys.all, 'reference'] });
+      // The Foundation console lists a paper under its cohort with its publish
+      // state; publish / unpublish / finalise must show there on the next
+      // visit, not after the 30-second stale window.
+      qc.invalidateQueries({ queryKey: [...foundationKeys.all, 'assessments'] });
     },
   });
 }
