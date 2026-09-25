@@ -484,6 +484,22 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "notes": "Rules-based, no LLM. All logic is in the SECURITY DEFINER RPC fn_meetings_auto_close_unmarked (migration 20260831010000, service_role only — REVOKEd from anon, authenticated, PUBLIC). Fires via the AI-routine dispatcher, NOT a raw vercel.json cron: that file has a HARD 100-cron cap and the 101st entry fails EVERY production build with a schema error while the old build keeps serving 200s. Auth: CRON_SECRET (Bearer or ?secret=). IDEMPOTENT BY CONSTRUCTION rather than by a guard column — the predicate is status='confirmed' and the UPDATE's own effect is to leave that set, so a second run in the same minute closes 0. TIMEZONE: minute_of_day 380 = 06:20 IST, which fn_ai_routine_claim_due floors to the 06:15 IST slot; it is NOT a UTC value. DORMANT until migration 20260831010000 is applied (Director-gated) — the route returns 503 with the migration number rather than a bare 500 so a dispatcher record cannot be mistaken for a code fault. FIRST RUN IS A BACKFILL: every past-dated confirmed booking is already older than 7 days, so the first successful run closes roughly two dozen historical meetings at once, all stamped 'system' — visibly an assumption, not an observation."
   },
   {
+    "id": "meetings-followup-routine",
+    "name": "Meetings — record-ready cards and weekly open follow-ups digest",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 18:45 IST (editable via dispatcher); the digest sends once per ISO week",
+    "triggerPath": "/api/cron/meetings-followup-routine",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based selection over meeting_notes and meeting_action_items; the route resolves no model.",
+    "whatItDoes": "When a Fireflies note is linked to a meeting and its follow-ups become tasks, nothing used to reach the host. Pass A sends the host one bell card per note — 'Meeting record ready — <note title>' / '<N> follow-ups to confirm' (plus ', and mark whether it happened' while the meeting still reads confirmed). Pass B sends each host with follow-ups open longer than 7 days one card a week: how many, across how many meetings, the oldest age and the three oldest meetings.",
+    "configKnobs": "STALE_DAYS = 7, RECORD_READY_LOOKBACK_DAYS = 7, card TTLs 7 and 8 days, in lib/services/meetings/meeting-followup-routine.ts. Day/time editable at /admin/ai-routines (ai_routine_schedules row 'meetings-followup-routine'). ?dry=1 reports without writing.",
+    "sideEffects": "WRITES in-app notifications (notifications + user_notifications fan-out) to the meeting's host only. Categories meetings:record-ready and meetings:followups-weekly. No email, no WhatsApp, no push. Changes no meeting, no follow-up.",
+    "safeToManualTrigger": false,
+    "notes": "Rules-based, no LLM. SHIPS SWITCHED OFF: migration 20270402100000 seeds the schedule row with enabled=false, and the route also refuses to write while that row is disabled, so a hand-run cannot send before it is switched on. FLOOR: Pass A never cards a note applied before this routine's own ai_routine_schedules.created_at (and never one older than 7 days), so the first run cannot card the historical notes; if the row is missing the route sends NOTHING and returns floorMissing. IDEMPOTENT: keys meetings:record-ready:<note_id> and meetings:followups:<host>:<ISO-week, IST>. Fires via the AI-routine dispatcher, NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer or ?secret=, constant-time). TIMEZONE: minute_of_day 1127 = 18:47 IST, floored by fn_ai_routine_claim_due to the 18:45 IST slot. Unsafe to manual-trigger because an enabled run delivers real cards."
+  },
+  {
     "id": "soi-weekly-quiet-digest",
     "name": "School of Influence — Weekly Quiet-Member Summary",
     "category": "misc-ai",
