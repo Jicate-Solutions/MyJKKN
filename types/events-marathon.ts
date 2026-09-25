@@ -102,6 +102,11 @@ export interface MarathonCommittee {
   member_ids: string[];
   member_names: string[];
   external_members?: ExternalCommitteeMember[];
+  /**
+   * Per-person designation keyed by displayed name, e.g.
+   * {"POOMIGA G": "Main Coordinator"} (BUG-004626).
+   */
+  member_designations?: Record<string, string> | null;
   status: string;
   created_at: string;
   updated_at: string;
