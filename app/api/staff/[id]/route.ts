@@ -98,7 +98,7 @@ export async function PATCH(
     // enforce scope ownership rules).
     const { data: staffRecord, error: staffFetchError } = await supabaseAdmin
       .from('staff')
-      .select('id, profile_id, institution_id, institution_email')
+      .select('id, profile_id, institution_id, institution_email, role_key')
       .eq('id', id)
       .single();
 
@@ -109,19 +109,11 @@ export async function PATCH(
       );
     }
 
-    // Self-edit branch: any user editing their own staff record (matched by
-    // institution_email OR profile_id) is allowed without staff.edit.
-    // Preserves the prior "faculty can update own profile" behaviour for any
-    // role, not just faculty.  The institution_email check covers legacy staff
-    // rows whose profile_id was never back-filled.
-    const isSelfEdit =
-      (!!staffRecord.institution_email &&
-        staffRecord.institution_email === session.user.email) ||
-      (!!staffRecord.profile_id &&
-        staffRecord.profile_id === session.user.id);
-
-    // Permission check via DB instead of hardcoded role list. Honours dynamic
-    // Role Management grants for staff.edit.
+    // Writes are staff.edit (HR Head) or super admin only — every other role
+    // is view-only (2026-09-25). The self-edit branch that used to live here
+    // let ANY user update their own row through supabaseAdmin, which skips
+    // RLS and trg_staff_guard_role_key alike: a staff member could set their
+    // own role_key to super_admin. It is gone, deliberately.
     let hasEditPermission = isSuperAdmin;
     if (!hasEditPermission) {
       const { data: permResult } = await supabase.rpc('user_has_permission', {
@@ -130,45 +122,69 @@ export async function PATCH(
       hasEditPermission = !!permResult;
     }
 
-    // Scope enforcement — runs AFTER permission + self-edit are resolved so
-    // self-edits by users with own_records scope whose staff.profile_id is
-    // NULL (legacy rows) are not wrongly blocked.
-    if (scope === 'own_records') {
-      const isOwnRecord =
-        isSelfEdit ||
-        (!!staffRecord.profile_id && staffRecord.profile_id === session.user.id);
-      if (!isOwnRecord) {
-        return NextResponse.json(
-          { error: 'Forbidden', code: 'STAFF_OWN_RECORD_VIOLATION' },
-          { status: 403 }
-        );
-      }
-    } else if (scope === 'own_institution') {
-      // own_institution: user must have institution access for the target staff
-      // member's institution.  Uses the same helper the RLS policies use.
-      if (!isSelfEdit && hasEditPermission && staffRecord.institution_id) {
-        const { data: hasAccess } = await supabase.rpc(
-          'role_has_institution_access',
-          { check_institution_id: staffRecord.institution_id }
-        );
-        if (!hasAccess) {
-          return NextResponse.json(
-            { error: 'Forbidden', code: 'STAFF_INSTITUTION_VIOLATION' },
-            { status: 403 }
-          );
-        }
-      }
-    }
-    // all_institutions: no row-level scope gate needed.
-
-    if (!hasEditPermission && !isSelfEdit) {
+    if (!hasEditPermission) {
       return NextResponse.json(
         { error: 'Insufficient permissions to update staff' },
         { status: 403 }
       );
     }
 
+    if (scope === 'own_records') {
+      const isOwnRecord =
+        !!staffRecord.profile_id && staffRecord.profile_id === session.user.id;
+      if (!isOwnRecord) {
+        return NextResponse.json(
+          { error: 'Forbidden', code: 'STAFF_OWN_RECORD_VIOLATION' },
+          { status: 403 }
+        );
+      }
+    } else if (scope === 'own_institution' && staffRecord.institution_id) {
+      // Same helper the RLS policies use.
+      const { data: hasAccess } = await supabase.rpc(
+        'role_has_institution_access',
+        { check_institution_id: staffRecord.institution_id }
+      );
+      if (!hasAccess) {
+        return NextResponse.json(
+          { error: 'Forbidden', code: 'STAFF_INSTITUTION_VIOLATION' },
+          { status: 403 }
+        );
+      }
+    }
+    // all_institutions: no row-level scope gate needed.
+
     const json = await request.json();
+
+    // Role change. supabaseAdmin below has no auth.uid(), so
+    // trg_staff_guard_role_key lets everything through — this is the same
+    // rule enforced in code: super admin, or staff.role.change onto a
+    // non-privileged role.
+    if (
+      Object.prototype.hasOwnProperty.call(json, 'role_key') &&
+      json.role_key !== staffRecord.role_key &&
+      !isSuperAdmin
+    ) {
+      const { data: canChangeRole } = await supabase.rpc('user_has_permission', {
+        permission_name: 'staff.role.change'
+      });
+      if (!canChangeRole) {
+        return NextResponse.json(
+          { error: "Only HR Head or a super administrator can change a staff member's role." },
+          { status: 403 }
+        );
+      }
+      const { data: targetRole } = await supabaseAdmin
+        .from('custom_roles')
+        .select('is_privileged')
+        .eq('role_key', json.role_key)
+        .maybeSingle();
+      if (!targetRole || (targetRole as any).is_privileged) {
+        return NextResponse.json(
+          { error: `Only a super administrator can assign the role "${json.role_key}".` },
+          { status: 403 }
+        );
+      }
+    }
 
     // Normalize empty staff_id to null so the staff_staff_id_not_empty
     // CHECK constraint doesn't reject blanks coming from the form.

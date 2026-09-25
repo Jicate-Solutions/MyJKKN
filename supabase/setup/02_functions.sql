@@ -56561,9 +56561,21 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  -- 20260925150000: HR Head (staff.role.change) may change a role too, but
+  -- never onto an is_privileged role.
   IF TG_OP = 'UPDATE' AND NEW.role_key IS DISTINCT FROM OLD.role_key THEN
-    RAISE EXCEPTION 'Only a super administrator can change a staff member''s role.'
-      USING ERRCODE = 'P0001';
+    IF NOT coalesce(public.user_has_permission('staff.role.change'), false) THEN
+      RAISE EXCEPTION 'Only HR Head or a super administrator can change a staff member''s role.'
+        USING ERRCODE = 'P0001';
+    END IF;
+
+    SELECT r.is_privileged INTO v_privileged
+    FROM public.custom_roles r WHERE r.role_key = NEW.role_key;
+
+    IF coalesce(v_privileged, false) THEN
+      RAISE EXCEPTION 'Only a super administrator can assign the role "%".', NEW.role_key
+        USING ERRCODE = 'P0001';
+    END IF;
   END IF;
 
   IF TG_OP = 'INSERT' THEN
@@ -56581,7 +56593,7 @@ END;
 $function$;
 
 COMMENT ON FUNCTION public.fn_staff_guard_role_key() IS
-  'Blocks non-super-admins from changing staff.role_key, or creating staff with a privileged role.';
+  'staff.role_key guard: changes need super admin or staff.role.change (never onto an is_privileged role); a privileged role on create needs super admin.';
 
 REVOKE ALL ON FUNCTION public.fn_staff_guard_role_key() FROM anon, authenticated, PUBLIC;
 

@@ -64,7 +64,6 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
   const {
     canAccess,
     isSuperAdmin,
-    userProfile,
     isLoading: permissionsLoading
   } = usePermissions([], { waitForLoad: true });
 
@@ -159,19 +158,10 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
     );
   }
 
-  // Detail-page Edit is purely a UI affordance — RLS + the API's
-  // STAFF_OWN_RECORD_VIOLATION check already prevent unauthorized PATCH.
-  // We hide the button entirely (instead of rendering it disabled) for
-  // users without `staff.edit`, so an `own_records` user viewing their own
-  // row without edit perm doesn't see a button that would 403 on click.
-  // Self-edit mirrors the API's isSelfEdit allowance (app/api/staff/[id]/route.ts)
-  // — a user viewing their own staff record can edit it even without the
-  // blanket `staff.edit` permission (BUG-002565: button never appeared for
-  // own-record users whose role doesn't grant staff.edit).
-  const isSelfEdit =
-    (!!staff.institution_email && staff.institution_email === userProfile?.email) ||
-    (!!(staff as any).profile_id && (staff as any).profile_id === userProfile?.id);
-  const canEditStaff = isSuperAdmin || canAccess('staff', 'edit') || isSelfEdit;
+  // Edit is HR Head (staff.edit) or super admin only — everyone else is
+  // view-only, including on their own record (2026-09-25; the self-edit
+  // allowance and its API branch were removed).
+  const canEditStaff = isSuperAdmin || canAccess('staff', 'edit');
   // R4.1 — internal mobility: show "Consider for New Role" to users who can create recruitment candidates
   const canCreateRecruitment = isSuperAdmin || canAccess('hr.recruitment', 'create');
 
@@ -372,6 +362,26 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
                 {[staff.district, staff.state, staff.pincode]
                   .filter(Boolean)
                   .join(', ') || 'Not Specified'}
+              </p>
+            </div>
+            <div>
+              <p className='font-medium'>Emergency Contact</p>
+              <p className='text-base text-muted-foreground'>
+                {staff.emergency_contact_name
+                  ? [
+                      staff.emergency_contact_name,
+                      staff.emergency_contact_relationship &&
+                        `(${staff.emergency_contact_relationship})`
+                    ]
+                      .filter(Boolean)
+                      .join(' ')
+                  : 'Not Specified'}
+              </p>
+            </div>
+            <div>
+              <p className='font-medium'>Emergency Contact Number</p>
+              <p className='text-base text-muted-foreground'>
+                {staff.emergency_contact_phone || 'Not Specified'}
               </p>
             </div>
           </CardContent>

@@ -178049,6 +178049,9 @@ export type Database = {
           display_order: number
           district: string | null
           email: string
+          emergency_contact_name: string | null
+          emergency_contact_phone: string | null
+          emergency_contact_relationship: string | null
           employment_type: string
           experience_entries: Json
           experience_years: number
@@ -178120,6 +178123,9 @@ export type Database = {
           display_order?: number
           district?: string | null
           email: string
+          emergency_contact_name?: string | null
+          emergency_contact_phone?: string | null
+          emergency_contact_relationship?: string | null
           employment_type?: string
           experience_entries?: Json
           experience_years?: number
@@ -178191,6 +178197,9 @@ export type Database = {
           display_order?: number
           district?: string | null
           email?: string
+          emergency_contact_name?: string | null
+          emergency_contact_phone?: string | null
+          emergency_contact_relationship?: string | null
           employment_type?: string
           experience_entries?: Json
           experience_years?: number

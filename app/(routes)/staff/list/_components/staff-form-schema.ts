@@ -1,4 +1,19 @@
 import { z } from 'zod';
+import { validatePhone } from '@/lib/utils/staff-field-validators';
+
+/** Relationship choices for the staff emergency contact; 'Other' reveals a text box. */
+export const EMERGENCY_RELATIONSHIPS = [
+  'Father',
+  'Mother',
+  'Spouse',
+  'Brother',
+  'Sister',
+  'Son',
+  'Daughter',
+  'Guardian',
+  'Friend',
+  'Other'
+] as const;
 
 // ─── Basic schema (always required — verbatim from former inline staffSchema) ──
 //
@@ -47,6 +62,14 @@ export const basicStaffSchema = z.object({
   state: z.string().min(1, 'State is required'),
   district: z.string().min(1, 'District is required'),
   pincode: z.string().optional(),
+  // Emergency contact (2026-09-25). Optional as a whole, but a half-filled
+  // contact is rejected in applyStaffRules. For relationship "Other", the
+  // typed text lives in emergency_contact_relationship_other and replaces
+  // 'Other' on submit.
+  emergency_contact_name: z.string().optional().nullable(),
+  emergency_contact_relationship: z.string().optional().nullable(),
+  emergency_contact_relationship_other: z.string().optional().nullable(),
+  emergency_contact_phone: z.string().optional().nullable(),
   date_of_joining: z.date({
     required_error: 'Date of joining is required'
   }),
@@ -182,9 +205,49 @@ function applyStaffRules(
     institution_email?: string;
     biometric_id?: string | null;
     biometric_institution_id?: string | null;
+    emergency_contact_name?: string | null;
+    emergency_contact_relationship?: string | null;
+    emergency_contact_relationship_other?: string | null;
+    emergency_contact_phone?: string | null;
   },
   ctx: z.RefinementCtx
 ) {
+    // Emergency contact: all-or-nothing on name + phone, so a record never
+    // carries a number with no one to ask for, or a name with no number.
+    const ecName = data.emergency_contact_name?.trim() ?? '';
+    const ecPhone = data.emergency_contact_phone?.trim() ?? '';
+    const ecRelation = data.emergency_contact_relationship?.trim() ?? '';
+    if (ecName || ecPhone || ecRelation) {
+      if (!ecName) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['emergency_contact_name'],
+          message: 'Emergency contact name is required when a contact is entered'
+        });
+      }
+      if (!ecPhone) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['emergency_contact_phone'],
+          message: 'Emergency contact phone is required when a contact is entered'
+        });
+      }
+    }
+    if (ecPhone && !validatePhone(ecPhone)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['emergency_contact_phone'],
+        message: 'Enter a valid phone number (at least 10 digits)'
+      });
+    }
+    if (ecRelation === 'Other' && !data.emergency_contact_relationship_other?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['emergency_contact_relationship_other'],
+        message: 'Specify the relationship'
+      });
+    }
+
     // Email is required ONLY for login-enabled staff. For view-only staff
     // (login_enabled=false) the service auto-generates synthetic emails.
     if (data.login_enabled !== false && (!data.email || data.email.trim() === '')) {
