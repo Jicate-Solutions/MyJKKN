@@ -206,10 +206,15 @@ function fitElementText(
   canvasHeight: number
 ): { text: string; fontSize: number; fontWeight: number; width: number; lines: number } {
   const box = elementBox(element, all, canvasWidth, canvasHeight);
-  const preferred = PREFERRED_VALUE_FONT[element.field] ?? VALUE_FONT;
+  // Uniform floor per field; a template may author a LARGER size (e.g. a 40px
+  // name) but never a smaller one — small authored sizes made cards unreadable.
+  const preferred = Math.max(PREFERRED_VALUE_FONT[element.field] ?? VALUE_FONT, element.font_size ?? 0);
   // ONE weight for every value: authored 600 / 700 / 800 mixes read as different
   // fonts on the printed card. The name keeps its heavier weight.
-  const fontWeight = element.field === 'name_line_1' ? 800 : BOLD_VALUE_FIELDS.has(element.field) ? 700 : 400;
+  // Authored weight wins (a template can set values regular, as the Matric
+  // sample does); otherwise the uniform rule: name 800, key values 700.
+  const fontWeight =
+    element.font_weight ?? (element.field === 'name_line_1' ? 800 : BOLD_VALUE_FIELDS.has(element.field) ? 700 : 400);
   const isAddress = element.field === 'address' || element.field === 'institution_address';
   if (isAddress) value = prepareAddressForCard(value);
   const fit = fitText(value, {
@@ -844,14 +849,14 @@ function courseLine(person: CardPersonData): string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** The MyJKKN ID the QR encodes, centred right under it (bare value); nothing when only a UUID was available. */
-function qrIdLine(person: CardPersonData, width: number): ReactElement | null {
+function qrIdLine(person: CardPersonData, width: number, maxFont = 16): ReactElement | null {
   if (!person.qrId) return null;
   const text = person.qrId;
   const fit = fitText(text, {
     maxWidth: width,
-    // Same value size as every other field; shrinks only to stay under the QR.
-    maxFontSize: VALUE_FONT,
-    minFontSize: 12,
+    // Small print under the QR, never wider than the code itself.
+    maxFontSize: maxFont,
+    minFontSize: 8,
     maxLines: 1,
     lineHeight: VALUE_LINE_HEIGHT,
     bold: true
@@ -866,7 +871,7 @@ function qrIdLine(person: CardPersonData, width: number): ReactElement | null {
         fontSize: fit.fontSize,
         lineHeight: 1.05,
         fontWeight: 700,
-        letterSpacing: 1,
+        letterSpacing: 0.5,
         color: '#000000'
       }}
     >
@@ -1302,6 +1307,9 @@ function customDesign(
     if (element.field === 'photo') {
       const w = element.width ?? 300;
       const h = element.height ?? 380;
+      // align:'center' centres the photo on the card like the name, whatever
+      // x the template authored (templates were often off by a few px).
+      const px = element.align === 'center' ? Math.round((width - w) / 2) : element.x;
       if (rotationSafeImages && photoDataUrl) {
         // No overflow:'hidden' and no objectFit under the rotated wrapper —
         // both mispaint (see rotationSafeCoverImg). The bitmap is cropped and
@@ -1313,7 +1321,7 @@ function customDesign(
             style={{
               display: 'flex',
               position: 'absolute',
-              left: element.x,
+              left: px,
               top: element.y,
               width: w,
               height: h,
@@ -1332,7 +1340,7 @@ function customDesign(
           style={{
             display: 'flex',
             position: 'absolute',
-            left: element.x,
+            left: px,
             top: element.y,
             width: w,
             height: h,
@@ -1370,7 +1378,10 @@ function customDesign(
       // The MyJKKN ID prints UNDER the QR inside the QR's own authored box: the
       // code shrinks by one value line so the pair never grows into the footer
       // band (the earlier overlap) and never moves the authored top-left.
-      const idLineH = person.qrId ? Math.round(VALUE_FONT * 1.05) : 0;
+      // The ID is small print scaled to the QR: 18% of the box, 10–16 px, so a
+      // 72 px QR keeps ~58 px of code and the text stays within the QR width.
+      const idFont = person.qrId ? Math.round(Math.min(16, Math.max(10, box * 0.18))) : 0;
+      const idLineH = idFont ? Math.round(idFont * 1.15) : 0;
       const size = box - idLineH;
       children.push(
         <img
@@ -1396,13 +1407,13 @@ function customDesign(
             style={{
               display: 'flex',
               position: 'absolute',
-              left: element.x - 30,
+              left: element.x,
               top: element.y + size,
-              width: size + 60,
+              width: size,
               justifyContent: 'center'
             }}
           >
-            {qrIdLine(person, size + 60)}
+            {qrIdLine(person, size, idFont)}
           </div>
         );
       }

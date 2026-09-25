@@ -179,6 +179,22 @@ export function applyOverride(item: PaperItem, o: QuestionOverride | undefined, 
   return next;
 }
 
+/**
+ * How many series (A–D) the Senior Learner asked for — decision 16: up to 4,
+ * default 1. The wizard saves it at `config.params.series_count` (PATCH
+ * /api/foundation/onemark/paper/[id] → mergeParams); the loader used to read a
+ * top-level `config.series_count` nothing writes, so every paper loaded as ONE
+ * series and an English Series A printed without its letter while B–D printed
+ * theirs (BUG-006062). The top-level key is kept only as a fallback.
+ */
+export function seriesCountFromConfig(config: Record<string, unknown> | null | undefined): number {
+  const cfg = config ?? {};
+  const params =
+    cfg.params && typeof cfg.params === 'object' ? (cfg.params as Record<string, unknown>) : {};
+  const raw = Number(params.series_count ?? cfg.series_count ?? 1);
+  return Number.isFinite(raw) ? Math.min(4, Math.max(1, Math.floor(raw))) : 1;
+}
+
 export interface LoadPaperOptions {
   includeAnswers: boolean;
   /** Test seam — production callers leave these undefined. */
@@ -341,8 +357,7 @@ export async function loadPaperModel(assessmentId: string, opts: LoadPaperOption
       return applyOverride(base, overrides[it.id], opts.includeAnswers);
     });
 
-  const seriesRaw = Number(config.series_count ?? 1);
-  const seriesCount = Number.isFinite(seriesRaw) ? Math.min(4, Math.max(1, Math.floor(seriesRaw))) : 1;
+  const seriesCount = seriesCountFromConfig(config);
   const subject = subjectForExamKey(examKey);
 
   return {

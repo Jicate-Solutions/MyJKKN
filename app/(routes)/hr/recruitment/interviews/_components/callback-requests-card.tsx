@@ -180,11 +180,19 @@ export function CallbackRequestsCard() {
         {data.open.length === 0 ? (
           <p className="text-sm text-muted-foreground">No one is waiting for a call.</p>
         ) : (
-          <ul className="divide-y divide-border">
-            {data.open.map((row) => (
-              <OpenRow key={row.id} row={row} onChanged={refresh} />
-            ))}
-          </ul>
+          <>
+            <ul className="divide-y divide-border">
+              {data.open.map((row) => (
+                <OpenRow key={row.id} row={row} onChanged={refresh} />
+              ))}
+            </ul>
+            {data.openTotal > data.open.length && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Showing the {data.open.length} who have waited longest. {data.openTotal - data.open.length} more are
+                waiting — they appear here as these are marked.
+              </p>
+            )}
+          </>
         )}
 
         {data.done.length > 0 && (
