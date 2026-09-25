@@ -815,7 +815,7 @@ $function$;
 --                academic.timetables.view, academic.attendance.view, academic.periods.view,
 --                staff.view (staff module scope own_institution). Home A.
 --   adm        — own-scope role holding roles.edit + users.view (role/user admin). Home A.
---   learner    — profiles.role 'student', no role keys. Home A.
+--   learner    — profiles.role 'student'; holds users.view/edit/create only (as production's learner role does). Home A.
 --   grant      — the fac role + an active grant to C. Home A.
 --   noinst     — the fac role, NO institution on the profile.
 --   selfstaff  — staff.view with staff module scope own_records; has a staff row. Home A.
@@ -843,7 +843,10 @@ INSERT INTO public.custom_roles (id, role_key, role_name, institution_scope, is_
   ('00000000-0000-4000-c000-000000000005', 'allscope_t', 'All', 'all', true,
    '{"academic.years.view":true}', '{}'),
   ('00000000-0000-4000-c000-000000000006', 'admdesk_t', 'Desk', 'own', true,
-   '{"learners.admissions.dashboard":true}', '{}');
+   '{"learners.admissions.dashboard":true}', '{}'),
+  -- mirrors production's learner role, which holds users.* by mistake (2026-09-25)
+  ('00000000-0000-4000-c000-000000000007', 'lrnusers_t', 'Learner users grant', 'own', true,
+   '{"users.view":true,"users.edit":true,"users.create":true}', '{}');
 
 INSERT INTO public.profiles (id, email, full_name, role, is_super_admin, institution_id, is_active, is_login_disabled) VALUES
   ('00000000-0000-4000-b000-000000000001', 'super@t', 'Super', 'super_admin', true,  '00000000-0000-4000-a000-00000000000a', true, false),
@@ -868,6 +871,7 @@ INSERT INTO public.user_roles (id, user_id, role_id, is_primary) VALUES
   ('00000000-0000-4000-9600-000000000008', '00000000-0000-4000-b000-000000000008', '00000000-0000-4000-c000-000000000004', true),
   ('00000000-0000-4000-9600-000000000010', '00000000-0000-4000-b000-000000000010', '00000000-0000-4000-c000-000000000005', true),
   ('00000000-0000-4000-9600-000000000011', '00000000-0000-4000-b000-000000000011', '00000000-0000-4000-c000-000000000006', true),
+  ('00000000-0000-4000-9600-000000000004', '00000000-0000-4000-b000-000000000004', '00000000-0000-4000-c000-000000000007', true),
   ('00000000-0000-4000-9600-000000000012', '00000000-0000-4000-b000-000000000012', '00000000-0000-4000-c000-000000000001', true);
 
 INSERT INTO public.user_institution_access (id, user_id, institution_id, access_type, is_active) VALUES

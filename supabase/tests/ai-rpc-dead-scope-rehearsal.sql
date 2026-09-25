@@ -187,16 +187,17 @@ INSERT INTO chk (fn, cat, who, call, expect) VALUES
   -- ai_rpc_user_roles (own roles for anyone; others need roles.edit/admin + the target's college)
   ('user_roles','a','FAC',  'public.ai_rpc_user_roles({SUPER})',          'ok:1'),
   ('user_roles','b','FAC',  'public.ai_rpc_user_roles({SUPER}, {UB})',    'code:FORBIDDEN'),
-  ('user_roles','a','ADM',  'public.ai_rpc_user_roles({SUPER})',          'ok:7'),
+  ('user_roles','a','ADM',  'public.ai_rpc_user_roles({SUPER})',          'ok:8'),
   ('user_roles','b','ADM',  'public.ai_rpc_user_roles({SUPER}, {UB})',    'code:FORBIDDEN_INSTITUTION'),
   ('user_roles','a','ADM',  'public.ai_rpc_user_roles({SUPER}, {FAC})',   'ok:1'),
-  ('user_roles','c','SUPER','public.ai_rpc_user_roles({SUPER})',          'ok:9'),
+  ('user_roles','c','SUPER','public.ai_rpc_user_roles({SUPER})',          'ok:10'),
   ('user_roles','c','SUPER','public.ai_rpc_user_roles({SUPER}, {UB})',    'ok:1'),
   ('user_roles','d','ANON', 'public.ai_rpc_user_roles({SUPER})',          'denied'),
-  -- ai_rpc_users (users.view; colleges role_has_institution_access admits)
+  -- ai_rpc_users (admins only: super / is_admin() / roles.edit — NOT users.view, Director 2026-09-25)
   ('users','a','ADM',  'public.ai_rpc_users({SUPER})',       'ok:10'),
   ('users','b','ADM',  'public.ai_rpc_users({SUPER}, {B})',  'code:FORBIDDEN_INSTITUTION'),
   ('users','b','FAC',  'public.ai_rpc_users({SUPER})',       'code:FORBIDDEN'),
+  ('users','b','LEARNER','public.ai_rpc_users({SUPER})',     'code:FORBIDDEN'),
   ('users','c','SUPER','public.ai_rpc_users({SUPER})',       'ok:12'),
   ('users','c','SUPER','public.ai_rpc_users({SUPER}, {B})',  'ok:1'),
   ('users','d','ANON', 'public.ai_rpc_users({SUPER})',       'denied'),

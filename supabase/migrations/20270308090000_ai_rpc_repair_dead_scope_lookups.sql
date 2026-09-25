@@ -74,8 +74,9 @@
 --   faculty_assignments own_institution / own_records)
 --   timetables,        academic.timetables.view       timetables_select_permission
 --   timetable_slots
---   users              users.view (the /users screen  profiles_select_policy is wider
---                      key)                           (any signed-in user); narrowed here
+--   users              admins only: super / is_admin() profiles_select_policy is wider
+--                      / roles.edit (NOT users.view,   (any signed-in user); narrowed here
+--                      Director 2026-09-25)
 --   user_roles         own rows for anyone; others    user_roles_select_admin / _own
 --                      need super / is_admin() /
 --                      roles.edit AND the target's
@@ -118,7 +119,7 @@
 --   ai_rpc_timetable_slots(uuid,uuid,integer,integer)            c61201834b619c5ef12007d82528bc8c  89af0413c2b0bdc7e15044fcc4defb68
 --   ai_rpc_timetables(uuid,uuid,uuid,uuid,integer,integer)       d855e137f1cf745f49e2e3315182aee1  b741b35d6143d469843fd9ec107efa00
 --   ai_rpc_user_roles(uuid,uuid,integer,integer)                 10dc4a4b4f9cdb0ce06d93684708d8f3  ca76ca25d10764ddf7e3f3d7714e2b15
---   ai_rpc_users(uuid,uuid,text,text,integer,integer)            bd852f9c98381019e98460f3452c6718  0b435e4b10976d6bfc0ec7a574550d8d
+--   ai_rpc_users(uuid,uuid,text,text,integer,integer)            bd852f9c98381019e98460f3452c6718  5d959d6fea9ea5cd1cfa83b533ff986b
 --   ai_rpc_admission_analytics(uuid,uuid,uuid,boolean)           bdc6facf165c285bc4f3a3ba0c05c74c  f91567e569d7ff114630681da6c007fc
 --   ai_rpc_academic_context(uuid)                                ca17b8f388b07b1cee87eeb95e29681b  ea25a9619c8d80a6674158eef0031275
 --   (The two Section B "before" values are #3983's bodies as of its head
@@ -161,7 +162,7 @@ BEGIN
       ('public.ai_rpc_timetable_slots(uuid,uuid,integer,integer)',          'c61201834b619c5ef12007d82528bc8c', '89af0413c2b0bdc7e15044fcc4defb68'),
       ('public.ai_rpc_timetables(uuid,uuid,uuid,uuid,integer,integer)',     'd855e137f1cf745f49e2e3315182aee1', 'b741b35d6143d469843fd9ec107efa00'),
       ('public.ai_rpc_user_roles(uuid,uuid,integer,integer)',               '10dc4a4b4f9cdb0ce06d93684708d8f3', 'ca76ca25d10764ddf7e3f3d7714e2b15'),
-      ('public.ai_rpc_users(uuid,uuid,text,text,integer,integer)',          'bd852f9c98381019e98460f3452c6718', '0b435e4b10976d6bfc0ec7a574550d8d'),
+      ('public.ai_rpc_users(uuid,uuid,text,text,integer,integer)',          'bd852f9c98381019e98460f3452c6718', '5d959d6fea9ea5cd1cfa83b533ff986b'),
       ('public.ai_rpc_admission_analytics(uuid,uuid,uuid,boolean)',         'bdc6facf165c285bc4f3a3ba0c05c74c', 'f91567e569d7ff114630681da6c007fc'),
       ('public.ai_rpc_academic_context(uuid)',                              'ca17b8f388b07b1cee87eeb95e29681b', 'ea25a9619c8d80a6674158eef0031275')
     ) v(sig, before_md5, after_md5)
@@ -1363,12 +1364,14 @@ BEGIN
   END IF;
   p_user_id := auth.uid();
   -- [scope-repair 2026-09-24] replaces the call to the missing scope helper (it raised 42883).
-  -- The /users screen's key (MENU_PERMISSIONS '/users': users.view) + the colleges
-  -- role_has_institution_access() admits. Narrower than profiles_select_policy,
-  -- which lets any signed-in user read every profile. (The old body also listed
-  -- every super admin to everyone; dropped.)
+  -- Admins only (Director ruling 2026-09-25): super admin, is_admin() or roles.edit —
+  -- the same gate as user_roles / institution_access for other people — plus the
+  -- colleges role_has_institution_access() admits. NOT users.view: the learner role
+  -- holds users.* by mistake, which would hand learners a college directory with
+  -- email and phone. Widen to users.view once those grants are removed (one line).
+  -- (The old body also listed every super admin to everyone; dropped.)
   v_super := public.is_super_admin();
-  IF NOT (v_super OR public.is_admin() OR public.user_has_permission('users.view')) THEN
+  IF NOT (v_super OR public.is_admin() OR public.user_has_permission('roles.edit')) THEN
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN',
       'message','You do not have permission to view users.'));
   END IF;
