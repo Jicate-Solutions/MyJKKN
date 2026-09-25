@@ -94,6 +94,9 @@ CREATE POLICY event_sponsorship_notes_event_team_write ON public.event_sponsorsh
     )
   );
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.event_sponsorship_notes TO authenticated;
+-- Supabase's default privileges grant every new public table to anon; this
+-- table is staff-only, so lock anon out explicitly (RLS is not a substitute).
+REVOKE ALL ON TABLE public.event_sponsorship_notes FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.event_sponsorship_notes TO authenticated;
 
 NOTIFY pgrst, 'reload schema';
