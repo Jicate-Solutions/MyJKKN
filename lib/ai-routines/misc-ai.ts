@@ -498,5 +498,21 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "sideEffects": "WRITES in-app notifications (notifications + user_notifications fan-out) to holders of cohort.manage plus super admins/admins. Requests NO acknowledgement. Changes NO membership, sends no reminder to a member, pauses and removes nobody — the route has no action path. No external messages (no email/WhatsApp/push).",
     "safeToManualTrigger": false,
     "notes": "Rules-based, no LLM. Reads through the SECURITY DEFINER RPC fn_soi_weekly_quiet_digest (service_role only; revoked from anon, PUBLIC and authenticated). Fires via the AI-routine dispatcher (ai_routine_schedules row 'soi-weekly-quiet-digest'), NOT a raw vercel.json cron, which is at its 100-entry ceiling. Auth: CRON_SECRET (Bearer or ?secret=); ?ignore_weekday=1 sends outside the configured day for a deliberate manual run. Marked unsafe-to-manual because a run delivers real notifications; re-running is safe — notifications.idempotency_key is keyed on the week, so a second run for the same week delivers nothing new. A member with no learner record can have no attendance mark and is reported as attendance-not-trackable, never as quiet; the RPC aborts rather than compose a summary that says otherwise."
+  },
+  {
+    "id": "meeting-note-drafts",
+    "name": "Meetings — AI Draft of Notes When Fireflies Returns No Summary",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 19:00 IST (editable via dispatcher) — ships switched OFF",
+    "triggerPath": "/api/cron/meeting-note-drafts",
+    "callsClaude": true,
+    "featureKey": "meetings.note_draft",
+    "whatItDoes": "Fireflies returned no summary for 76% of recent meetings (115 of 152 in 30 days), so 23 of the 68 meetings linked to a booking got no follow-ups at all. For a LINKED meeting with no summary, this drafts a short summary, the decisions taken and the follow-ups from the transcript, and labels every one of them 'AI draft — check before acting'.",
+    "configKnobs": "Ships DARK twice over: ai_job_types 'meetings.note_draft' enabled=false and ai_routine_schedules 'meeting-note-drafts' enabled=false. In code (lib/services/meetings/meeting-note-draft.ts LIMITS): enqueueCap=10 per run, minAgeHours=2, dueDateMaxDays=180, transcriptChars=60000, summary/decision/action/owner length caps. Runs on the ₹0 Max lane (provider=anthropic, model_id='sonnet').",
+    "sideEffects": "DB writes only. Writes meeting_notes.ai_draft + ai_drafted_at (NEVER meeting_notes.summary — the Fireflies ingest rewrites that column every 30 minutes), inserts meeting_action_items rows with source='ai_draft' and status 'open' on the booking's host, and enqueues/strips ai_jobs. A booking that already has follow-ups gets none added. NO notifications, NO emails, NO invites. Interview bookings are never sent to the model.",
+    "safeToManualTrigger": true,
+    "notes": "Fires via the AI-routine dispatcher, NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time). While the job type is disabled the enqueue phase returns before any Fireflies call or DB write. An owner is attached ONLY on an exact participant-email match (never a name); a due date only as an ISO date 0–180 days after the meeting. Collect runs before enqueue and strips payload.prompt (a meeting transcript) off every delivered ai_jobs row. PRIVACY: switching it on sends meeting transcripts to the Director's Claude Max seat — a Director ruling, not an operator toggle. The Fireflies sentences query is UNVERIFIED against the live API.",
+    "maxLane": true
   }
 ];
