@@ -21,6 +21,7 @@
 import type { PaymentModule } from '../provider';
 import type { createServiceRoleClient } from '@/lib/supabase/server';
 import { payerDetailsFrom } from './payer-details';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 export type WebhookServiceClient = ReturnType<typeof createServiceRoleClient>;
 
@@ -112,6 +113,14 @@ export interface WebhookModuleConfig {
    * registration paid, book a sale. Runs with the SERVICE-ROLE client: a webhook has
    * no user session, so a cookie-scoped client reads zero rows through RLS.
    */
+  /**
+   * Replaces the generic single-row capture path for a module whose order spans
+   * SEVERAL rows (one course order can pay several instalment bills, one row
+   * each). The generic path reads the order with .single(), which errors on a
+   * multi-row order and would log "order not found" while the money sits
+   * captured. When set, payment.captured / order.paid call this and stop.
+   */
+  settleOrder?: (supabase: WebhookServiceClient, payment: any) => Promise<void>;
   onCaptured?: (
     supabase: WebhookServiceClient,
     rowId: string,
@@ -221,6 +230,39 @@ export const WEBHOOK_MODULES: Record<PaymentModule, WebhookModuleConfig> = {
     // not here — those requests carry a real session, so ims_pos_checkout's
     // auth.uid() guard holds and nothing needs a service-role bypass. The webhook's
     // job is only to make "the money arrived" a fact the poll can act on.
+  },
+
+  courses: {
+    // Course instalment payments. Registered after the 2026-09-22 incident:
+    // without an entry here the `courses` note failed isPaymentModule, every
+    // course webhook was dropped, and a net-banking payment the verify callback
+    // could not settle stayed 'initiated' with nothing left to retry it.
+    table: 'course_bill_payments',
+    orderIdColumn: 'razorpay_order_id',
+    // CHECK: initiated|success|failed|refunded — no intermediate state.
+    statuses: { captured: 'success', failed: 'failed' },
+    capturedAtColumn: 'captured_at',
+    terminalStatuses: ['success', 'refunded'],
+    // Checkout retries on the SAME order, so a failed first attempt can report
+    // after the retry succeeded; it must not flip a paid row back.
+    guardTerminalOnFailure: true,
+    settleOrder: async (supabase, payment) => {
+      const { settleCourseOrder } = await import('../course-settlement');
+      const result = await settleCourseOrder(supabase as any, {
+        orderId: payment.order_id,
+        paymentId: payment.id,
+        capturedPaise: Number(payment.amount ?? 0),
+        feePaise: Number(payment.fee ?? 0),
+        gatewayResponse: payment,
+      });
+      if (result.outcome !== 'settled') {
+        logger.error('webhook/razorpay', 'courses: order not settled', {
+          orderId: payment.order_id,
+          paymentId: payment.id,
+          ...result,
+        });
+      }
+    },
   },
 };
 

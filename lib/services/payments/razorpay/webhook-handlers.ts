@@ -109,6 +109,13 @@ async function handlePaymentCaptured(supabase: ServiceClient, payload: any) {
   // meaningless. Their credit arrives as qr_code.credited instead.
   if (!cfg.orderIdColumn) return;
 
+  // Multi-row orders (courses) settle through their own path — see settleOrder.
+  if (cfg.settleOrder) {
+    if (payment.status !== 'captured') return;
+    await cfg.settleOrder(supabase, payment);
+    return;
+  }
+
   // Pull the expected amount too when the module opts into amount checking, so the
   // comparison below has something to compare against.
   const selectCols = cfg.amountPaiseColumn

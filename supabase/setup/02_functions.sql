@@ -46547,14 +46547,21 @@ LANGUAGE sql
 IMMUTABLE
 SET search_path TO 'public'
 AS $$
+  WITH n AS (
+    SELECT regexp_replace(btrim(p_name), '\s+', ' ', 'g') AS v
+  )
   SELECT CASE
            WHEN p_name IS NULL THEN NULL
-           ELSE upper(regexp_replace(btrim(p_name), '\s+', ' ', 'g'))
-         END;
+           ELSE upper(coalesce(
+                  nullif(btrim(regexp_replace(n.v, '^((MRS|MR|MS|MISS|DR)(\.\s*|\s+))+', '', 'i')), ''),
+                  n.v))
+         END
+    FROM n;
 $$;
 
+-- Title stripping added by supabase/migrations/20260925120000_staff_name_strip_titles.sql
 COMMENT ON FUNCTION public.fn_canonical_staff_name(text) IS
-  'Canonical staff-name form: trim ends, collapse internal whitespace runs to a single space, uppercase. IMMUTABLE so CHECK constraints may call it.';
+  'Canonical staff-name form: trim ends, collapse internal whitespace, strip leading salutations (MR/MRS/MS/MISS/DR followed by "." or space), uppercase. IMMUTABLE + idempotent so CHECK constraints may call it.';
 
 CREATE OR REPLACE FUNCTION public.fn_normalize_staff_names()
 RETURNS trigger

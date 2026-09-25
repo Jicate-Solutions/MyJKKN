@@ -34,7 +34,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { withAuth } from '@/lib/auth/with-auth';
 import { getPaymentProvider } from '@/lib/services/payments/factory';
-import { fromPaise } from '@/lib/services/payments/amount';
+import { settleCourseOrder } from '@/lib/services/payments/course-settlement';
 
 export const dynamic = 'force-dynamic';
 
@@ -129,7 +129,8 @@ export const POST = withAuth(
     // much was captured, and a partial capture credited at face value would
     // clear instalments that were not fully paid for.
     const intendedTotal = round2(rows.reduce((sum, r) => sum + Number(r.amount_paid ?? 0), 0));
-    let capturedRupees = intendedTotal;
+    let capturedPaise = 0;
+    let feePaise = 0;
     let gatewayStatus: string | undefined;
     let raw: unknown = null;
 
@@ -137,8 +138,8 @@ export const POST = withAuth(
       const status = await provider.getPaymentStatus(paymentId);
       raw = (status as any)?.raw ?? null;
       gatewayStatus = (status as any)?.status;
-      const paise = (status as any)?.amountPaise;
-      if (typeof paise === 'number' && paise > 0) capturedRupees = fromPaise(paise as any);
+      capturedPaise = Number((status as any)?.amountPaise ?? 0);
+      feePaise = Number((raw as any)?.fee ?? 0);
     } catch (e: any) {
       // Do NOT credit on an unreadable gateway state. Left 'initiated' so a
       // later retry or manual reconciliation can settle it, rather than guessing.
@@ -165,15 +166,25 @@ export const POST = withAuth(
     }
 
     // The gateway reports one total for the whole order, never a per-bill
-    // split. When it matches what was requested at initiate time, each row's
+    // split. When it matches what was requested at initiate time — exactly, or
+    // plus the customer-borne gateway fee on net banking / cards — each row's
     // own amount_paid (already validated against its bill's balance) is
-    // trusted as-is. A mismatch here is not something to guess a new split
-    // for — leave everything 'initiated' and ask for a human to reconcile,
-    // the same defensive stance as an unreadable gateway state above.
-    if (round2(capturedRupees) !== intendedTotal) {
+    // credited as-is. Any other mismatch is not something to guess a new split
+    // for: everything stays 'initiated' for a human to reconcile, the same
+    // defensive stance as an unreadable gateway state above.
+    const result = await settleCourseOrder(admin, {
+      orderId,
+      paymentId,
+      signature,
+      capturedPaise,
+      feePaise,
+      gatewayResponse: raw,
+    });
+
+    if (result.outcome === 'amount_mismatch' || result.outcome === 'not_found') {
       console.error('[courses/pay/verify] captured amount does not match requested total', {
         orderId,
-        capturedRupees,
+        ...result,
         intendedTotal,
       });
       return NextResponse.json(
@@ -186,59 +197,23 @@ export const POST = withAuth(
       );
     }
 
-    let anyUpdated = false;
-    let alreadyRecordedCount = 0;
-
-    for (const row of rows) {
-      if (row.status === 'success') {
-        alreadyRecordedCount += 1;
-        continue;
-      }
-
-      // Derived from each row's own transaction_ref, which is already UNIQUE,
-      // so the receipt number inherits that uniqueness without a counter or a
-      // sequence to race on. course_bill_payments_receipt_number_key would
-      // otherwise be an occasional 23505 under concurrent payments.
-      const receiptNumber = `CR-${String(row.transaction_ref ?? '').replace(/^CP-/, '')}`;
-
-      const { error: updateError } = await admin
-        .from('course_bill_payments')
-        .update({
-          status: 'success',
-          receipt_number: receiptNumber,
-          razorpay_payment_id: paymentId,
-          razorpay_signature: signature,
-          captured_at: new Date().toISOString(),
-          gateway_response: raw as any,
-        } as any)
-        .eq('id', row.id);
-
-      if (updateError) {
-        // 23505 on the partial unique index: this bill is already recorded for
-        // this payment id, which means an earlier call got there first for
-        // this row specifically. Not a failure — continue with the rest.
-        if ((updateError as any).code === '23505') {
-          alreadyRecordedCount += 1;
-          continue;
-        }
-        console.error('[courses/pay/verify] update failed:', updateError.message, { billId: row.bill_id });
-        return NextResponse.json(
-          {
-            ok: false,
-            error:
-              'Your payment went through but could not be fully recorded. Please contact the institution — do not pay again.',
-          },
-          { status: 500 },
-        );
-      }
-      anyUpdated = true;
+    if (result.outcome === 'error') {
+      console.error('[courses/pay/verify] update failed:', result.message, { orderId });
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            'Your payment went through but could not be fully recorded. Please contact the institution — do not pay again.',
+        },
+        { status: 500 },
+      );
     }
 
-    if (!anyUpdated && alreadyRecordedCount === rows.length) {
+    if (result.updated === 0) {
       return NextResponse.json({ ok: true, alreadyRecorded: true });
     }
 
-    return NextResponse.json({ ok: true, amount: capturedRupees, paymentId });
+    return NextResponse.json({ ok: true, amount: intendedTotal, paymentId });
   },
   { allowApiKey: false },
 );

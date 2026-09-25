@@ -3,11 +3,26 @@
 // OneMark paper wizard — the orchestrator. Holds the working copy of the PRD
 // §3.3 parameters, persists them on every step transition (PRD §3.2 "form
 // state preservation"), and hands each step its slice.
+//
+// A finalised paper stays finalised while the Senior Learner only moves
+// between steps (BUG-006063 PBUG-25). Anything that really changes it — new
+// settings, a regenerate, a swap or a drop — asks first ("This will reopen the
+// paper for editing") instead of un-finalising it silently (CLAUDE.md #27).
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { AlertCircle, ArrowLeft, ArrowRight, Check, Loader2 } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { usePaper, usePaperAction, usePaperReference } from '@/hooks/onemark/use-paper';
@@ -32,6 +47,24 @@ const STEPS: { n: WizardStep; label: string; hint: string }[] = [
   { n: 5, label: 'Output', hint: 'Print or publish' },
 ];
 
+/** Did the working copy move away from the settings the paper was saved with?
+ *  Object key order and the display-only preview language are ignored, so a
+ *  finalised paper the Senior Learner has only looked at counts as unchanged. */
+export function paramsChanged(saved: PaperParams, draft: PaperParams): boolean {
+  const canon = (v: unknown): unknown =>
+    Array.isArray(v)
+      ? v.map(canon)
+      : v && typeof v === 'object'
+        ? Object.fromEntries(
+            Object.keys(v)
+              .sort()
+              .map((k) => [k, canon((v as Record<string, unknown>)[k])]),
+          )
+        : v;
+  const key = (p: PaperParams) => JSON.stringify(canon({ ...p, preview_language: null }));
+  return key(saved) !== key(draft);
+}
+
 export function PaperWizard() {
   const router = useRouter();
   const search = useSearchParams();
@@ -46,6 +79,9 @@ export function PaperWizard() {
   const [step, setStep] = useState<WizardStep>(1);
   const [draft, setDraft] = useState<PaperParams | null>(null);
   const [title, setTitle] = useState('');
+  // The pending "reopen for editing?" question — its answer resolves the
+  // promise the asking action is waiting on.
+  const [reopenAsk, setReopenAsk] = useState<((ok: boolean) => void) | null>(null);
 
   // Adopt the persisted state whenever a different paper is opened.
   useEffect(() => {
@@ -99,8 +135,25 @@ export function PaperWizard() {
   const finalized = paper?.config.state === 'FINALIZED';
   const published = !!paper?.config.outputs?.published_at;
 
+  /** Resolves true at once unless the paper is finalised; then it asks. */
+  function confirmReopen(): Promise<boolean> {
+    if (!finalized) return Promise.resolve(true);
+    return new Promise<boolean>((resolve) => setReopenAsk(() => resolve));
+  }
+
+  function answerReopen(ok: boolean) {
+    reopenAsk?.(ok);
+    setReopenAsk(null);
+  }
+
   async function goTo(next: WizardStep) {
     if (!paper || !draft) return;
+    // Moving between steps never un-finalises by itself: an unchanged
+    // finalised paper is saved without its settings (so the server keeps it
+    // FINALIZED) and is not redrawn on the way back to the preview.
+    const changed = paramsChanged(paper.config.params, draft);
+    const keepFinal = finalized && !changed;
+    const saveParams = keepFinal ? {} : { params: draft };
     try {
       if (next === 4 && step < 4) {
         if (!levelMixBalanced) {
@@ -111,8 +164,9 @@ export function PaperWizard() {
           toast.error(`The chapter counts add up to ${manualTotal}, not ${draft.question_count}.`);
           return;
         }
-        await act.mutateAsync({ action: 'save', params: draft, step: 4, title });
-        await act.mutateAsync({ action: 'generate' });
+        if (finalized && changed && !(await confirmReopen())) return;
+        await act.mutateAsync({ action: 'save', ...saveParams, step: 4, title });
+        if (!keepFinal) await act.mutateAsync({ action: 'generate' });
         setStep(4);
         return;
       }
@@ -126,10 +180,8 @@ export function PaperWizard() {
         else toast.success(`Finalised — ${held} questions in order.`);
         return;
       }
-      if (step === 5 && next < 5 && finalized && !published) {
-        await act.mutateAsync({ action: 'reopen' });
-      }
-      await act.mutateAsync({ action: 'save', params: draft, step: next, title });
+      if (finalized && changed && !(await confirmReopen())) return;
+      await act.mutateAsync({ action: 'save', ...saveParams, step: next, title });
       setStep(next);
     } catch (err: any) {
       toast.error(err?.message ?? 'Could not move on');
@@ -274,6 +326,7 @@ export function PaperWizard() {
             patch={patch}
             reference={reference.exam_reference}
             act={act}
+            confirmReopen={confirmReopen}
             disabled={busy || published}
           />
         ) : (
@@ -304,6 +357,22 @@ export function PaperWizard() {
           </Button>
         )}
       </div>
+
+      <AlertDialog open={reopenAsk !== null} onOpenChange={(o) => !o && answerReopen(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reopen this paper for editing?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will reopen the paper for editing. It is finalised now; after this change it must be finalised again
+              before it can be printed or published.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => answerReopen(false)}>Keep it finalised</AlertDialogCancel>
+            <AlertDialogAction onClick={() => answerReopen(true)}>Reopen for editing</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

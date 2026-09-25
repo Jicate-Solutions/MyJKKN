@@ -40,6 +40,20 @@ function isPracticalPaper(p: IaQuestionPaper): boolean {
   return isPracticalCategory(p.course_category);
 }
 
+/**
+ * Does the paper belong to the assessment picked in "Assessment / Round"?
+ *
+ * The list is fetched by round NUMBER only, and every CIA setting numbers its
+ * rounds from 1 — so "Model Exam — Round 1" also fetched the CIA "Round 1" paper
+ * for the same course (COE keys a paper on setting + round + offering + set).
+ * A paper stamped with ANOTHER setting is dropped; an unstamped paper is kept,
+ * because the generator may write no setting at all. Same rule as mark entry's
+ * rankPapers, so both screens agree on which paper belongs to which assessment.
+ */
+function inChosenAssessment(p: IaQuestionPaper, settingId: string | undefined): boolean {
+  return !settingId || !p.cia_setting_id || p.cia_setting_id === settingId;
+}
+
 interface Props {
   institutionId: string | undefined;
   filters: Partial<QuestionPaperFilterState>;
@@ -81,7 +95,7 @@ export function PaperList({ institutionId, filters, canExport, canApprove, onOpe
     );
   }
 
-  const allPapers = papers ?? [];
+  const allPapers = (papers ?? []).filter((p) => inChosenAssessment(p, filters.setting_id));
   const practicalCount = allPapers.filter(isPracticalPaper).length;
   const visiblePapers = theoryOnly ? allPapers.filter((p) => !isPracticalPaper(p)) : allPapers;
 
@@ -242,6 +256,11 @@ export function PaperList({ institutionId, filters, canExport, canApprove, onOpe
                     <span className='font-mono text-sm font-medium'>{p.course_code}</span>
                     {p.program_code && (
                       <span className='text-[11px] text-muted-foreground'>· {p.program_code}</span>
+                    )}
+                    {/* Which assessment this paper is for — two rounds of different
+                        assessments otherwise look identical in this list. */}
+                    {p.cia_round_name && (
+                      <Badge variant='outline' className='text-[10px]'>{p.cia_round_name}</Badge>
                     )}
                     {p.set_label && <Badge variant='outline' className='text-[10px]'>Set {p.set_label}</Badge>}
                     <Badge variant='outline' className={cn('text-[10px] border', meta.className)}>

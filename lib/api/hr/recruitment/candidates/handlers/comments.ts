@@ -4,6 +4,7 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { RecruitmentService } from '@/lib/services/hr/recruitment-service';
+import { getErrorMessage } from '@/lib/utils';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -40,7 +41,7 @@ export async function GET(
   } catch (err) {
     console.error('[hr/recruitment/candidates/:id/comments] GET error', err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Unknown error' },
+      { error: getErrorMessage(err) },
       { status: 500 }
     );
   }
@@ -69,8 +70,9 @@ export async function POST(
     return NextResponse.json({ data: created });
   } catch (err) {
     console.error('[hr/recruitment/candidates/:id/comments] POST error', err);
+    // An RLS refusal is a PostgrestError (plain object) — keep its text, not "Unknown error".
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Unknown error' },
+      { error: getErrorMessage(err) },
       { status: 400 }
     );
   }
