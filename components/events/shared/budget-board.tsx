@@ -607,6 +607,19 @@ function ItemForm({
             />
           </div>
         </div>
+        {/* Bill / quotation (BUG-004627). Only on an existing line — a new line
+            has no row to attach to until it is saved. Saved immediately on
+            pick, independent of the Save Changes button. */}
+        {initial ? (
+          <div className="space-y-1">
+            <Label className="text-xs">Attachment (bill / quotation)</Label>
+            <BudgetAttachment item={initial} eventId={eventId} canAttach large />
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            You can attach a bill or quotation after the line is added.
+          </p>
+        )}
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose} disabled={isPending}>
@@ -685,9 +698,24 @@ interface RowActions {
  * Google Drive (BUG-004627). Shows a link when attached; managers can attach,
  * replace or remove.
  */
-function BudgetAttachment({ item, a }: { item: MarathonBudgetItem; a: RowActions }) {
-  const upload = useUploadBudgetAttachment(a.eventId);
-  const remove = useRemoveBudgetAttachment(a.eventId);
+function BudgetAttachment({
+  item: given,
+  eventId,
+  canAttach,
+  large = false,
+}: {
+  item: MarathonBudgetItem;
+  eventId: string;
+  canAttach: boolean;
+  /** Dialog-sized text instead of the compact row size. */
+  large?: boolean;
+}) {
+  const upload = useUploadBudgetAttachment(eventId);
+  const remove = useRemoveBudgetAttachment(eventId);
+  // Read the live row: the edit dialog holds a snapshot taken when it opened,
+  // which would not show an attachment uploaded from inside it.
+  const { data: items } = useEventBudgetItems(eventId);
+  const item = items?.find((i) => i.id === given.id) ?? given;
   const inputRef = useRef<HTMLInputElement>(null);
   const busy = upload.isPending || remove.isPending;
   const safeHref = item.receipt_url?.startsWith('https://') ? item.receipt_url : null;
@@ -704,10 +732,10 @@ function BudgetAttachment({ item, a }: { item: MarathonBudgetItem; a: RowActions
     upload.mutate({ itemId: item.id, file });
   };
 
-  if (!safeHref && !a.canAttach) return null;
+  if (!safeHref && !canAttach) return null;
 
   return (
-    <div className="mt-0.5 flex min-w-0 items-center gap-1 text-[11px]">
+    <div className={`mt-0.5 flex min-w-0 items-center gap-1 ${large ? 'gap-2 text-sm' : 'text-[11px]'}`}>
       {safeHref ? (
         <a
           href={safeHref}
@@ -720,7 +748,7 @@ function BudgetAttachment({ item, a }: { item: MarathonBudgetItem; a: RowActions
           <span className="truncate">{item.receipt_name || 'Attachment'}</span>
         </a>
       ) : null}
-      {a.canAttach && (
+      {canAttach && (
         <>
           <input
             ref={inputRef}
@@ -808,7 +836,7 @@ function BudgetRow({
         {item.vendor && (
           <div className="truncate text-[11px] text-muted-foreground">{item.vendor}</div>
         )}
-        <BudgetAttachment item={item} a={a} />
+        <BudgetAttachment item={item} eventId={a.eventId} canAttach={a.canAttach} />
       </div>
       <div className="shrink-0 text-right">
         <div className="font-medium tabular-nums">{rupee(item.estimated_amount)}</div>
