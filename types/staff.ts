@@ -449,6 +449,36 @@ export interface StaffDashboardStats {
   demographicStats: StaffDemographicStats;
   tenureAnalytics: StaffTenureAnalytics;
   profileAnalytics: StaffProfileAnalytics;
+  roleStats: StaffRoleStats;
+}
+
+/** Headcount for one system role (staff.role_key → custom_roles.role_name). */
+export interface StaffRoleStat {
+  roleKey: string;
+  roleName: string;
+  count: number;
+  activeCount: number;
+  percentage: number;
+}
+
+/** One row of the Roles tab name list. */
+export interface StaffRoleMember {
+  id: string;
+  name: string;
+  staffId: string | null;
+  institutionEmail: string | null;
+  roleKey: string;
+  roleName: string;
+  designation: string | null;
+  institutionName: string | null;
+  departmentName: string | null;
+  isActive: boolean;
+}
+
+export interface StaffRoleStats {
+  total: number;
+  roles: StaffRoleStat[];
+  members: StaffRoleMember[];
 }
 
 /**
