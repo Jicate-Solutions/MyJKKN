@@ -228,6 +228,32 @@ DO $$ DECLARE r jsonb; BEGIN
   IF (r->>'reminded')::int <> 0 THEN RAISE EXCEPTION 'FAIL: reminded twice in a row: %', r; END IF;
 END $$;
 
+-- ===== review 2: fair order and the IST calendar day =====
+\echo '--- fair order: EXPECT the person reminded LONGEST ago goes first, not the lowest id'
+UPDATE adoption_asks SET asked_at = now() - interval '40 days';
+UPDATE adoption_reminders SET sent_at = now() - interval '35 days';
+DO $$ DECLARE r jsonb; x uuid; BEGIN
+  SELECT user_id INTO x FROM adoption_reminders WHERE feature_key = 'used.thing' ORDER BY user_id DESC LIMIT 1;
+  UPDATE adoption_reminders SET sent_at = now() - interval '60 days' WHERE feature_key = 'used.thing' AND user_id = x;
+  r := fn_adoption_remind_core('used.thing', '20000000-0000-0000-0000-000000000001', true, 1, NULL);
+  IF (r->'targets'->>0)::uuid IS DISTINCT FROM x THEN RAISE EXCEPTION 'FAIL fair order: % (expected %)', r, x; END IF;
+  RAISE NOTICE 'fair order: ok';
+END $$;
+\echo '--- IST day: EXPECT someone messaged just after IST midnight is not messaged again the same IST day'
+DO $$ DECLARE r jsonb; x uuid; n uuid; BEGIN
+  SELECT user_id INTO x FROM adoption_reminders WHERE feature_key = 'used.thing' ORDER BY user_id DESC LIMIT 1;
+  SELECT notification_id INTO n FROM adoption_reminders WHERE notification_id IS NOT NULL LIMIT 1;
+  INSERT INTO adoption_reminders (user_id, feature_key, notification_id, sent_at)
+  VALUES (x, 'learner.thing',  n, (date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata') AT TIME ZONE 'Asia/Kolkata') + interval '1 minute');
+  r := fn_adoption_remind_core('used.thing', '20000000-0000-0000-0000-000000000001', true, NULL, NULL);
+  IF r->'targets' @> to_jsonb(ARRAY[x]) THEN RAISE EXCEPTION 'FAIL IST day: % still eligible: %', x, r; END IF;
+  DELETE FROM adoption_reminders WHERE user_id = x AND feature_key = 'learner.thing'
+    AND sent_at >= (date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata') AT TIME ZONE 'Asia/Kolkata');
+  r := fn_adoption_remind_core('used.thing', '20000000-0000-0000-0000-000000000001', true, NULL, NULL);
+  IF NOT (r->'targets' @> to_jsonb(ARRAY[x])) THEN RAISE EXCEPTION 'FAIL IST day control: % not eligible: %', x, r; END IF;
+  RAISE NOTICE 'IST day: ok';
+END $$;
+
 -- ===== the per-day cap =====
 \echo '--- cap 2: a new dead feature with 4 never-users: EXPECT exactly 2 messaged, run says capped'
 UPDATE adoption_reminders SET sent_at = now() - interval '40 days';

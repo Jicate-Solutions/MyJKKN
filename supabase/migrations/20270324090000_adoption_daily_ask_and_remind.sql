@@ -375,8 +375,10 @@ GRANT  EXECUTE ON FUNCTION public.fn_adoption_ask_why(text, date) TO authenticat
 -- wrong). Limits:
 --   * never a super admin
 --   * at most once per person per feature per 30 days (ruling 10)
---   * not on a day the person already had an adoption reminder or question
---     (20 hours, so a daily run a little early still counts as the next day)
+--   * not on an Indian calendar day (IST) on which the person already had an
+--     adoption reminder or question
+--   * people never reminded about this feature go first, then those reminded
+--     longest ago, so a backlog larger than the cap is worked through in turn
 --   * p_limit / p_exclude as in the ask core
 -- Service-only: signed-in callers go through fn_adoption_remind.
 CREATE OR REPLACE FUNCTION public.fn_adoption_remind_core(
@@ -432,9 +434,11 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'error', 'feature is younger than 14 days');
   END IF;
 
-  SELECT COALESCE(array_agg(t.user_id ORDER BY t.user_id), '{}'::uuid[]) INTO v_targets
+  SELECT COALESCE(array_agg(t.user_id ORDER BY t.last_sent NULLS FIRST, t.user_id), '{}'::uuid[]) INTO v_targets
   FROM (
-    SELECT DISTINCT pr.user_id
+    SELECT DISTINCT pr.user_id,
+           (SELECT max(ar.sent_at) FROM public.adoption_reminders ar
+             WHERE ar.user_id = pr.user_id AND ar.feature_key = p_feature_key) AS last_sent
     FROM public.fn_adoption_person_roles() pr
     WHERE pr.is_super_admin = false
       AND (cardinality(v_feat.intended_roles) = 0
@@ -449,11 +453,11 @@ BEGIN
                         AND ar.sent_at > now() - interval '30 days')
       -- one adoption message per person per day, reminders and questions together
       AND NOT EXISTS (SELECT 1 FROM public.adoption_reminders ar
-                      WHERE ar.user_id = pr.user_id AND ar.sent_at > now() - interval '20 hours')
+                      WHERE ar.user_id = pr.user_id AND ar.sent_at >= (date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata') AT TIME ZONE 'Asia/Kolkata'))
       AND NOT EXISTS (SELECT 1 FROM public.adoption_asks aa
-                      WHERE aa.user_id = pr.user_id AND aa.asked_at > now() - interval '20 hours')
+                      WHERE aa.user_id = pr.user_id AND aa.asked_at >= (date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata') AT TIME ZONE 'Asia/Kolkata'))
       AND NOT (pr.user_id = ANY (COALESCE(p_exclude, '{}'::uuid[])))
-    ORDER BY pr.user_id
+    ORDER BY last_sent NULLS FIRST, pr.user_id
     LIMIT CASE WHEN p_limit IS NULL THEN NULL ELSE GREATEST(p_limit, 0) END
   ) t;
 
@@ -662,7 +666,7 @@ GRANT  EXECUTE ON FUNCTION public.fn_adoption_remind(text, boolean) TO authentic
 -- passes (and if that list cannot be read, nothing is sent). Stops when the
 -- day's adoption.tick.max_notifications budget is used up, counting what was
 -- already sent today; people left over are reached on a later day. Nobody gets more than one adoption message
--- from one run, and nobody reminded in the last 20 hours is messaged again.
+-- from one run, and nobody who had one earlier the same IST day is messaged again.
 -- Service role only: a signed-in person cannot run it (EXECUTE is not granted
 -- and the body refuses any caller with a user id).
 CREATE OR REPLACE FUNCTION public.fn_adoption_daily_tick(p_dry_run boolean DEFAULT false)
@@ -726,12 +730,12 @@ BEGIN
   SELECT w.term_start INTO v_tstart FROM public.fn_adoption_term_window() w;
 
   -- One adoption message per person per day holds across runs too: anyone
-  -- reminded in the last 20 hours is not messaged by this run. (Anyone asked
-  -- in the last 7 days is excluded by the ask core; anyone asked in the last
-  -- 20 hours by the remind core.)
+  -- reminded earlier the same IST day is not messaged by this run. (Anyone asked
+  -- in the last 7 days is excluded by the ask core; anyone asked the same IST
+  -- day by the remind core.)
   SELECT COALESCE(array_agg(DISTINCT ar.user_id), '{}'::uuid[]) INTO v_touched
   FROM public.adoption_reminders ar
-  WHERE ar.sent_at > now() - interval '20 hours';
+  WHERE ar.sent_at >= (date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata') AT TIME ZONE 'Asia/Kolkata');
 
   -- ---- pass 1: ask why, on near-zero features ----
   FOR v_feat IN
