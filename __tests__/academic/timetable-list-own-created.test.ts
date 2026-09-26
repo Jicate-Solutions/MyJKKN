@@ -73,12 +73,12 @@ describe('timetable list keeps the creator\'s own timetables (BUG-005845)', () =
     ];
   });
 
-  const faculty = { role: 'faculty', department_id: MY_DEPT };
+  const seniorLearnerProfile = { role: 'faculty', department_id: MY_DEPT };
 
   it('default scope: my department plus every timetable I created', async () => {
     const scope = resolveTimetableListScope({
       userId: ME,
-      profile: faculty,
+      profile: seniorLearnerProfile,
       isSuperAdmin: false
     });
     const { data } = await getTimetables(scope);
@@ -93,7 +93,7 @@ describe('timetable list keeps the creator\'s own timetables (BUG-005845)', () =
     const scope = resolveTimetableListScope({
       urlDepartmentId: MY_DEPT,
       userId: ME,
-      profile: faculty,
+      profile: seniorLearnerProfile,
       isSuperAdmin: false
     });
     const { data } = await getTimetables(scope);
@@ -104,7 +104,7 @@ describe('timetable list keeps the creator\'s own timetables (BUG-005845)', () =
     const scope = resolveTimetableListScope({
       urlDepartmentId: THIRD_DEPT,
       userId: ME,
-      profile: faculty,
+      profile: seniorLearnerProfile,
       isSuperAdmin: false
     });
     expect(scope.alsoCreatedBy).toBeUndefined();
@@ -114,7 +114,7 @@ describe('timetable list keeps the creator\'s own timetables (BUG-005845)', () =
 
   it('super admins and other roles get no department default', () => {
     expect(
-      resolveTimetableListScope({ userId: ME, profile: faculty, isSuperAdmin: true })
+      resolveTimetableListScope({ userId: ME, profile: seniorLearnerProfile, isSuperAdmin: true })
     ).toEqual({ departmentId: undefined, alsoCreatedBy: undefined });
     expect(
       resolveTimetableListScope({
