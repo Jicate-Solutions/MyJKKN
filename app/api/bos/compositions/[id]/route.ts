@@ -4,12 +4,24 @@ import { UpdateBosCompositionDto } from '@/types/bos';
 import {
   resolveBosBoardScope,
   guardCompositionChairman,
+  hasBosPermission,
+  isBosReadAllObserver,
 } from '@/lib/utils/bos/bos-access';
 
 // ── GET /api/bos/compositions/[id] ───────────────────────────────────────────
 // Returns a single composition with its board info and full member list.
-// Read-gating: super-admin sees all; principal sees comps in their institution(s);
-// board members see only the compositions they belong to.
+// Read-gating mirrors GET /api/bos/compositions (the list the user clicked
+// through from): super-admin and read-all observers (academic.bos-compositions
+// .view) see all; principal sees comps in their institution(s); board members
+// and the creator see their own.
+//
+// The row is read with the service-role client and the check below is the
+// authorization — the same precedent as the list route. The user-context read
+// this replaced was ANDed with the bos_compositions_select RLS policy, which
+// demands academic.bos-compositions.view even from a member or the creator, and
+// never admits a read-all observer. So the list showed a composition that its
+// own detail page then reported as "Composition not found." (BUG-005317,
+// BUG-005355).
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -23,8 +35,13 @@ export async function GET(
 
     const { id } = await params;
     const scope = await resolveBosBoardScope(user.id);
+    const canReadAllBos = isBosReadAllObserver(
+      scope,
+      await hasBosPermission(user.id, 'academic.bos-compositions.view'),
+    );
 
-    const { data, error } = await supabase
+    const db = createServiceRoleClient();
+    const { data, error } = await db
       .from('bos_compositions')
       .select(
         `
@@ -60,11 +77,17 @@ export async function GET(
         ? scope.allInstitutionIds.includes(compInstitution) || scope.institutionsId === compInstitution
         : false;
       const isCreator = row.created_by != null && row.created_by === user.id;
-      const visible = scope.isPrincipal
+      const visibleByRole = scope.isPrincipal
         ? inMyInstitution
         : (scope.memberOf.has(id) || isCreator);
-      if (!visible) {
+      if (!visibleByRole && !canReadAllBos) {
         return NextResponse.json({ error: 'Composition not found' }, { status: 404 });
+      }
+      // An observer reaches this row only through the read-all tier. The roster
+      // is gated separately (GET /api/bos/members reads academic.bos-members.view),
+      // so the embedded member list must not widen that.
+      if (!visibleByRole && !(await hasBosPermission(user.id, 'academic.bos-members.view'))) {
+        (data as { members?: unknown[] }).members = [];
       }
     }
 
@@ -75,7 +98,6 @@ export async function GET(
     // Multi-board: load the full board set from the junction (service-role —
     // visibility already enforced above). Fall back to the single primary
     // board_id when the junction has no rows yet (pre-backfill).
-    const db = createServiceRoleClient();
     const { data: jb } = await db
       .from('bos_composition_boards')
       .select('board_id')
@@ -95,7 +117,7 @@ export async function GET(
             const b = coeBoardMap.get(bid);
             return b ? { id: bid, board_code: b.board_code, board_name: b.board_name, board_type: b.board_type } : null;
           })
-          .filter((b): b is { id: string; board_code: string; board_name: string; board_type?: string | null } => b !== null);
+          .filter((b): b is NonNullable<typeof b> => b !== null);
         const primary = row.board_id ? coeBoardMap.get(row.board_id) : undefined;
         if (primary) board = { board_code: primary.board_code, board_name: primary.board_name, board_type: primary.board_type };
         else if (boards[0]) board = { board_code: boards[0].board_code, board_name: boards[0].board_name, board_type: boards[0].board_type };
