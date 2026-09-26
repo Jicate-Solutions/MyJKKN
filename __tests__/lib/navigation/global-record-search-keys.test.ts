@@ -33,14 +33,15 @@ import { MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
 // SECURITY DEFINER, which was a confidentiality defect (it bypassed RLS and
 // substituted a simpler check); 20261201100000 re-issued it as SECURITY
 // INVOKER; 20261201140000 added departments, programmes and institutions;
-// 20261201150000 adds recruitment candidates, invoices and receipts.
+// 20261201150000 added recruitment candidates, invoices and receipts;
+// 20261201160000 marks a candidate's stage and a cancelled receipt.
 // These assertions must track the LATEST definition — pinned to a superseded
 // file, this suite would have gone on certifying the vulnerable version,
 // green, forever. REPOINT THIS WHEN THE FUNCTION IS NEXT REPLACED.
 const MIGRATION = readFileSync(
   path.join(
     process.cwd(),
-    'supabase/migrations/20261201150000_global_record_search_candidates_and_billing.sql'
+    'supabase/migrations/20261201160000_record_search_stage_and_cancelled_marks.sql'
   ),
   'utf8'
 );
@@ -186,6 +187,29 @@ describe('global record search — permission key agreement', () => {
     expect(MIGRATION_CODE).toMatch(/public\.billing_invoices/);
     expect(MIGRATION_CODE).toMatch(/public\.billing_receipts/);
     expect(MIGRATION_CODE).toMatch(/public\.hr_recruitment_candidates/);
+  });
+
+  it('a candidate always carries its stage in the subtitle', () => {
+    // Director ruling 2026-09-16: a turned-down applicant stays findable but
+    // must never read as someone still in the running. The stage is printed
+    // verbatim rather than matched against a hand-picked list of "bad"
+    // statuses — this table carries at least 16 values and a curated list would
+    // silently mislabel the next one added.
+    // Slice from the arm's opening literal, not its table name: the table name
+    // sits in the FROM clause, which comes AFTER the SELECT list asserted here.
+    const arm = MIGRATION_CODE.slice(MIGRATION_CODE.indexOf("'candidate'::text"));
+    expect(arm).toMatch(/initcap\(replace\(coalesce\(hc\.status/);
+  });
+
+  it('a receipt is marked Cancelled only when the cancellation was APPROVED', () => {
+    // Director ruling 2026-09-16: a cancelled receipt must still be findable
+    // (a disputed payment is exactly when staff need it) but must never read as
+    // money received. A cancellation merely REQUESTED, or declined, leaves a
+    // live receipt unmarked — so the status test is load-bearing, not cosmetic.
+    const arm = MIGRATION_CODE.slice(MIGRATION_CODE.indexOf("'receipt'::text"));
+    expect(arm).toMatch(/billing_receipt_cancel_requests/);
+    expect(arm).toMatch(/cr\.status = 'approved'/);
+    expect(arm).toMatch(/'Cancelled'/);
   });
 
   it('billing arms do not join learners to search by learner name', () => {
