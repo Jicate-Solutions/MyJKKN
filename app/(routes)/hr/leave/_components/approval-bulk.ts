@@ -57,7 +57,10 @@ export function describeApprovalSkipped(s: ApprovalBulkSkipped): string {
   return [
     s.decided > 0 ? `${s.decided} already decided` : null,
     s.notYours > 0 ? `${s.notYours} you cannot decide` : null,
-    s.biometric > 0 ? `${s.biometric} missing biometric` : null,
+    // Names WHO unblocks it. "missing biometric" read to a Principal as "you
+    // cannot approve" (BUG-006101, BUG-006140): the approver has the right, but
+    // only HR can import the attendance file that lets the approval land.
+    s.biometric > 0 ? `${s.biometric} waiting for HR to upload biometric attendance` : null,
   ]
     .filter(Boolean)
     .join(', ');

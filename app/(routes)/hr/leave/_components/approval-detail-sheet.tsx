@@ -317,8 +317,9 @@ export function ApprovalDetailSheet({
                     <p className="mr-auto max-w-[22rem] self-center text-xs leading-snug text-amber-700 dark:text-amber-400">
                       Biometric attendance is not uploaded for{' '}
                       <strong>{formatBiometricGap(row.biometric_gap_from)}</strong>.
-                      Approving now would not reach the attendance report — import
-                      the month first.
+                      HR uploads it from HR Setup › Admin Dashboard › Import
+                      Biometric Punches; you can approve once it is in. Rejecting
+                      is still open.
                     </p>
                   )}
                   {isReview && (
