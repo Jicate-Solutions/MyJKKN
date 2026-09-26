@@ -116,18 +116,25 @@ interface ConnectionRow {
 
 // ── OAuth state (HMAC-signed, no server-side session needed) ────────────────
 
-interface StatePayload {
+export interface StatePayload {
   h: string; // host profile id
   t: number; // issued-at ms
+  /**
+   * Which flow issued this state. Absent = the calendar flow (every state this
+   * file signs). The Gmail/Drive read flow (lib/services/integrations/
+   * google-read) signs with the same secret and sets p = 'google_read'; each
+   * callback refuses the other flow's state.
+   */
+  p?: string;
 }
 
-function signState(payload: StatePayload, secret: string): string {
+export function signState(payload: StatePayload, secret: string): string {
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const sig = crypto.createHmac('sha256', secret).update(body).digest('base64url');
   return `${body}.${sig}`;
 }
 
-function verifyState(state: string, secret: string): StatePayload | null {
+export function verifyState(state: string, secret: string): StatePayload | null {
   const [body, sig] = state.split('.');
   if (!body || !sig) return null;
   const expected = crypto.createHmac('sha256', secret).update(body).digest('base64url');
@@ -190,7 +197,11 @@ export class GoogleCalendarService {
   static verifyStateParam(state: string): string | null {
     const secret = env('GOOGLE_TOKEN_MASTER_SECRET');
     if (!secret) return null;
-    return verifyState(state, secret)?.h ?? null;
+    const payload = verifyState(state, secret);
+    // A state signed for another flow (the Gmail/Drive read flow) is not a
+    // calendar state, even though the same secret signed it.
+    if (!payload || payload.p) return null;
+    return payload.h;
   }
 
   /**
