@@ -39,6 +39,9 @@ const EMPTY_STATS: OnboardingStats = {
   completion_rate: 0,
   account_total: 0,
   reserved_total: 0,
+  account_incomplete: 0,
+  reserved_incomplete: 0,
+  admitted_incomplete: 0,
   admitted_total: 0
 };
 
@@ -110,6 +113,7 @@ export async function getOnboardingStats(
     let account_total = 0;
     let reserved_total = 0;
     let admitted_total = 0;
+    const incompleteBy: Record<string, number> = { account: 0, reserved: 0, admitted: 0 };
 
     for (const row of rows || []) {
       if (row.lifecycle_status === 'account') account_total++;
@@ -121,6 +125,7 @@ export async function getOnboardingStats(
       if (!row.academic_year_id) missing++;
       if (!row.semester_id) missing++;
       if (!row.section_id) missing++;
+      if (missing > 0 && row.lifecycle_status in incompleteBy) incompleteBy[row.lifecycle_status]++;
 
       switch (resolveOnboardingTier(4 - missing, row.lifecycle_status)) {
         case 'critical': critical++; break;
@@ -150,7 +155,10 @@ export async function getOnboardingStats(
       completion_rate,
       account_total,
       reserved_total,
-      admitted_total
+      admitted_total,
+      account_incomplete: incompleteBy.account,
+      reserved_incomplete: incompleteBy.reserved,
+      admitted_incomplete: incompleteBy.admitted
     };
   } catch (error) {
     console.error('[getOnboardingStats] Unexpected error:', error);

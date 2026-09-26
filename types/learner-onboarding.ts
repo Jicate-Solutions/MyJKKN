@@ -319,6 +319,10 @@ export interface OnboardingStats {
   /** Per-status totals so the header can show the split at a glance. */
   account_total: number;
   reserved_total: number;
+  /** Per-status count of profiles still missing a required field. */
+  account_incomplete: number;
+  reserved_incomplete: number;
+  admitted_incomplete: number;
   admitted_total: number;
 }
 
