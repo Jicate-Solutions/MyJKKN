@@ -36,7 +36,7 @@ describe('writeCollectionWorkbook', () => {
     expect(all.getCell('A1').value).toBe('Date');
     expect(all.getCell('B2').value).toBe('RCP-1');
     expect(all.autoFilter).toBeTruthy();
-    expect(wb.getWorksheet('DD')!.getCell('K2').value).toBe('SBI');
+    expect(wb.getWorksheet('DD')!.getCell('L2').value).toBe('SBI'); // DD bank; column L since 'MyJKKN ID' was inserted as column D
   });
 
   it('names the college under the title for a single-institution export', async () => {
