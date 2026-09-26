@@ -58,6 +58,13 @@ const STATUS_CONFIG: Record<
     className: 'bg-purple-100 text-purple-800 border-purple-200',
     icon: RotateCcw,
   },
+  // Void, like `cancelled`: the bill was replaced by a newer one (see
+  // lib/billing/bill-status.ts) and is kept only for the audit trail.
+  superseded: {
+    label: 'Superseded',
+    className: 'bg-gray-100 text-gray-800 border-gray-200',
+    icon: Ban,
+  },
 };
 
 function formatCurrency(amount: number): string {
