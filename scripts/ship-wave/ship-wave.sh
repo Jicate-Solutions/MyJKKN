@@ -799,7 +799,15 @@ def ci(p):
     runs = p.get("statusCheckRollup") or []
     bad = [r.get("name") for r in runs if (r.get("conclusion") or "").upper() in ("FAILURE","TIMED_OUT","ACTION_REQUIRED","STARTUP_FAILURE","ERROR") and (r.get("name") or "") not in ADVISORY]
     if bad: return "FAIL", bad[:3]
-    pend = [r.get("name") for r in runs if (r.get("status") or "").upper() in ("IN_PROGRESS","QUEUED","PENDING","EXPECTED") or ((r.get("status") or "").upper()=="COMPLETED" and r.get("conclusion") is None)]
+    # 2026-09-19 05:19 (R16, amended: "PR build stays as ADVICE, never required"): the advisory list excused a
+    # named check's FAILURES and its CANCELLATIONS but not its PENDING runs, so five PRs sat blocked on advice —
+    # #3889 (tier HELD, all 4 required checks green, the Director's number already given, state UNSTABLE), #3890,
+    # #3928, #3918, all with ci PENDING ci_names ['Production Build'], and #3926 with ['Production Build',
+    # 'Claude Review (advisory)']. The Production Build takes 30-60 min, is often cancelled by the runner, and
+    # re-runs whenever a draft is marked Ready — an hour of waiting on something that is never a gate. Advice
+    # that has not finished is still advice: mirror the red rule above. Any NON-advisory pending check still
+    # holds the PR, and with the file missing or empty ADVISORY is empty and nothing changes.
+    pend = [r.get("name") for r in runs if ((r.get("status") or "").upper() in ("IN_PROGRESS","QUEUED","PENDING","EXPECTED") or ((r.get("status") or "").upper()=="COMPLETED" and r.get("conclusion") is None)) and (r.get("name") or "") not in ADVISORY]
     if pend: return "PENDING", pend[:3]
     # 2026-09-14 14:41: four green fold PRs sat "blocked" for a round because the AI-review router had been
     # CANCELLED on each — the advisory list excused its FAILURES but not its cancellations. Advice that never

@@ -71,16 +71,16 @@ describe('buildDetailRows', () => {
     ]);
     expect(rows[0].cells).toEqual([...DAYWISE_EXPORT_HEADER]);
     expect(rows[1].cells[1]).toBe('RCP-1');
-    expect(rows[2].cells[9]).toBe('UTR123');
+    expect(rows[2].cells[10]).toBe('UTR123');
     expect(rows[2].mode).toBe('online');
     // Subtotals by mode, descending by net: cash 1000 then online 500.
     expect(rows[3].cells[2]).toBe('Cash (1)');
-    expect(rows[3].cells[21]).toBe(1000);
+    expect(rows[3].cells[22]).toBe(1000);
     expect(rows[4].cells[2]).toBe('Online (1)');
     expect(rows[5].cells[2]).toBe('Day Total (2)');
-    expect(rows[5].cells[21]).toBe(1500);
+    expect(rows[5].cells[22]).toBe(1500);
     expect(rows[7].cells[2]).toBe('Grand Total (2)');
-    expect(rows[7].cells[21]).toBe(1500);
+    expect(rows[7].cells[22]).toBe(1500);
     expect(rows[7].cells.length).toBe(DAYWISE_EXPORT_HEADER.length);
   });
 
@@ -91,7 +91,7 @@ describe('buildDetailRows', () => {
 
   it('labels gateway receipts with no collector as System', () => {
     const rows = buildDetailRows(groupByDay([row({ collected_by: null })]));
-    expect(rows[1].cells[17]).toBe('System');
+    expect(rows[1].cells[18]).toBe('System');
   });
 });
 
@@ -166,7 +166,7 @@ describe('buildSummaryModel / buildWorkbookModel', () => {
     const ic = m.tables.find((t) => t.title === 'Institution-wise by Fee Category')!;
     expect(ic.header).toEqual(['Institution', 'Tuition Fee', 'Exam Fee', 'Total']);
     expect(ic.rows).toEqual([['A', 800, 200, 1000], ['B', 500, 0, 500], ['Total', 1300, 200, 1500]]);
-    expect(buildDetailRows(groupByDay(withCats))[1].cells[7]).toBe('Exam Fee, Tuition Fee');
+    expect(buildDetailRows(groupByDay(withCats))[1].cells[8]).toBe('Exam Fee, Tuition Fee');
   });
 
   it('workbook: All sheet first, then one sheet per mode present', () => {

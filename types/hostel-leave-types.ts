@@ -1,11 +1,11 @@
 // Types for campus-living hostel leave type CRUD master.
 // Schema: public.hostel_leave_types (created 2026-04-21 migration
-// 20260421000005_hostel_leave_types_crudable.sql). Institution-scoped.
+// 20260421000005_hostel_leave_types_crudable.sql). Common to every institution
+// since 20261231120000_hostel_leave_types_global.sql — no institution_id.
 // is_system=true rows are seeded defaults and cannot be deleted via UI.
 
 export interface HostelLeaveType {
   id: string;
-  institution_id: string;
   leave_type_code: string;           // e.g. 'home_visit', 'festival' (uppercase-or-snake)
   leave_type_name: string;           // Display label, e.g. "Home Visit"
   description: string | null;
@@ -24,7 +24,6 @@ export interface HostelLeaveType {
 }
 
 export interface CreateHostelLeaveTypeDto {
-  institution_id: string;
   leave_type_code: string;
   leave_type_name: string;
   description?: string | null;
@@ -54,7 +53,6 @@ export interface UpdateHostelLeaveTypeDto {
 }
 
 export interface HostelLeaveTypeFilters {
-  institution_id?: string;
   is_active?: boolean;
   search?: string;
   page?: number;

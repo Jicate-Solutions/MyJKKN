@@ -10,17 +10,16 @@
 import { Card, CardContent } from '@/components/ui/card';
 import {
   AlertCircle,
-  AlertTriangle,
   ClipboardList,
-  Sparkles,
   UserCheck,
   Wallet
 } from 'lucide-react';
+import type { OnboardingStatus } from '@/types/learner-onboarding';
 import { getOnboardingStats } from '../_data/get-onboarding-stats';
 
 interface OnboardingStatsCardsProps {
   filters: {
-    lifecycle_status?: 'reserved' | 'admitted';
+    lifecycle_status?: OnboardingStatus;
     institution_id?: string;
     degree_id?: string;
     department_id?: string;
@@ -37,9 +36,9 @@ export async function OnboardingStatsCards({ filters }: OnboardingStatsCardsProp
   const cards = [
     {
       key: 'total',
-      label: 'Total Incomplete',
-      value: stats.total_incomplete,
-      sub: `${stats.completion_rate}% of all learners complete`,
+      label: 'All Learners',
+      value: stats.account_total + stats.reserved_total + stats.admitted_total,
+      sub: `${stats.account_total} Account · ${stats.reserved_total} Reserved · ${stats.admitted_total} Admitted`,
       icon: ClipboardList,
       accent: 'text-foreground',
       bg: 'bg-muted/40',
@@ -48,32 +47,12 @@ export async function OnboardingStatsCards({ filters }: OnboardingStatsCardsProp
     {
       key: 'critical',
       label: 'Critical',
-      value: stats.critical,
-      sub: '0 or 1 of 4 fields filled',
+      value: stats.total_incomplete,
+      sub: `Missing profile fields · ${stats.completion_rate}% complete overall`,
       icon: AlertCircle,
       accent: 'text-red-600 dark:text-red-400',
       bg: 'bg-red-50 dark:bg-red-950/20',
       border: 'border-red-200 dark:border-red-900/40'
-    },
-    {
-      key: 'needs_work',
-      label: 'Needs Work',
-      value: stats.needs_work,
-      sub: '2 of 4 fields filled',
-      icon: AlertTriangle,
-      accent: 'text-amber-600 dark:text-amber-400',
-      bg: 'bg-amber-50 dark:bg-amber-950/20',
-      border: 'border-amber-200 dark:border-amber-900/40'
-    },
-    {
-      key: 'almost',
-      label: 'Almost Complete',
-      value: stats.almost,
-      sub: '3 of 4 fields filled',
-      icon: Sparkles,
-      accent: 'text-emerald-600 dark:text-emerald-400',
-      bg: 'bg-emerald-50 dark:bg-emerald-950/20',
-      border: 'border-emerald-200 dark:border-emerald-900/40'
     },
     {
       key: 'ready_to_activate',
@@ -89,7 +68,7 @@ export async function OnboardingStatsCards({ filters }: OnboardingStatsCardsProp
       key: 'awaiting_payment',
       label: 'Awaiting Payment',
       value: stats.awaiting_payment,
-      sub: 'Reserved, all 4 filled — fees pending',
+      sub: `${stats.account_total} Account + ${stats.reserved_total} Reserved — fees pending`,
       icon: Wallet,
       accent: 'text-sky-600 dark:text-sky-400',
       bg: 'bg-sky-50 dark:bg-sky-950/20',
@@ -98,7 +77,7 @@ export async function OnboardingStatsCards({ filters }: OnboardingStatsCardsProp
   ];
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
       {cards.map((card) => {
         const Icon = card.icon;
         return (
@@ -129,8 +108,8 @@ export async function OnboardingStatsCards({ filters }: OnboardingStatsCardsProp
  */
 export function OnboardingStatsCardsSkeleton() {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-      {[0, 1, 2, 3, 4, 5].map((i) => (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      {[0, 1, 2, 3].map((i) => (
         <Card key={i} className="bg-muted/30">
           <CardContent className="p-4 sm:p-5">
             <div className="space-y-2">

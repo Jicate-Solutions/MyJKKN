@@ -21691,20 +21691,24 @@ GRANT  EXECUTE ON FUNCTION public.fn_induction_session_in_my_speaker_event(uuid)
 -- exposes the caller's own org row; self-authorizes via role_has_institution_access().
 -- Drives the institution dropdowns in /hr/leave/* and the HR PolicyEditor.
 -- =====================================================================================
-CREATE OR REPLACE FUNCTION public.fn_hr_orgs_for_institutions()
-RETURNS TABLE (institution_id uuid, hr_organization_id uuid, organization_name text)
+-- 2026-09-23 (20260923121000): also returns is_payroll_entity, so the salary
+-- register's Generate dialog can offer only institutions that pay salaries.
+DROP FUNCTION IF EXISTS public.fn_hr_orgs_for_institutions();
+CREATE FUNCTION public.fn_hr_orgs_for_institutions()
+RETURNS TABLE (institution_id uuid, hr_organization_id uuid, organization_name text, is_payroll_entity boolean)
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT o.institution_id, o.id, o.name
+  SELECT o.institution_id, o.id, o.name, COALESCE(o.is_payroll_entity, true)
   FROM public.hr_organizations o
   WHERE o.institution_id IS NOT NULL
+    AND o.included_in_hr
     AND public.role_has_institution_access(o.institution_id)
 $$;
-REVOKE EXECUTE ON FUNCTION public.fn_hr_orgs_for_institutions() FROM anon;
-GRANT EXECUTE ON FUNCTION public.fn_hr_orgs_for_institutions() TO authenticated;
+REVOKE ALL ON FUNCTION public.fn_hr_orgs_for_institutions() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_orgs_for_institutions() TO authenticated, service_role;
 
 -- Updated: 2026-07-03 (deep-review r5) — SCF "show the split" confirmation rollup.
 -- Mirror of supabase/migrations/20260703003800_scf_confirmation_rollup.sql.
@@ -45614,23 +45618,30 @@ GRANT EXECUTE ON FUNCTION public.fn_hostel_allocation_audit(text, uuid, uuid, uu
 -- The learner-visibility predicate is re-applied by hand, copied from
 -- learners_profiles_select_policy, so DEFINER never widens who can see a learner.
 -- Aggregates only; never bill rows.
-CREATE OR REPLACE FUNCTION public.fn_onboarding_payment_progress(p_learner_ids uuid[])
-RETURNS TABLE (
-  learner_id          uuid,
-  target_code         text,
-  target_label        text,
-  threshold_pct       numeric,
-  threshold_basis     text,
-  achieved_pct        numeric,
-  basis_billed        numeric,
-  basis_paid          numeric,
-  basis_balance       numeric,
-  total_billed        numeric,
-  total_paid          numeric,
-  total_balance       numeric,
-  amount_to_threshold numeric,
-  meets_threshold     boolean,
-  has_basis_due       boolean
+-- Current body: supabase/migrations/20260925160000_onboarding_progress_program_rules.sql
+-- (next instalment 2026-08-22; gate stage + blocked_reason, program rules 2026-09-25)
+DROP FUNCTION IF EXISTS public.fn_onboarding_payment_progress(uuid[]);
+
+CREATE FUNCTION public.fn_onboarding_payment_progress(p_learner_ids uuid[])
+RETURNS TABLE(
+  learner_id uuid, target_code text, target_label text,
+  threshold_pct numeric, threshold_basis text, achieved_pct numeric,
+  basis_billed numeric, basis_paid numeric, basis_balance numeric,
+  total_billed numeric, total_paid numeric, total_balance numeric,
+  amount_to_threshold numeric, meets_threshold boolean, has_basis_due boolean,
+  next_due_date date, next_due_amount numeric,
+  instalments_total integer, instalments_settled integer,
+  -- ADDED 2026-09-25
+  lifecycle_status text,
+  app_bills integer, app_billed numeric, app_paid numeric,
+  uni_bills integer, uni_billed numeric, uni_paid numeric,
+  gate_bills integer, gate_settled integer,
+  pct_billed_to_date numeric,
+  blocked_reason text,
+  -- ADDED 2026-09-25 (program rules)
+  rule_lines jsonb,
+  rule_to_admit numeric,
+  gate_in_program boolean
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -45648,12 +45659,6 @@ BEGIN
     RETURN;
   END IF;
 
-  -- The promotion target for a 'reserved' learner. Resolved with the SAME
-  -- predicate evaluate_learner_status_after_payment uses to find a Stage B
-  -- target: a threshold-bearing status that neither gates a login ('active',
-  -- 60% — never automatic) nor is the universal-paid target ('reserved' itself).
-  -- ORDER BY ASC, not DESC: the engine picks the highest threshold ALREADY MET,
-  -- but this screen answers "which bar is next?", which is the lowest one.
   SELECT s.code, s.label, s.fee_paid_threshold_percent, s.threshold_basis
     INTO v_target_code, v_target_label, v_threshold, v_basis
   FROM public.admission_statuses s
@@ -45667,10 +45672,6 @@ BEGIN
 
   v_basis := COALESCE(v_basis, 'due_to_date');
 
-  -- One permission probe for the whole batch rather than one per learner:
-  -- user_has_permission() is the hot path in every RLS policy on this database
-  -- and calling it 200x per page render is the shape that produces 57014.
-  -- Institution access still varies per row and is checked per row below.
   v_perm := (
     COALESCE(public.user_has_permission('learners.admissions.view'::text), false)
     OR COALESCE(public.user_has_permission('learners.profiles.view'::text), false)
@@ -45679,11 +45680,7 @@ BEGIN
 
   RETURN QUERY
   WITH visible AS (
-    -- Byte-for-byte the predicate in learners_profiles_select_policy. DEFINER
-    -- bypassed that policy, so it is re-applied here by hand. The self-service
-    -- branches are kept so this function is never STRICTER than the policy —
-    -- a learner who can see their own row gets their own figures, nobody else's.
-    SELECT lp.id, lp.institution_id
+    SELECT lp.id, lp.institution_id, lp.lifecycle_status::text AS status
     FROM public.learners_profiles lp
     WHERE lp.id = ANY (p_learner_ids)
       AND (
@@ -45693,12 +45690,141 @@ BEGIN
         OR lp.college_email = (SELECT p.email FROM public.profiles p WHERE p.id = auth.uid())
       )
   ),
+  -- The waterfall, inline. Not read from vw_bill_instalment_state because that
+  -- view is security_invoker: inside this SECURITY DEFINER function it would be
+  -- filtered by whoever is calling, so two admins could see different schedules
+  -- for the same learner.
+  tranche AS (
+    SELECT
+      b.student_id,
+      i.due_date,
+      i.amount,
+      (LEAST(
+         GREATEST(
+           GREATEST(0, b.final_amount - COALESCE(b.balance_amount, b.final_amount))
+           - COALESCE(SUM(i.amount) OVER (
+               PARTITION BY i.bill_id ORDER BY i.due_date, i.sequence_no
+               ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0),
+           0),
+         i.amount) >= i.amount) AS is_settled
+    FROM public.billing_bill_instalments i
+    JOIN public.billing_student_bills b ON b.id = i.bill_id
+    WHERE b.student_id IN (SELECT id FROM visible)
+      AND b.status NOT IN ('cancelled', 'superseded')
+  ),
+  sched AS (
+    SELECT
+      t.student_id,
+      MIN(t.due_date) FILTER (WHERE NOT t.is_settled) AS next_due,
+      COUNT(*)::int                                    AS n_total,
+      COUNT(*) FILTER (WHERE t.is_settled)::int        AS n_settled
+    FROM tranche t
+    GROUP BY t.student_id
+  ),
+  next_amt AS (
+    SELECT t.student_id, SUM(t.amount) AS amt
+    FROM tranche t
+    JOIN sched s2 ON s2.student_id = t.student_id AND s2.next_due = t.due_date
+    WHERE NOT t.is_settled
+    GROUP BY t.student_id
+  ),
+  -- Engine Stage A, per fee. The "settled" predicate is the engine's, verbatim.
+  gate AS (
+    SELECT
+      b.student_id,
+      COUNT(*) FILTER (WHERE bc.kind = 'application_fee')::int AS n_app,
+      COALESCE(SUM(b.final_amount) FILTER (WHERE bc.kind = 'application_fee'), 0) AS app_b,
+      COALESCE(SUM(GREATEST(0, b.final_amount - COALESCE(b.balance_amount, b.final_amount)))
+               FILTER (WHERE bc.kind = 'application_fee'), 0) AS app_p,
+      COUNT(*) FILTER (WHERE bc.kind = 'university_fee')::int AS n_uni,
+      COALESCE(SUM(b.final_amount) FILTER (WHERE bc.kind = 'university_fee'), 0) AS uni_b,
+      COALESCE(SUM(GREATEST(0, b.final_amount - COALESCE(b.balance_amount, b.final_amount)))
+               FILTER (WHERE bc.kind = 'university_fee'), 0) AS uni_p,
+      COUNT(*) FILTER (WHERE
+          b.status::text = 'paid'
+          OR (b.final_amount - COALESCE(b.balance_amount, b.final_amount)) > 0
+          OR (b.final_amount = 0 AND COALESCE(b.balance_amount, 0) = 0))::int AS n_settled
+    FROM public.billing_student_bills b
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id
+    WHERE b.student_id IN (SELECT id FROM visible)
+      AND bc.kind IN ('application_fee', 'university_fee')
+      AND b.status NOT IN ('cancelled', 'superseded')
+    GROUP BY b.student_id
+  ),
+  -- Program rules, exactly as fn_learner_status_apply_item_rules sees them.
+  rule_tranche AS (
+    SELECT
+      b.student_id,
+      i.promotes_to_status_code AS target,
+      bc.category_name::text AS category,
+      i.label,
+      i.sequence_no AS seq,
+      (COUNT(*) OVER (PARTITION BY i.bill_id))::int AS n_of,
+      i.amount,
+      i.due_date,
+      LEAST(
+        GREATEST(
+          GREATEST(0, b.final_amount - COALESCE(b.balance_amount, b.final_amount))
+          - COALESCE(SUM(i.amount) OVER (
+              PARTITION BY i.bill_id ORDER BY i.due_date, i.sequence_no
+              ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0),
+          0),
+        i.amount) AS paid
+    FROM public.billing_bill_instalments i
+    JOIN public.billing_student_bills b ON b.id = i.bill_id
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id
+    WHERE b.student_id IN (SELECT id FROM visible)
+      AND b.status::text NOT IN ('cancelled', 'superseded')
+  ),
+  rule_unscheduled AS (
+    SELECT
+      b.student_id,
+      fsi.promotes_to_status_code AS target,
+      bc.category_name::text AS category,
+      NULL::text AS label,
+      1 AS seq,
+      1 AS n_of,
+      b.final_amount AS amount,
+      b.due_date,
+      GREATEST(0, b.final_amount - COALESCE(b.balance_amount, b.final_amount)) AS paid,
+      (COALESCE(b.status::text = 'paid', false)
+       OR COALESCE(b.balance_amount, b.final_amount) <= 0) AS settled
+    FROM public.billing_student_bills b
+    JOIN public.admission_fee_structure_items fsi ON fsi.id = b.fee_structure_item_id
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id
+    WHERE b.student_id IN (SELECT id FROM visible)
+      AND b.status::text NOT IN ('cancelled', 'superseded')
+      AND fsi.promotes_to_status_code IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM public.billing_bill_instalments i WHERE i.bill_id = b.id)
+  ),
+  rule_rows AS (
+    SELECT student_id, target, category, label, seq, n_of, amount, due_date, paid,
+           (paid >= amount) AS settled
+    FROM rule_tranche WHERE target IS NOT NULL
+    UNION ALL
+    SELECT student_id, target, category, label, seq, n_of, amount, due_date, paid, settled
+    FROM rule_unscheduled
+  ),
+  rules AS (
+    SELECT
+      r.student_id,
+      jsonb_agg(jsonb_build_object(
+        'target', r.target, 'category', r.category, 'label', r.label,
+        'seq', r.seq, 'of', r.n_of, 'amount', r.amount, 'paid', r.paid,
+        'settled', r.settled, 'due_date', r.due_date)
+        ORDER BY r.target, r.due_date, r.category, r.seq) AS lines,
+      bool_or(r.target = 'reserved') AS has_reserved,
+      COALESCE(bool_and(r.settled) FILTER (WHERE r.target = 'reserved'), false) AS reserved_met,
+      bool_or(r.target = 'admitted') AS has_admitted,
+      COALESCE(bool_and(r.settled) FILTER (WHERE r.target = 'admitted'), false) AS admitted_met,
+      SUM(GREATEST(0, r.amount - r.paid)) FILTER (WHERE r.target = 'admitted') AS to_admit
+    FROM rule_rows r
+    GROUP BY r.student_id
+  ),
   progress AS (
     SELECT
       vis.id AS lid,
-      -- Basis-aligned pair. The percent is taken from the view rather than
-      -- recomputed from the amounts: a 0.01 rounding difference between this
-      -- screen and the promotion engine would read as a bug in the gate.
+      vis.status,
       CASE v_basis
         WHEN 'billed_to_date'           THEN v.pct_billed_to_date
         WHEN 'due_to_date_current_year' THEN v.pct_due_current_year
@@ -45715,46 +45841,87 @@ BEGIN
         ELSE                                 v.due_paid
       END AS b_paid,
       v.countable_billed AS t_billed,
-      v.countable_paid   AS t_paid
+      v.countable_paid   AS t_paid,
+      v.pct_billed_to_date AS pct_billed
     FROM visible vis
     JOIN public.vw_learner_payment_progress v ON v.learner_id = vis.id
+  ),
+  judged AS (
+    SELECT
+      p.*,
+      COALESCE(g.n_app, 0) + COALESCE(g.n_uni, 0) AS g_bills,
+      COALESCE(g.n_settled, 0)                    AS g_settled,
+      (v_threshold IS NOT NULL AND COALESCE(p.b_billed, 0) > 0
+        AND COALESCE(p.pct, 0) >= v_threshold)    AS meets,
+      ru.lines                                    AS r_lines,
+      COALESCE(ru.has_reserved, false)            AS r_has_reserved,
+      COALESCE(ru.reserved_met, false)            AS r_reserved_met,
+      COALESCE(ru.has_admitted, false)            AS r_has_admitted,
+      COALESCE(ru.admitted_met, false)            AS r_admitted_met,
+      ru.to_admit                                 AS r_to_admit
+    FROM progress p
+    LEFT JOIN gate g ON g.student_id = p.lid
+    LEFT JOIN rules ru ON ru.student_id = p.lid
   )
   SELECT
-    p.lid,
+    j.lid,
     v_target_code,
     v_target_label,
     v_threshold,
     v_basis,
-    COALESCE(p.pct, 0),
-    COALESCE(p.b_billed, 0),
-    COALESCE(p.b_paid, 0),
-    COALESCE(p.b_billed, 0) - COALESCE(p.b_paid, 0),
-    COALESCE(p.t_billed, 0),
-    COALESCE(p.t_paid, 0),
-    COALESCE(p.t_billed, 0) - COALESCE(p.t_paid, 0),
-    -- NULL, not 0, when nothing is due yet or no threshold is configured.
-    -- Rendering "0 to admit" for a learner whose first instalment has not come
-    -- due would read as "pay nothing and they are in", which is false — they
-    -- are waiting on a due date, not on money.
+    COALESCE(j.pct, 0),
+    COALESCE(j.b_billed, 0),
+    COALESCE(j.b_paid, 0),
+    COALESCE(j.b_billed, 0) - COALESCE(j.b_paid, 0),
+    COALESCE(j.t_billed, 0),
+    COALESCE(j.t_paid, 0),
+    COALESCE(j.t_billed, 0) - COALESCE(j.t_paid, 0),
     CASE
-      WHEN v_threshold IS NULL OR COALESCE(p.b_billed, 0) <= 0 THEN NULL
-      ELSE GREATEST(0, CEIL(p.b_billed * v_threshold / 100.0) - COALESCE(p.b_paid, 0))
+      WHEN v_threshold IS NULL OR COALESCE(j.b_billed, 0) <= 0 THEN NULL
+      ELSE GREATEST(0, CEIL(j.b_billed * v_threshold / 100.0) - COALESCE(j.b_paid, 0))
     END,
-    (v_threshold IS NOT NULL AND COALESCE(p.b_billed, 0) > 0 AND COALESCE(p.pct, 0) >= v_threshold),
-    (COALESCE(p.b_billed, 0) > 0)
-  FROM progress p;
+    j.meets,
+    (COALESCE(j.b_billed, 0) > 0),
+    sc.next_due,
+    na.amt,
+    COALESCE(sc.n_total, 0),
+    COALESCE(sc.n_settled, 0),
+    j.status,
+    COALESCE(g.n_app, 0), COALESCE(g.app_b, 0), COALESCE(g.app_p, 0),
+    COALESCE(g.n_uni, 0), COALESCE(g.uni_b, 0), COALESCE(g.uni_p, 0),
+    j.g_bills,
+    j.g_settled,
+    COALESCE(j.pct_billed, 0),
+    CASE
+      WHEN j.status NOT IN ('account', 'reserved')            THEN 'none'
+      -- Either admit path satisfied: the pooled floor or the program rule.
+      WHEN j.meets OR (j.r_has_admitted AND j.r_admitted_met) THEN 'threshold_met_stuck'
+      WHEN j.status = 'account' AND j.r_has_reserved AND j.r_reserved_met THEN 'gate_met_stuck'
+      -- No App / Univ fee billed and no rule naming 'reserved': this program
+      -- goes account -> admitted directly.
+      WHEN j.status = 'account' AND j.g_bills = 0 AND NOT j.r_has_reserved THEN 'no_gate_in_program'
+      WHEN j.status = 'account' AND j.g_bills = 0             THEN 'gate_no_bills'
+      WHEN j.status = 'account' AND j.g_settled < j.g_bills   THEN 'gate_unpaid'
+      WHEN j.status = 'account'                               THEN 'gate_met_stuck'
+      WHEN COALESCE(j.b_billed, 0) <= 0 AND NOT j.r_has_admitted THEN 'nothing_due'
+      ELSE                                                         'below_threshold'
+    END,
+    COALESCE(j.r_lines, '[]'::jsonb),
+    j.r_to_admit,
+    (j.g_bills > 0 OR j.r_has_reserved)
+  FROM judged j
+  LEFT JOIN gate     g  ON g.student_id  = j.lid
+  LEFT JOIN sched    sc ON sc.student_id = j.lid
+  LEFT JOIN next_amt na ON na.student_id = j.lid;
 END;
 $function$;
 
 COMMENT ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) IS
-  'Per-learner payment position against the configured reserved->admitted fee threshold, for the Awaiting Payment tier of /learners/onboarding. Basis-aware (admission_statuses.threshold_basis). SECURITY DEFINER so bill totals are readable without billing.bills.view, which working this queue does not require; re-applies learners_profiles_select_policy per row so it never widens who can see a learner.';
+  'Fee position for the Awaiting Payment tier (account + reserved). Percentages come from vw_learner_payment_progress so the number on screen and the number in the promotion gate cannot drift. Returns the next unsettled instalment (2026-08-22) and, since 2026-09-25, the Application/University fee gate per fee plus blocked_reason: the first pipeline stage (account->reserved, then reserved->admitted) that is holding the learner back. Since 20260925160000 also the program fee-structure rules (rule_lines, rule_to_admit, gate_in_program), evaluated exactly as fn_learner_status_apply_item_rules does.';
 
--- Supabase grants EXECUTE directly to anon, so REVOKE FROM PUBLIC alone is a
--- no-op — this reads billing aggregates and must not be anon-callable.
-REVOKE ALL ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) FROM anon;
-GRANT EXECUTE ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_onboarding_payment_progress(uuid[])
+  TO authenticated, service_role;
 
 
 -- ===========================================================================
@@ -46547,14 +46714,21 @@ LANGUAGE sql
 IMMUTABLE
 SET search_path TO 'public'
 AS $$
+  WITH n AS (
+    SELECT regexp_replace(btrim(p_name), '\s+', ' ', 'g') AS v
+  )
   SELECT CASE
            WHEN p_name IS NULL THEN NULL
-           ELSE upper(regexp_replace(btrim(p_name), '\s+', ' ', 'g'))
-         END;
+           ELSE upper(coalesce(
+                  nullif(btrim(regexp_replace(n.v, '^((MRS|MR|MS|MISS|DR)(\.\s*|\s+))+', '', 'i')), ''),
+                  n.v))
+         END
+    FROM n;
 $$;
 
+-- Title stripping added by supabase/migrations/20260925120000_staff_name_strip_titles.sql
 COMMENT ON FUNCTION public.fn_canonical_staff_name(text) IS
-  'Canonical staff-name form: trim ends, collapse internal whitespace runs to a single space, uppercase. IMMUTABLE so CHECK constraints may call it.';
+  'Canonical staff-name form: trim ends, collapse internal whitespace, strip leading salutations (MR/MRS/MS/MISS/DR followed by "." or space), uppercase. IMMUTABLE + idempotent so CHECK constraints may call it.';
 
 CREATE OR REPLACE FUNCTION public.fn_normalize_staff_names()
 RETURNS trigger
@@ -56387,9 +56561,21 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  -- 20260925150000: HR Head (staff.role.change) may change a role too, but
+  -- never onto an is_privileged role.
   IF TG_OP = 'UPDATE' AND NEW.role_key IS DISTINCT FROM OLD.role_key THEN
-    RAISE EXCEPTION 'Only a super administrator can change a staff member''s role.'
-      USING ERRCODE = 'P0001';
+    IF NOT coalesce(public.user_has_permission('staff.role.change'), false) THEN
+      RAISE EXCEPTION 'Only HR Head or a super administrator can change a staff member''s role.'
+        USING ERRCODE = 'P0001';
+    END IF;
+
+    SELECT r.is_privileged INTO v_privileged
+    FROM public.custom_roles r WHERE r.role_key = NEW.role_key;
+
+    IF coalesce(v_privileged, false) THEN
+      RAISE EXCEPTION 'Only a super administrator can assign the role "%".', NEW.role_key
+        USING ERRCODE = 'P0001';
+    END IF;
   END IF;
 
   IF TG_OP = 'INSERT' THEN
@@ -56407,7 +56593,7 @@ END;
 $function$;
 
 COMMENT ON FUNCTION public.fn_staff_guard_role_key() IS
-  'Blocks non-super-admins from changing staff.role_key, or creating staff with a privileged role.';
+  'staff.role_key guard: changes need super admin or staff.role.change (never onto an is_privileged role); a privileged role on create needs super admin.';
 
 REVOKE ALL ON FUNCTION public.fn_staff_guard_role_key() FROM anon, authenticated, PUBLIC;
 

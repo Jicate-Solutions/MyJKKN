@@ -52,6 +52,7 @@ import type { CustomRole } from '@/types/auth';
 import {
   buildStaffSchema,
   describeProfileIssues,
+  EMERGENCY_RELATIONSHIPS,
   extendedStaffSchema,
   type StaffFormValues
 } from './staff-form-schema';
@@ -82,6 +83,16 @@ interface StaffFormProps {
   isEditing?: boolean;
 }
 
+function splitEmergencyRelationship(stored?: string | null) {
+  if (!stored) {
+    return { emergency_contact_relationship: '', emergency_contact_relationship_other: '' };
+  }
+  const preset = (EMERGENCY_RELATIONSHIPS as readonly string[]).includes(stored);
+  return preset
+    ? { emergency_contact_relationship: stored, emergency_contact_relationship_other: '' }
+    : { emergency_contact_relationship: 'Other', emergency_contact_relationship_other: stored };
+}
+
 function buildDefaults(staff?: Staff) {
   return {
     first_name: staff?.first_name || '',
@@ -110,6 +121,10 @@ function buildDefaults(staff?: Staff) {
       resolveLocationId(staff?.state, 'state')
     ),
     pincode: staff?.pincode || '',
+    emergency_contact_name: staff?.emergency_contact_name ?? '',
+    // A stored relationship outside the preset list was typed via "Other".
+    ...splitEmergencyRelationship(staff?.emergency_contact_relationship),
+    emergency_contact_phone: staff?.emergency_contact_phone ?? '',
     date_of_joining: staff?.date_of_joining
       ? new Date(staff.date_of_joining)
       : undefined,
@@ -171,6 +186,10 @@ const staffFieldOrder: Array<keyof FormValues> = [
   'state',
   'district',
   'pincode',
+  'emergency_contact_name',
+  'emergency_contact_relationship',
+  'emergency_contact_relationship_other',
+  'emergency_contact_phone',
   'marital_status',
   'blood_group',
   'profile_picture',
@@ -205,7 +224,10 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
   const { profile } = useAuth();
   // Drives "scoped to your own institution" UX (replaces hardcoded
   // profile.role === 'hod'). Any role with institution_scope='own' qualifies.
-  const { isInstitutionScoped, isSuperAdmin, getModuleScope } = usePermissions();
+  const { isInstitutionScoped, isSuperAdmin, getModuleScope, canAccess } = usePermissions();
+  // HR Head (staff.role.change) may pick a role too — never a privileged one;
+  // trg_staff_guard_role_key and /api/staff enforce that server-side.
+  const canChangeRole = isSuperAdmin || canAccess('staff.role', 'change');
   // Users whose effective scope on the staff module is 'own_records' may only
   // edit personal/contact details on their own row — not Employment Information
   // (designation, category, role, institution, department). RLS enforces this
@@ -260,6 +282,10 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
 
   // ── Address pickers ────────────────────────────────────────────────────────
   const selectedStateId = useWatch({ control: form.control, name: 'state' });
+  const emergencyRelationship = useWatch({
+    control: form.control,
+    name: 'emergency_contact_relationship'
+  });
   const availableDistricts = useMemo(
     () => (selectedStateId ? getDistrictsByState(selectedStateId) : []),
     [selectedStateId]
@@ -299,6 +325,8 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
   const selectedCategoryId = useWatch({ control: form.control, name: 'category_id' });
   useEffect(() => {
     if (isSuperAdmin || isEditing || !selectedCategoryId) return;
+    // A role-changer picks the role; only seed a default into an empty field.
+    if (canChangeRole && form.getValues('role_key')) return;
 
     const category = categories.find((c) => c.id === selectedCategoryId);
     if (!category) return;
@@ -307,7 +335,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     if (form.getValues('role_key') !== derived) {
       form.setValue('role_key', derived, { shouldValidate: true });
     }
-  }, [selectedCategoryId, categories, isSuperAdmin, isEditing, form]);
+  }, [selectedCategoryId, categories, isSuperAdmin, canChangeRole, isEditing, form]);
 
   // Distinct tags already used across staff — powers the tags-input autocomplete.
   // Global (not institution-scoped) so the same vocabulary is suggested everywhere.
@@ -629,8 +657,19 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
         ? (values.biometric_institution_id || null)
         : null;
 
+      // Emergency contact: blank -> null (the DB rejects ''), and "Other" is
+      // replaced by the typed relationship. The helper field is not a column.
+      const { emergency_contact_relationship_other, ...restValues } = values;
+      const ecRelationship =
+        values.emergency_contact_relationship === 'Other'
+          ? emergency_contact_relationship_other?.trim()
+          : values.emergency_contact_relationship?.trim();
+
       const formattedValues = {
-        ...values,
+        ...restValues,
+        emergency_contact_name: values.emergency_contact_name?.trim() || null,
+        emergency_contact_relationship: ecRelationship || null,
+        emergency_contact_phone: values.emergency_contact_phone?.trim() || null,
         biometric_id: biometricCode || null,
         biometric_institution_id: biometricInstitutionId,
         // The pickers hold ids; the columns store display names, as the learner
@@ -1028,6 +1067,93 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
           )}
         />
       </div>
+
+      {/* Emergency contact — optional; name + phone go together (applyStaffRules). */}
+      <h3 className='pt-2 text-base font-semibold'>Emergency Contact</h3>
+      <div className='grid gap-4 md:grid-cols-2'>
+        <FormField
+          control={form.control}
+          name='emergency_contact_name'
+          render={({ field }) => (
+            <FormItem data-field='emergency_contact_name'>
+              <FormLabel>Contact Person Name</FormLabel>
+              <FormControl>
+                <Input
+                  placeholder='Enter contact person name'
+                  {...field}
+                  value={field.value ?? ''}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name='emergency_contact_relationship'
+          render={({ field }) => (
+            <FormItem data-field='emergency_contact_relationship'>
+              <FormLabel>Relationship</FormLabel>
+              <Select onValueChange={field.onChange} value={field.value ?? ''}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder='Select relationship' />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {EMERGENCY_RELATIONSHIPS.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {r}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {emergencyRelationship === 'Other' && (
+          <FormField
+            control={form.control}
+            name='emergency_contact_relationship_other'
+            render={({ field }) => (
+              <FormItem data-field='emergency_contact_relationship_other'>
+                <FormLabel>Specify Relationship</FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder='e.g. Uncle, Cousin, Neighbour'
+                    {...field}
+                    value={field.value ?? ''}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
+
+        <FormField
+          control={form.control}
+          name='emergency_contact_phone'
+          render={({ field }) => (
+            <FormItem data-field='emergency_contact_phone'>
+              <FormLabel>Emergency Contact Number</FormLabel>
+              <FormControl>
+                <Input
+                  placeholder='Enter phone number'
+                  type='tel'
+                  inputMode='tel'
+                  {...field}
+                  value={field.value ?? ''}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      </div>
     </div>
   );
 
@@ -1368,10 +1494,10 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               <Select
                 onValueChange={field.onChange}
                 value={field.value}
-                disabled={!isSuperAdmin}
+                disabled={!canChangeRole}
               >
                 <FormControl>
-                  <SelectTrigger className={!isSuperAdmin ? 'bg-muted' : undefined}>
+                  <SelectTrigger className={!canChangeRole ? 'bg-muted' : undefined}>
                     <SelectValue placeholder='Select role' />
                   </SelectTrigger>
                 </FormControl>
@@ -1389,9 +1515,11 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               <p className='text-xs text-muted-foreground'>
                 {isSuperAdmin
                   ? 'Drives the user’s permissions after first login. Pick the role that matches the staff member’s responsibilities.'
-                  : isEditing
-                    ? 'Only a super administrator can change a role. Ask them if this is wrong.'
-                    : 'Set automatically from the employment category. A super administrator can change it after the record is created.'}
+                  : canChangeRole
+                    ? 'Drives the user’s permissions after first login. Senior roles (administrator, CEO, registrar, …) can only be assigned by a super administrator.'
+                    : isEditing
+                      ? 'Only HR Head or a super administrator can change a role.'
+                      : 'Set automatically from the employment category. HR Head or a super administrator can change it.'}
               </p>
               <FormMessage />
             </FormItem>
@@ -1573,6 +1701,8 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
       dirty: isDirty([
         'first_name','last_name','gender','date_of_birth','email','phone',
         'address','state','district','pincode','marital_status','blood_group',
+        'emergency_contact_name','emergency_contact_relationship',
+        'emergency_contact_relationship_other','emergency_contact_phone',
         'profile_picture','staff_id','institution_email','date_of_joining',
         'designation','category_id','role_key','institution_id','department_id',
         'is_active','slug','status','display_order','has_extended_profile'

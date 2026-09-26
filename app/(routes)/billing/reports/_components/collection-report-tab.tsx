@@ -26,6 +26,7 @@ import {
   AlertCircle,
   CalendarDays,
   Download,
+  FileText,
   ReceiptIndianRupee,
   Search,
   TrendingUp,
@@ -34,6 +35,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useCollectionDaywise } from '@/hooks/billing/use-billing-reports';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
   buildWorkbookModel,
   daywiseModeLabel,
@@ -84,6 +86,7 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
   const [search, setSearch] = useState('');
   const [mode, setMode] = useState<string>(ALL_MODES);
   const [exporting, setExporting] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -132,6 +135,50 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
       toast.error('Export failed');
     } finally {
       setExporting(false);
+    }
+  };
+
+  // One landscape PDF per mode — Cash and Online as separate files — each
+  // with a letterhead section per institution.
+  const handleExportPdf = async () => {
+    const byMode = (['cash', 'online'] as const)
+      .map((m) => ({ mode: m, rows: visible.filter((r) => r.payment_mode === m) }))
+      .filter((x) => x.rows.length > 0);
+    if (byMode.length === 0) {
+      toast.error('No cash or online receipts to export for this range.');
+      return;
+    }
+    try {
+      setExportingPdf(true);
+      const from = (filters.date_from || sections[0].date).slice(0, 10);
+      const to = (filters.date_to || sections[sections.length - 1].date).slice(0, 10);
+
+      const names = Array.from(new Set(visible.map((r) => r.institution_name).filter(Boolean)));
+      const supabase = createClientSupabaseClient();
+      const { data: insts } = await supabase
+        .from('institutions')
+        .select(
+          'name, logo_url, address_line1, address_line2, address_line3, pin_code, university_affiliation_name, counselling_code'
+        )
+        .in('name', names);
+      const { generateCollectionModePdf } = await import('@/lib/utils/billing/collection-mode-pdf');
+      const institutions = new Map((insts ?? []).map((i) => [i.name as string, i]));
+
+      for (const { mode: m, rows: modeRows } of byMode) {
+        const doc = await generateCollectionModePdf({
+          mode: m,
+          rows: modeRows,
+          dateFrom: from,
+          dateTo: to,
+          institutions
+        });
+        doc.save(`${m}-collection-${from}_to_${to}.pdf`);
+      }
+    } catch (err) {
+      console.error('Collection PDF export failed:', err);
+      toast.error('PDF export failed');
+    } finally {
+      setExportingPdf(false);
     }
   };
 
@@ -243,6 +290,17 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
               Collection Report
             </CardTitle>
             {canExport && (
+              <div className='flex gap-2'>
+              <Button variant='outline' size='sm' onClick={handleExportPdf} disabled={exportingPdf}>
+                {exportingPdf ? (
+                  <BeatLoader size={8} color='currentColor' />
+                ) : (
+                  <>
+                    <FileText className='h-4 w-4 mr-2' />
+                    Download PDF
+                  </>
+                )}
+              </Button>
               <Button variant='outline' size='sm' onClick={handleExport} disabled={exporting}>
                 {exporting ? (
                   <BeatLoader size={8} color='currentColor' />
@@ -253,6 +311,7 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
                   </>
                 )}
               </Button>
+              </div>
             )}
           </div>
 

@@ -20,7 +20,7 @@
  * DERIVED rather than stored, so nothing has to write state during render either.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { CalendarClock, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -69,7 +69,13 @@ function GenerateForm({
   onGenerated: () => void;
 }) {
   const router = useRouter();
-  const { mappings, isLoading: orgsLoading } = useHrOrgMappings();
+  const { mappings: allMappings, isLoading: orgsLoading } = useHrOrgMappings();
+  // Registers are per PAYING institution, so one that pays nobody (Main Office)
+  // would only ever produce an empty register.
+  const mappings = useMemo(
+    () => allMappings.filter((m) => m.is_payroll_entity !== false),
+    [allMappings],
+  );
 
   // Seeded once per opening — this component is mounted by the open dialog.
   const [pickedOrgId, setPickedOrgId] = useState<string | null>(initial.orgId);

@@ -27,7 +27,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { BosBoardScope } from '@/lib/utils/bos/bos-access';
+import { isBosReadAllObserver, type BosBoardScope } from '@/lib/utils/bos/bos-access';
 import { isMemberForProgramme } from '@/lib/utils/bos/bos-chairman-access';
 import { intersectBosScope, resolveCasRegulationIds } from '@/lib/utils/bos/institution-scope';
 import { resolvePoPsoTarget } from '@/lib/utils/bos/po-pso-access';
@@ -71,13 +71,39 @@ export interface ProgrammeOutcomeTarget {
 }
 
 /**
+ * Read-all tier for the PO/PSO routes.
+ *
+ * The generic BoS observer rule (isBosReadAllObserver) lets ANY role holding
+ * a `academic.bos-*.view` grant browse every institution. The hod / principal
+ * roles hold those grants, which on /bos/po-pso meant an HOD could pick a
+ * foreign institution (and then hit the regulations table's own-institution
+ * RLS → empty Regulation dropdown). Per the 2026-09-25 decision, HOD and
+ * Principal are scoped to THEIR institution here — an HOD further to their
+ * own department(s) (context route lock). Everyone else keeps the observer
+ * tier; super-admin reads all.
+ */
+export function isPoPsoReadAll(scope: BosBoardScope, hasViewGrant: boolean): boolean {
+  if (scope.isSuperAdmin) return true;
+  if (scope.isHod || scope.isPrincipal) return false;
+  return isBosReadAllObserver(scope, hasViewGrant);
+}
+
+/**
  * Resolves the (institution, regulation, programme) triple every PO/PSO
  * route works on. institutionsId may be a MyJKKN OR COE UUID (see
  * resolvePoPsoTarget); regulation and institution are CAS-expanded.
+ *
+ * `preferDepartmentIds` (the caller's HOD scope): CAS Aided and Self can each
+ * carry a `programs` row with the SAME code (UEN, UMA, PCM) under different
+ * departments. Without a preference the first row won and the other
+ * sibling's HOD was denied their own programme; with it the row owned by a
+ * department the caller heads is chosen, so authz and the insert stamp
+ * (institutions_id / department_id) both land on the caller's side.
  */
 export async function resolveProgrammeOutcomeTarget(
   db: SupabaseClient,
-  input: { institutionsId: string; regulationId: string; programmeCode: string }
+  input: { institutionsId: string; regulationId: string; programmeCode: string },
+  opts: { preferDepartmentIds?: Set<string> } = {}
 ): Promise<ProgrammeOutcomeTarget | null> {
   const target = await resolvePoPsoTarget(db, input.institutionsId);
   if (!target) return null;
@@ -87,7 +113,7 @@ export async function resolveProgrammeOutcomeTarget(
 
   const [regIds, programme] = await Promise.all([
     resolveCasRegulationIds(db, input.regulationId),
-    findProgramme(db, target.ids, programmeCode),
+    findProgramme(db, target.ids, programmeCode, opts.preferDepartmentIds),
   ]);
 
   // Prefer writing under the institution that actually owns the programme
@@ -110,7 +136,8 @@ export async function resolveProgrammeOutcomeTarget(
 async function findProgramme(
   db: SupabaseClient,
   institutionIds: string[],
-  programmeCode: string
+  programmeCode: string,
+  preferDepartmentIds?: Set<string>
 ): Promise<ProgrammeRef | null> {
   if (institutionIds.length === 0) return null;
   const { data } = await db
@@ -119,9 +146,14 @@ async function findProgramme(
     .in('institution_id', institutionIds)
     .ilike('program_id', programmeCode)
     .order('is_active', { ascending: false })
-    .limit(1);
-  const row = (data ?? [])[0] as ProgrammeRef | undefined;
-  return row ?? null;
+    .order('created_at', { ascending: true });
+  const rows = (data ?? []) as ProgrammeRef[];
+  if (rows.length === 0) return null;
+  if (preferDepartmentIds && preferDepartmentIds.size > 0) {
+    const own = rows.find((r) => r.department_id && preferDepartmentIds.has(r.department_id));
+    if (own) return own;
+  }
+  return rows[0];
 }
 
 /** Is this user allowed to READ the target's PO/PSO sets? */

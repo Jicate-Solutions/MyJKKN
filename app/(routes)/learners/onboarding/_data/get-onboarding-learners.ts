@@ -26,7 +26,8 @@ import type {
   OnboardingTier,
   OnboardingStatus,
   OnboardingPaymentSummary,
-  MissingField
+  MissingField,
+  BlockedReason
 } from '@/types/learner-onboarding';
 import {
   computeMissingFields,
@@ -34,6 +35,7 @@ import {
   activationBlockedReason,
   summarisePaymentProgress,
   ONBOARDING_STATUSES,
+  FEE_BLOCKED_STATUSES,
   INCOMPLETE_TIERS,
   MISSING_FIELD_LABELS
 } from '@/types/learner-onboarding';
@@ -49,8 +51,10 @@ interface GetOnboardingLearnersParams {
   search_fields?: string[];
   tier?: OnboardingTier;
   missing_field?: MissingField;
-  /** Narrow to one onboarding status; omit to include both reserved + admitted. */
+  /** Narrow to one onboarding status; omit to include account + reserved + admitted. */
   lifecycle_status?: OnboardingStatus;
+  /** Awaiting Payment only: narrow to one pipeline blocker. */
+  blocked_reason?: BlockedReason;
   institution_id?: string;
   degree_id?: string;
   department_id?: string;
@@ -152,6 +156,7 @@ export async function getOnboardingLearners(
       tier = 'all',
       missing_field,
       lifecycle_status,
+      blocked_reason,
       institution_id,
       degree_id,
       department_id,
@@ -298,21 +303,31 @@ export async function getOnboardingLearners(
         });
     }
 
-    // 'all' keeps its original meaning — the three INCOMPLETE tiers. The two
-    // terminal tiers are reachable only by selecting them, so the default view
-    // stays the triage queue it has always been.
-    const tierFiltered =
+    // 2026-09-25: Awaiting Payment selects by STATUS, not by row tier — every
+    // account + reserved learner is blocked on fees whether or not their four
+    // fields are filled, so it deliberately overlaps the incomplete tiers.
+    //
+    // 2026-09-25: tabs cut to four. 'all' = EVERY learner in the workspace;
+    // 'critical' = every learner with ANY required field missing (the old
+    // critical + needs_work + almost buckets together). needs_work / almost
+    // are no longer tabs; an old bookmark to them lands on the same set.
+    let tierFiltered =
       tier === 'all'
-        ? enriched.filter((r) => (INCOMPLETE_TIERS as readonly string[]).includes(r.tier))
-        : enriched.filter((r) => r.tier === tier);
+        ? enriched
+        : tier === 'critical' || tier === 'needs_work' || tier === 'almost'
+          ? enriched.filter((r) => (INCOMPLETE_TIERS as readonly string[]).includes(r.tier))
+        : tier === 'awaiting_payment'
+          ? enriched.filter((r) =>
+              (FEE_BLOCKED_STATUSES as readonly string[]).includes(r.lifecycle_status ?? '')
+            )
+          : enriched.filter((r) => r.tier === tier);
 
     // ── Fee position, for the Awaiting Payment tier only ────────────────────
     //
-    // Every row in that tier has all four fields and is 'reserved', i.e. money
-    // is the ONLY thing still holding it back — so "Missing Fields" is always
-    // blank there and "Completion" always 4/4. Those two columns are replaced
-    // by the fee columns this block feeds. No other tier renders them, and
-    // fetching there would buy a round trip for a number nothing displays.
+    // Every row in that tier is 'account' or 'reserved', i.e. held back by
+    // fees. The RPC also says WHICH stage holds it (blocked_reason). No other
+    // tier renders fee columns, and fetching there would buy a round trip for
+    // a number nothing displays.
     //
     // Fetched for the WHOLE tier, before pagination, for two reasons: the
     // banner must total the cohort rather than page 1, and sorting by "closest
@@ -328,7 +343,13 @@ export async function getOnboardingLearners(
         row.payment = progress.get(row.id);
       }
 
+      // Banner counts cover the whole tier (every reason), so the chips still
+      // show what the other reasons hold while one is selected.
       paymentSummary = summarisePaymentProgress([...progress.values()]);
+
+      if (blocked_reason) {
+        tierFiltered = tierFiltered.filter((r) => r.payment?.blocked_reason === blocked_reason);
+      }
 
       if (paymentSortBy) {
         // Rows the RPC could not resolve (permission-filtered, or beyond the id

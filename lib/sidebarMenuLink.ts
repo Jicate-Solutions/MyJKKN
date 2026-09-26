@@ -3455,9 +3455,10 @@ export function GetPages(pathname: string): MenuGroup[] {
           // child and HR sees five.
           //
           // The parent href stays '/staff' (NOT '/staff/list') so the rest of
-          // the subtree — dashboard, category, class-incharges — remains
-          // reachable as manifest-derived AutoTabNav chips. staff has no
-          // nav-config.ts, so this seed is their only reachability source.
+          // the subtree also remains reachable as manifest-derived AutoTabNav
+          // chips. Since 2026-09-25 dashboard, category and class-incharges
+          // are listed here too, each on its own staff.* key (~10 roles), so
+          // the 61 staff.view holders still see only Employee List.
           href: '/staff',
           label: 'Employee',
           active:
@@ -3469,7 +3470,10 @@ export function GetPages(pathname: string): MenuGroup[] {
             || pathname.startsWith('/hr/admin/sanctioned-posts'),
           icon: Users,
           submenus: [
+            { href: '/staff/dashboard', label: 'Employees Dashboard', active: pathname.startsWith('/staff/dashboard') },
             { href: '/staff/list', label: 'Employee List', active: pathname === '/staff/list' },
+            { href: '/staff/category', label: 'Employees Categories', active: pathname.startsWith('/staff/category') },
+            { href: '/staff/class-incharges', label: 'Class Incharges', active: pathname.startsWith('/staff/class-incharges') },
             // Approving a photograph is what makes it printable on an identity
             // card, so it sits with the people records rather than with leave.
             // Gated on hr.staff_photo.review in MENU_PERMISSIONS, so the 61

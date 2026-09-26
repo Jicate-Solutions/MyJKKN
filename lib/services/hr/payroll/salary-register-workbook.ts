@@ -9,14 +9,12 @@
  *     title merged across row 2, headers on row 3, data from row 4.
  *   Sheet "BANK STATEMENT"  — S.No / Name / Account / Net Pay, closing with a
  *     TOTAL row carrying a live SUM, exactly as the hand-kept file does.
- *   Sheet "By Paying Institution" — what each institution owes for the people
- *     working here. Only when more than one institution pays somebody on it.
  *   Sheet "Excluded Staff"  — only when somebody was left out, naming who and why.
  *
  * THREE DELIBERATE DEPARTURES FROM THE HAND-KEPT FILE:
- *   - "Paid By" and "Remarks" are appended after Net Pay. The register is
- *     grouped by WORK location, so a row's payer may be another institution
- *     entirely — at Main Office every one of the 121 is.
+ *   - "Works At" and "Remarks" are appended after Net Pay. The register is
+ *     grouped by the PAYING institution (2026-09-23), so a row's workplace may be
+ *     another institution entirely — Pharmacy pays people at Main Office.
  *   - Allowance, EPF, ESI and TDS were added inside the money block in
  *     2026-09, so columns past Basic Pay no longer carry the letters the
  *     hand-kept file gives them. Nothing reads this sheet by letter: the number
@@ -35,18 +33,31 @@ import ExcelJS from 'exceljs';
 import type { HRSalaryRegisterLine, HRSalaryRegisterRun } from '@/types/hr-payroll';
 import { EXCLUSION_LABELS, monthLabel } from './salary-register-service';
 
-/** Shows 17700 as "17,700" and 1363.64 as "1,363.64", matching the sample. */
-const MONEY_FMT = '#,##0.##';
-/** Shows 22 as "22" and 1.5 as "1.5" — half-days are real. */
-const DAYS_FMT = '0.##';
+/**
+ * Number formats are picked PER VALUE, never one '#,##0.##' / '0.##' for all.
+ *
+ * Excel has no "decimals only when needed" format: '0.##' prints 23 as "23."
+ * with a dangling decimal point, which is what every whole number on the
+ * register showed until 2026-09-23. So a whole number gets a format with no
+ * decimal part at all, and a fraction gets fixed decimals.
+ */
+/** 17700 -> "17,700"; 1363.64 -> "1,363.64". */
+const moneyFmt = (v: number | null | undefined): string =>
+  v == null || Number.isInteger(v) ? '#,##0' : '#,##0.00';
+/** 22 -> "22"; 1.5 -> "1.5". Half-days are real. */
+const daysFmt = (v: number | null | undefined): string =>
+  v == null || Number.isInteger(v) ? '0' : '0.0#';
+/** Float sums drift (0.1 + 0.2); round before asking whether a total is whole. */
+const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 const REGISTER_HEADERS = [
   'S.No', 'Employee Id', 'Employee Name', 'Designation', 'Department',
   'Date Of Join', 'Bank Account Number', 'Business Working Days',
-  'Paid Leave Days', 'Unpaid Leave Days', 'On Duty Days', 'Worked Days',
+  'Casual Leave Days', 'On Duty Days', 'Comp Off Days', 'Other Paid Leave Days',
+  'Paid Leave Days', 'Unpaid Leave Days', 'Worked Days',
   'Paid Days', 'Actual Gross Salary', 'Basic Pay', 'Allowance', 'Unpaid Leave',
-  'EPF', 'ESI', 'TDS',
-  'Total Earnings', 'Total Deductions', 'Net Pay', 'Paid By', 'Remarks',
+  'EPF', 'ESI', 'TDS', 'Adjustment',
+  'Total Earnings', 'Total Deductions', 'Net Pay', 'Works At', 'Remarks',
 ];
 
 /**
@@ -56,7 +67,7 @@ const REGISTER_HEADERS = [
  * above without a width inserted here shifts every remaining column's width by
  * one, which reads as a formatting glitch rather than the off-by-one it is.
  */
-const REGISTER_WIDTHS = [7, 10.6, 21.1, 12.7, 21.9, 14.4, 15.9, 12.7, 12, 13, 11, 11, 10, 15, 11, 11, 12, 10, 10, 10, 13, 14, 11, 28, 34];
+const REGISTER_WIDTHS = [7, 10.6, 21.1, 12.7, 21.9, 14.4, 15.9, 12.7, 10, 11, 10, 12, 12, 13, 11, 10, 15, 11, 11, 12, 10, 10, 10, 12, 13, 14, 11, 28, 34];
 
 /** DD/MM/YYYY — the format the hand-kept register uses. */
 function formatDMY(iso: string | null): string {
@@ -220,7 +231,7 @@ export async function buildSalaryRegisterWorkbook(
   const reg = wb.addWorksheet('Salary Register');
   REGISTER_WIDTHS.forEach((w, i) => { reg.getColumn(i + 1).width = w; });
 
-  // Merged from A through Net Pay, leaving Paid By and Remarks outside — as in
+  // Merged from A through Net Pay, leaving Works At and Remarks outside — as in
   // the hand-kept file, where the remarks column sits apart from the titled body.
   //
   // DERIVED, not the literal 'S' it used to be. That letter was correct only
@@ -246,10 +257,15 @@ export async function buildSalaryRegisterWorkbook(
       l.department_name ?? '',
       formatDMY(l.date_of_joining),
       l.bank_account_number ?? '',
+      // Same order as the on-screen register (2026-09-23): the leave parts,
+      // then their total, so the export reads like the table it came from.
       l.business_working_days,
+      l.casual_leave_days,
+      l.on_duty_days,
+      l.comp_off_days,
+      l.other_paid_leave_days,
       l.paid_leave_days,
       l.unpaid_leave_days,
-      l.on_duty_days,
       l.worked_days,
       l.paid_days,
       l.actual_gross,
@@ -264,13 +280,13 @@ export async function buildSalaryRegisterWorkbook(
       l.epf_deduction || null,
       l.esi_deduction || null,
       l.tds_deduction || null,
+      // Taken off the net after the deductions — blank when nobody adjusted it.
+      l.adjustment_amount || null,
       l.total_earnings,
       l.total_deductions,
       l.net_pay,
-      // Blank rather than a placeholder when unrecorded — 105 active staff have
-      // no payer, and a column of "Unknown" reads as a system fault rather than
-      // a data gap someone can go and fill.
-      l.paid_by_name ?? '',
+      // Blank on lines generated before 2026-09-23, which did not record it.
+      l.work_institution_name ?? '',
       l.remarks ?? '',
     ]);
   });
@@ -297,15 +313,17 @@ export async function buildSalaryRegisterWorkbook(
     for (let r = firstDataRow; r <= lastDataRow; r++) {
       const row = reg.getRow(r);
       for (let c = firstDayCol; c <= lastDayCol; c++) {
-        row.getCell(c).numFmt = DAYS_FMT;
-        row.getCell(c).alignment = { horizontal: 'center' };
+        const cell = row.getCell(c);
+        cell.numFmt = daysFmt(cell.value as number | null);
+        cell.alignment = { horizontal: 'center' };
       }
       for (let c = firstMoneyCol; c <= lastMoneyCol; c++) {
-        row.getCell(c).numFmt = MONEY_FMT;
+        const cell = row.getCell(c);
+        cell.numFmt = moneyFmt(cell.value as number | null);
       }
       // Text, so a leading zero survives.
       row.getCell(colOf('Bank Account Number')).alignment = { horizontal: 'left' };
-      row.getCell(colOf('Paid By')).alignment = { wrapText: true, vertical: 'top' };
+      row.getCell(colOf('Works At')).alignment = { wrapText: true, vertical: 'top' };
       row.getCell(colOf('Remarks')).alignment = { wrapText: true, vertical: 'top' };
     }
   }
@@ -334,7 +352,7 @@ export async function buildSalaryRegisterWorkbook(
   included.forEach((l, i) => {
     const row = bank.addRow([i + 1, l.staff_name, l.bank_account_number ?? '', l.net_pay]);
     row.getCell(3).alignment = { horizontal: 'left' };
-    row.getCell(4).numFmt = MONEY_FMT;
+    row.getCell(4).numFmt = moneyFmt(l.net_pay);
   });
 
   if (included.length > 0) {
@@ -350,7 +368,7 @@ export async function buildSalaryRegisterWorkbook(
     const totalCell = bank.getCell(`D${totalRowNumber}`);
     totalCell.value = { formula: `SUM(D${firstDataRow}:D${totalRowNumber - 1})` };
     totalCell.font = { bold: true };
-    totalCell.numFmt = MONEY_FMT;
+    totalCell.numFmt = moneyFmt(round2(included.reduce((sum, l) => sum + l.net_pay, 0)));
   }
 
   bank.views = [{ state: 'frozen', ySplit: 3 }];
@@ -362,81 +380,7 @@ export async function buildSalaryRegisterWorkbook(
     totalRow: included.length > 0 ? firstDataRow + included.length : undefined,
   });
 
-  // ── Sheet 3: By Paying Institution ───────────────────────────────────────
-  // THE POINT OF GROUPING BY WORK LOCATION. One Main Office register lists all
-  // 121 people who work there; this sheet splits its cost across the five
-  // institutions that actually pay them, which is the question that could not be
-  // asked while the roster itself was split five ways.
-  //
-  // Omitted when a single institution pays everybody — for eleven of thirteen
-  // institutions that is the case, and a one-row breakdown of a number already
-  // on the register is noise.
-  const byPayer = new Map<string, { name: string; count: number; gross: number; deductions: number; net: number }>();
-  for (const l of included) {
-    // Null groups under its own heading rather than being dropped: an unrecorded
-    // payer is a number somebody still has to account for.
-    const key = l.paid_by_organization_id ?? '__none__';
-    const entry = byPayer.get(key) ?? {
-      name: l.paid_by_name ?? 'Not recorded',
-      count: 0, gross: 0, deductions: 0, net: 0,
-    };
-    entry.count += 1;
-    entry.gross += l.total_earnings;
-    entry.deductions += l.total_deductions + l.adjustment_amount;
-    entry.net += l.net_pay;
-    byPayer.set(key, entry);
-  }
-
-  if (byPayer.size > 1) {
-    const split = wb.addWorksheet('By Paying Institution');
-    split.getColumn(1).width = 7;
-    split.getColumn(2).width = 42;
-    split.getColumn(3).width = 12;
-    split.getColumn(4).width = 16;
-    split.getColumn(5).width = 16;
-    split.getColumn(6).width = 16;
-
-    titleRow(split, 1, 'F', heading, 14);
-    titleRow(split, 2, 'F', `WHAT EACH INSTITUTION OWES FOR ${monthLabel(run.period_year, run.period_month).toUpperCase()}`, 12);
-
-    split.addRow(['S.No', 'Paying Institution', 'Staff', 'Total Earnings', 'Total Deductions', 'Net Payable']);
-    styleHeaderRow(split.getRow(3));
-
-    // Largest liability first — that is the order a finance conversation takes.
-    const rows = Array.from(byPayer.values()).sort((a, b) => b.net - a.net);
-    rows.forEach((r, i) => {
-      const row = split.addRow([i + 1, r.name, r.count, r.gross, r.deductions, r.net]);
-      for (let c = 4; c <= 6; c++) row.getCell(c).numFmt = MONEY_FMT;
-      row.getCell(3).alignment = { horizontal: 'center' };
-    });
-
-    const totalRow = firstDataRow + rows.length;
-    split.mergeCells(`A${totalRow}:B${totalRow}`);
-    const label = split.getCell(`A${totalRow}`);
-    label.value = 'TOTAL';
-    label.font = { bold: true };
-    label.alignment = { horizontal: 'right' };
-
-    // Live formulas, so the sheet re-totals if finance edits a figure — and so
-    // the net here can be eyeballed against the BANK STATEMENT total.
-    for (const col of ['C', 'D', 'E', 'F']) {
-      const cell = split.getCell(`${col}${totalRow}`);
-      cell.value = { formula: `SUM(${col}${firstDataRow}:${col}${totalRow - 1})` };
-      cell.font = { bold: true };
-      if (col !== 'C') cell.numFmt = MONEY_FMT;
-    }
-
-    split.views = [{ state: 'frozen', ySplit: 3 }];
-    finishSheet(split, {
-      headerRow: 3,
-      firstDataRow,
-      lastRow: totalRow,
-      lastCol: 6,
-      totalRow,
-    });
-  }
-
-  // ── Sheet 4: Excluded Staff (only when there are any) ─────────────────────
+  // ── Sheet 3: Excluded Staff (only when there are any) ─────────────────────
   if (excluded.length > 0) {
     const ex = wb.addWorksheet('Excluded Staff');
     ex.getColumn(1).width = 7;

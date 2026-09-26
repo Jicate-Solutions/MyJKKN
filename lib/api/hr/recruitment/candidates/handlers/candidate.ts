@@ -38,16 +38,50 @@ export async function GET(
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const candidate = await RecruitmentService.getCandidate(supabase, id);
-    if (!candidate) return NextResponse.json({ error: 'Candidate not found' }, { status: 404 });
+    if (!candidate) return await candidateNotVisibleResponse(supabase);
 
     return NextResponse.json({ data: candidate });
   } catch (err) {
     console.error('[hr/recruitment/candidates/:id] GET error', err);
+    // PostgrestError is a plain object — getErrorMessage keeps its text.
+    return NextResponse.json({ error: getErrorMessage(err) }, { status: 500 });
+  }
+}
+
+/**
+ * RLS hides a candidate row the caller may not read, so "no row" means either
+ * "does not exist" or "not yours to see". A person without Recruitment view
+ * access (e.g. a faculty member someone forwarded the link to) was told
+ * "Candidate not found" and had no idea what to do (BUG-006128). Say so
+ * plainly instead, and name who can help. Whether the row exists is never
+ * revealed: the answer depends only on the caller's own access.
+ */
+async function candidateNotVisibleResponse(
+  supabase: Awaited<ReturnType<typeof getClient>>
+) {
+  const [{ data: isSuperAdmin }, { data: isAdmin }, { data: canView }] = await Promise.all([
+    supabase.rpc('is_super_admin'),
+    supabase.rpc('is_admin'),
+    supabase.rpc('user_has_permission', { permission_name: 'hr.recruitment.view' }),
+  ]);
+  if (!isSuperAdmin && !isAdmin && !canView) {
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Unknown error' },
-      { status: 500 }
+      {
+        error:
+          'You do not have access to recruitment candidates, so this shared link cannot open for you. ' +
+          'Ask HR or the COO to share the details with you, or to give your role Recruitment view access.',
+        reason: 'no_recruitment_access',
+      },
+      { status: 403 }
     );
   }
+  return NextResponse.json(
+    {
+      error:
+        'Candidate not found. It may have been removed, or it belongs to an institution outside your access.',
+    },
+    { status: 404 }
+  );
 }
 
 /**

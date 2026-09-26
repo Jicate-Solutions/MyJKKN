@@ -937,6 +937,8 @@ export interface CollectionDaywiseRow {
   total_refunds: number;
   net_amount: number;
   has_refunds: boolean;
+  /** Learner's MyJKKN ID (jkkn_identities.jkkn_id); null when not issued. */
+  jkkn_id?: string | null;
 }
 
 export interface DiscountReport {

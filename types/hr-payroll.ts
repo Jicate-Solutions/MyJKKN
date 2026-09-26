@@ -333,11 +333,16 @@ export interface HRSalaryRegisterLine {
   date_of_joining: string | null;
   bank_account_number: string | null;
 
-  // WHO BEARS THIS SALARY. The register is grouped by WORK location, so a row's
-  // payer can be a different institution — at Main Office all 121 are. Null is a
-  // real answer: 105 active staff have no payer recorded and are still paid.
+  // WHO BEARS THIS SALARY. Since 2026-09-23 the register is grouped by payer, so
+  // on new lines this is the run's own institution; older work-scoped lines can
+  // carry a different payer or null.
   paid_by_organization_id: string | null;
   paid_by_name: string | null;
+  // WHERE THIS PERSON WORKS, snapshotted. A paying institution's register can
+  // list people working elsewhere (Pharmacy pays 10 at Main Office). Null on
+  // lines generated before 2026-09-23.
+  work_institution_id: string | null;
+  work_institution_name: string | null;
 
   business_working_days: number;
   /**

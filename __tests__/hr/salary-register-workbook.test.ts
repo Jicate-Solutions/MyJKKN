@@ -54,7 +54,12 @@ function line(o: Partial<HRSalaryRegisterLine> & { id: string; staff_name: strin
     bank_account_number: null,
     paid_by_organization_id: null,
     paid_by_name: null,
+    work_institution_id: null,
+    work_institution_name: null,
     business_working_days: 0,
+    casual_leave_days: 0,
+    comp_off_days: 0,
+    other_paid_leave_days: 0,
     paid_leave_days: 0,
     unpaid_leave_days: 0,
     on_duty_days: 0,
@@ -176,42 +181,48 @@ describe('salary register workbook', () => {
     expect(header).toEqual([
       'S.No', 'Employee Id', 'Employee Name', 'Designation', 'Department',
       'Date Of Join', 'Bank Account Number', 'Business Working Days',
-      'Paid Leave Days', 'Unpaid Leave Days', 'On Duty Days', 'Worked Days',
+      'Casual Leave Days', 'On Duty Days', 'Comp Off Days', 'Other Paid Leave Days',
+      'Paid Leave Days', 'Unpaid Leave Days', 'Worked Days',
       'Paid Days', 'Actual Gross Salary', 'Basic Pay', 'Allowance',
-      'Unpaid Leave', 'EPF', 'ESI', 'TDS',
-      'Total Earnings', 'Total Deductions', 'Net Pay', 'Paid By', 'Remarks',
+      'Unpaid Leave', 'EPF', 'ESI', 'TDS', 'Adjustment',
+      'Total Earnings', 'Total Deductions', 'Net Pay', 'Works At', 'Remarks',
     ]);
   });
 
-  it('keeps columns A-O exactly as the hand-kept file has them', async () => {
+  // A-H still match the hand-kept file. Since 2026-09-23 the day block follows
+  // the on-screen register (casual leave, on duty, comp off, other paid leave,
+  // then the paid-leave total), so Gross and Basic moved from N/O to Q/R.
+  it('keeps the identity columns and moves the money block past the day block', async () => {
     const wb = await build();
     const reg = wb.getWorksheet('Salary Register')!;
     expect(reg.getCell('A3').value).toBe('S.No');
     expect(reg.getCell('B3').value).toBe('Employee Id');
     expect(reg.getCell('H3').value).toBe('Business Working Days');
-    expect(reg.getCell('N3').value).toBe('Actual Gross Salary');
-    expect(reg.getCell('O3').value).toBe('Basic Pay');
+    expect(reg.getCell('I3').value).toBe('Casual Leave Days');
+    expect(reg.getCell('Q3').value).toBe('Actual Gross Salary');
+    expect(reg.getCell('R3').value).toBe('Basic Pay');
   });
 
   it('breaks earnings and deductions out between Basic Pay and the totals', async () => {
     const wb = await build();
     const reg = wb.getWorksheet('Salary Register')!;
-    expect(reg.getCell('P3').value).toBe('Allowance');
-    expect(reg.getCell('Q3').value).toBe('Unpaid Leave');
-    expect(reg.getCell('R3').value).toBe('EPF');
-    expect(reg.getCell('S3').value).toBe('ESI');
-    expect(reg.getCell('T3').value).toBe('TDS');
-    expect(reg.getCell('U3').value).toBe('Total Earnings');
-    expect(reg.getCell('V3').value).toBe('Total Deductions');
-    expect(reg.getCell('W3').value).toBe('Net Pay');
+    expect(reg.getCell('S3').value).toBe('Allowance');
+    expect(reg.getCell('T3').value).toBe('Unpaid Leave');
+    expect(reg.getCell('U3').value).toBe('EPF');
+    expect(reg.getCell('V3').value).toBe('ESI');
+    expect(reg.getCell('W3').value).toBe('TDS');
+    expect(reg.getCell('X3').value).toBe('Adjustment');
+    expect(reg.getCell('Y3').value).toBe('Total Earnings');
+    expect(reg.getCell('Z3').value).toBe('Total Deductions');
+    expect(reg.getCell('AA3').value).toBe('Net Pay');
   });
 
-  it('appends Paid By and Remarks after Net Pay', async () => {
+  it('appends Works At and Remarks after Net Pay', async () => {
     const wb = await build();
     const reg = wb.getWorksheet('Salary Register')!;
     // Both are additions to the hand-kept layout, placed after the money block.
-    expect(reg.getCell('X3').value).toBe('Paid By');
-    expect(reg.getCell('Y3').value).toBe('Remarks');
+    expect(reg.getCell('AB3').value).toBe('Works At');
+    expect(reg.getCell('AC3').value).toBe('Remarks');
   });
 
   it('writes only payable rows to the register, renumbered from 1', async () => {
@@ -240,8 +251,21 @@ describe('salary register workbook', () => {
   it('leaves the deduction cell blank rather than writing 0', async () => {
     const wb = await build();
     const reg = wb.getWorksheet('Salary Register')!;
-    expect(reg.getCell('Q4').value).toBeNull();
-    expect(reg.getCell('Q5').value).toBe(1363.64);
+    expect(reg.getCell('T4').value).toBeNull();
+    expect(reg.getCell('T5').value).toBe(1363.64);
+    expect(reg.getCell('X4').value).toBeNull();
+    expect(reg.getCell('X5').value).toBe(682);
+  });
+
+  // '0.##' printed 23 as "23." — whole numbers must carry no decimal point.
+  it('formats whole numbers without a trailing decimal point', async () => {
+    const wb = await build();
+    const reg = wb.getWorksheet('Salary Register')!;
+    expect(reg.getCell('H4').numFmt).toBe('0');
+    expect(reg.getCell('Q4').numFmt).toBe('#,##0');
+    expect(reg.getCell('AA4').numFmt).toBe('#,##0');
+    expect(reg.getCell('T5').numFmt).toBe('#,##0.00');
+    expect(wb.getWorksheet('BANK STATEMENT')!.getCell('D4').numFmt).toBe('#,##0');
   });
 
   it('satisfies the register identities on every payable row', async () => {
@@ -250,9 +274,9 @@ describe('salary register workbook', () => {
     for (const r of [4, 5, 6]) {
       const n = (c: string) => Number(reg.getCell(`${c}${r}`).value ?? 0);
       // Worked = Business - Paid Leave - Unpaid - On Duty
-      expect(n('L')).toBe(n('H') - n('I') - n('J') - n('K'));
+      expect(n('O')).toBe(n('H') - n('M') - n('N') - n('J'));
       // Paid Days = Business - Unpaid
-      expect(n('M')).toBe(n('H') - n('J'));
+      expect(n('P')).toBe(n('H') - n('N'));
     }
   });
 
@@ -291,39 +315,31 @@ describe('salary register workbook', () => {
   });
 });
 
-describe('salary register workbook — the Main Office case', () => {
+describe('salary register workbook — staff working elsewhere', () => {
   /**
-   * The register is grouped by WORK location, so one institution's register can
-   * be paid for by several others. Main Office is the live example: 121 people
-   * work there and it pays none of them. Without this sheet, the register says
-   * what is owed in total but not by whom — which is the only question finance
-   * asks about it.
+   * The register is grouped by the PAYING institution (2026-09-23), so one
+   * register can list people working at several places — Pharmacy pays 10
+   * people at Main Office. Where each works is printed per row; the old
+   * per-payer split sheet is gone because every row has the same payer.
    */
   const mixed: HRSalaryRegisterLine[] = [
     line({
-      id: 'm1', serial_no: 1, staff_name: 'PAID BY PHARMACY',
-      paid_by_organization_id: 'org-pharm', paid_by_name: 'JKKN College of Pharmacy',
-      business_working_days: 22, worked_days: 22, paid_days: 22,
+      id: 'w1', serial_no: 1, staff_name: 'WORKS AT PHARMACY',
+      work_institution_id: 'inst-pharm', work_institution_name: 'JKKN College of Pharmacy',
+      business_working_days: 23, worked_days: 23, paid_days: 23,
       actual_gross: 30000, basic_pay: 30000, total_earnings: 30000,
       total_deductions: 0, net_pay: 30000,
     }),
     line({
-      id: 'm2', serial_no: 2, staff_name: 'ALSO PHARMACY',
-      paid_by_organization_id: 'org-pharm', paid_by_name: 'JKKN College of Pharmacy',
-      business_working_days: 22, worked_days: 22, paid_days: 22,
+      id: 'w2', serial_no: 2, staff_name: 'WORKS AT MAIN OFFICE',
+      work_institution_id: 'inst-mo', work_institution_name: 'JKKN Main Office',
+      business_working_days: 23, worked_days: 23, paid_days: 23,
       actual_gross: 20000, basic_pay: 20000, total_earnings: 20000,
       total_deductions: 0, net_pay: 20000,
     }),
     line({
-      id: 'm3', serial_no: 3, staff_name: 'PAID BY DENTAL',
-      paid_by_organization_id: 'org-dental', paid_by_name: 'JKKN Dental College and Hospital',
-      business_working_days: 22, worked_days: 20, paid_days: 20,
-      actual_gross: 22000, basic_pay: 22000, unpaid_leave_deduction: 2000,
-      total_earnings: 22000, total_deductions: 2000, net_pay: 20000,
-    }),
-    line({
-      id: 'm4', serial_no: 4, staff_name: 'NOBODY RECORDED',
-      business_working_days: 22, worked_days: 22, paid_days: 22,
+      id: 'w3', serial_no: 3, staff_name: 'OLD LINE, NOT RECORDED',
+      business_working_days: 23, worked_days: 23, paid_days: 23,
       actual_gross: 11000, basic_pay: 11000, total_earnings: 11000,
       total_deductions: 0, net_pay: 11000,
     }),
@@ -331,55 +347,23 @@ describe('salary register workbook — the Main Office case', () => {
 
   async function buildMixed(): Promise<ExcelJS.Workbook> {
     const buffer = await buildSalaryRegisterWorkbook({
-      run, lines: mixed, institutionName: 'JKKN Main Office',
+      run, lines: mixed, institutionName: 'JKKN College of Pharmacy',
     });
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buffer as unknown as ArrayBuffer);
     return wb;
   }
 
-  it('adds a By Paying Institution sheet when more than one institution pays', async () => {
-    const wb = await buildMixed();
-    expect(wb.worksheets.map((w) => w.name)).toContain('By Paying Institution');
-  });
-
-  it('subtotals by payer, largest liability first', async () => {
-    const split = (await buildMixed()).getWorksheet('By Paying Institution')!;
-    expect(split.getCell('B4').value).toBe('JKKN College of Pharmacy');
-    expect(split.getCell('C4').value).toBe(2);
-    expect(split.getCell('F4').value).toBe(50000);
-    expect(split.getCell('B5').value).toBe('JKKN Dental College and Hospital');
-    expect(split.getCell('F5').value).toBe(20000);
-  });
-
-  it('gives staff with no recorded payer their own line rather than dropping them', async () => {
-    const split = (await buildMixed()).getWorksheet('By Paying Institution')!;
-    const names = [4, 5, 6].map((r) => split.getCell(`B${r}`).value);
-    expect(names).toContain('Not recorded');
-  });
-
-  it('totals the split with a live formula so it reconciles against the bank sheet', async () => {
-    const split = (await buildMixed()).getWorksheet('By Paying Institution')!;
-    // 3 payer groups -> total row is 4 + 3 = 7
-    expect(String(split.getCell('A7').value)).toBe('TOTAL');
-    expect((split.getCell('F7').value as { formula: string }).formula).toBe('SUM(F4:F6)');
-  });
-
-  it('omits the sheet when a single institution pays everybody', async () => {
-    const buffer = await buildSalaryRegisterWorkbook({
-      run,
-      lines: mixed.slice(0, 2), // both Pharmacy
-      institutionName: 'JKKN Main Office',
-    });
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(buffer as unknown as ArrayBuffer);
-    expect(wb.worksheets.map((w) => w.name)).not.toContain('By Paying Institution');
-  });
-
-  it('prints the payer on each register row', async () => {
+  it('prints where each person works', async () => {
     const reg = (await buildMixed()).getWorksheet('Salary Register')!;
-    expect(reg.getCell('X4').value).toBe('JKKN College of Pharmacy');
-    // Blank, not "Unknown" — a data gap someone can go and fill.
-    expect(reg.getCell('X7').value).toBe('');
+    expect(reg.getCell('AB4').value).toBe('JKKN College of Pharmacy');
+    expect(reg.getCell('AB5').value).toBe('JKKN Main Office');
+    // Blank, not "Unknown", on lines generated before the column existed.
+    expect(reg.getCell('AB6').value).toBe('');
+  });
+
+  it('no longer emits a per-payer split sheet', async () => {
+    const wb = await buildMixed();
+    expect(wb.worksheets.map((w) => w.name)).toEqual(['Salary Register', 'BANK STATEMENT']);
   });
 });

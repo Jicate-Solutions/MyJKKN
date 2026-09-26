@@ -30,16 +30,8 @@ import {
   DEFAULT_ROLE_PERMISSIONS
 } from '@/lib/constants/permissions';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger
-} from '@/components/ui/accordion';
-import { Search, Info } from 'lucide-react';
-import { Switch } from '@/components/ui/switch';
+import { Search } from 'lucide-react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -48,13 +40,7 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { toast } from 'react-hot-toast';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger
-} from '@/components/ui/tooltip';
+import { GroupedPermissionPanel } from './grouped-permission-panel';
 
 interface CreateRoleDialogProps {
   open: boolean;
@@ -170,75 +156,23 @@ export function CreateRoleDialog({
     }
   };
 
-  // Get the active permissions count for a category
-  const getCategoryActiveCount = (categoryKey: string) => {
-    const permissions = form.watch('permissions');
-    const categoryPermCount =
-      PERMISSION_CATEGORIES.find(
-        (cat) => cat.key === categoryKey
-      )?.permissions.reduce((count, perm) => {
-        return permissions?.[perm.key] ? count + 1 : count;
-      }, 0) || 0;
+  const permissionValues = form.watch('permissions') ?? {};
 
-    const totalPermCount =
-      PERMISSION_CATEGORIES.find((cat) => cat.key === categoryKey)?.permissions
-        .length || 0;
-
-    return { active: categoryPermCount, total: totalPermCount };
+  // Writes the whole flat map at once. A per-key FormField path would be
+  // wrong here: react-hook-form reads "permissions.hr.leave.view" as a nested
+  // path and writes {hr:{leave:{view:true}}} into this flat record.
+  const setPermissionKeys = (keys: string[], enabled: boolean) => {
+    if (keys.length === 0) return;
+    const next = { ...form.getValues('permissions') };
+    keys.forEach((key) => {
+      next[key] = enabled;
+    });
+    form.setValue('permissions', next, {
+      shouldDirty: true,
+      shouldValidate: true,
+      shouldTouch: false // Don't mark as touched to prevent auto-submission
+    });
   };
-
-  // Toggle all permissions in a category
-  const toggleCategoryPermissions = (categoryKey: string, enabled: boolean) => {
-    try {
-      // Prevent default submission behavior
-      const newPermissions = { ...form.getValues('permissions') };
-
-      PERMISSION_CATEGORIES.find(
-        (cat) => cat.key === categoryKey
-      )?.permissions.forEach((perm) => {
-        newPermissions[perm.key] = enabled;
-      });
-
-      // Update form without triggering submission
-      form.setValue('permissions', newPermissions, {
-        shouldDirty: true,
-        shouldValidate: true,
-        shouldTouch: false // Don't mark as touched to prevent auto-submission
-      });
-
-      // For create dialog, we can't save automatically since the role doesn't exist yet
-      // But we can provide feedback to the user
-      const categoryName =
-        PERMISSION_CATEGORIES.find((cat) => cat.key === categoryKey)?.name ||
-        categoryKey;
-      toast.success(
-        `All permissions in ${categoryName} ${
-          enabled ? 'enabled' : 'disabled'
-        }`,
-        {
-          duration: 3000
-        }
-      );
-    } catch (error) {
-      console.error('Error updating form permissions:', error);
-    }
-  };
-
-  // Filter categories and permissions based on search query
-  const filteredCategories = PERMISSION_CATEGORIES.filter((category) => {
-    if (!searchQuery) return true;
-
-    const matchesCategory = category.name
-      .toLowerCase()
-      .includes(searchQuery.toLowerCase());
-    const hasMatchingPermissions = category.permissions.some(
-      (perm) =>
-        perm.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        perm.key.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-
-    return matchesCategory || hasMatchingPermissions;
-  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -360,158 +294,21 @@ export function CreateRoleDialog({
                   </CardHeader>
                   <CardContent>
                     <p className='text-sm text-muted-foreground'>
-                      Manage permissions by expanding each category below and
-                      toggling specific permissions.
+                      Expand a module, then a sub-module, and toggle specific
+                      permissions.
                     </p>
                   </CardContent>
                 </Card>
 
                 <ScrollArea className='h-[500px] pr-4'>
-                  <Accordion type='multiple' className='space-y-4'>
-                    {filteredCategories.map((category) => {
-                      const { active, total } = getCategoryActiveCount(
-                        category.key
-                      );
-                      const filteredPermissions = searchQuery
-                        ? category.permissions.filter(
-                            (perm) =>
-                              perm.label
-                                .toLowerCase()
-                                .includes(searchQuery.toLowerCase()) ||
-                              perm.key
-                                .toLowerCase()
-                                .includes(searchQuery.toLowerCase())
-                          )
-                        : category.permissions;
-
-                      if (filteredPermissions.length === 0) return null;
-
-                      return (
-                        <AccordionItem
-                          key={category.key}
-                          value={category.key}
-                          className='border rounded-lg overflow-hidden'
-                        >
-                          <AccordionTrigger className='px-4 py-3 hover:bg-muted/50 group'>
-                            <div className='flex items-center w-full justify-between pr-4'>
-                              <div>
-                                <span className='font-medium'>
-                                  {category.name}
-                                </span>
-                              </div>
-                              <div className='flex items-center gap-2'>
-                                <Badge
-                                  variant={active > 0 ? 'default' : 'outline'}
-                                >
-                                  {active}/{total} enabled
-                                </Badge>
-                              </div>
-                            </div>
-                          </AccordionTrigger>
-                          <AccordionContent className='px-4 pb-3 pt-1'>
-                            <div className='flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center mb-3 px-1 pt-2'>
-                              <div className='flex items-center gap-1'>
-                                <span className='text-sm font-medium'>
-                                  All permissions in this category
-                                </span>
-                                <TooltipProvider>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Info className='h-4 w-4 text-muted-foreground cursor-help' />
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      <p className='max-w-xs'>
-                                        Don&apos;t forget to click &quot;Create
-                                        Role&quot; after making your selections
-                                      </p>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                </TooltipProvider>
-                              </div>
-                              <div className='flex gap-2'>
-                                <Button
-                                  variant='outline'
-                                  size='sm'
-                                  type='button'
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    toggleCategoryPermissions(
-                                      category.key,
-                                      true
-                                    );
-                                  }}
-                                  disabled={isLoading}
-                                >
-                                  Enable All
-                                </Button>
-                                <Button
-                                  variant='outline'
-                                  size='sm'
-                                  type='button'
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    toggleCategoryPermissions(
-                                      category.key,
-                                      false
-                                    );
-                                  }}
-                                  disabled={isLoading}
-                                >
-                                  Disable All
-                                </Button>
-                              </div>
-                            </div>
-                            <div className='grid grid-cols-1 md:grid-cols-2 gap-3'>
-                              {filteredPermissions.map((permission) => (
-                                <FormField
-                                  key={permission.key}
-                                  control={form.control}
-                                  name={`permissions.${permission.key}`}
-                                  render={({ field }) => (
-                                    <div className='flex items-center justify-between space-x-2 rounded-md border p-3 hover:bg-muted/50'>
-                                      <div className='space-y-0.5'>
-                                        <FormLabel className='text-sm'>
-                                          {permission.label}
-                                        </FormLabel>
-                                        <FormDescription className='text-xs'>
-                                          {permission.key}
-                                        </FormDescription>
-                                      </div>
-                                      <FormControl>
-                                        <Switch
-                                          checked={field.value}
-                                          onCheckedChange={field.onChange}
-                                          disabled={isLoading}
-                                          aria-label={`Toggle ${permission.label}`}
-                                        />
-                                      </FormControl>
-                                    </div>
-                                  )}
-                                />
-                              ))}
-                            </div>
-                          </AccordionContent>
-                        </AccordionItem>
-                      );
-                    })}
-                  </Accordion>
-
-                  {filteredCategories.length === 0 && (
-                    <div className='flex flex-col items-center justify-center py-8 text-center'>
-                      <p className='text-muted-foreground'>
-                        No permissions match your search
-                      </p>
-                      <Button
-                        variant='link'
-                        onClick={() => setSearchQuery('')}
-                        className='mt-2'
-                      >
-                        Clear search
-                      </Button>
-                    </div>
-                  )}
+                  <GroupedPermissionPanel
+                    values={permissionValues}
+                    onToggle={(key, next) => setPermissionKeys([key], next)}
+                    onBulkSet={setPermissionKeys}
+                    searchQuery={searchQuery}
+                    onClearSearch={() => setSearchQuery('')}
+                    disabled={isLoading}
+                  />
                 </ScrollArea>
               </TabsContent>
             </Tabs>

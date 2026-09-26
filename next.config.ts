@@ -100,6 +100,14 @@ const nextConfig: NextConfig = {
       './public/fonts/pdf/**/*',
       './node_modules/katex/dist/**/*',
     ],
+    // BoS PO & PSO document (app/api/bos/po-pso/pdf). Same Chromium + body
+    // fonts, plus the institution logos the letterhead inlines from /public.
+    '/api/bos/po-pso/pdf': [
+      './node_modules/@sparticuz/chromium/**/*',
+      './public/fonts/pdf/**/*',
+      './public/*.png',
+      './public/logo/**/*.png',
+    ],
   },
 
   // TEMPORARY: Skip type checking during build (pre-existing type errors from
