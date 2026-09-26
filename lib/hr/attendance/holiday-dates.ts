@@ -87,11 +87,20 @@ export async function isCalendarHoliday(
 /**
  * The substitution rule, in one place so both call sites apply it identically.
  *
- * ONLY ABSENT BECOMES HOLIDAY. A punch is evidence of work: overwriting PRESENT
- * or HALF_DAY would erase what the device recorded and leave the person with no
- * basis to claim the day back. WEEKLY_OFF is already outside working days, so
- * relabelling it would change nothing and lose information.
+ * A DECLARED HOLIDAY IS A HOLIDAY FOR EVERYONE (2026-09-26). Every punch verdict
+ * — ABSENT, PRESENT, HALF_DAY — becomes HOLIDAY. Only the status changes: in_at /
+ * out_at stay on the record, and fn_hr_comp_off_biometric_check reads those, not
+ * the status, so a person who worked the day claims it back as a comp-off.
+ *
+ * Until then only ABSENT was converted, and a punch on a holiday was judged as a
+ * normal working day: an early leaver got HALF_DAY (0.5 LOP on a day nobody was
+ * scheduled), while a late arriver got ABSENT → HOLIDAY. VAISALI R, 14-Sep-2026.
+ *
+ * WEEKLY_OFF is already outside working days; relabelling it would lose
+ * information. Stamped statuses (LEAVE, REGULARIZED, …) never reach here.
  */
+const HOLIDAY_OVERRIDES = new Set(['ABSENT', 'PRESENT', 'HALF_DAY']);
+
 export function applyHolidayToStatusCode(code: string, isHoliday: boolean): string {
-  return isHoliday && code === 'ABSENT' ? 'HOLIDAY' : code;
+  return isHoliday && HOLIDAY_OVERRIDES.has(code) ? 'HOLIDAY' : code;
 }
