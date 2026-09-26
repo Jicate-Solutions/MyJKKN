@@ -163,10 +163,12 @@ export function withCronRun(
 
     try {
       const response = await handler(request);
+      const body = await peekBody(response);
       await closeCronRun(admin, handle, {
         ok: statusIsOk(response.status),
         statusCode: response.status,
-        error: statusIsOk(response.status) ? null : await peekError(response),
+        error: statusIsOk(response.status) ? null : errorOf(body),
+        meta: metaOf(body),
       });
       return response;
     } catch (err) {
@@ -181,18 +183,43 @@ export function withCronRun(
 }
 
 /**
- * Best-effort read of an error message out of a failed JSON response.
+ * Best-effort read of a JSON response body.
  *
  * Clones first — reading the original body would consume the stream the client
  * is about to receive. Returns null for any non-JSON or unreadable body rather
  * than guessing; the status code is already recorded either way.
  */
-async function peekError(response: NextResponse): Promise<string | null> {
+async function peekBody(response: NextResponse): Promise<Record<string, unknown> | null> {
   try {
-    const body = (await response.clone().json()) as Record<string, unknown> | null;
-    if (body && typeof body.error === 'string') return body.error;
-    return null;
+    const body = (await response.clone().json()) as unknown;
+    return body && typeof body === 'object' && !Array.isArray(body)
+      ? (body as Record<string, unknown>)
+      : null;
   } catch {
     return null;
   }
+}
+
+/** The `error` string off a failed body, or null. */
+function errorOf(body: Record<string, unknown> | null): string | null {
+  return body && typeof body.error === 'string' ? body.error : null;
+}
+
+/**
+ * The run's own summary, off a top-level `meta` object in the body.
+ *
+ * THE LEDGER HOOK. fn_cron_record_run has merged `p_meta` into
+ * cron_run_log.meta since the table was built, and nothing ever sent one: every
+ * row read `{}`, so a job that took a write-up down or filed twenty left no
+ * trace in the log beyond a status code. A handler that wants its run
+ * remembered puts a plain object under `meta` in the body it already returns —
+ * no second call, no second mechanism — and it lands on the row. A body with
+ * no `meta`, or a `meta` that is not a plain object, records nothing, exactly
+ * as before.
+ */
+function metaOf(body: Record<string, unknown> | null): Record<string, unknown> | undefined {
+  const m = body?.meta;
+  return m && typeof m === 'object' && !Array.isArray(m)
+    ? (m as Record<string, unknown>)
+    : undefined;
 }
