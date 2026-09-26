@@ -60,6 +60,8 @@ export const FEATURE_KEYS = {
   HR_INTERVIEW_CALLBACK_HANDLE: 'hr.interview_callback_handle',
   /** Someone tagged a colleague on a recruitment candidate's discussion (#4006). */
   HR_RECRUITMENT_TAG_COLLEAGUE: 'hr.recruitment_tag_colleague',
+  /** A learner profile was created: admission convert, bulk upload, or the single form. */
+  LEARNERS_CREATE_PROFILE: 'learners.create_profile',
 } as const;
 
 export type FeatureKey = (typeof FEATURE_KEYS)[keyof typeof FEATURE_KEYS] | (string & {});

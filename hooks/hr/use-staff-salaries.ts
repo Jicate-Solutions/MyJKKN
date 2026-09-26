@@ -90,6 +90,21 @@ export function useStaffSalaryHistory(staffUuid: string | null) {
   });
 }
 
+/**
+ * One person's salary in force, or null. Keyed under `current`, so the
+ * invalidation in useSetStaffSalary refreshes it too (prefix match).
+ */
+export function useStaffCurrentSalary(staffUuid: string | null, enabled = true) {
+  const supabase = useMemo(() => createClientSupabaseClient(), []);
+
+  return useQuery<StaffSalaryRow | null>({
+    queryKey: [...STAFF_SALARY_KEYS.current, staffUuid ?? ''],
+    queryFn: () => StaffSalaryService.getCurrent(supabase, staffUuid as string),
+    enabled: enabled && Boolean(staffUuid),
+    staleTime: 60 * 1000,
+  });
+}
+
 /** Record or raise one person's salary. */
 export function useSetStaffSalary() {
   const supabase = useMemo(() => createClientSupabaseClient(), []);

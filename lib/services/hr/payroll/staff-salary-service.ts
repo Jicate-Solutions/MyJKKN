@@ -291,6 +291,25 @@ export class StaffSalaryService {
     return ((data ?? []) as RawSalaryRow[]).map(shape);
   }
 
+  /** The salary in force for one person (superseded_by IS NULL), or null. */
+  static async getCurrent(
+    supabase: SupabaseClient,
+    staffUuid: string
+  ): Promise<StaffSalaryRow | null> {
+    const { data, error } = await (supabase as any)
+      .from('hr_staff_salaries')
+      .select(SELECT_CURRENT)
+      .eq('staff_id', staffUuid)
+      .is('superseded_by', null)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`Failed to load the salary: ${getErrorMessage(error)}`);
+    }
+
+    return data ? shape(data as RawSalaryRow) : null;
+  }
+
   /**
    * Record a salary, superseding whatever was in force.
    *

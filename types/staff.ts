@@ -101,6 +101,9 @@ export interface Staff {
   state?: string;
   district?: string;
   pincode?: string;
+  emergency_contact_name?: string | null;
+  emergency_contact_relationship?: string | null;
+  emergency_contact_phone?: string | null;
   date_of_joining: string;
   designation: string;
   institution_email: string;
@@ -206,6 +209,9 @@ export interface CreateStaffDto {
   state?: string;
   district?: string;
   pincode?: string;
+  emergency_contact_name?: string | null;
+  emergency_contact_relationship?: string | null;
+  emergency_contact_phone?: string | null;
   date_of_joining: string;
   designation: string;
   category_id: string;

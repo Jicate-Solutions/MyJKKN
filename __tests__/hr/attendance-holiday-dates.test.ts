@@ -6,7 +6,7 @@
  * a trigger, a backfill, the biometric import and the recompute all answer the
  * question identically. Re-implementing the UTC expansion in a test would prove
  * only that the test agrees with itself. What IS tested here is everything the
- * TypeScript side owns: the ABSENT-only substitution, the batching, and the
+ * TypeScript side owns: the punch-verdict substitution, the batching, and the
  * refusal to treat a failed lookup as "no holidays".
  *
  * Run: npx vitest run __tests__/hr/attendance-holiday-dates.test.ts
@@ -31,19 +31,19 @@ function client(impl: (fn: string, args: Record<string, unknown>) => unknown) {
 const INST_A = 'a0000000-0000-0000-0000-00000000000a';
 const INST_B = 'b0000000-0000-0000-0000-00000000000b';
 
-describe('applyHolidayToStatusCode — only a no-show becomes a holiday', () => {
-  it('turns ABSENT into HOLIDAY on a declared day', () => {
-    expect(applyHolidayToStatusCode('ABSENT', true)).toBe('HOLIDAY');
+describe('applyHolidayToStatusCode — a declared holiday is a holiday for everyone', () => {
+  /**
+   * Every punch verdict becomes HOLIDAY. The punches themselves stay on the
+   * record (only the status is substituted), and the comp-off biometric check
+   * reads those — so someone who worked the day claims it as a comp-off
+   * instead of the day being judged as an ordinary working day (VAISALI R,
+   * 14-Sep-2026: HALF_DAY on a festival = 0.5 LOP).
+   */
+  it.each(['ABSENT', 'PRESENT', 'HALF_DAY'])('turns %s into HOLIDAY on a declared day', (code) => {
+    expect(applyHolidayToStatusCode(code, true)).toBe('HOLIDAY');
   });
 
-  /**
-   * THE RULE THAT PROTECTS A PUNCH. Someone who came in on a holiday has a
-   * device record saying so; overwriting it to HOLIDAY would erase the evidence
-   * and leave them no basis to claim the day back.
-   */
   it.each([
-    ['PRESENT', 'PRESENT'],
-    ['HALF_DAY', 'HALF_DAY'],
     ['WEEKLY_OFF', 'WEEKLY_OFF'],
     ['LEAVE', 'LEAVE'],
     ['REGULARIZED', 'REGULARIZED'],

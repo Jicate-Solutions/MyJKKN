@@ -8206,6 +8206,23 @@ ALTER TABLE public.staff
   ADD CONSTRAINT staff_last_name_canonical
     CHECK (last_name IS NULL OR last_name = public.fn_canonical_staff_name(last_name));
 
+-- Staff emergency contact (migration 20260925140000). Optional; blank strings
+-- are rejected so "not set" is always NULL.
+ALTER TABLE public.staff
+  ADD COLUMN IF NOT EXISTS emergency_contact_name         text,
+  ADD COLUMN IF NOT EXISTS emergency_contact_relationship text,
+  ADD COLUMN IF NOT EXISTS emergency_contact_phone        text;
+
+ALTER TABLE public.staff
+  DROP CONSTRAINT IF EXISTS staff_emergency_contact_not_blank;
+
+ALTER TABLE public.staff
+  ADD CONSTRAINT staff_emergency_contact_not_blank CHECK (
+        (emergency_contact_name         IS NULL OR btrim(emergency_contact_name)         <> '')
+    AND (emergency_contact_relationship IS NULL OR btrim(emergency_contact_relationship) <> '')
+    AND (emergency_contact_phone        IS NULL OR btrim(emergency_contact_phone)        <> '')
+  );
+
 -- ============================================================================
 -- 2026-08-21 — Fee structure per-item due dates, splits and status rules
 -- Applied by: 20260821180000_fee_structure_item_schedules.sql

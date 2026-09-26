@@ -11,6 +11,7 @@ import {
   mapLabelToValue,
   getValidLabels
 } from '@/lib/utils/mappings/enquiry-excel-mappings';
+import { FEATURE_KEYS, recordFeatureUse } from '@/lib/usage/record';
 
 /**
  * POST /api/learners/enquiries/import
@@ -967,6 +968,11 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
     }
 
     const successCount = insertedLearners?.length || 0;
+    // Adoption loop: one use per import that created at least one enquiry
+    // profile, on this signed-in client (fn_feature_used keys on auth.uid()).
+    if (successCount > 0) {
+      await recordFeatureUse(supabase, FEATURE_KEYS.LEARNERS_CREATE_PROFILE);
+    }
     console.log(`[enquiries/import] ✅ Successfully inserted ${successCount} enquiries`);
 
     // ============================================================

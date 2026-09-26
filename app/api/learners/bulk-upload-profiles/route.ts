@@ -11,6 +11,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { BulkLearnerUploadService, type BulkUploadRow } from '@/lib/services/bulk-learner-upload-service';
+import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
 import { LearnerValidationService } from '@/lib/services/learner-validation-service';
 import { parseExcelFile, mapColumns, sanitizeValue } from '@/lib/utils/excel-parser';
 import {
@@ -563,6 +564,14 @@ export async function POST(request: NextRequest) {
 
     // 6. Process bulk upload
     const result = await BulkLearnerUploadService.processBulkUpload(bulkUploadRows, user.id);
+
+    // Adoption loop: ONE use per upload that inserted at least one new learner
+    // profile — not one per row, and not for an upload that only matched
+    // existing learners. Recorded on the SESSION client (`supabase`): the
+    // service writes with a service-role client, which has no auth.uid().
+    if ((result.new_profiles_inserted ?? 0) > 0) {
+      await recordFeatureUse(supabase, FEATURE_KEYS.LEARNERS_CREATE_PROFILE);
+    }
 
     // 7. Return result
     return NextResponse.json(result);

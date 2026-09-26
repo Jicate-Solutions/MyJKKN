@@ -82,6 +82,18 @@ export function useStaffPayerDirectory() {
   });
 }
 
+/** The recorded payer for one person, or null. */
+export function useStaffPayer(staffId: string | null, enabled = true) {
+  const supabase = useMemo(() => createClientSupabaseClient(), []);
+
+  return useQuery({
+    queryKey: STAFF_PAYROLL_KEYS.payer(staffId ?? ''),
+    queryFn: () => StaffPayrollService.getPayer(supabase, staffId as string),
+    enabled: enabled && Boolean(staffId),
+    staleTime: 60 * 1000,
+  });
+}
+
 export function useSetStaffPayer() {
   const supabase = useMemo(() => createClientSupabaseClient(), []);
   const queryClient = useQueryClient();

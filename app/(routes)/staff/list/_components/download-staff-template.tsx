@@ -44,7 +44,11 @@ const ID_BASED_SAMPLE_DATA = [
     is_active: 'true',
     // Optional: 'true' / 'false' / blank. Blank = derive from category's allows_login.
     // Set to 'false' for view-only labour staff (no login, emails optional).
-    login_enabled: ''
+    login_enabled: '',
+    // Optional emergency contact — name and phone go together.
+    emergency_contact_name: 'Jane Doe',
+    emergency_contact_relationship: 'Spouse',
+    emergency_contact_phone: '9876543211'
   }
 ];
 
@@ -76,7 +80,11 @@ const NAME_BASED_SAMPLE_DATA = [
     is_active: 'true',
     // Optional: 'true' / 'false' / blank. Blank = derive from category's allows_login.
     // Set to 'false' for view-only labour staff (no login, emails optional).
-    login_enabled: ''
+    login_enabled: '',
+    // Optional emergency contact — name and phone go together.
+    emergency_contact_name: 'Jane Doe',
+    emergency_contact_relationship: 'Spouse',
+    emergency_contact_phone: '9876543211'
   }
 ];
 
@@ -104,7 +112,11 @@ const COLUMN_WIDTHS = {
   R: 40, // institution_id or institution_name
   S: 40, // department_id or department_name
   T: 10, // is_active
-  U: 18 // login_enabled
+  U: 18, // login_enabled
+  V: 18, // login_enabled is really V: role_key (T) shifts the tail by one
+  W: 25, // emergency_contact_name
+  X: 20, // emergency_contact_relationship
+  Y: 18 // emergency_contact_phone
 };
 
 const ID_BASED_INSTRUCTIONS = [
@@ -142,6 +154,9 @@ const ID_BASED_INSTRUCTIONS = [
   ['9. Institution Email - Email address provided by the institution'],
   ['10. Is Active - Values: true, false (default is true)'],
   ['11. Login Enabled - Values: true, false, or blank (defaults from category)'],
+  ['12. Emergency Contact Name - Person to contact in an emergency'],
+  ['13. Emergency Contact Relationship - e.g. Father, Mother, Spouse, Brother, Sister, Son, Daughter, Guardian, Friend, or any other text'],
+  ['14. Emergency Contact Phone - 10 digits. If any emergency contact field is filled, name and phone are both required'],
   [''],
   ['View-Only / Labour Staff:'],
   ['- Use login_enabled=false for staff who should NOT log in to MyJKKN'],
@@ -210,6 +225,9 @@ const NAME_BASED_INSTRUCTIONS = [
   ['9. Institution Email - Email address provided by the institution'],
   ['10. Is Active - Values: true, false (default is true)'],
   ['11. Login Enabled - Values: true, false, or blank (defaults from category)'],
+  ['12. Emergency Contact Name - Person to contact in an emergency'],
+  ['13. Emergency Contact Relationship - e.g. Father, Mother, Spouse, Brother, Sister, Son, Daughter, Guardian, Friend, or any other text'],
+  ['14. Emergency Contact Phone - 10 digits. If any emergency contact field is filled, name and phone are both required'],
   [''],
   ['View-Only / Labour Staff:'],
   ['- Use login_enabled=false for staff who should NOT log in to MyJKKN'],
@@ -302,7 +320,10 @@ export default function DownloadStaffTemplateButton() {
       ['', '15/05/2023', 'DD/MM/YYYY also supported'],
       ['', '15-05-2023', 'DD-MM-YYYY also supported'],
       ['designation', 'Assistant Professor', 'Text'],
-      ['institution_email', 'john.doe@institution.edu', 'Email format']
+      ['institution_email', 'john.doe@institution.edu', 'Email format'],
+      ['emergency_contact_name', 'Jane Doe', 'Optional — required if a contact phone is given'],
+      ['emergency_contact_relationship', 'Spouse', 'Optional — Father, Mother, Spouse, … or any text'],
+      ['emergency_contact_phone', '9876543211', 'Optional — 10 digits; required if a contact name is given']
     ];
 
     // Add specific fields based on template type

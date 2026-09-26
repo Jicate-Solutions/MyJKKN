@@ -506,6 +506,23 @@ export async function POST(request: Request) {
       );
     }
 
+    // Privileged roles are super-admin-only on create. The insert below uses
+    // supabaseAdmin (no auth.uid()), which trg_staff_guard_role_key lets
+    // through, so the rule is repeated here.
+    if (!currentUser.is_super_admin && json.role_key) {
+      const { data: targetRole } = await supabaseAdmin
+        .from('custom_roles')
+        .select('is_privileged')
+        .eq('role_key', json.role_key)
+        .maybeSingle();
+      if (!targetRole || (targetRole as any).is_privileged) {
+        return NextResponse.json(
+          { error: `Only a super administrator can assign the role "${json.role_key}".` },
+          { status: 403 }
+        );
+      }
+    }
+
     console.log('Creating staff via API route for user:', currentUser.role);
 
     // Normalize empty staff_id to null (matches the staff_staff_id_not_empty

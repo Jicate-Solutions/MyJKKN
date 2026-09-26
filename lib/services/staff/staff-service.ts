@@ -50,6 +50,9 @@ interface CreateStaffDto {
   state?: string;
   district?: string;
   pincode?: string;
+  emergency_contact_name?: string | null;
+  emergency_contact_relationship?: string | null;
+  emergency_contact_phone?: string | null;
   date_of_joining: string;
   designation: string;
   // Optional for view-only staff (same generation rule as email).

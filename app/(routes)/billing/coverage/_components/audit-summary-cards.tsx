@@ -5,6 +5,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { formatCurrency } from '@/lib/utils';
 import type {
   DuplicateYearAuditSummary,
+  FeeStructureAuditSummary,
   MissingYearAuditSummary
 } from '@/types/billing-coverage';
 
@@ -29,7 +30,8 @@ function TileGrid({
   // Driven by tile count rather than hardcoded: the two sub-tabs carry
   // different numbers of KPIs, and a fixed 4-column grid would orphan the
   // fifth tile on its own row.
-  const cols = tiles.length >= 5 ? 'lg:grid-cols-5' : 'lg:grid-cols-4';
+  const cols =
+    tiles.length >= 6 ? 'lg:grid-cols-6' : tiles.length >= 5 ? 'lg:grid-cols-5' : 'lg:grid-cols-4';
 
   if (isLoading) {
     return (
@@ -222,6 +224,67 @@ export function DuplicateYearSummaryCards({
         } no academic year, so this check cannot see ${
           summary!.unassigned_tuition_bills === 1 ? 'it' : 'them'
         } under any filter.`
+      : null
+  ];
+
+  return <TileGrid tiles={tiles} isLoading={isLoading} notes={notes} />;
+}
+
+export function FeeStructureSummaryCards({
+  summary,
+  isLoading
+}: {
+  summary?: FeeStructureAuditSummary;
+  isLoading: boolean;
+}) {
+  const s = summary;
+  const lb = s?.learners_by_issue ?? {};
+  const rows = s?.issues ?? {};
+  const gap = (s?.expected_total ?? 0) - (s?.billed_total ?? 0);
+  const tiles: Tile[] = [
+    {
+      label: 'Learners checked',
+      value: nf.format(s?.learners_checked ?? 0),
+      hint: `${nf.format(s?.learners_ok ?? 0)} fully match their structure`,
+      tone: 'text-foreground'
+    },
+    {
+      label: 'Missing bills',
+      value: nf.format(rows.missing_bill ?? 0),
+      hint: `${nf.format(lb.missing_bill ?? 0)} learners · ${nf.format(rows.other_module ?? 0)} hostel/mess/transport left to their modules`,
+      tone: 'text-red-600 dark:text-red-400'
+    },
+    {
+      label: 'Amount mismatch',
+      value: nf.format(rows.amount_mismatch ?? 0),
+      hint: `${nf.format(lb.amount_mismatch ?? 0)} learners`,
+      tone: 'text-orange-600 dark:text-orange-400'
+    },
+    {
+      label: 'Wrong / old structure',
+      value: nf.format((rows.other_structure ?? 0) + (rows.not_linked ?? 0) + (rows.split_missing ?? 0)),
+      hint: `${nf.format(rows.other_structure ?? 0)} other · ${nf.format(rows.not_linked ?? 0)} unlinked · ${nf.format(rows.split_missing ?? 0)} no instalments`,
+      tone: 'text-amber-600 dark:text-amber-400'
+    },
+    {
+      label: 'No structure matched',
+      value: nf.format(rows.no_structure ?? 0),
+      hint: `+ ${nf.format(s?.no_structure_institution_learners ?? 0)} at institutions with no structures`,
+      tone: 'text-violet-600 dark:text-violet-400'
+    },
+    {
+      label: 'Structure vs billed',
+      value: formatCurrency(Math.abs(gap), { showDecimals: false }),
+      hint: gap > 0 ? 'less billed than the structures expect' : gap < 0 ? 'more billed than the structures expect' : 'billed equals expected',
+      tone: gap === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground'
+    }
+  ];
+
+  const notes: (string | null)[] = [
+    s && s.no_structure_institutions.length > 0
+      ? `Not audited (no fee structures): ${s.no_structure_institutions
+          .map((i) => `${i.institution_name} (${nf.format(i.learners)})`)
+          .join(', ')}.`
       : null
   ];
 

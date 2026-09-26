@@ -538,6 +538,9 @@ export const PERMISSION_CATEGORIES = [
       { key: 'staff.edit', label: 'Edit Employees' },
       { key: 'staff.delete', label: 'Delete Employees' },
       { key: 'staff.status_update', label: 'Update Employee Status' },
+      // 2026-09-25 — lets a non-super-admin (HR Head) change staff.role_key,
+      // never onto an is_privileged role (trg_staff_guard_role_key).
+      { key: 'staff.role.change', label: 'Change Employee Role' },
       { key: 'staff.class_incharges.view', label: 'View Class Incharges' },
       { key: 'staff.class_incharges.create', label: 'Assign Class Incharges' },
       { key: 'staff.class_incharges.delete', label: 'Remove Class Incharges' },
