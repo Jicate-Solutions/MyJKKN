@@ -18,6 +18,17 @@ export const runtime = 'nodejs';
  * Gate: cdc.drives.view. Reads run on the service-role client AFTER the gate
  * so a cross-college coordinator's RLS scope does not silently drop rows —
  * the drive's audience is multi-college by design.
+ *
+ * POST /api/cdc/drives/[id]/responses
+ *   { action: 'reopen', willingness_id }
+ *
+ * Ruling B (Director, 2026-09-18): ANY CDC team member may reopen ONE learner's
+ * DECLINED answer, up to and including the drive day — once that day has passed
+ * nobody can. Gated on cdc.drives.view, the same permission that puts this
+ * screen in front of a team member at all, because the ruling says "any CDC team
+ * member" rather than "the drive's editor". The rule itself lives in
+ * CdcWillingnessService.reopenDeclinedResponse; the reopening is recorded as one
+ * entry in the row's existing willingness_audit jsonb, naming the actor.
  */
 
 import { NextResponse, connection } from 'next/server';
@@ -25,6 +36,7 @@ import type { NextRequest } from 'next/server';
 import * as XLSX from 'xlsx';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { CdcDriveService } from '@/lib/services/cdc/drive-service';
+import { CdcWillingnessService, isReopenedForLearner } from '@/lib/services/cdc/willingness-service';
 import { formatArrearsForExport } from '@/lib/services/cdc/academic-standing';
 import type { CdcDriveResponseRow, CdcWillingnessStatus } from '@/types/cdc';
 
@@ -151,6 +163,16 @@ export async function GET(
         data_consent_at: (r.data_consent_at as string | null) ?? null,
         status: r.status as CdcWillingnessStatus,
         declared_at: r.declared_at as string,
+        // A standing CDC reopening, read exactly as the learner's page reads it,
+        // so the team sees "Reopened" instead of a bare "Declined" with a live
+        // Reopen button that would only reopen it again.
+        reopened: isReopenedForLearner(
+          {
+            status: r.status as CdcWillingnessStatus,
+            willingness_audit: (r.willingness_audit as unknown[] | null) ?? [],
+          },
+          drive
+        ),
       });
     }
 
@@ -210,6 +232,63 @@ export async function GET(
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Unknown error' },
       { status: 500 }
+    );
+  }
+}
+
+/**
+ * Reopen ONE learner's declined answer (Ruling B). Body: { action: 'reopen',
+ * willingness_id }. Refused by the service once the drive day has passed (the
+ * drive day itself is allowed); a refusal is a 400 carrying the plain-English
+ * reason, never a silent no-op.
+ */
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  await connection();
+  try {
+    const { id } = await params;
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const { data: canView } = await supabase.rpc('user_has_permission', {
+      permission_name: 'cdc.drives.view',
+    });
+    if (canView !== true) {
+      return NextResponse.json({ error: 'Forbidden — cdc.drives.view required' }, { status: 403 });
+    }
+
+    const body = await request.json().catch(() => ({}));
+    if (body.action !== 'reopen') {
+      return NextResponse.json({ error: 'action must be "reopen"' }, { status: 400 });
+    }
+    const willingnessId = typeof body.willingness_id === 'string' ? body.willingness_id : '';
+    if (!willingnessId) {
+      return NextResponse.json({ error: 'willingness_id is required' }, { status: 400 });
+    }
+
+    // Same reason the GET reads on the service role: a drive's audience is
+    // multi-college, so a coordinator's own RLS scope can hide the very row the
+    // gate just said they may act on.
+    const service = createServiceRoleClient();
+    const updated = await CdcWillingnessService.reopenDeclinedResponse(
+      service,
+      id,
+      willingnessId,
+      user.id
+    );
+    return NextResponse.json({ data: updated }, { headers: { 'Cache-Control': 'no-store' } });
+  } catch (err) {
+    console.error('[cdc/drives/[id]/responses] POST error', err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : 'Unknown error' },
+      { status: 400 }
     );
   }
 }

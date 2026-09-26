@@ -588,6 +588,11 @@ export interface CdcDriveResponseRow {
   data_consent_at: string | null;
   status: CdcWillingnessStatus;
   declared_at: string;
+  /**
+   * A CDC team member has reopened this declined answer and the learner has not
+   * yet used it (and it has not expired). Read by `isReopenedForLearner`.
+   */
+  reopened?: boolean;
 }
 
 /** Willingness bucket used by the assigned-learner view (`/cdc/drives/[id]/willingness`). */
