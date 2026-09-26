@@ -337,4 +337,26 @@ export const LOOP_GOVERNANCE_ROUTINES: AIRoutine[] = [
     notes:
       "Fires via the AI-routine dispatcher (ai_routine_schedules row 'top-numbers', migration 20261226010100), NOT vercel.json. Auth: CRON_SECRET Bearer header only — no ?secret= query form. NEVER a silent skip and never a fake number: when the Sentry token is unset or the call fails, T1 is still RECORDED with value NULL and gap 'insufficient — …', because a missing row would read on /admin/loops exactly like a week nobody measured; likewise T2 records 'insufficient — usage record not live' until something records usage. Re-running in the same week appends a second reading for that week rather than replacing the first — the table is an append-only log. Returns {week, results[]}; a failed RPC is HTTP 500 so the dispatcher records it. Needs the registry rows from 20261226010000 (fn_loop_record_measurement raises if a loop_key is absent) and loop_measurements from 20261225070000; while either is unapplied the route answers 500, never a crash.",
   },
+  {
+    id: 'adoption-daily-tick',
+    name: 'Feature Adoption — daily why-not question and reminder (the adoption loop acting on its own)',
+    category: 'misc-ai',
+    type: 'cron',
+    schedule: 'Daily 10:33 IST (dispatcher-managed)',
+    triggerPath: '/api/cron/adoption-daily-tick',
+    callsClaude: false,
+    featureKey: null,
+    featureKeyNote:
+      'Rules-based SQL — one RPC to fn_adoption_daily_tick; no model is resolved and nothing is enqueued.',
+    capPolicyKey: 'adoption.tick.max_notifications',
+    whatItDoes:
+      "Director rulings 2026-09-24 (9: the adoption desk acts, not just reports; 10: one reminder a month). Once a day, for every labelled, recorded feature at least 14 days old (never a when-needed, skipped, retired or sign-in line): first, if every intended role is under 5 % (last 7 days, or this term for a seasonal feature), its non-users get the one-tap 'why not?' question — the same one the Ask why button sends, with the same limits (once per feature ever, once per person per week). Then people who have never done a feature's core action get one plain in-app reminder, at most once a month per feature. Fair order: every feature gets an equal share of the day (floor share, remainder in order), first reminders before any repeat, repeats oldest-first across all features. Nobody gets more than one adoption message a day. Before this, the question had never been sent: it needed a super admin to press a button.",
+    configKnobs:
+      "platform_policies adoption.tick.max_notifications (100 for the first rollout — most people messaged in one IST day, shared with the Ask why button; 0 = send nothing), adoption.tick.exclude_features (feature keys the run skips entirely; seeded with induction.my_sessions_open, whose label is wider than the people it serves; guide.open, where a blocking question to everyone would be a nag; and learners.create_profile, whose old beacon undercounted it — fails closed: a missing or malformed row stops the run), adoption.loop.enabled (master switch: off = nothing asked or reminded). Fixed by ruling, in the SQL: 5 % near-zero bar, 14-day minimum age, 7-day and once-ever question limits, 30-day reminder limit, one adoption message per person per day. feature_registry.href = the link a reminder carries (NULL = no link). Schedule editable on /admin/ai-routines.",
+    sideEffects:
+      "SENDS IN-APP NOTIFICATIONS to real people: must-answer 'why not?' questions (adoption_asks rows) and plain low-priority reminders (adoption_reminders rows), each from the feature-adoption loop's owner account. No email, no WhatsApp, no model calls. Never changes a feature, a role or a permission (ruling 8 keeps those with the Director).",
+    safeToManualTrigger: false,
+    notes:
+      "Fires via the AI-routine dispatcher (ai_routine_schedules row 'adoption-daily-tick', migration 20270324090000), NOT vercel.json. Auth: CRON_SECRET Bearer header only. ?dry_run=1 returns what WOULD be sent and writes nothing — use that instead of Run now to preview. A same-day re-run sends only what is left of the day's budget (every limit is keyed on rows already written that IST day). Returns {summary, result: {asked, reminded, capped, features}} — counts only, never who. An RPC error or a refused run (e.g. the loop owner has no profile) is HTTP 500 so the dispatcher records it; switched off is a 200 'skipped'. Rehearsed on production 2026-09-26 in BEGIN…ROLLBACK (dry run), 100 cap, three features excluded: the first run would ask 0 people and remind 100, spread across 8 features by the fair order — plain, non-blocking reminders, at most one a month per feature.",
+  },
 ];
