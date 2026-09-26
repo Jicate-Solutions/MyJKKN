@@ -443,6 +443,25 @@ DO $$ DECLARE w jsonb; BEGIN
   RAISE NOTICE 'floor share: ok';
 END $$;
 ROLLBACK;
+\echo '--- review 8: a stale bridged feature (newest) holds no share: budget 2 → old.thing 1 and big.thing 1'
+BEGIN;
+SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);
+SELECT fn_adoption_register('stale.thing','Stale thing','do the stale thing','{student}',NULL,NULL, now() - interval '16 days', true)->>'success' AS rs;
+UPDATE feature_registry SET usage_event_module = 'stale-module', usage_synced_at = now() - interval '10 days' WHERE feature_key = 'stale.thing';
+UPDATE feature_registry SET status = 'retired' WHERE feature_key NOT IN ('old.thing','big.thing','stale.thing','app.login');
+UPDATE adoption_asks SET asked_at = now() - interval '40 days';
+DELETE FROM adoption_reminders WHERE feature_key IN ('old.thing','big.thing','stale.thing');
+UPDATE adoption_reminders SET sent_at = now() - interval '40 days';
+UPDATE platform_policies SET value = '2'::jsonb WHERE policy_key = 'adoption.tick.max_notifications' AND scope_type = 'global';
+SELECT set_config('request.jwt.claim.sub','',false);
+DO $$ DECLARE w jsonb; BEGIN
+  w := fn_adoption_daily_tick(true);
+  IF COALESCE((w->'features'->'old.thing'->>'reminded')::int,0) <> 1
+     OR COALESCE((w->'features'->'big.thing'->>'reminded')::int,0) <> 1 THEN
+    RAISE EXCEPTION 'FAIL stale feature held a share: %', w->'features'; END IF;
+  RAISE NOTICE 'stale holds no share: ok';
+END $$;
+ROLLBACK;
 \echo '--- repeats across features: budget 1, everyone had a first reminder on both, the OLDER feature''s reminder is older: EXPECT it wins'
 BEGIN;
 SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);

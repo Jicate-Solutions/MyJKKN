@@ -346,9 +346,10 @@ GRANT  EXECUTE ON FUNCTION public.fn_adoption_ask_why_core(text, date, uuid, boo
 -- ---------------------------------------------------------------------
 -- 5) fn_adoption_ask_why — the button, unchanged for people
 -- ---------------------------------------------------------------------
--- Same signature and grants as 20260918230000. Still super admin only, still
--- one call = everyone eligible (no cap, no exclusions), and still never
--- returns person ids: the core's 'targets' list is stripped here.
+-- Same signature and grants as 20260918230000. Still super admin only, and still
+-- never returns person ids: the core's 'targets' list is stripped here. Since
+-- reviews 3, 4 and 7 it is capped by what is left of the day's global budget and
+-- takes the shared lock first; it does not read the exclusion list (deliberate).
 -- ci:allow-secdef-authenticated the body RAISES 42501 unless is_super_admin(); only the Adoption desk / super admins may send the why-not question.
 CREATE OR REPLACE FUNCTION public.fn_adoption_ask_why(p_feature_key text, p_as_of date DEFAULT NULL)
 RETURNS jsonb
@@ -741,6 +742,7 @@ DECLARE
   v_touched   uuid[] := '{}'::uuid[];
   v_week_from date := (now() AT TIME ZONE 'Asia/Kolkata')::date - 6;
   v_tstart    date;
+  v_tend      date;
   v_feat      record;
   v_from      date;
   v_near_zero boolean;
@@ -793,7 +795,7 @@ BEGIN
       'error', 'no sender: the feature-adoption loop''s owner_email matches no profile');
   END IF;
 
-  SELECT w.term_start INTO v_tstart FROM public.fn_adoption_term_window() w;
+  SELECT w.term_start, w.term_end INTO v_tstart, v_tend FROM public.fn_adoption_term_window() w;
 
   -- One adoption message per person per day holds across runs too: anyone
   -- reminded earlier the same IST day is not messaged by this run. (Anyone asked
@@ -814,6 +816,9 @@ BEGIN
       AND fr.cadence <> 'event'
       AND fr.shipped_at <= now() - interval '14 days'
       AND NOT (fr.feature_key = ANY (v_excluded))
+      -- review 8: a feature the core would refuse must not hold a share
+      AND NOT (fr.usage_event_module IS NOT NULL
+               AND (fr.usage_synced_at IS NULL OR fr.usage_synced_at < now() - interval '7 days'))
     ORDER BY fr.shipped_at, fr.feature_key
   LOOP
     v_from := CASE WHEN v_feat.cadence = 'term' THEN v_tstart ELSE v_week_from END;
@@ -845,7 +850,11 @@ BEGIN
     v_rows := v_rows || jsonb_build_object(v_feat.feature_key,
       jsonb_build_object('near_zero', v_near_zero, 'asked', 0, 'reminded', 0));
 
-    IF v_near_zero THEN
+    -- review 8: a term feature is asked about only in the last 14 days of its
+    -- term (the core refuses otherwise), so outside that window it takes no share
+    IF v_near_zero
+       AND NOT (v_feat.cadence = 'term'
+                AND (now() AT TIME ZONE 'Asia/Kolkata')::date < v_tend - 14) THEN
       v_keys := v_keys || v_feat.feature_key;
     END IF;
   END LOOP;
@@ -906,6 +915,9 @@ BEGIN
       AND fr.cadence <> 'event'
       AND fr.shipped_at <= now() - interval '14 days'
       AND NOT (fr.feature_key = ANY (v_excluded))
+      -- review 8: a feature the core would refuse must not hold a share
+      AND NOT (fr.usage_event_module IS NOT NULL
+               AND (fr.usage_synced_at IS NULL OR fr.usage_synced_at < now() - interval '7 days'))
     ORDER BY fr.shipped_at DESC, fr.feature_key
   LOOP
     v_keys := v_keys || v_feat.feature_key;
