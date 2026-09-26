@@ -8,11 +8,53 @@ import type {
   UpdateInstitutionDto,
   InstitutionFilters,
   OrganizationListResponse,
-  EntityType
+  EntityType,
+  DepartmentContact,
+  InstitutionDepartments
 } from '@/types/organizations';
 import { StorageService } from '@/lib/storage/storage-service';
 import { logger, serializeError } from '@/lib/utils/enhanced-logger';
-import type { Database } from '@/types/database.types';
+import type { Database } from '@/types/supabase';
+
+/**
+ * Which contact rows to write and which types to remove, from the form's
+ * departments object. A type with a (non-blank) contact name is upserted; a
+ * type present with a blank name was cleared by the person and is removed.
+ * A type absent from the object is left alone.
+ */
+export function departmentContactChanges(
+  institutionId: string,
+  departments: InstitutionDepartments
+): {
+  upserts: Array<{
+    institution_id: string;
+    department_type: string;
+    contact_name: string;
+    designation: string | null;
+    email: string | null;
+    mobile: string | null;
+  }>;
+  cleared: string[];
+} {
+  const upserts: ReturnType<typeof departmentContactChanges>['upserts'] = [];
+  const cleared: string[] = [];
+  for (const [type, contact] of Object.entries(departments) as Array<[string, DepartmentContact | undefined]>) {
+    const name = contact?.contact_name?.trim();
+    if (name) {
+      upserts.push({
+        institution_id: institutionId,
+        department_type: type,
+        contact_name: name,
+        designation: contact?.designation?.trim() || null,
+        email: contact?.email?.trim() || null,
+        mobile: contact?.mobile?.trim() || null,
+      });
+    } else if (contact !== undefined) {
+      cleared.push(type);
+    }
+  }
+  return { upserts, cleared };
+}
 
 export class OrganizationService {
   private static get supabase() {
@@ -90,25 +132,8 @@ export class OrganizationService {
         throw institutionError;
       }
 
-      // Only create department contacts if they exist and have data
       if (data.departments) {
-        const departmentPromises = Object.entries(data.departments)
-          .filter(([_, contact]) => contact && contact.contact_name) // Only process departments with data
-          .map(([type, contact]) => {
-            const deptData = {
-              institution_id: institution.id,
-              department_type: type,
-              contact_name: contact.contact_name!,
-              designation: contact.designation!,
-              email: contact.email!,
-              mobile: contact.mobile!
-            };
-            return (((this.supabase as any).from('institution_departments')).insert(deptData));
-          });
-
-        if (departmentPromises.length > 0) {
-          await Promise.all(departmentPromises);
-        }
+        await this.saveDepartmentContacts(institution.id, data.departments);
       }
 
       return institution;
@@ -161,32 +186,8 @@ export class OrganizationService {
 
       if (institutionError) throw institutionError;
 
-      // Update department contacts if provided
       if (data.departments) {
-        // First delete existing departments
-        await (this.supabase as any)
-          .from('institution_departments')
-          .delete()
-          .eq('institution_id', id);
-
-        // Then create new ones if they have data
-        const departmentPromises = Object.entries(data.departments)
-          .filter(([_, contact]) => contact && contact.contact_name)
-          .map(([type, contact]) => {
-            const deptData = {
-              institution_id: id,
-              department_type: type,
-              contact_name: contact.contact_name!,
-              designation: contact.designation!,
-              email: contact.email!,
-              mobile: contact.mobile!
-            };
-            return (((this.supabase as any).from('institution_departments')).insert(deptData));
-          });
-
-        if (departmentPromises.length > 0) {
-          await Promise.all(departmentPromises);
-        }
+        await this.saveDepartmentContacts(id, data.departments);
       }
 
       return institution;
@@ -319,8 +320,14 @@ export class OrganizationService {
         this.supabase.from('academic_years').delete().eq('institution_id', id)
       ]);
 
-      // Delete institution departments
-      await (this.supabase as any).from('institution_departments').delete().eq('institution_id', id);
+      // Department contacts go with the institution (the FK also cascades).
+      const { error: contactsError } = await (this.supabase as any)
+        .from('institution_departments')
+        .delete()
+        .eq('institution_id', id);
+      if (contactsError) {
+        throw new Error(`Could not remove this institution's department contacts: ${contactsError.message}`);
+      }
 
       // Finally delete the institution itself
       const { error } = await this.supabase
@@ -364,6 +371,40 @@ export class OrganizationService {
     } catch (error) {
       console.error('Error deleting institution:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Save the department contacts typed on the create / edit form (BUG-003313).
+   *
+   * Before: every contact was inserted into a table that did not exist, the
+   * errors were never read, and an edit first deleted every existing row. Now:
+   * a named contact is upserted on (institution_id, department_type); a type
+   * whose name was cleared is deleted; nothing else is touched; any error is
+   * thrown with a sentence a person can act on.
+   */
+  private static async saveDepartmentContacts(
+    institutionId: string,
+    departments: InstitutionDepartments
+  ): Promise<void> {
+    const { upserts, cleared } = departmentContactChanges(institutionId, departments);
+    const table = () => (this.supabase as any).from('institution_departments');
+
+    if (upserts.length > 0) {
+      const { error } = await table().upsert(upserts, { onConflict: 'institution_id,department_type' });
+      if (error) {
+        throw new Error(`The institution was saved, but its department contacts were not: ${error.message}`);
+      }
+    }
+
+    if (cleared.length > 0) {
+      const { error } = await table()
+        .delete()
+        .eq('institution_id', institutionId)
+        .in('department_type', cleared);
+      if (error) {
+        throw new Error(`The institution was saved, but the cleared department contacts were not removed: ${error.message}`);
+      }
     }
   }
 
@@ -514,22 +555,19 @@ export class OrganizationService {
         throw new Error('Institution not found');
       }
 
-      // Fetch departments for this institution
-      const { data: departments, error: departmentsError } = await this.supabase
-        .from('departments')
-        .select('*')
+      // Department contacts (BUG-003313). They live in institution_departments,
+      // not the academic `departments` table this used to read — so the edit
+      // form always came back blank. A failed read is said out loud rather
+      // than shown as "no contacts", which would invite overwriting real ones.
+      const { data: departments, error: departmentsError } = await (this.supabase as any)
+        .from('institution_departments')
+        .select('department_type, contact_name, designation, email, mobile')
         .eq('institution_id', id);
 
       if (departmentsError) {
-        console.error('[OrganizationService] Error fetching departments:', {
-          institutionId: id,
-          error: departmentsError
-        });
-        // Don't throw for departments error - just return empty departments
-        return {
-          institution: institution as Institution,
-          departments: {}
-        };
+        throw new Error(
+          `Could not load this institution's department contacts: ${departmentsError.message}`
+        );
       }
 
       // Transform departments into expected format
@@ -607,7 +645,8 @@ export class OrganizationService {
 
       if (error) throw error;
 
-      return data || [];
+      // entity_type is a text column; the rows hold EntityType values.
+      return (data || []) as Array<{ id: string; name: string; counselling_code: string; entity_type: EntityType }>;
     } catch (error) {
       const serialized = serializeError(error);
       logger.error(
