@@ -44,6 +44,19 @@ export async function GET(request: Request) {
       );
     }
 
+    // A person's own outside-AI key (key_kind 'personal', migration
+    // 20270301090000) works only at the MCP door. This route compares the raw
+    // bearer text with key_value, and a personal row stores the SHA-256 of its
+    // key, which the key's owner can compute — so the row is refused by kind.
+    // Before that migration is applied the column is absent (undefined) and
+    // every row is an administrator key, so nothing changes for them.
+    if (apiKey.key_kind === 'personal') {
+      return NextResponse.json(
+        { error: 'Invalid or inactive API key' },
+        { status: 401 }
+      );
+    }
+
     // Parse query params
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status') || 'approved';

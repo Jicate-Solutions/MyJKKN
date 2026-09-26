@@ -7,18 +7,72 @@ MyJKKN exposes an MCP (Model Context Protocol) server that lets you connect your
 
 ## Prerequisites
 
-1. A MyJKKN API key (`jkkn_xxxxxxxxxxxx` format)
+1. A MyJKKN key: your own personal key (`jkkn_pk_…`, made on **Connect an outside AI**) or an administrator key (`jkkn_…`)
 2. A paid AI platform account (Claude Pro/Max/Team, ChatGPT Plus/Pro, etc.)
 
 ## Getting Your API Key
 
-Contact your institution administrator to generate an API key for you.
-Keys are scoped to your role:
+There are two kinds of key. Both use the same address and the same `Authorization: Bearer <key>` header.
+
+### Your own key (personal key) — make it yourself
+
+Anyone who can open the **AI Assistant** (permission `ai_query.view`) can make their own key:
+
+1. In MyJKKN open **Connect an outside AI** (sidebar, under AI Assistant — `/ai-query/connect`).
+2. Give the key a name (for example "Claude on my laptop"), choose 30, 60 or 90 days, and press **Make key**.
+3. **Copy the key straight away.** It starts with `jkkn_pk_` and is shown only once. MyJKKN keeps only a fingerprint (SHA-256) of it.
+4. Paste it into your AI as described below.
+
+What a personal key can do:
+
+- It sees **only what you can see** in MyJKKN. Every tool runs as you, through your own sign-in, with the same rules the AI Assistant uses. It never uses the system's all-access key.
+- It can **only read**. Tools that send, mark, change or manage anything are never offered through this door.
+- It offers the tools listed in MyJKKN's AI tool catalog (`public.ai_tool_catalog`, audience `door`) — the same list the AI Assistant uses, so a new ability added there reaches your outside AI too. The 12 `myjkkn_*` tools in the table below are for administrator keys only.
+- It lasts at most **90 days**, and you can have at most **3 working keys** at a time.
+- You can **turn a key off** on the same page at any time; it stops working at once. If you lose the AI Assistant permission, your keys stop working too.
+- Every tool call is recorded (which key, which tool, when, and whether it worked — never the data), and each key is limited to 60 requests a minute.
+- A personal key does **not** work on the other MyJKKN APIs (`/api/b2a/*`, `/api/api-management/*`, `/api/v1/transport-requests`); only here.
+- Asking about a college you cannot see is refused, and one call returns at most 500 rows.
+
+Treat it like a password: paste it only into your own AI app, never into a chat, email or document.
+
+### Administrator key
+
+An administrator can issue an institution key in **System → API Keys**. These keys are scoped by role:
 - **Admin keys**: See all institution data
 - **Faculty keys**: See your department's data
-- **Student keys**: See only your own data
+- **Learner keys**: See only your own data
+
+## Connecting from Gemini CLI
+
+Add to `~/.gemini/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "myjkkn": {
+      "httpUrl": "https://www.jkkn.ai/api/mcp/mcp",
+      "headers": { "Authorization": "Bearer jkkn_pk_YOUR_KEY" }
+    }
+  }
+}
+```
+
+## Connecting from Zoho Zia
+
+If your Zoho plan lets Zia connect to outside tools (MCP servers), add a server with the address
+`https://www.jkkn.ai/api/mcp/mcp` and a header `Authorization: Bearer jkkn_pk_YOUR_KEY`.
+The exact menu depends on your Zoho product and plan.
 
 ## Connecting from Claude Desktop / Claude.ai
+
+> **Personal keys (`jkkn_pk_…`), checked 2026-09-23:** claude.ai custom connectors
+> sign in with OAuth, which this door does not offer yet. A fixed `Authorization`
+> header there is a beta that an organisation administrator sets once for EVERY
+> member of the organisation — never put a personal key there. Use Claude Code,
+> or Claude Desktop through the `mcp-remote` lines under "Cursor / Other MCP
+> Clients" below (with `jkkn_pk_YOUR_KEY`). The steps in this section are for
+> administrator keys and may not match your version of the app.
 
 1. Open Claude Desktop
 2. Go to **Settings > Connectors**
@@ -35,6 +89,9 @@ You can now ask Claude questions like:
 - "List students in the Computer Science department"
 
 ## Connecting from ChatGPT
+
+> **Personal keys (`jkkn_pk_…`), checked 2026-09-23:** ChatGPT connectors sign in
+> with OAuth or with no sign-in at all, so a personal key cannot be used there yet.
 
 1. Open ChatGPT
 2. Go to **Settings > Connectors > Advanced > Developer Mode**
@@ -123,6 +180,8 @@ Use the `mcp-remote` proxy for clients that only support stdio:
 | Issue | Solution |
 |-------|----------|
 | "Authentication required" | Check your API key is correct and not expired |
+| "This key is not valid, has been turned off, or has expired" | Personal key: make a new one on **Connect an outside AI** |
+| "Too many requests" | Wait a minute; each key allows 60 requests a minute |
 | "Access denied: requires X module" | Your key doesn't have permission for that module. Contact admin. |
 | Tool not appearing | Restart your AI client after adding the MCP server |
 | Connection timeout | Check that the server URL is correct and accessible |
