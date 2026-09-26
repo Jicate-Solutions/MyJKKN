@@ -37,39 +37,7 @@ export const maxDuration = 120;
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/utils/enhanced-logger';
-
-/** What fn_adoption_daily_tick returns (counts only — never who). */
-export interface AdoptionTickResult {
-  success: boolean;
-  error?: string;
-  skipped?: string;
-  dry_run?: boolean;
-  cap?: number;
-  capped?: boolean;
-  asked?: number;
-  reminded?: number;
-  features?: Record<
-    string,
-    {
-      near_zero?: boolean;
-      asked?: number;
-      reminded?: number;
-      ask_note?: string | null;
-      remind_note?: string | null;
-    }
-  >;
-}
-
-/** One line for the log and the dispatcher's status column. */
-export function summariseTick(result: AdoptionTickResult): string {
-  if (result.skipped) return `skipped: ${result.skipped}`;
-  const asked = Number(result.asked ?? 0);
-  const reminded = Number(result.reminded ?? 0);
-  const prefix = result.dry_run ? 'would ask' : 'asked';
-  const verb = result.dry_run ? 'would remind' : 'reminded';
-  const cap = result.capped ? ` (cap ${result.cap} reached — the rest go on a later day)` : '';
-  return `${prefix} ${asked}, ${verb} ${reminded}${cap}`;
-}
+import { summariseTick, type AdoptionTickResult } from '@/lib/adoption/tick-summary';
 
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;

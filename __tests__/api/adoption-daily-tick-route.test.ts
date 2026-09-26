@@ -29,7 +29,8 @@ vi.mock('@/lib/supabase/server', () => ({
   createServiceRoleClient: () => ({ rpc }),
 }));
 
-import { GET, summariseTick } from '@/app/api/cron/adoption-daily-tick/route';
+import { GET } from '@/app/api/cron/adoption-daily-tick/route';
+import { summariseTick } from '@/lib/adoption/tick-summary';
 import { summarizeRoutineResult } from '@/lib/ai-routines/summarize-routine-result';
 
 const SECRET = 'test-cron-secret';

@@ -475,6 +475,22 @@ UPDATE feature_registry SET status = 'retired' WHERE feature_key = 'mid.thing';
 SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);
 UPDATE feature_registry SET status = 'retired' WHERE feature_key IN ('old.thing','big.thing');
 
+-- ===== review 7: one cap for everyone — a per-person override is ignored =====
+\echo '--- global cap 0 with a super-admin override of 200: EXPECT the button refused (the override is not read)'
+SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);
+SELECT set_config('request.jwt.claim.role','authenticated',false);
+UPDATE platform_policies SET value = '0'::jsonb WHERE policy_key = 'adoption.tick.max_notifications' AND scope_type = 'global';
+INSERT INTO platform_policies (policy_key, scope_type, scope_id, value, data_type, is_active)
+VALUES ('adoption.tick.max_notifications', 'user', '20000000-0000-0000-0000-000000000001', '200'::jsonb, 'number', true);
+DO $$ DECLARE r jsonb; BEGIN
+  IF public.fn_adoption_tick_cap() <> 0 THEN RAISE EXCEPTION 'FAIL cap reader saw the override: %', public.fn_adoption_tick_cap(); END IF;
+  r := fn_adoption_ask_why('cap.thing');
+  IF (r->>'success')::boolean IS NOT FALSE OR r->>'error' NOT ILIKE '%budget%' THEN RAISE EXCEPTION 'FAIL override widened the button: %', r; END IF;
+  RAISE NOTICE 'global cap only: ok';
+END $$;
+DELETE FROM platform_policies WHERE policy_key = 'adoption.tick.max_notifications' AND scope_type = 'user';
+UPDATE platform_policies SET value = '100'::jsonb WHERE policy_key = 'adoption.tick.max_notifications' AND scope_type = 'global';
+
 -- ===== review 3: the button shares the day's budget and the one-message-a-day rule =====
 \echo '--- button with the day budget spent: EXPECT refused, nothing sent'
 SELECT set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000001',false);

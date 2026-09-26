@@ -71954,6 +71954,36 @@ GRANT  EXECUTE ON FUNCTION public.fn_adoption_loop_sender() TO service_role;
 -- run or a reminder sent by hand all draw from the same daily budget. Every
 -- why-not question and reminder sent since midnight IST counts, including
 -- questions sent with the Ask why button.
+-- The daily cap, read from the GLOBAL row only (review 7). fn_get_policy_int
+-- honours user- and role-level overrides, so the scheduler (no user) and the
+-- Ask why button (a super admin) could see different caps and together exceed
+-- the global one. Every entry point reads this instead. A missing or unreadable
+-- row falls back to 100; a negative value counts as 0.
+CREATE OR REPLACE FUNCTION public.fn_adoption_tick_cap()
+RETURNS integer
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_cap integer;
+BEGIN
+  BEGIN
+    SELECT (pp.value #>> '{}')::integer INTO v_cap
+    FROM public.platform_policies pp
+    WHERE pp.policy_key = 'adoption.tick.max_notifications'
+      AND pp.scope_type = 'global' AND pp.scope_id IS NULL AND pp.is_active
+    LIMIT 1;
+  EXCEPTION WHEN others THEN
+    v_cap := NULL;
+  END;
+  RETURN GREATEST(COALESCE(v_cap, 100), 0);
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_tick_cap() FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_adoption_tick_cap() TO service_role;
+
 CREATE OR REPLACE FUNCTION public.fn_adoption_day_remaining()
 RETURNS integer
 LANGUAGE plpgsql
@@ -71966,7 +71996,7 @@ DECLARE
   v_day_start  timestamptz := date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata') AT TIME ZONE 'Asia/Kolkata';
   v_sent       integer;
 BEGIN
-  v_cap := GREATEST(COALESCE(public.fn_get_policy_int('adoption.tick.max_notifications', 100), 100), 0);
+  v_cap := public.fn_adoption_tick_cap();
   SELECT (SELECT count(*) FROM public.adoption_asks WHERE asked_at >= v_day_start)
        + (SELECT count(*) FROM public.adoption_reminders WHERE sent_at >= v_day_start)
     INTO v_sent;
@@ -72144,7 +72174,7 @@ BEGIN
 
   -- The cap is per IST day: whatever was already sent today (by an earlier
   -- run, a manual run or the Ask why button) comes off it.
-  v_cap := GREATEST(COALESCE(public.fn_get_policy_int('adoption.tick.max_notifications', 100), 100), 0);
+  v_cap := public.fn_adoption_tick_cap();
   v_left := public.fn_adoption_day_remaining();
   v_capped := v_left <= 0;
 
