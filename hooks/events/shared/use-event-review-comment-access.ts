@@ -16,14 +16,16 @@
 // `authenticated`, and only ever reveals the caller's own authority. Widening
 // the rule in SQL updates the UI at the same instant.
 //
-// ── Students are refused before the round-trip ─────────────────────────────
-// The requirement was explicit: participants and learners never see this. A
-// student is therefore short-circuited to canView=false here rather than being
-// asked about, which also means a student who somehow appears in an event's
-// in-charge list (nothing stops a coordinator typing one in) does not get a
-// window into the review channel. RLS remains the real gate — it would hand
-// them rows in that one case — so this is the layer that honours the rule as
-// written, not merely a courtesy.
+// ── Learners are asked, not assumed ────────────────────────────────────────
+// Until 2026-09-24 a learner was short-circuited to canView=false here before
+// the round-trip. BUG-006176 (the COO, reviewing authority): the learner
+// in-charges of a sports tournament must see his remarks. The SQL rule now
+// admits exactly that one case — an active learner appointed in-charge of a
+// sports tournament — and still refuses every other learner (other event
+// types, committee members, the tagged arm). A second, stricter copy of the
+// rule here would hide the card from the very people the database now lets
+// in, so learners ask the same function as everyone else. They are still not
+// asked the admin question: fn_is_event_review_admin never admits a learner.
 
 'use client';
 
@@ -54,15 +56,23 @@ export interface EventReviewCommentAccess {
   isSuperAdmin: boolean;
   /** True until the answer is known — treat as "not yet", never as "no". */
   isLoading: boolean;
+  /**
+   * The viewer is a learner. Almost every learner is refused, so a surface
+   * that would paint a placeholder while the answer is pending should paint
+   * nothing for them instead — otherwise every learner on every event page
+   * sees a card-shaped skeleton flash and vanish.
+   */
+  isLearner: boolean;
 }
 
 export function useEventReviewCommentAccess(eventId: string): EventReviewCommentAccess {
   const { isSuperAdmin, isStudent, isLoading: permsLoading } = usePermissions();
 
   // Super admins pass both SQL functions unconditionally; skipping the
-  // round-trip keeps the commonest reviewing path instant. Students are refused
-  // outright (see the header) and never ask.
-  const enabled = !!eventId && !isSuperAdmin && !isStudent && !permsLoading;
+  // round-trip keeps the commonest reviewing path instant. Learners ask the
+  // read question only (see the header).
+  const enabled = !!eventId && !isSuperAdmin && !permsLoading;
+  const adminEnabled = enabled && !isStudent;
 
   const { data: canRead, isLoading: readLoading } = useQuery({
     queryKey: KEYS.read(eventId),
@@ -90,7 +100,7 @@ export function useEventReviewCommentAccess(eventId: string): EventReviewComment
     queryKey: KEYS.admin(),
     // Not event-scoped: the function asks only about the caller's own roles, so
     // one answer serves every event this session opens.
-    enabled,
+    enabled: adminEnabled,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const supabase = createClientSupabaseClient() as any;
@@ -101,9 +111,11 @@ export function useEventReviewCommentAccess(eventId: string): EventReviewComment
   });
 
   return {
-    canView: !isStudent && (isSuperAdmin || canRead === true),
+    canView: isSuperAdmin || canRead === true,
     isReviewAdmin: isSuperAdmin || isAdmin === true,
     isSuperAdmin,
-    isLoading: permsLoading || (enabled && (readLoading || adminLoading)),
+    isLoading:
+      permsLoading || (enabled && readLoading) || (adminEnabled && adminLoading),
+    isLearner: isStudent,
   };
 }

@@ -74,6 +74,7 @@ export function EventReviewCommentsCard({ eventId }: { eventId: string }) {
     isReviewAdmin,
     isSuperAdmin,
     isLoading: accessLoading,
+    isLearner,
   } = useEventReviewCommentAccess(eventId);
 
   const { data: threads, isLoading, isError, error } = useEventReviewComments(eventId, canView);
@@ -92,6 +93,12 @@ export function EventReviewCommentsCard({ eventId }: { eventId: string }) {
   // Every hook above runs unconditionally. Returning before one of them would
   // change the hook count between renders the moment the authority answer
   // arrives, which React treats as a fatal error rather than a re-render.
+  //
+  // A learner is asked too (a tournament's learner in-charges are admitted),
+  // but nearly every learner is refused, so they get nothing while the answer
+  // is pending — not a skeleton that flashes and vanishes on every event page.
+  // The few who are admitted see the card appear once the answer lands.
+  if (accessLoading && isLearner) return null;
   if (accessLoading) {
     return (
       <Card>
@@ -113,8 +120,9 @@ export function EventReviewCommentsCard({ eventId }: { eventId: string }) {
         <>
           Remarks from the reviewing authority on this event, and the
           coordinator&apos;s replies. Only super admins, this event&apos;s
-          creator and in-charge, roles granted Review Comments access, and
-          team members tagged here can see this — participants and learners never do.
+          creator and in-charge (on a sports tournament, learner in-charges
+          too), roles granted Review Comments access, and team members tagged
+          here can see this — participants and other learners never do.
           Type @ or use Tag people to bring in a team member of this event&apos;s
           institution; remove a tag with × to take their access away.
         </>
