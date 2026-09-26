@@ -59,6 +59,14 @@ export interface IntegrationPrefsState {
    * setting that cannot be stored.
    */
   noteInTitleSupported: boolean;
+  /**
+   * Opt-in: create this host's Google Meet with auto recording on, so the
+   * meeting records itself and the file reaches the notes pipeline. Default
+   * false — recording is the host's decision.
+   */
+  autoRecord: boolean;
+  /** False until migration 20260915060000 is applied; the card hides the toggle. */
+  autoRecordSupported: boolean;
 }
 
 const VALID_PROVIDERS: readonly VideoProvider[] = ['google', 'zoom', 'teams'];
@@ -88,20 +96,37 @@ export async function getIntegrationPrefs(): Promise<ActionResult<IntegrationPre
     // Ask for show_note_in_title first; a database where migration
     // 20260813000000 has not been applied answers 42703, and we re-read without
     // it so the rest of the card keeps working.
-    let noteInTitleSupported = true;
-    let { data, error } = await supabase
-      .from('meeting_host_integration_prefs')
-      .select('video_provider, provider_host_identity, show_note_in_title')
-      .eq('host_profile_id', user.id)
-      .maybeSingle();
+    // Two optional columns, each added by its own Director-gated migration, so
+    // any of the four combinations can be live. A single 42703 does not say
+    // WHICH column is missing — so narrow one at a time and let the query that
+    // finally succeeds name what this database actually has. Cost: extra round
+    // trips only on a database that is behind, none on a current one.
+    const BASE = 'video_provider, provider_host_identity';
+    const attempts: Array<{ cols: string; note: boolean; rec: boolean }> = [
+      { cols: `${BASE}, show_note_in_title, auto_record`, note: true, rec: true },
+      { cols: `${BASE}, auto_record`, note: false, rec: true },
+      { cols: `${BASE}, show_note_in_title`, note: true, rec: false },
+      { cols: BASE, note: false, rec: false },
+    ];
 
-    if (error?.code === UNDEFINED_COLUMN) {
-      noteInTitleSupported = false;
-      ({ data, error } = await supabase
+    let noteInTitleSupported = false;
+    let autoRecordSupported = false;
+    let data: Record<string, unknown> | null = null;
+    let error: { code?: string; message: string } | null = null;
+
+    for (const attempt of attempts) {
+      ({ data, error } = (await supabase
         .from('meeting_host_integration_prefs')
-        .select('video_provider, provider_host_identity')
+        .select(attempt.cols)
         .eq('host_profile_id', user.id)
-        .maybeSingle());
+        .maybeSingle()) as {
+        data: Record<string, unknown> | null;
+        error: { code?: string; message: string } | null;
+      });
+      if (error?.code === UNDEFINED_COLUMN) continue;
+      noteInTitleSupported = attempt.note;
+      autoRecordSupported = attempt.rec;
+      break;
     }
 
     if (error) {
@@ -115,7 +140,7 @@ export async function getIntegrationPrefs(): Promise<ActionResult<IntegrationPre
       success: true,
       data: {
         videoProvider: VALID_PROVIDERS.includes(provider) ? provider : 'google',
-        providerHostIdentity: data?.provider_host_identity ?? null,
+        providerHostIdentity: (data?.provider_host_identity as string | null) ?? null,
         availability: {
           google: isGoogleCalConfigured(),
           zoom: isZoomConfigured(),
@@ -123,6 +148,8 @@ export async function getIntegrationPrefs(): Promise<ActionResult<IntegrationPre
         },
         showNoteInTitle: data?.show_note_in_title === true,
         noteInTitleSupported,
+        autoRecord: data?.auto_record === true,
+        autoRecordSupported,
       },
     };
   } catch (err) {
@@ -140,6 +167,11 @@ export interface SaveIntegrationPrefInput {
    * by a card whose database has no show_note_in_title column yet.
    */
   showNoteInTitle?: boolean;
+  /**
+   * Record this host's Google Meet automatically. Omitted by a card whose
+   * database has no auto_record column yet.
+   */
+  autoRecord?: boolean;
 }
 
 /**
@@ -231,6 +263,33 @@ export async function saveIntegrationPref(
       noteInTitleSupported = false;
     }
 
+    // Auto-record: its own SECURITY INVOKER RPC, so flipping recording never
+    // depends on the provider write above having a column this database may
+    // not have. Same contract as note-in-title: sent only when the card offered
+    // the toggle, and a failure is reported rather than swallowed.
+    let autoRecord = false;
+    let autoRecordSupported = true;
+    if (input.autoRecord !== undefined) {
+      autoRecord = input.autoRecord === true;
+      const { error: recError } = await (supabase as SupabaseClient).rpc(
+        'fn_set_meeting_auto_record',
+        { p_auto_record: autoRecord },
+      );
+      if (recError) {
+        console.error(
+          '[meetings/availability] saveIntegrationPref auto-record failed:',
+          recError.message,
+        );
+        return {
+          success: false,
+          error:
+            'Your video provider was saved, but the recording setting could not be. Please try again.',
+        };
+      }
+    } else {
+      autoRecordSupported = false;
+    }
+
     return {
       success: true,
       data: {
@@ -243,6 +302,8 @@ export async function saveIntegrationPref(
         },
         showNoteInTitle,
         noteInTitleSupported,
+        autoRecord,
+        autoRecordSupported,
       },
     };
   } catch (err) {
