@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -40,6 +40,9 @@ type ConfigMaster = { id: string; display_name: string };
 export default function NewIndustryMentorPage() {
   const router = useRouter();
   const { createMentor, loading, error } = useCreateIndustryMentor();
+  // A second click lands before `loading` re-renders the button disabled; a ref
+  // is set synchronously. BUG-005760's duplicate was two inserts 0.7 s apart.
+  const submittingRef = useRef(false);
   const { selectedInstitutionId: institutionId } = useUserInstitutionAccess();
 
   const [form, setForm] = useState({
@@ -160,7 +163,7 @@ export default function NewIndustryMentorPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!institutionId) return;
+    if (!institutionId || submittingRef.current) return;
 
     // Engagement category is required on new records (BUG-004059).
     if (!categoryId) {
@@ -174,26 +177,33 @@ export default function NewIndustryMentorPage() {
       .map((s) => s.trim())
       .filter(Boolean);
 
-    const mentor = await createMentor({
-      institution_id: institutionId,
-      mentor_name: form.mentor_name,
-      email: form.email,
-      designation: form.designation || undefined,
-      company_name: form.company_name || undefined,
-      bio: form.bio || undefined,
-      linkedin_url: form.linkedin_url || undefined,
-      phone: form.phone || undefined,
-      industry_experience_years: form.industry_experience_years
-        ? parseInt(form.industry_experience_years)
-        : undefined,
-      mentor_category_id: categoryId,
-      expertise_areas: expertise_areas.length > 0 ? expertise_areas : undefined,
-      expertise_area_ids: expertiseIds.length > 0 ? expertiseIds : undefined,
-      profile_photo_url: photoUrl || undefined,
-      company_logo_url: logoUrl || undefined,
-    });
-
-    router.push(`/cdc/industry-mentors/${mentor.id}`);
+    submittingRef.current = true;
+    try {
+      const mentor = await createMentor({
+        institution_id: institutionId,
+        mentor_name: form.mentor_name,
+        email: form.email,
+        designation: form.designation || undefined,
+        company_name: form.company_name || undefined,
+        bio: form.bio || undefined,
+        linkedin_url: form.linkedin_url || undefined,
+        phone: form.phone || undefined,
+        industry_experience_years: form.industry_experience_years
+          ? parseInt(form.industry_experience_years)
+          : undefined,
+        mentor_category_id: categoryId,
+        expertise_areas: expertise_areas.length > 0 ? expertise_areas : undefined,
+        expertise_area_ids: expertiseIds.length > 0 ? expertiseIds : undefined,
+        profile_photo_url: photoUrl || undefined,
+        company_logo_url: logoUrl || undefined,
+      });
+      // Stays locked on success: the page is navigating away.
+      router.push(`/cdc/industry-mentors/${mentor.id}`);
+    } catch {
+      // The hook already holds the message; it is shown in the alert below
+      // (a repeat of an existing mentor now says so).
+      submittingRef.current = false;
+    }
   }
 
   const categoryError = categoryTouched && !categoryId;

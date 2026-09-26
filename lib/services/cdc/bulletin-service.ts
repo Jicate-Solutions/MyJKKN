@@ -13,6 +13,22 @@ import type {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = (): any => createClientSupabaseClient();
 
+/**
+ * BUG-005250: a CDC coordinator holds cdc.bulletin.create, so the Post
+ * Opportunity form opens for them, but the table's write rule
+ * (cdc_external_opportunities_write → is_cdc_head_or_super()) admits only the
+ * CDC head and super admins. The refusal (42501) reached the screen as a bare
+ * "Failed to post opportunity". Whether coordinators may post is a policy
+ * decision; this only says what happened and who can post.
+ */
+export const BULLETIN_POST_REFUSED_MESSAGE =
+  'Your account can open this form, but posting to the Opportunities Bulletin is limited to the CDC head. Ask the CDC head to post it, or to give you posting rights.';
+
+function bulletinCreateError(error: { code?: string; message?: string }): Error {
+  if (error.code === '42501') return new Error(BULLETIN_POST_REFUSED_MESSAGE);
+  return new Error(error.message || 'Failed to post opportunity');
+}
+
 export class BulletinService {
   static async getOpportunities(filters?: OpportunityFilters): Promise<CdcExternalOpportunity[]> {
     let query = db()
@@ -102,7 +118,7 @@ export class BulletinService {
       .single();
     if (error) {
       console.error('[cdc/bulletin] createOpportunity failed:', error);
-      throw error;
+      throw bulletinCreateError(error);
     }
     return { ...(data as CdcExternalOpportunity), status: deriveStatus(data as CdcExternalOpportunity) };
   }
