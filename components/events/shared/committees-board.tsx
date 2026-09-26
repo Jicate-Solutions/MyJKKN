@@ -26,11 +26,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Loader2, Plus, Trash2, Users, UserPlus, Crown, Phone } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { Loader2, Plus, Trash2, Users, UserPlus, Crown, Phone, Pencil } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
+import {
+  DESIGNATION_SUGGESTIONS,
+  readDesignations,
+} from '@/lib/utils/events/committee-designations';
 import {
   useEventCommittees,
   useCreateEventCommittee,
+  useEditEventCommittee,
   useDeleteEventCommittee,
   useAddInternalMembers,
   useRemoveInternalMember,
@@ -56,14 +72,21 @@ function AddCommitteeDialog({
   const create = useCreateEventCommittee(eventId);
   const [name, setName] = useState('');
   const [lead, setLead] = useState('');
+  const [description, setDescription] = useState('');
   const submit = () => {
     if (!name.trim()) return;
     create.mutate(
-      { event_id: eventId, name: name.trim(), lead_name: lead.trim() || undefined },
+      {
+        event_id: eventId,
+        name: name.trim(),
+        lead_name: lead.trim() || undefined,
+        description: description.trim() || undefined,
+      },
       {
         onSuccess: () => {
           setName('');
           setLead('');
+          setDescription('');
           onClose();
         },
       }
@@ -84,6 +107,15 @@ function AddCommitteeDialog({
             <Label className="text-xs">Lead (name)</Label>
             <Input placeholder="Optional" value={lead} onChange={(e) => setLead(e.target.value)} />
           </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Responsibilities</Label>
+            <Textarea
+              rows={2}
+              placeholder="Optional — what this committee is responsible for"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
@@ -92,6 +124,111 @@ function AddCommitteeDialog({
           <Button onClick={submit} disabled={create.isPending || !name.trim()}>
             {create.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             Add
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Edit a committee after creation (BUG-004626): rename it, describe its
+ * responsibilities, and give each member / guest a designation such as
+ * "Main Coordinator". Members themselves are still added and removed on the
+ * card; leads keep their own dialog because they carry task authority.
+ */
+function EditCommitteeDialog({
+  committee,
+  eventId,
+  onClose,
+}: {
+  committee: MarathonCommittee;
+  eventId: string;
+  onClose: () => void;
+}) {
+  const edit = useEditEventCommittee(eventId);
+  const [name, setName] = useState(committee.name);
+  const [description, setDescription] = useState(committee.description ?? '');
+  const [designations, setDesignations] = useState<Record<string, string>>(() =>
+    readDesignations(committee.member_designations)
+  );
+  const people = [
+    ...(committee.member_names ?? []).map((n) => ({ name: n, guest: false })),
+    ...(committee.external_members ?? []).map((g) => ({ name: g.name, guest: true })),
+  ];
+  const listId = `designations-${committee.id}`;
+
+  const submit = () => {
+    if (!name.trim()) return;
+    edit.mutate(
+      { committee, edits: { name, description, designations } },
+      { onSuccess: onClose }
+    );
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Edit Committee</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-1">
+          <div className="space-y-1">
+            <Label className="text-xs">Committee Name *</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Responsibilities</Label>
+            <Textarea
+              rows={2}
+              placeholder="What this committee is responsible for"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Member designations</Label>
+            {people.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No members yet — add members on the committee card first.
+              </p>
+            ) : (
+              <>
+                <datalist id={listId}>
+                  {DESIGNATION_SUGGESTIONS.map((d) => (
+                    <option key={d} value={d} />
+                  ))}
+                </datalist>
+                {people.map((p, i) => (
+                  <div key={`${p.name}-${i}`} className="flex items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate text-sm" title={p.name}>
+                      {p.name}
+                      {p.guest && <span className="ml-1 text-[10px] text-muted-foreground">(guest)</span>}
+                    </span>
+                    <Input
+                      className="h-8 w-[10rem] text-xs sm:w-[11rem]"
+                      list={listId}
+                      maxLength={60}
+                      placeholder="e.g. Main Coordinator"
+                      aria-label={`Designation of ${p.name}`}
+                      value={designations[p.name] ?? ''}
+                      onChange={(e) =>
+                        setDesignations((d) => ({ ...d, [p.name]: e.target.value }))
+                      }
+                    />
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={edit.isPending || !name.trim()}>
+            {edit.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            Save Changes
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -239,6 +376,7 @@ function CommitteeCard({
   onAddMember,
   onAddGuest,
   onEditLeads,
+  onEdit,
 }: {
   committee: MarathonCommittee;
   eventId: string;
@@ -247,7 +385,10 @@ function CommitteeCard({
   onAddMember: (c: MarathonCommittee) => void;
   onAddGuest: (c: MarathonCommittee) => void;
   onEditLeads: (c: MarathonCommittee) => void;
+  onEdit: (c: MarathonCommittee) => void;
 }) {
+  const designations = readDesignations(committee.member_designations);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const { profile } = useAuth();
   // Leading THIS committee is authority over THIS committee's tasks and nothing
   // else — not the roster, not the committee itself, not the event. Mirrors
@@ -336,23 +477,48 @@ function CommitteeCard({
             </div>
           </div>
           {canManage && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 w-7 p-0"
-              disabled={del.isPending}
-              onClick={() => del.mutate(committee.id)}
-            >
-              <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-            </Button>
+            <div className="flex shrink-0 items-center">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0"
+                title={`Edit ${committee.name}`}
+                aria-label={`Edit ${committee.name}`}
+                onClick={() => onEdit(committee)}
+              >
+                <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+              </Button>
+              {/* Deleting takes the committee's whole task list with it, so it
+                  asks first — a stray click used to remove it outright. */}
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0"
+                title={`Delete ${committee.name}`}
+                aria-label={`Delete ${committee.name}`}
+                disabled={del.isPending}
+                onClick={() => setConfirmDelete(true)}
+              >
+                <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+              </Button>
+            </div>
           )}
         </div>
+
+        {committee.description && (
+          <p className="whitespace-pre-wrap break-words text-xs text-muted-foreground">
+            {committee.description}
+          </p>
+        )}
 
         {/* Members */}
         <div className="flex flex-wrap gap-1">
           {(committee.member_names ?? []).map((m, i) => (
             <Badge key={`m-${i}`} variant="secondary" className="gap-1 text-[10px]">
               {m}
+              {designations[m] && (
+                <span className="font-normal text-muted-foreground">· {designations[m]}</span>
+              )}
               {canManage && (
                 <button
                   className="ml-0.5 text-muted-foreground hover:text-foreground"
@@ -367,6 +533,9 @@ function CommitteeCard({
           {externals.map((g, i) => (
             <Badge key={`g-${i}`} variant="outline" className="gap-1 text-[10px]">
               {g.name}
+              {designations[g.name] && (
+                <span className="font-normal text-muted-foreground">· {designations[g.name]}</span>
+              )}
               {g.phone && <Phone className="h-2.5 w-2.5" />}
               {canManage && (
                 <button
@@ -452,6 +621,36 @@ function CommitteeCard({
             </div>
           )}
         </div>
+
+        <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete {committee.name}?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This removes the committee, its members list
+                {tasks.length > 0 ? ` and its ${tasks.length} task${tasks.length === 1 ? '' : 's'}` : ''}{' '}
+                permanently. It cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={del.isPending}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={del.isPending}
+                onClick={(e) => {
+                  e.preventDefault();
+                  del.mutate(committee.id, {
+                    onSuccess: () => setConfirmDelete(false),
+                    onError: () => setConfirmDelete(false),
+                  });
+                }}
+              >
+                {del.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+                Delete committee
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </CardContent>
     </Card>
   );
@@ -475,6 +674,7 @@ export function CommitteesBoard({
   const [memberFor, setMemberFor] = useState<MarathonCommittee | null>(null);
   const [guestFor, setGuestFor] = useState<MarathonCommittee | null>(null);
   const [leadFor, setLeadFor] = useState<MarathonCommittee | null>(null);
+  const [editFor, setEditFor] = useState<MarathonCommittee | null>(null);
 
   return (
     <div className="space-y-4">
@@ -511,12 +711,21 @@ export function CommitteesBoard({
               onAddMember={(cm) => setMemberFor(cm)}
               onAddGuest={(cm) => setGuestFor(cm)}
               onEditLeads={(cm) => setLeadFor(cm)}
+              onEdit={(cm) => setEditFor(cm)}
             />
           ))}
         </div>
       )}
 
       <AddCommitteeDialog open={addOpen} onClose={() => setAddOpen(false)} eventId={eventId} />
+      {editFor && (
+        <EditCommitteeDialog
+          key={editFor.id}
+          committee={editFor}
+          eventId={eventId}
+          onClose={() => setEditFor(null)}
+        />
+      )}
       <MemberPickerDialog
         open={!!memberFor}
         onClose={() => setMemberFor(null)}

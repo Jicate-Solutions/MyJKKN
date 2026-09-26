@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -55,14 +56,25 @@ import {
   Globe,
   ListChecks,
   Trash2,
+  Pencil,
+  StickyNote,
 } from 'lucide-react';
 import {
   useEventSponsors,
   useEventSponsorSummary,
   useCreateEventSponsor,
+  useUpdateEventSponsor,
   useMoveEventSponsorStage,
   useDeleteEventSponsor,
+  useEventSponsorshipNotes,
+  useSaveEventSponsorshipNotes,
 } from '@/hooks/events/shared/use-event-sponsors';
+import {
+  EMPTY_SPONSOR_FORM,
+  sponsorFormToPayload,
+  sponsorToForm,
+  type SponsorFormState,
+} from '@/lib/utils/events/sponsor-form';
 import type {
   MarathonSponsor,
   SponsorTier,
@@ -245,14 +257,80 @@ function SponsorAvatar({ sponsor }: { sponsor: MarathonSponsor }) {
   );
 }
 
+/**
+ * One free-text box for the whole sponsorship effort (BUG-006143) — "5 sponsors
+ * so far, ₹1.2L committed, banner vendor pending", typed rather than picked
+ * from dropdowns. Stored in event_sponsorship_notes.
+ */
+function SponsorshipNotesCard({ eventId, canManage }: { eventId: string; canManage: boolean }) {
+  const { data: saved = '', isLoading, isError } = useEventSponsorshipNotes(eventId);
+  const save = useSaveEventSponsorshipNotes(eventId);
+  const [draft, setDraft] = useState<string | null>(null);
+  const value = draft ?? saved;
+  const dirty = draft !== null && draft !== saved;
+
+  if (isLoading) return null;
+  // Don't offer a box whose save is bound to fail (e.g. the notes table is not
+  // deployed yet) — the rest of the Sponsors tab keeps working.
+  if (isError) {
+    return canManage ? (
+      <p className="text-xs text-muted-foreground">Sponsorship notes are unavailable right now.</p>
+    ) : null;
+  }
+  // Nothing to show a read-only viewer when no note has been written.
+  if (!canManage && !saved.trim()) return null;
+
+  return (
+    <Card>
+      <CardContent className="space-y-2 p-4">
+        <Label htmlFor={`sponsorship-notes-${eventId}`} className="flex items-center gap-2 text-sm font-medium">
+          <StickyNote className="h-4 w-4 text-muted-foreground" />
+          Sponsorship notes
+        </Label>
+        {canManage ? (
+          <>
+            <Textarea
+              id={`sponsorship-notes-${eventId}`}
+              rows={3}
+              maxLength={10000}
+              placeholder="Share any details about sponsorship here — total sponsors, total amount, pending follow-ups…"
+              value={value}
+              onChange={(e) => setDraft(e.target.value)}
+            />
+            <div className="flex justify-end gap-2">
+              {dirty && (
+                <Button size="sm" variant="ghost" onClick={() => setDraft(null)} disabled={save.isPending}>
+                  Discard
+                </Button>
+              )}
+              <Button
+                size="sm"
+                disabled={!dirty || save.isPending}
+                onClick={() => save.mutate(value, { onSuccess: () => setDraft(null) })}
+              >
+                {save.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+                Save notes
+              </Button>
+            </div>
+          </>
+        ) : (
+          <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">{saved}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function SponsorCard({
   sponsor,
   canManage,
   showStage,
+  onEdit,
 }: {
   sponsor: MarathonSponsor;
   canManage: boolean;
   showStage: boolean;
+  onEdit: (s: MarathonSponsor) => void;
 }) {
   const movePipeline = useMoveEventSponsorStage();
   const deleteSponsor = useDeleteEventSponsor(sponsor.event_id);
@@ -298,7 +376,19 @@ function SponsorCard({
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="ml-auto h-6 w-6 shrink-0 p-0 text-muted-foreground hover:text-destructive"
+                  className="ml-auto h-6 w-6 shrink-0 p-0 text-muted-foreground hover:text-foreground"
+                  title={`Edit ${sponsor.company_name}`}
+                  aria-label={`Edit ${sponsor.company_name}`}
+                  onClick={() => onEdit(sponsor)}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+              )}
+              {canManage && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 w-6 shrink-0 p-0 text-muted-foreground hover:text-destructive"
                   title={`Delete ${sponsor.company_name}`}
                   aria-label={`Delete ${sponsor.company_name}`}
                   disabled={deleteSponsor.isPending}
@@ -379,6 +469,12 @@ function SponsorCard({
             </>
           )}
         </div>
+
+        {sponsor.notes && (
+          <p className="line-clamp-3 whitespace-pre-wrap break-words text-xs text-muted-foreground" title={sponsor.notes}>
+            {sponsor.notes}
+          </p>
+        )}
 
         {/* Deliverables */}
         {total > 0 && (
@@ -469,69 +565,83 @@ function SponsorCard({
   );
 }
 
-function AddSponsorDialog({
+/**
+ * Add a sponsor, or edit an existing one (BUG-006143 — the board used to be
+ * add/delete only, so a typo or a changed amount meant deleting the sponsor and
+ * losing its deliverables and history). `sponsor` set = edit mode.
+ */
+function SponsorFormDialog({
   open,
   onClose,
   eventId,
+  sponsor,
 }: {
   open: boolean;
   onClose: () => void;
   eventId: string;
+  sponsor?: MarathonSponsor | null;
 }) {
   const createSponsor = useCreateEventSponsor();
-  const [form, setForm] = useState<Partial<CreateMarathonSponsorDto>>({
-    event_id: eventId,
-    tier: 'bronze',
-    pipeline_stage: 'lead',
-    amount_pledged: 0,
-  });
+  const updateSponsor = useUpdateEventSponsor();
+  const isEdit = !!sponsor;
+  // Seeded once per mount — the parent re-keys this dialog on every open, so
+  // each open starts from the sponsor (or a blank form).
+  const [form, setForm] = useState<SponsorFormState>(() =>
+    sponsor ? sponsorToForm(sponsor) : EMPTY_SPONSOR_FORM
+  );
 
-  const set = (key: keyof CreateMarathonSponsorDto, value: unknown) =>
+  const set = <K extends keyof SponsorFormState>(key: K, value: SponsorFormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
 
+  const pending = createSponsor.isPending || updateSponsor.isPending;
+
   const handleSubmit = () => {
-    if (!form.company_name?.trim()) return;
-    createSponsor.mutate(
-      {
-        event_id: eventId,
-        company_name: form.company_name,
-        contact_person: form.contact_person,
-        contact_email: form.contact_email,
-        contact_phone: form.contact_phone,
-        website: form.website,
-        tier: form.tier,
-        amount_pledged: form.amount_pledged ?? 0,
-        pipeline_stage: form.pipeline_stage,
-      },
-      {
-        onSuccess: () => {
-          setForm({ event_id: eventId, tier: 'bronze', pipeline_stage: 'lead', amount_pledged: 0 });
-          onClose();
-        },
-      }
-    );
+    if (!form.company_name.trim()) return;
+    if (sponsor) {
+      updateSponsor.mutate(
+        { id: sponsor.id, dto: sponsorFormToPayload(form, 'edit') as Partial<MarathonSponsor> },
+        { onSuccess: onClose }
+      );
+      return;
+    }
+    const payload = sponsorFormToPayload(form, 'add');
+    const dto: CreateMarathonSponsorDto = {
+      event_id: eventId,
+      company_name: payload.company_name,
+      contact_person: payload.contact_person ?? undefined,
+      contact_email: payload.contact_email ?? undefined,
+      contact_phone: payload.contact_phone ?? undefined,
+      website: payload.website ?? undefined,
+      tier: payload.tier,
+      amount_pledged: payload.amount_pledged,
+      pipeline_stage: payload.pipeline_stage,
+      notes: payload.notes,
+    };
+    createSponsor.mutate(dto, { onSuccess: onClose });
   };
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Add Sponsor</DialogTitle>
-          <DialogDescription className="sr-only">Add a sponsor to this event.</DialogDescription>
+          <DialogTitle>{isEdit ? `Edit ${sponsor?.company_name}` : 'Add Sponsor'}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {isEdit ? 'Edit this sponsor.' : 'Add a sponsor to this event.'}
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-1">
           <div className="space-y-1">
             <Label className="text-xs">Company Name *</Label>
             <Input
               placeholder="Acme Corp"
-              value={form.company_name ?? ''}
+              value={form.company_name}
               onChange={(e) => set('company_name', e.target.value)}
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label className="text-xs">Tier</Label>
-              <Select value={form.tier ?? 'bronze'} onValueChange={(v) => set('tier', v as SponsorTier)}>
+              <Select value={form.tier} onValueChange={(v) => set('tier', v as SponsorTier)}>
                 <SelectTrigger className="h-9 text-sm">
                   <SelectValue />
                 </SelectTrigger>
@@ -547,7 +657,7 @@ function AddSponsorDialog({
             <div className="space-y-1">
               <Label className="text-xs">Pipeline Stage</Label>
               <Select
-                value={form.pipeline_stage ?? 'lead'}
+                value={form.pipeline_stage}
                 onValueChange={(v) => set('pipeline_stage', v as SponsorPipelineStage)}
               >
                 <SelectTrigger className="h-9 text-sm">
@@ -563,21 +673,36 @@ function AddSponsorDialog({
               </Select>
             </div>
           </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Amount Pledged (₹)</Label>
-            <Input
-              type="number"
-              min={0}
-              placeholder="0"
-              value={form.amount_pledged ?? ''}
-              onChange={(e) => set('amount_pledged', Number(e.target.value))}
-            />
+          <div className={isEdit ? 'grid grid-cols-2 gap-3' : ''}>
+            <div className="space-y-1">
+              <Label className="text-xs">Amount Pledged (₹)</Label>
+              <Input
+                type="number"
+                min={0}
+                placeholder="0"
+                value={form.amount_pledged}
+                onChange={(e) => set('amount_pledged', e.target.value)}
+              />
+            </div>
+            {/* Received is recorded after the fact, so it is an edit-only field. */}
+            {isEdit && (
+              <div className="space-y-1">
+                <Label className="text-xs">Amount Received (₹)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  placeholder="0"
+                  value={form.amount_received}
+                  onChange={(e) => set('amount_received', e.target.value)}
+                />
+              </div>
+            )}
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Contact Person</Label>
             <Input
               placeholder="John Doe"
-              value={form.contact_person ?? ''}
+              value={form.contact_person}
               onChange={(e) => set('contact_person', e.target.value)}
             />
           </div>
@@ -587,7 +712,7 @@ function AddSponsorDialog({
               <Input
                 type="email"
                 placeholder="john@acme.com"
-                value={form.contact_email ?? ''}
+                value={form.contact_email}
                 onChange={(e) => set('contact_email', e.target.value)}
               />
             </div>
@@ -595,7 +720,7 @@ function AddSponsorDialog({
               <Label className="text-xs">Phone</Label>
               <Input
                 placeholder="+91 98765 43210"
-                value={form.contact_phone ?? ''}
+                value={form.contact_phone}
                 onChange={(e) => set('contact_phone', e.target.value)}
               />
             </div>
@@ -604,8 +729,18 @@ function AddSponsorDialog({
             <Label className="text-xs">Website</Label>
             <Input
               placeholder="https://acme.com"
-              value={form.website ?? ''}
+              value={form.website}
               onChange={(e) => set('website', e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Notes</Label>
+            <Textarea
+              rows={3}
+              maxLength={4000}
+              placeholder="Anything to share about this sponsor — what was agreed, banner / stall details, follow-ups…"
+              value={form.notes}
+              onChange={(e) => set('notes', e.target.value)}
             />
           </div>
         </div>
@@ -613,9 +748,9 @@ function AddSponsorDialog({
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={createSponsor.isPending || !form.company_name?.trim()}>
-            {createSponsor.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Add Sponsor
+          <Button onClick={handleSubmit} disabled={pending || !form.company_name.trim()}>
+            {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {isEdit ? 'Save Changes' : 'Add Sponsor'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -626,7 +761,14 @@ function AddSponsorDialog({
 type StageFilter = 'all' | SponsorPipelineStage;
 
 export function SponsorsBoard({ eventId, canManage = true }: { eventId: string; canManage?: boolean }) {
-  const [addOpen, setAddOpen] = useState(false);
+  const [addOpen, setAddOpenState] = useState(false);
+  // Bumped on every open so the add dialog remounts with a blank form.
+  const [addCount, setAddCount] = useState(0);
+  const setAddOpen = (open: boolean) => {
+    if (open) setAddCount((n) => n + 1);
+    setAddOpenState(open);
+  };
+  const [editing, setEditing] = useState<MarathonSponsor | null>(null);
   const [stageFilter, setStageFilter] = useState<StageFilter>('all');
   const { data: sponsors, isLoading, error } = useEventSponsors(eventId);
 
@@ -667,6 +809,8 @@ export function SponsorsBoard({ eventId, canManage = true }: { eventId: string; 
       </div>
 
       <SummaryCards eventId={eventId} />
+
+      <SponsorshipNotesCard eventId={eventId} canManage={canManage} />
 
       {isLoading && (
         <div className="flex items-center justify-center py-12">
@@ -741,6 +885,7 @@ export function SponsorsBoard({ eventId, canManage = true }: { eventId: string; 
                   sponsor={s}
                   canManage={canManage}
                   showStage={stageFilter === 'all'}
+                  onEdit={setEditing}
                 />
               ))}
             </div>
@@ -748,7 +893,19 @@ export function SponsorsBoard({ eventId, canManage = true }: { eventId: string; 
         </>
       )}
 
-      <AddSponsorDialog open={addOpen} onClose={() => setAddOpen(false)} eventId={eventId} />
+      <SponsorFormDialog
+        key={`add-${addCount}`}
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        eventId={eventId}
+      />
+      <SponsorFormDialog
+        key={`edit-${editing?.id ?? 'none'}`}
+        open={!!editing}
+        onClose={() => setEditing(null)}
+        eventId={eventId}
+        sponsor={editing}
+      />
     </div>
   );
 }

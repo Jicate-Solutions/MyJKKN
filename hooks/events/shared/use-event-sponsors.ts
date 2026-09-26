@@ -18,6 +18,7 @@ const KEYS = {
   all: ['event-sponsors'] as const,
   list: (eventId: string) => [...KEYS.all, 'list', eventId] as const,
   summary: (eventId: string) => [...KEYS.all, 'summary', eventId] as const,
+  notes: (eventId: string) => [...KEYS.all, 'notes', eventId] as const,
 };
 
 /** All sponsors for an event, with deliverable counts. */
@@ -92,5 +93,45 @@ export function useMoveEventSponsorStage() {
       toast.success(`Moved to "${sponsor.pipeline_stage}"`);
     },
     onError: (error: Error) => toast.error(error.message || 'Failed to move stage'),
+  });
+}
+
+/**
+ * Edit a sponsor's details — company, contact, tier, amounts and notes
+ * (BUG-006143: the shared board could only add or delete, never correct).
+ */
+export function useUpdateEventSponsor() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, dto }: { id: string; dto: Partial<MarathonSponsor> }) =>
+      EventSponsorService.updateSponsor(id, dto),
+    onSuccess: (sponsor: MarathonSponsor) => {
+      qc.invalidateQueries({ queryKey: KEYS.list(sponsor.event_id) });
+      // Pledged / received feed the summary tiles.
+      qc.invalidateQueries({ queryKey: KEYS.summary(sponsor.event_id) });
+      toast.success(`Sponsor "${sponsor.company_name}" updated`);
+    },
+    onError: (error: Error) => toast.error(error.message || 'Failed to update sponsor'),
+  });
+}
+
+/** The event's free-text sponsorship note (BUG-006143). */
+export function useEventSponsorshipNotes(eventId: string) {
+  return useQuery({
+    queryKey: KEYS.notes(eventId),
+    queryFn: () => EventSponsorService.getSponsorshipNotes(eventId),
+    enabled: !!eventId,
+  });
+}
+
+export function useSaveEventSponsorshipNotes(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (notes: string) => EventSponsorService.saveSponsorshipNotes(eventId, notes),
+    onSuccess: (notes) => {
+      qc.setQueryData(KEYS.notes(eventId), notes);
+      toast.success('Sponsorship notes saved');
+    },
+    onError: (error: Error) => toast.error(error.message || 'Failed to save sponsorship notes'),
   });
 }

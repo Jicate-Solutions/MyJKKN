@@ -88,6 +88,7 @@ export class EventSponsorService {
         amount_pledged: dto.amount_pledged ?? 0,
         amount_received: 0,
         benefits: dto.benefits ?? null,
+        notes: dto.notes ?? null,
         pipeline_stage: dto.pipeline_stage ?? 'lead',
       };
 
@@ -354,5 +355,53 @@ export class EventSponsorService {
       logger.error(MOD, 'Unexpected error in getSponsorSummary', error);
       throw error;
     }
+  }
+
+  // --- Event-level sponsorship notes (BUG-006143) ---------------------------
+
+  /** The event's free-text sponsorship note ('' when none saved yet). */
+  static async getSponsorshipNotes(eventId: string): Promise<string> {
+    const { data, error } = await (this.supabase as any)
+      .from('event_sponsorship_notes')
+      .select('notes')
+      .eq('event_id', eventId)
+      .maybeSingle();
+    if (error) {
+      // PostgrestError does not serialise to anything useful ("{}"), so log its
+      // fields. PGRST205 / 42P01 = the table is missing: migration
+      // 20270207100000_event_sponsorship_notes.sql has not been applied.
+      logger.error(MOD, 'Failed to fetch sponsorship notes', {
+        eventId,
+        code: error.code,
+        message: error.message,
+      });
+      throw new Error(error.message || 'Failed to fetch sponsorship notes');
+    }
+    return (data?.notes as string | undefined) ?? '';
+  }
+
+  /**
+   * Save the event's sponsorship note (one row per event, upserted on event_id).
+   * An RLS refusal on the UPDATE arm filters to 0 rows instead of erroring, so a
+   * missing returned row is reported as a permission error.
+   */
+  static async saveSponsorshipNotes(eventId: string, notes: string): Promise<string> {
+    const { data, error } = await (this.supabase as any)
+      .from('event_sponsorship_notes')
+      .upsert({ event_id: eventId, notes }, { onConflict: 'event_id' })
+      .select('notes')
+      .maybeSingle();
+    if (error) {
+      logger.error(MOD, 'Failed to save sponsorship notes', {
+        eventId,
+        code: error.code,
+        message: error.message,
+      });
+      throw new Error(error.message || 'Failed to save sponsorship notes');
+    }
+    if (!data) {
+      throw new Error('You do not have permission to edit the sponsorship notes of this event');
+    }
+    return data.notes as string;
   }
 }

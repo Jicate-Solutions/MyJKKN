@@ -21,6 +21,53 @@ const KEYS = {
   categories: [...KEYS_ROOT, 'categories'] as const,
 };
 
+async function budgetAttachmentRequest(
+  eventId: string,
+  init: RequestInit & { query?: string }
+): Promise<unknown> {
+  const res = await fetch(
+    `/api/events/${eventId}/budget-attachment${init.query ?? ''}`,
+    init
+  );
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((body as { error?: string }).error || 'Attachment request failed');
+  return body;
+}
+
+/** Attach (or replace) a budget line's bill / quotation on Google Drive (BUG-004627). */
+export function useUploadBudgetAttachment(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ itemId, file }: { itemId: string; file: File }) => {
+      const form = new FormData();
+      form.append('item_id', itemId);
+      form.append('file', file);
+      return budgetAttachmentRequest(eventId, { method: 'POST', body: form });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEYS.items(eventId) });
+      toast.success('Attachment uploaded');
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to upload attachment'),
+  });
+}
+
+export function useRemoveBudgetAttachment(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (itemId: string) =>
+      budgetAttachmentRequest(eventId, {
+        method: 'DELETE',
+        query: `?item_id=${encodeURIComponent(itemId)}`,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEYS.items(eventId) });
+      toast.success('Attachment removed');
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to remove attachment'),
+  });
+}
+
 export function useEventBudgetItems(eventId: string) {
   return useQuery({
     queryKey: KEYS.items(eventId),

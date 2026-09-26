@@ -68,6 +68,25 @@ export function useDeleteEventCommittee(eventId: string) {
   });
 }
 
+/** Edit name, description and per-member designations (BUG-004626). */
+export function useEditEventCommittee(eventId: string) {
+  const invalidate = useInvalidate(eventId);
+  return useMutation({
+    mutationFn: ({
+      committee,
+      edits,
+    }: {
+      committee: MarathonCommittee;
+      edits: { name: string; description: string; designations: Record<string, string> };
+    }) => EventCommitteeService.editCommittee(committee, edits),
+    onSuccess: () => {
+      invalidate();
+      toast.success('Committee updated');
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to update committee'),
+  });
+}
+
 export function useAddInternalMembers(eventId: string) {
   const invalidate = useInvalidate(eventId);
   return useMutation({

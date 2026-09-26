@@ -44,6 +44,8 @@ export interface EventLogisticsTab {
   icon: ComponentType<{ className?: string }>;
   /** 'all' = every event type; otherwise the event_type discriminators that should see this tab. */
   eventTypes: 'all' | string[];
+  /** Event types that never get this tab, even under `eventTypes: 'all'`. */
+  excludeEventTypes?: string[];
   /**
    * The `events.config.enabled_tools` key that switches this tab on — i.e. the
    * EVENT_TOOL_KEYS entry the create wizard writes. Defaults to `key`, which is
@@ -176,11 +178,14 @@ export const EVENT_LOGISTICS_TABS: EventLogisticsTab[] = [
     render: ({ eventId, canManage }) => <AnalyticsBoard eventId={eventId} canManage={canManage} />,
   },
   // PR8 — kit / t-shirt / merch distribution over events_registrations.tshirt_collected*.
+  // Not on tournaments (BUG-006175): KitBoard lists EVERY registration as a kit
+  // recipient, so each chess/carrom registrant appeared in the T-shirt list.
   {
     key: 'kit',
     label: 'Kit / T-shirt',
     icon: Shirt,
     eventTypes: 'all',
+    excludeEventTypes: ['sports_tournament'],
     render: ({ eventId, canManage }) => <KitBoard eventId={eventId} canManage={canManage} />,
   },
   // The organiser's one manual, deliberate message to the event's registrants.
@@ -245,6 +250,7 @@ function tabVisible(
   hideSensitiveWithoutManage: boolean,
 ): boolean {
   if (tab.eventTypes !== 'all' && !tab.eventTypes.includes(eventType)) return false;
+  if (tab.excludeEventTypes?.includes(eventType)) return false;
 
   if (
     hideSensitiveWithoutManage &&

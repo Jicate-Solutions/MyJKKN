@@ -165,6 +165,8 @@ describe('events that never chose their tools — 55 of 55 in production today',
 
   it('leaves the tournament console untouched — it passes no selection at all', () => {
     const tabs = keys(visibleLogisticsTabs({ eventType: 'sports_tournament' }));
-    expect(tabs).toHaveLength(EVENT_LOGISTICS_TABS.length);
+    // Every tab except Kit / T-shirt, which tournaments never get (BUG-006175).
+    expect(tabs).toHaveLength(EVENT_LOGISTICS_TABS.length - 1);
+    expect(tabs).not.toContain('kit');
   });
 });
