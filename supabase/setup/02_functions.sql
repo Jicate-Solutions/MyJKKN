@@ -70613,7 +70613,7 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.get_cl_billing_audit_summary(uuid[], uuid, uuid, uuid, uuid, text, boolean) FROM PUBLIC, anon;
 GRANT  EXECUTE ON FUNCTION public.get_cl_billing_audit_summary(uuid[], uuid, uuid, uuid, uuid, text, boolean) TO authenticated, service_role;
 
-
+
 
 -- ===========================================================================
 -- Fee Structure Match audit (Billing -> Coverage -> Audit) + missing-bill generator

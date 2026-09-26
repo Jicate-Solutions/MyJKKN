@@ -207,7 +207,7 @@ describe('wiring guards — the save path actually uses all of this', () => {
     // (page-permission-toggle.tsx and role-permission-groups.tsx are orphans —
     // nothing in the repo imports either.)
     expect(editDialog).toContain('resolvePermissionToggle');
-    expect(editDialog).toContain("=== 'confirm-removal'");
+    expect(editDialog).toMatch(/===\s*'confirm-removal'/);
   });
 
   it('renders the warning and fetches counts in one batch on open', () => {
