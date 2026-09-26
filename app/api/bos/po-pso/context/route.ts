@@ -3,11 +3,11 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
   resolveBosBoardScope,
   hasAnyBosPermission,
-  isBosReadAllObserver,
   BOS_LOOKUP_VIEW_KEYS,
 } from '@/lib/utils/bos/bos-access';
 import { intersectBosScope } from '@/lib/utils/bos/institution-scope';
 import { resolvePoPsoTarget } from '@/lib/utils/bos/po-pso-access';
+import { isPoPsoReadAll } from '@/lib/utils/bos/programme-outcomes';
 
 interface DepartmentOption {
   id: string;
@@ -30,9 +30,11 @@ interface ProgrammeOption {
  * The Institution → Department → Programme filter chain for /bos/po-pso.
  * Returns the institution's departments and programmes (CAS-expanded), and
  * the HOD lock: when the caller heads departments at this institution and is
- * neither super-admin nor principal nor a read-all observer, the lists are
+ * neither super-admin nor principal nor a board member here, the lists are
  * restricted to those departments and `hod.locked` is true so the UI
- * pre-selects and disables the Department picker.
+ * pre-selects and disables the Department picker. (The BoS observer view
+ * grants do not lift the lock — HOD and Principal are own-institution on this
+ * page; see isPoPsoReadAll.)
  *
  * institutionsId may be a MyJKKN UUID or a COE UUID (super-admin picker).
  */
@@ -49,8 +51,9 @@ export async function GET(request: NextRequest) {
 
     const scope = await resolveBosBoardScope(user.id);
     const hasView = await hasAnyBosPermission(user.id, BOS_LOOKUP_VIEW_KEYS);
-    const canReadAllBos = isBosReadAllObserver(scope, hasView);
-    const seeAll = scope.isSuperAdmin || canReadAllBos;
+    // HOD / Principal are pinned to their own institution here (see
+    // isPoPsoReadAll) — the observer view grants do NOT widen this page.
+    const seeAll = isPoPsoReadAll(scope, hasView);
 
     const db = createServiceRoleClient();
     const target = await resolvePoPsoTarget(db, requestedId);

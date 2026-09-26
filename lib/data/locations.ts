@@ -74,7 +74,12 @@ const tamilNaduDistricts: District[] = [
       { id: 'dharmapuri_taluk', name: 'Dharmapuri' },
       { id: 'harur', name: 'Harur' },
       { id: 'karimangalam', name: 'Karimangalam' },
-      { id: 'palacode', name: 'Palacode' }
+      { id: 'palacode', name: 'Palacode' },
+      // Added 2026-09-24 (BUG-003746): Dharmapuri has seven taluks, the picker
+      // offered four, so learners from the other three could not pick their own.
+      { id: 'nallampalli', name: 'Nallampalli' },
+      { id: 'pappireddipatti', name: 'Pappireddipatti' },
+      { id: 'pennagaram', name: 'Pennagaram' }
     ]
   },
   {
@@ -568,9 +573,20 @@ const otherStatesData: State[] = [
         name: 'Thiruvananthapuram',
         taluks: [
           { id: 'thiruvananthapuram_urban', name: 'Thiruvananthapuram Urban' },
-          { id: 'thiruvananthapuram_rural', name: 'Thiruvananthapuram Rural' }
+          { id: 'thiruvananthapuram_rural', name: 'Thiruvananthapuram Rural' },
+          // Added 2026-09-24 (BUG-003982): the real taluks. Urban/Rural above
+          // are kept because existing rows store them.
+          { id: 'thiruvananthapuram_taluk', name: 'Thiruvananthapuram' },
+          { id: 'chirayinkeezhu', name: 'Chirayinkeezhu' },
+          { id: 'kattakada', name: 'Kattakada' },
+          { id: 'nedumangad', name: 'Nedumangad' },
+          { id: 'neyyattinkara', name: 'Neyyattinkara' },
+          { id: 'varkala', name: 'Varkala' }
         ]
       },
+      // Kochi is a city, not a district (it lies in Ernakulam). Kept only
+      // because existing learner rows store it — it was one of two Kerala
+      // options until 2026-09-24, so Kerala learners picked it by default.
       {
         id: 'kochi',
         name: 'Kochi',
@@ -590,6 +606,149 @@ const otherStatesData: State[] = [
           { id: 'kanjirappally', name: 'Kanjirappally' },
           { id: 'meenachil', name: 'Meenachil' },
           { id: 'vaikom', name: 'Vaikom' }
+        ]
+      },
+      // Added 2026-09-24 (BUG-003982, BUG-003020): Kerala has 14 districts and
+      // the picker offered three, so e.g. a Thrissur learner could not enter
+      // their own district. Taluk ids that already exist in another state get a
+      // district suffix, because id lookups search every state.
+      {
+        id: 'kollam',
+        name: 'Kollam',
+        taluks: [
+          { id: 'kollam_taluk', name: 'Kollam' },
+          { id: 'karunagappally', name: 'Karunagappally' },
+          { id: 'kottarakkara', name: 'Kottarakkara' },
+          { id: 'kunnathur', name: 'Kunnathur' },
+          { id: 'pathanapuram', name: 'Pathanapuram' },
+          { id: 'punalur', name: 'Punalur' }
+        ]
+      },
+      {
+        id: 'pathanamthitta',
+        name: 'Pathanamthitta',
+        taluks: [
+          { id: 'adoor', name: 'Adoor' },
+          { id: 'konni', name: 'Konni' },
+          { id: 'kozhencherry', name: 'Kozhencherry' },
+          { id: 'mallappally', name: 'Mallappally' },
+          { id: 'ranni', name: 'Ranni' },
+          { id: 'thiruvalla', name: 'Thiruvalla' }
+        ]
+      },
+      {
+        id: 'alappuzha',
+        name: 'Alappuzha',
+        taluks: [
+          { id: 'ambalappuzha', name: 'Ambalappuzha' },
+          { id: 'chengannur', name: 'Chengannur' },
+          { id: 'cherthala', name: 'Cherthala' },
+          { id: 'karthikappally', name: 'Karthikappally' },
+          { id: 'kuttanad', name: 'Kuttanad' },
+          { id: 'mavelikkara', name: 'Mavelikkara' }
+        ]
+      },
+      {
+        id: 'idukki',
+        name: 'Idukki',
+        taluks: [
+          { id: 'devikulam', name: 'Devikulam' },
+          { id: 'idukki_taluk', name: 'Idukki' },
+          { id: 'peerumade', name: 'Peerumade' },
+          { id: 'thodupuzha', name: 'Thodupuzha' },
+          { id: 'udumbanchola', name: 'Udumbanchola' }
+        ]
+      },
+      {
+        id: 'ernakulam',
+        name: 'Ernakulam',
+        taluks: [
+          { id: 'aluva', name: 'Aluva' },
+          { id: 'kanayannur', name: 'Kanayannur' },
+          { id: 'kochi_taluk', name: 'Kochi' },
+          { id: 'kothamangalam', name: 'Kothamangalam' },
+          { id: 'kunnathunad', name: 'Kunnathunad' },
+          { id: 'muvattupuzha', name: 'Muvattupuzha' },
+          { id: 'north_paravur', name: 'North Paravur' }
+        ]
+      },
+      {
+        id: 'thrissur',
+        name: 'Thrissur',
+        taluks: [
+          { id: 'thrissur_taluk', name: 'Thrissur' },
+          { id: 'chalakudy', name: 'Chalakudy' },
+          { id: 'chavakkad', name: 'Chavakkad' },
+          { id: 'kodungallur', name: 'Kodungallur' },
+          { id: 'kunnamkulam', name: 'Kunnamkulam' },
+          { id: 'mukundapuram', name: 'Mukundapuram' },
+          { id: 'thalappilly', name: 'Thalappilly' }
+        ]
+      },
+      {
+        id: 'palakkad',
+        name: 'Palakkad',
+        taluks: [
+          { id: 'palakkad_taluk', name: 'Palakkad' },
+          { id: 'alathur_palakkad', name: 'Alathur' },
+          { id: 'attappady', name: 'Attappady' },
+          { id: 'chittur', name: 'Chittur' },
+          { id: 'mannarkkad', name: 'Mannarkkad' },
+          { id: 'ottapalam', name: 'Ottapalam' },
+          { id: 'pattambi', name: 'Pattambi' }
+        ]
+      },
+      {
+        id: 'malappuram',
+        name: 'Malappuram',
+        taluks: [
+          { id: 'ernad', name: 'Ernad' },
+          { id: 'kondotty', name: 'Kondotty' },
+          { id: 'nilambur', name: 'Nilambur' },
+          { id: 'perinthalmanna', name: 'Perinthalmanna' },
+          { id: 'ponnani', name: 'Ponnani' },
+          { id: 'tirur', name: 'Tirur' },
+          { id: 'tirurangadi', name: 'Tirurangadi' }
+        ]
+      },
+      {
+        id: 'kozhikode',
+        name: 'Kozhikode',
+        taluks: [
+          { id: 'kozhikode_taluk', name: 'Kozhikode' },
+          { id: 'koyilandy', name: 'Koyilandy' },
+          { id: 'thamarassery', name: 'Thamarassery' },
+          { id: 'vadakara', name: 'Vadakara' }
+        ]
+      },
+      {
+        id: 'wayanad',
+        name: 'Wayanad',
+        taluks: [
+          { id: 'mananthavady', name: 'Mananthavady' },
+          { id: 'sulthan_bathery', name: 'Sulthan Bathery' },
+          { id: 'vythiri', name: 'Vythiri' }
+        ]
+      },
+      {
+        id: 'kannur',
+        name: 'Kannur',
+        taluks: [
+          { id: 'kannur_taluk', name: 'Kannur' },
+          { id: 'iritty', name: 'Iritty' },
+          { id: 'payyanur', name: 'Payyanur' },
+          { id: 'taliparamba', name: 'Taliparamba' },
+          { id: 'thalassery', name: 'Thalassery' }
+        ]
+      },
+      {
+        id: 'kasaragod',
+        name: 'Kasaragod',
+        taluks: [
+          { id: 'kasaragod_taluk', name: 'Kasaragod' },
+          { id: 'hosdurg', name: 'Hosdurg' },
+          { id: 'manjeshwaram', name: 'Manjeshwaram' },
+          { id: 'vellarikundu', name: 'Vellarikundu' }
         ]
       }
     ]

@@ -67,6 +67,14 @@ export interface TableConfig {
   // support (getAllItems() pages through fetchDataFn). Defaults false, so no
   // existing table's behaviour changes.
   exportAllPagesByDefault?: boolean;
+
+  // When true, every column renders at exactly its `size` (table-layout: fixed,
+  // table width = sum of column sizes) and the table scrolls horizontally
+  // instead of squeezing columns to fit the viewport. Without it, the
+  // `w-full` table + `max-w-0` cells let the browser shrink wide multi-line
+  // columns until their content is clipped. Defaults false, so no existing
+  // table's layout changes.
+  fixedColumnWidths?: boolean;
 }
 
 // Default configuration
@@ -88,7 +96,8 @@ const defaultConfig: TableConfig = {
   columnResizingTableId: undefined, // No table ID by default
   searchPlaceholder: undefined, // No custom search placeholder by default
   allowExportNewColumns: true, // Allow new columns from transform function by default
-  exportAllPagesByDefault: false // Export defaults to the visible page (unchanged)
+  exportAllPagesByDefault: false, // Export defaults to the visible page (unchanged)
+  fixedColumnWidths: false // Auto layout (unchanged)
 };
 
 /**

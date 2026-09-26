@@ -20,6 +20,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { BulkLearnerEditService } from '@/lib/services/bulk-learner-edit-service';
 import { buildBulkEditWorkbook } from '@/lib/services/bulk-learner-edit-workbook';
 import { ID_CARD_TEMPLATE, buildIdCardWorkbook } from '@/lib/services/bulk-learner-id-card-template';
+import { getLearnerBulkEditInstitutionIds } from '@/lib/auth/learner-bulk-edit-scope';
 
 /**
  * GET /api/learners/export-exited-for-edit
@@ -114,10 +115,39 @@ export async function GET(request: NextRequest) {
     // `template=id_card` → the reduced ID Card Data sheet (same rows, fewer columns).
     const isIdCard = searchParams.get('template') === ID_CARD_TEMPLATE;
 
-    // 4. Get institution filter (non-super-admins can only see their institution)
-    const institutionId = profile.is_super_admin
-      ? searchParams.get('institution_id') || undefined
-      : profile.institution_id || undefined;
+    // 4. Get institution filter. Non-super-admins are scoped to the institutions
+    //    their role grants (get_user_accessible_institutions honours
+    //    custom_roles.institution_scope). Pinning them to profiles.institution_id
+    //    alone returned nothing for multi-institution roles like Admission, and
+    //    silently discarded the institution they picked in the filter.
+    const requestedInstitutionId = searchParams.get('institution_id') || undefined;
+    let institutionId: string | string[] | undefined;
+    if (profile.is_super_admin) {
+      institutionId = requestedInstitutionId;
+    } else {
+      const accessibleIds = await getLearnerBulkEditInstitutionIds(
+        supabase,
+        user.id,
+        profile.institution_id
+      );
+
+      if (requestedInstitutionId) {
+        if (!accessibleIds.includes(requestedInstitutionId)) {
+          return NextResponse.json(
+            { success: false, error: 'You do not have access to the selected institution' },
+            { status: 403 }
+          );
+        }
+        institutionId = requestedInstitutionId;
+      } else if (accessibleIds.length > 0) {
+        institutionId = accessibleIds;
+      } else {
+        return NextResponse.json(
+          { success: false, error: 'No institution is assigned to your account. Contact the administrator.' },
+          { status: 403 }
+        );
+      }
+    }
 
     // Get additional filters
     const degreeId = searchParams.get('degree_id') || undefined;

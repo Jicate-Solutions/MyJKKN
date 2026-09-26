@@ -78,6 +78,8 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { LearnerProfileService } from '@/lib/services/learner-profile-service';
+import { FEATURE_KEYS, recordFeatureUse } from '@/lib/usage/record';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 // Helper component to display validation issues (errors and warnings)
 function IssuesDisplay({
@@ -867,6 +869,8 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
 
       // Show success message
       if (results.upload_summary.enquiries_created > 0) {
+        // Adoption loop: ONE use per upload that created at least one enquiry profile.
+        void recordFeatureUse(createClientSupabaseClient(), FEATURE_KEYS.LEARNERS_CREATE_PROFILE);
         toast.success(`Successfully created ${results.upload_summary.enquiries_created} enquiries!`);
 
         // Refresh the page data to show newly created enquiries in real-time

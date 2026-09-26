@@ -27,7 +27,7 @@ import {
   evaluateGates,
   useLiveSession,
 } from '@/lib/services/ai-pulse/live-session-service';
-import { JoinButton } from './join-button';
+import { JoinButton, hasSessionEnded } from './join-button';
 import { PollsPanel } from './polls-panel';
 import { ChampionPollsControl } from './champion-polls-control';
 import { QuizPanel } from './quiz-panel';
@@ -112,6 +112,11 @@ export function LiveSessionShell({ cycleId }: LiveSessionShellProps) {
   const quizSubmitted =
     typeof attendance.engagement_signals.quiz_score === 'number';
 
+  // Past the session's end time. The quiz panel and the Join button both need
+  // it: with every window shut, "not open yet" and "already over" look the
+  // same from the window flags alone.
+  const sessionEnded = hasSessionEnded(cycle.ends_at);
+
   return (
     <div className="space-y-6">
       {/* Header card — cycle metadata + Join button */}
@@ -169,6 +174,7 @@ export function LiveSessionShell({ cycleId }: LiveSessionShellProps) {
               alreadyJoined={alreadyJoined}
               joinOpen={data.join_open}
               joinOpensAt={data.join_opens_at}
+              sessionEnded={sessionEnded}
             />
           </div>
         </CardContent>
@@ -199,6 +205,9 @@ export function LiveSessionShell({ cycleId }: LiveSessionShellProps) {
           asyncWindowHours={async_makeup_window_hours}
           alreadySubmitted={quizSubmitted}
           existingScore={attendance.engagement_signals.quiz_score}
+          existingPassed={attendance.engagement_signals.quiz_passed}
+          existingAsyncMakeup={attendance.engagement_signals.quiz_async_makeup}
+          sessionEnded={sessionEnded}
         />
       </div>
 

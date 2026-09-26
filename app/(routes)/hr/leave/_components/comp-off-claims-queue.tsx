@@ -64,10 +64,48 @@ import {
   useRevokeCompOffClaim,
 } from '@/hooks/hr/use-comp-off';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
+import { usePermissions } from '@/hooks/use-permissions';
 import { getErrorMessage } from '@/lib/utils';
 
 export function CompOffClaimsQueue() {
   const ctx = useTimeOffContext();
+  /**
+   * Who sees other people's claims here. hcoc_select / hcoc_update admit a
+   * claim that is not your own only to a holder of hr.leave.approve (plus
+   * super admins). The Approvals tab itself opens for more people than that —
+   * hr_can_approve_leave() also admits anyone named on a leave approval step —
+   * so a step approver opened this tab to an empty table with no reason given
+   * and read it as "comp off is not displayed" (BUG-006194). Display only:
+   * who may decide a claim is unchanged.
+   */
+  // canAccess answers "no grant" whenever it has no permission map to read —
+  // while loading, and equally when the first load failed, never started (no
+  // profile) or is paused offline, and those last three are neither loading
+  // nor erroring. And it reads a map it still holds when only a later
+  // background refresh failed (it never looks at `error`). So the note keys
+  // on a map being IN HAND and saying no, not on `!isLoading && !error`: that
+  // told a real HR approver "only your own claims" over a table of everyone's
+  // when no map had loaded, and hid the note from the step approver it is for
+  // when a refresh failed with the map still loaded.
+  //
+  // "In hand" is read from the map itself: the hook hands back an empty map
+  // until one has loaded (a super admin's loaded map is also empty, and is
+  // marked by isSuperAdmin instead). A role whose map is genuinely empty then
+  // gets no note — silence, never a wrong claim. With no map and an error,
+  // offer a retry instead (CLAUDE.md #27).
+  const {
+    canAccess,
+    permissions,
+    isSuperAdmin,
+    isLoading: permsLoading,
+    error: permsError,
+    refetch: refetchPerms,
+  } = usePermissions();
+  const decidesOthersClaims = canAccess('hr.leave', 'approve');
+  const permsInHand = isSuperAdmin || Object.keys(permissions ?? {}).length > 0;
+  // canAccess also says no while isLoading is true, even with an older map.
+  const knownNotToDecideOthers = permsInHand && !permsLoading && !decidesOthersClaims;
+  const permsFailed = !permsInHand && !permsLoading && Boolean(permsError);
   const { data, isLoading, error, refetch, isFetching, dataUpdatedAt } = useCompOffClaimsQueue();
   const decide = useDecideCompOffClaim();
   const revoke = useRevokeCompOffClaim();
@@ -320,6 +358,29 @@ export function CompOffClaimsQueue() {
           compensatory off on a day inside that month.
         </AlertDescription>
       </Alert>
+
+      {permsFailed && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="text-xs">
+            Your permissions did not load, so this page cannot say whose claims you confirm.{' '}
+            <button type="button" className="underline" onClick={() => refetchPerms()}>
+              Retry
+            </button>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {knownNotToDecideOthers && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="text-xs">
+            Compensatory off claims are confirmed by HR, not by the leave approval steps.
+            You approve leave and short time off on the other tabs; other people&apos;s
+            worked-day claims do not appear here for you. Only your own claims are listed.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {lapsedPending > 0 && (
         <Alert variant="destructive">

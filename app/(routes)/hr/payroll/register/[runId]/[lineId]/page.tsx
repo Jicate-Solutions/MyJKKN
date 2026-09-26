@@ -415,6 +415,7 @@ export default function SalaryRegisterLinePage({
                       )
                     }
                   />
+                  <Row label="Works at" value={line.work_institution_name ?? '—'} />
                   <Row label="Institution" value={detail.data?.institution_name ?? '—'} />
                 </dl>
               </div>

@@ -220,6 +220,19 @@ function diffReferenceValues(
 }
 
 /**
+ * Whether a learner's institution falls inside the uploader's scope — one
+ * institution, or every institution their role grants (e.g. Admission).
+ * No scope at all keeps the historical behaviour of not restricting.
+ */
+function learnerInInstitutionScope(
+  learnerInstitutionId: string | null | undefined,
+  scope: string | string[] | undefined
+): boolean {
+  if (Array.isArray(scope)) return !!learnerInstitutionId && scope.includes(learnerInstitutionId);
+  return !scope || learnerInstitutionId === scope;
+}
+
+/**
  * What trg_sync_learner_referral_to_attribution will do for this row.
  *
  * The trigger inserts a consultant_lead_attributions row at 100% primary only
@@ -253,7 +266,7 @@ export class BulkLearnerEditService {
   static async previewChanges(
     learnerId: string,
     uploadedData: any,
-    userInstitutionId?: string,
+    userInstitutionId?: string | string[],
     isSuperAdmin: boolean = false,
     requireActive: boolean = true
   ): Promise<PreviewResult> {
@@ -285,8 +298,8 @@ export class BulkLearnerEditService {
     }
 
     // Check institution access
-    const hasAccess = isSuperAdmin || !userInstitutionId ||
-      learnerCheck.learner.institution_id === userInstitutionId;
+    const hasAccess = isSuperAdmin ||
+      learnerInInstitutionScope(learnerCheck.learner.institution_id, userInstitutionId);
 
     if (!hasAccess) {
       return {
@@ -515,7 +528,7 @@ export class BulkLearnerEditService {
    */
   static async processBulkEdit(
     rows: BulkEditRow[],
-    userInstitutionId?: string,
+    userInstitutionId?: string | string[],
     isSuperAdmin: boolean = false,
     userId?: string,
     requireActive: boolean = true
@@ -617,8 +630,8 @@ export class BulkLearnerEditService {
         }
 
         // Check institution access (if not super admin)
-        if (!isSuperAdmin && userInstitutionId) {
-          if (learnerCheck.learner.institution_id !== userInstitutionId) {
+        if (!isSuperAdmin) {
+          if (!learnerInInstitutionScope(learnerCheck.learner.institution_id, userInstitutionId)) {
             result.errors.push({
               row: row.rowNumber,
               id: learnerId,
@@ -779,7 +792,8 @@ export class BulkLearnerEditService {
           action_type: 'update',
           resource_type: 'learner',
           description: `Bulk edited ${result.updated || 0} learner profiles (${fieldsUpdated.join(', ')})`,
-          institution_id: userInstitutionId || undefined,
+          institution_id:
+            (Array.isArray(userInstitutionId) ? userInstitutionId[0] : userInstitutionId) || undefined,
           metadata: {
             sub_type: 'bulk_edit',
             updated_count: result.updated,
@@ -803,7 +817,7 @@ export class BulkLearnerEditService {
    * Uses pagination to fetch ALL records (no limit)
    */
   static async exportActiveForEdit(
-    institutionId?: string,
+    institutionId?: string | string[],
     includeComplete: boolean = false,
     degreeId?: string,
     departmentId?: string,
@@ -856,8 +870,11 @@ export class BulkLearnerEditService {
         query = query.eq('lifecycle_status', 'active');
       }
 
-      // Filter by institution if specified
-      if (institutionId) {
+      // Filter by institution if specified (a list = every institution the
+      // caller's role can access)
+      if (Array.isArray(institutionId)) {
+        query = query.in('institution_id', institutionId);
+      } else if (institutionId) {
         query = query.eq('institution_id', institutionId);
       }
 

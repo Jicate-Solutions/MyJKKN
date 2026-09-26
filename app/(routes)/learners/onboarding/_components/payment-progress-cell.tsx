@@ -46,9 +46,13 @@ export function PaymentProgressCell({ payment }: { payment?: OnboardingPaymentPr
   if (!has_basis_due) {
     return (
       <div className="min-w-[130px] space-y-1">
-        <span className="text-xs font-medium text-muted-foreground">Nothing due yet</span>
+        <span className="text-xs font-medium text-muted-foreground">
+          {payment.threshold_basis === 'billed_to_date' ? 'Nothing billed yet' : 'Nothing due yet'}
+        </span>
         <p className="text-[10px] leading-tight text-muted-foreground">
-          No instalment has reached its due date
+          {payment.threshold_basis === 'billed_to_date'
+            ? 'No bill has been raised yet'
+            : 'No instalment has reached its due date'}
         </p>
       </div>
     );
@@ -224,20 +228,33 @@ export function PaymentAmountCell({
   field
 }: {
   payment?: OnboardingPaymentProgress;
-  field: 'basis_billed' | 'basis_paid' | 'basis_balance';
+  field: 'billed' | 'paid' | 'balance';
 }) {
   if (!payment) return <NoData />;
 
+  // Headline is always the WHOLE bill book (2026-09-25): showing only the
+  // rule's basis printed ₹0 for every learner whose bills were not yet due,
+  // even after they had paid lakhs in advance. When the rule counts a narrower
+  // basis, its figure is shown underneath so the % column still reconciles.
+  const total = payment[`total_${field}`];
+  const basis = payment[`basis_${field}`];
+  const narrowBasis = payment.threshold_basis !== 'billed_to_date';
+
   const tint =
-    field === 'basis_paid'
+    field === 'paid'
       ? 'text-green-700 dark:text-green-400'
-      : field === 'basis_balance'
+      : field === 'balance'
         ? 'text-red-700 dark:text-red-400'
         : 'text-foreground';
 
   return (
-    <div className={`text-right text-sm tabular-nums ${tint}`}>
-      {formatCurrency(payment[field], { showDecimals: false })}
+    <div className="text-right tabular-nums">
+      <div className={`text-sm ${tint}`}>{formatCurrency(total, { showDecimals: false })}</div>
+      {narrowBasis && (
+        <p className="text-[10px] leading-tight text-muted-foreground">
+          due so far {formatCurrency(basis, { showDecimals: false })}
+        </p>
+      )}
     </div>
   );
 }

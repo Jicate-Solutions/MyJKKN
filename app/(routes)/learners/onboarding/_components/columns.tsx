@@ -10,10 +10,8 @@
  *     (admitted/pending/approved), so we render an em-dash placeholder rather
  *     than alarm-looking text.
  *
- * COLUMNS VARY BY TIER (see `getOnboardingColumns`). On `awaiting_payment` the
- * two triage columns above are structurally dead — that tier is defined as 4/4
- * fields filled, so "Missing Fields" is always blank and "Completion" always
- * 4/4 — and are swapped for the fee columns that explain the real blocker.
+ * The Awaiting Payment fee details are NOT columns — they open from the row's
+ * "View Progress" action (payment-progress-dialog.tsx).
  */
 
 import { ColumnDef } from '@tanstack/react-table';
@@ -29,14 +27,8 @@ import { formatAdmissionYear } from '@/lib/utils/admission-year-format';
 import type { OnboardingProfileRow, OnboardingTier } from '@/types/learner-onboarding';
 import { MissingFieldsCell } from './missing-fields-cell';
 import { CompletionProgressCell } from './completion-progress-cell';
-import {
-  PaymentProgressCell,
-  PaymentAmountCell,
-  AmountToThresholdCell,
-  basisHint,
-  NextInstalmentCell
-} from './payment-progress-cell';
 import { OnboardingRowActions } from './row-actions';
+import { LearnerProgressNameCell } from './learner-progress-name-cell';
 
 function isPersonalEmail(email: string | null | undefined): boolean {
   if (!email) return false;
@@ -133,34 +125,29 @@ export const onboardingColumns: ColumnDef<OnboardingProfileRow>[] = [
     maxSize: 60
   },
   {
-    accessorKey: 'roll_number',
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Roll Number" />,
-    cell: ({ row }) => (
-      <div className="font-mono text-sm">
-        {row.original.roll_number || (
-          <span className="text-muted-foreground italic">—</span>
-        )}
-      </div>
-    ),
-    size: 120
-  },
-  {
+    // Name + roll number in one cell. Sorts by name; roll-number sorting stays
+    // available from the toolbar's Sort dropdown.
     accessorKey: 'first_name',
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Learner Name" />,
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Learner" />,
     cell: ({ row }) => {
       const learner = row.original;
       const name = `${learner.first_name} ${learner.last_name || ''}`.trim();
       return (
-        <Link
-          href={`/learners/profiles/${learner.id}/edit?focus=missing`}
-          className="font-medium text-primary hover:underline"
-          title="Open edit form focused on missing fields"
-        >
-          {name}
-        </Link>
+        <div className="space-y-0.5 whitespace-normal break-words">
+          <Link
+            href={`/learners/profiles/${learner.id}/edit?focus=missing`}
+            className="font-medium text-primary hover:underline"
+            title="Open edit form focused on missing fields"
+          >
+            {name}
+          </Link>
+          <div className="font-mono text-xs text-muted-foreground">
+            {learner.roll_number || <span className="italic">No roll no.</span>}
+          </div>
+        </div>
       );
     },
-    size: 180
+    size: 230
   },
   {
     accessorKey: 'college_email',
@@ -169,20 +156,20 @@ export const onboardingColumns: ColumnDef<OnboardingProfileRow>[] = [
     size: 260
   },
   {
-    accessorKey: 'institution.name',
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Institution" />,
-    cell: ({ row }) => (
-      <div className="text-sm">{row.original.institution?.name || 'N/A'}</div>
+    id: 'institution_program',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Institution / Program" />
     ),
-    size: 180
-  },
-  {
-    accessorKey: 'program.program_name',
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Program" />,
     cell: ({ row }) => (
-      <div className="text-sm">{row.original.program?.program_name || '—'}</div>
+      <div className="space-y-0.5 whitespace-normal break-words">
+        <div className="text-sm">{row.original.institution?.name || 'N/A'}</div>
+        <div className="text-xs text-muted-foreground">
+          {row.original.program?.program_name || '—'}
+        </div>
+      </div>
     ),
-    size: 140
+    size: 300,
+    enableSorting: false
   },
   {
     id: 'admission_year',
@@ -190,7 +177,7 @@ export const onboardingColumns: ColumnDef<OnboardingProfileRow>[] = [
       (row as any).admission_year_obj?.year ?? (row as any).admission_year ?? null,
     header: ({ column }) => <DataTableColumnHeader column={column} title="Admission Year" />,
     cell: ({ row }) => (
-      <div className="text-sm">{formatAdmissionYear(row.original as any) || '—'}</div>
+      <div className="text-sm whitespace-normal">{formatAdmissionYear(row.original as any) || '—'}</div>
     ),
     size: 150
   },
@@ -211,13 +198,13 @@ export const onboardingColumns: ColumnDef<OnboardingProfileRow>[] = [
         percent={row.original.completion_percent}
       />
     ),
-    size: 110
+    size: 130
   },
   {
     accessorKey: 'lifecycle_status',
     header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
     cell: ({ row }) => <LifecycleStatusBadge status={row.original.lifecycle_status} />,
-    size: 120
+    size: 130
   },
   {
     id: 'actions',
@@ -230,113 +217,31 @@ export const onboardingColumns: ColumnDef<OnboardingProfileRow>[] = [
 ];
 
 /**
- * Fee columns, shown only on the Awaiting Payment tier.
- *
- * `enableSorting: false` on all five is deliberate. The DataTable's header sort
- * writes ?sort_by= and the server puts that in an ORDER BY, but these values
- * come from an RPC, not from a learners_profiles column — a header click would
- * silently order by nothing. Fee sorting is offered through the toolbar's Sort
- * dropdown instead, which routes to the JS comparator that can actually honour
- * it (see PAYMENT_SORT_COLUMNS in _data/get-onboarding-learners.ts).
- *
- * Headers are plain spans rather than DataTableColumnHeader: that component
- * renders a bare `<div>{title}</div>` once sorting is off and forwards nothing
- * else, so it cannot carry the `title` tooltip these need. "Fees Due" without
- * the basis spelled out is genuinely ambiguous — a reader who assumes "the
- * whole year" concludes the percentages are wrong when they are simply measured
- * against a different denominator.
- *
- * `basis` only labels the tooltips; every cell reads its own row's basis, so a
- * mixed page could never mislabel an individual figure.
- */
-function paymentColumns(basis: Parameters<typeof basisHint>[0]): ColumnDef<OnboardingProfileRow>[] {
-  const hint = basisHint(basis);
-
-  const moneyHeader = (label: string, tooltip: string) => (
-    <div className="text-right" title={tooltip}>
-      {label}
-    </div>
-  );
-
-  return [
-    {
-      id: 'payment_progress',
-      header: () => <span title={hint}>Progress to Threshold</span>,
-      cell: ({ row }) => <PaymentProgressCell payment={row.original.payment} />,
-      size: 160,
-      enableSorting: false
-    },
-    {
-      id: 'fees_due',
-      header: () => moneyHeader('Fees Due', hint),
-      cell: ({ row }) => <PaymentAmountCell payment={row.original.payment} field="basis_billed" />,
-      size: 120,
-      enableSorting: false
-    },
-    {
-      id: 'fees_paid',
-      header: () => moneyHeader('Paid', `Received against those bills. ${hint}`),
-      cell: ({ row }) => <PaymentAmountCell payment={row.original.payment} field="basis_paid" />,
-      size: 120,
-      enableSorting: false
-    },
-    {
-      id: 'fees_balance',
-      header: () => moneyHeader('Balance', `Outstanding on those bills. ${hint}`),
-      cell: ({ row }) => <PaymentAmountCell payment={row.original.payment} field="basis_balance" />,
-      size: 120,
-      enableSorting: false
-    },
-    {
-      // Placed before 'Need to Admit' deliberately: how much and by when read
-      // as one thought, and a caller works down the row left to right.
-      id: 'next_instalment',
-      header: () => (
-        <span title="The earliest instalment this learner still owes. Blank when their fees are not split into instalments.">
-          Next Instalment
-        </span>
-      ),
-      cell: ({ row }) => <NextInstalmentCell payment={row.original.payment} />,
-      size: 140,
-      enableSorting: false
-    },
-    {
-      id: 'amount_to_threshold',
-      header: () =>
-        moneyHeader(
-          'Need to Admit',
-          'Further payment required before the status engine promotes this learner.'
-        ),
-      cell: ({ row }) => <AmountToThresholdCell payment={row.original.payment} />,
-      size: 130,
-      enableSorting: false
-    }
-  ];
-}
-
-/**
  * The column set for one tier.
  *
- * Only `awaiting_payment` differs: its two triage columns carry no information
- * (that tier is *defined* as 4/4 fields filled) and are replaced by the fee
- * columns. Every other tier keeps the original layout exactly.
+ * Every tier, Awaiting Payment included, uses the same columns. The fee
+ * position (Blocked At, progress, billed / paid / balance, next instalment,
+ * need to admit) moved out of the table into the row's "View Progress" dialog
+ * (payment-progress-dialog.tsx) on 2026-09-25 — seven extra columns made the
+ * table unreadable.
  */
-export function getOnboardingColumns(
-  tier: OnboardingTier,
-  basis: Parameters<typeof basisHint>[0] = 'due_to_date'
-): ColumnDef<OnboardingProfileRow>[] {
-  if (tier !== 'awaiting_payment') return onboardingColumns;
-
-  const swapAt = onboardingColumns.findIndex((c) => c.id === 'missing_fields');
-  // If that column is ever renamed, slice(0, -1) would quietly drop the last
-  // column instead of failing. Fall back to the base set: a tier missing its
-  // fee columns is obvious, a table missing Actions is not.
-  if (swapAt < 0) return onboardingColumns;
-
-  const before = onboardingColumns.slice(0, swapAt);
-  const after = onboardingColumns.filter(
-    (c) => c.id !== 'missing_fields' && c.id !== 'completion' && !before.includes(c)
-  );
-
-  return [...before, ...paymentColumns(basis), ...after];
+export function getOnboardingColumns(tier: OnboardingTier): ColumnDef<OnboardingProfileRow>[] {
+  // Missing fields are worked from the All / Critical tabs. Ready to Activate is
+  // complete by definition, and Awaiting Payment is about fees, so the column
+  // is dropped there to keep those tables lean.
+  // Awaiting Payment also moves Admission Year into the View Progress dialog.
+  if (tier === 'awaiting_payment') {
+    return onboardingColumns
+      .filter((c) => c.id !== 'missing_fields' && c.id !== 'admission_year')
+      .map((c) =>
+        // The name opens View Progress here, not the profile edit form.
+        (c as { accessorKey?: string }).accessorKey === 'first_name'
+          ? { ...c, cell: ({ row }) => <LearnerProgressNameCell learner={row.original} /> }
+          : c
+      );
+  }
+  if (tier === 'ready_to_activate') {
+    return onboardingColumns.filter((c) => c.id !== 'missing_fields');
+  }
+  return onboardingColumns;
 }

@@ -37,6 +37,7 @@ const EMPTY_STATS: OnboardingStats = {
   ready_to_activate: 0,
   awaiting_payment: 0,
   completion_rate: 0,
+  account_total: 0,
   reserved_total: 0,
   admitted_total: 0
 };
@@ -105,12 +106,14 @@ export async function getOnboardingStats(
     let needs_work = 0;
     let almost = 0;
     let ready_to_activate = 0;
-    let awaiting_payment = 0;
+    let complete_pre_admitted = 0;
+    let account_total = 0;
     let reserved_total = 0;
     let admitted_total = 0;
 
     for (const row of rows || []) {
-      if (row.lifecycle_status === 'reserved') reserved_total++;
+      if (row.lifecycle_status === 'account') account_total++;
+      else if (row.lifecycle_status === 'reserved') reserved_total++;
       else if (row.lifecycle_status === 'admitted') admitted_total++;
 
       let missing = 0;
@@ -124,14 +127,18 @@ export async function getOnboardingStats(
         case 'needs_work': needs_work++; break;
         case 'almost': almost++; break;
         case 'ready_to_activate': ready_to_activate++; break;
-        case 'awaiting_payment': awaiting_payment++; break;
+        case 'awaiting_payment': complete_pre_admitted++; break;
       }
     }
 
+    // Awaiting Payment is a VIEW over status, not a completeness bucket: every
+    // account + reserved learner is waiting on fees, whatever their fields say.
+    // So it overlaps the three incomplete tiers by design.
+    const awaiting_payment = account_total + reserved_total;
     const total_incomplete = critical + needs_work + almost;
-    const cohort = total_incomplete + ready_to_activate + awaiting_payment;
+    const cohort = total_incomplete + ready_to_activate + complete_pre_admitted;
     const completion_rate =
-      cohort > 0 ? Math.round(((ready_to_activate + awaiting_payment) / cohort) * 100) : 0;
+      cohort > 0 ? Math.round(((ready_to_activate + complete_pre_admitted) / cohort) * 100) : 0;
 
     return {
       total_incomplete,
@@ -141,6 +148,7 @@ export async function getOnboardingStats(
       ready_to_activate,
       awaiting_payment,
       completion_rate,
+      account_total,
       reserved_total,
       admitted_total
     };
