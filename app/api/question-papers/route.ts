@@ -6,7 +6,7 @@ import {
   resolveEffectiveInstitutionId,
   resolveCoeInstitutionCode,
 } from '@/lib/utils/internal-marks/internal-marks-access';
-import { resolveQpScope } from '@/lib/utils/question-papers/qp-scope';
+import { resolveQpScope, departmentCourseCodesFor } from '@/lib/utils/question-papers/qp-scope';
 import { getCoeCourseCategoryMap } from '@/lib/utils/question-papers/coe-course-categories';
 import type { IaQuestionPaper } from '@/types/ia-question-paper';
 
@@ -58,15 +58,22 @@ export async function GET(request: NextRequest) {
     // Visibility scope:
     //   faculty (course tier)      → only their assigned course codes
     //   any staff member with plans → only their own program(s); must pick one
+    //   HOD, another department's program → only the courses their department
+    //     teaches there (allied / generic elective / non-major)
     //   super_admin / admin w/o plans → the whole institution
-    const qpScope = await resolveQpScope(supabase, user.id, scope.isSuperAdmin, scope.role);
+    const qpScope = await resolveQpScope(supabase, user.id, scope.isSuperAdmin, scope.role, {
+      includeDepartmentOfferings: true,
+    });
     if (qpScope.level === 'course') {
       if (qpScope.courseCodes.length === 0) return NextResponse.json({ data: [] });
       params.course_code = qpScope.courseCodes.join(',');
     } else if (qpScope.programCodes.length > 0) {
       // Limited to their own program(s) — never the whole institution.
       if (!params.program_code || !qpScope.programCodes.includes(params.program_code)) {
-        return NextResponse.json({ data: [] });
+        const semester = params.semester != null ? Number(params.semester) : undefined;
+        const offered = departmentCourseCodesFor(qpScope, params.program_code, semester);
+        if (offered.length === 0) return NextResponse.json({ data: [] });
+        params.course_code = offered.join(',');
       }
     }
 

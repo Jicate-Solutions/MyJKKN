@@ -60,7 +60,7 @@ export function QuestionPaperFilters({ institutionId, filters, onFiltersChange }
   );
 
   const { data: plannedScopes, isLoading: isLoadingScopes } = usePlannedScopes(
-    institutionId, academicYearId, examStartDate
+    institutionId, academicYearId, examStartDate, true
   );
 
   // Distinct programs from planned scopes.
