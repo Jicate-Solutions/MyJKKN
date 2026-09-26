@@ -9,6 +9,8 @@ import { PendingChangesBanner } from './pending-changes-banner';
 import { ProfileComparisonView } from './profile-comparison-view';
 import { ProfileView } from './profile-view';
 import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Info } from 'lucide-react';
 import { EnquiryForm } from '../../enquiries/_components/enquiry-form';
 import ChangeRequestDialog from './change-request-dialog';
 import { ProfileCompletionIndicator } from './profile-completion-indicator';
@@ -38,8 +40,12 @@ export default function ProfilePageContent({ learner, userId }: ProfilePageConte
   // change-request flow stays disabled for them. Flip the key in Role
   // Management to re-enable self-service edits without a code change.
   // `can()` returns false while permissions load, so the button never flashes.
-  const { can } = usePermissions();
+  const { can, isLoading: permissionsLoading } = usePermissions();
   const canEdit = !pendingRequest && can('learners.my-profile.edit');
+  // Without the key the Edit and Complete Profile buttons simply vanish, so a
+  // learner sees an incomplete profile and no way forward. Say so, and say who
+  // can correct it. Hidden while permissions load so it never flashes.
+  const isViewOnly = !pendingRequest && !permissionsLoading && !can('learners.my-profile.edit');
 
   // Calculate profile completion (memoized)
   const profileCompletion = useMemo(() => {
@@ -270,6 +276,18 @@ export default function ProfilePageContent({ learner, userId }: ProfilePageConte
         total={profileCompletion.totalRequired}
         onViewDetails={handleViewDetails}
       />
+
+      {isViewOnly && (
+        <Alert>
+          <Info className="h-4 w-4" />
+          <AlertTitle>Your profile is view-only</AlertTitle>
+          <AlertDescription>
+            You cannot change these details yourself. To correct anything here, such as your
+            photo, address, marks or accommodation, ask your institution office. Their changes
+            show on this page.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {showCompletionCard && (
         <ProfileCompletionCard
