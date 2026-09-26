@@ -67,10 +67,17 @@ const MODE_TITLE: Record<CollectionPdfMode, string> = {
   online: 'ONLINE COLLECTION REPORT'
 };
 
+const TRANSPORT_TITLE: Record<CollectionPdfMode, string> = {
+  cash: 'TRANSPORT MAINTENANCE FEE - CASH COLLECTION REPORT',
+  online: 'TRANSPORT MAINTENANCE FEE - ONLINE COLLECTION REPORT'
+};
+
 export interface CollectionModePdfOptions {
   mode: CollectionPdfMode;
   /** Rows already filtered to this payment mode. */
   rows: CollectionDaywiseRow[];
+  /** Rows are already cut to Transport Maintenance Fee; only the title differs. */
+  transportOnly?: boolean;
   /** From/To of the report (ISO). Equal → a single "Date:" line. */
   dateFrom: string;
   dateTo: string;
@@ -244,7 +251,8 @@ export function shortSemesterLabel(name: string | null | undefined): string {
 
 /** Build the PDF for one payment mode; the caller saves it. */
 export async function generateCollectionModePdf(opts: CollectionModePdfOptions): Promise<jsPDF> {
-  const { mode, rows, dateFrom, dateTo, institutions } = opts;
+  const { mode, rows, dateFrom, dateTo, institutions, transportOnly } = opts;
+  const title = transportOnly ? TRANSPORT_TITLE[mode] : MODE_TITLE[mode];
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -271,7 +279,7 @@ export async function generateCollectionModePdf(opts: CollectionModePdfOptions):
 
   instNames.forEach((instName, idx) => {
     if (idx > 0) doc.addPage();
-    const startY = drawHeader(doc, letterheads[idx], MODE_TITLE[mode], dateLine, pageWidth);
+    const startY = drawHeader(doc, letterheads[idx], title, dateLine, pageWidth);
 
     const sections = groupByDay(byInstitution.get(instName)!);
     const multiDay = sections.length > 1;

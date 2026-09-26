@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { BeatLoader } from 'react-spinners';
 import {
   Table,
@@ -24,6 +25,7 @@ import {
 } from '@/components/ui/select';
 import {
   AlertCircle,
+  Bus,
   CalendarDays,
   Download,
   FileText,
@@ -40,7 +42,9 @@ import {
   buildWorkbookModel,
   daywiseModeLabel,
   groupByDay,
+  isTransportMaintenanceFee,
   learnerName,
+  projectRowsByCategory,
   summarise,
   transactionDetail
 } from '@/lib/services/billing/reports/collection-daywise';
@@ -87,6 +91,10 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
   const [mode, setMode] = useState<string>(ALL_MODES);
   const [exporting, setExporting] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
+  // Downloads leave out Transport Maintenance Fee unless this is ticked;
+  // ticking also enables the separate Transport Maintenance Fee PDF.
+  const [includeTransport, setIncludeTransport] = useState(false);
+  const [exportingTransportPdf, setExportingTransportPdf] = useState(false);
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -112,19 +120,44 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
 
   const filtersActive = search.trim() !== '' || mode !== ALL_MODES;
 
+  /** What the Excel and Cash / Online PDFs contain: the visible rows, with
+   *  the Transport Maintenance Fee part cut out unless the box is ticked. */
+  const exportRows = useMemo(
+    () =>
+      includeTransport
+        ? visible
+        : projectRowsByCategory(visible, (c) => !isTransportMaintenanceFee(c)),
+    [visible, includeTransport]
+  );
+
+  const exportRange = () => ({
+    from: (filters.date_from || sections[0].date).slice(0, 10),
+    to: (filters.date_to || sections[sections.length - 1].date).slice(0, 10)
+  });
+
+  const loadInstitutions = async (names: string[]) => {
+    const supabase = createClientSupabaseClient();
+    const { data: insts } = await supabase
+      .from('institutions')
+      .select(
+        'name, logo_url, address_line1, address_line2, address_line3, pin_code, university_affiliation_name, counselling_code'
+      )
+      .in('name', names);
+    return new Map((insts ?? []).map((i) => [i.name as string, i]));
+  };
+
   const handleExport = async () => {
-    if (visible.length === 0) {
+    if (exportRows.length === 0) {
       toast.error('Nothing to export for this range.');
       return;
     }
     try {
       setExporting(true);
-      const from = filters.date_from || sections[0].date;
-      const to = filters.date_to || sections[sections.length - 1].date;
+      const { from, to } = exportRange();
       const rangeLabel = from === to ? shortDate(from) : `${shortDate(from)} – ${shortDate(to)}`;
       // Summary + All + one sheet per payment mode present. exceljs is
       // dynamic-imported so the reports page bundle does not carry it.
-      const model = buildWorkbookModel(visible, { rangeLabel });
+      const model = buildWorkbookModel(exportRows, { rangeLabel });
       const { writeCollectionWorkbook, downloadWorkbook } = await import(
         '@/lib/services/billing/reports/collection-excel'
       );
@@ -138,47 +171,60 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
     }
   };
 
-  // One landscape PDF per mode — Cash and Online as separate files — each
-  // with a letterhead section per institution.
-  const handleExportPdf = async () => {
+  // One landscape PDF per mode (Cash and Online as separate files), each
+  // with a letterhead section per institution. Shared by the regular and the
+  // Transport Maintenance Fee downloads; returns false when nothing to print.
+  const downloadModePdfs = async (source: typeof visible, transportOnly: boolean) => {
     const byMode = (['cash', 'online'] as const)
-      .map((m) => ({ mode: m, rows: visible.filter((r) => r.payment_mode === m) }))
+      .map((m) => ({ mode: m, rows: source.filter((r) => r.payment_mode === m) }))
       .filter((x) => x.rows.length > 0);
-    if (byMode.length === 0) {
-      toast.error('No cash or online receipts to export for this range.');
-      return;
+    if (byMode.length === 0) return false;
+    const { from, to } = exportRange();
+    const names = Array.from(new Set(source.map((r) => r.institution_name).filter(Boolean)));
+    const institutions = await loadInstitutions(names);
+    const { generateCollectionModePdf } = await import('@/lib/utils/billing/collection-mode-pdf');
+    const prefix = transportOnly ? 'transport-maintenance-fee-' : '';
+    for (const { mode: m, rows: modeRows } of byMode) {
+      const doc = await generateCollectionModePdf({
+        mode: m,
+        rows: modeRows,
+        dateFrom: from,
+        dateTo: to,
+        institutions,
+        transportOnly
+      });
+      doc.save(`${prefix}${m}-collection-${from}_to_${to}.pdf`);
     }
+    return true;
+  };
+
+  const handleExportPdf = async () => {
     try {
       setExportingPdf(true);
-      const from = (filters.date_from || sections[0].date).slice(0, 10);
-      const to = (filters.date_to || sections[sections.length - 1].date).slice(0, 10);
-
-      const names = Array.from(new Set(visible.map((r) => r.institution_name).filter(Boolean)));
-      const supabase = createClientSupabaseClient();
-      const { data: insts } = await supabase
-        .from('institutions')
-        .select(
-          'name, logo_url, address_line1, address_line2, address_line3, pin_code, university_affiliation_name, counselling_code'
-        )
-        .in('name', names);
-      const { generateCollectionModePdf } = await import('@/lib/utils/billing/collection-mode-pdf');
-      const institutions = new Map((insts ?? []).map((i) => [i.name as string, i]));
-
-      for (const { mode: m, rows: modeRows } of byMode) {
-        const doc = await generateCollectionModePdf({
-          mode: m,
-          rows: modeRows,
-          dateFrom: from,
-          dateTo: to,
-          institutions
-        });
-        doc.save(`${m}-collection-${from}_to_${to}.pdf`);
+      if (!(await downloadModePdfs(exportRows, false))) {
+        toast.error('No cash or online receipts to export for this range.');
       }
     } catch (err) {
       console.error('Collection PDF export failed:', err);
       toast.error('PDF export failed');
     } finally {
       setExportingPdf(false);
+    }
+  };
+
+  // Transport Maintenance Fee alone: Cash and Online as separate PDFs.
+  const handleExportTransportPdf = async () => {
+    try {
+      setExportingTransportPdf(true);
+      const transportRows = projectRowsByCategory(visible, isTransportMaintenanceFee);
+      if (!(await downloadModePdfs(transportRows, true))) {
+        toast.error('No cash or online Transport Maintenance Fee in this range.');
+      }
+    } catch (err) {
+      console.error('Transport Maintenance Fee PDF export failed:', err);
+      toast.error('PDF export failed');
+    } finally {
+      setExportingTransportPdf(false);
     }
   };
 
@@ -290,30 +336,75 @@ export function CollectionReportTab({ filters, canExport }: CollectionReportTabP
               Collection Report
             </CardTitle>
             {canExport && (
-              <div className='flex gap-2'>
-              <Button variant='outline' size='sm' onClick={handleExportPdf} disabled={exportingPdf}>
-                {exportingPdf ? (
+              <div className='flex flex-wrap items-center gap-2'>
+                <Button size='sm' onClick={handleExportPdf} disabled={exportingPdf} className='min-w-[150px]'>
+                  {exportingPdf ? (
+                    <BeatLoader size={8} color='currentColor' />
+                  ) : (
+                    <>
+                      <FileText className='h-4 w-4 mr-2' />
+                      Download PDF
+                    </>
+                  )}
+                </Button>
+                <Button variant='outline' size='sm' onClick={handleExport} disabled={exporting} className='min-w-[130px]'>
+                  {exporting ? (
+                    <BeatLoader size={8} color='currentColor' />
+                  ) : (
+                    <>
+                      <Download className='h-4 w-4 mr-2' />
+                      Export Excel
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {canExport && (
+            <div
+              className={`mt-3 flex flex-col gap-3 rounded-lg border px-3 py-2.5 transition-colors sm:flex-row sm:items-center sm:justify-between ${
+                includeTransport ? 'border-primary/40 bg-primary/5' : 'bg-muted/40'
+              }`}
+            >
+              <label htmlFor='include-transport-maintenance' className='flex cursor-pointer items-start gap-3'>
+                <Checkbox
+                  id='include-transport-maintenance'
+                  className='mt-0.5'
+                  checked={includeTransport}
+                  onCheckedChange={(v) => setIncludeTransport(v === true)}
+                />
+                <span className='space-y-0.5'>
+                  <span className='flex items-center gap-1.5 text-sm font-medium'>
+                    <Bus className='h-4 w-4 text-muted-foreground' />
+                    Include Transport Fee
+                  </span>
+                  <span className='block text-xs text-muted-foreground'>
+                    {includeTransport
+                      ? 'Transport Maintenance Fee is included in the PDF and Excel downloads.'
+                      : 'Transport Maintenance Fee is left out of the PDF and Excel downloads.'}
+                  </span>
+                </span>
+              </label>
+              <Button
+                variant={includeTransport ? 'default' : 'outline'}
+                size='sm'
+                onClick={handleExportTransportPdf}
+                disabled={!includeTransport || exportingTransportPdf}
+                title={includeTransport ? 'Cash and Online as separate PDFs' : 'Tick Include Transport Fee to enable'}
+                className='min-w-[160px] self-start sm:self-auto'
+              >
+                {exportingTransportPdf ? (
                   <BeatLoader size={8} color='currentColor' />
                 ) : (
                   <>
                     <FileText className='h-4 w-4 mr-2' />
-                    Download PDF
+                    Transport Fee PDF
                   </>
                 )}
               </Button>
-              <Button variant='outline' size='sm' onClick={handleExport} disabled={exporting}>
-                {exporting ? (
-                  <BeatLoader size={8} color='currentColor' />
-                ) : (
-                  <>
-                    <Download className='h-4 w-4 mr-2' />
-                    Export Excel
-                  </>
-                )}
-              </Button>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
 
           <div className='flex flex-col gap-3 pt-4 sm:flex-row sm:items-end'>
             <div className='flex-1 space-y-1.5'>

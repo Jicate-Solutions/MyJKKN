@@ -553,3 +553,58 @@ export function buildWorkbookModel(
   }
   return { summary: buildSummaryModel(rows, opts), detailSheets };
 }
+
+// ── Fee-category projection (Transport Maintenance Fee toggle) ──────────────
+
+/** billing_categories.category_name the Collection downloads can leave out
+ *  or report on alone. "Transport Fee" is a different category and stays. */
+export const TRANSPORT_MAINTENANCE_FEE = 'Transport Maintenance Fee';
+
+export function isTransportMaintenanceFee(category: string | null | undefined): boolean {
+  return (category ?? '').trim().toLowerCase() === TRANSPORT_MAINTENANCE_FEE.toLowerCase();
+}
+
+/**
+ * Re-cuts receipts to the fee categories `keep` accepts, using
+ * category_breakdown (amount_paid per category). A receipt that settled
+ * several fees keeps only the accepted part: its amount becomes the sum of the
+ * kept categories and `categories` lists only those. Receipts with nothing
+ * kept are dropped. Refunds are not attributed to a category on the server, so
+ * they are apportioned by the kept share of the receipt. Receipts with no
+ * breakdown read as uncategorised ('').
+ */
+export function projectRowsByCategory(
+  rows: CollectionDaywiseRow[],
+  keep: (category: string) => boolean
+): CollectionDaywiseRow[] {
+  const out: CollectionDaywiseRow[] = [];
+  for (const r of rows) {
+    const breakdown = r.category_breakdown ?? [];
+    if (breakdown.length === 0) {
+      if (keep('')) out.push(r);
+      continue;
+    }
+    const kept = breakdown.filter((c) => keep(c.category || ''));
+    if (kept.length === 0) continue;
+    if (kept.length === breakdown.length) {
+      out.push(r);
+      continue;
+    }
+    const gross = kept.reduce((s, c) => s + num(c.amount), 0);
+    const original = num(r.payment_amount);
+    const share = original > 0 ? gross / original : 0;
+    const refunds = Math.round(num(r.total_refunds) * share * 100) / 100;
+    out.push({
+      ...r,
+      category_breakdown: kept,
+      categories: Array.from(new Set(kept.map((c) => c.category || 'Uncategorised')))
+        .sort()
+        .join(', '),
+      payment_amount: gross,
+      total_refunds: refunds,
+      net_amount: Math.max(0, gross - refunds),
+      has_refunds: refunds > 0
+    });
+  }
+  return out;
+}

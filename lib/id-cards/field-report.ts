@@ -156,7 +156,7 @@ export function buildFieldReport(input: FieldReportInput): CardFieldReport[] {
         ]
       : []),
     addressRow,
-    { key: 'contact_phone', label: 'Contact Phone', side: 'back', value: present(person.contactPhone) },
+    { key: 'contact_phone', label: 'Contact Phone (parent)', side: 'back', value: present(person.contactPhone) },
     { key: 'barcode', label: 'Barcode (ID code)', side: 'back', value: present(person.idCode) },
     { key: 'institution_email', label: 'Institution Email', side: 'back', value: present(person.institutionEmail) },
     { key: 'institution_phone', label: 'Institution Phone', side: 'back', value: present(person.institutionPhone) },
