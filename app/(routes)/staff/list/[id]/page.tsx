@@ -34,6 +34,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { BeatLoader } from 'react-spinners';
 import { PrintCardButton } from '@/components/id-cards/print-card-button';
 import { JkknIdChip } from '@/components/identity/jkkn-id-chip';
+import { OfficeSummaryCard } from '../_components/office-summary-card';
 
 interface StaffDetailsPageProps {
   params: Promise<{ id: string }>;
@@ -162,6 +163,8 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
   // view-only, including on their own record (2026-09-25; the self-edit
   // allowance and its API branch were removed).
   const canEditStaff = isSuperAdmin || canAccess('staff', 'edit');
+  // hr.payroll.salary.view is held by hr_head alone (plus super admin).
+  const canViewOffice = isSuperAdmin || canAccess('hr.payroll.salary', 'view');
   // R4.1 — internal mobility: show "Consider for New Role" to users who can create recruitment candidates
   const canCreateRecruitment = isSuperAdmin || canAccess('hr.recruitment', 'create');
 
@@ -459,6 +462,9 @@ function StaffDetailsPageInner({ params }: StaffDetailsPageProps) {
             </div>
           </CardContent>
         </Card>
+
+        {/* Office — payer, salary, bank account: super admin + HR Head only */}
+        {canViewOffice && <OfficeSummaryCard staffId={staff.id} />}
 
         {/* Extended Profile (faculty-only, conditional) */}
         {staff.has_extended_profile && (
