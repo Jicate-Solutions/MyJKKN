@@ -1,20 +1,33 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
+import {
   useDuplicateYearAuditSummary,
+  useFeeStructureAuditSummary,
   useMissingYearAuditSummary
 } from '@/hooks/billing/use-bill-coverage-audit';
 import {
   DuplicateYearSummaryCards,
+  FeeStructureSummaryCards,
   MissingYearSummaryCards
 } from './audit-summary-cards';
+import {
+  AuditFeeStructureTable,
+  type FeeStructureAdvancedFilters
+} from './audit-fee-structure-table';
 import { AuditMissingYearsTable } from './audit-missing-years-table';
 import { AuditDuplicateYearsTable } from './audit-duplicate-years-table';
 import type { BillCoverageFilters } from '@/types/billing-coverage';
 
-type AuditCheck = 'missing' | 'duplicate';
+type AuditCheck = 'missing' | 'duplicate' | 'fee_structure';
 
 interface AuditClientProps {
   /** The page-level filter bar's state, shared with the Coverage tab. */
@@ -46,6 +59,28 @@ export function AuditClient({ filters, canExport }: AuditClientProps) {
     check === 'duplicate'
   );
 
+  // Fee Structure Match audits ONE admission cohort at a time, defaulting to
+  // the current year — fee structures are defined per admission year. The page
+  // filter wins when it already names a cohort.
+  const [fsYear, setFsYear] = useState<number | 'all'>(
+    filters.admission_year ?? new Date().getFullYear()
+  );
+  const fsFilters = useMemo<BillCoverageFilters>(
+    () => ({
+      ...filters,
+      admission_year: filters.admission_year ?? (fsYear === 'all' ? null : fsYear)
+    }),
+    [filters, fsYear]
+  );
+  // Advanced filters (fee item / schedule / structure name) drive BOTH the
+  // table and the cards, so the counts always describe the rows shown.
+  const [fsAdvanced, setFsAdvanced] = useState<FeeStructureAdvancedFilters>({});
+  const fsSummaryFilters = useMemo(() => ({ ...fsFilters, ...fsAdvanced }), [fsFilters, fsAdvanced]);
+  const feeStructureSummary = useFeeStructureAuditSummary(
+    fsSummaryFilters,
+    check === 'fee_structure'
+  );
+
   return (
     <Tabs
       value={check}
@@ -55,6 +90,7 @@ export function AuditClient({ filters, canExport }: AuditClientProps) {
       <TabsList>
         <TabsTrigger value='missing'>Missing Year Bills</TabsTrigger>
         <TabsTrigger value='duplicate'>Duplicate Year Bills</TabsTrigger>
+        <TabsTrigger value='fee_structure'>Fee Structure Match</TabsTrigger>
       </TabsList>
 
       <TabsContent value='missing' className='space-y-4'>
@@ -105,6 +141,54 @@ export function AuditClient({ filters, canExport }: AuditClientProps) {
           isLoading={duplicateSummary.isLoading}
         />
         <AuditDuplicateYearsTable filters={filters} canExport={canExport} />
+      </TabsContent>
+
+      <TabsContent value='fee_structure' className='space-y-4'>
+        <div className='flex flex-wrap items-start justify-between gap-3'>
+          <p className='max-w-3xl text-sm text-muted-foreground'>
+            Each learner&apos;s bills compared with the fee structure they match
+            today (institution, programme, quota, community, admission year,
+            gender, accommodation — the same match used when bills are
+            generated). One row per learner and fee item: a structure fee with
+            no bill, a different amount, a bill made from another structure, a
+            bill not linked to the structure, or a split fee without its
+            instalments.
+          </p>
+          <div className='flex items-center gap-2'>
+            <span className='text-xs text-muted-foreground'>Admission year</span>
+            <Select
+              value={String(filters.admission_year ?? fsYear)}
+              onValueChange={(v) => setFsYear(v === 'all' ? 'all' : Number(v))}
+              disabled={filters.admission_year != null}
+            >
+              <SelectTrigger className='h-8 w-[120px] text-xs'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>All years</SelectItem>
+                {(feeStructureSummary.data?.available_admission_years?.length
+                  ? feeStructureSummary.data.available_admission_years
+                  : [new Date().getFullYear()]
+                ).map((y) => (
+                  <SelectItem key={y} value={String(y)}>
+                    {y}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <FeeStructureSummaryCards
+          summary={feeStructureSummary.data}
+          isLoading={feeStructureSummary.isLoading}
+        />
+        <AuditFeeStructureTable
+          filters={fsFilters}
+          advanced={fsAdvanced}
+          onAdvancedChange={setFsAdvanced}
+          summary={feeStructureSummary.data}
+          canExport={canExport}
+        />
       </TabsContent>
     </Tabs>
   );
