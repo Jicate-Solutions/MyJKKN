@@ -7,7 +7,7 @@ import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-const STREAMS = ['Engineering', 'Pharmacy', 'Nursing', 'Dental', 'Arts'];
+export const STREAMS = ['Engineering', 'Pharmacy', 'Nursing', 'Dental', 'Arts', 'Science'];
 
 interface SyllabusFiltersProps {
   onFilterChange: (key: string, value: string | undefined) => void;

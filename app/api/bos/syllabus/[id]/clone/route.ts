@@ -8,6 +8,7 @@ import {
   UNIQUE_VIOLATION,
 } from '@/lib/utils/bos/course-code-conflict';
 import { BosCourseSyllabus } from '@/types/bos';
+import { normalizeStreamInput } from '@/lib/utils/bos/stream-filter';
 
 /**
  * POST /api/bos/syllabus/[id]/clone
@@ -107,7 +108,7 @@ export async function POST(
       course_credits: body.course_credits ?? source.course_credits,
       total_hours: body.total_hours ?? source.total_hours,
       contact_hours: body.contact_hours ?? source.contact_hours,
-      stream: body.stream ?? source.stream,
+      stream: normalizeStreamInput(body.stream) ?? source.stream,
       notes: body.notes ?? source.notes,
       // ── Content (copied verbatim from the source) ──
       course_objectives: source.course_objectives,

@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { counsellingCodeFor } from '@/lib/utils/bos/institution-scope';
+import { groupStreamCounts } from '@/lib/utils/bos/stream-filter';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -73,16 +74,15 @@ export async function GET(request: Request) {
     const totalSyllabi = syllabi?.length ?? 0;
 
     // Calculate metrics
-    const byStream: Record<string, number> = {};
+    // Case/space variants of one stream ("Arts", "ARTS", "arts ") fold into
+    // ONE entry — the stream column is free text.
+    const byStream = groupStreamCounts((syllabi ?? []).map((s: any) => s.stream));
     const byRegulation: Record<string, number> = {};
     const versionCounts: Record<number, number> = {};
     let incompleteCount = 0;
     const recentlyModified: typeof syllabi = [];
 
     syllabi?.forEach((syll: any) => {
-      // Stream count
-      byStream[syll.stream] = (byStream[syll.stream] ?? 0) + 1;
-
       // Regulation count (track by regulation_id)
       byRegulation[syll.regulation_id] = (byRegulation[syll.regulation_id] ?? 0) + 1;
 

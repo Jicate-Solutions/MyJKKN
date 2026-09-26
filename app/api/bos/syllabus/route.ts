@@ -18,6 +18,7 @@ import {
   UNIQUE_VIOLATION,
 } from '@/lib/utils/bos/course-code-conflict';
 import { CoeRestClient } from '@/lib/services/coe/coe-rest-client';
+import { applyStreamFilter, normalizeStreamInput } from '@/lib/utils/bos/stream-filter';
 import { BosCourseSyllabus, BosSyllabusListResponse, CreateBosSyllabusDto } from '@/types/bos';
 
 // Sort syllabi by course_mapping.course_order (asc, nulls last) with course_code
@@ -197,7 +198,9 @@ export async function GET(request: NextRequest) {
       if (boardId) q = q.eq('board_id', boardId);
       if (regulationIdsFilter) q = q.in('regulation_id', regulationIdsFilter);
       if (courseCode) q = q.eq('course_code', courseCode);
-      if (stream) q = q.eq('stream', stream);
+      // Stream is free text, so match ignoring case and surrounding spaces
+      // ("Arts", "ARTS", "arts " are one stream) — see lib/utils/bos/stream-filter.ts.
+      if (stream) q = applyStreamFilter(q, stream);
       if (isLatest) q = q.eq('is_latest', true);
       if (isArchived !== undefined) q = q.eq('is_archived', isArchived);
 
@@ -444,6 +447,7 @@ export async function POST(request: NextRequest) {
       .from('bos_course_syllabi')
       .insert({
         ...body,
+        stream: normalizeStreamInput(body.stream),
         board_id: body.board_id || null, // Allow null if not provided
         created_by: user.id,
         version_number: 1,
