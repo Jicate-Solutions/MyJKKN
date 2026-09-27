@@ -86,6 +86,14 @@ describe('batch timetable on the learner weekly view', () => {
     expect(await tuesdays(['2026-09-15'])).toEqual(['PERIO']);
   });
 
+  it('selected_dates saved empty ([]) means every range was removed: no dated posting shows; null means no restriction', async () => {
+    const tuesdays = async (selected: string[] | null) =>
+      ((await (StudentTimetableService as any).enrichTimetableSlots(batchTimetable, periods, stubClient(), { selected_dates: selected })) as any[])
+        .filter((s) => s.day === 'TUESDAY').map((s) => s.course.course_code);
+    expect(await tuesdays([])).toEqual([]);
+    expect(await tuesdays(null)).toEqual(['PERIO']);
+  });
+
   it('"today" is the India weekday: 20:00 UTC Monday is already Tuesday in India', () => {
     expect(isShowingToday('TUESDAY', new Date('2026-09-14T20:00:00Z'))).toBe(true);
     expect(isShowingToday('MONDAY', new Date('2026-09-14T20:00:00Z'))).toBe(false);

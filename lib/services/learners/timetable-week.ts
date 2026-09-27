@@ -38,7 +38,11 @@ export function displayWeek(now: Date = new Date()): { from: string; to: string 
 export interface TimetableBounds {
   start_date?: string | null;
   end_date?: string | null;
-  /** 'YYYY-MM-DD' dates and 'RANGE:from:to' markers the timetable is configured for. */
+  /**
+   * 'YYYY-MM-DD' dates and 'RANGE:from:to' markers the timetable is configured
+   * for. null/undefined = never saved, no restriction. [] = the user saved with
+   * every range removed (the editor honours that, BUG-002553), so no date shows.
+   */
   selected_dates?: string[] | null;
 }
 
@@ -67,7 +71,7 @@ export function isDateKeyInDisplayWeek(
   const end = bounds.end_date?.slice(0, 10);
   if (start && key < start) return false;
   if (end && key > end) return false;
-  if (bounds.selected_dates && bounds.selected_dates.length > 0 && !inSelectedDates(key, bounds.selected_dates)) {
+  if (Array.isArray(bounds.selected_dates) && !inSelectedDates(key, bounds.selected_dates)) {
     return false;
   }
   return true;
