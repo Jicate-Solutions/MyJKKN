@@ -382,6 +382,17 @@ export const POLICY_KEYS = {
   // internship.policy.attendance_fail_below_pct, or vac.completion_attendance_threshold.
   EXAM_ELIGIBILITY_ATTENDANCE_PCT: 'academic.exam_eligibility.attendance_pct',
   EXAM_ELIGIBILITY_CONDONATION_FLOOR_PCT: 'academic.exam_eligibility.condonation_floor_pct',
+
+  // Interview booking link (2026-09-24). Seeded by
+  // 20270312090000_interview_booking_link.sql; read by
+  // lib/services/hr/interview-booking-service.ts on a SERVICE-ROLE client,
+  // because the booker is anonymous and fn_get_policy is not anon-callable.
+  //   HOST — { handle, type_slug }: the meeting type interviews book onto, so
+  //          every interview lands in that person's calendar (Director #12).
+  //   CHANGE_CUTOFF_MIN — minutes before the interview after which the candidate
+  //          can no longer move or cancel it online (#11). In-code default 120.
+  HR_INTERVIEW_BOOKING_HOST: 'hr.recruitment.interview_booking.host',
+  HR_INTERVIEW_BOOKING_CHANGE_CUTOFF_MIN: 'hr.recruitment.interview_booking.change_cutoff_min',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];

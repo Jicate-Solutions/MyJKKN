@@ -3,6 +3,8 @@ export const dynamic = 'force-dynamic';
 import { NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { safeReportHref } from '@/lib/bug-reports/safe-report-href';
+import { safeScreenshotUrl } from '@/lib/bug-reports/safe-screenshot-url';
 
 /**
  * GET /api/bug-reports/feedback/mine
@@ -27,7 +29,9 @@ export async function GET() {
 
     const { data, error } = await (supabase as any)
       .from('bug_fix_feedback_requests')
-      .select('id, bug_id, kind, status, answer, expires_at, created_at, bug_reports:bug_id (display_id, description)')
+      .select(
+        'id, bug_id, kind, status, answer, expires_at, created_at, bug_reports:bug_id (display_id, description, page_url, screenshot_url)'
+      )
       .eq('reporter_user_id', user.id)
       .in('status', ['sent', 'delivered', 'answered'])
       .gt('expires_at', new Date().toISOString())
@@ -41,6 +45,14 @@ export async function GET() {
       kind: r.kind === 'still_open' ? 'still_open' : 'fix_check',
       display_id: r.bug_reports?.display_id ?? null,
       description: (r.bug_reports?.description ?? '').slice(0, 160),
+      // 2026-09-18: a four-word description is not enough to answer
+      // "is this still happening?" from. Give the reporter back their own
+      // screenshot and a way to the page they were on.
+      // The raw page_url NEVER leaves the server: it is attacker-controlled
+      // (written from window.location.href) and carries one of four origins.
+      // safeReportHref discards the origin and returns a relative path.
+      href: safeReportHref(r.bug_reports?.page_url ?? null),
+      screenshot_url: safeScreenshotUrl(r.bug_reports?.screenshot_url ?? null),
       status: r.status,
       answer: r.answer ?? null,
       expires_at: r.expires_at

@@ -166,6 +166,11 @@ export interface ServiceRequestApprovalStep {
   approver_user_ids: string[];
   is_required: boolean;
   on_return_restart_from_step: number | null;
+  /**
+   * false = retired from the live flow but kept as the FK target for past
+   * service_request_approvals. Every live read filters on true.
+   */
+  is_active: boolean;
   created_at: string;
 }
 

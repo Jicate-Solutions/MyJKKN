@@ -11,14 +11,25 @@
 
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { MessageSquare, Loader2, Reply, X } from 'lucide-react';
+import { AtSign, MessageSquare, Reply, X } from 'lucide-react';
 
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
+import { MentionComposer, MentionText } from '@/components/shared/mention-composer';
+import { makeRecruitmentPeopleSearch } from '@/components/shared/search-taggable-staff';
 import { useCandidateComments, useAddCandidateComment } from '@/hooks/hr/use-recruitment';
 import type { HRRecruitmentCandidateComment } from '@/types/hr-recruitment';
+
+/**
+ * Everyone with a MyJKKN account who is not a learner — not just people with a
+ * staff record, and not scoped to the candidate's institution. Both narrowings
+ * would hide exactly whom you need on a hire: the Director, an HR head, a COO
+ * sit above the job's institution, and several of them have no staff row at all.
+ *
+ * Module-level so the identity is stable: a new function each render would
+ * restart the search on every keystroke.
+ */
+const peopleSearch = makeRecruitmentPeopleSearch();
 
 const fmtWhen = (iso: string) =>
   new Date(iso).toLocaleString('en-IN', {
@@ -37,13 +48,26 @@ function CommentBody({
   onReply?: () => void;
 }) {
   const name = comment.commenter?.full_name || comment.commenter?.email || 'Unknown user';
+  // Only people actually tagged are highlighted — an "@" typed without picking
+  // anyone from the menu notified nobody, and styling it like a tag would lie.
+  const taggedNames = (comment.mentions ?? [])
+    .map((m) => m.profile?.full_name ?? '')
+    .filter(Boolean);
   return (
     <div className="rounded-lg border bg-muted/30 px-3 py-2">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
         <span className="text-sm font-medium">{name}</span>
         <span className="text-[11px] text-muted-foreground">{fmtWhen(comment.created_at)}</span>
       </div>
-      <p className="mt-1 whitespace-pre-wrap text-sm text-foreground/90">{comment.comment}</p>
+      <p className="mt-1 whitespace-pre-wrap text-sm text-foreground/90">
+        <MentionText body={comment.comment} names={taggedNames} />
+      </p>
+      {taggedNames.length > 0 && (
+        <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+          <AtSign className="h-3 w-3" />
+          Notified {taggedNames.join(', ')}
+        </p>
+      )}
       {onReply && (
         <button
           type="button"
@@ -62,7 +86,6 @@ export function CandidateDiscussionThread({ candidateId }: { candidateId: string
   const { data: comments, isLoading } = useCandidateComments(candidateId);
   const addComment = useAddCandidateComment();
 
-  const [draft, setDraft] = useState('');
   const [replyTo, setReplyTo] = useState<HRRecruitmentCandidateComment | null>(null);
 
   // Top-level comments in order, with replies (any depth flattened to one level) under them.
@@ -88,23 +111,21 @@ export function CandidateDiscussionThread({ candidateId }: { candidateId: string
     return { roots, repliesByParent };
   }, [comments]);
 
-  const submit = () => {
-    const text = draft.trim();
-    if (!text) return;
-    addComment.mutate(
-      {
+  // Returns the promise so MentionComposer keeps the writer's text on failure
+  // and clears it only once the comment is really stored.
+  const submit = async (body: string, mentionIds?: string[]) => {
+    try {
+      await addComment.mutateAsync({
         candidate_id: candidateId,
-        comment: text,
+        comment: body,
         parent_comment_id: replyTo?.id ?? null,
-      },
-      {
-        onSuccess: () => {
-          setDraft('');
-          setReplyTo(null);
-        },
-        onError: (err) => toast.error(err.message),
-      }
-    );
+        mention_ids: mentionIds,
+      });
+      setReplyTo(null);
+    } catch (err) {
+      toast.error((err as Error).message);
+      throw err;
+    }
   };
 
   return (
@@ -160,22 +181,17 @@ export function CandidateDiscussionThread({ candidateId }: { candidateId: string
               </button>
             </div>
           )}
-          <Textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Add a comment…"
+          <MentionComposer
+            // Remounts on reply target change so a half-written reply is not
+            // silently re-aimed at a different comment.
+            key={replyTo?.id ?? 'root'}
+            placeholder={replyTo ? 'Write your reply…' : 'Add a comment…'}
+            submitLabel={replyTo ? 'Reply' : 'Comment'}
             rows={2}
+            onSubmit={submit}
+            peopleSearch={peopleSearch}
+            notifyHint="they get an alert linking to this candidate."
           />
-          <div className="flex justify-end">
-            <Button
-              size="sm"
-              onClick={submit}
-              disabled={addComment.isPending || !draft.trim()}
-            >
-              {addComment.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-              {replyTo ? 'Reply' : 'Comment'}
-            </Button>
-          </div>
         </div>
       </CardContent>
     </Card>
