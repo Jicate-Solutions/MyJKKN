@@ -7,7 +7,22 @@
 -- FILE ONLY. NOT APPLIED. Apply only AFTER 20270307090000 (PR #3983) and only
 -- on the Director's yes. The first block below REFUSES to run if #3983 is not
 -- live yet, or if any of the 16 functions differs from what this file was
--- built from (md5 list below).
+-- built from (md5 list below). (#3983 went live 2026-09-28 00:07 IST; all 16
+-- "before" md5s re-read on production at 00:55 IST and still match.)
+--
+-- FAIL-CLOSED (2026-09-28, W12 review 2026-09-27 18:46). Every deny in this file
+-- now fires unless its grant is TRUE; a NULL denies. The one that leaked:
+-- ai_rpc_bug_report_details used IF NOT FOUND OR NOT (<grant>) THEN deny. For a
+-- report with no reporter (desk-raised bugs are filed and then nulled) or a
+-- caller with no profile role, <grant> is NULL, NOT NULL is NULL, the IF skipped
+-- the deny, and the report came back (with its logs, metadata and IP) to ANY
+-- signed-in caller. It is now (<grant>) IS NOT TRUE. The same form is applied to
+-- every IF NOT (<gate>), NOT role_has_institution_access(..) and
+-- NOT (x = ANY(v_insts)), and v_super / v_admin are COALESCEd to false. The
+-- helpers they call cannot return NULL live today (read 2026-09-28), so those
+-- are defence only. Section B's permission gate gets the same one-line change,
+-- so it is #3983's body plus that line. Rehearsal cases 30-34 fail on
+-- 3c7ae723eb and pass here.
 --
 -- WHAT WAS BROKEN (verified live 2026-09-24)
 --   These 14 SECURITY DEFINER functions start with
@@ -106,21 +121,21 @@
 -- MD5 RE-CHECK LIST — md5(prosrc) this file was built from ("before"), and the
 -- md5 this file leaves ("after"). The precondition block enforces it.
 --   function                                                     before (live 2026-09-24)          after
---   ai_rpc_academic_years(uuid,uuid,integer,integer)             04de97aa21d92437e1ca17b8f38e1abc  6519aebc1336842b0a67a6a7e38da7ce
---   ai_rpc_attendance_summary(uuid,uuid,uuid,uuid,text,text)     97523943b875e4162305c6f0b76f66a8  e025e47dc27562e144a5f26af06111ce
---   ai_rpc_bug_report_details(uuid,uuid)                         30c5a9ca866186ba8c9d2b781a5d595f  c04c0ad3818c3361b3cfa8abe137e042
---   ai_rpc_courses(uuid,uuid,integer,integer)                    1886c9dc75acde347636c7ed98983413  72a0a4ea307d7bb72d27585ef9e3736d
---   ai_rpc_degrees(uuid,uuid,integer,integer)                    79342ca69b0ba3663d7431bc7091d724  c94b9824a3a43ccb3b4dbd55a365d00e
---   ai_rpc_faculty_assignments(uuid,uuid,uuid,integer,integer)   2d953115cefdba7fe828eda5aca00427  c0573a222bcf36e3445214f26ef37eee
---   ai_rpc_institution_access(uuid,uuid,uuid,integer,integer)    2ed962ff3e26456d28b92d0ab056bba9  2c5b5a4c4e3d52c9cd126b7e61e1f8a4
---   ai_rpc_periods(uuid,uuid,integer,integer)                    c421689133a0ce8862b426a26f7fc373  729c2c998f939d147276738dfd251603
---   ai_rpc_staff_details(uuid,uuid)                              c91dc7f2dd3d8259724a33eef7266262  9eb18f59b55640c92f86536aacb4d759
---   ai_rpc_staff_plans(uuid,uuid,uuid,integer,integer)           270dc58b9484cdea6fc6cc2b08e73852  297fb89182eb51666484fed7e56159c4
---   ai_rpc_timetable_slots(uuid,uuid,integer,integer)            c61201834b619c5ef12007d82528bc8c  89af0413c2b0bdc7e15044fcc4defb68
---   ai_rpc_timetables(uuid,uuid,uuid,uuid,integer,integer)       d855e137f1cf745f49e2e3315182aee1  b741b35d6143d469843fd9ec107efa00
---   ai_rpc_user_roles(uuid,uuid,integer,integer)                 10dc4a4b4f9cdb0ce06d93684708d8f3  ca76ca25d10764ddf7e3f3d7714e2b15
---   ai_rpc_users(uuid,uuid,text,text,integer,integer)            bd852f9c98381019e98460f3452c6718  5d959d6fea9ea5cd1cfa83b533ff986b
---   ai_rpc_admission_analytics(uuid,uuid,uuid,boolean)           bdc6facf165c285bc4f3a3ba0c05c74c  f91567e569d7ff114630681da6c007fc
+--   ai_rpc_academic_years(uuid,uuid,integer,integer)             04de97aa21d92437e1ca17b8f38e1abc  773572dd9af6652463237cfbd0493bfc
+--   ai_rpc_attendance_summary(uuid,uuid,uuid,uuid,text,text)     97523943b875e4162305c6f0b76f66a8  a9811d39e9d7ef85be75c7e586bb6842
+--   ai_rpc_bug_report_details(uuid,uuid)                         30c5a9ca866186ba8c9d2b781a5d595f  c6a13d61826ce9e857a569b40320c3d4
+--   ai_rpc_courses(uuid,uuid,integer,integer)                    1886c9dc75acde347636c7ed98983413  3510f6c7e35020ffa82e5e12e5b958bf
+--   ai_rpc_degrees(uuid,uuid,integer,integer)                    79342ca69b0ba3663d7431bc7091d724  13c6392907ba69b0d53672a87efd9cef
+--   ai_rpc_faculty_assignments(uuid,uuid,uuid,integer,integer)   2d953115cefdba7fe828eda5aca00427  8258ac3ffb7c4a5db610978114e13ace
+--   ai_rpc_institution_access(uuid,uuid,uuid,integer,integer)    2ed962ff3e26456d28b92d0ab056bba9  1ef5524708a71c1353e44fd0a9bd7c12
+--   ai_rpc_periods(uuid,uuid,integer,integer)                    c421689133a0ce8862b426a26f7fc373  eb4b0607b6bc195622f457f1a71ba6b6
+--   ai_rpc_staff_details(uuid,uuid)                              c91dc7f2dd3d8259724a33eef7266262  f44a649509021d863906aa832df07789
+--   ai_rpc_staff_plans(uuid,uuid,uuid,integer,integer)           270dc58b9484cdea6fc6cc2b08e73852  b776a77f1105121327061f914760444e
+--   ai_rpc_timetable_slots(uuid,uuid,integer,integer)            c61201834b619c5ef12007d82528bc8c  63a364b8eab0c7b23e93ac90296b9d9f
+--   ai_rpc_timetables(uuid,uuid,uuid,uuid,integer,integer)       d855e137f1cf745f49e2e3315182aee1  e06ae7c0e49ec970a25584f96f5da644
+--   ai_rpc_user_roles(uuid,uuid,integer,integer)                 10dc4a4b4f9cdb0ce06d93684708d8f3  d3d04bd59f507c84538ec9614a604f22
+--   ai_rpc_users(uuid,uuid,text,text,integer,integer)            bd852f9c98381019e98460f3452c6718  25e36f28226e66e062383eb9d656cde4
+--   ai_rpc_admission_analytics(uuid,uuid,uuid,boolean)           bdc6facf165c285bc4f3a3ba0c05c74c  97a437ed103517ed5149fe3f186d10bc
 --   ai_rpc_academic_context(uuid)                                ca17b8f388b07b1cee87eeb95e29681b  ea25a9619c8d80a6674158eef0031275
 --   (The two Section B "before" values are #3983's bodies as of its head
 --   2c63e3fac8, i.e. what is live once #3983 is applied. Live today, before
@@ -149,21 +164,21 @@ BEGIN
 
   FOR r IN
     SELECT * FROM (VALUES
-      ('public.ai_rpc_academic_years(uuid,uuid,integer,integer)',           '04de97aa21d92437e1ca17b8f38e1abc', '6519aebc1336842b0a67a6a7e38da7ce'),
-      ('public.ai_rpc_attendance_summary(uuid,uuid,uuid,uuid,text,text)',   '97523943b875e4162305c6f0b76f66a8', 'e025e47dc27562e144a5f26af06111ce'),
-      ('public.ai_rpc_bug_report_details(uuid,uuid)',                       '30c5a9ca866186ba8c9d2b781a5d595f', 'c04c0ad3818c3361b3cfa8abe137e042'),
-      ('public.ai_rpc_courses(uuid,uuid,integer,integer)',                  '1886c9dc75acde347636c7ed98983413', '72a0a4ea307d7bb72d27585ef9e3736d'),
-      ('public.ai_rpc_degrees(uuid,uuid,integer,integer)',                  '79342ca69b0ba3663d7431bc7091d724', 'c94b9824a3a43ccb3b4dbd55a365d00e'),
-      ('public.ai_rpc_faculty_assignments(uuid,uuid,uuid,integer,integer)', '2d953115cefdba7fe828eda5aca00427', 'c0573a222bcf36e3445214f26ef37eee'),
-      ('public.ai_rpc_institution_access(uuid,uuid,uuid,integer,integer)',  '2ed962ff3e26456d28b92d0ab056bba9', '2c5b5a4c4e3d52c9cd126b7e61e1f8a4'),
-      ('public.ai_rpc_periods(uuid,uuid,integer,integer)',                  'c421689133a0ce8862b426a26f7fc373', '729c2c998f939d147276738dfd251603'),
-      ('public.ai_rpc_staff_details(uuid,uuid)',                            'c91dc7f2dd3d8259724a33eef7266262', '9eb18f59b55640c92f86536aacb4d759'),
-      ('public.ai_rpc_staff_plans(uuid,uuid,uuid,integer,integer)',         '270dc58b9484cdea6fc6cc2b08e73852', '297fb89182eb51666484fed7e56159c4'),
-      ('public.ai_rpc_timetable_slots(uuid,uuid,integer,integer)',          'c61201834b619c5ef12007d82528bc8c', '89af0413c2b0bdc7e15044fcc4defb68'),
-      ('public.ai_rpc_timetables(uuid,uuid,uuid,uuid,integer,integer)',     'd855e137f1cf745f49e2e3315182aee1', 'b741b35d6143d469843fd9ec107efa00'),
-      ('public.ai_rpc_user_roles(uuid,uuid,integer,integer)',               '10dc4a4b4f9cdb0ce06d93684708d8f3', 'ca76ca25d10764ddf7e3f3d7714e2b15'),
-      ('public.ai_rpc_users(uuid,uuid,text,text,integer,integer)',          'bd852f9c98381019e98460f3452c6718', '5d959d6fea9ea5cd1cfa83b533ff986b'),
-      ('public.ai_rpc_admission_analytics(uuid,uuid,uuid,boolean)',         'bdc6facf165c285bc4f3a3ba0c05c74c', 'f91567e569d7ff114630681da6c007fc'),
+      ('public.ai_rpc_academic_years(uuid,uuid,integer,integer)',           '04de97aa21d92437e1ca17b8f38e1abc', '773572dd9af6652463237cfbd0493bfc'),
+      ('public.ai_rpc_attendance_summary(uuid,uuid,uuid,uuid,text,text)',   '97523943b875e4162305c6f0b76f66a8', 'a9811d39e9d7ef85be75c7e586bb6842'),
+      ('public.ai_rpc_bug_report_details(uuid,uuid)',                       '30c5a9ca866186ba8c9d2b781a5d595f', 'c6a13d61826ce9e857a569b40320c3d4'),
+      ('public.ai_rpc_courses(uuid,uuid,integer,integer)',                  '1886c9dc75acde347636c7ed98983413', '3510f6c7e35020ffa82e5e12e5b958bf'),
+      ('public.ai_rpc_degrees(uuid,uuid,integer,integer)',                  '79342ca69b0ba3663d7431bc7091d724', '13c6392907ba69b0d53672a87efd9cef'),
+      ('public.ai_rpc_faculty_assignments(uuid,uuid,uuid,integer,integer)', '2d953115cefdba7fe828eda5aca00427', '8258ac3ffb7c4a5db610978114e13ace'),
+      ('public.ai_rpc_institution_access(uuid,uuid,uuid,integer,integer)',  '2ed962ff3e26456d28b92d0ab056bba9', '1ef5524708a71c1353e44fd0a9bd7c12'),
+      ('public.ai_rpc_periods(uuid,uuid,integer,integer)',                  'c421689133a0ce8862b426a26f7fc373', 'eb4b0607b6bc195622f457f1a71ba6b6'),
+      ('public.ai_rpc_staff_details(uuid,uuid)',                            'c91dc7f2dd3d8259724a33eef7266262', 'f44a649509021d863906aa832df07789'),
+      ('public.ai_rpc_staff_plans(uuid,uuid,uuid,integer,integer)',         '270dc58b9484cdea6fc6cc2b08e73852', 'b776a77f1105121327061f914760444e'),
+      ('public.ai_rpc_timetable_slots(uuid,uuid,integer,integer)',          'c61201834b619c5ef12007d82528bc8c', '63a364b8eab0c7b23e93ac90296b9d9f'),
+      ('public.ai_rpc_timetables(uuid,uuid,uuid,uuid,integer,integer)',     'd855e137f1cf745f49e2e3315182aee1', 'e06ae7c0e49ec970a25584f96f5da644'),
+      ('public.ai_rpc_user_roles(uuid,uuid,integer,integer)',               '10dc4a4b4f9cdb0ce06d93684708d8f3', 'd3d04bd59f507c84538ec9614a604f22'),
+      ('public.ai_rpc_users(uuid,uuid,text,text,integer,integer)',          'bd852f9c98381019e98460f3452c6718', '25e36f28226e66e062383eb9d656cde4'),
+      ('public.ai_rpc_admission_analytics(uuid,uuid,uuid,boolean)',         'bdc6facf165c285bc4f3a3ba0c05c74c', '97a437ed103517ed5149fe3f186d10bc'),
       ('public.ai_rpc_academic_context(uuid)',                              'ca17b8f388b07b1cee87eeb95e29681b', 'ea25a9619c8d80a6674158eef0031275')
     ) v(sig, before_md5, after_md5)
   LOOP
@@ -200,12 +215,12 @@ BEGIN
   p_user_id := auth.uid();
   -- [scope-repair 2026-09-24] replaces the call to the missing scope helper (it raised 42883).
   -- Mirrors academic_years_select_permission: the key + role_has_institution_access().
-  v_super := public.is_super_admin();
-  IF NOT (v_super OR public.is_admin() OR public.user_has_permission('academic.years.view')) THEN
+  v_super := COALESCE(public.is_super_admin(), false);  -- [fail-closed 2026-09-28]
+  IF (v_super OR public.is_admin() OR public.user_has_permission('academic.years.view')) IS NOT TRUE THEN  -- [fail-closed 2026-09-28] NULL denies
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN',
       'message','You do not have permission to view academic years.'));
   END IF;
-  IF p_institution_id IS NOT NULL AND NOT v_super AND NOT public.role_has_institution_access(p_institution_id) THEN
+  IF p_institution_id IS NOT NULL AND NOT v_super AND public.role_has_institution_access(p_institution_id) IS NOT TRUE THEN
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN_INSTITUTION',
       'message','You do not have access to that institution.', 'institution_id', p_institution_id));
   END IF;
@@ -276,10 +291,10 @@ BEGIN
   -- OWN college (student_attendance_select_institution), widened to every college
   -- role_has_institution_access() admits only for academic.attendance.dashboard.view
   -- holders (student_attendance_select_dashboard_institution_access).
-  v_super := public.is_super_admin();
-  IF NOT (v_super OR public.is_admin()
+  v_super := COALESCE(public.is_super_admin(), false);  -- [fail-closed 2026-09-28]
+  IF (v_super OR public.is_admin()
           OR public.user_has_permission('academic.attendance.view')
-          OR public.user_has_permission('academic.attendance.dashboard.view')) THEN
+          OR public.user_has_permission('academic.attendance.dashboard.view')) IS NOT TRUE THEN  -- [fail-closed 2026-09-28] NULL denies
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN',
       'message','You do not have permission to view learning participation (attendance).'));
   END IF;
@@ -298,7 +313,7 @@ BEGIN
       SELECT lp.institution_id INTO v_ref_inst FROM learners_profiles lp WHERE lp.id = p_student_id;
       IF NOT FOUND THEN
         RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','NOT_FOUND','message','That learner was not found.'));
-      ELSIF v_ref_inst IS NULL OR NOT (v_ref_inst = ANY(v_insts)) THEN
+      ELSIF v_ref_inst IS NULL OR (v_ref_inst = ANY(v_insts)) IS NOT TRUE THEN
         RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN_INSTITUTION',
           'message','That learner belongs to an institution you do not have access to.'));
       END IF;
@@ -307,7 +322,7 @@ BEGIN
       SELECT s.institution_id INTO v_ref_inst FROM sections s WHERE s.id = p_section_id;
       IF NOT FOUND THEN
         RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','NOT_FOUND','message','That section was not found.'));
-      ELSIF v_ref_inst IS NULL OR NOT (v_ref_inst = ANY(v_insts)) THEN
+      ELSIF v_ref_inst IS NULL OR (v_ref_inst = ANY(v_insts)) IS NOT TRUE THEN
         RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN_INSTITUTION',
           'message','That section belongs to an institution you do not have access to.'));
       END IF;
@@ -316,7 +331,7 @@ BEGIN
       SELECT d.institution_id INTO v_ref_inst FROM departments d WHERE d.id = p_department_id;
       IF NOT FOUND THEN
         RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','NOT_FOUND','message','That department was not found.'));
-      ELSIF v_ref_inst IS NULL OR NOT (v_ref_inst = ANY(v_insts)) THEN
+      ELSIF v_ref_inst IS NULL OR (v_ref_inst = ANY(v_insts)) IS NOT TRUE THEN
         RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN_INSTITUTION',
           'message','That department belongs to an institution you do not have access to.'));
       END IF;
@@ -395,13 +410,13 @@ BEGIN
   -- role_has_institution_access() admits (or with no college). A refusal reads the
   -- same as a missing report, as before.
   SELECT br.reporter_user_id, br.institution_id INTO v_bug FROM bug_reports br WHERE br.id = p_bug_report_id;
-  IF NOT FOUND OR NOT (
+  IF NOT FOUND OR (  -- [fail-closed 2026-09-28] a NULL reporter or role used to skip this deny
        public.is_super_admin()
        OR v_bug.reporter_user_id = auth.uid()
        OR (public.get_current_user_role() IN ('super_admin', 'admin', 'ceo')
            AND (v_bug.institution_id IS NULL
                 OR v_bug.institution_id = ANY(public._user_accessible_institutions())))
-     ) THEN
+     ) IS NOT TRUE THEN
     RETURN jsonb_build_object(
       'success', false,
       'data', null,
@@ -487,12 +502,12 @@ BEGIN
   p_user_id := auth.uid();
   -- [scope-repair 2026-09-24] replaces the call to the missing scope helper (it raised 42883).
   -- Mirrors courses_select_permission: the key + _user_accessible_institutions().
-  v_super := public.is_super_admin();
-  IF NOT (v_super OR public.is_admin() OR public.user_has_permission('organizations.courses.view')) THEN
+  v_super := COALESCE(public.is_super_admin(), false);  -- [fail-closed 2026-09-28]
+  IF (v_super OR public.is_admin() OR public.user_has_permission('organizations.courses.view')) IS NOT TRUE THEN  -- [fail-closed 2026-09-28] NULL denies
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN',
       'message','You do not have permission to view courses.'));
   END IF;
-  IF p_institution_id IS NOT NULL AND NOT v_super AND NOT public.role_has_institution_access(p_institution_id) THEN
+  IF p_institution_id IS NOT NULL AND NOT v_super AND public.role_has_institution_access(p_institution_id) IS NOT TRUE THEN
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN_INSTITUTION',
       'message','You do not have access to that institution.', 'institution_id', p_institution_id));
   END IF;
@@ -561,8 +576,8 @@ BEGIN
   -- every college role_has_institution_access() admits, so there is no key gate.
   -- (The policy's wider branches — is_admin(), organizations.degrees.view,
   -- the seat keys — are deliberately NOT widened to "every college" here.)
-  v_super := public.is_super_admin();
-  IF p_institution_id IS NOT NULL AND NOT v_super AND NOT public.role_has_institution_access(p_institution_id) THEN
+  v_super := COALESCE(public.is_super_admin(), false);  -- [fail-closed 2026-09-28]
+  IF p_institution_id IS NOT NULL AND NOT v_super AND public.role_has_institution_access(p_institution_id) IS NOT TRUE THEN
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN_INSTITUTION',
       'message','You do not have access to that institution.', 'institution_id', p_institution_id));
   END IF;
@@ -633,8 +648,8 @@ BEGIN
   p_user_id := auth.uid();
   -- [scope-repair 2026-09-24] replaces the call to the missing scope helper (it raised 42883).
   -- Mirrors staff_select_scope_aware: staff.view + the caller's staff module scope.
-  v_super := public.is_super_admin();
-  IF NOT (v_super OR public.user_has_permission('staff.view')) THEN
+  v_super := COALESCE(public.is_super_admin(), false);  -- [fail-closed 2026-09-28]
+  IF (v_super OR public.user_has_permission('staff.view')) IS NOT TRUE THEN  -- [fail-closed 2026-09-28] NULL denies
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN',
       'message','You do not have permission to view team members.'));
   END IF;
@@ -653,7 +668,7 @@ BEGIN
       SELECT st.institution_id INTO v_ref_inst FROM staff st WHERE st.id = p_staff_id;
       IF NOT FOUND THEN
         RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','NOT_FOUND','message','That team member was not found.'));
-      ELSIF v_ref_inst IS NOT NULL AND NOT (v_ref_inst = ANY(v_insts)) THEN
+      ELSIF v_ref_inst IS NOT NULL AND (v_ref_inst = ANY(v_insts)) IS NOT TRUE THEN
         RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN_INSTITUTION',
           'message','That team member belongs to an institution you do not have access to.'));
       END IF;
@@ -662,7 +677,7 @@ BEGIN
       SELECT d.institution_id INTO v_ref_inst FROM departments d WHERE d.id = p_department_id;
       IF NOT FOUND THEN
         RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','NOT_FOUND','message','That department was not found.'));
-      ELSIF v_ref_inst IS NULL OR NOT (v_ref_inst = ANY(v_insts)) THEN
+      ELSIF v_ref_inst IS NULL OR (v_ref_inst = ANY(v_insts)) IS NOT TRUE THEN
         RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN_INSTITUTION',
           'message','That department belongs to an institution you do not have access to.'));
       END IF;
@@ -748,13 +763,13 @@ BEGIN
   -- roles.edit (the key user_roles_select_admin uses; grants are managed from Role
   -- Management) — AND the other person's home college must be one the caller may
   -- see, AND each grant shown must be to a college the caller may see.
-  v_super := public.is_super_admin();
-  v_admin := v_super OR public.is_admin() OR public.user_has_permission('roles.edit');
+  v_super := COALESCE(public.is_super_admin(), false);  -- [fail-closed 2026-09-28]
+  v_admin := COALESCE(v_super OR public.is_admin() OR public.user_has_permission('roles.edit'), false);  -- [fail-closed 2026-09-28]
   IF p_target_user_id IS NOT NULL AND p_target_user_id <> auth.uid() AND NOT v_admin THEN
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN',
       'message','You do not have permission to view another person''s institution access.'));
   END IF;
-  IF p_institution_id IS NOT NULL AND NOT v_super AND NOT public.role_has_institution_access(p_institution_id) THEN
+  IF p_institution_id IS NOT NULL AND NOT v_super AND public.role_has_institution_access(p_institution_id) IS NOT TRUE THEN
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN_INSTITUTION',
       'message','You do not have access to that institution.', 'institution_id', p_institution_id));
   END IF;
@@ -764,7 +779,7 @@ BEGIN
       SELECT tp.institution_id INTO v_ref_inst FROM profiles tp WHERE tp.id = p_target_user_id;
       IF NOT FOUND THEN
         RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','NOT_FOUND','message','That person was not found.'));
-      ELSIF v_ref_inst IS NULL OR NOT (v_ref_inst = ANY(v_insts)) THEN
+      ELSIF v_ref_inst IS NULL OR (v_ref_inst = ANY(v_insts)) IS NOT TRUE THEN
         RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN_INSTITUTION',
           'message','That person belongs to an institution you do not have access to.'));
       END IF;
@@ -839,10 +854,10 @@ BEGIN
   -- [scope-repair 2026-09-24] replaces the call to the missing scope helper (it raised 42883).
   -- Mirrors periods_select_institution: the caller's OWN college only, no key.
   -- A named institution must pass role_has_institution_access() AND be that college.
-  v_super := public.is_super_admin();
+  v_super := COALESCE(public.is_super_admin(), false);  -- [fail-closed 2026-09-28]
   SELECT pr.institution_id INTO v_own FROM profiles pr WHERE pr.id = auth.uid();
   IF p_institution_id IS NOT NULL AND NOT v_super
-     AND (NOT public.role_has_institution_access(p_institution_id) OR p_institution_id IS DISTINCT FROM v_own) THEN
+     AND (public.role_has_institution_access(p_institution_id) IS NOT TRUE OR p_institution_id IS DISTINCT FROM v_own) THEN
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN_INSTITUTION',
       'message','You do not have access to that institution''s periods.', 'institution_id', p_institution_id));
   END IF;
@@ -908,8 +923,8 @@ BEGIN
   -- [scope-repair 2026-09-24] replaces the call to the missing scope helper (it raised 42883).
   -- Mirrors staff_select_scope_aware: staff.view + the caller's staff module scope.
   -- A team member outside that scope reads as not found, as before.
-  v_super := public.is_super_admin();
-  IF NOT (v_super OR public.user_has_permission('staff.view')) THEN
+  v_super := COALESCE(public.is_super_admin(), false);  -- [fail-closed 2026-09-28]
+  IF (v_super OR public.user_has_permission('staff.view')) IS NOT TRUE THEN  -- [fail-closed 2026-09-28] NULL denies
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN',
       'message','You do not have permission to view team members.'));
   END IF;
@@ -1003,8 +1018,8 @@ BEGIN
   p_user_id := auth.uid();
   -- [scope-repair 2026-09-24] replaces the call to the missing scope helper (it raised 42883).
   -- Mirrors staff_select_scope_aware: staff.view + the caller's staff module scope.
-  v_super := public.is_super_admin();
-  IF NOT (v_super OR public.user_has_permission('staff.view')) THEN
+  v_super := COALESCE(public.is_super_admin(), false);  -- [fail-closed 2026-09-28]
+  IF (v_super OR public.user_has_permission('staff.view')) IS NOT TRUE THEN  -- [fail-closed 2026-09-28] NULL denies
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN',
       'message','You do not have permission to view team members.'));
   END IF;
@@ -1023,7 +1038,7 @@ BEGIN
       SELECT d.institution_id INTO v_ref_inst FROM departments d WHERE d.id = p_department_id;
       IF NOT FOUND THEN
         RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','NOT_FOUND','message','That department was not found.'));
-      ELSIF v_ref_inst IS NULL OR NOT (v_ref_inst = ANY(v_insts)) THEN
+      ELSIF v_ref_inst IS NULL OR (v_ref_inst = ANY(v_insts)) IS NOT TRUE THEN
         RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN_INSTITUTION',
           'message','That department belongs to an institution you do not have access to.'));
       END IF;
@@ -1033,7 +1048,7 @@ BEGIN
       SELECT tt.institution_id INTO v_ref_inst FROM timetables tt WHERE tt.id = p_timetable_id;
       IF NOT FOUND THEN
         RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','NOT_FOUND','message','That timetable was not found.'));
-      ELSIF v_ref_inst IS NULL OR NOT (v_ref_inst = ANY(v_insts)) THEN
+      ELSIF v_ref_inst IS NULL OR (v_ref_inst = ANY(v_insts)) IS NOT TRUE THEN
         RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN_INSTITUTION',
           'message','That timetable belongs to an institution you do not have access to.'));
       END IF;
@@ -1101,8 +1116,8 @@ BEGIN
   -- [scope-repair 2026-09-24] replaces the call to the missing scope helper (it raised 42883).
   -- Mirrors timetables_select_permission: academic.timetables.view +
   -- role_has_institution_access(). A timetable outside it reads as not found, as before.
-  v_super := public.is_super_admin();
-  IF NOT (v_super OR public.is_admin() OR public.user_has_permission('academic.timetables.view')) THEN
+  v_super := COALESCE(public.is_super_admin(), false);  -- [fail-closed 2026-09-28]
+  IF (v_super OR public.is_admin() OR public.user_has_permission('academic.timetables.view')) IS NOT TRUE THEN  -- [fail-closed 2026-09-28] NULL denies
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN',
       'message','You do not have permission to view timetables.'));
   END IF;
@@ -1169,8 +1184,8 @@ BEGIN
   -- [scope-repair 2026-09-24] replaces the call to the missing scope helper (it raised 42883).
   -- Mirrors timetables_select_permission: academic.timetables.view +
   -- role_has_institution_access().
-  v_super := public.is_super_admin();
-  IF NOT (v_super OR public.is_admin() OR public.user_has_permission('academic.timetables.view')) THEN
+  v_super := COALESCE(public.is_super_admin(), false);  -- [fail-closed 2026-09-28]
+  IF (v_super OR public.is_admin() OR public.user_has_permission('academic.timetables.view')) IS NOT TRUE THEN  -- [fail-closed 2026-09-28] NULL denies
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN',
       'message','You do not have permission to view timetables.'));
   END IF;
@@ -1184,7 +1199,7 @@ BEGIN
       SELECT d.institution_id INTO v_ref_inst FROM departments d WHERE d.id = p_department_id;
       IF NOT FOUND THEN
         RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','NOT_FOUND','message','That department was not found.'));
-      ELSIF v_ref_inst IS NULL OR NOT (v_ref_inst = ANY(v_insts)) THEN
+      ELSIF v_ref_inst IS NULL OR (v_ref_inst = ANY(v_insts)) IS NOT TRUE THEN
         RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN_INSTITUTION',
           'message','That department belongs to an institution you do not have access to.'));
       END IF;
@@ -1193,7 +1208,7 @@ BEGIN
       SELECT ay.institution_id INTO v_ref_inst FROM academic_years ay WHERE ay.id = p_academic_year_id;
       IF NOT FOUND THEN
         RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','NOT_FOUND','message','That academic year was not found.'));
-      ELSIF v_ref_inst IS NULL OR NOT (v_ref_inst = ANY(v_insts)) THEN
+      ELSIF v_ref_inst IS NULL OR (v_ref_inst = ANY(v_insts)) IS NOT TRUE THEN
         RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN_INSTITUTION',
           'message','That academic year belongs to an institution you do not have access to.'));
       END IF;
@@ -1202,7 +1217,7 @@ BEGIN
       SELECT s.institution_id INTO v_ref_inst FROM sections s WHERE s.id = p_section_id;
       IF NOT FOUND THEN
         RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','NOT_FOUND','message','That section was not found.'));
-      ELSIF v_ref_inst IS NULL OR NOT (v_ref_inst = ANY(v_insts)) THEN
+      ELSIF v_ref_inst IS NULL OR (v_ref_inst = ANY(v_insts)) IS NOT TRUE THEN
         RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN_INSTITUTION',
           'message','That section belongs to an institution you do not have access to.'));
       END IF;
@@ -1284,8 +1299,8 @@ BEGIN
   -- anyone else's need super admin, is_admin() or roles.edit — AND, narrower than
   -- that policy, the other person's home college must be one the caller may see.
   -- (The old body also listed every super admin's roles to everyone; dropped.)
-  v_super := public.is_super_admin();
-  v_admin := v_super OR public.is_admin() OR public.user_has_permission('roles.edit');
+  v_super := COALESCE(public.is_super_admin(), false);  -- [fail-closed 2026-09-28]
+  v_admin := COALESCE(v_super OR public.is_admin() OR public.user_has_permission('roles.edit'), false);  -- [fail-closed 2026-09-28]
   IF p_target_user_id IS NOT NULL AND p_target_user_id <> auth.uid() AND NOT v_admin THEN
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN',
       'message','You do not have permission to view another person''s roles.'));
@@ -1296,7 +1311,7 @@ BEGIN
       SELECT tp.institution_id INTO v_ref_inst FROM profiles tp WHERE tp.id = p_target_user_id;
       IF NOT FOUND THEN
         RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','NOT_FOUND','message','That person was not found.'));
-      ELSIF v_ref_inst IS NULL OR NOT (v_ref_inst = ANY(v_insts)) THEN
+      ELSIF v_ref_inst IS NULL OR (v_ref_inst = ANY(v_insts)) IS NOT TRUE THEN
         RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN_INSTITUTION',
           'message','That person belongs to an institution you do not have access to.'));
       END IF;
@@ -1370,12 +1385,12 @@ BEGIN
   -- holds users.* by mistake, which would hand learners a college directory with
   -- email and phone. Widen to users.view once those grants are removed (one line).
   -- (The old body also listed every super admin to everyone; dropped.)
-  v_super := public.is_super_admin();
-  IF NOT (v_super OR public.is_admin() OR public.user_has_permission('roles.edit')) THEN
+  v_super := COALESCE(public.is_super_admin(), false);  -- [fail-closed 2026-09-28]
+  IF (v_super OR public.is_admin() OR public.user_has_permission('roles.edit')) IS NOT TRUE THEN  -- [fail-closed 2026-09-28] NULL denies
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN',
       'message','You do not have permission to view users.'));
   END IF;
-  IF p_institution_id IS NOT NULL AND NOT v_super AND NOT public.role_has_institution_access(p_institution_id) THEN
+  IF p_institution_id IS NOT NULL AND NOT v_super AND public.role_has_institution_access(p_institution_id) IS NOT TRUE THEN
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN_INSTITUTION',
       'message','You do not have access to that institution.', 'institution_id', p_institution_id));
   END IF;
@@ -1465,7 +1480,7 @@ BEGIN
   v_super := COALESCE(v_profile.is_super_admin, FALSE);
   -- [authz-guard 2026-09-23] permission gate — a NEW restriction (see header): the key is the
   -- one lib/config/ai-query-tools-config.ts displays for this tool, which nothing enforced before.
-  IF NOT (v_super OR public.is_admin() OR public.user_has_permission('learners.admissions.dashboard')) THEN
+  IF (v_super OR public.is_admin() OR public.user_has_permission('learners.admissions.dashboard')) IS NOT TRUE THEN  -- [fail-closed 2026-09-28] NULL denies
     RETURN jsonb_build_object('success', false, 'error', jsonb_build_object('code','FORBIDDEN',
       'message','You do not have permission to view admission analytics.'));
   END IF;
@@ -1633,6 +1648,10 @@ BEGIN
       RAISE EXCEPTION '20270308090000: % is no longer SECURITY DEFINER', v_fn;
     END IF;
   END LOOP;
+  -- [fail-closed 2026-09-28] the report lookup must deny when its grant is NULL (W12 18:46)
+  IF position('IF NOT FOUND OR NOT (' IN pg_get_functiondef('public.ai_rpc_bug_report_details(uuid,uuid)'::regprocedure)) > 0 THEN
+    RAISE EXCEPTION '20270308090000: ai_rpc_bug_report_details still fails open on a NULL reporter or role';
+  END IF;
   IF position('jsonb_object_agg(TO_CHAR(created_at' IN pg_get_functiondef('public.ai_rpc_admission_analytics(uuid,uuid,uuid,boolean)'::regprocedure)) > 0 THEN
     RAISE EXCEPTION '20270308090000: ai_rpc_admission_analytics still nests an aggregate';
   END IF;

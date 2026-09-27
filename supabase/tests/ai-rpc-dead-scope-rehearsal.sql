@@ -40,6 +40,7 @@ INSERT INTO ids VALUES
   ('SELF','00000000-0000-4000-b000-000000000007'),  ('DASH','00000000-0000-4000-b000-000000000008'),
   ('LADM','00000000-0000-4000-b000-000000000009'),  ('ALL','00000000-0000-4000-b000-000000000010'),
   ('DESK','00000000-0000-4000-b000-000000000011'),  ('UB','00000000-0000-4000-b000-000000000012'),
+  ('NULLROLE','00000000-0000-4000-b000-000000000013'), ('BUG_A0','00000000-0000-4000-9400-0000000000a0'),
   ('D_A','00000000-0000-4000-8d00-00000000000a'),   ('D_B','00000000-0000-4000-8d00-00000000000b'),
   ('S_A','00000000-0000-4000-8e00-00000000000a'),   ('S_B','00000000-0000-4000-8e00-00000000000b'),
   ('Y_A','00000000-0000-4000-8a00-00000000000a'),   ('Y_B','00000000-0000-4000-8a00-00000000000b'),
@@ -111,6 +112,14 @@ INSERT INTO chk (fn, cat, who, call, expect) VALUES
   ('bug_report_details','b','LADM',   'public.ai_rpc_bug_report_details({SUPER}, {BUG_B1})', 'code:NOT_FOUND'),
   ('bug_report_details','c','SUPER',  'public.ai_rpc_bug_report_details({SUPER}, {BUG_B1})', 'ok'),
   ('bug_report_details','d','ANON',   'public.ai_rpc_bug_report_details({SUPER}, {BUG_A1})', 'denied'),
+  -- [fail-closed 2026-09-28] W12 18:46: a NULL in the grant used to skip the deny (NOT NULL is NULL)
+  ('bug_report_details','b','FAC',     'public.ai_rpc_bug_report_details({SUPER}, {BUG_A0})', 'code:NOT_FOUND'),
+  ('bug_report_details','b','NULLROLE','public.ai_rpc_bug_report_details({SUPER}, {BUG_A0})', 'code:NOT_FOUND'),
+  ('bug_report_details','b','NULLROLE','public.ai_rpc_bug_report_details({SUPER}, {BUG_A1})', 'code:NOT_FOUND'),
+  ('bug_report_details','a','LADM',    'public.ai_rpc_bug_report_details({SUPER}, {BUG_A0})', 'ok'),
+  ('bug_report_details','c','SUPER',   'public.ai_rpc_bug_report_details({SUPER}, {BUG_A0})', 'ok'),
+  ('academic_years','b','NULLROLE',    'public.ai_rpc_academic_years({SUPER}, NULL)',         'code:FORBIDDEN'),
+  ('admission_analytics','b','NULLROLE','public.ai_rpc_admission_analytics({SUPER}, NULL)',   'code:FORBIDDEN'),
   -- ai_rpc_courses (organizations.courses.view)
   ('courses','a','FAC',    'public.ai_rpc_courses({SUPER}, NULL)', 'ok:2'),
   ('courses','b','FAC',    'public.ai_rpc_courses({SUPER}, {B})',  'code:FORBIDDEN_INSTITUTION'),
@@ -194,11 +203,11 @@ INSERT INTO chk (fn, cat, who, call, expect) VALUES
   ('user_roles','c','SUPER','public.ai_rpc_user_roles({SUPER}, {UB})',    'ok:1'),
   ('user_roles','d','ANON', 'public.ai_rpc_user_roles({SUPER})',          'denied'),
   -- ai_rpc_users (admins only: super / is_admin() / roles.edit — NOT users.view, Director 2026-09-25)
-  ('users','a','ADM',  'public.ai_rpc_users({SUPER})',       'ok:10'),
+  ('users','a','ADM',  'public.ai_rpc_users({SUPER})',       'ok:11'),  -- +1: NULLROLE (college A, 2026-09-28),
   ('users','b','ADM',  'public.ai_rpc_users({SUPER}, {B})',  'code:FORBIDDEN_INSTITUTION'),
   ('users','b','FAC',  'public.ai_rpc_users({SUPER})',       'code:FORBIDDEN'),
   ('users','b','LEARNER','public.ai_rpc_users({SUPER})',     'code:FORBIDDEN'),
-  ('users','c','SUPER','public.ai_rpc_users({SUPER})',       'ok:12'),
+  ('users','c','SUPER','public.ai_rpc_users({SUPER})',       'ok:13'),  -- +1: NULLROLE (2026-09-28),
   ('users','c','SUPER','public.ai_rpc_users({SUPER}, {B})',  'ok:1'),
   ('users','d','ANON', 'public.ai_rpc_users({SUPER})',       'denied'),
   -- ai_rpc_admission_analytics (Section B: #3983's guards + the nested-aggregate fix)

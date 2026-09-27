@@ -860,7 +860,9 @@ INSERT INTO public.profiles (id, email, full_name, role, is_super_admin, institu
   ('00000000-0000-4000-b000-000000000009', 'ladm@t',  'LegacyAdmin','admin',  false, '00000000-0000-4000-a000-00000000000a', true, false),
   ('00000000-0000-4000-b000-000000000010', 'all@t',   'AllScope','allscope_t',false, '00000000-0000-4000-a000-00000000000a', true, false),
   ('00000000-0000-4000-b000-000000000011', 'desk@t',  'Desk',  'admdesk_t',   false, '00000000-0000-4000-a000-00000000000a', true, false),
-  ('00000000-0000-4000-b000-000000000012', 'ub@t',    'OtherCollege','fac_t', false, '00000000-0000-4000-a000-00000000000b', true, false);
+  ('00000000-0000-4000-b000-000000000012', 'ub@t',    'OtherCollege','fac_t', false, '00000000-0000-4000-a000-00000000000b', true, false),
+  -- [fail-closed 2026-09-28] no role, is_super_admin unknown: every OR in a gate comes out NULL for them
+  ('00000000-0000-4000-b000-000000000013', 'nullrole@t','NullRole', NULL,     NULL,  '00000000-0000-4000-a000-00000000000a', true, false);
 
 INSERT INTO public.user_roles (id, user_id, role_id, is_primary) VALUES
   ('00000000-0000-4000-9600-000000000002', '00000000-0000-4000-b000-000000000002', '00000000-0000-4000-c000-000000000001', true),
@@ -933,5 +935,7 @@ INSERT INTO public.learners_profiles (id, institution_id, department_id, section
 INSERT INTO public.bug_reports (id, display_id, description, status, reporter_user_id, institution_id, created_at) VALUES
   ('00000000-0000-4000-9400-0000000000a1', 'BUG-A1', 'fac reported, college A',     'open', '00000000-0000-4000-b000-000000000002', '00000000-0000-4000-a000-00000000000a', now()),
   ('00000000-0000-4000-9400-0000000000a2', 'BUG-A2', 'learner reported, college A', 'open', '00000000-0000-4000-b000-000000000004', '00000000-0000-4000-a000-00000000000a', now()),
-  ('00000000-0000-4000-9400-0000000000b1', 'BUG-B1', 'other college reported',      'open', '00000000-0000-4000-b000-000000000012', '00000000-0000-4000-a000-00000000000b', now());
+  ('00000000-0000-4000-9400-0000000000b1', 'BUG-B1', 'other college reported',      'open', '00000000-0000-4000-b000-000000000012', '00000000-0000-4000-a000-00000000000b', now()),
+  -- [fail-closed 2026-09-28] no reporter (desk-raised bugs are filed then nulled) — the W12 18:46 blocker
+  ('00000000-0000-4000-9400-0000000000a0', 'BUG-A0', 'no reporter, college A',      'open', NULL,                                   '00000000-0000-4000-a000-00000000000a', now());
 
