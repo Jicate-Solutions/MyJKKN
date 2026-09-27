@@ -12,15 +12,21 @@
  * label — identity must not be reconstructable out of this object.
  *
  * So the rule is: record structure, never content.
- *   - always recorded: tagName, id, role, and the `data-testid` / `data-slot` /
+ *   - always recorded: tagName, id, role, how many elements the selector
+ *     matches, and the `data-testid` / `data-slot` /
  *     `data-radix-*` hooks, which are authored by us and name UI, not people.
- *   - text: ONLY the accessible name of an actual CONTROL (button, a, input,
- *     select, textarea, summary, or role=button/link/tab/menuitem), capped at
- *     60 characters — a control's label is UI copy ("Save", "Add learner"),
- *     not a record.
- *   - never, for anything: an input's value or placeholder, the text of a
- *     non-control, table cell contents, or any attribute whose name contains
- *     "value".
+ *   - text: ONLY a CONTROL's authored `aria-label` (button, a, input, select,
+ *     textarea, summary, or role=button/link/tab/menuitem), capped at 60
+ *     characters. NEVER a control's visible text (review, 27 Sep): a
+ *     textarea's text IS what the person typed, a select's text is every
+ *     option in it (often people's names), and a link or button in a record
+ *     list is routinely the learner's own name ("RAVI KUMAR →").
+ *   - never, for anything: visible text, an input's value or placeholder,
+ *     table cell contents, or any attribute whose name contains "value".
+ *
+ * A tap usually lands on an icon or a span INSIDE the control; the descriptor
+ * is built for the nearest control around the tap (see interactionTarget), so
+ * the anchor names the button, not its <svg>.
  *
  * The whole serialized descriptor is capped at 512 bytes and DROPPED (not
  * truncated) when it exceeds that, because half a selector is worse than none.
@@ -63,6 +69,8 @@ export interface LastInteractionDescriptor {
   name?: string;
   /** data-testid / data-slot / data-radix-* names and values. */
   data?: Record<string, string>;
+  /** How many elements `selector` matched when recorded; 1 = a unique anchor. */
+  matches?: number;
 }
 
 /** Duck-typed Element check — survives cross-realm elements (iframes). */
@@ -116,14 +124,14 @@ function collectStructuralAttributes(
 }
 
 /**
- * The accessible name of a CONTROL. Returns undefined for everything else —
- * see the text rule at the top of this file. Never reads value or placeholder.
+ * The authored `aria-label` of a CONTROL. Returns undefined for everything
+ * else — see the text rule at the top of this file. Never reads visible text,
+ * value or placeholder.
  */
 function accessibleName(el: Element): string | undefined {
   if (!isControl(el)) return undefined;
 
-  const ariaLabel = el.getAttribute('aria-label');
-  const raw = ariaLabel ?? el.textContent ?? '';
+  const raw = el.getAttribute('aria-label') ?? '';
   const collapsed = raw.replace(/\s+/g, ' ').trim();
   if (!collapsed) return undefined;
 
@@ -168,6 +176,19 @@ export function buildElementSelector(el: Element): string {
   return parts.length > 0 ? parts.join(' > ') : el.tagName.toLowerCase();
 }
 
+const CONTROL_SELECTOR =
+  'button, a, input, select, textarea, summary, [role="button"], [role="link"], [role="tab"], [role="menuitem"]';
+
+/**
+ * The element a tap MEANT: the nearest control around the tapped node (a tap on
+ * a button lands on its <svg>, <path> or <span>), else the tapped node itself.
+ */
+export function interactionTarget(target: unknown): unknown {
+  if (!isElementLike(target)) return target;
+  const control = typeof target.closest === 'function' ? target.closest(CONTROL_SELECTOR) : null;
+  return control ?? target;
+}
+
 function byteLength(text: string): number {
   if (typeof TextEncoder !== 'undefined') {
     return new TextEncoder().encode(text).length;
@@ -180,8 +201,9 @@ function byteLength(text: string): number {
  * useful to record (not an element, or over the byte cap).
  */
 export function buildLastInteraction(
-  target: unknown
+  tapped: unknown
 ): LastInteractionDescriptor | null {
+  const target = interactionTarget(tapped);
   if (!isElementLike(target)) return null;
   const el = target;
 
@@ -202,6 +224,18 @@ export function buildLastInteraction(
   const data = collectStructuralAttributes(el);
   if (data) descriptor.data = data;
 
+  // How many elements the selector matches right now. Without :nth-child (see
+  // buildElementSelector) a selector can match several — say so rather than
+  // let a verifier's link land on the first one as if it were the one.
+  const doc = el.ownerDocument;
+  if (doc && typeof doc.querySelectorAll === 'function') {
+    try {
+      descriptor.matches = doc.querySelectorAll(descriptor.selector).length;
+    } catch {
+      /* an unresolvable selector just carries no count */
+    }
+  }
+
   // Over the cap it is dropped, not trimmed — a half selector resolves to the
   // wrong element, which is worse than having no anchor at all.
   if (byteLength(JSON.stringify(descriptor)) > LAST_INTERACTION_MAX_BYTES) {
@@ -209,4 +243,22 @@ export function buildLastInteraction(
   }
 
   return descriptor;
+}
+
+/** The last interaction, stored with the page path it was recorded on. */
+export interface StoredInteraction {
+  path: string;
+  descriptor: LastInteractionDescriptor;
+}
+
+/**
+ * What goes on a report filed at `pathname`: the stored descriptor only if it
+ * was recorded on this same page. A tap on the page before is not the anchor
+ * of a report about this one.
+ */
+export function interactionForReport(
+  stored: StoredInteraction | null,
+  pathname: string
+): LastInteractionDescriptor | undefined {
+  return stored && stored.path === pathname ? stored.descriptor : undefined;
 }

@@ -46,11 +46,42 @@ describe('buildLastInteraction — what it records', () => {
     expect(d!.selector).toBe('button#save-marks');
   });
 
-  it('falls back to a control‘s trimmed text when there is no aria-label', () => {
-    const host = mount('<button>  Add   learner </button>');
-    const d = buildLastInteraction(host.querySelector('button'));
+  it('never records a control‘s visible text — only an authored aria-label', () => {
+    // A link in a record list is routinely a person's name.
+    const link = mount('<a href="/x">RAVI KUMAR</a>');
+    expect(buildLastInteraction(link.querySelector('a'))!.name).toBeUndefined();
+    const button = mount('<button>  Approve leave for RAVI </button>');
+    expect(buildLastInteraction(button.querySelector('button'))!.name).toBeUndefined();
+  });
 
-    expect(d!.name).toBe('Add learner');
+  it('never records what was typed into a textarea, nor the options of a select', () => {
+    const area = mount('<textarea id="note">my phone is 9876543210</textarea>');
+    const a = buildLastInteraction(area.querySelector('textarea'))!;
+    expect(JSON.stringify(a)).not.toContain('9876543210');
+    expect(a.name).toBeUndefined();
+
+    const sel = mount('<select id="who"><option>RAVI KUMAR</option><option>PRIYA S</option></select>');
+    const b = buildLastInteraction(sel.querySelector('select'))!;
+    expect(JSON.stringify(b)).not.toMatch(/RAVI|PRIYA/);
+    expect(b.name).toBeUndefined();
+  });
+
+  it('a tap on the icon inside a button anchors the BUTTON, not the svg', () => {
+    const host = mount(
+      '<button data-testid="delete-row" aria-label="Delete"><svg><path d="M0 0"></path></svg></button>'
+    );
+    const d = buildLastInteraction(host.querySelector('path'))!;
+    expect(d.tagName).toBe('button');
+    expect(d.selector.endsWith('button[data-testid="delete-row"]')).toBe(true);
+    expect(d.name).toBe('Delete');
+  });
+
+  it('says how many elements the selector matches, so a non-unique anchor is visible', () => {
+    const host = mount('<ul><li><button>a</button></li><li><button>b</button></li></ul>');
+    const d = buildLastInteraction(host.querySelectorAll('button')[1])!;
+    expect(d.matches).toBeGreaterThan(1);
+    const unique = mount('<button id="only-one">x</button>');
+    expect(buildLastInteraction(unique.querySelector('button'))!.matches).toBe(1);
   });
 
   it('caps a control name at 60 characters', () => {
@@ -209,5 +240,15 @@ describe('buildElementSelector', () => {
     const selector = buildElementSelector(span);
     expect(selector).not.toContain('#2026');
     expect(document.querySelector(selector)).toBe(span);
+  });
+});
+
+describe('interactionForReport — an anchor never crosses pages', () => {
+  it('keeps the tap recorded on this page, drops one recorded on another', async () => {
+    const { interactionForReport } = await import('@/components/bug-reporter/last-interaction');
+    const descriptor = { tagName: 'button', selector: 'button#go' };
+    expect(interactionForReport({ path: '/fees', descriptor }, '/fees')).toEqual(descriptor);
+    expect(interactionForReport({ path: '/fees', descriptor }, '/marks')).toBeUndefined();
+    expect(interactionForReport(null, '/fees')).toBeUndefined();
   });
 });

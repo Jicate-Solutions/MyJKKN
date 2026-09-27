@@ -37,7 +37,8 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { dataURLtoFile } from '@/lib/utils/file-converters';
 import {
   buildLastInteraction,
-  type LastInteractionDescriptor
+  interactionForReport,
+  type StoredInteraction
 } from '@/components/bug-reporter/last-interaction';
 import toast from 'react-hot-toast';
 
@@ -369,7 +370,9 @@ export function BugReporterWidget() {
   // and window.scrollY reads 0 from then on.
   const scrollYAtOpenRef = useRef<number | null>(null);
   // The last thing the reporter touched before opening the widget.
-  const lastInteractionRef = useRef<LastInteractionDescriptor | null>(null);
+  // Stored with the page it was recorded on: a tap on the previous page is not
+  // what a report filed on this one is about.
+  const lastInteractionRef = useRef<StoredInteraction | null>(null);
   const isOpenRef = useRef(false);
   useEffect(() => {
     isOpenRef.current = isOpen;
@@ -402,7 +405,8 @@ export function BugReporterWidget() {
       const target = event.target as Element | null;
       if (target?.closest?.('.bug-reporter-widget')) return;
 
-      lastInteractionRef.current = buildLastInteraction(target);
+      const descriptor = buildLastInteraction(target);
+      lastInteractionRef.current = descriptor ? { path: window.location.pathname, descriptor } : null;
     };
 
     document.addEventListener('pointerdown', onPointerDown, {
@@ -791,7 +795,7 @@ export function BugReporterWidget() {
           // Where on the page the reporter was, and what they were touching —
           // enough for a verifier's link to land on the spot, not the page.
           scrollY: scrollYAtOpenRef.current ?? Math.round(window.scrollY),
-          lastInteraction: lastInteractionRef.current ?? undefined,
+          lastInteraction: interactionForReport(lastInteractionRef.current, window.location.pathname),
           additionalImagesCount: additionalImages.length,
           logStats: {
             uniqueEntries: structuredLogs.summary.totalUniqueEntries,
