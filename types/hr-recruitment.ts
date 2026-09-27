@@ -63,7 +63,8 @@ export type CandidateSource =
   | 'internal_transfer'
   | 'learner_graduate'
   | 'public_careers_page'
-  | 'email_ingest';
+  | 'email_ingest'
+  | 'interview_booking';
 
 export type PackageStatus =
   | 'proposed'
@@ -83,7 +84,11 @@ export interface HRRecruitmentCandidate {
   name: string;
   email: string;
   phone: string | null;
-  cvviz_url: string;                    // R3.4: CV link mandatory
+  // R3.4: CV link mandatory — except for a candidate the interview booking link
+  // created (source 'interview_booking'), who may arrive without one. Enforced by
+  // hr_recruitment_candidates_cv_required. Staff-created candidates still must
+  // supply it (RecruitmentService.createCandidate), so the Insert type stays string.
+  cvviz_url: string | null;
 
   role_category: RoleCategory;
   role_title: string;
@@ -293,6 +298,7 @@ export const CANDIDATE_SOURCE_LABELS: Record<CandidateSource, string> = {
   learner_graduate: 'Graduating Learner',
   public_careers_page: 'Public Career Page',
   email_ingest: 'Email (Auto-Ingest)',
+  interview_booking: 'Interview booking link',
 };
 
 // =====================================================================================
@@ -728,6 +734,17 @@ export interface HRRecruitmentCandidateComment {
   updated_at: string;
   /** Joined commenter display info (profiles embed). */
   commenter?: { full_name: string | null; email: string | null } | null;
+  /**
+   * People tagged on this comment (hr_recruitment_comment_mentions embed).
+   * Drives the "@Name" highlight on the posted comment — only a name here was
+   * really tagged, so an "@" typed without picking anyone stays plain text.
+   * `notified_at` is null while the alert has not gone out yet.
+   */
+  mentions?: {
+    mentioned_user_id: string;
+    notified_at: string | null;
+    profile?: { full_name: string | null } | null;
+  }[] | null;
 }
 
 export interface HRJobApplicationInsert {

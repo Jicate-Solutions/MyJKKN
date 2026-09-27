@@ -369,8 +369,13 @@ export function answerKeyHtml(paper: ArrangedPaper): string {
         arr.item.explanationEn ? `<div>${itemTextToHtml(arr.item.explanationEn)}</div>` : '',
         ref ? `<span class="ref">${ref}</span>` : '',
       ].join('');
+      // PRD §5.3 wants BOTH scripts in the Code column only; the answer text
+      // prints once. A Tamil answer is printed only when it actually differs —
+      // on a formula option options_ta is the English string character for
+      // character, and printing it twice read as a typo (BUG-006063).
+      const ansTaDiffers = !!ansTa && ansTa.trim() !== ansEn.trim();
       const ans = [
-        bilingual && ansTa ? `<div class="ta">${itemTextToHtml(ansTa)}</div>` : '',
+        bilingual && ansTaDiffers ? `<div class="ta">${itemTextToHtml(ansTa)}</div>` : '',
         `<div>${itemTextToHtml(ansEn)}</div>`,
       ].join('');
       return `<tr><td class="n">${arr.number}</td><td class="code">${code}</td><td class="ans">${ans}</td><td>${expl}</td></tr>`;
@@ -385,7 +390,7 @@ export function answerKeyHtml(paper: ArrangedPaper): string {
 <div class="key-meta">
   <div><b>Test ID :</b> ${shortId(paper.model.assessmentId)}</div>
   ${seriesCell}
-  <div><b>Items :</b> ${n} &nbsp; <b>Score :</b> ${n}</div>
+  <div><b>Items :</b> ${n} &nbsp; <b>Marks :</b> ${n}</div>
   <div><b>Senior Learner :</b> ${printableText(paper.model.facilitatorName ?? '—')}</div>
   <div><b>Learning Studio :</b> ${printableText(paper.model.studioName ?? '—')}</div>
   <div><b>Generated :</b> ${escapeHtml(fmtDate(paper.model.generatedAt))}</div>
@@ -400,21 +405,50 @@ ${coverageSummary(paper)}`;
   return htmlShell(`${paper.model.title} — Answer Key ${paper.series}`, body);
 }
 
+/** "[ Turn over" in each subject's print style. The Tamil word is the one this
+ *  file has always printed (PRD Physics §5.1 — needs native review before a
+ *  hall paper is printed from it, CLAUDE.md #24). */
+const TURN_OVER_TA = 'திருப்புக';
+
+function turnOverText(paper: ArrangedPaper): string {
+  return paper.model.subject === 'english' ? '[ Turn over' : `[ ${TURN_OVER_TA} / Turn over`;
+}
+
 /** Footer template for Chromium's print job: series box bottom-left, page
- *  number centred, "Turn over" right. A print template is its own document
- *  and cannot see the page's @font-face registry, so render.ts prepends the
- *  embedded faces to this markup before handing it to Chromium. */
+ *  number centred. A print template is its own document and cannot see the
+ *  page's @font-face registry, so render.ts prepends the embedded faces to this
+ *  markup before handing it to Chromium.
+ *
+ *  "[ Turn over" is NOT drawn by this template: a template is one static
+ *  document stamped on every page and runs no script, so it cannot leave the
+ *  LAST page out — the paper and its key both said "Turn over" on the page
+ *  where nothing follows (BUG-006062 / BUG-006063). turnOverPageCss() prints
+ *  it instead. The right cell keeps the words invisibly so the page number
+ *  sits exactly where it always has. */
 export function footerTemplate(paper: ArrangedPaper): string {
   const series = showSeriesBox(paper)
     ? `<span style="border:1px solid #000;padding:1px 6px;font-weight:700">${paper.series}</span>`
     : '';
-  const turnOver =
-    paper.model.subject === 'english'
-      ? '[ Turn over'
-      : '[ <span style="font-family:\'Noto Sans Tamil\'">திருப்புக</span> / Turn over';
   return `<div style="width:100%;font-family:'Tinos','Times New Roman',serif;font-size:9pt;padding:0 12mm;display:flex;justify-content:space-between;align-items:center;color:#000">
   <div>${series}</div>
   <div><span class="pageNumber"></span> / <span class="totalPages"></span></div>
-  <div>${turnOver}</div>
+  <div style="visibility:hidden;font-family:'Tinos','Noto Sans Tamil',serif">${escapeHtml(turnOverText(paper))}</div>
 </div>`;
+}
+
+/**
+ * "[ Turn over" bottom-right on every page EXCEPT the last, as page CSS for the
+ * second print pass (render.ts prints once to learn the page count, then again
+ * with this). A page-margin box shows `counter(page)` in a counter style that
+ * spells "[ Turn over" for pages 1 … pageCount−1 and falls back to a blank
+ * outside that range — the last page. CSS has no `:last` page selector and
+ * Chromium ignores `:nth()`, so the range is the way to single it out inside
+ * one print job. Empty for a one-page document: there is nothing to turn to.
+ */
+export function turnOverPageCss(paper: ArrangedPaper, pageCount: number): string {
+  if (!Number.isFinite(pageCount) || pageCount < 2) return '';
+  const words = turnOverText(paper).replace(/["\\]/g, '');
+  return `@counter-style onemark-no-turn-over { system: cyclic; symbols: " "; }
+@counter-style onemark-turn-over { system: cyclic; symbols: "${words}"; range: 1 ${Math.floor(pageCount) - 1}; fallback: onemark-no-turn-over; }
+@page { @bottom-right { content: counter(page, onemark-turn-over); font-family: 'Tinos', 'Noto Sans Tamil', 'Times New Roman', serif; font-size: 9pt; color: #000; vertical-align: bottom; padding-bottom: 5mm; } }`;
 }
