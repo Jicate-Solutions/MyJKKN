@@ -129,6 +129,26 @@ describe('fn_seed_application_approvals never routes to a deactivated approver',
     expect(await seed()).toEqual({ n: 0, rows: [] });
   });
 
+  it('the ROLE fallback also skips a login-disabled holder of the role', async () => {
+    // The earliest-created faculty in the department is login-disabled; the
+    // step names nobody, so the role lookup must pass over them.
+    await q(`UPDATE public.profiles SET is_active = true, is_login_disabled = true WHERE id = $1`, [GONE]);
+    await flow([{ step_order: 1, approver_role: 'faculty' }]);
+    expect((await seed()).rows).toEqual([{ step_order: 1, approver_id: ACTIVE }]);
+  });
+
+  it('a named approver written in UPPER CASE still matches that person (uuid comparison, as before)', async () => {
+    // An older ACTIVE faculty exists, so a fallback would pick THEM — only a
+    // real match on the named (upper-case) id yields ACTIVE.
+    const OLDER = '00000000-0000-4000-8000-000000000104';
+    const LETTERED = 'abcdef00-0000-4000-8000-0000000000ab'; // has hex letters, so case matters
+    await q(`INSERT INTO public.profiles (id, role, institution_id, department_id, is_active, created_at)
+             VALUES ($1, 'faculty', $3, $4, true, now() - interval '9 years'),
+                    ($2, 'faculty', $3, $4, true, now())`, [OLDER, LETTERED, INST, DEPT]);
+    await flow([{ step_order: 1, approver_role: 'faculty', approver_ids: [LETTERED.toUpperCase()] }]);
+    expect((await seed()).rows).toEqual([{ step_order: 1, approver_id: LETTERED }]);
+  });
+
   it('an active person named first is still used first (unchanged behaviour)', async () => {
     await flow([{ step_order: 1, approver_role: 'faculty', approver_ids: [ACTIVE, GONE] }]);
     expect((await seed()).rows).toEqual([{ step_order: 1, approver_id: ACTIVE }]);

@@ -94,7 +94,7 @@ BEGIN
     IF jsonb_typeof(v_step->'approver_ids') = 'array' THEN
       SELECT p.id INTO v_approver
       FROM jsonb_array_elements_text(v_step->'approver_ids') WITH ORDINALITY AS t(e, ord)
-      JOIN profiles p ON p.id::text = btrim(t.e)
+      JOIN profiles p ON p.id = btrim(t.e)::uuid   -- uuid cast, as before: case-insensitive
       WHERE btrim(coalesce(t.e, '')) <> ''
         AND p.is_active
         AND NOT coalesce(p.is_login_disabled, false)
@@ -105,7 +105,7 @@ BEGIN
     IF v_approver IS NULL AND btrim(coalesce(v_step->>'approver_id', '')) <> '' THEN
       SELECT p.id INTO v_approver
       FROM profiles p
-      WHERE p.id::text = btrim(v_step->>'approver_id')
+      WHERE p.id = btrim(v_step->>'approver_id')::uuid
         AND p.is_active
         AND NOT coalesce(p.is_login_disabled, false);
     END IF;
