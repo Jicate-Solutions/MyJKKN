@@ -471,6 +471,9 @@ describe('W12 review item 3 — a uuid compared to institution_id is an institut
     // critic 2026-09-28: a quoted column and a parenthesised operand
     ['p_paren', 'WHERE institution_id = (p_paren)'],
     ['p_quoted', 'WHERE lp."institution_id" = p_quoted'],
+    // critic 2026-09-28 round 3: a quoted parameter and a parenthesised column
+    ['p_qparam', 'WHERE institution_id = "p_qparam"'],
+    ['p_pcol', 'WHERE (institution_id) = p_pcol'],
   ] as const;
   for (const [param, where] of COMPARED) {
     it(`FAILS unguarded: ${where}`, () => {
@@ -1096,5 +1099,44 @@ REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA private FROM anon, authenticated, PUBL
     const pub = runSql(`${fn}
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM anon, authenticated, PUBLIC;`, 'public-schema.sql');
     expect(pub.code).toBe(0);
+  });
+
+  it('critic 2026-09-28 round 3: a blanket REVOKE on schema public does not take a private.* function out of scope', () => {
+    const r = runSql(`CREATE OR REPLACE FUNCTION private.fn_probe_private(p_institution_id uuid)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_n integer;
+BEGIN
+  SELECT count(*) INTO v_n FROM learners_profiles WHERE institution_id = p_institution_id;
+  RETURN v_n;
+END;
+$$;
+REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM anon, authenticated, PUBLIC;`, 'private-schema.sql');
+    expect(r.code).toBe(1);
+    expect(flagged(r.out, 'fn_probe_private', 'p_institution_id')).toBe(true);
+  });
+
+  it('critic 2026-09-28 round 3: an UNCHANGED old body is rechecked when the PR adds a GRANT that reaches it', () => {
+    const repo = mkdtempSync(path.join(tmpdir(), 'institution-param-newgrant-'));
+    try {
+      const git = gitIn(repo);
+      git('init', '-q', '-b', 'main');
+      mkdirSync(path.join(repo, MIG), { recursive: true });
+      const file = path.join(repo, MIG, '20990101000000_ng.sql');
+      const revokedLeak = `${DEFINER('fn_probe_newgrant', 'p_institution_id uuid',
+        '  SELECT count(*) INTO v_n FROM learners_profiles WHERE institution_id = p_institution_id;', false)}
+REVOKE EXECUTE ON FUNCTION public.fn_probe_newgrant(uuid) FROM anon, authenticated, PUBLIC;
+`;
+      writeFileSync(file, revokedLeak, 'utf8');
+      git('add', '.');
+      git('commit', '-q', '-m', 'base: an unguarded function nobody can call');
+      git('checkout', '-q', '-b', 'regrant');
+      writeFileSync(file, `${revokedLeak}GRANT EXECUTE ON FUNCTION public.fn_probe_newgrant(uuid) TO authenticated;\n`, 'utf8');
+      git('commit', '-q', '-am', 'grant it to signed-in users');
+      const r = run(['--base', 'main'], { cwd: repo });
+      expect(r.code).toBe(1);
+      expect(flagged(r.out, 'fn_probe_newgrant', 'p_institution_id')).toBe(true);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 });

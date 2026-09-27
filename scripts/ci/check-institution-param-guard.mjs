@@ -480,7 +480,7 @@ function topLevelOnly(clean) {
 
 const IDENT = '(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*)';
 const CREATE_FN_RE = new RegExp(
-  `\\bcreate\\s+(?:or\\s+replace\\s+)?function\\s+(?:${IDENT}\\s*\\.\\s*)?(${IDENT})\\s*\\(`,
+  `\\bcreate\\s+(?:or\\s+replace\\s+)?function\\s+(?:(${IDENT})\\s*\\.\\s*)?(${IDENT})\\s*\\(`,
   'gi'
 );
 const ALTER_FN_RE = new RegExp(
@@ -631,10 +631,11 @@ export function comparedToInstitutionId(body, name) {
   // The column may be qualified and/or double-quoted ("institution_id",
   // lp."institution_id"); the parameter may sit in any number of parentheses
   // (critic on #3985, 2026-09-28: `institution_id = (p_org)` was missed).
-  const COL = String.raw`(?:(?:\b[A-Za-z_][A-Za-z0-9_]*|"[^"]+")\s*\.\s*)?(?:\binstitution_id\b|"institution_id")`;
+  const COL = String.raw`(?:\(\s*)*(?:(?:\b[A-Za-z_][A-Za-z0-9_]*|"[^"]+")\s*\.\s*)?(?:\binstitution_id\b|"institution_id")(?:\s*\))*`;
+  const PAR = String.raw`(?:\b${P}\b|"${P}")`;
   const OP = String.raw`(?:=|<>|!=|\bis\s+(?:not\s+)?distinct\s+from\b)`;
-  return new RegExp(String.raw`${COL}\s*${OP}\s*(?:any\s*)?(?:\(\s*)*\b${P}\b(?!\s*\.)`, 'i').test(body)
-      || new RegExp(String.raw`(?<![.\w"])(?:\(\s*)*${P}\b(?:\s*\))*\s*${OP}\s*${COL}`, 'i').test(body);
+  return new RegExp(String.raw`${COL}\s*${OP}\s*(?:any\s*)?(?:\(\s*)*${PAR}(?!\s*\.)`, 'i').test(body)
+      || new RegExp(String.raw`(?<![.\w"])(?:\(\s*)*${PAR}(?:\s*\))*\s*${OP}\s*${COL}`, 'i').test(body);
 }
 
 /** A uuid (or uuid[]) input, or one named inst_id — the only kinds that can hold a college id. */
@@ -736,7 +737,8 @@ export function extractFunctions(raw) {
     const headerTop = top.slice(close + 1, end);
     const paramText = clean.slice(open + 1, close);
     fns.push({
-      name: unquote(m[1]),
+      name: unquote(m[2]),
+      schema: m[1] ? unquote(m[1]).toLowerCase() : 'public',
       offset: start,
       line: lineOf(raw, start),
       secdef: /\bsecurity\s+definer\b/i.test(headerTop),
@@ -848,7 +850,7 @@ function grantTargets(stmt) {
  * Returns { roles, byNameOnly } — byNameOnly: some statement that changed the
  * answer was matched by name alone.
  */
-export function reachability(statements, fn, argTypes = null) {
+export function reachability(statements, fn, argTypes = null, schema = 'public') {
   const state = { anon: true, authenticated: true, public: true };
   const want = fn.toLowerCase();
   let byNameOnly = false;
@@ -862,9 +864,9 @@ export function reachability(statements, fn, argTypes = null) {
     let applies = false, nameOnly = false;
     const allIn = /\bon\s+all\s+(?:functions|routines)\s+in\s+schema\s+([\s\S]*?)\s+(?:to|from)\b/i.exec(stmt);
     if (allIn) {
-      // Only a blanket statement that names the public schema touches a public
-      // function (critic on #3985, 2026-09-28: IN SCHEMA private was applied too).
-      applies = allIn[1].split(',').map(x => unquote(x.trim()).toLowerCase()).includes('public');
+      // A blanket statement touches only functions in a schema it names
+      // (critic on #3985, 2026-09-28, rounds 2 and 3).
+      applies = allIn[1].split(',').map(x => unquote(x.trim()).toLowerCase()).includes(schema);
     } else {
       for (const t of grantTargets(stmt)) {
         if (t.name.toLowerCase() !== want) continue;
@@ -1065,7 +1067,7 @@ const WARN = {
 /** Check one definition that is SECURITY DEFINER (declared, or set by an ALTER). */
 function checkDefinition(out, { file, line, f, statements, hatchSites, note }) {
   if (f.trigger || (f.params.length === 0 && f.unnamed === 0)) return;
-  const reach = reachability(statements, f.name, f.argTypes);
+  const reach = reachability(statements, f.name, f.argTypes, f.schema);
   if (reach.roles.length === 0) {
     if (reach.byNameOnly) out.warnings.push({ file, line, fn: f.name, kind: 'name-only', message: WARN.nameOnlyScope(f.name) });
     return;
@@ -1134,6 +1136,7 @@ export function checkFiles(entries) {
     // it still counts as a body an ALTER in this PR can point at.
     const baseStmts = baseRaw ? new Set(extractFunctions(baseRaw).map(f => normStmt(f.stmt))) : null;
     const baseAlters = baseRaw ? extractSecdefAlters(baseRaw) : [];
+    const baseStmtSet = new Set(baseRaw ? topLevelStatements(blankComments(baseRaw)).map(normStmt) : []);
     const events = [
       ...extractFunctions(raw).map(f => ({ at: f.offset, f })),
       ...extractSecdefAlters(raw).map(a => ({ at: a.offset, a })),
@@ -1146,6 +1149,9 @@ export function checkFiles(entries) {
         // briefly can say so with the hatch.
         const d = { file, raw, idx: k, statements, f: ev.f, unchanged: !!baseStmts && baseStmts.has(normStmt(ev.f.stmt)) };
         defs.push(d);
+        // An unchanged body is still rechecked when this PR adds a GRANT that can
+        // reach it (critic on #3985, 2026-09-28, round 3).
+        if (d.unchanged && newGrantReaches(statements, baseStmtSet, ev.f)) d.unchanged = false;
         if (d.unchanged) { if (ev.f.secdef && ev.f.params.length > 0) out.unchanged++; continue; }
         if (ev.f.secdef) checkDefinition(out, { file, line: ev.f.line, f: ev.f, statements, hatchSites: [{ raw, offset: ev.f.offset }] });
         continue;
@@ -1184,6 +1190,22 @@ export function checkFiles(entries) {
  */
 function normStmt(stmt) {
   return stmt.replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '').trim();
+}
+
+/**
+ * Does this PR (the defining file from the definition on, plus later changed
+ * files) contain a GRANT … EXECUTE that is not in the base file and that names
+ * function f (by name, any signature) or every function in f's schema?
+ */
+function newGrantReaches(statements, baseStmtSet, f) {
+  const want = f.name.toLowerCase();
+  return statements.some(stmt => {
+    if (!/^grant\b/i.test(stmt) || !/\bexecute\b|\ball\b/i.test(stmt)) return false;
+    if (baseStmtSet.has(normStmt(stmt))) return false;
+    const allIn = /\bon\s+all\s+(?:functions|routines)\s+in\s+schema\s+([\s\S]*?)\s+to\b/i.exec(stmt);
+    if (allIn) return allIn[1].split(',').map(x => unquote(x.trim()).toLowerCase()).includes(f.schema);
+    return grantTargets(stmt).some(t => t.name.toLowerCase() === want);
+  });
 }
 
 /** Check one migration file's text. Same result shape as checkFiles. */
