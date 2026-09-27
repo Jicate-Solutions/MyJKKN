@@ -50,7 +50,6 @@ import { Badge } from '@/components/ui/badge';
 import {
   useAdminCollegeSummary,
   useAdminFacultySummary,
-  useAdminCourseBreakdown,
   useAdminTrend,
   useFacilitatorFeedbackCoverage,
 } from '@/hooks/use-session-feedback';
@@ -72,6 +71,7 @@ import type {
   FacilitatorCoverageRow,
 } from '@/types/session-feedback';
 import { loadErrorHeadline } from '../_components/load-error-copy';
+import { useAdminCourseBreakdown } from '../_components/use-admin-course-breakdown';
 
 const BRAND_GREEN = '#0b6d41';
 

@@ -38,8 +38,6 @@ export const scfQueryKeys = {
     [...scfQueryKeys.all, 'admin-college-summary', from, to] as const,
   adminFacultySummary: (from: string, to: string) =>
     [...scfQueryKeys.all, 'admin-faculty-summary', from, to] as const,
-  adminCourseBreakdown: (from: string, to: string) =>
-    [...scfQueryKeys.all, 'admin-course-breakdown', from, to] as const,
   adminTrend: (from: string, to: string) =>
     [...scfQueryKeys.all, 'admin-trend', from, to] as const,
   facilitatorCoverage: (from: string, to: string) =>
@@ -193,16 +191,6 @@ export function useAdminFacultySummary(from: string, to: string) {
   return useQuery({
     queryKey: scfQueryKeys.adminFacultySummary(from, to),
     queryFn: () => SessionFeedbackService.getAdminFacultySummary(from, to),
-    enabled: !!from && !!to,
-    staleTime: 60 * 1000,
-  });
-}
-
-/** Per-teacher, per-course summary (one row per course taught). */
-export function useAdminCourseBreakdown(from: string, to: string) {
-  return useQuery({
-    queryKey: scfQueryKeys.adminCourseBreakdown(from, to),
-    queryFn: () => SessionFeedbackService.getAdminCourseBreakdown(from, to),
     enabled: !!from && !!to,
     staleTime: 60 * 1000,
   });
