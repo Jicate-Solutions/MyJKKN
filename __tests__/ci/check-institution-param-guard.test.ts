@@ -447,12 +447,55 @@ GRANT EXECUTE ON FUNCTION public.fn_probe_p4(uuid) TO authenticated;`, 'p4.sql')
     expect(flagged(out, 'fn_probe_p4', 'p_inst_id')).toBe(true);
   });
 
-  it('does NOT match look-alike names (instance, installment, instrument, boolean flags, a bare inst_id)', () => {
+  it('does NOT match look-alike names (instance, installment, instrument, boolean flags, a bare inst_id) that never meet institution_id', () => {
     const { code, out } = runSql(DEFINER(
       'fn_probe_lookalikes',
       'p_instance_id uuid, p_installment_id uuid, p_instrument_id uuid, p_include_non_billing_institutions boolean, p_within_college boolean, inst_id uuid',
-      '  SELECT count(*) INTO v_n FROM learners_profiles WHERE institution_id = inst_id AND id = p_instance_id;'
+      '  SELECT count(*) INTO v_n FROM learners_profiles WHERE department_id = inst_id AND id = p_instance_id;'
     ), 'lookalikes.sql');
+    expect(code).toBe(0);
+    expect(checked(out)).toBe(0);
+  });
+});
+
+// W12 review of #3985 (2026-09-27), item 3: a uuid parameter the body compares to
+// an institution_id column IS a college id, whatever it is called. Before this,
+// `WHERE institution_id = inst_id` (or p_org, p_scope …) went unchecked.
+describe('W12 review item 3 — a uuid compared to institution_id is an institution id', () => {
+  const COMPARED = [
+    ['inst_id', 'WHERE institution_id = inst_id'],
+    ['p_org', 'WHERE lp.institution_id = p_org'],
+    ['p_scope', 'WHERE p_scope = lp.institution_id'],
+    ['p_orgs', 'WHERE institution_id = ANY(p_orgs)'],
+    ['p_where', 'WHERE lp.institution_id IS NOT DISTINCT FROM p_where'],
+  ] as const;
+  for (const [param, where] of COMPARED) {
+    it(`FAILS unguarded: ${where}`, () => {
+      const type = param === 'p_orgs' ? 'uuid[]' : 'uuid';
+      const { code, out } = runSql(DEFINER(
+        `fn_probe_cmp_${param}`, `${param} ${type}`,
+        `  SELECT count(*) INTO v_n FROM learners_profiles lp ${where};`
+      ), `cmp-${param}.sql`);
+      expect(code).toBe(1);
+      expect(flagged(out, `fn_probe_cmp_${param}`, param)).toBe(true);
+    });
+  }
+
+  it('PASSES when the compared uuid is checked first (non-vacuity: the same body minus the check fails above)', () => {
+    const { code, out } = runSql(DEFINER(
+      'fn_probe_cmp_guarded', 'p_org uuid',
+      `  IF NOT public.role_has_institution_access(p_org) THEN RAISE EXCEPTION 'no access'; END IF;
+  SELECT count(*) INTO v_n FROM learners_profiles lp WHERE lp.institution_id = p_org;`
+    ), 'cmp-guarded.sql');
+    expect(code).toBe(0);
+    expect(checked(out)).toBe(1);
+  });
+
+  it('ignores a non-uuid parameter compared to institution_id (a text code cannot be a college id)', () => {
+    const { code, out } = runSql(DEFINER(
+      'fn_probe_cmp_text', 'p_code text',
+      '  SELECT count(*) INTO v_n FROM learners_profiles lp WHERE lp.institution_id::text = p_code;'
+    ), 'cmp-text.sql');
     expect(code).toBe(0);
     expect(checked(out)).toBe(0);
   });
@@ -895,5 +938,71 @@ LANGUAGE sql SECURITY DEFINER AS 'SELECT count(*)::int FROM learners_profiles WH
       `  IF NOT public.role_has_institution_access(p_institution_id) THEN RAISE EXCEPTION 'no access'; END IF;
   SELECT count(*) INTO v_n FROM "odd'name" WHERE institution_id = p_institution_id;`), 'quoted-ident.sql');
     expect(code).toBe(0);
+  });
+});
+
+// W12 review of #3985 (2026-09-27), items 1 and 2.
+describe('W12 review items 1-2 — fail closed, and check only what the PR adds or changes', () => {
+  const gitIn = (repo: string) => (...args: string[]) => execFileSync('git', [
+    '-c', 'user.name=gate-test', '-c', 'user.email=gate-test@example.invalid',
+    '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args,
+  ], { cwd: repo, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+  const MIG = 'supabase/migrations';
+  const LEAKY = DEFINER('fn_probe_old_leak', 'p_institution_id uuid',
+    '  SELECT count(*) INTO v_n FROM learners_profiles WHERE institution_id = p_institution_id;');
+
+  it('item 1: FAILS (exit 2) when the PR diff cannot be computed, instead of passing with nothing checked', () => {
+    const notARepo = mkdtempSync(path.join(tmpdir(), 'institution-param-nogit-'));
+    try {
+      const r = run(['--base', 'main'], { cwd: notARepo });
+      expect(r.code).toBe(2);
+      expect(r.out).toContain('could not run');
+      expect(r.out).not.toContain('No added or changed migration files');
+    } finally {
+      rmSync(notARepo, { recursive: true, force: true });
+    }
+  });
+
+  it('item 2: an UNCHANGED old function in a touched file is not rechecked; editing it is', () => {
+    const repo = mkdtempSync(path.join(tmpdir(), 'institution-param-scope-'));
+    try {
+      const git = gitIn(repo);
+      git('init', '-q', '-b', 'main');
+      mkdirSync(path.join(repo, MIG), { recursive: true });
+      const file = path.join(repo, MIG, '20990101000000_scope.sql');
+      writeFileSync(file, LEAKY, 'utf8');
+      git('add', '.');
+      git('commit', '-q', '-m', 'base: an old unguarded function already on main');
+
+      // A PR that only APPENDS a new, guarded function to the same file.
+      git('checkout', '-q', '-b', 'append-guarded');
+      writeFileSync(file, `${LEAKY}\n${DEFINER('fn_probe_new_guarded', 'p_institution_id uuid', CHECKED('p_institution_id'))}`, 'utf8');
+      git('commit', '-q', '-am', 'add a guarded function');
+      const appended = run(['--base', 'main'], { cwd: repo });
+      expect(appended.code).toBe(0);
+      expect(checked(appended.out)).toBe(1);
+      expect(appended.out).toContain('1 unchanged since the base (not rechecked)');
+      expect(flagged(appended.out, 'fn_probe_old_leak')).toBe(false);
+
+      // A PR that EDITS the old function is checked, and the leak is caught.
+      git('checkout', '-q', 'main');
+      git('checkout', '-q', '-b', 'edit-old');
+      writeFileSync(file, LEAKY.replace('SELECT count(*)', 'SELECT count(*) + 0'), 'utf8');
+      git('commit', '-q', '-am', 'edit the old function');
+      const edited = run(['--base', 'main'], { cwd: repo });
+      expect(edited.code).toBe(1);
+      expect(flagged(edited.out, 'fn_probe_old_leak', 'p_institution_id')).toBe(true);
+
+      // A whitespace-only reflow is not a change.
+      git('checkout', '-q', 'main');
+      git('checkout', '-q', '-b', 'reflow');
+      writeFileSync(file, LEAKY.replace('SELECT count(*) INTO', 'SELECT  count(*)\n    INTO'), 'utf8');
+      git('commit', '-q', '-am', 'reflow only');
+      const reflow = run(['--base', 'main'], { cwd: repo });
+      expect(reflow.code).toBe(0);
+      expect(checked(reflow.out)).toBe(0);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 });

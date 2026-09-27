@@ -44,9 +44,16 @@
  *          - p_college_id / p_college_ids.
  *        Measured over every SECURITY DEFINER definition on main (2026-09-23):
  *        the last two lines add p_institution (6 definitions), p_inst (3),
- *        p_institutions_id (2) and p_college_id (1). NOT matched: a bare
+ *        p_institutions_id (2) and p_college_id (1). NOT matched by name: a bare
  *        `inst_id` (is_business_day / add_business_hours) and boolean flags such
  *        as p_include_non_billing_institutions or p_within_college.
+ *        ALSO an institution id, whatever its name (W12 review, 2026-09-27): a
+ *        uuid / uuid[] input (or one named inst_id) that the body compares to an
+ *        institution_id column — `[x.]institution_id = p`, `= ANY(p)`, `<>`,
+ *        `IS [NOT] DISTINCT FROM`, either side. So `WHERE institution_id =
+ *        inst_id` or `lp.institution_id = p_org` is checked like
+ *        p_institution_id. A cast in between (`institution_id::text = p`) is not
+ *        read as a comparison.
  *        OUT parameters and RETURNS TABLE (...) columns are not inputs and are
  *        ignored. An UNNAMED parameter (used as $1, $2 …) cannot be judged by
  *        its name, so the gate WARNS that it could not check it (none on main).
@@ -183,6 +190,35 @@
  * A pure rename changes no SQL and is not re-read. Hundreds of historical
  * functions take an institution id; `--all` reports them for audit and is never
  * run in CI.
+ *
+ * WHICH DEFINITIONS A PR IS CHECKED ON (W12 review, 2026-09-27): only those the
+ *   PR adds or changes. A CREATE FUNCTION whose statement text (whitespace-
+ *   normalised) is already in the same file at the merge base is skipped and
+ *   counted as "unchanged since the base"; an ALTER … SECURITY DEFINER that was
+ *   also already there, on an unchanged body, is skipped too. --files and --all
+ *   check every definition. If the diff cannot be computed — no base branch, a
+ *   failing git merge-base / git diff / git show — the gate EXITS 2 and says
+ *   so; it never reads a git failure as "no changed files".
+ *
+ * KNOWN LIMITS — a tripwire, not a proof (W12 review, 2026-09-27):
+ *   - Proximity is not enforcement. A check counts when it sits in a decision
+ *     position near the parameter; the gate does not prove that EVERY query
+ *     using the parameter runs after it and depends on it.
+ *   - An unrelated check elsewhere in the body (on another value, or one that
+ *     only logs) can still satisfy the pattern match. Review reads the body.
+ *   - ALTER FUNCTION … SECURITY DEFINER on a body that is NOT in this PR's diff
+ *     is WARNED (the body cannot be read), not failed.
+ *   - Identity is read without the schema: `other.f(uuid)` and `public.f(uuid)`
+ *     are the same function to the gate.
+ *   - Functions created by dynamic SQL, and `BEGIN ATOMIC` bodies, are read as
+ *     text only (see LIMITATIONS below).
+ *   - Grants are read from the PR's changed files only. A later file (or a
+ *     manual GRANT on production) that gives EXECUTE back is not seen, and an
+ *     unchanged old function is not rechecked when only its grants change in
+ *     another file.
+ *   - A college id in a parameter that is neither named like one nor compared
+ *     straight to an institution_id column (e.g. passed to a helper that does
+ *     the comparison) is not recognised.
  *
  * LIMITATIONS (static SQL-text scan):
  *   - Row scoping (C, D, E) proves some rows are scoped, not that every query
@@ -577,11 +613,34 @@ function sameSignature(a, b) {
   return a.length === b.length && a.every((t, i) => t === b[i]);
 }
 
-/** Input parameters whose name marks an institution id: [{ name, isArray }]. */
-export function institutionParams(paramList) {
+/**
+ * Is parameter `name` compared to an institution_id column anywhere in `body`?
+ * `[x.]institution_id <op> [ANY(]name`, or `name <op> [x.]institution_id`, with
+ * op one of = <> != IS [NOT] DISTINCT FROM (W12 review of #3985, 2026-09-27: a
+ * uuid named p_org, p_scope or inst_id that filters by college is still a
+ * college id, whatever its name).
+ */
+export function comparedToInstitutionId(body, name) {
+  if (!body || !name) return false;
+  const P = escRe(name);
+  const COL = String.raw`(?:\b[A-Za-z_][A-Za-z0-9_]*\s*\.\s*)?\binstitution_id\b`;
+  const OP = String.raw`(?:=|<>|!=|\bis\s+(?:not\s+)?distinct\s+from\b)`;
+  return new RegExp(String.raw`${COL}\s*${OP}\s*(?:any\s*\(\s*)?\b${P}\b(?!\s*\.)`, 'i').test(body)
+      || new RegExp(String.raw`(?<![.\w])${P}\b\s*${OP}\s*${COL}`, 'i').test(body);
+}
+
+/** A uuid (or uuid[]) input, or one named inst_id — the only kinds that can hold a college id. */
+function uuidLike(p) {
+  const t = normType(p.type);
+  return t === 'uuid' || t === 'uuid[]' || /^p?_?inst_ids?$/i.test(p.name || '');
+}
+
+/** Input parameters whose name marks an institution id — or, given the body, that it compares to institution_id: [{ name, isArray }]. */
+export function institutionParams(paramList, body = '') {
   const out = [];
   for (const p of inputParams(paramList)) {
-    if (!p.name || !isInstitutionParamName(p.name)) continue;
+    if (!p.name) continue;
+    if (!isInstitutionParamName(p.name) && !(uuidLike(p) && comparedToInstitutionId(body, p.name))) continue;
     const isArray = /\[\s*\]/.test(p.type) || /^_/.test(p.type.trim()) || /\barray\b/i.test(p.type) || /_ids$/i.test(p.name);
     out.push({ name: p.name, isArray });
   }
@@ -674,7 +733,7 @@ export function extractFunctions(raw) {
       line: lineOf(raw, start),
       secdef: /\bsecurity\s+definer\b/i.test(headerTop),
       trigger: /\breturns\s+(?:setof\s+)?(?:event_)?trigger\b/i.test(headerTop),
-      params: institutionParams(paramText),
+      params: institutionParams(paramText, functionBody(header, headerTop)),
       unnamed: inputParams(paramText).filter(p => !p.name).length,
       argTypes: argSignature(paramText),
       body: functionBody(header, headerTop),
@@ -1046,11 +1105,18 @@ function latestDefinition(defs, alter) {
  * warnings:   [{ file, line, fn, param?, kind, message }]
  */
 export function checkFiles(entries) {
-  const out = { checked: 0, passed: 0, hatched: [], violations: [], warnings: [] };
+  const out = { checked: 0, passed: 0, unchanged: 0, hatched: [], violations: [], warnings: [] };
   const defs = [];
   const promoted = new Set();
-  for (const { file, raw } of entries) {
+  for (const { file, raw, baseRaw } of entries) {
     const statements = topLevelStatements(blankComments(raw));
+    // W12 review of #3985 (2026-09-27): check only what the PR adds or changes.
+    // baseRaw is the file at the merge base ('' when the PR adds it; undefined
+    // for --files / --all, which check everything). A definition whose
+    // statement text is unchanged there (whitespace-normalised) is skipped;
+    // it still counts as a body an ALTER in this PR can point at.
+    const baseStmts = baseRaw ? new Set(extractFunctions(baseRaw).map(f => normStmt(f.stmt))) : null;
+    const baseAlters = baseRaw ? extractSecdefAlters(baseRaw) : [];
     const events = [
       ...extractFunctions(raw).map(f => ({ at: f.offset, f })),
       ...extractSecdefAlters(raw).map(a => ({ at: a.offset, a })),
@@ -1061,8 +1127,9 @@ export function checkFiles(entries) {
         // OR REPLACE in the same file supersedes: the earlier body is live
         // between the two statements, and a file that needs the unguarded one
         // briefly can say so with the hatch.
-        const d = { file, raw, statements, f: ev.f };
+        const d = { file, raw, statements, f: ev.f, unchanged: !!baseStmts && baseStmts.has(normStmt(ev.f.stmt)) };
         defs.push(d);
+        if (d.unchanged) { if (ev.f.secdef && ev.f.params.length > 0) out.unchanged++; continue; }
         if (ev.f.secdef) checkDefinition(out, { file, line: ev.f.line, f: ev.f, statements, hatchSites: [{ raw, offset: ev.f.offset }] });
         continue;
       }
@@ -1075,6 +1142,8 @@ export function checkFiles(entries) {
       }
       const d = match.def;
       if (d.f.secdef || promoted.has(d)) continue;   // already checked as SECURITY DEFINER
+      if (d.unchanged && baseAlters.some(b => b.name.toLowerCase() === a.name.toLowerCase()
+          && (!b.argTypes || !a.argTypes || sameSignature(b.argTypes, a.argTypes)))) continue;   // body and ALTER both already in the base
       promoted.add(d);
       if (match.byName) out.warnings.push({ file, line: a.line, fn: a.name, kind: 'name-only', message: WARN.nameOnlyAlter(a.name) });
       checkDefinition(out, {
@@ -1088,6 +1157,11 @@ export function checkFiles(entries) {
     }
   }
   return out;
+}
+
+/** A statement's text with runs of whitespace collapsed, for "unchanged since the base" comparison. */
+function normStmt(stmt) {
+  return stmt.replace(/\s+/g, ' ').trim();
 }
 
 /** Check one migration file's text. Same result shape as checkFiles. */
@@ -1104,38 +1178,58 @@ function sh(cmd) {
   catch { return ''; }
 }
 
+/**
+ * Like sh(), but a failing git command STOPS the gate instead of reading as
+ * "no output" (W12 review of #3985, 2026-09-27: sh() turned a failed
+ * `git diff` into zero changed files, and the gate passed having checked nothing).
+ */
+class GateError extends Error {}
+function shStrict(cmd, what) {
+  try { return execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 }).trim(); }
+  catch (e) {
+    const detail = String(e.stderr || e.message || '').trim().split('\n')[0];
+    throw new GateError(`could not ${what} (\`${cmd}\`): ${detail}`);
+  }
+}
+
 function defaultBaseRef() {
   const remotes = sh('git remote').split('\n').filter(Boolean);
   if (remotes.includes('jicate') && sh('git rev-parse --verify --quiet jicate/main')) return 'jicate/main';
   return 'origin/main';
 }
 
+/**
+ * The files to check: [{ file, basePath }]. basePath is the file's path at the
+ * merge base (null when the PR adds it, or for --files / --all, which check
+ * every definition). Returns { files, merge }.
+ */
 function targetFiles(argv, base) {
   const filesIdx = argv.indexOf('--files');
-  if (filesIdx !== -1) return argv.slice(filesIdx + 1).filter(a => !a.startsWith('--'));
+  if (filesIdx !== -1) return { files: argv.slice(filesIdx + 1).filter(a => !a.startsWith('--')).map(file => ({ file, basePath: undefined })), merge: null };
   const MIG_DIR = 'supabase/migrations/';
   if (argv.includes('--all')) {
-    return sh(`git ls-files ${MIG_DIR}`).split('\n').filter(f => f.endsWith('.sql'));
+    return { files: shStrict(`git ls-files ${MIG_DIR}`, 'list the migration files').split('\n').filter(f => f.endsWith('.sql')).map(file => ({ file, basePath: undefined })), merge: null };
   }
-  let resolved = base;
+  let resolved = null;
   for (const cand of [base, 'jicate/main', 'origin/main', 'main']) {
-    if (sh(`git rev-parse --verify --quiet ${cand}`)) { resolved = cand; break; }
+    if (cand && sh(`git rev-parse --verify --quiet ${cand}`)) { resolved = cand; break; }
   }
-  const merge = sh(`git merge-base ${resolved} HEAD`) || resolved;
+  if (!resolved) throw new GateError(`no base branch to diff against (tried ${base}, jicate/main, origin/main, main)`);
+  const merge = shStrict(`git merge-base ${resolved} HEAD`, `find where this branch left ${resolved}`);
   // Added (A), modified (M), and renamed AND edited (R below 100 % similarity):
   // a migration renumbered and changed in the same PR reports as R, not A or M,
   // and was skipped before. A pure rename (R100) changes no SQL.
   const out = [];
-  for (const row of sh(`git diff --name-status -M --diff-filter=AMR ${merge}...HEAD -- ${MIG_DIR}`).split('\n')) {
+  for (const row of shStrict(`git diff --name-status -M --diff-filter=AMR ${merge}...HEAD -- ${MIG_DIR}`, 'list the migration files this PR changes').split('\n')) {
     const cols = row.split('\t');
     if (cols.length < 2) continue;
     if (cols[0].startsWith('R')) {
-      if (cols[0] !== 'R100' && cols[2]) out.push(cols[2]);
+      if (cols[0] !== 'R100' && cols[2]) out.push({ file: cols[2], basePath: cols[1] });
     } else {
-      out.push(cols[1]);
+      out.push({ file: cols[1], basePath: cols[0] === 'A' ? null : cols[1] });
     }
   }
-  return out.filter(f => f.endsWith('.sql'));
+  return { files: out.filter(f => f.file.endsWith('.sql')), merge };
 }
 
 const ghData = s => s.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
@@ -1158,20 +1252,34 @@ function main() {
   const baseIdx = argv.indexOf('--base');
   const BASE = baseIdx !== -1 ? argv[baseIdx + 1] : (process.env.BASE_REF || defaultBaseRef());
 
-  const files = targetFiles(argv, BASE).filter(Boolean);
-  if (files.length === 0) {
-    console.log(`${GREEN}✓${RESET} No added or changed migration files to check (base: ${BASE}).`);
-    process.exit(0);
+  let files, merge, entries;
+  try {
+    ({ files, merge } = targetFiles(argv, BASE));
+    files = files.filter(f => f.file);
+    if (files.length === 0) {
+      console.log(`${GREEN}✓${RESET} No added or changed migration files to check (base: ${BASE}).`);
+      process.exit(0);
+    }
+    entries = files.filter(f => existsSync(f.file)).map(({ file, basePath }) => ({
+      file,
+      raw: readFileSync(file, 'utf8'),
+      baseRaw: basePath === undefined ? undefined
+        : basePath === null ? ''
+        : shStrict(`git show ${merge}:${basePath}`, `read ${basePath} at the merge base`),
+    }));
+  } catch (e) {
+    if (!(e instanceof GateError)) throw e;
+    console.error(`${RED}${BOLD}✗ Institution-id parameter guard could not run: ${e.message}.${RESET}`);
+    console.error('Failing rather than passing: a gate that checked nothing must not report success.');
+    process.exit(2);
   }
-
-  const entries = files.filter(f => existsSync(f)).map(file => ({ file, raw: readFileSync(file, 'utf8') }));
   const r = checkFiles(entries);
   if (VERBOSE) {
     for (const h of r.hatched) console.log(`${DIM}allowed by hatch: ${h.fn} (${h.file}:${h.line}) — ${h.reason}${RESET}`);
   }
 
   const nw = r.warnings.length;
-  console.log(`\n${BOLD}Institution-id parameter guard${RESET} — ${r.checked} SECURITY DEFINER function(s) taking an institution id checked, ${r.passed} guarded${nw ? `, ${nw} warning(s)` : ''}.`);
+  console.log(`\n${BOLD}Institution-id parameter guard${RESET} — ${r.checked} SECURITY DEFINER function(s) taking an institution id checked, ${r.passed} guarded${r.unchanged ? `, ${r.unchanged} unchanged since the base (not rechecked)` : ''}${nw ? `, ${nw} warning(s)` : ''}.`);
   printWarnings(r.warnings);
 
   if (r.violations.length === 0) {
