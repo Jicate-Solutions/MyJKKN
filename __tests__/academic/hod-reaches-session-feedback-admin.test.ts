@@ -18,6 +18,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { GetRoleBasedPages, type RolePermissionData } from '@/lib/sidebarMenuLink';
+import { routeMatcher } from '@/lib/auth/route-matcher';
 
 const ADMIN_LANE = '/academic/session-feedback/admin';
 
@@ -60,6 +61,13 @@ describe('leadership reaches the per-faculty session-feedback roll-up', () => {
 
   it('PRINCIPAL: the sidebar renders the link', () => {
     expect(hasAdminLane(PRINCIPAL), 'feedback roll-up hidden from a principal').toBe(true);
+  });
+
+  it('HOD / principal: the route gate admits — the link opens the page, not a no-access panel', () => {
+    // Confirmed live 27 Sep: hodmba@jkkn.ac.in opens this URL and the Faculty
+    // Summary renders. The page's reads are fn_scf_admin_* (leadership key).
+    expect(routeMatcher.hasAccess(ADMIN_LANE, 'hod', undefined)).toBe(true);
+    expect(routeMatcher.hasAccess(ADMIN_LANE, 'principal', undefined)).toBe(true);
   });
 
   it('a role without the leadership key still gets no link', () => {
