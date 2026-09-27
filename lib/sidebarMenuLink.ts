@@ -311,6 +311,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // AI Assistant
   '/ai-query': 'ai_query.view', // AI Query System access
+  '/ai-query/connect': 'ai_query.view', // Personal keys for outside AIs that accept a custom MCP server with a bearer key (Claude Code, Claude Desktop, Gemini CLI, Zoho Zia)
 
   // ======================================================================
   // InstaSolver — the ONE front door for "something is wrong here".
@@ -2219,6 +2220,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'AI Assistant',
           active: pathname === '/ai-query',
           icon: Sparkles,
+          submenus: []
+        },
+        {
+          // Personal keys for outside AIs that accept a custom MCP server with
+          // a bearer key, through the MCP door. Same gate as the AI Assistant.
+          href: '/ai-query/connect',
+          label: 'Connect an outside AI',
+          active: pathname.startsWith('/ai-query/connect'),
+          icon: Key,
           submenus: []
         },
         {
