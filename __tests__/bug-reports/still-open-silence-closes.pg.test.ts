@@ -86,6 +86,7 @@ CREATE TABLE public.bug_fix_feedback_requests (
   status text NOT NULL CHECK (status = ANY (ARRAY['pending_send','sent','delivered','answered','expired','dropped'])),
   answer text CHECK (answer = ANY (ARRAY['fixed','not_fixed'])),
   sent_at timestamptz,
+  delivered_at timestamptz,
   expires_at timestamptz,
   updated_at timestamptz DEFAULT now(),
   CHECK (((kind = 'fix_check') AND (cluster_id IS NOT NULL)) OR ((kind = 'still_open') AND (cluster_id IS NULL)))
@@ -123,16 +124,21 @@ async function bug(status: string, extra: { reopenedDaysAgo?: number; resolvedBy
 /** A prompt sent `sentDaysAgo` days ago that expires `expiresInDays` from now (negative = already expired). */
 async function prompt(
   bugId: string,
-  o: { kind?: string; status?: string; answer?: string | null; sentDaysAgo?: number; expiresInDays: number }
+  o: { kind?: string; status?: string; answer?: string | null; sentDaysAgo?: number; expiresInDays: number; seen?: boolean }
 ) {
   const id = randomUUID();
   const kind = o.kind ?? 'still_open';
+  const status = o.status ?? 'delivered';
+  // delivered_at = the reporter's screen acknowledged the prompt. A 'delivered'
+  // (or answered) prompt has it; a 'sent' one has not been seen.
+  const seen = o.seen ?? (status === 'delivered' || status === 'answered');
   await q(
     `INSERT INTO public.bug_fix_feedback_requests
-       (id, cluster_id, bug_id, reporter_user_id, kind, status, answer, sent_at, expires_at)
+       (id, cluster_id, bug_id, reporter_user_id, kind, status, answer, sent_at, expires_at, delivered_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7,
-             now() - make_interval(days => $8::int), now() + make_interval(days => $9::int))`,
-    [id, kind === 'fix_check' ? CLUSTER : null, bugId, REPORTER, kind, o.status ?? 'delivered', o.answer ?? null, o.sentDaysAgo ?? 15, o.expiresInDays]
+             now() - make_interval(days => $8::int), now() + make_interval(days => $9::int),
+             CASE WHEN $10::boolean THEN now() - make_interval(days => $8::int) + interval '1 hour' END)`,
+    [id, kind === 'fix_check' ? CLUSTER : null, bugId, REPORTER, kind, status, o.answer ?? null, o.sentDaysAgo ?? 15, o.expiresInDays, seen]
   );
   return id;
 }
@@ -188,9 +194,18 @@ describe('still-open prompt silence closes the report', () => {
     expect(row.metadata?.close_note).toMatch(/did not answer/);
   });
 
-  it('closes a "sent" prompt the same way as a "delivered" one', async () => {
+  it('a prompt that went out but was NEVER SEEN expires and closes nothing (Director 27 Sep: close only if seen)', async () => {
     const b = await bug('seen');
-    await prompt(b, { status: 'sent', expiresInDays: -2 });
+    const p = await prompt(b, { status: 'sent', expiresInDays: -2 });
+    const r = await sweep();
+    expect(await promptRow(p)).toEqual({ status: 'expired' });
+    expect((await bugRow(b)).status).toBe('seen');
+    expect(r).toMatchObject({ closed: 0, expired_unseen: 1 });
+  });
+
+  it('a "sent" prompt the reporter DID see (render acknowledged) closes like a delivered one', async () => {
+    const b = await bug('seen');
+    await prompt(b, { status: 'sent', seen: true, expiresInDays: -2 });
     await sweep();
     expect((await bugRow(b)).status).toBe('resolved');
   });
@@ -229,6 +244,14 @@ describe('still-open prompt silence closes the report', () => {
 
   it('expires the prompt but keeps a report that was reopened after the prompt went out', async () => {
     const b = await bug('new', { reopenedDaysAgo: 2 });
+    const p = await prompt(b, { status: 'delivered', sentDaysAgo: 15, expiresInDays: -1 });
+    await sweep();
+    expect(await promptRow(p)).toEqual({ status: 'expired' });
+    expect((await bugRow(b)).status).toBe('new');
+  });
+
+  it('never re-closes a hand-reopened report, even one reopened BEFORE the prompt went out (Director 27 Sep)', async () => {
+    const b = await bug('new', { reopenedDaysAgo: 40 });
     const p = await prompt(b, { status: 'delivered', sentDaysAgo: 15, expiresInDays: -1 });
     await sweep();
     expect(await promptRow(p)).toEqual({ status: 'expired' });

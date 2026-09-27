@@ -42,6 +42,7 @@ export async function GET(request: NextRequest) {
     bug_feedback_released: 0,
     bug_feedback_still_open_expired: 0,
     bug_feedback_still_open_closed: 0,
+    bug_feedback_still_open_expired_unseen: 0,
     bug_feedback_reminders: 0,
     errors: [] as string[],
   };
@@ -243,6 +244,8 @@ export async function GET(request: NextRequest) {
       } else {
         results.bug_feedback_still_open_expired = Number(silenceRes?.expired ?? 0);
         results.bug_feedback_still_open_closed = Number(silenceRes?.closed ?? 0);
+        // Expired without ever being seen — closes nothing (Director, 27 Sep).
+        results.bug_feedback_still_open_expired_unseen = Number(silenceRes?.expired_unseen ?? 0);
       }
 
       const { data: queuedReporters, error: queuedErr } = await svc
