@@ -1,0 +1,51 @@
+# [PROJECT_NAME] - Progress Tracker
+
+## Current Session: [DATE]
+
+### Working On
+-
+
+### Completed This Session
+-
+
+### Blocked
+- [Issue]: [Why blocked, what's needed to unblock]
+
+### Decisions Made
+- [Decision]: [Reasoning]
+
+### Next Session Should
+1.
+2.
+3.
+
+---
+
+## Session History
+
+<!-- Append each session summary below. Most recent at top. -->
+
+### [DATE] - [Brief summary of session]
+
+**Completed:**
+- [What was done]
+
+**Issues Encountered:**
+- [Problems and how they were resolved]
+
+**Decisions:**
+- [Key decisions and why]
+
+**State at End:**
+- Project status: [working/broken/partial]
+- Next priority: [what to do next]
+
+---
+
+*Template: ~/.claude/templates/progress-txt.md*
+- 09:40 IST (adoption tick): measured on the rolling 7 days from production. 27 features registered, 13 recording, 48,140 usage rows, newest today. HEADLINE DEFINITION FIXED: median weekly share across every NON-SEASONAL recording feature-and-role pair = 8.6% over 22 pairs (bar >=40%, miss, streak 3); dead 3 (guide.open 2.1%, induction.my_sessions_open 1.0%, learners.create_profile 0.0%) which HITS the dead<=3 bar. The 31.3% recorded at 09:19 was 19 pairs INCLUDING the three seasonal features; 43.0% on 18-22 Sep was 14 pairs. Three different populations, so those entries are not comparable — disclosed and parked for the Director.
+- Per-role detail (rolling 7 days): attendance.mark 44-65% by role; ai_pulse.open 31-59% on staff, 7.6% on students; dashboard.open 40.8% of all 7,109; billing.receipt_create 4/9 accounts; application_hub.open 5-9%; guide.open 149/7,109; induction.my_sessions_open 15/6,892; learners.create_profile 0/122.
+- BLOCKED: registering feature key cdc.answer_willingness was REFUSED by the auto-mode classifier (live production insert). The Bugs desk had already checked the registry and correctly refused to wire a call that would record nothing. Parked for the Director with two routes: approve the single insert, or put the row in a migration inside a Draft PR.
+- Did NOT re-run the usage bridge this tick: it last ran 09:18, sixteen minutes before, so nothing measurable had changed. Named rather than skipped silently.
+- The desk gate reads this desk as "hollow" — a false negative. Its check walks child processes with pgrep -P, which returns nothing for this pane although ps shows the claude process is a child. The desk is alive and working.
+- The watchdog log shows this desk's loop overdue ~24h; re-armed this tick.

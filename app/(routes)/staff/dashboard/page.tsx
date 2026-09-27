@@ -36,6 +36,7 @@ import { DemographicAnalytics } from './_components/demographic-analytics';
 import { TenureAnalytics } from './_components/tenure-analytics';
 import { ProfileAnalytics } from './_components/profile-analytics';
 import { IncompleteStaffTable } from './_components/incomplete-staff-table';
+import { RoleAnalytics } from './_components/role-analytics';
 import { useTabParam } from '@/hooks/use-tab-param';
 
 const STAFF_DASHBOARD_TABS = [
@@ -44,7 +45,8 @@ const STAFF_DASHBOARD_TABS = [
   'demographics',
   'geographic',
   'tenure',
-  'profiles'
+  'profiles',
+  'roles'
 ] as const;
 
 function StaffDashboardPageInner() {
@@ -262,13 +264,15 @@ function StaffDashboardPageInner() {
 
         {/* Dashboard Content */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className='space-y-6'>
-          <TabsList className='flex w-full justify-start gap-1 overflow-x-auto lg:grid lg:grid-cols-6 lg:gap-0 lg:overflow-visible'>
+          <TabsList className='flex w-full justify-start gap-1 overflow-x-auto lg:grid lg:grid-cols-7 lg:gap-0 lg:overflow-visible'>
             <TabsTrigger value='overview'>Overview</TabsTrigger>
             <TabsTrigger value='organizational'>Organizational</TabsTrigger>
+            <TabsTrigger value='roles'>Roles</TabsTrigger>
             <TabsTrigger value='demographics'>Demographics</TabsTrigger>
             <TabsTrigger value='geographic'>Geographic</TabsTrigger>
             <TabsTrigger value='tenure'>Tenure</TabsTrigger>
             <TabsTrigger value='profiles'>Profiles</TabsTrigger>
+            
           </TabsList>
 
           {/* Overview Tab */}
@@ -415,6 +419,24 @@ function StaffDashboardPageInner() {
               {/* The who-is-incomplete list sits at tab level, like the learners
                   dashboard — buried in a chart's sub-tab, nobody found it. */}
               <IncompleteStaffTable filters={filters} />
+            </div>
+          </TabsContent>
+
+          {/* Roles Tab */}
+          <TabsContent value='roles' className='space-y-6'>
+            <div className='space-y-6'>
+              <div className='border-l-4 border-indigo-500 pl-4'>
+                <h2 className='text-2xl font-bold'>Role Analytics</h2>
+                <p className='text-muted-foreground'>
+                  Employees per system role (Senior Learner, HOD, Staff, …) with
+                  the name and institution email behind each count
+                </p>
+              </div>
+
+              <RoleAnalytics
+                data={dashboardData?.roleStats}
+                isLoading={isLoading}
+              />
             </div>
           </TabsContent>
         </Tabs>

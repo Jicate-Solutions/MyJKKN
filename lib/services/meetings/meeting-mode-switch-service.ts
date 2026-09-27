@@ -723,10 +723,18 @@ export class MeetingModeSwitchService {
 
     // Resolve the timezone (always) and re-validate the new slot (only when
     // the switch also moves the meeting).
+    //
+    // A HOST picking a new time may use any time 07:00-22:00 (Director, 22 Sep —
+    // the same rule Reschedule follows, via host-any-time.ts). Without it the
+    // host's picker offered times from their in-person hours and this check then
+    // refused them against their online hours: "That time is no longer
+    // available" for a time the picker had just shown (Director, 24 Sep). A
+    // visitor's request, approved later by the host, stays on online hours.
     const ctx = await NativeSchedulingService.resolveMoveContext(supabase, availabilityType, {
       newStartIso: opts.newStart ?? null,
       exclude: { start: booking.start_time, end: booking.end_time },
       now,
+      hostAnyTime: opts.switchedBy === 'host',
     });
     if (!ctx.ok) {
       return { ok: false, error: ctx.error === 'INVALID_SLOT' ? 'INVALID_SLOT' : 'INTERNAL' };

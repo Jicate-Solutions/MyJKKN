@@ -13,6 +13,10 @@
  *     the answer there is targeting, not retirement.
  *   - the bar is the WEEKLY share. All-time usage would let a feature everyone
  *     opened once in March look healthy forever.
+ *   - EXCEPT for a seasonal feature. A timetable is made at a term boundary, so
+ *     a weekly bar calls it dead 50 weeks a year. A 'term' feature is judged on
+ *     the LAST COMPLETED term — never the one running, which may not have
+ *     reached its season yet — and only if it shipped before that term began.
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -20,15 +24,22 @@ import {
   ASK_WHY_MIN_AGE_DAYS,
   DEAD_AFTER_DAYS,
   DEAD_WEEKLY_PCT,
+  TERM_ASK_WINDOW_DAYS,
+  activeShareLabel,
   canAskWhy,
   daysSinceShipped,
   groupByFeature,
   isDeadFeature,
   isMeasured,
+  isSkipped,
+  isTermFeature,
   shippedAgo,
+  skippedGroups,
   summariseAdoption,
   toNumber,
   type AdoptionMetricRow,
+  rollingWeekStart,
+  isEventFeature,
 } from '@/lib/adoption/summarise';
 
 /** A fixed "now" so an age never depends on the day the suite runs. */
@@ -37,6 +48,30 @@ const NOW = new Date('2026-09-16T06:30:00.000Z');
 /** An ISO ship date exactly `days` before NOW. */
 function shippedDaysAgo(days: number): string {
   return new Date(NOW.getTime() - days * 86_400_000).toISOString();
+}
+
+/** A term boundary as a Postgres `date` ('YYYY-MM-DD'), `days` from NOW.
+ *  Negative is in the past, positive is in the future. */
+function termDay(days: number): string {
+  return new Date(NOW.getTime() + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** A seasonal feature: 'term' cadence, the running term around NOW, and the
+ *  last completed term before it. Shipped well before that last term began, so
+ *  by default it HAS had a full term to be used in and can be judged. */
+function termRow(overrides: Partial<AdoptionMetricRow> = {}): AdoptionMetricRow {
+  return row({
+    feature_key: 'academic.timetable_publish',
+    title: 'Publish a timetable',
+    core_action: 'publish a timetable for a section',
+    cadence: 'term',
+    shipped_at: shippedDaysAgo(300),
+    term_start: termDay(-60),
+    term_end: termDay(30),
+    prev_term_start: termDay(-240),
+    prev_term_end: termDay(-61),
+    ...overrides,
+  });
 }
 
 function row(overrides: Partial<AdoptionMetricRow> = {}): AdoptionMetricRow {
@@ -60,6 +95,19 @@ function row(overrides: Partial<AdoptionMetricRow> = {}): AdoptionMetricRow {
     usage_wired: true,
     usage_bridged: false,
     usage_synced_at: null,
+    // Weekly is the default cadence, and a weekly feature carries no term
+    // numbers — exactly what an older row or a plain label sends.
+    cadence: 'weekly',
+    term_active: 0,
+    pct_term: 0,
+    term_start: null,
+    term_end: null,
+    prev_term_active: 0,
+    pct_prev_term: 0,
+    prev_term_start: null,
+    prev_term_end: null,
+    // No reason to skip: this one is measured like everything else.
+    skip_reason: null,
     ...overrides,
   };
 }
@@ -221,6 +269,12 @@ describe('isDeadFeature', () => {
           usage_wired: true,
           usage_bridged: false,
           usage_synced_at: null,
+          cadence: 'weekly',
+          term_start: null,
+          term_end: null,
+          prev_term_start: null,
+          prev_term_end: null,
+          skip_reason: null,
           rows: [],
         },
         NOW
@@ -274,6 +328,198 @@ describe('isDeadFeature', () => {
   });
 });
 
+describe('term cadence', () => {
+  it('carries the cadence and BOTH term windows onto the feature', () => {
+    const [seasonal] = groupByFeature([termRow()]);
+    expect(seasonal.cadence).toBe('term');
+    expect(seasonal.term_start).toBe(termDay(-60));
+    expect(seasonal.term_end).toBe(termDay(30));
+    expect(seasonal.prev_term_start).toBe(termDay(-240));
+    expect(seasonal.prev_term_end).toBe(termDay(-61));
+    expect(isTermFeature(seasonal)).toBe(true);
+    expect(activeShareLabel(seasonal)).toBe('This term');
+  });
+
+  it('defaults to weekly when the cadence is missing or unreadable', () => {
+    // An older row, or anything that is not the word 'term', must read as the
+    // old default. Reading it as seasonal would silently suspend the dead rule.
+    const [absent] = groupByFeature([row({ cadence: undefined })]);
+    const [nulled] = groupByFeature([row({ cadence: null })]);
+    const [nonsense] = groupByFeature([
+      row({ cadence: 'yearly' as unknown as 'weekly' }),
+    ]);
+    expect([absent.cadence, nulled.cadence, nonsense.cadence]).toEqual([
+      'weekly',
+      'weekly',
+      'weekly',
+    ]);
+    expect(activeShareLabel(absent)).toBe('Last 7 days');
+  });
+
+  it('is NOT judged on the running term, however low it reads', () => {
+    // The whole point of the ruling. A timetable is made at a term boundary;
+    // week three of the running term says nothing about whether it is used.
+    const [group] = groupByFeature([
+      termRow({ role: 'hod', pct_term: 0, term_active: 0, pct_prev_term: 60 }),
+      termRow({ role: 'principal', pct_term: 0, term_active: 0, pct_prev_term: 45 }),
+    ]);
+    expect(isDeadFeature(group, NOW)).toBe(false);
+  });
+
+  it('IS dead when it had a full last term and nobody used it', () => {
+    const [group] = groupByFeature([
+      termRow({ role: 'hod', pct_prev_term: 0 }),
+      termRow({ role: 'principal', pct_prev_term: 4.9 }),
+    ]);
+    expect(isDeadFeature(group, NOW)).toBe(true);
+  });
+
+  it('is NOT dead when it shipped part-way through the last term', () => {
+    // It never had a full term to be used in, so a zero there is newness —
+    // the same judgement the 28-day rule makes for a weekly feature.
+    const [group] = groupByFeature([
+      termRow({ shipped_at: shippedDaysAgo(120), pct_prev_term: 0 }),
+    ]);
+    expect(isDeadFeature(group, NOW)).toBe(false);
+  });
+
+  it('turns dead only if it shipped BEFORE the last term began', () => {
+    const during = groupByFeature([
+      termRow({ shipped_at: shippedDaysAgo(239), pct_prev_term: 0 }),
+    ])[0];
+    const before = groupByFeature([
+      termRow({ shipped_at: shippedDaysAgo(241), pct_prev_term: 0 }),
+    ])[0];
+    expect(isDeadFeature(during, NOW)).toBe(false);
+    expect(isDeadFeature(before, NOW)).toBe(true);
+  });
+
+  it('keeps it alive when ONE role used it last term', () => {
+    const [group] = groupByFeature([
+      termRow({ role: 'hod', pct_prev_term: 0 }),
+      termRow({ role: 'principal', pct_prev_term: 20, prev_term_active: 4 }),
+    ]);
+    expect(isDeadFeature(group, NOW)).toBe(false);
+  });
+
+  it('judges the last term, never the running one and never the week', () => {
+    // Nothing yet this term, but it was used last term: alive.
+    const [usedLastTerm] = groupByFeature([
+      termRow({ pct_weekly: 0, pct_term: 0, pct_prev_term: 85, prev_term_active: 17 }),
+    ]);
+    expect(isDeadFeature(usedLastTerm, NOW)).toBe(false);
+    // Busy this week and this term, but it went unused for the whole of last
+    // term: dead. The running term cannot rescue it either.
+    const [busyNowUnusedThen] = groupByFeature([
+      termRow({ pct_weekly: 100, pct_term: 100, term_active: 20, pct_prev_term: 0 }),
+    ]);
+    expect(isDeadFeature(busyNowUnusedThen, NOW)).toBe(true);
+  });
+
+  it('is never dead when no last term is known', () => {
+    // Better a feature nobody judges than a retirement proposal built on a
+    // missing date.
+    const [group] = groupByFeature([
+      termRow({ prev_term_start: null, prev_term_end: null, pct_prev_term: 0 }),
+    ]);
+    expect(isDeadFeature(group, NOW)).toBe(false);
+  });
+
+  it('still obeys the retired, unwired and stale rules', () => {
+    const retired = groupByFeature([termRow({ status: 'retired', pct_prev_term: 0 })])[0];
+    const unwired = groupByFeature([termRow({ usage_wired: false, pct_prev_term: 0 })])[0];
+    const stale = groupByFeature([
+      termRow({
+        usage_bridged: true,
+        usage_synced_at: shippedDaysAgo(9),
+        pct_prev_term: 0,
+      }),
+    ])[0];
+    expect(isDeadFeature(retired, NOW)).toBe(false);
+    expect(isDeadFeature(unwired, NOW)).toBe(false);
+    expect(isDeadFeature(stale, NOW)).toBe(false);
+  });
+
+  it('leaves a weekly feature judged by the week, whatever the term columns say', () => {
+    const [group] = groupByFeature([
+      row({ pct_weekly: 0, pct_term: 90, term_active: 18, pct_prev_term: 90 }),
+    ]);
+    expect(isDeadFeature(group, NOW)).toBe(true);
+  });
+});
+
+describe('skipped on purpose', () => {
+  it('carries the reason onto the feature and recognises it', () => {
+    const [group] = groupByFeature([
+      row({ feature_key: 'ops.nightly_rollup', skip_reason: 'a cron job, nobody opens it' }),
+    ]);
+    expect(group.skip_reason).toBe('a cron job, nobody opens it');
+    expect(isSkipped(group)).toBe(true);
+  });
+
+  it('treats no reason, and a blank one, as not skipped', () => {
+    // The database stores NULLIF(btrim(...), ''), so a blank only arrives from
+    // a hand-built row — and it must not hide a real feature with no reason
+    // shown anywhere.
+    expect(isSkipped(groupByFeature([row({ skip_reason: null })])[0])).toBe(false);
+    expect(isSkipped(groupByFeature([row({ skip_reason: undefined })])[0])).toBe(false);
+    expect(isSkipped(groupByFeature([row({ skip_reason: '   ' })])[0])).toBe(false);
+  });
+
+  it('is never dead and never asked about, however old and unused', () => {
+    // Both mirror the database: fn_adoption_ask_why refuses a skipped feature
+    // outright, and a thing nobody was meant to open cannot be abandoned.
+    const [group] = groupByFeature([
+      row({ shipped_at: shippedDaysAgo(400), pct_weekly: 0, skip_reason: 'a public form' }),
+    ]);
+    expect(isDeadFeature(group, NOW)).toBe(false);
+    expect(canAskWhy(group, NOW)).toBe(false);
+  });
+
+  it('is never dead when seasonal either, however the last term went', () => {
+    const [group] = groupByFeature([
+      termRow({ pct_prev_term: 0, skip_reason: 'run by one person' }),
+    ]);
+    expect(isDeadFeature(group, NOW)).toBe(false);
+  });
+
+  it('is kept out of all three headline numbers', () => {
+    const summary = summariseAdoption(
+      [
+        row({ feature_key: 'gate.pass_issue', pct_weekly: 0 }), // dead
+        row({ feature_key: 'billing.receipt', pct_weekly: 61 }), // alive
+        row({ feature_key: 'ops.nightly_rollup', pct_weekly: 0, skip_reason: 'a cron job' }),
+        row({ feature_key: 'public.enquiry', pct_weekly: 0, skip_reason: 'a public form' }),
+      ],
+      NOW
+    );
+    // Two judged features, not four: a skipped one is neither an unmeasured
+    // gap nor a retirement question.
+    expect(summary.labelled).toBe(2);
+    expect(summary.measured).toBe(2);
+    expect(summary.dead).toBe(1);
+  });
+
+  it('still returns every group, so the page can list what was skipped', () => {
+    const summary = summariseAdoption(
+      [
+        row({ feature_key: 'gate.pass_issue' }),
+        row({ feature_key: 'ops.nightly_rollup', skip_reason: 'a cron job' }),
+      ],
+      NOW
+    );
+    expect(summary.groups).toHaveLength(2);
+    expect(skippedGroups(summary.groups).map((g) => g.feature_key)).toEqual([
+      'ops.nightly_rollup',
+    ]);
+  });
+
+  it('answers an empty list when nothing is skipped, and survives a null one', () => {
+    expect(skippedGroups(groupByFeature([row()]))).toEqual([]);
+    expect(skippedGroups(null as unknown as ReturnType<typeof groupByFeature>)).toEqual([]);
+  });
+});
+
 describe('isMeasured', () => {
   it('is measured when any role has intended people', () => {
     const [group] = groupByFeature([
@@ -297,6 +543,40 @@ describe('canAskWhy', () => {
     const ready = groupByFeature([row({ shipped_at: shippedDaysAgo(ASK_WHY_MIN_AGE_DAYS) })])[0];
     expect(canAskWhy(young, NOW)).toBe(false);
     expect(canAskWhy(ready, NOW)).toBe(true);
+  });
+
+  it('holds a term feature’s question until the last two weeks of term', () => {
+    // "Why have you not made next term's timetable?" has no honest answer in
+    // week three. The database only sends it near the boundary; the button is
+    // disabled on the same rule so the refusal is visible before the tap.
+    const earlyTerm = groupByFeature([termRow({ term_end: termDay(30) })])[0];
+    const nearEnd = groupByFeature([termRow({ term_end: termDay(10) })])[0];
+    expect(canAskWhy(earlyTerm, NOW)).toBe(false);
+    expect(canAskWhy(nearEnd, NOW)).toBe(true);
+  });
+
+  it('opens the term window on the day the database opens it, not a day later', () => {
+    // fn_adoption_ask_why refuses while `today < term_end - 14`, so the day
+    // exactly 14 out is ALLOWED. Mirroring it a day tighter would grey out a
+    // button the database would have accepted — a refusal with no refusal.
+    const open = groupByFeature([termRow({ term_end: termDay(TERM_ASK_WINDOW_DAYS) })])[0];
+    const shut = groupByFeature([termRow({ term_end: termDay(TERM_ASK_WINDOW_DAYS + 1) })])[0];
+    expect(canAskWhy(open, NOW)).toBe(true);
+    expect(canAskWhy(shut, NOW)).toBe(false);
+  });
+
+  it('keeps asking after the term has ended', () => {
+    const finished = groupByFeature([termRow({ term_end: termDay(-1) })])[0];
+    expect(canAskWhy(finished, NOW)).toBe(true);
+  });
+
+  it('never asks a term feature with no term window, and never one too new', () => {
+    const noWindow = groupByFeature([termRow({ term_start: null, term_end: null })])[0];
+    const tooNew = groupByFeature([
+      termRow({ shipped_at: shippedDaysAgo(ASK_WHY_MIN_AGE_DAYS - 1), term_end: termDay(1) }),
+    ])[0];
+    expect(canAskWhy(noWindow, NOW)).toBe(false);
+    expect(canAskWhy(tooNew, NOW)).toBe(false);
   });
 });
 
@@ -342,5 +622,50 @@ describe('summariseAdoption', () => {
 
   it('survives a null row set', () => {
     expect(summariseAdoption(null as unknown as AdoptionMetricRow[], NOW).labelled).toBe(0);
+  });
+});
+
+describe('rollingWeekStart', () => {
+  it('names the day six days before today in India, so the window always covers seven days', () => {
+    // 2026-09-22 05:09 IST is 2026-09-21 23:39 UTC — the IST day is the 22nd.
+    expect(rollingWeekStart(new Date('2026-09-21T23:39:00Z'))).toBe('2026-09-16');
+  });
+
+  it('uses the Indian day, not the UTC one, late in the evening', () => {
+    // 2026-09-22 23:30 IST is still 2026-09-22 in India (18:00 UTC).
+    expect(rollingWeekStart(new Date('2026-09-22T18:00:00Z'))).toBe('2026-09-16');
+  });
+
+  it('moves with the clock rather than jumping on Mondays', () => {
+    const mon = rollingWeekStart(new Date('2026-09-21T06:00:00Z'));
+    const tue = rollingWeekStart(new Date('2026-09-22T06:00:00Z'));
+    expect(mon).toBe('2026-09-15');
+    expect(tue).toBe('2026-09-16');
+  });
+});
+
+describe('features used only when the occasion arises', () => {
+  it('is never dead on a low share — 0.2 % of people reporting a bug is health, not death', () => {
+    const [group] = groupByFeature([
+      row({ cadence: 'event', intended_count: 7116, pct_weekly: 0.2, pct_ever: 3 }),
+    ]);
+    expect(isEventFeature(group)).toBe(true);
+    expect(isDeadFeature(group, NOW)).toBe(false);
+  });
+
+  it('is never asked why, because a low share is not evidence of a problem', () => {
+    const [group] = groupByFeature([row({ cadence: 'event', pct_weekly: 0 })]);
+    expect(canAskWhy(group, NOW)).toBe(false);
+  });
+
+  it('says "When needed" rather than naming a window', () => {
+    const [group] = groupByFeature([row({ cadence: 'event' })]);
+    expect(activeShareLabel(group)).toBe('When needed');
+  });
+
+  it('leaves weekly features judged exactly as before', () => {
+    const [group] = groupByFeature([row({ cadence: 'weekly', pct_weekly: 0.2 })]);
+    expect(isEventFeature(group)).toBe(false);
+    expect(isDeadFeature(group, NOW)).toBe(true);
   });
 });

@@ -9,6 +9,7 @@ import { LeaveService } from '@/lib/services/hr/leave-service';
 import { StaffNotificationService } from '@/lib/services/staff/notification-service';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import type { LeaveApplicationStatus } from '@/types/hr';
+import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -155,6 +156,9 @@ export async function POST(request: NextRequest) {
         console.warn('[hr/leave/applications] leave_submitted notification failed:', notifyErr);
       }
     })();
+
+    // Adoption loop: a staff member applied for leave.
+    await recordFeatureUse(supabase, FEATURE_KEYS.HR_LEAVE_APPLY);
 
     return NextResponse.json({ data: created }, { status: 201 });
   } catch (err) {

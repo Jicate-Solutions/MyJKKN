@@ -59,6 +59,7 @@ export class ServiceTypeService {
         fields:service_type_fields(*),
         approval_steps:service_request_approval_steps(*)`
       )
+      .eq('approval_steps.is_active', true)
       .order('name', { ascending: true });
 
     if (filters?.is_active !== undefined) {
@@ -160,6 +161,7 @@ export class ServiceTypeService {
         approval_steps:service_request_approval_steps(*)`
       )
       .eq('id', id)
+      .eq('approval_steps.is_active', true)
       .single();
 
     if (error) {
@@ -184,6 +186,7 @@ export class ServiceTypeService {
         approval_steps:service_request_approval_steps(*)`
       )
       .eq('slug', slug)
+      .eq('approval_steps.is_active', true)
       .maybeSingle();
 
     if (error) {
@@ -319,20 +322,25 @@ export class ServiceTypeService {
     // Upsert approval steps if provided.
     // Cannot delete-all + re-insert because service_request_approvals may reference
     // existing steps via approval_step_id FK (Postgres error 23503).
-    // Strategy: update existing steps in-place, insert new ones, and only delete
-    // unreferenced steps that were removed from the form.
+    // Strategy: update existing ACTIVE steps in-place (matched by step_order),
+    // insert new ones, and take removed steps out of the live flow. A removed
+    // step that past requests reference is RETIRED (is_active=false) — its row
+    // must survive as the FK target for service_request_approvals history, but
+    // leaving it live meant a step nobody could delete stayed in every new
+    // request's chain (Bonafide Certificate (Engineering) carried a ghost third
+    // "Principal" for two months). Unreferenced steps are deleted outright.
     if (approval_steps) {
-      // Fetch existing step IDs for this service type
       const { data: existingSteps } = await supabase
         .from('service_request_approval_steps')
         .select('id, step_order')
-        .eq('service_type_id', id);
+        .eq('service_type_id', id)
+        .eq('is_active', true);
 
       const existingStepIds = (existingSteps || []).map((s: any) => s.id);
 
       // Match incoming steps to existing ones by step_order for stable updates
-      const existingByOrder = new Map(
-        (existingSteps || []).map((s: any) => [s.step_order, s.id])
+      const existingByOrder = new Map<number, string>(
+        (existingSteps || []).map((s: any) => [s.step_order as number, s.id as string])
       );
 
       const stepsToUpdate: Array<{ id: string; [key: string]: any }> = [];
@@ -343,11 +351,51 @@ export class ServiceTypeService {
         const existingId = existingByOrder.get(step.step_order);
         if (existingId) {
           // Update the existing step in-place
-          stepsToUpdate.push({ id: existingId, ...step, service_type_id: id });
+          stepsToUpdate.push({ id: existingId, ...step, service_type_id: id, is_active: true });
           keptStepIds.add(existingId);
         } else {
           // New step — will be inserted
-          stepsToInsert.push({ ...step, service_type_id: id });
+          stepsToInsert.push({ ...step, service_type_id: id, is_active: true });
+        }
+      }
+
+      // Retire/delete removed steps BEFORE inserting, so a new step can take a
+      // step_order the retired one used to hold (the unique index is partial
+      // on is_active).
+      const removedStepIds = existingStepIds.filter((sid: string) => !keptStepIds.has(sid));
+      if (removedStepIds.length > 0) {
+        const { data: referencedApprovals } = await supabase
+          .from('service_request_approvals')
+          .select('approval_step_id')
+          .in('approval_step_id', removedStepIds);
+
+        const referencedIds = new Set(
+          (referencedApprovals || []).map((a: any) => a.approval_step_id)
+        );
+
+        const toRetire = removedStepIds.filter((sid: string) => referencedIds.has(sid));
+        const toDelete = removedStepIds.filter((sid: string) => !referencedIds.has(sid));
+
+        if (toRetire.length > 0) {
+          const { error: retireError } = await supabase
+            .from('service_request_approval_steps')
+            .update({ is_active: false })
+            .in('id', toRetire);
+          if (retireError) {
+            console.error('[service-requests/types] Failed to retire referenced steps:', retireError);
+            throw new Error(`Failed to update approval steps: ${retireError.message}`);
+          }
+        }
+
+        if (toDelete.length > 0) {
+          const { error: deleteStepsError } = await supabase
+            .from('service_request_approval_steps')
+            .delete()
+            .in('id', toDelete);
+          if (deleteStepsError) {
+            console.error('[service-requests/types] Failed to delete unreferenced steps:', deleteStepsError);
+            throw new Error(`Failed to update approval steps: ${deleteStepsError.message}`);
+          }
         }
       }
 
@@ -374,34 +422,6 @@ export class ServiceTypeService {
         if (insertStepsError) {
           console.error('[service-requests/types] Failed to insert new steps:', insertStepsError);
           throw new Error(`Failed to update approval steps: ${insertStepsError.message}`);
-        }
-      }
-
-      // Delete removed steps that are NOT referenced by any approvals
-      const removedStepIds = existingStepIds.filter((sid: string) => !keptStepIds.has(sid));
-      if (removedStepIds.length > 0) {
-        // Check which removed steps are still referenced by approvals
-        const { data: referencedApprovals } = await supabase
-          .from('service_request_approvals')
-          .select('approval_step_id')
-          .in('approval_step_id', removedStepIds);
-
-        const referencedIds = new Set(
-          (referencedApprovals || []).map((a: any) => a.approval_step_id)
-        );
-
-        const safeToDelete = removedStepIds.filter((sid: string) => !referencedIds.has(sid));
-
-        if (safeToDelete.length > 0) {
-          const { error: deleteStepsError } = await supabase
-            .from('service_request_approval_steps')
-            .delete()
-            .in('id', safeToDelete);
-
-          if (deleteStepsError) {
-            console.error('[service-requests/types] Failed to delete unreferenced steps:', deleteStepsError);
-            // Non-fatal: steps are orphaned but not blocking
-          }
         }
       }
     }

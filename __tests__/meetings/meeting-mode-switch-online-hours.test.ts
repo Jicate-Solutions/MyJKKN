@@ -385,6 +385,49 @@ describe('switching to online uses the host ONLINE schedule', () => {
   });
 });
 
+// ── the host may choose any time (Director, 22 + 24 Sep) ─────────────────────
+
+/** The options object of every resolveMoveContext call that carried a new time. */
+const moveChecks = () =>
+  resolveMoveContext.mock.calls
+    .map((c) => (c[2] ?? {}) as { newStartIso?: string | null; hostAnyTime?: boolean })
+    .filter((o) => !!o.newStartIso);
+
+describe('a HOST switching and moving may use any time; a visitor may not', () => {
+  it("the host's new time is checked with hostAnyTime, so the picker's times are accepted", async () => {
+    const { db } = makeDb({ onlineTypes: [{ schedule_id: ONLINE_SCHEDULE }] });
+    const res = await MeetingModeSwitchService.switchToOnline(
+      db,
+      'bk-abc',
+      { actorProfileId: HOST },
+      { newStart: '2026-09-02T06:00:00.000Z', now: NOW },
+    );
+    expect(res.ok).toBe(true);
+    const checks = moveChecks();
+    expect(checks.length).toBeGreaterThan(0);
+    for (const o of checks) expect(o.hostAnyTime).toBe(true);
+  });
+
+  it("a visitor's requested time is NOT given any time — it stays on the host's online hours", async () => {
+    const { db } = makeDb({ onlineTypes: [{ schedule_id: ONLINE_SCHEDULE }] });
+    await MeetingModeSwitchService.requestSwitchToOnline(db, 'bk-abc', TOKEN, {
+      newStart: '2026-09-02T06:00:00.000Z',
+      now: NOW,
+    });
+    for (const o of moveChecks()) expect(o.hostAnyTime).not.toBe(true);
+  });
+
+  it('keeping the time still asks the ONLINE hours question, so the outside-hours warning survives', async () => {
+    const { db } = makeDb({ onlineTypes: [{ schedule_id: ONLINE_SCHEDULE }] });
+    await MeetingModeSwitchService.switchToOnline(db, 'bk-abc', { actorProfileId: HOST }, { now: NOW });
+    // The only call with a start is the hours check on the CURRENT time; it must
+    // not be widened, or "outside your online hours" could never be reported.
+    const checks = moveChecks();
+    expect(checks.length).toBe(1);
+    expect(checks[0].hostAnyTime).not.toBe(true);
+  });
+});
+
 // ── the mode-only switch, and its warning ────────────────────────────────────
 
 describe('a switch that keeps the time warns instead of moving it', () => {

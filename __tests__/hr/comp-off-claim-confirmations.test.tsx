@@ -55,6 +55,31 @@ vi.mock('@/hooks/hr/use-comp-off', () => ({
 vi.mock('@/hooks/hr/use-time-off-context', () => ({
   useTimeOffContext: () => ({ employeeId: 'someone-else' }),
 }));
+// Whether the viewer holds hr.leave.approve — the only grant hcoc_select
+// honours for someone else's claim. Default: an HR approver, map loaded.
+// `mapInHand`, `loading` and `failed` vary independently, as in the real
+// hook: a background refresh can fail with the last map still in hand, and a
+// query with no profile (or paused offline) is neither loading nor failed.
+const perms = vi.hoisted(() => ({
+  hrApprove: true, mapInHand: true, loading: false, failed: false, superAdmin: false,
+}));
+vi.mock('@/hooks/use-permissions', () => ({
+  usePermissions: () => ({
+    isLoading: perms.loading,
+    isSuperAdmin: perms.superAdmin,
+    // The real hook hands back an empty map until one has loaded; a loaded
+    // map for anyone on this tab holds at least their leave grants.
+    permissions: perms.mapInHand
+      ? { 'hr.leave.view': true, ...(perms.hrApprove ? { 'hr.leave.approve': true } : {}) }
+      : {},
+    error: perms.failed ? new Error('network') : null,
+    refetch: vi.fn(),
+    // As the real canAccess: "no" while loading and "no" with no map to read.
+    canAccess: (m: string, a: string) =>
+      perms.superAdmin ||
+      (!perms.loading && perms.mapInHand && m === 'hr.leave' && a === 'approve' && perms.hrApprove),
+  }),
+}));
 
 vi.mock('@/components/data-table/data-table', async () => {
   const React = await import('react');
@@ -106,6 +131,11 @@ import { CompOffClaimsQueue } from '@/app/(routes)/hr/leave/_components/comp-off
 beforeEach(() => {
   mutateAsync.mockResolvedValue(undefined);
   table.selectAll = false;
+  perms.hrApprove = true;
+  perms.mapInHand = true;
+  perms.loading = false;
+  perms.failed = false;
+  perms.superAdmin = false;
 });
 afterEach(() => {
   cleanup();
@@ -235,5 +265,77 @@ describe('Comp-off claim queue — bulk', () => {
     expect(mutateAsync).toHaveBeenCalledWith({
       creditId: 'claim-kumar', decision: 'rejected', rejectionReason: 'Not a holiday',
     });
+  });
+});
+
+// BUG-006194: a leave-step approver opened this tab to an empty table and read
+// it as "comp off is not displayed". The tab now says why.
+describe('Comp-off claim queue — who confirms claims', () => {
+  it('tells a leave-step approver without hr.leave.approve that HR confirms claims', () => {
+    perms.hrApprove = false;
+    render(<CompOffClaimsQueue />);
+    expect(screen.getByText(/claims are confirmed by HR/i)).toBeInTheDocument();
+  });
+
+  it('does not claim "only your own" when the permissions load failed', () => {
+    perms.failed = true;
+    perms.mapInHand = false;
+    render(<CompOffClaimsQueue />);
+    expect(screen.queryByText(/claims are confirmed by HR/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/permissions did not load/i)).toBeInTheDocument();
+  });
+
+  it('keeps the note for a step approver when only a later refresh failed', () => {
+    // The map loaded earlier and says no; the refresh error does not unsay it.
+    perms.hrApprove = false;
+    perms.failed = true;
+    render(<CompOffClaimsQueue />);
+    expect(screen.getByText(/claims are confirmed by HR/i)).toBeInTheDocument();
+    expect(screen.queryByText(/permissions did not load/i)).not.toBeInTheDocument();
+  });
+
+  it('does not tell an HR approver their permissions did not load when they did', () => {
+    perms.failed = true;
+    render(<CompOffClaimsQueue />);
+    expect(screen.queryByText(/permissions did not load/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/claims are confirmed by HR/i)).not.toBeInTheDocument();
+  });
+
+  it('says nothing while permissions are still loading', () => {
+    perms.loading = true;
+    perms.mapInHand = false;
+    render(<CompOffClaimsQueue />);
+    expect(screen.queryByText(/claims are confirmed by HR/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/permissions did not load/i)).not.toBeInTheDocument();
+  });
+
+  it('says nothing while an older map is being reloaded', () => {
+    // canAccess answers "no" during a load even for an HR approver.
+    perms.loading = true;
+    render(<CompOffClaimsQueue />);
+    expect(screen.queryByText(/claims are confirmed by HR/i)).not.toBeInTheDocument();
+  });
+
+  it('says nothing when no permission map was ever loaded, loading or not', () => {
+    // No profile to run the query for, or paused offline: neither loading nor
+    // failed, and canAccess reads the missing map as "no grant".
+    perms.mapInHand = false;
+    render(<CompOffClaimsQueue />);
+    expect(screen.queryByText(/claims are confirmed by HR/i)).not.toBeInTheDocument();
+  });
+
+  it('does not tell a super admin their permissions did not load', () => {
+    // A super admin's loaded map is empty by design; isSuperAdmin marks it.
+    perms.superAdmin = true;
+    perms.mapInHand = false;
+    perms.failed = true;
+    render(<CompOffClaimsQueue />);
+    expect(screen.queryByText(/permissions did not load/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/claims are confirmed by HR/i)).not.toBeInTheDocument();
+  });
+
+  it('says nothing extra to an HR approver', () => {
+    render(<CompOffClaimsQueue />);
+    expect(screen.queryByText(/claims are confirmed by HR/i)).not.toBeInTheDocument();
   });
 });

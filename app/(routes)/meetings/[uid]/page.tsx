@@ -47,6 +47,7 @@ import {
   switchRequestState,
   switchSourceMode,
 } from '@/lib/services/meetings/meeting-mode-switch';
+import { EndRecordingButton } from './_components/end-recording-button';
 import { CancelBookingButton } from './_components/cancel-booking-button';
 import { RescheduleBookingButton } from './_components/reschedule-booking-button';
 import { SwitchToOnlineButton } from './_components/switch-to-online-button';
@@ -63,6 +64,9 @@ import {
   type JobOption,
   type LinkedInterview,
 } from './_components/interview-link-section';
+import { InterviewFlagsCard } from './_components/interview-flags-card';
+import { MeetingNoteText } from './_components/meeting-note-text';
+import { loadInterviewFlags } from './interview-flags-data';
 
 const BREADCRUMB_ITEMS = [
   { label: 'Home', href: '/' },
@@ -159,7 +163,7 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
   const { data: linkedRow } = await supabase
     .from('hr_recruitment_interviews')
     .select(
-      'id, round_name, outcome_summary, candidate:hr_recruitment_candidates(name, role_title)',
+      'id, job_id, round_name, outcome_summary, candidate:hr_recruitment_candidates(id, name, role_title, email, phone, status, cvviz_url, role_specific_details)',
     )
     .eq('booking_id', booking.id)
     .maybeSingle();
@@ -210,14 +214,66 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
         const candidate = Array.isArray(row.candidate)
           ? (row.candidate[0] as Record<string, unknown> | undefined)
           : (row.candidate as Record<string, unknown> | undefined);
+        const details = (candidate?.role_specific_details ?? null) as Record<string, unknown> | null;
+        const text = (v: unknown) => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
+        const summary = (row.outcome_summary as string | null) ?? null;
         return {
+          candidateId: (candidate?.id as string | null) ?? null,
           candidateName: (candidate?.name as string | null) ?? null,
           roleTitle: (candidate?.role_title as string | null) ?? null,
           roundName: (row.round_name as string | null) ?? null,
-          outcomeSummary: (row.outcome_summary as string | null) ?? null,
+          // The ingest copies the recording's summary here too. When it is the
+          // same text as the Meeting notes card above, showing it twice is noise.
+          outcomeSummary:
+            summary && meetingNote?.summary && summary.trim() === meetingNote.summary.trim() ? null : summary,
+          outcomeSameAsNotes: !!(summary && meetingNote?.summary && summary.trim() === meetingNote.summary.trim()),
+          // Everything the interviewer needs without leaving the meeting
+          // (Director, 24 Sep 2026). Read through the viewer's own session:
+          // RLS decides, so someone who may not see the candidate sees none of it.
+          profile: candidate
+            ? {
+                email: text(candidate.email),
+                phone: text(candidate.phone),
+                status: text(candidate.status),
+                cvUrl: text(candidate.cvviz_url),
+                currentJob: text(details?.current_job),
+                payExpectation: text(details?.pay_expectation),
+                whyThisRole: text(details?.why_this_role),
+                qualification: text(details?.qualification),
+                experienceMonths:
+                  typeof details?.experience_months === 'number' ? (details.experience_months as number) : null,
+              }
+            : null,
+          application: null,
         };
       })()
     : null;
+
+  // The application behind this post, if the candidate applied (#15). A second
+  // read, not an embed: interviews.job_id has no foreign key. RLS on
+  // hr_job_applications admits HR for that institution; anyone else gets none.
+  if (linkedInterview?.profile?.email && (linkedRow as Record<string, unknown>)?.job_id) {
+    const { data: app } = await supabase
+      .from('hr_job_applications')
+      .select('current_job_title, current_company, experience_months, qualification, resume_url, submitted_at')
+      .eq('job_id', (linkedRow as Record<string, unknown>).job_id as string)
+      .eq('email', linkedInterview.profile.email.toLowerCase())
+      .order('submitted_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (app) {
+      linkedInterview.application = {
+        currentJobTitle: (app.current_job_title as string | null) ?? null,
+        currentCompany: (app.current_company as string | null) ?? null,
+        experienceMonths: (app.experience_months as number | null) ?? null,
+        qualification: (app.qualification as string | null) ?? null,
+        resumeUrl: (app.resume_url as string | null) ?? null,
+      };
+    }
+  }
+  // Round, prior outcome, earlier no-shows, missing application (#5 #6 #10 #15).
+  // null — not an interview, not visible to this viewer, or failed (logged).
+  const interviewFlags = await loadInterviewFlags(supabase, booking.id);
 
   // host display info (native bookings store the profile id only)
   const { data: host } = await supabase
@@ -337,7 +393,13 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
   const { data: mayRecord } = happensInARoom
     ? await supabase.rpc('fn_may_record_meetings')
     : { data: false };
-  const canRecordHere = happensInARoom && !isCancelled && !isPast && mayRecord === true;
+  // NOT gated on isPast (Director, 23 Sep: "unable to see record button for past
+  // meetings"). A meeting is "past" the moment its end time passes, which is
+  // exactly when a room is still full and running over — the case the recorder
+  // was built for. It also covers recording a conversation that happened
+  // without a booking being moved, and adding audio to a meeting after the
+  // fact. Cancelled still hides it: a meeting called off is not one to record.
+  const canRecordHere = happensInARoom && !isCancelled && mayRecord === true;
 
   const { data: recordingRows } = await supabase
     .from('meeting_recordings')
@@ -469,7 +531,7 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               {meetingNote.summary ? (
-                <div className="whitespace-pre-wrap leading-relaxed">{meetingNote.summary}</div>
+                <MeetingNoteText text={meetingNote.summary} />
               ) : (
                 <p className="text-muted-foreground">
                   This meeting was recorded, but no summary came across with it.
@@ -511,6 +573,10 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
               />
             </CardContent>
           </Card>
+        ) : null}
+
+        {interviewFlags ? (
+          <InterviewFlagsCard {...interviewFlags} meetingEnded={isPast} />
         ) : null}
 
         <Card>
@@ -735,6 +801,11 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
                       {r.status === 'recording' ? ' · still recording' : ''}
                     </p>
                     {problem ? <p className="text-amber-600 dark:text-amber-500">{problem}</p> : null}
+                    {/* A recording whose Stop button went away with the tab that
+                        started it can only be ended from here. */}
+                    {r.status === 'recording' ? (
+                      <EndRecordingButton recordingId={r.id as string} />
+                    ) : null}
                   </div>
                 );
               })}

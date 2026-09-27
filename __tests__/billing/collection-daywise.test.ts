@@ -10,6 +10,8 @@ import {
   transactionDetail,
   localIsoDate,
   DAYWISE_EXPORT_HEADER,
+  projectRowsByCategory,
+  isTransportMaintenanceFee,
 } from '@/lib/services/billing/reports/collection-daywise';
 import type { CollectionDaywiseRow } from '@/types/billing-schedule';
 
@@ -71,16 +73,16 @@ describe('buildDetailRows', () => {
     ]);
     expect(rows[0].cells).toEqual([...DAYWISE_EXPORT_HEADER]);
     expect(rows[1].cells[1]).toBe('RCP-1');
-    expect(rows[2].cells[9]).toBe('UTR123');
+    expect(rows[2].cells[10]).toBe('UTR123');
     expect(rows[2].mode).toBe('online');
     // Subtotals by mode, descending by net: cash 1000 then online 500.
     expect(rows[3].cells[2]).toBe('Cash (1)');
-    expect(rows[3].cells[21]).toBe(1000);
+    expect(rows[3].cells[22]).toBe(1000);
     expect(rows[4].cells[2]).toBe('Online (1)');
     expect(rows[5].cells[2]).toBe('Day Total (2)');
-    expect(rows[5].cells[21]).toBe(1500);
+    expect(rows[5].cells[22]).toBe(1500);
     expect(rows[7].cells[2]).toBe('Grand Total (2)');
-    expect(rows[7].cells[21]).toBe(1500);
+    expect(rows[7].cells[22]).toBe(1500);
     expect(rows[7].cells.length).toBe(DAYWISE_EXPORT_HEADER.length);
   });
 
@@ -91,7 +93,7 @@ describe('buildDetailRows', () => {
 
   it('labels gateway receipts with no collector as System', () => {
     const rows = buildDetailRows(groupByDay([row({ collected_by: null })]));
-    expect(rows[1].cells[17]).toBe('System');
+    expect(rows[1].cells[18]).toBe('System');
   });
 });
 
@@ -166,7 +168,7 @@ describe('buildSummaryModel / buildWorkbookModel', () => {
     const ic = m.tables.find((t) => t.title === 'Institution-wise by Fee Category')!;
     expect(ic.header).toEqual(['Institution', 'Tuition Fee', 'Exam Fee', 'Total']);
     expect(ic.rows).toEqual([['A', 800, 200, 1000], ['B', 500, 0, 500], ['Total', 1300, 200, 1500]]);
-    expect(buildDetailRows(groupByDay(withCats))[1].cells[7]).toBe('Exam Fee, Tuition Fee');
+    expect(buildDetailRows(groupByDay(withCats))[1].cells[8]).toBe('Exam Fee, Tuition Fee');
   });
 
   it('workbook: All sheet first, then one sheet per mode present', () => {
@@ -191,5 +193,41 @@ describe('transactionDetail', () => {
 describe('localIsoDate', () => {
   it('uses the local calendar day, zero-padded', () => {
     expect(localIsoDate(new Date(2026, 0, 5, 1, 0, 0))).toBe('2026-01-05');
+  });
+});
+
+describe('projectRowsByCategory', () => {
+  const mixed = row({
+    receipt_number: 'RCP-M',
+    payment_amount: 10500,
+    net_amount: 10500,
+    categories: '1 Year Tuition Fee, Transport Maintenance Fee',
+    category_breakdown: [
+      { category: '1 Year Tuition Fee', amount: 10000 },
+      { category: 'Transport Maintenance Fee', amount: 500 },
+    ],
+  });
+  const tmfOnly = row({
+    receipt_number: 'RCP-T',
+    payment_amount: 5500,
+    net_amount: 5500,
+    categories: 'Transport Maintenance Fee',
+    category_breakdown: [{ category: 'Transport Maintenance Fee', amount: 5500 }],
+  });
+
+  it('excluding TMF drops TMF-only receipts and trims mixed ones', () => {
+    const out = projectRowsByCategory([mixed, tmfOnly], (c) => !isTransportMaintenanceFee(c));
+    expect(out.map((r) => r.receipt_number)).toEqual(['RCP-M']);
+    expect(out[0].payment_amount).toBe(10000);
+    expect(out[0].net_amount).toBe(10000);
+    expect(out[0].categories).toBe('1 Year Tuition Fee');
+  });
+
+  it('TMF-only keeps just the TMF part of each receipt', () => {
+    const out = projectRowsByCategory([mixed, tmfOnly], isTransportMaintenanceFee);
+    expect(out.map((r) => [r.receipt_number, r.payment_amount])).toEqual([
+      ['RCP-M', 500],
+      ['RCP-T', 5500],
+    ]);
   });
 });
