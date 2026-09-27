@@ -20,7 +20,8 @@ build() {
            "$ROOT"/supabase/migrations/20260916190100_adoption_feature_usage.sql \
            "$ROOT"/supabase/migrations/20260916190200_adoption_metrics.sql \
            "$ROOT"/supabase/migrations/20260918230000_adoption_term_cadence.sql \
-           "$ROOT"/supabase/migrations/20270324090000_adoption_daily_ask_and_remind.sql; do
+           "$ROOT"/supabase/migrations/20270324090000_adoption_daily_ask_and_remind.sql \
+           "$ROOT"/supabase/migrations/20270404090000_adoption_tick_syncs_usage_first.sql; do
     psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$f"; done
 }
 
@@ -31,6 +32,10 @@ psql -d "$DB" -v ON_ERROR_STOP=1 -f "$HERE/10_scenarios.sql" | grep -E "FAIL|ALL
 # Migration E (2026-09-24, rulings 9 + 10): the daily run asks why and reminds on its own.
 build
 psql -d "$DB" -v ON_ERROR_STOP=1 -f "$HERE/20_daily_tick.sql" 2>&1 | grep -E "FAIL|ERROR|DAILY TICK SCENARIOS PASSED"
+
+# Migration E.1 (2026-09-27): the daily run copies usage in before it reads it.
+build
+psql -d "$DB" -v ON_ERROR_STOP=1 -f "$HERE/22_tick_syncs_first.sql" 2>&1 | grep -E "FAIL|ERROR|TICK SYNCS FIRST SCENARIOS PASSED"
 
 # Review 4 (2026-09-25): two simultaneous Ask-why presses cannot overspend the day's budget.
 bash "$HERE/21_concurrency.sh" "$DB"

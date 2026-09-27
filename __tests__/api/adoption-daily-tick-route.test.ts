@@ -141,4 +141,17 @@ describe('summariseTick', () => {
   it('reads missing counts as zero', () => {
     expect(summariseTick({ success: true })).toBe('asked 0, reminded 0');
   });
+
+  it('says so when the usage copy failed but the run still sent', () => {
+    expect(
+      summariseTick({ success: true, reminded: 4, usage_sync: { success: false, error: 'boom' } })
+    ).toBe('asked 0, reminded 4 · usage copy FAILED (boom) — sent from the last good copy');
+  });
+
+  it('adds nothing when the copy worked or was skipped', () => {
+    expect(summariseTick({ success: true, usage_sync: { success: true, rows: 9 } })).toBe('asked 0, reminded 0');
+    expect(summariseTick({ success: true, dry_run: true, usage_sync: { skipped: 'dry run copies nothing' } })).toBe(
+      'would ask 0, would remind 0'
+    );
+  });
 });
