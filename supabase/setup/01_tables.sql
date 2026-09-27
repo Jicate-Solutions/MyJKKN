@@ -10344,3 +10344,54 @@ CREATE INDEX IF NOT EXISTS idx_learner_activation_failures_institution
 
 COMMENT ON TABLE public.learner_activation_failures IS
   'Activations that FAILED while a learner was being moved to active on their first Present mark. Written by fn_activate_learner_on_first_present() from inside an exception handler so the attendance save itself is never rejected. A row here means the attendance was saved and the learner was NOT activated — someone has to look.';
+
+-- =====================================================================
+-- Updated: 2026-09-24 - Adoption loop E: feature_registry.href + adoption_reminders
+-- Source of truth for apply: supabase/migrations/20270324090000_adoption_daily_ask_and_remind.sql
+-- Spec: specs/2026-09-16-adoption-loop.md rulings 2, 6, 9, 10
+-- =====================================================================
+-- -- 1) feature_registry.href — the one link a reminder may carry
+-- ---------------------------------------------------------------------
+ALTER TABLE public.feature_registry
+  ADD COLUMN IF NOT EXISTS href text;
+ALTER TABLE public.feature_registry
+  DROP CONSTRAINT IF EXISTS feature_registry_href_internal_check;
+-- An in-app path only ("/learners/leave"), never an outside address: a
+-- reminder sent to thousands of people must not be able to carry an off-site link.
+ALTER TABLE public.feature_registry
+  ADD CONSTRAINT feature_registry_href_internal_check
+  CHECK (href IS NULL OR href ~ '^/[A-Za-z0-9_\-/\[\]\.?=&%]*$' AND href !~ '^//');
+COMMENT ON COLUMN public.feature_registry.href IS
+  'In-app path of the page where the core action is done, e.g. /hr/leave. A reminder links here; NULL = no link (routes are never guessed). Set by the desk when the route is known (2026-09-24).';
+
+-- ---------------------------------------------------------------------
+-- 2) adoption_reminders — the ruling-10 guard and the page's count
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.adoption_reminders (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  feature_key     text NOT NULL REFERENCES public.feature_registry(feature_key) ON DELETE CASCADE,
+  notification_id uuid,
+  sent_at         timestamptz NOT NULL DEFAULT now(),
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE public.adoption_reminders IS
+  'Adoption loop ruling 10 (Director 2026-09-24): one row per reminder sent — a plain in-app notice to an intended person who has never done a feature''s core action. fn_adoption_remind_core reads it to send at most one per person per feature per 30 days. Written only by that function.';
+
+-- the 30-day lookup (person × feature, newest first) and the per-person day check
+CREATE INDEX IF NOT EXISTS idx_adoption_reminders_user_feature_sent
+  ON public.adoption_reminders (user_id, feature_key, sent_at DESC);
+CREATE INDEX IF NOT EXISTS idx_adoption_reminders_user_sent
+  ON public.adoption_reminders (user_id, sent_at DESC);
+-- the page's per-feature count and last date
+CREATE INDEX IF NOT EXISTS idx_adoption_reminders_feature_sent
+  ON public.adoption_reminders (feature_key, sent_at DESC);
+
+ALTER TABLE public.adoption_reminders ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE public.adoption_reminders FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.adoption_reminders FROM authenticated;
+GRANT SELECT ON TABLE public.adoption_reminders TO authenticated;
+GRANT ALL    ON TABLE public.adoption_reminders TO service_role;
