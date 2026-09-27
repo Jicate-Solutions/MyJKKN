@@ -74,11 +74,17 @@ export async function GET(request: NextRequest) {
 
     const admin = createServiceRoleClient();
 
+    // A name search is a type-ahead: 20 is plenty. Browsing a chosen role must
+    // list every holder — the old blanket cap of 20 showed 20 of 99 HODs, so
+    // most department heads could not be picked (BUG-004395). Deactivated
+    // accounts are never offered: a step pinned to one strands its requests.
+    const browsingRole = roleKey !== 'all' && roleKey !== '';
     let profileQuery = admin
       .from('profiles')
       .select('id, full_name, email, is_super_admin')
+      .eq('is_active', true)
       .order('full_name', { ascending: true })
-      .limit(20);
+      .limit(browsingRole ? 500 : 20);
 
     if (roleKey === 'super_admin') {
       profileQuery = profileQuery.eq('is_super_admin', true);
