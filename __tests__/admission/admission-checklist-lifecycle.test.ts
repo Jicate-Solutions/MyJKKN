@@ -56,4 +56,13 @@ describe('admission checklist lifecycle stages (BUG-006182)', () => {
     expect(screen).toContain('ADMISSION_CHECKLIST_LIFECYCLE_OPTIONS');
     expect(api).toContain('DEFAULT_ADMISSION_CHECKLIST_LIFECYCLE');
   });
+
+  it('the checklist table and detail dialog show stage labels, not raw codes (#4072 follow-up)', () => {
+    for (const f of ['columns.tsx', 'checklist-detail-dialog.tsx']) {
+      const src = read(`app/(routes)/admission/settings/checklists/_components/${f}`);
+      expect(src).toContain('admissionChecklistLifecycleLabel(lc)');
+      expect(src).not.toMatch(/>\s*\{lc\}\s*</);
+    }
+    expect(admissionChecklistLifecycleLabel('enquiry_submitted')).toBe('Form submitted');
+  });
 });
