@@ -121,14 +121,20 @@ export function MarkEntryGrid({
 }: MarkEntryGridProps) {
   const entryStatus: EntryWindowStatus = getEntryWindowStatus(round);
 
-  // Detect if marks were already saved for this course+round (any learner has a non-null mark)
-  // This makes the grid view-only — prevents accidental edits to previously submitted data
+  // Detect if marks were already saved for this course+round. This makes the
+  // grid view-only — prevents accidental edits to previously submitted data.
+  // Must require EVERY currently-registered learner to already have a saved
+  // mark, not just "some learner somewhere" — otherwise a learner added to
+  // the registration list after the initial submission (late approval,
+  // arrear/condonation, etc.) permanently shows blank/0 with no way to enter
+  // their marks: the grid locks read-only before they ever get a turn.
   const alreadySaved = useMemo(() => {
-    if (!existingMarks || existingMarks.length === 0) return false;
-    return existingMarks.some((l) =>
-      Object.values(l.marks).some((v) => v !== null && v !== undefined)
-    );
-  }, [existingMarks]);
+    if (!existingMarks || existingMarks.length === 0 || learners.length === 0) return false;
+    return learners.every((learner) => {
+      const record = existingMarks.find((m) => m.register_number === learner.register_number);
+      return !!record && Object.values(record.marks).some((v) => v !== null && v !== undefined);
+    });
+  }, [existingMarks, learners]);
 
   // Read-only when: entry window expired/upcoming OR marks already saved OR user lacks edit permission.
   // Per COE spec §6.4, 'no-dates' is treated as open (selectable, no time restriction).
