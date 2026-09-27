@@ -993,16 +993,81 @@ describe('W12 review items 1-2 — fail closed, and check only what the PR adds 
       expect(edited.code).toBe(1);
       expect(flagged(edited.out, 'fn_probe_old_leak', 'p_institution_id')).toBe(true);
 
-      // A whitespace-only reflow is not a change.
+      // Trailing whitespace alone is not a change.
       git('checkout', '-q', 'main');
-      git('checkout', '-q', '-b', 'reflow');
-      writeFileSync(file, LEAKY.replace('SELECT count(*) INTO', 'SELECT  count(*)\n    INTO'), 'utf8');
-      git('commit', '-q', '-am', 'reflow only');
-      const reflow = run(['--base', 'main'], { cwd: repo });
-      expect(reflow.code).toBe(0);
-      expect(checked(reflow.out)).toBe(0);
+      git('checkout', '-q', '-b', 'trailing-space');
+      writeFileSync(file, LEAKY.replace('learners_profiles WHERE institution_id = p_institution_id;', 'learners_profiles WHERE institution_id = p_institution_id;   '), 'utf8');
+      git('commit', '-q', '-am', 'trailing space only');
+      const trailing = run(['--base', 'main'], { cwd: repo });
+      expect(trailing.code).toBe(0);
+      expect(checked(trailing.out)).toBe(0);
+
+      // Critic 2026-09-28: joining two lines of a body can comment out a check, so a
+      // changed line break IS a change. Base: a guarded function whose check sits on
+      // the line after a `--` comment. PR: the same text with that newline turned
+      // into a space — the check is now inside the comment. It must be rechecked, and fail.
+      // A single-quoted body (AS '…'): a `--` inside it is NOT blanked at statement
+      // level, so only the line break separates the note from the check.
+      const GUARDED_NL = `CREATE OR REPLACE FUNCTION public.fn_probe_newline(p_institution_id uuid)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS '
+DECLARE v_n integer;
+BEGIN
+  -- note
+  IF NOT public.role_has_institution_access(p_institution_id) THEN RAISE EXCEPTION ''no access''; END IF;
+  SELECT count(*) INTO v_n FROM learners_profiles WHERE institution_id = p_institution_id;
+  RETURN v_n;
+END;
+';
+REVOKE EXECUTE ON FUNCTION public.fn_probe_newline(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_probe_newline(uuid) TO authenticated;
+`;
+      git('checkout', '-q', 'main');
+      git('checkout', '-q', '-b', 'nl-base');
+      const nlFile = path.join(repo, MIG, '20990101000001_nl.sql');
+      writeFileSync(nlFile, GUARDED_NL, 'utf8');
+      git('add', '.');
+      git('commit', '-q', '-m', 'guarded, check on its own line');
+      git('checkout', '-q', '-b', 'nl-joined');
+      // Whitespace-only edit: the newline after `-- note` becomes a space, so the
+      // whole IF … END IF; is now part of the comment.
+      writeFileSync(nlFile, GUARDED_NL.replace('  -- note\n  IF NOT', '  -- note IF NOT'), 'utf8');
+      git('commit', '-q', '-am', 'join the lines');
+      const joined = run(['--base', 'nl-base'], { cwd: repo });
+      expect(joined.code).toBe(1);
+      expect(flagged(joined.out, 'fn_probe_newline', 'p_institution_id')).toBe(true);
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
+  });
+
+  it('critic 2026-09-28: an explicit --base that does not resolve FAILS (exit 2), never falls back to main', () => {
+    const repo = mkdtempSync(path.join(tmpdir(), 'institution-param-badbase-'));
+    try {
+      const git = gitIn(repo);
+      git('init', '-q', '-b', 'main');
+      mkdirSync(path.join(repo, MIG), { recursive: true });
+      writeFileSync(path.join(repo, MIG, '20990101000000_x.sql'), '-- nothing', 'utf8');
+      git('add', '.');
+      git('commit', '-q', '-m', 'base');
+      const r = run(['--base', 'no-such-branch'], { cwd: repo });
+      expect(r.code).toBe(2);
+      expect(r.out).toContain('no-such-branch');
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('critic 2026-09-28: a REGRANT in a LATER changed file puts a revoked unguarded function back in scope', () => {
+    const revoked = `${DEFINER('fn_probe_regrant', 'p_institution_id uuid',
+      '  SELECT count(*) INTO v_n FROM learners_profiles WHERE institution_id = p_institution_id;', false)}
+REVOKE EXECUTE ON FUNCTION public.fn_probe_regrant(uuid) FROM anon, authenticated, PUBLIC;`;
+    const alone = runSqlFiles([{ name: '20990101000000_a.sql', sql: revoked }]);
+    expect(alone.code).toBe(0);   // non-vacuity: revoked everywhere, out of scope on its own
+    const withRegrant = runSqlFiles([
+      { name: '20990101000000_a.sql', sql: revoked },
+      { name: '20990101000001_b.sql', sql: 'GRANT EXECUTE ON FUNCTION public.fn_probe_regrant(uuid) TO authenticated;' },
+    ]);
+    expect(withRegrant.code).toBe(1);
+    expect(flagged(withRegrant.out, 'fn_probe_regrant', 'p_institution_id')).toBe(true);
   });
 });

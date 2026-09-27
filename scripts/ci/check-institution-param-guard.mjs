@@ -192,9 +192,11 @@
  * run in CI.
  *
  * WHICH DEFINITIONS A PR IS CHECKED ON (W12 review, 2026-09-27): only those the
- *   PR adds or changes. A CREATE FUNCTION whose statement text (whitespace-
- *   normalised) is already in the same file at the merge base is skipped and
- *   counted as "unchanged since the base"; an ALTER … SECURITY DEFINER that was
+ *   PR adds or changes. A CREATE FUNCTION whose statement text is already in
+ *   the same file at the merge base (compared exactly, except line endings and
+ *   whitespace at the end of a line; line breaks count, because joining two
+ *   lines can comment out a check) is skipped and counted as "unchanged since
+ *   the base"; an ALTER … SECURITY DEFINER that was
  *   also already there, on an unchanged body, is skipped too. --files and --all
  *   check every definition. If the diff cannot be computed — no base branch, a
  *   failing git merge-base / git diff / git show — the gate EXITS 2 and says
@@ -212,10 +214,13 @@
  *     are the same function to the gate.
  *   - Functions created by dynamic SQL, and `BEGIN ATOMIC` bodies, are read as
  *     text only (see LIMITATIONS below).
- *   - Grants are read from the PR's changed files only. A later file (or a
- *     manual GRANT on production) that gives EXECUTE back is not seen, and an
- *     unchanged old function is not rechecked when only its grants change in
- *     another file.
+ *   - Grants are read from the defining file and every LATER changed file in
+ *     the PR, in order. A file outside the PR (or a manual GRANT on production)
+ *     that gives EXECUTE back is not seen, and an unchanged old function is not
+ *     rechecked when only its grants change.
+ *   - An unrelated check in a decision position still clears a function, with
+ *     the row-scoped WARNING where it applies. Deliberate: the gate stops the
+ *     shape that leaked (no check at all); W12 accepted it as a tripwire.
  *   - A college id in a parameter that is neither named like one nor compared
  *     straight to an institution_id column (e.g. passed to a helper that does
  *     the comparison) is not recognised.
@@ -1108,12 +1113,15 @@ export function checkFiles(entries) {
   const out = { checked: 0, passed: 0, unchanged: 0, hatched: [], violations: [], warnings: [] };
   const defs = [];
   const promoted = new Set();
-  for (const { file, raw, baseRaw } of entries) {
-    const statements = topLevelStatements(blankComments(raw));
+  // GRANT / REVOKE are read from the defining file AND every later file in the
+  // PR, in order (critic on #3985, 2026-09-28: a later file's regrant counts).
+  const allStmts = entries.map(e => topLevelStatements(blankComments(e.raw)));
+  for (const [k, { file, raw, baseRaw }] of entries.entries()) {
+    const statements = allStmts.slice(k).flat();
     // W12 review of #3985 (2026-09-27): check only what the PR adds or changes.
     // baseRaw is the file at the merge base ('' when the PR adds it; undefined
     // for --files / --all, which check everything). A definition whose
-    // statement text is unchanged there (whitespace-normalised) is skipped;
+    // statement text is unchanged there (see normStmt) is skipped;
     // it still counts as a body an ALTER in this PR can point at.
     const baseStmts = baseRaw ? new Set(extractFunctions(baseRaw).map(f => normStmt(f.stmt))) : null;
     const baseAlters = baseRaw ? extractSecdefAlters(baseRaw) : [];
@@ -1127,7 +1135,7 @@ export function checkFiles(entries) {
         // OR REPLACE in the same file supersedes: the earlier body is live
         // between the two statements, and a file that needs the unguarded one
         // briefly can say so with the hatch.
-        const d = { file, raw, statements, f: ev.f, unchanged: !!baseStmts && baseStmts.has(normStmt(ev.f.stmt)) };
+        const d = { file, raw, idx: k, statements, f: ev.f, unchanged: !!baseStmts && baseStmts.has(normStmt(ev.f.stmt)) };
         defs.push(d);
         if (d.unchanged) { if (ev.f.secdef && ev.f.params.length > 0) out.unchanged++; continue; }
         if (ev.f.secdef) checkDefinition(out, { file, line: ev.f.line, f: ev.f, statements, hatchSites: [{ raw, offset: ev.f.offset }] });
@@ -1150,7 +1158,7 @@ export function checkFiles(entries) {
         file,
         line: a.line,
         f: { ...d.f, secdef: true },
-        statements: d.file === file ? statements : [...d.statements, ...statements],
+        statements: allStmts.slice(d.idx).flat(),
         hatchSites: [{ raw: d.raw, offset: d.f.offset }, { raw, offset: a.offset }],
         note: `made SECURITY DEFINER by the ALTER FUNCTION on this line; the body checked is at ${d.file}:${d.f.line}.`,
       });
@@ -1159,9 +1167,14 @@ export function checkFiles(entries) {
   return out;
 }
 
-/** A statement's text with runs of whitespace collapsed, for "unchanged since the base" comparison. */
+/**
+ * A statement's text for "unchanged since the base" comparison: exact, except
+ * line endings and whitespace at the END of a line. Line breaks are kept — in a
+ * body a newline ends a `--` comment, so joining two lines can comment out a
+ * check (critic on #3985, 2026-09-28).
+ */
 function normStmt(stmt) {
-  return stmt.replace(/\s+/g, ' ').trim();
+  return stmt.replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '').trim();
 }
 
 /** Check one migration file's text. Same result shape as checkFiles. */
@@ -1203,18 +1216,21 @@ function defaultBaseRef() {
  * merge base (null when the PR adds it, or for --files / --all, which check
  * every definition). Returns { files, merge }.
  */
-function targetFiles(argv, base) {
+function targetFiles(argv, base, explicitBase) {
   const filesIdx = argv.indexOf('--files');
   if (filesIdx !== -1) return { files: argv.slice(filesIdx + 1).filter(a => !a.startsWith('--')).map(file => ({ file, basePath: undefined })), merge: null };
   const MIG_DIR = 'supabase/migrations/';
   if (argv.includes('--all')) {
     return { files: shStrict(`git ls-files ${MIG_DIR}`, 'list the migration files').split('\n').filter(f => f.endsWith('.sql')).map(file => ({ file, basePath: undefined })), merge: null };
   }
+  // An explicit --base / BASE_REF must resolve: falling back to another branch
+  // would diff against the wrong baseline (critic on #3985, 2026-09-28).
+  const cands = explicitBase ? [base] : [base, 'jicate/main', 'origin/main', 'main'];
   let resolved = null;
-  for (const cand of [base, 'jicate/main', 'origin/main', 'main']) {
+  for (const cand of cands) {
     if (cand && sh(`git rev-parse --verify --quiet ${cand}`)) { resolved = cand; break; }
   }
-  if (!resolved) throw new GateError(`no base branch to diff against (tried ${base}, jicate/main, origin/main, main)`);
+  if (!resolved) throw new GateError(`no base branch to diff against (tried ${cands.join(', ')})`);
   const merge = shStrict(`git merge-base ${resolved} HEAD`, `find where this branch left ${resolved}`);
   // Added (A), modified (M), and renamed AND edited (R below 100 % similarity):
   // a migration renumbered and changed in the same PR reports as R, not A or M,
@@ -1254,7 +1270,7 @@ function main() {
 
   let files, merge, entries;
   try {
-    ({ files, merge } = targetFiles(argv, BASE));
+    ({ files, merge } = targetFiles(argv, BASE, baseIdx !== -1 || !!process.env.BASE_REF));
     files = files.filter(f => f.file);
     if (files.length === 0) {
       console.log(`${GREEN}✓${RESET} No added or changed migration files to check (base: ${BASE}).`);
