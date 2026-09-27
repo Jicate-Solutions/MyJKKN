@@ -25,6 +25,22 @@ import { logActivityClient, AcademicActivityTemplates } from '@/lib/utils/activi
 // Helper to get untyped client for tables not yet in database.types.ts
 const getSupabase = () => createClientSupabaseClient() as any;
 
+/**
+ * What fn_leave_onduty_decide_step reports back: the STORED state (read back
+ * with RETURNING) after the approver's decision was written, in the same
+ * transaction.
+ */
+export interface LeaveOndutyStepDecision {
+  application_id: string;
+  decision: 'approved' | 'rejected';
+  decided_step: number;
+  /** The approver's step row as stored. */
+  step_status: 'approved' | 'rejected';
+  /** The application as stored: 'pending' means it moved on to the next step. */
+  status: 'pending' | 'approved' | 'rejected';
+  current_step: number | null;
+}
+
 export class LeaveOndutyApprovalService {
   /**
    * Process an approval or rejection
@@ -64,20 +80,6 @@ export class LeaveOndutyApprovalService {
     // Check if application is still pending
     if (application.status !== 'pending') {
       throw new Error('Application is not pending approval');
-    }
-
-    // Get approval flow to determine type (sequential/parallel)
-    const { data: flow } = await supabase.rpc('get_applicable_approval_flow', {
-      p_institution_id: application.institution_id,
-      p_department_id: application.department_id,
-      p_semester_id: application.semester_id,
-      p_category: application.category,
-      p_sub_category: application.sub_category,
-    });
-
-    // Super admin can approve/reject without approval flow
-    if (!flow && !isSuperAdmin) {
-      throw new Error('No approval flow configured');
     }
 
     // Super admin direct approval (no flow or override)
@@ -138,32 +140,21 @@ export class LeaveOndutyApprovalService {
       return;
     }
 
-    // Get current approval record for this approver
-    const currentApproval = application.approvals?.find(
-      (a: any) => a.approver_id === data.approver_id && a.status === 'pending'
-    );
-
-    if (!currentApproval) {
-      throw new Error('You are not authorized to approve this application');
-    }
-
-    // Update approval record
-    const { error: updateError } = await supabase
-      .from('leave_onduty_approvals')
-      .update({
-        status: data.status,
-        comments: data.comments,
-        action_taken_at: new Date().toISOString(),
-      })
-      .eq('id', currentApproval.id);
-
-    if (updateError) {
-      throw new Error(`Failed to update approval: ${updateError.message}`);
-    }
+    // Approver path (faculty / HOD / principal / anyone holding a seeded step).
+    //
+    // 2026-09-24: this used to write leave_onduty_applications.current_step and
+    // .status from the browser under the approver's login. That table's UPDATE
+    // policies admit only super_admin / admin / institution_admin, the learner
+    // and the sponsor, so for every other approver those writes matched 0 rows
+    // WITHOUT an error: the step flipped to 'approved', the screen said
+    // "approved successfully", and the chain never advanced (on production 3 of
+    // 150 applications were ever approved, all by a super admin). The whole
+    // decision now happens in one server-side transaction that checks the
+    // caller holds the current pending step.
+    const decision = await this.decideOwnStep(data);
 
     // Handle rejection - immediately reject application
     if (data.status === 'rejected') {
-      await this.handleRejection(application.id, data.application_id);
       (async () => {
         try {
           const template = AcademicActivityTemplates.leaveOndutyApplicationRejected(
@@ -183,11 +174,10 @@ export class LeaveOndutyApprovalService {
       return;
     }
 
-    // Handle approval based on flow type
-    if (flow.flow_type === 'sequential') {
-      await this.handleSequentialApproval(application, flow);
-    } else {
-      await this.handleParallelApproval(application, flow);
+    // Attendance is credited only when the application itself has really
+    // become 'approved' — never for an intermediate step.
+    if (decision.status === 'approved') {
+      await this.applyApprovedAttendance(data.application_id);
     }
 
     (async () => {
@@ -209,7 +199,48 @@ export class LeaveOndutyApprovalService {
   }
 
   /**
+   * An approver decides their own pending step, server-side, in one
+   * transaction (fn_leave_onduty_decide_step). Throws unless the returned state
+   * proves the decision really landed — a silent no-op must never read as
+   * success.
+   */
+  private static async decideOwnStep(
+    data: ApprovalActionData
+  ): Promise<LeaveOndutyStepDecision> {
+    const supabase = getSupabase();
+
+    const { data: result, error } = await supabase.rpc('fn_leave_onduty_decide_step', {
+      p_application_id: data.application_id,
+      p_decision: data.status,
+      p_comments: data.comments ?? null,
+    });
+
+    if (error) {
+      throw new Error(error.message || 'Your decision could not be saved');
+    }
+
+    const decision = result as LeaveOndutyStepDecision | null;
+    const landed =
+      !!decision &&
+      decision.application_id === data.application_id &&
+      decision.step_status === data.status &&
+      (data.status === 'rejected'
+        ? decision.status === 'rejected'
+        : decision.status === 'approved' || decision.status === 'pending');
+
+    if (!landed) {
+      console.error('[leave-onduty/approval] Decision did not change the application:', result);
+      throw new Error(
+        'Your decision was not saved — the application did not change. Please refresh and try again.'
+      );
+    }
+
+    return decision as LeaveOndutyStepDecision;
+  }
+
+  /**
    * Handle rejection - update application status
+   * (super admin override only; approvers go through decideOwnStep)
    */
   private static async handleRejection(
     approvalId: string,
@@ -219,14 +250,20 @@ export class LeaveOndutyApprovalService {
 
     console.log('[leave-onduty/approval] Handling rejection for application:', applicationId);
 
-    const { error: updateError } = await supabase
+    const { data: landed, error: updateError } = await supabase
       .from('leave_onduty_applications')
       .update({ status: 'rejected' })
-      .eq('id', applicationId);
+      .eq('id', applicationId)
+      .select('id, status');
 
     if (updateError) {
       console.error('[leave-onduty/approval] Failed to update application status to rejected:', updateError);
       throw new Error(`Failed to reject application: ${updateError.message}`);
+    }
+
+    // RLS answers a refused UPDATE with 0 rows and no error.
+    if (!Array.isArray(landed) || landed.length === 0 || landed[0]?.status !== 'rejected') {
+      throw new Error('The rejection was not saved — the application did not change.');
     }
 
     console.log('[leave-onduty/approval] Application status updated to rejected');
@@ -235,70 +272,8 @@ export class LeaveOndutyApprovalService {
   }
 
   /**
-   * Handle sequential approval workflow
-   */
-  private static async handleSequentialApproval(
-    application: any,
-    flow: any
-  ): Promise<void> {
-    const supabase = getSupabase();
-
-    const flowSteps = flow.flow_steps || [];
-    const currentStep = application.current_step;
-
-    // Check if this is the last step
-    if (currentStep >= flowSteps.length) {
-      // All steps completed - approve application
-      await this.finalizeApproval(application.id);
-      return;
-    }
-
-    // Move to next step
-    const nextStep = currentStep + 1;
-
-    await supabase
-      .from('leave_onduty_applications')
-      .update({ current_step: nextStep })
-      .eq('id', application.id);
-
-    // TODO: Notify next approver
-  }
-
-  /**
-   * Handle parallel approval workflow
-   */
-  private static async handleParallelApproval(
-    application: any,
-    flow: any
-  ): Promise<void> {
-    const supabase = getSupabase();
-
-    // Get all required approvals
-    const flowSteps = flow.flow_steps || [];
-    const requiredSteps = flowSteps.filter((step: any) => step.is_required);
-
-    // Get current approval statuses
-    const { data: approvals } = await supabase
-      .from('leave_onduty_approvals')
-      .select('*')
-      .eq('application_id', application.id);
-
-    if (!approvals) return;
-
-    // Check if all required approvals are approved
-    const allRequiredApproved = requiredSteps.every((step: any) => {
-      const approval = approvals.find((a) => a.step_order === step.step_order);
-      return approval && approval.status === 'approved';
-    });
-
-    if (allRequiredApproved) {
-      // All required approvals completed - approve application
-      await this.finalizeApproval(application.id);
-    }
-  }
-
-  /**
    * Finalize approval and trigger attendance update
+   * (super admin override only; approvers go through decideOwnStep)
    */
   private static async finalizeApproval(applicationId: string): Promise<void> {
     const supabase = getSupabase();
@@ -306,18 +281,32 @@ export class LeaveOndutyApprovalService {
     console.log('[leave-onduty/approval] Finalizing approval for application:', applicationId);
 
     // Update application status
-    const { error: updateError } = await supabase
+    const { data: landed, error: updateError } = await supabase
       .from('leave_onduty_applications')
       .update({ status: 'approved' })
-      .eq('id', applicationId);
+      .eq('id', applicationId)
+      .select('id, status');
 
     if (updateError) {
       console.error('[leave-onduty/approval] Failed to update application status:', updateError);
       throw new Error(`Failed to update application status: ${updateError.message}`);
     }
 
+    // RLS answers a refused UPDATE with 0 rows and no error. Attendance must
+    // never be written for an application that did not become 'approved'.
+    if (!Array.isArray(landed) || landed.length === 0 || landed[0]?.status !== 'approved') {
+      throw new Error('The approval was not saved — the application did not change.');
+    }
+
     console.log('[leave-onduty/approval] Application status updated to approved');
 
+    await this.applyApprovedAttendance(applicationId);
+  }
+
+  /**
+   * Credit attendance for an application whose 'approved' status has landed.
+   */
+  private static async applyApprovedAttendance(applicationId: string): Promise<void> {
     // Trigger attendance integration
     try {
       console.log('[leave-onduty/approval] Triggering attendance integration');
