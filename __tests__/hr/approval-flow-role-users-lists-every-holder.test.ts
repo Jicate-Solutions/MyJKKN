@@ -61,7 +61,8 @@ beforeEach(() => {
   const userRoles: Row[] = [];
   for (let i = 1; i <= 30; i++) {
     const id = `hod-${String(i).padStart(2, '0')}`;
-    profiles.push({ id, full_name: `HOD ${String(i).padStart(2, '0')}`, email: `${id}@jkkn.ac.in`, is_super_admin: false, is_active: i > 2 });
+    // hod-01, hod-02 deactivated; hod-03 active but login-disabled.
+    profiles.push({ id, full_name: `HOD ${String(i).padStart(2, '0')}`, email: `${id}@jkkn.ac.in`, is_super_admin: false, is_active: i > 2, is_login_disabled: i === 3 });
     userRoles.push({ user_id: id, role_id: HOD_ROLE, role_key: 'hod' });
   }
   tables = { custom_roles: [{ id: HOD_ROLE, role_key: 'hod' }], user_roles: userRoles, profiles };
@@ -74,15 +75,19 @@ async function list(params: Record<string, string>) {
 }
 
 describe('approval-flow person picker: choosing a role lists its holders', () => {
-  it('lists EVERY active HOD, not the first 20', async () => {
+  it('lists EVERY eligible HOD, not the first 20', async () => {
     const ids = await list({ role_key: 'hod' });
-    expect(ids).toHaveLength(28);
+    expect(ids).toHaveLength(27);
   });
 
   it('never offers a deactivated account as an approver', async () => {
     const ids = await list({ role_key: 'hod' });
     expect(ids).not.toContain('hod-01');
     expect(ids).not.toContain('hod-02');
+  });
+
+  it('never offers a login-disabled account either (same eligibility as #4062)', async () => {
+    expect(await list({ role_key: 'hod' })).not.toContain('hod-03');
   });
 
   it('a name search across all roles stays short (it is a type-ahead)', async () => {
