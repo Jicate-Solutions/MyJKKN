@@ -94,4 +94,15 @@ describe('BookingIdentityService.resolve', () => {
     expect(calls.pattern).toBe('a\\_b@x.com');
     expect(r).toEqual({ kind: 'guest' });
   });
+
+  it('"%" and a backslash are escaped too, so neither widens the match', async () => {
+    getUser.mockResolvedValue({ data: { user: null } });
+    const pct = makeServiceClient(null, [{ id: 'p9', email: 'salesXteam@x.com' }]);
+    expect(await BookingIdentityService.resolve(pct.client, 'sales%team@x.com')).toEqual({ kind: 'guest' });
+    expect(pct.calls.pattern).toBe('sales\\%team@x.com');
+
+    const bs = makeServiceClient(null, []);
+    await BookingIdentityService.resolve(bs.client, 'a\\b@x.com');
+    expect(bs.calls.pattern).toBe('a\\\\b@x.com');
+  });
 });
