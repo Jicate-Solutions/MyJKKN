@@ -777,6 +777,49 @@ async function syncCohosts(
 // ──────────────────────────────────────────────────────────────────────────
 
 /** List the current user's meeting types (lean shape). */
+/** The signer's own public booking page address, for the "Copy link" buttons. */
+export interface MyBookingPage {
+  handle: string;
+  isPublic: boolean;
+  /** Set by the system when the host's Google connection broke (D19). */
+  autoHidden: boolean;
+}
+
+/**
+ * The current user's /meet/<handle> page, or null when they have none yet.
+ * Read through the session client: mhp_host_all lets a host read their own row.
+ */
+export async function getMyBookingPage(): Promise<ActionResult<MyBookingPage | null>> {
+  try {
+    const supabase = await untypedClient();
+    const userId = await getCurrentUserId(supabase);
+    const { data, error } = await supabase
+      .from('meeting_host_pages')
+      .select('handle, is_public, auto_hidden')
+      .eq('host_profile_id', userId)
+      .maybeSingle();
+    if (error) {
+      console.error('[meetings/manage] booking page read failed:', error.message);
+      return { success: false, error: 'Could not load your booking page address.' };
+    }
+    if (!data) return { success: true, data: null };
+    const row = data as { handle: string; is_public: boolean | null; auto_hidden: boolean | null };
+    return {
+      success: true,
+      data: {
+        handle: row.handle,
+        isPublic: row.is_public === true,
+        autoHidden: row.auto_hidden === true,
+      },
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Could not load your booking page address.',
+    };
+  }
+}
+
 export async function listMyEventTypes(): Promise<ActionResult<ManageEventType[]>> {
   try {
     const supabase = await untypedClient();

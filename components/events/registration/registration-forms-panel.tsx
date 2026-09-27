@@ -66,6 +66,8 @@ import {
 import { effectiveFee, type EventRegistrationFormSummary } from '@/types/tournament';
 import { RegistrationFormEditor } from '@/app/(routes)/events/tournament/[id]/registration-form/_components/registration-form-editor';
 import { RegistrationFeeCard } from './registration-fee-card';
+import { RegistrationContactCard } from './registration-contact-card';
+import { RegistrationBannerCard } from './registration-banner-card';
 import { FormStateBadge, RegistrationScheduleCard } from './registration-schedule-card';
 import { RegistrationFormShareDialog } from './registration-form-share-dialog';
 import { publicFormUrl } from './public-form-url';
@@ -331,6 +333,19 @@ export function RegistrationFormsPanel({
 
       {selected && variant === 'general' && (
         <RegistrationFeeCard key={`fee-${selected.id}`} eventId={eventId} form={selected} />
+      )}
+
+      {/* The picture at the top of the public page (events.hero_image_url).
+          General events only: a marathon sets it on its own settings page. */}
+      {selected && variant === 'general' && (
+        <RegistrationBannerCard key={`banner-${selected.id}`} eventId={eventId} form={selected} />
+      )}
+
+      {/* Where the built-in name/phone/email block sits — or off, when the
+          organizer's own fields collect them. General events only: the
+          tournament form's standard fields are its own thing. */}
+      {selected && variant === 'general' && (
+        <RegistrationContactCard key={`contact-${selected.id}`} eventId={eventId} form={selected} />
       )}
 
       {/* The builder for the selected form. Remounted on switch (key) so its

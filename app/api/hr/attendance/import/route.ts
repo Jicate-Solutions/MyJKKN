@@ -790,10 +790,10 @@ export async function POST(request: NextRequest) {
           hr_organization_id: orgId,
           institution_id: institutionId,
           work_date: day.workDate,
-          // A declared holiday turns a no-show into HOLIDAY, which
-          // fn_hr_compute_attendance_period_summary subtracts from working days
-          // so it can never be LOP. PRESENT and HALF_DAY pass through untouched:
-          // a punch is evidence of work.
+          // A declared holiday is HOLIDAY whatever the punches say, so it is
+          // subtracted from working days and can never be LOP. The punches
+          // below are still written: they are the evidence a comp-off claim
+          // for a worked holiday is checked against.
           status_type_id: statusIdByCode.get(
             applyHolidayToStatusCode(
               VERDICT_TO_CODE[verdict.verdict as Exclude<AttendanceVerdict, 'EXCEPTION'>],

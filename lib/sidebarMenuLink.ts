@@ -779,7 +779,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   //   bypass). This key makes the faculty completion lane REACHABLE by faculty.
   // principal lane: gated to academic.attendance.dashboard.view (held by
   //   principal/hod, not plain faculty) — the escalation oversight audience.
-  // (admin lane is super-admin-only via requiresSuperAdmin on the menu item.)
+  // admin lane: gated to academic.session_feedback.leadership.view (below).
   '/academic/session-feedback/faculty': 'academic.attendance.view',
   '/academic/session-feedback/principal': 'academic.attendance.dashboard.view',
   // Admin lane of session feedback (D2 gate) — leadership-view key
@@ -914,6 +914,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ai-query/admin': 'super_admin', // Super admin only - AI Query Tools Registry
   '/admin/ai-models': 'super_admin', // Super admin only - AI Model Config (provider/model picker + spend caps + usage)
   '/admin/loops': 'super_admin', // Super admin only - Loop Control Tower (live health of every self-improving/cadence/accountability loop)
+  '/admin/loops/live': 'super_admin', // Super admin only - Live Loops (per loop: last measurement, its bar, the gap; in-progress readings greyed)
   '/admin/adoption': 'super_admin', // Super admin only - Feature Adoption (the three adoption numbers per shipped feature, why-not answers, simplify/retrain/retire cards)
   '/admin/learner-notes': 'super_admin', // Super admin only - Learner Notes approval queue (AI-drafted support notes reviewed before students see them)
   '/admin/page-metadata': 'super_admin', // Super admin only - Page Search Metadata
@@ -2009,6 +2010,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/pde/faculty/cases/new': 'pde.faculty.view',
   '/pde/faculty/cases/[id]/edit': 'pde.faculty.view',
   '/pde/faculty/cases/[id]/preview': 'pde.faculty.view',
+  '/pde/faculty/cases/[id]/export': 'pde.faculty.view',
   '/pde/faculty/cases/[id]/attempts': 'pde.faculty.view',
   '/pde/faculty/cases/[id]/attempts/[studentId]': 'pde.faculty.view',
   '/pde/learn/cases/[caseSlug]': 'pde.profile.view',
@@ -2642,19 +2644,19 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
-          // Post-class feedback — SUPER-ADMIN all-college dashboard (L5). The
-          // cross-college rollup (submission + understanding per college / faculty
-          // / day). Cross-college reach is super-admin-only, so the sidebar entry
-          // is gated to super admin via requiresSuperAdmin (super_admin sees ALL
-          // menus via the bypass earlier in GetRoleBasedPages). The page's RPCs
-          // still authorize institution leadership if they navigate directly.
+          // Post-class feedback — leadership roll-up (L5): submission + understanding
+          // per college / faculty / day. Gated by MENU_PERMISSIONS to
+          // academic.session_feedback.leadership.view, the same key every
+          // fn_scf_admin_* read authorizes; rows are scoped server-side by
+          // role_has_institution_access, so a HOD sees only their own college(s).
+          // It used to carry requiresSuperAdmin, which returns false before
+          // MENU_PERMISSIONS is read — HODs had the data and no link (BUG-004624).
           href: '/academic/session-feedback/admin',
           label: 'All-College Feedback',
           active: pathname.startsWith('/academic/session-feedback/admin'),
           icon: BarChart,
-          requiresSuperAdmin: true,
           submenus: []
-        } as MenuItem & { requiresSuperAdmin: boolean }
+        }
       ]
     },
     {
@@ -3453,9 +3455,10 @@ export function GetPages(pathname: string): MenuGroup[] {
           // child and HR sees five.
           //
           // The parent href stays '/staff' (NOT '/staff/list') so the rest of
-          // the subtree — dashboard, category, class-incharges — remains
-          // reachable as manifest-derived AutoTabNav chips. staff has no
-          // nav-config.ts, so this seed is their only reachability source.
+          // the subtree also remains reachable as manifest-derived AutoTabNav
+          // chips. Since 2026-09-25 dashboard, category and class-incharges
+          // are listed here too, each on its own staff.* key (~10 roles), so
+          // the 61 staff.view holders still see only Employee List.
           href: '/staff',
           label: 'Employee',
           active:
@@ -3467,7 +3470,10 @@ export function GetPages(pathname: string): MenuGroup[] {
             || pathname.startsWith('/hr/admin/sanctioned-posts'),
           icon: Users,
           submenus: [
+            { href: '/staff/dashboard', label: 'Employees Dashboard', active: pathname.startsWith('/staff/dashboard') },
             { href: '/staff/list', label: 'Employee List', active: pathname === '/staff/list' },
+            { href: '/staff/category', label: 'Employees Categories', active: pathname.startsWith('/staff/category') },
+            { href: '/staff/class-incharges', label: 'Class Incharges', active: pathname.startsWith('/staff/class-incharges') },
             // Approving a photograph is what makes it printable on an identity
             // card, so it sits with the people records rather than with leave.
             // Gated on hr.staff_photo.review in MENU_PERMISSIONS, so the 61

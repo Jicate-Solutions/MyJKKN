@@ -59,6 +59,11 @@ export interface BulkUploadResult {
     learners_created: number;
     learners_failed: number;
   };
+  /** learners_profiles rows this upload actually INSERTED. Unlike
+   *  learners_created, it never counts an existing learner or the
+   *  unique-violation fallback — the adoption loop records one use only
+   *  when this is above zero. */
+  new_profiles_inserted?: number;
   user_creation_summary: {
     profiles_complete: number;
     existing_users: number;
@@ -98,6 +103,7 @@ export class BulkLearnerUploadService {
         learners_created: 0,
         learners_failed: 0
       },
+      new_profiles_inserted: 0,
       user_creation_summary: {
         profiles_complete: 0,
         existing_users: 0,
@@ -524,6 +530,7 @@ export class BulkLearnerUploadService {
       });
 
       result.upload_summary.learners_created += insertedLearners?.length || 0;
+      result.new_profiles_inserted = (result.new_profiles_inserted ?? 0) + (insertedLearners?.length || 0);
       const completeProfiles = insertedLearners?.filter(l => l.is_profile_complete) || [];
       result.user_creation_summary.profiles_complete += completeProfiles.length;
     }

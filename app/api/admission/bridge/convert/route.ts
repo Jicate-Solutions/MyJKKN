@@ -6,6 +6,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   console.log('[bridge/convert] Request received');
@@ -282,6 +283,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { status: 500 }
     );
   }
+
+  // Adoption loop: a learner profile now exists and is linked to its lead.
+  // Recorded on the SESSION client (`supabase`) — fn_feature_used keys on
+  // auth.uid(), so the service-role `svc` would record nothing.
+  await recordFeatureUse(supabase, FEATURE_KEYS.LEARNERS_CREATE_PROFILE);
 
   // ── 7b. Propagate referral attribution onto the new learner ────────────────
   // Deferred from step 5 to break a trigger race:

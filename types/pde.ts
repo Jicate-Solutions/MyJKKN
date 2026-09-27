@@ -12,6 +12,18 @@ export type FinksDimension = 'foundational_knowledge' | 'application' | 'integra
 export type Difficulty = 'foundation' | 'standard' | 'advanced';
 
 export interface MCQOption {
+  /**
+   * Stable option id. Optional only because rows authored before the PMS-import
+   * path started stamping ids (see stampQuestionOptionIds and
+   * __tests__/pde/import-option-ids.test.ts) can still be missing one; the
+   * learner-side MCQWarmupOption requires it, MCQWarmupQuestion selects by it,
+   * and fn_pde_mark_objective resolves the correct answer by it.
+   *
+   * multi_select marking depends on it outright: fn_pde_score_clinical_answer
+   * joins the learner's picks to the key on options[].id, so an id-less option
+   * in a multi-select can never be counted.
+   */
+  id?: string;
   text: string;
   is_correct: boolean;
   feedback?: string;
@@ -742,7 +754,13 @@ export interface PDEAgencyIndex {
 // ============================================
 
 export type ClinicalCaseStatus = 'draft' | 'published' | 'archived';
-export type ClinicalQuestionType = 'free_text_socratic' | 'mcq_warmup' | 'image_tag';
+export type ClinicalQuestionType =
+  | 'free_text_socratic'
+  | 'mcq_warmup'
+  | 'image_tag'
+  | 'multi_select'
+  | 'matching'
+  | 'sequencing';
 export type OSCEDomain =
   | 'data_gathering'
   | 'hypothesis_generation'
@@ -806,11 +824,71 @@ export interface ImportedPmsImage {
   seq: number;
 }
 
+/**
+ * One left-hand item of a `matching` question. Each item carries its OWN option
+ * list — "autoantibody target" offers Desmoglein 3 / BP180 / Type IV collagen /
+ * transglutaminase, while "antibody class" offers IgG / IgA / IgM / IgE.
+ *
+ * The correct option is NOT here. It lives in the question's `correct_answer`
+ * as `{ [pair.id]: "correct option text" }`, which the learner-facing RPC never
+ * returns — `metadata` is shipped to the browser, `correct_answer` is not.
+ */
+export interface ClinicalMatchPair {
+  id: string;
+  left: string;
+  options: string[];
+}
+
+/** One step of a `sequencing` question, stored in the order faculty want it DISPLAYED. */
+export interface ClinicalSequenceItem {
+  id: string;
+  text: string;
+}
+
 export interface ClinicalQuestionMetadata {
   q_number: number;
   osce_domain: OSCEDomain;
   ground_truth: string;
   key_concepts: string[];
+  /**
+   * `multi_select` only — why a tempting wrong option does not belong
+   * ("minor aphthous ulcers show no flaccid bullae or Nikolsky sign"). Stripped
+   * from the learner payload during the attempt and released at review, because
+   * it names the distractor.
+   */
+  exclusion_rationale?: string;
+  /** `matching` only — left-hand items with their own option lists. */
+  match_pairs?: ClinicalMatchPair[];
+  /** `sequencing` only — the steps in DISPLAY order (the true order is the key). */
+  sequence_items?: ClinicalSequenceItem[];
+}
+
+/**
+ * A stage of a staged clinical case: its own clinical narrative, its own figure,
+ * and its own questions. A case with no stages is a flat case and behaves
+ * exactly as clinical cases did before stages existed.
+ */
+export interface ClinicalCaseStage {
+  id: string;
+  assessment_id: string;
+  stage_order: number;
+  title: string;
+  scenario_text: string;
+  image_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * A stage as authored. `order_index` is 1-based and positional; questions point
+ * at a stage by its index in the submitted array (see `stage_index` below), so
+ * the faculty UI never has to mint UUIDs.
+ */
+export interface CreateClinicalCaseStageInput {
+  title: string;
+  scenario_text: string;
+  image_url?: string | null;
+  order_index?: number;
 }
 
 export interface ClinicalCase {
@@ -849,12 +927,16 @@ export interface ClinicalCaseQuestion {
   expected_regions: ImageTagRegion[] | null;
   points: number;
   order_index: number;
+  /** Owning stage, or null on an unstaged (flat) case. */
+  stage_id: string | null;
   metadata: ClinicalQuestionMetadata;
   created_at: string;
 }
 
 export interface ClinicalCaseWithQuestions extends ClinicalCase {
   questions: ClinicalCaseQuestion[];
+  /** Empty on a flat case. */
+  stages?: ClinicalCaseStage[];
 }
 
 export interface CreateClinicalCaseInput {
@@ -866,6 +948,8 @@ export interface CreateClinicalCaseInput {
   time_limit_minutes?: number | null;
   pass_threshold?: number;
   questions: CreateClinicalQuestionInput[];
+  /** Omit (or send an empty array) to author a flat case, exactly as before. */
+  stages?: CreateClinicalCaseStageInput[];
 }
 
 export interface CreateClinicalQuestionInput {
@@ -877,6 +961,11 @@ export interface CreateClinicalQuestionInput {
   expected_regions?: ImageTagRegion[] | null;
   points?: number;
   order_index?: number;
+  /**
+   * 0-based index into the submitted `stages` array. The server resolves it to
+   * the created stage's UUID. null/undefined = the question belongs to no stage.
+   */
+  stage_index?: number | null;
   metadata: ClinicalQuestionMetadata;
 }
 
@@ -889,6 +978,7 @@ export interface UpdateClinicalCaseInput {
   pass_threshold?: number;
   status?: ClinicalCaseStatus;
   questions?: CreateClinicalQuestionInput[];
+  stages?: CreateClinicalCaseStageInput[];
 }
 
 export interface ClinicalCaseListFilters {

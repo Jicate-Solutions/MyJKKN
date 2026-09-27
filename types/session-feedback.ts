@@ -205,6 +205,13 @@ export interface AdminFacultySummaryRow {
   low_sessions: number;
 }
 
+/** One row per teacher per course, whole window. fn_scf_admin_course_breakdown.
+ *  Same scope + maths as AdminFacultySummaryRow; aggregates only. */
+export interface AdminCourseBreakdownRow extends AdminFacultySummaryRow {
+  course_code: string | null;
+  course_name: string | null;
+}
+
 /** Per-day understanding trend across scope. fn_scf_admin_trend (aggregates only). */
 export interface AdminTrendRow {
   attendance_date: string;

@@ -57,16 +57,22 @@ import {
   type RequestOutcome,
 } from '@/lib/services/onemark/draft-request';
 import { useDraftBudget, useDraftJobStatus, useSubmitDraftRequest } from '@/hooks/onemark/use-draft-request';
-import { BLOOM_LABELS, useDraftTags, useDraftTopics, useOneMarkExams } from '../_lib/drafts';
+import { BLOOM_LABELS, topicLabel, useDraftTags, useDraftTopics, useOneMarkExams } from '../_lib/drafts';
 
 // Radix crashes on an empty-string SelectItem value; sentinels instead.
 const ANY_UNIT = '__any_unit';
 const DEFAULT_COUNT = 5;
 
-export function RequestDraftsPanel() {
+interface RequestDraftsPanelProps {
+  /** The page's subject — shared with the queue below, so asking for English
+   *  drafts shows the English queue. */
+  examId: string | null;
+  onSubjectChange: (examId: string) => void;
+}
+
+export function RequestDraftsPanel({ examId, onSubjectChange }: RequestDraftsPanelProps) {
   const { data: exams, isLoading: examsLoading, isError: examsError } = useOneMarkExams();
-  const [examId, setExamId] = useState<string | null>(null);
-  const activeExamId = examId ?? exams?.[0]?.id ?? null;
+  const activeExamId = examId;
   const exam = useMemo(
     () => exams?.find((e) => e.id === activeExamId) ?? null,
     [exams, activeExamId],
@@ -77,6 +83,15 @@ export function RequestDraftsPanel() {
 
   const [topicId, setTopicId] = useState<string>(ANY_UNIT);
   const [tagKeys, setTagKeys] = useState<string[]>([]);
+  // A unit and tags belong to ONE subject. The subject can change from here
+  // or from the queue's tabs below, so the reset follows the prop, not this
+  // panel's own picker (reset during render — no stale frame, no effect).
+  const [unitsFor, setUnitsFor] = useState<string | null>(activeExamId);
+  if (unitsFor !== activeExamId) {
+    setUnitsFor(activeExamId);
+    setTopicId(ANY_UNIT);
+    setTagKeys([]);
+  }
   const [count, setCount] = useState<number>(DEFAULT_COUNT);
   const [bloom, setBloom] = useState<BloomLevel>('K1');
   const [outcome, setOutcome] = useState<RequestOutcome | null>(null);
@@ -104,9 +119,7 @@ export function RequestDraftsPanel() {
   const disabled = !!refusal || caps.blocked || busy || budget.isLoading;
 
   function pickSubject(id: string) {
-    setExamId(id);
-    setTopicId(ANY_UNIT);
-    setTagKeys([]);
+    onSubjectChange(id);
   }
 
   function toggleTag(key: string) {
@@ -254,7 +267,7 @@ export function RequestDraftsPanel() {
               <SelectItem value={ANY_UNIT}>Any unit — draw on the whole subject</SelectItem>
               {(topics ?? []).map((t) => (
                 <SelectItem key={t.id} value={t.id}>
-                  {t.display_name}
+                  {topicLabel(t, exam?.config_key)}
                 </SelectItem>
               ))}
             </SelectContent>

@@ -21,6 +21,7 @@ import { DataTable } from '@/components/ui/data-table';
 import { ColumnDef } from '@tanstack/react-table';
 import { BugCategoryBadge } from '@/components/bug-reporter/bug-category-badge';
 import { FixedForYouPrompts } from './_components/fixed-for-you-prompts';
+import { computeMyBugReportStats } from './_components/report-stats';
 import {
   Eye,
   Bug,
@@ -175,33 +176,7 @@ export default function MyBugReportsPage() {
   }, [supabase, refetch, queryClient]);
 
   // Calculate statistics (use filteredReports for counts)
-  const stats = filteredReports
-    ? {
-        total: filteredReports.length,
-        new: filteredReports.filter((r) => r.status === 'new').length,
-        seen: filteredReports.filter((r) => r.status === 'seen').length,
-        inProgress: filteredReports.filter((r) => r.status === 'in_progress')
-          .length,
-        resolved: filteredReports.filter((r) => r.status === 'resolved').length,
-        wontFix: filteredReports.filter((r) => r.status === 'wont_fix').length,
-        successRate:
-          filteredReports.length > 0
-            ? Math.round(
-                (filteredReports.filter((r) => r.status === 'resolved').length /
-                  filteredReports.length) *
-                  100
-              )
-            : 0
-      }
-    : {
-        total: 0,
-        new: 0,
-        seen: 0,
-        inProgress: 0,
-        resolved: 0,
-        wontFix: 0,
-        successRate: 0
-      };
+  const stats = computeMyBugReportStats(filteredReports);
 
   // Define columns for DataTable
   const columns: ColumnDef<BugReport>[] = useMemo(
@@ -340,15 +315,15 @@ export default function MyBugReportsPage() {
 
           <Card className='bg-gradient-to-br from-yellow-50 to-yellow-100 dark:from-yellow-950 dark:to-yellow-900 border-yellow-200 dark:border-yellow-800'>
             <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-              <CardTitle className='text-sm font-medium'>In Progress</CardTitle>
+              <CardTitle className='text-sm font-medium'>Open</CardTitle>
               <Clock className='h-4 w-4 text-yellow-600' />
             </CardHeader>
             <CardContent>
               <div className='text-2xl font-bold text-yellow-700 dark:text-yellow-300'>
-                {stats.inProgress + stats.seen}
+                {stats.open}
               </div>
               <p className='text-xs text-yellow-600 dark:text-yellow-400'>
-                Being worked on
+                {stats.new} waiting · {stats.inProgress + stats.seen} being worked on
               </p>
             </CardContent>
           </Card>

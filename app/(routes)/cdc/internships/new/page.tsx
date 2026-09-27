@@ -44,6 +44,7 @@ import { CdcInternshipService } from '@/lib/services/cdc/internship-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useStaffForPicker } from '@/hooks/cdc/use-cdc-pickers';
 import { useAuth } from '@/hooks/use-auth';
+import { errorMessage } from '@/lib/utils/supabase-error';
 
 // BUG-004294: internship-specific learner picker whose option label includes the
 // learner's institution name, so coordinators who can see more than one
@@ -129,7 +130,14 @@ export default function NewCdcInternshipPage() {
   // pickers rendered permanently empty — so a coordinator could never create a
   // corporate internship.
   const institutionId = profile?.institution_id ?? '';
+  // Keyed on "profile present", not the profile object, so a refreshed profile
+  // with the same institution does not reset the lists to "Loading…".
+  const profileReady = !!profile;
   const [loadError, setLoadError] = useState<string | null>(null);
+  // BUG-005278/005203/004633/005131: whether the cycle + site lists are still
+  // loading, loaded, or failed. An empty list only means "nothing set up" once it
+  // has actually loaded; a failed load must never read as "nothing set up".
+  const [lookupStatus, setLookupStatus] = useState<'loading' | 'ready' | 'error'>('loading');
 
   // Seed the required-attendance default from the policy (global row) once.
   useEffect(() => {
@@ -165,14 +173,16 @@ export default function NewCdcInternshipPage() {
   // Failures are surfaced (no longer silent) so an empty picker is never
   // mistaken for "nothing configured".
   useEffect(() => {
-    if (!profile) return; // auth still resolving — wait for it
+    if (!profileReady) return; // auth still resolving — wait for it
     if (!institutionId) {
       setLoadError(
         'Could not determine your institution. Ask your administrator to set your institution before creating an internship.'
       );
+      setLookupStatus('error');
       return;
     }
     setLoadError(null);
+    setLookupStatus('loading');
     Promise.all([
       CdcInternshipService.getInternshipCycles(institutionId),
       CdcInternshipService.getCorporateSites(institutionId),
@@ -180,23 +190,51 @@ export default function NewCdcInternshipPage() {
       .then(([c, s]) => {
         setCycles(c);
         setSites(s);
+        setLookupStatus('ready');
       })
-      .catch(e =>
-        setLoadError(e instanceof Error ? e.message : 'Failed to load internship cycles and sites.')
-      );
-  }, [profile, institutionId]);
+      .catch(e => {
+        setLoadError(
+          `Could not load the posting cycles and corporate sites: ${errorMessage(e, 'unknown error')}`
+        );
+        setLookupStatus('error');
+      });
+  }, [profileReady, institutionId]);
+
+  // BUG-005131 et al.: why Create cannot work right now, or null when it can.
+  // Shown under the button, which is disabled while this is set, instead of a
+  // Create button that silently does nothing.
+  const noCycles = lookupStatus === 'ready' && cycles.length === 0;
+  const noSites = lookupStatus === 'ready' && sites.length === 0;
+  const createBlockedReason =
+    lookupStatus === 'error'
+      ? 'Create is unavailable because the posting cycles and corporate sites could not be loaded (see the error above).'
+      : noCycles && noSites
+        ? 'Create is unavailable: no posting cycle and no corporate site / company are set up for your institution yet.'
+        : noCycles
+          ? 'Create is unavailable: no posting cycle is set up for your institution yet.'
+          : noSites
+            ? 'Create is unavailable: no corporate site / company is set up for your institution yet.'
+            : null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (
-      !formData.learner_id ||
-      !formData.site_id ||
-      !formData.facilitator_id ||
-      !formData.cycle_id ||
-      !formData.internship_type_id ||
-      !formData.rotation_start_date ||
-      !formData.rotation_end_date
-    ) {
+    if (createBlockedReason) {
+      toast.error(createBlockedReason);
+      return;
+    }
+    // BUG-005131: a missing required field used to return silently, so "Create"
+    // looked broken. Name what is missing instead.
+    const missing = [
+      !formData.internship_type_id && 'Internship type',
+      !formData.cycle_id && 'Posting cycle',
+      !formData.site_id && 'Corporate site / company',
+      !formData.learner_id && 'Learner',
+      !formData.facilitator_id && 'Coordinator',
+      !formData.rotation_start_date && 'Start date',
+      !formData.rotation_end_date && 'End date',
+    ].filter(Boolean);
+    if (missing.length > 0) {
+      toast.error(`Please fill in the required fields: ${missing.join(', ')}`);
       return;
     }
     // BUG-004040: stipend is only meaningful for paid internships. Parse the
@@ -359,7 +397,7 @@ export default function NewCdcInternshipPage() {
         </div>
 
         {loadError && (
-          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {loadError}
           </div>
         )}
@@ -408,10 +446,23 @@ export default function NewCdcInternshipPage() {
                       ))}
                     </SelectContent>
                   </Select>
-                ) : (
+                ) : lookupStatus === 'loading' ? (
                   <div className="px-3 py-2 rounded-md border bg-gray-50 text-sm text-gray-500">
-                    No internship cycles configured for this institution yet. Add one in the
-                    internship cycle setup before assigning.
+                    Loading posting cycles…
+                  </div>
+                ) : lookupStatus === 'error' ? (
+                  <div className="px-3 py-2 rounded-md border border-destructive/40 bg-destructive/10 text-sm text-destructive">
+                    Could not load posting cycles — see the error above.
+                  </div>
+                ) : (
+                  <div className="px-3 py-2 rounded-md border border-amber-300 bg-amber-50 text-sm text-amber-900">
+                    No internship posting cycle has been set up for your institution yet — ask
+                    the CDC head or an admin to create one under{' '}
+                    <Link href="/internships/cycles" className="underline">
+                      Internships › Cycles
+                    </Link>
+                    . If one already exists, your account may not have access to your
+                    institution&apos;s cycles.
                   </div>
                 )}
               </div>
@@ -432,10 +483,20 @@ export default function NewCdcInternshipPage() {
                       ))}
                     </SelectContent>
                   </Select>
-                ) : (
+                ) : lookupStatus === 'loading' ? (
                   <div className="px-3 py-2 rounded-md border bg-gray-50 text-sm text-gray-500">
-                    No corporate sites found for this institution. Add one in the internship
-                    sites setup before assigning.
+                    Loading corporate sites…
+                  </div>
+                ) : lookupStatus === 'error' ? (
+                  <div className="px-3 py-2 rounded-md border border-destructive/40 bg-destructive/10 text-sm text-destructive">
+                    Could not load corporate sites — see the error above.
+                  </div>
+                ) : (
+                  <div className="px-3 py-2 rounded-md border border-amber-300 bg-amber-50 text-sm text-amber-900">
+                    No corporate site / company has been set up for your institution yet — ask
+                    the CDC head or an admin to add the company as a corporate internship site.
+                    If one already exists, your account may not have access to your
+                    institution&apos;s sites.
                   </div>
                 )}
               </div>
@@ -668,11 +729,20 @@ export default function NewCdcInternshipPage() {
             <Link href="/cdc/internships">
               <Button variant="outline" type="button">Cancel</Button>
             </Link>
-            <Button type="submit" disabled={loading}>
+            <Button
+              type="submit"
+              disabled={loading || !!createBlockedReason}
+              aria-describedby={createBlockedReason ? 'create-blocked-reason' : undefined}
+            >
               <Save className="w-4 h-4 mr-2" />
               {loading ? 'Saving…' : 'Create Internship'}
             </Button>
           </div>
+          {createBlockedReason && (
+            <p id="create-blocked-reason" className="mt-2 text-right text-sm text-destructive">
+              {createBlockedReason}
+            </p>
+          )}
         </form>
       </div>
     </ContentLayout>

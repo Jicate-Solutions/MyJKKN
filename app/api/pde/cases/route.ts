@@ -11,6 +11,10 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import {
+  validateClinicalQuestion,
+  validateStages,
+} from '@/lib/services/pde/clinical-question-validation';
 import type {
   CreateClinicalCaseInput,
   ClinicalCase,
@@ -49,20 +53,27 @@ function validateInput(body: any): ValidationResult {
   if (!body.metadata?.domain_weights) return fail('metadata.domain_weights required');
   const wErr = validateDomainWeights(body.metadata.domain_weights);
   if (wErr) return fail(wErr);
+  const sErr = validateStages(body.stages);
+  if (sErr) return fail(sErr);
+  const stageCount = Array.isArray(body.stages) ? body.stages.length : 0;
   if (!Array.isArray(body.questions) || body.questions.length === 0) {
     return fail('questions array required (at least 1)');
   }
   for (let i = 0; i < body.questions.length; i++) {
     const q = body.questions[i];
-    if (!q.question_text) return fail(`questions[${i}].question_text required`);
-    if (!q.question_type) return fail(`questions[${i}].question_type required`);
-    if (!['free_text_socratic', 'mcq_warmup', 'image_tag'].includes(q.question_type)) {
-      return fail(`questions[${i}].question_type invalid`);
+    const qErr = validateClinicalQuestion(q, `questions[${i}]`);
+    if (qErr) return fail(qErr);
+    // A staged case must place every question. An unplaced question would be
+    // invisible to a learner working stage by stage, with nothing on screen to
+    // say so — the silent dead end this module is not allowed to have.
+    if (stageCount > 0) {
+      if (typeof q.stage_index !== 'number' || !Number.isInteger(q.stage_index)) {
+        return fail(`questions[${i}]: assign this question to a stage`);
+      }
+      if (q.stage_index < 0 || q.stage_index >= stageCount) {
+        return fail(`questions[${i}].stage_index out of range`);
+      }
     }
-    if (!q.metadata || typeof q.metadata !== 'object') {
-      return fail(`questions[${i}].metadata required`);
-    }
-    if (!q.metadata.osce_domain) return fail(`questions[${i}].metadata.osce_domain required`);
   }
   return { ok: true, input: body as CreateClinicalCaseInput, error: '' };
 }
@@ -246,7 +257,39 @@ export async function POST(request: NextRequest) {
       throw aErr;
     }
 
-    // 3. Create questions
+    const rollback = async () => {
+      await (supabase as any).from('pde_assessments').delete().eq('id', assessment.id);
+      await (supabase as any).from('vac_lessons').delete().eq('id', lesson.id);
+    };
+
+    // 3. Create stages (if any). Questions reference a stage by its INDEX in the
+    // submitted array; we resolve those to the created UUIDs below, so the
+    // faculty UI never has to mint ids. No stages = a flat case, as before.
+    let stageIds: string[] = [];
+    if (Array.isArray(input.stages) && input.stages.length > 0) {
+      const { data: stageRows, error: stageErr } = await (supabase as any)
+        .from('pde_case_stages')
+        .insert(
+          input.stages.map((s, idx) => ({
+            assessment_id: assessment.id,
+            stage_order: s.order_index ?? idx + 1,
+            title: s.title,
+            scenario_text: s.scenario_text ?? '',
+            image_url: s.image_url || null,
+          }))
+        )
+        .select('id, stage_order');
+      if (stageErr) {
+        await rollback();
+        throw stageErr;
+      }
+      stageIds = (stageRows || [])
+        .slice()
+        .sort((a: any, b: any) => a.stage_order - b.stage_order)
+        .map((r: any) => r.id);
+    }
+
+    // 4. Create questions
     const qRows = input.questions.map((q, idx) => ({
       assessment_id: assessment.id,
       question_type: q.question_type,
@@ -257,14 +300,15 @@ export async function POST(request: NextRequest) {
       expected_regions: q.expected_regions ?? null,
       points: q.points ?? 10,
       order_index: q.order_index ?? idx + 1,
+      stage_id:
+        typeof q.stage_index === 'number' ? (stageIds[q.stage_index] ?? null) : null,
       metadata: q.metadata,
     }));
     const { error: qErr } = await (supabase as any)
       .from('pde_assessment_questions')
       .insert(qRows);
     if (qErr) {
-      await (supabase as any).from('pde_assessments').delete().eq('id', assessment.id);
-      await (supabase as any).from('vac_lessons').delete().eq('id', lesson.id);
+      await rollback();
       throw qErr;
     }
 
