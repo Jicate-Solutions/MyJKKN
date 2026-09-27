@@ -295,7 +295,7 @@ BEGIN
     SET LOCAL ROLE authenticated;
 
     v_low_lv := public.user_has_permission('learners.view');
-    IF NOT v_low_lv THEN
+    IF NOT COALESCE(v_low_lv, false) THEN
       failures := failures || '"fixture: the picked low account does not resolve learners.view, so checks 1-2 could only meet the permission refusal"'::jsonb;
     END IF;
 
@@ -304,7 +304,7 @@ BEGIN
     ok := (a->>'success') = 'false' AND a->'error'->>'code' = 'FORBIDDEN_INSTITUTION' AND a->'data' IS NULL;
     checks := checks || jsonb_build_object('students_summary_low_other_refused',
       jsonb_build_object('pass', ok, 'success', a->>'success', 'code', a->'error'->>'code', 'expected_code', 'FORBIDDEN_INSTITUTION'));
-    IF NOT ok THEN failures := failures || '"students_summary: low caller naming another college was not refused by the institution guard"'::jsonb; END IF;
+    IF NOT COALESCE(ok, false) THEN failures := failures || '"students_summary: low caller naming another college was not refused by the institution guard"'::jsonb; END IF;
     b := public.ai_rpc_students_summary(p_user_id => NULL, p_institution_id => v_low_inst);
     c := public.ai_rpc_students_summary(p_user_id => NULL, p_institution_id => NULL);
     ok := (b->'data'->>'total_learners')::int = gt_own AND (c->'data'->>'total_learners')::int = gt_own;
@@ -317,12 +317,12 @@ BEGIN
     ok := (a->>'success') = 'false' AND a->'error'->>'code' = 'FORBIDDEN_INSTITUTION' AND a->'data' IS NULL;
     checks := checks || jsonb_build_object('students_by_department_low_other_refused',
       jsonb_build_object('pass', ok, 'success', a->>'success', 'code', a->'error'->>'code', 'expected_code', 'FORBIDDEN_INSTITUTION'));
-    IF NOT ok THEN failures := failures || '"students_by_department: low caller naming another college was not refused by the institution guard"'::jsonb; END IF;
+    IF NOT COALESCE(ok, false) THEN failures := failures || '"students_by_department: low caller naming another college was not refused by the institution guard"'::jsonb; END IF;
     b := public.ai_rpc_students_by_department(p_user_id => NULL, p_institution_id => v_low_inst);
     ok := jsonb_array_length(COALESCE(b->'data', '[]')) = gt_own_depts;
     checks := checks || jsonb_build_object('students_by_department_low_own',
       jsonb_build_object('pass', ok, 'rows', jsonb_array_length(COALESCE(b->'data', '[]')), 'own_depts', gt_own_depts));
-    IF NOT ok THEN failures := failures || '"students_by_department: low caller did not get exactly own departments"'::jsonb; END IF;
+    IF NOT COALESCE(ok, false) THEN failures := failures || '"students_by_department: low caller did not get exactly own departments"'::jsonb; END IF;
 
     RESET ROLE;
   ELSE
@@ -336,7 +336,7 @@ BEGIN
     SET LOCAL ROLE authenticated;
 
     v_low_ad := public.user_has_permission('learners.admissions.dashboard');
-    IF NOT v_low_ad THEN
+    IF NOT COALESCE(v_low_ad, false) THEN
       failures := failures || '"fixture: the picked low_ad account does not resolve learners.admissions.dashboard, so checks 3-4 could only meet the permission refusal"'::jsonb;
     END IF;
 
@@ -352,7 +352,7 @@ BEGIN
       checks := checks || jsonb_build_object('admission_analytics_low_other_refused',
         jsonb_build_object('pass', false, 'raises', SQLERRM, 'note', 'reached the query: the refusal did not run first'));
     END;
-    IF NOT ok THEN failures := failures || '"admission_analytics: low_ad caller naming another college was not refused by the institution guard"'::jsonb; END IF;
+    IF NOT COALESCE(ok, false) THEN failures := failures || '"admission_analytics: low_ad caller naming another college was not refused by the institution guard"'::jsonb; END IF;
 
     -- 4. ai_rpc_admission_referrers — the referrer names-and-phones reader
     a := public.ai_rpc_admission_referrers(p_user_id => NULL, p_institution_id => v_other, p_top_n => 100000);
@@ -360,12 +360,12 @@ BEGIN
     checks := checks || jsonb_build_object('admission_referrers_low_other_refused',
       jsonb_build_object('pass', ok, 'success', a->>'success', 'code', a->'error'->>'code', 'expected_code', 'FORBIDDEN_INSTITUTION',
                          'other_has_referrers', gt_other_ref_groups > 0));
-    IF NOT ok THEN failures := failures || '"admission_referrers: low_ad caller naming another college was not refused by the institution guard"'::jsonb; END IF;
+    IF NOT COALESCE(ok, false) THEN failures := failures || '"admission_referrers: low_ad caller naming another college was not refused by the institution guard"'::jsonb; END IF;
     b := public.ai_rpc_admission_referrers(p_user_id => NULL, p_institution_id => NULL, p_top_n => 100000);
     ok := (b->>'success') = 'true' AND jsonb_array_length(COALESCE(b->'data', '[]')) = gt_lowad_own_ref_groups;
     checks := checks || jsonb_build_object('admission_referrers_low_null_is_own',
       jsonb_build_object('pass', ok, 'rows', jsonb_array_length(COALESCE(b->'data', '[]')), 'own', gt_lowad_own_ref_groups));
-    IF NOT ok THEN failures := failures || '"admission_referrers: low_ad caller with NULL did not get exactly own college''s referrers"'::jsonb; END IF;
+    IF NOT COALESCE(ok, false) THEN failures := failures || '"admission_referrers: low_ad caller with NULL did not get exactly own college''s referrers"'::jsonb; END IF;
 
     RESET ROLE;
   ELSE
@@ -389,13 +389,13 @@ BEGIN
     checks := checks || jsonb_build_object('academic_context_low_other_refused',
       jsonb_build_object('pass', false, 'raises', SQLERRM, 'note', 'reached the SELECT: the refusal did not run first'));
   END;
-  IF NOT ok THEN failures := failures || '"academic_context: low caller naming another college was not refused explicitly"'::jsonb; END IF;
+  IF NOT COALESCE(ok, false) THEN failures := failures || '"academic_context: low caller naming another college was not refused explicitly"'::jsonb; END IF;
 
   -- 6. ai_get_accessible_institutions for a caller with an institution: unchanged, own only
   v_arr := public.ai_get_accessible_institutions(NULL);
   ok := v_arr = ARRAY[v_lead_inst];
   checks := checks || jsonb_build_object('accessible_institutions_low_own_only', jsonb_build_object('pass', ok, 'n', cardinality(v_arr)));
-  IF NOT ok THEN failures := failures || '"ai_get_accessible_institutions: low caller did not get exactly own"'::jsonb; END IF;
+  IF NOT COALESCE(ok, false) THEN failures := failures || '"ai_get_accessible_institutions: low caller did not get exactly own"'::jsonb; END IF;
 
   RESET ROLE;
 
@@ -425,7 +425,7 @@ BEGIN
       a := public.ai_rpc_students_by_department(p_user_id => NULL, p_institution_id => NULL);
       ok := ok AND a->'error'->>'code' = 'FORBIDDEN' AND a->'data' IS NULL;
       checks := checks || jsonb_build_object('noperm_refused_even_for_own_college', jsonb_build_object('pass', ok));
-      IF NOT ok THEN failures := failures || '"a caller without the permission key read learner or referrer data of their own college"'::jsonb; END IF;
+      IF NOT COALESCE(ok, false) THEN failures := failures || '"a caller without the permission key read learner or referrer data of their own college"'::jsonb; END IF;
     END IF;
     RESET ROLE;
   ELSE
@@ -444,7 +444,7 @@ BEGIN
     checks := checks || jsonb_build_object('students_summary_super_narrows',
       jsonb_build_object('pass', ok, 'named', a->'data'->>'total_learners', 'other', gt_other,
                          'null', c->'data'->>'total_learners', 'all', gt_all));
-    IF NOT ok THEN failures := failures || '"students_summary: super admin''s institution id did not narrow (or NULL lost reach)"'::jsonb; END IF;
+    IF NOT COALESCE(ok, false) THEN failures := failures || '"students_summary: super admin''s institution id did not narrow (or NULL lost reach)"'::jsonb; END IF;
 
     a := public.ai_rpc_students_by_department(p_user_id => NULL, p_institution_id => v_other);
     c := public.ai_rpc_students_by_department(p_user_id => NULL, p_institution_id => NULL);
@@ -453,7 +453,7 @@ BEGIN
     checks := checks || jsonb_build_object('students_by_department_super_narrows',
       jsonb_build_object('pass', ok, 'named', jsonb_array_length(COALESCE(a->'data', '[]')), 'other', gt_other_depts,
                          'null', jsonb_array_length(COALESCE(c->'data', '[]')), 'all', gt_all_depts));
-    IF NOT ok THEN failures := failures || '"students_by_department: super admin''s institution id did not narrow (or NULL lost reach)"'::jsonb; END IF;
+    IF NOT COALESCE(ok, false) THEN failures := failures || '"students_by_department: super admin''s institution id did not narrow (or NULL lost reach)"'::jsonb; END IF;
 
     a := public.ai_rpc_admission_referrers(p_user_id => NULL, p_institution_id => v_other, p_top_n => 100000);
     c := public.ai_rpc_admission_referrers(p_user_id => NULL, p_institution_id => NULL, p_top_n => 100000);
@@ -462,7 +462,7 @@ BEGIN
     checks := checks || jsonb_build_object('admission_referrers_super_narrows',
       jsonb_build_object('pass', ok, 'named', jsonb_array_length(COALESCE(a->'data', '[]')), 'other', gt_other_ref_groups,
                          'null', jsonb_array_length(COALESCE(c->'data', '[]')), 'all', gt_all_ref_groups));
-    IF NOT ok THEN failures := failures || '"admission_referrers: super admin''s institution id did not narrow (or NULL lost reach)"'::jsonb; END IF;
+    IF NOT COALESCE(ok, false) THEN failures := failures || '"admission_referrers: super admin''s institution id did not narrow (or NULL lost reach)"'::jsonb; END IF;
 
     RESET ROLE;
   ELSE
@@ -480,7 +480,7 @@ BEGIN
       ok := (a->'data'->>'total_learners')::int = gt_granted;
       checks := checks || jsonb_build_object('students_summary_granted_honoured',
         jsonb_build_object('pass', ok, 'got', a->'data'->>'total_learners', 'granted_inst_learners', gt_granted));
-      IF NOT ok THEN failures := failures || '"students_summary: a user_institution_access grant was not honoured"'::jsonb; END IF;
+      IF NOT COALESCE(ok, false) THEN failures := failures || '"students_summary: a user_institution_access grant was not honoured"'::jsonb; END IF;
     ELSE
       checks := checks || jsonb_build_object('granted', jsonb_build_object('pass', true, 'skipped', 'the granted account lacks learners.view'));
     END IF;
@@ -499,7 +499,7 @@ BEGIN
     ok := v_arr = v_noinst_expected;
     checks := checks || jsonb_build_object('accessible_institutions_noinst_grants_only',
       jsonb_build_object('pass', ok, 'n', cardinality(v_arr), 'expected_n', cardinality(v_noinst_expected)));
-    IF NOT ok THEN failures := failures || '"ai_get_accessible_institutions: a no-institution caller got colleges they were never granted"'::jsonb; END IF;
+    IF NOT COALESCE(ok, false) THEN failures := failures || '"ai_get_accessible_institutions: a no-institution caller got colleges they were never granted"'::jsonb; END IF;
     -- a no-institution caller naming no institution is refused explicitly, not handed a silent zero
     a := public.ai_rpc_students_summary(p_user_id => NULL, p_institution_id => NULL);
     b := public.ai_rpc_admission_referrers(p_user_id => NULL, p_institution_id => NULL, p_top_n => 100000);
@@ -521,7 +521,7 @@ BEGIN
     AND NOT has_function_privilege('anon', 'public.ai_rpc_academic_context(uuid)', 'EXECUTE')
     AND NOT has_function_privilege('anon', 'public.ai_get_accessible_institutions(uuid)', 'EXECUTE');
   checks := checks || jsonb_build_object('anon_cannot_execute', jsonb_build_object('pass', ok));
-  IF NOT ok THEN failures := failures || '"anon can EXECUTE one of the six functions"'::jsonb; END IF;
+  IF NOT COALESCE(ok, false) THEN failures := failures || '"anon can EXECUTE one of the six functions"'::jsonb; END IF;
 
   fixture := jsonb_build_object(
     'low_institution', v_low_inst, 'low_ad_institution', v_lowad_inst, 'other_institution', v_other,

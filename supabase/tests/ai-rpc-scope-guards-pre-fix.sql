@@ -2,16 +2,18 @@
 -- ai-rpc-scope-guards-pre-fix.sql
 --
 -- CONTROL for ai-rpc-scope-guards-rehearsal.sql. OFF-PRODUCTION ONLY (the stub
--- from ai-rpc-scope-guards-stub-schema.sql). NEVER apply this to production: it
--- re-creates the six functions exactly as they were BEFORE
--- 20270307090000_ai_rpc_scope_parameter_guards.sql, i.e. with the leak.
+-- from ai-rpc-scope-guards-stub-schema.sql). NEVER apply this to production.
 --
--- Each body below is copied byte-for-byte from the repo file named above it.
--- Run the rehearsal after this file and the verdict must be FAIL (the checks
--- can fail); apply the migration over it and the verdict must be PASS.
+-- Each body below is the LIVE production definition, read with
+-- pg_get_functiondef on 2026-09-27 18:50 IST (W12 review of #3983: the control
+-- must be what production runs, not a repo copy). Three of them already carry
+-- the live-only hotfix that falls back to the caller's own college when a
+-- foreign id is named; ai_rpc_admission_analytics and
+-- ai_get_accessible_institutions do not. Run the rehearsal after this file and
+-- the verdict must be FAIL; apply the migration over it and it must be PASS.
 -- ============================================================================
 
--- ===== ai_rpc_students_summary — verbatim from supabase/migrations/20260712134500_ai_rpc_authuid_confused_deputy_sweep.sql lines 3135-3169
+-- ===== ai_rpc_students_summary — LIVE pg_get_functiondef, 2026-09-27
 CREATE OR REPLACE FUNCTION public.ai_rpc_students_summary(p_user_id uuid, p_institution_id uuid DEFAULT NULL::uuid, p_department_id uuid DEFAULT NULL::uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -25,6 +27,11 @@ BEGIN
   END IF;
   p_user_id := auth.uid();
   SELECT institution_id, is_super_admin INTO v_profile FROM profiles WHERE id = p_user_id;
+  -- [authz-guard 2026-09-23] a caller-supplied institution is honoured only when the caller may see it
+  -- (live leak: a one-college HOD read another college's totals by passing its id).
+  IF p_institution_id IS NOT NULL AND NOT COALESCE(public.role_has_institution_access(p_institution_id), false) THEN
+    p_institution_id := NULL;
+  END IF;
   v_inst_id := COALESCE(p_institution_id, v_profile.institution_id);
 
   WITH summary AS (
@@ -47,10 +54,8 @@ BEGIN
   RETURN v_result;
 END;
 $function$;
-REVOKE EXECUTE ON FUNCTION public.ai_rpc_students_summary(uuid, uuid, uuid) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.ai_rpc_students_summary(uuid, uuid, uuid) TO authenticated;
 
--- ===== ai_rpc_students_by_department — verbatim from supabase/migrations/20260712134500_ai_rpc_authuid_confused_deputy_sweep.sql lines 3080-3115
+-- ===== ai_rpc_students_by_department — LIVE pg_get_functiondef, 2026-09-27
 CREATE OR REPLACE FUNCTION public.ai_rpc_students_by_department(p_user_id uuid, p_institution_id uuid DEFAULT NULL::uuid, p_status text DEFAULT NULL::text)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -64,6 +69,11 @@ BEGIN
   END IF;
   p_user_id := auth.uid();
   SELECT institution_id, is_super_admin INTO v_profile FROM profiles WHERE id = p_user_id;
+  -- [authz-guard 2026-09-23] a caller-supplied institution is honoured only when the caller may see it
+  -- (live leak: a one-college HOD read another college's totals by passing its id).
+  IF p_institution_id IS NOT NULL AND NOT COALESCE(public.role_has_institution_access(p_institution_id), false) THEN
+    p_institution_id := NULL;
+  END IF;
   v_inst_id := COALESCE(p_institution_id, v_profile.institution_id);
 
   WITH dept_stats AS (
@@ -87,10 +97,8 @@ BEGIN
   RETURN v_result;
 END;
 $function$;
-REVOKE EXECUTE ON FUNCTION public.ai_rpc_students_by_department(uuid, uuid, text) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.ai_rpc_students_by_department(uuid, uuid, text) TO authenticated;
 
--- ===== ai_rpc_admission_analytics — verbatim from supabase/migrations/20261204090000_fix_ai_rpc_lifecycle_status_literals.sql lines 43-79
+-- ===== ai_rpc_admission_analytics — LIVE pg_get_functiondef, 2026-09-27
 CREATE OR REPLACE FUNCTION public.ai_rpc_admission_analytics(p_user_id uuid, p_institution_id uuid DEFAULT NULL::uuid, p_academic_year_id uuid DEFAULT NULL::uuid, p_include_trends boolean DEFAULT true)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -128,10 +136,8 @@ BEGIN
   RETURN v_result;
 END;
 $function$;
-REVOKE EXECUTE ON FUNCTION public.ai_rpc_admission_analytics(uuid, uuid, uuid, boolean) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.ai_rpc_admission_analytics(uuid, uuid, uuid, boolean) TO authenticated;
 
--- ===== ai_rpc_admission_referrers — verbatim from supabase/migrations/20261204090000_fix_ai_rpc_lifecycle_status_literals.sql lines 84-137
+-- ===== ai_rpc_admission_referrers — LIVE pg_get_functiondef, 2026-09-27
 CREATE OR REPLACE FUNCTION public.ai_rpc_admission_referrers(p_user_id uuid, p_reference_type text DEFAULT NULL::text, p_reference_name text DEFAULT NULL::text, p_institution_id uuid DEFAULT NULL::uuid, p_program_id uuid DEFAULT NULL::uuid, p_department_id uuid DEFAULT NULL::uuid, p_status text DEFAULT NULL::text, p_date_from text DEFAULT NULL::text, p_date_to text DEFAULT NULL::text, p_top_n integer DEFAULT 10, p_include_details boolean DEFAULT true)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -145,6 +151,11 @@ BEGIN
   END IF;
   p_user_id := auth.uid();
   SELECT institution_id, is_super_admin INTO v_profile FROM profiles WHERE id = p_user_id;
+  -- [authz-guard 2026-09-23] a caller-supplied institution is honoured only when the caller may see it
+  -- (live leak: a one-college HOD read another college's totals by passing its id).
+  IF p_institution_id IS NOT NULL AND NOT COALESCE(public.role_has_institution_access(p_institution_id), false) THEN
+    p_institution_id := NULL;
+  END IF;
   v_inst_id := COALESCE(p_institution_id, v_profile.institution_id);
 
   WITH referrer_stats AS (
@@ -186,10 +197,8 @@ BEGIN
   RETURN v_result;
 END;
 $function$;
-REVOKE EXECUTE ON FUNCTION public.ai_rpc_admission_referrers(uuid, text, text, uuid, uuid, uuid, text, text, text, integer, boolean) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.ai_rpc_admission_referrers(uuid, text, text, uuid, uuid, uuid, text, text, text, integer, boolean) TO authenticated;
 
--- ===== ai_rpc_academic_context — verbatim from supabase/migrations/20260712134500_ai_rpc_authuid_confused_deputy_sweep.sql lines 39-65
+-- ===== ai_rpc_academic_context — LIVE pg_get_functiondef, 2026-09-27
 CREATE OR REPLACE FUNCTION public.ai_rpc_academic_context(p_institution_id uuid DEFAULT NULL::uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -217,10 +226,8 @@ BEGIN
   );
 END;
 $function$;
-REVOKE EXECUTE ON FUNCTION public.ai_rpc_academic_context(uuid) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.ai_rpc_academic_context(uuid) TO authenticated;
 
--- ===== ai_get_accessible_institutions — verbatim from supabase/migrations/20260712134500_ai_rpc_authuid_confused_deputy_sweep.sql lines 3563-3590
+-- ===== ai_get_accessible_institutions — LIVE pg_get_functiondef, 2026-09-27
 CREATE OR REPLACE FUNCTION public.ai_get_accessible_institutions(p_user_id uuid)
  RETURNS uuid[]
  LANGUAGE plpgsql
@@ -249,5 +256,3 @@ BEGIN
     RETURN COALESCE(v_result, ARRAY[]::uuid[]);
 END;
 $function$;
-REVOKE EXECUTE ON FUNCTION public.ai_get_accessible_institutions(uuid) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.ai_get_accessible_institutions(uuid) TO authenticated;
