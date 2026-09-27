@@ -36,6 +36,7 @@ DECLARE
   v_step     jsonb;
   v_role     text;
   v_approver uuid;
+  v_candidate text;
   v_seeded   integer := 0;
   v_existing integer;
 BEGIN
@@ -91,15 +92,25 @@ BEGIN
     -- requests on 27 Sep, across 5 deactivated approvers, the oldest 21 Mar.
     -- Now the first ACTIVE person named in the step is used; if none is, the
     -- step falls through to the role lookup, which is also active-only.
+    -- Entries are tried ONE AT A TIME, in order, and the loop stops at the
+    -- first active person — so an entry after that is never cast (W12 review,
+    -- 27 Sep: a set-based join could cast a LATER malformed id and abort the
+    -- submission, which the old LIMIT 1 read never did). A malformed id met
+    -- before any active person raises, exactly as the old first-entry cast did.
     IF jsonb_typeof(v_step->'approver_ids') = 'array' THEN
-      SELECT p.id INTO v_approver
-      FROM jsonb_array_elements_text(v_step->'approver_ids') WITH ORDINALITY AS t(e, ord)
-      JOIN profiles p ON p.id = btrim(t.e)::uuid   -- uuid cast, as before: case-insensitive
-      WHERE btrim(coalesce(t.e, '')) <> ''
-        AND p.is_active
-        AND NOT coalesce(p.is_login_disabled, false)
-      ORDER BY t.ord
-      LIMIT 1;
+      FOR v_candidate IN
+        SELECT btrim(t.e)
+        FROM jsonb_array_elements_text(v_step->'approver_ids') WITH ORDINALITY AS t(e, ord)
+        WHERE btrim(coalesce(t.e, '')) <> ''
+        ORDER BY t.ord
+      LOOP
+        SELECT p.id INTO v_approver
+        FROM profiles p
+        WHERE p.id = v_candidate::uuid   -- uuid cast, as before: case-insensitive
+          AND p.is_active
+          AND NOT coalesce(p.is_login_disabled, false);
+        EXIT WHEN v_approver IS NOT NULL;
+      END LOOP;
     END IF;
 
     IF v_approver IS NULL AND btrim(coalesce(v_step->>'approver_id', '')) <> '' THEN

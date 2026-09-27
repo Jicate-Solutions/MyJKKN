@@ -149,6 +149,21 @@ describe('fn_seed_application_approvals never routes to a deactivated approver',
     expect((await seed()).rows).toEqual([{ step_order: 1, approver_id: LETTERED }]);
   });
 
+  it('[active, "bad-id"]: picks the active person and never reads the malformed entry after it', async () => {
+    await flow([{ step_order: 1, approver_role: 'faculty', approver_ids: [ACTIVE, 'bad-id'] }]);
+    expect((await seed()).rows).toEqual([{ step_order: 1, approver_id: ACTIVE }]);
+  });
+
+  it('[deactivated, active, "bad-id"]: still stops at the active person before the malformed entry', async () => {
+    await flow([{ step_order: 1, approver_role: 'faculty', approver_ids: [GONE, ACTIVE, 'bad-id'] }]);
+    expect((await seed()).rows).toEqual([{ step_order: 1, approver_id: ACTIVE }]);
+  });
+
+  it('["bad-id", active]: raises invalid uuid, exactly as the live body does for a malformed FIRST entry', async () => {
+    await flow([{ step_order: 1, approver_role: 'faculty', approver_ids: ['bad-id', ACTIVE] }]);
+    await expect(seed()).rejects.toMatchObject({ code: '22P02' });
+  });
+
   it('an active person named first is still used first (unchanged behaviour)', async () => {
     await flow([{ step_order: 1, approver_role: 'faculty', approver_ids: [ACTIVE, GONE] }]);
     expect((await seed()).rows).toEqual([{ step_order: 1, approver_id: ACTIVE }]);
