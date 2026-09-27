@@ -864,6 +864,21 @@ export async function GET(request: NextRequest) {
     reclaim = { checked: false, error: reclaimErr instanceof Error ? reclaimErr.message : 'reclaim failed' };
   }
 
+  // ── 2.6) SCHEDULED AI ASSISTANT QUESTIONS ("send me this every Monday") ──
+  // Delivers finished scheduled runs to their owner (in-app and/or email to the
+  // owner's own address), then queues the schedules that are due. All access,
+  // daily-limit and pause decisions are made in SQL
+  // (20270305090000_ai_query_schedules.sql). Own try/catch — can never break
+  // the host sweep. Additive `scheduled_questions` field.
+  let scheduledQuestions: Record<string, unknown> = { checked: false };
+  try {
+    const { runScheduledReports } = await import('@/lib/services/ai-query/schedules/schedule-sweep');
+    scheduledQuestions = { checked: true, ...(await runScheduledReports(admin)) };
+  } catch (scheduleErr) {
+    console.error('[ai-tasks-sweep] scheduled questions failed:', scheduleErr);
+    scheduledQuestions = { checked: false, error: scheduleErr instanceof Error ? scheduleErr.message : 'scheduled questions failed' };
+  }
+
   // ── 3) FAIL-SAFE runner-down health check ─────────────────────────────────
   // Runs LAST, in its own try/catch, so a failure here can NEVER break the host
   // sweep above. Additive `health` field in the response — existing callers are
@@ -906,5 +921,5 @@ export async function GET(request: NextRequest) {
     maxlaneRestarts = { checked: false, error: restartErr instanceof Error ? restartErr.message : 'restart alerts failed' };
   }
 
-  return NextResponse.json({ ok: true, features, reclaim, health, loop_lane: loopLane, learner_note_drafts: learnerNoteDrafts, maxlane_restarts: maxlaneRestarts, elapsed_ms: Date.now() - started });
+  return NextResponse.json({ ok: true, features, reclaim, health, loop_lane: loopLane, learner_note_drafts: learnerNoteDrafts, maxlane_restarts: maxlaneRestarts, scheduled_questions: scheduledQuestions, elapsed_ms: Date.now() - started });
 }
