@@ -7,7 +7,8 @@
 --   2. a signed-out READ of sections, whose write rules call
 --      fn_role_scope_all_grants (the only live caller, 2026-09-28), still works;
 --      a signed-out WRITE is refused before and after (after: 42501);
---   3. the precondition refuses to run when a read path calls one of the ten.
+--   3. the precondition names every signed-out read path that calls one of the
+--      ten (and ignores an authenticated-only rule); the file RAISEs on any.
 -- RUN:
 --   psql -h 127.0.0.1 -p <port> -U postgres -v ON_ERROR_STOP=1 -f supabase/tests/revoke-anon-ten-secdef-rehearsal.sql
 -- EXPECT the last line: REHEARSAL PASS. (Run from the repo root: it \i's the migration.)
@@ -70,16 +71,40 @@ INSERT INTO result (what, ok) SELECT 'after: signed-out write to sections is ref
 INSERT INTO result (what, ok) SELECT 'after: signed-out call of gate_can_scan() is refused', pg_temp.anon_try('SELECT public.gate_can_scan()') = '42501';
 COMMIT;
 
--- 3. the precondition refuses when a read path calls one of the ten. A probe
---    SELECT rule that calls gate_can_scan() is added, the migration is run again
---    with ON_ERROR_STOP off, and psql's LAST_ERROR_MESSAGE must be the refusal.
+-- 3. the precondition. It is pg_temp.anon_ten_read_paths(), created by the
+--    migration run above in this same session, and the file RAISEs when it
+--    returns anything. Call it directly (no ON_ERROR_STOP games): empty on the
+--    live shape; names a probe SELECT rule for anon; ignores the same rule for
+--    authenticated only; names a view anon may read; names an invoker trigger.
+INSERT INTO result (what, ok) SELECT 'precondition: nothing on the live shape', pg_temp.anon_ten_read_paths() IS NULL;
+BEGIN;
 CREATE POLICY sections_select_probe ON public.sections FOR SELECT USING (public.gate_can_scan());
-\set ON_ERROR_STOP 0
-\i supabase/migrations/20270413090000_revoke_anon_execute_ten_secdef_functions.sql
-\set ON_ERROR_STOP 1
-INSERT INTO result (what, ok) SELECT 'precondition refuses when a SELECT rule calls one of the ten',
-  :'LAST_ERROR_MESSAGE' LIKE '%a signed-out read path calls one of the ten%row rule public.sections.sections_select_probe%';
-DROP POLICY sections_select_probe ON public.sections;
+SELECT (coalesce(pg_temp.anon_ten_read_paths(), '') LIKE '%row rule public.sections.sections_select_probe (SELECT)%') AS p1 \gset
+ROLLBACK;
+INSERT INTO result (what, ok) VALUES ('precondition: names a SELECT rule that applies to anon', :'p1'::boolean);
+BEGIN;
+CREATE POLICY sections_select_authed ON public.sections FOR SELECT TO authenticated USING (public.gate_can_scan());
+SELECT (pg_temp.anon_ten_read_paths() IS NULL) AS p2 \gset
+ROLLBACK;
+INSERT INTO result (what, ok) VALUES ('precondition: ignores a SELECT rule for authenticated only', :'p2'::boolean);
+BEGIN;
+CREATE VIEW public.v_probe AS SELECT public.gate_can_scan() AS can;
+GRANT SELECT ON public.v_probe TO anon;
+SELECT (coalesce(pg_temp.anon_ten_read_paths(), '') LIKE '%view v_probe%') AS p3 \gset
+ROLLBACK;
+INSERT INTO result (what, ok) VALUES ('precondition: names a view anon may read', :'p3'::boolean);
+BEGIN;
+CREATE FUNCTION public.trg_probe() RETURNS trigger LANGUAGE plpgsql AS $t$ BEGIN PERFORM public.gate_can_record(); RETURN NEW; END $t$;
+REVOKE EXECUTE ON FUNCTION public.trg_probe() FROM PUBLIC;
+SELECT (coalesce(pg_temp.anon_ten_read_paths(), '') LIKE '%invoker function trg_probe()%') AS p4 \gset
+ROLLBACK;
+INSERT INTO result (what, ok) VALUES ('precondition: names an invoker trigger function even without an anon grant', :'p4'::boolean);
+BEGIN;
+CREATE FUNCTION public.fn_std_probe() RETURNS boolean LANGUAGE sql BEGIN ATOMIC SELECT public.gate_can_scan(); END;
+GRANT EXECUTE ON FUNCTION public.fn_std_probe() TO anon;
+SELECT (coalesce(pg_temp.anon_ten_read_paths(), '') LIKE '%invoker function fn_std_probe()%') AS p5 \gset
+ROLLBACK;
+INSERT INTO result (what, ok) VALUES ('precondition: reads a BEGIN ATOMIC body', :'p5'::boolean);
 
 SELECT CASE WHEN bool_and(ok) THEN 'REHEARSAL PASS (' || count(*) || ' checks)'
             ELSE 'REHEARSAL FAIL: ' || string_agg(what, ' | ') FILTER (WHERE NOT ok) END AS verdict

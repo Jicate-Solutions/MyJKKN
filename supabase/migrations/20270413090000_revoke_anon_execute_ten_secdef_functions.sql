@@ -29,32 +29,54 @@
 -- ten, and supabase/tests/revoke-anon-ten-secdef-rehearsal.sql replays it.
 -- ============================================================================
 
--- Precondition: signed-out READS must not depend on any of the ten. Revoking
+-- Precondition: signed-out reads must not depend on any of the ten. Revoking
 -- EXECUTE makes a signed-out statement that reaches one of them error (42501),
--- so refuse to run if a view, a materialized view, a SELECT/ALL row rule, a
--- column default, or a SECURITY INVOKER function signed-out callers can run
--- calls one. Live inventory 2026-09-28 01:40 IST: none; the only callers are
--- the three sections INSERT / UPDATE / DELETE rules named in the header.
-DO $pre$
-DECLARE
-  v_re   text := '(fn_is_any_leave_approver|fn_is_configured_leave_approver|fn_my_designated_hr_org_ids|fn_my_hr_context|fn_procurement_rm_post_receipt|fn_role_scope_all_grants|gate_can_record|gate_can_scan|get_admin_overview|hr_resolve_leave_ladder)';
-  v_hits text;
-BEGIN
-  SELECT string_agg(hit, '; ') INTO v_hits FROM (
-    SELECT 'view '||schemaname||'.'||viewname AS hit FROM pg_views WHERE definition ~ v_re
-    UNION ALL SELECT 'materialized view '||schemaname||'.'||matviewname FROM pg_matviews WHERE definition ~ v_re
-    UNION ALL SELECT 'row rule '||schemaname||'.'||tablename||'.'||policyname||' ('||cmd||')'
-      FROM pg_policies
+-- so the file refuses to run if any of these call one:
+--   * a view or materialized view anon may SELECT;
+--   * a SELECT/ALL row rule that applies to anon (roles include public or anon);
+--   * a column default (evaluated as the inserting role);
+--   * a SECURITY INVOKER function anon may EXECUTE, or any SECURITY INVOKER
+--     trigger function (a trigger fires as the writing role, whatever the grant).
+-- Function bodies are read with pg_get_functiondef, so SQL-standard
+-- (BEGIN ATOMIC) bodies are covered. NOT covered: a call assembled at run time
+-- (EXECUTE format(...)) — none of the ten names appears in any live body
+-- outside the three sections write rules (read 2026-09-28 01:40 IST).
+-- The check is a pg_temp function so the rehearsal can call it directly; it
+-- disappears with the session. The ship wave applies each file as one
+-- BEGIN; <file>; COMMIT; request after a BEGIN…ROLLBACK dry run
+-- (scripts/ship-wave/apply-migrations.sh), so a refusal here applies nothing.
+CREATE OR REPLACE FUNCTION pg_temp.anon_ten_read_paths() RETURNS text LANGUAGE sql AS $fn$
+  WITH re AS (SELECT '(fn_is_any_leave_approver|fn_is_configured_leave_approver|fn_my_designated_hr_org_ids|fn_my_hr_context|fn_procurement_rm_post_receipt|fn_role_scope_all_grants|gate_can_record|gate_can_scan|get_admin_overview|hr_resolve_leave_ladder)'::text AS v)
+  SELECT string_agg(hit, '; ' ORDER BY hit) FROM (
+    SELECT 'view '||c.oid::regclass::text AS hit
+      FROM pg_class c, re
+     WHERE c.relkind IN ('v', 'm')
+       AND c.relnamespace NOT IN ('pg_catalog'::regnamespace, 'information_schema'::regnamespace)
+       AND has_table_privilege('anon', c.oid, 'SELECT')
+       AND pg_get_viewdef(c.oid) ~ re.v
+    UNION ALL
+    SELECT 'row rule '||schemaname||'.'||tablename||'.'||policyname||' ('||cmd||')'
+      FROM pg_policies, re
      WHERE cmd IN ('SELECT', 'ALL')
-       AND coalesce(qual, '')||' '||coalesce(with_check, '') ~ v_re
-    UNION ALL SELECT 'column default '||table_schema||'.'||table_name||'.'||column_name
-      FROM information_schema.columns WHERE column_default ~ v_re
-    UNION ALL SELECT 'invoker function '||p.oid::regprocedure::text
-      FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-     WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
-       AND NOT p.prosecdef AND p.prosrc ~ v_re
-       AND has_function_privilege('anon', p.oid, 'EXECUTE')
-  ) h;
+       AND roles && ARRAY['public', 'anon']::name[]
+       AND coalesce(qual, '')||' '||coalesce(with_check, '') ~ re.v
+    UNION ALL
+    SELECT 'column default '||table_schema||'.'||table_name||'.'||column_name
+      FROM information_schema.columns, re
+     WHERE column_default ~ re.v
+    UNION ALL
+    SELECT 'invoker function '||p.oid::regprocedure::text
+      FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace, re
+     WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname !~ '^pg_(temp|toast_temp)_'
+       AND p.prokind = 'f' AND NOT p.prosecdef
+       AND (has_function_privilege('anon', p.oid, 'EXECUTE') OR p.prorettype = 'trigger'::regtype)
+       AND pg_get_functiondef(p.oid) ~ re.v
+  ) h
+$fn$;
+
+DO $pre$
+DECLARE v_hits text := pg_temp.anon_ten_read_paths();
+BEGIN
   IF v_hits IS NOT NULL THEN
     RAISE EXCEPTION '20270413090000: a signed-out read path calls one of the ten, so revoking anon EXECUTE would break it: %', v_hits;
   END IF;
