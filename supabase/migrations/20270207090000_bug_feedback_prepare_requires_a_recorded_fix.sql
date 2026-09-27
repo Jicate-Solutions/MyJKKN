@@ -160,11 +160,26 @@ BEGIN
          (SELECT off_cause FROM counted)
     INTO v_prepared, v_no_reporter, v_off_cause;
 
-  -- Auto-send under the 3-open cap (E4), oldest first.
+  -- W12 blind review 2026-09-27: the INSERT above skips a reporter who already
+  -- has a row in this group (ON CONFLICT DO NOTHING), and the loop below sends
+  -- EVERY pending row in the group — so a row queued before a fix was required
+  -- (fix_pr NULL) would still go out, unanchored, once the group gets a fix.
+  -- Anchor those rows to the fix resolved above before anything is sent.
+  UPDATE public.bug_fix_feedback_requests
+     SET fix_pr      = v_fix_pr,
+         deploy_sha  = COALESCE(deploy_sha, v_deploy_sha),
+         fix_live_at = now(),
+         updated_at  = now()
+   WHERE cluster_id = p_cluster_id
+     AND status = 'pending_send'
+     AND NULLIF(btrim(fix_pr), '') IS NULL;
+
+  -- Auto-send under the 3-open cap (E4), oldest first. Never a row without a fix.
   FOR r IN
     SELECT id, reporter_user_id
     FROM public.bug_fix_feedback_requests
     WHERE cluster_id = p_cluster_id AND status = 'pending_send'
+      AND NULLIF(btrim(fix_pr), '') IS NOT NULL
     ORDER BY created_at ASC
     FOR UPDATE SKIP LOCKED
   LOOP
