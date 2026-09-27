@@ -17,17 +17,20 @@
 --
 -- WHO MAY SEE / CHANGE A CONTACT (Director, 27 Sep 2026 06:47, W12-tab
 -- interview: "visible to staff of that college, editable only by college
--- editors")
---   read  : super admin, or a STAFF member — an active row in public.staff
---           (fn_my_staff_ids), a positive identity; a missing learner link is
---           NOT proof of staff: 270 student profiles have learner_id NULL
---           (W12 review, 27 Sep) — or a college editor, who has access to
---           THAT institution — role_has_institution_access(institution_id):
---           own college, its CAS sibling, or an all-colleges role
---   write : super admin, or a holder of organizations.institutions.edit who
---           has access to THAT institution
---   anon gets nothing. The key alone is not enough: user_has_permission is
---   global, so it must be paired with the row's institution.
+-- editors" — read LITERALLY: staff OF THAT college, not any staff member who
+-- happens to have access to it)
+--   read  : super admin
+--           OR an ACTIVE staff record whose institution_id IS the contact's
+--              institution (fn_my_staff_institution_ids(); a positive identity —
+--              a missing learner link is not proof of staff, and a cross-college
+--              grant or an all-colleges role does not make you staff of B)
+--           OR organizations.institutions.edit AND access to that institution
+--              (an editor must see the row to upsert over it)
+--   write : super admin
+--           OR organizations.institutions.edit AND
+--              role_has_institution_access(institution_id)
+--   anon gets nothing. user_has_permission is global, so the key is always
+--   paired with the row's institution.
 -- =====================================================================
 
 CREATE TABLE IF NOT EXISTS public.institution_departments (
@@ -50,13 +53,34 @@ REVOKE ALL ON public.institution_departments FROM anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.institution_departments TO authenticated;
 GRANT ALL ON public.institution_departments TO service_role;
 
+-- The caller's own colleges as STAFF: institutions of their ACTIVE staff
+-- records. SECURITY DEFINER because a staff member cannot, in general, read
+-- their own public.staff row (staff_select_scope_aware needs staff.view); it
+-- returns only the caller's own institution ids, nothing else.
+CREATE OR REPLACE FUNCTION public.fn_my_staff_institution_ids()
+RETURNS uuid[]
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  SELECT COALESCE(array_agg(DISTINCT s.institution_id), ARRAY[]::uuid[])
+  FROM public.staff s
+  WHERE s.profile_id = auth.uid()
+    AND s.is_active
+    AND s.institution_id IS NOT NULL;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_my_staff_institution_ids() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_my_staff_institution_ids() TO authenticated, service_role;
+
 DROP POLICY IF EXISTS institution_departments_read ON public.institution_departments;
 CREATE POLICY institution_departments_read ON public.institution_departments
   FOR SELECT TO authenticated
   USING ((SELECT public.is_super_admin())
-         OR (public.role_has_institution_access(institution_id)
-             AND ((SELECT cardinality(public.fn_my_staff_ids())) > 0
-                  OR (SELECT public.user_has_permission('organizations.institutions.edit')))));
+         OR institution_id = ANY (public.fn_my_staff_institution_ids())
+         OR ((SELECT public.user_has_permission('organizations.institutions.edit'))
+             AND public.role_has_institution_access(institution_id)));
 
 DROP POLICY IF EXISTS institution_departments_insert ON public.institution_departments;
 CREATE POLICY institution_departments_insert ON public.institution_departments

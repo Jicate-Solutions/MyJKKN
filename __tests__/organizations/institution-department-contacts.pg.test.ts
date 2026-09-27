@@ -8,7 +8,7 @@
  * Contacts carry people's email and mobile, so they get narrower rules than the
  * institutions row (Director, 27 Sep 06:47: "visible to staff of that college,
  * editable only by college editors"):
- *   read  = super admin, or an active STAFF record (or the edit key) with access to THAT institution
+ *   read  = super admin, or an active staff record AT THAT institution, or the edit key + access to it
  *   write = super admin, or organizations.institutions.edit AND access to THAT institution
  *
  * REQUIRES a local PostgreSQL 16 (see "THE POSTGRES SERVICE" in .github/workflows/test-suite.yml).
@@ -48,11 +48,9 @@ CREATE FUNCTION public.role_has_institution_access(i uuid) RETURNS boolean LANGU
   SELECT i::text = ANY (string_to_array(coalesce(current_setting('test.insts', true), ''), ',')) $$;
 GRANT EXECUTE ON FUNCTION public.is_super_admin(), public.user_has_permission(text),
   public.role_has_institution_access(uuid) TO anon, authenticated;
--- fn_my_staff_ids: the caller's ACTIVE staff records (production: public.staff
--- WHERE profile_id = auth.uid() AND is_active), as a comma list per session.
-CREATE FUNCTION public.fn_my_staff_ids() RETURNS uuid[] LANGUAGE sql STABLE AS $$
-  SELECT coalesce(string_to_array(nullif(current_setting('test.staff', true), ''), ',')::uuid[], ARRAY[]::uuid[]) $$;
-GRANT EXECUTE ON FUNCTION public.fn_my_staff_ids() TO anon, authenticated;
+-- public.staff, minimal: the migration's fn_my_staff_institution_ids() reads it.
+CREATE TABLE public.staff (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), profile_id uuid,
+                           institution_id uuid, is_active boolean NOT NULL DEFAULT true);
 CREATE TABLE public.institutions (id uuid PRIMARY KEY, name text);
 INSERT INTO public.institutions VALUES ('${INST}', 'JKKN Test College'), ('${OTHER}', 'JKKN Other College');
 GRANT USAGE ON SCHEMA public, auth TO anon, authenticated, service_role;
@@ -66,20 +64,26 @@ function psql(args: string[]) {
 
 let client: Client;
 
-/** Run `sql` as a caller; returns rows, or the error message. */
+/**
+ * Run `sql` as a caller; returns rows, or the error message. `staffAt` gives the
+ * caller ACTIVE staff records at those institutions (and `inactiveStaffAt`,
+ * inactive ones); `insts` is what role_has_institution_access grants.
+ */
 async function as(
-  who: { role?: string; super?: boolean; perms?: string[]; insts?: string[]; staff?: boolean },
+  who: { role?: string; super?: boolean; perms?: string[]; insts?: string[]; staffAt?: string[]; inactiveStaffAt?: string[] },
   sql: string,
   params: unknown[] = []
 ) {
+  await client.query(`DELETE FROM public.staff`);
+  for (const i of who.staffAt ?? []) await client.query(`INSERT INTO public.staff (profile_id, institution_id) VALUES ($1, $2)`, [UID, i]);
+  for (const i of who.inactiveStaffAt ?? [])
+    await client.query(`INSERT INTO public.staff (profile_id, institution_id, is_active) VALUES ($1, $2, false)`, [UID, i]);
   await client.query('BEGIN');
   try {
     await client.query(
       `SELECT set_config('test.uid', $1, true), set_config('test.super', $2, true),
-              set_config('test.perms', $3, true), set_config('test.insts', $4, true),
-              set_config('test.staff', $5, true)`,
-      [UID, String(!!who.super), (who.perms ?? []).join(','), (who.insts ?? []).join(','),
-       who.staff ? '00000000-0000-4000-8000-0000000005f1' : '']
+              set_config('test.perms', $3, true), set_config('test.insts', $4, true)`,
+      [UID, String(!!who.super), (who.perms ?? []).join(','), (who.insts ?? []).join(',')]
     );
     await client.query(`SET LOCAL ROLE ${who.role ?? 'authenticated'}`);
     const r = await client.query(sql, params);
@@ -118,7 +122,7 @@ describe('institution_departments — who may save and see contacts', () => {
   });
 
   const EDITOR = { perms: ['organizations.institutions.edit'], insts: [INST] };
-  const STAFF = { insts: [INST], staff: true };
+  const STAFF = { insts: [INST], staffAt: [INST] };
 
   it("an editor of THIS college can save and edit its contact", async () => {
     expect((await as(EDITOR, insertContact('admission'))).error).toBeNull();
@@ -141,9 +145,34 @@ describe('institution_departments — who may save and see contacts', () => {
     expect(theirs.rows[0].n).toBe(0);
     expect((await as(STAFF, insertContact('placement'))).error).toMatch(/row-level security/);
     // A global view key does not widen reading to other colleges.
-    const viewKey = await as({ perms: ['organizations.institutions.view'], insts: [INST], staff: true },
+    const viewKey = await as({ perms: ['organizations.institutions.view'], insts: [INST], staffAt: [INST] },
       `SELECT count(*)::int n FROM public.institution_departments WHERE institution_id = '${OTHER}'`);
     expect(viewKey.rows[0].n).toBe(0);
+  });
+
+  it("staff of ANOTHER college with a grant to this one (or an all-colleges role) see 0 — only staff OF THAT college read", async () => {
+    // College A staff, whose roles reach college B too: not staff of B.
+    const r = await as({ insts: [INST, OTHER], staffAt: [OTHER] },
+      `SELECT count(*)::int n FROM public.institution_departments WHERE institution_id = '${INST}'`);
+    expect(r.rows[0].n).toBe(0);
+    const own = await as({ insts: [INST, OTHER], staffAt: [OTHER] },
+      `SELECT count(*)::int n FROM public.institution_departments WHERE institution_id = '${OTHER}'`);
+    expect(own.rows[0].n).toBeGreaterThan(0);
+  });
+
+  it("an INACTIVE staff record at the college reveals nothing", async () => {
+    const r = await as({ insts: [INST], inactiveStaffAt: [INST] },
+      `SELECT count(*)::int n FROM public.institution_departments WHERE institution_id = '${INST}'`);
+    expect(r.rows[0].n).toBe(0);
+  });
+
+  it("a college editor without a staff record there can read (to upsert) — but only that college", async () => {
+    const r = await as({ perms: ['organizations.institutions.edit'], insts: [INST] },
+      `SELECT count(*)::int n FROM public.institution_departments WHERE institution_id = '${INST}'`);
+    expect(r.rows[0].n).toBeGreaterThan(0);
+    const other = await as({ perms: ['organizations.institutions.edit'], insts: [INST] },
+      `SELECT count(*)::int n FROM public.institution_departments WHERE institution_id = '${OTHER}'`);
+    expect(other.rows[0].n).toBe(0);
   });
 
   it("a student of the college sees no contact — even with NO learner link (a missing link is not proof of staff)", async () => {
