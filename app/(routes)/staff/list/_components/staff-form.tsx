@@ -73,6 +73,19 @@ import { ResearchTab } from './staff-form-tabs/research-tab';
 import { AchievementsTab } from './staff-form-tabs/achievements-tab';
 import { MentoringTab } from './staff-form-tabs/mentoring-tab';
 import { FaqsTab } from './staff-form-tabs/faqs-tab';
+import { OfficeSection } from './office-section';
+import { useQueryClient } from '@tanstack/react-query';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { useStaffPayer } from '@/hooks/hr/use-staff-payroll';
+import { useStaffCurrentSalary } from '@/hooks/hr/use-staff-salaries';
+import { useStaffBankHistory } from '@/hooks/hr/use-staff-bank-accounts';
+import { useHrOrgMappings } from '@/hooks/hr/use-hr-org-mappings';
+import {
+  emptyOfficeValues,
+  officeValuesFromRecords,
+  saveStaffOffice,
+  type OfficeValues
+} from '@/lib/hr/payroll/staff-office';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
@@ -171,7 +184,9 @@ function buildDefaults(staff?: Staff) {
     memberships: staff?.memberships ?? [],
     phd_scholars_list: staff?.phd_scholars_list ?? [],
     faqs: staff?.faqs ?? [],
-    achievements: staff?.achievements ?? []
+    achievements: staff?.achievements ?? [],
+    // Office tab (payer / salary / bank). Pre-filled on edit by an effect.
+    office: emptyOfficeValues()
   };
 }
 
@@ -215,6 +230,7 @@ function mapFieldToTab(field: string): string | null {
     mentoring_description: 'mentoring', phd_scholars: 'mentoring', pg_dissertations_guided: 'mentoring',
     ug_projects_guided: 'mentoring', phd_scholars_list: 'mentoring',
     faqs: 'faqs',
+    office: 'office',
   };
   return map[field] ?? null;
 }
@@ -228,6 +244,11 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
   // HR Head (staff.role.change) may pick a role too — never a privileged one;
   // trg_staff_guard_role_key and /api/staff enforce that server-side.
   const canChangeRole = isSuperAdmin || canAccess('staff.role', 'change');
+  // Office tab (payer + salary + bank): super admin and HR Head only.
+  // hr.payroll.salary.manage is held by hr_head alone; each part is still
+  // written under its own RLS key (institution / salary / bank .manage).
+  const canManageOffice = isSuperAdmin || canAccess('hr.payroll.salary', 'manage');
+  const queryClient = useQueryClient();
   // Users whose effective scope on the staff module is 'own_records' may only
   // edit personal/contact details on their own row — not Employment Information
   // (designation, category, role, institution, department). RLS enforces this
@@ -350,6 +371,67 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     [categories, watchedCategoryId]
   );
   const isTeachingCategory = selectedCategory?.is_teaching ?? false;
+
+  // ── Office tab ─────────────────────────────────────────────────────────────
+  const officeStaffId = isEditing && staff && canManageOffice ? staff.id : null;
+  const { data: currentPayer, isFetched: payerFetched, isError: payerError } =
+    useStaffPayer(officeStaffId);
+  const { data: currentSalary, isFetched: salaryFetched, isError: salaryError } =
+    useStaffCurrentSalary(officeStaffId);
+  const { data: bankHistory, isFetched: bankFetched, isError: bankError } =
+    useStaffBankHistory(officeStaffId);
+  // Edit only: if what is on record could not be read, the tab must not
+  // pre-fill defaults and save them over it (a failed payer read once made the
+  // institution default look like a change and overwrite the recorded payer).
+  const officeLoadFailed = !!officeStaffId && (payerError || salaryError || bankError);
+  const currentBank = useMemo(
+    () => (bankHistory ?? []).find((b) => !b.superseded_by) ?? null,
+    [bankHistory]
+  );
+  const initialPayerOrgId = currentPayer?.hr_organization_id ?? null;
+
+  // Edit: pre-fill once from what is on record.
+  const officePrefilledRef = useRef(false);
+  useEffect(() => {
+    if (!officeStaffId || officePrefilledRef.current) return;
+    if (!payerFetched || !salaryFetched || !bankFetched) return;
+    officePrefilledRef.current = true;
+    if (officeLoadFailed) return;
+    form.setValue(
+      'office' as any,
+      officeValuesFromRecords(initialPayerOrgId, currentSalary, currentBank) as any,
+      { shouldDirty: false }
+    );
+  }, [officeStaffId, payerFetched, salaryFetched, bankFetched, initialPayerOrgId, currentSalary, currentBank, form]);
+
+  // Default payer = the institution's own HR organisation, when it runs a
+  // payroll (Main Office does not) and nothing is chosen yet.
+  const { mappings: orgMappings } = useHrOrgMappings();
+  useEffect(() => {
+    if (!canManageOffice || !watchedInstitutionId) return;
+    if (isEditing && (!officePrefilledRef.current || officeLoadFailed)) return;
+    if (form.getValues('office.payer_org_id' as any)) return;
+    const mapped = (orgMappings ?? []).find(
+      (m) => m.institution_id === watchedInstitutionId && m.is_payroll_entity
+    );
+    if (mapped) {
+      form.setValue('office.payer_org_id' as any, mapped.hr_organization_id as any, {
+        shouldDirty: false
+      });
+    }
+  }, [canManageOffice, watchedInstitutionId, orgMappings, isEditing, form, payerFetched]);
+
+  // New staff: the salary takes effect from the date of joining unless changed.
+  const watchedJoining = form.watch('date_of_joining');
+  useEffect(() => {
+    if (isEditing || !canManageOffice || !watchedJoining) return;
+    if (form.getValues('office.salary.effective_from' as any)) return;
+    form.setValue(
+      'office.salary.effective_from' as any,
+      format(watchedJoining, 'yyyy-MM-dd') as any,
+      { shouldDirty: false }
+    );
+  }, [isEditing, canManageOffice, watchedJoining, form]);
   // Drive the "Extended Faculty Profile" toggle visibility off the selected
   // category's shows_extended_profile flag.
   //
@@ -659,7 +741,8 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
 
       // Emergency contact: blank -> null (the DB rejects ''), and "Other" is
       // replaced by the typed relationship. The helper field is not a column.
-      const { emergency_contact_relationship_other, ...restValues } = values;
+      const { emergency_contact_relationship_other, office, ...restValues } =
+        values as FormValues & { office?: OfficeValues };
       const ecRelationship =
         values.emergency_contact_relationship === 'Other'
           ? emergency_contact_relationship_other?.trim()
@@ -688,14 +771,46 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
         institution_email: values.institution_email || undefined
       };
 
+      let savedStaffId: string;
       if (isEditing && staff) {
         await StaffService.updateStaff(staff.id, formattedValues as any);
-        toast.success('Staff updated successfully');
+        savedStaffId = staff.id;
       } else {
-        await StaffService.createStaff(formattedValues as any);
-        toast.success('Staff created successfully');
+        const created = await StaffService.createStaff(formattedValues as any);
+        savedStaffId = created.id;
       }
 
+      // Office tab: written after the staff row, through the HR payroll
+      // services. Not one transaction - if a part fails, the staff record is
+      // kept and the user lands on its edit page to fix the rest.
+      if (canManageOffice && office && officeLoadFailed) {
+        toast.error(
+          'Office details could not be loaded, so they were left unchanged. Use the HR payroll pages to update them.',
+          { duration: 8000 }
+        );
+      } else if (canManageOffice && office) {
+        const { failures, savedAny } = await saveStaffOffice(
+          createClientSupabaseClient(),
+          savedStaffId,
+          office,
+          isEditing ? initialPayerOrgId : null
+        );
+        if (savedAny || failures.length) {
+          queryClient.invalidateQueries({ queryKey: ['hr', 'staff-payroll'] });
+          queryClient.invalidateQueries({ queryKey: ['hr', 'staff-salaries'] });
+          queryClient.invalidateQueries({ queryKey: ['hr', 'staff-bank-accounts'] });
+        }
+        if (failures.length) {
+          toast.error(
+            `Staff ${isEditing ? 'updated' : 'created'}, but some office details were not saved: ${failures.join(' | ')}`,
+            { duration: 10000 }
+          );
+          router.push(`/staff/list/${savedStaffId}/edit?tab=office`);
+          return;
+        }
+      }
+
+      toast.success(isEditing ? 'Staff updated successfully' : 'Staff created successfully');
       router.push('/staff/list');
       // Remove router.refresh() - React Query will handle data refresh automatically
     } catch (error) {
@@ -1768,6 +1883,20 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
       hidden: !hasExtended,
       dirty: isDirty(['faqs']),
       content: <FaqsTab form={form} />
+    },
+    {
+      id: 'office',
+      label: 'Office',
+      hidden: !canManageOffice,
+      dirty: isDirty(['office']),
+      content: (
+        <OfficeSection
+          form={form as any}
+          isEditing={!!isEditing}
+          categoryExcludedFromHr={(selectedCategory as any)?.included_in_hr === false}
+          loadFailed={officeLoadFailed}
+        />
+      )
     }
   ];
 
