@@ -11,7 +11,7 @@
 --      ten (and ignores an authenticated-only rule); the file RAISEs on any.
 -- RUN:
 --   psql -h 127.0.0.1 -p <port> -U postgres -v ON_ERROR_STOP=1 -f supabase/tests/revoke-anon-ten-secdef-rehearsal.sql
--- EXPECT the last line: REHEARSAL PASS. (Run from the repo root: it \i's the migration.)
+-- EXPECT: NOTICE REHEARSAL PASS (15 checks) and exit 0; any failed or NULL check RAISEs. (Run from the repo root: it \i's the migration.)
 -- ============================================================================
 \set ON_ERROR_STOP 1
 DO $$ BEGIN
@@ -106,6 +106,12 @@ SELECT (coalesce(pg_temp.anon_ten_read_paths(), '') LIKE '%invoker function fn_s
 ROLLBACK;
 INSERT INTO result (what, ok) VALUES ('precondition: reads a BEGIN ATOMIC body', :'p5'::boolean);
 
-SELECT CASE WHEN bool_and(ok) THEN 'REHEARSAL PASS (' || count(*) || ' checks)'
-            ELSE 'REHEARSAL FAIL: ' || string_agg(what, ' | ') FILTER (WHERE NOT ok) END AS verdict
-  FROM result;
+-- Verdict: RAISE (non-zero psql exit under ON_ERROR_STOP) unless every check is explicitly TRUE.
+DO $v$
+DECLARE v_bad text; v_n int;
+BEGIN
+  SELECT string_agg(n || ': ' || what, ' | ' ORDER BY n) FILTER (WHERE ok IS NOT TRUE), count(*) INTO v_bad, v_n FROM result;
+  IF v_n <> 15 THEN RAISE EXCEPTION 'REHEARSAL FAIL: expected 15 checks, ran %', v_n; END IF;
+  IF v_bad IS NOT NULL THEN RAISE EXCEPTION 'REHEARSAL FAIL: %', v_bad; END IF;
+  RAISE NOTICE 'REHEARSAL PASS (% checks)', v_n;
+END $v$;

@@ -32,7 +32,8 @@
 -- Precondition: signed-out reads must not depend on any of the ten. Revoking
 -- EXECUTE makes a signed-out statement that reaches one of them error (42501),
 -- so the file refuses to run if any of these call one:
---   * a view or materialized view anon may SELECT;
+--   * any view or materialized view (not only those anon may SELECT: a view
+--     anon can read may select from an inner view it has no grant on);
 --   * a SELECT/ALL row rule that applies to anon (roles include public or anon);
 --   * a column default (evaluated as the inserting role);
 --   * a SECURITY INVOKER function anon may EXECUTE, or any SECURITY INVOKER
@@ -52,8 +53,7 @@ CREATE OR REPLACE FUNCTION pg_temp.anon_ten_read_paths() RETURNS text LANGUAGE s
       FROM pg_class c, re
      WHERE c.relkind IN ('v', 'm')
        AND c.relnamespace NOT IN ('pg_catalog'::regnamespace, 'information_schema'::regnamespace)
-       AND has_table_privilege('anon', c.oid, 'SELECT')
-       AND pg_get_viewdef(c.oid) ~ re.v
+       AND pg_get_viewdef(c.oid) ~ re.v   -- every view, granted or not: an anon-readable view can read through an ungranted one
     UNION ALL
     SELECT 'row rule '||schemaname||'.'||tablename||'.'||policyname||' ('||cmd||')'
       FROM pg_policies, re
