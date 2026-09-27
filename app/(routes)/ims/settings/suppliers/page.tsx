@@ -431,10 +431,11 @@ function SuppliersPageInner() {
 
       {/* Add/Edit Supplier Dialog */}
       <Dialog open={dialogOpen} onOpenChange={handleDialogOpenChange}>
-        {/* Ten fields run ~800px; cap at the window and scroll inside so the title
-            and the Create button stay reachable on a short screen (BUG-005856). */}
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        {/* Ten fields run ~800px. Cap at the window, keep the title and the
+            Create button fixed, scroll only the fields (BUG-005856) — same layout
+            as billing/payment-accounts/account-form-dialog. */}
+        <DialogContent className="flex max-h-[90dvh] w-[calc(100%-2rem)] max-w-md flex-col">
+          <DialogHeader className="shrink-0">
             <DialogTitle>
               {editingSupplier ? 'Edit Supplier' : 'Add New Supplier'}
             </DialogTitle>
@@ -445,7 +446,7 @@ function SuppliersPageInner() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-4 py-4">
+          <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-1 py-4">
             {/* Name */}
             <div className="space-y-2">
               <Label htmlFor="supplier-name">
@@ -570,7 +571,7 @@ function SuppliersPageInner() {
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="shrink-0">
             <Button
               variant="outline"
               onClick={() => setDialogOpen(false)}
