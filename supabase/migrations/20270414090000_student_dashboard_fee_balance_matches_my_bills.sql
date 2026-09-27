@@ -278,4 +278,15 @@ BEGIN
   IF has_function_privilege('anon', 'public.fn_student_metrics()', 'EXECUTE') THEN
     RAISE EXCEPTION '20270414090000: anon can EXECUTE fn_student_metrics()';
   END IF;
+  -- Exactly the production grantee set (W12 review 2026-09-28): the owner plus
+  -- authenticated and service_role; no PUBLIC entry, no other role.
+  IF (SELECT array_agg(g ORDER BY g) FROM (
+        SELECT DISTINCT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE a.grantee::regrole::text END AS g
+          FROM pg_proc p, aclexplode(p.proacl) a
+         WHERE p.oid = 'public.fn_student_metrics()'::regprocedure
+           AND a.privilege_type = 'EXECUTE'
+           AND a.grantee <> p.proowner) x)
+     IS DISTINCT FROM ARRAY['authenticated', 'service_role'] THEN
+    RAISE EXCEPTION '20270414090000: fn_student_metrics() EXECUTE grantees drifted from {authenticated, service_role}';
+  END IF;
 END $check$;

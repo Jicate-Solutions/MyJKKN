@@ -125,4 +125,14 @@ describe('learner dashboard Fee Balance = /learners/my-bills', () => {
   it('the migration re-applies cleanly (its precondition accepts its own result)', () => {
     expect(() => psql(['-d', DBNAME, '-f', MIGRATION])).not.toThrow();
   });
+
+  it('the self-check refuses a drifted grant (a role beyond authenticated and service_role)', () => {
+    psql(['-d', DBNAME, '-c', `DO $$ BEGIN CREATE ROLE reporting NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+      GRANT EXECUTE ON FUNCTION public.fn_student_metrics() TO reporting;`]);
+    try {
+      expect(() => psql(['-d', DBNAME, '-f', MIGRATION])).toThrow(/grantees drifted/);
+    } finally {
+      psql(['-d', DBNAME, '-c', 'REVOKE EXECUTE ON FUNCTION public.fn_student_metrics() FROM reporting;']);
+    }
+  });
 });
