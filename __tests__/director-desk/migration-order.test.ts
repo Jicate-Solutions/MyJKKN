@@ -99,7 +99,7 @@ const APPROVED_REDEFINITIONS: Record<string, { fns: string[]; why: string }> = {
   },
   '20270403090000': {
     fns: ['fn_handover_key_is_blocked'],
-    why: "WALL 1b gains staff.role.change (change a staff member's system role, added by direct push 9119732297 on 2026-09-25), which matched no clause and was therefore handable by ELSE false (verified live 2026-09-27: fn_handover_key_is_blocked('staff.role.change') = false). Body is 20261212110000's text verbatim — verified equal to production prosrc on 2026-09-27 — plus exactly one key added to the staff IN list. Director ruling 2026-09-27 06:24 (W12 tab): walled like staff.create/edit/delete; he accepted that during leave only he or the HR Head can change roles.",
+    why: "WALL 1b gains staff.role.change (change a team member's system role, added by direct push 9119732297 on 2026-09-25), which matched no clause and was therefore handable by ELSE false (verified live 2026-09-27: fn_handover_key_is_blocked('staff.role.change') = false). Body is 20261212110000's text verbatim — verified equal to production prosrc on 2026-09-27 — plus exactly one key added to the staff IN list. Director ruling 2026-09-27 06:24 (W12 tab): walled like staff.create/edit/delete; he accepted that during leave only he or the HR Head can change roles.",
   },
   '20260927020000': {
     fns: ['user_has_permission'],
