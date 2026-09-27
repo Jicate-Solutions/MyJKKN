@@ -221,6 +221,11 @@
  *   - An unrelated check in a decision position still clears a function, with
  *     the row-scoped WARNING where it applies. Deliberate: the gate stops the
  *     shape that leaked (no check at all); W12 accepted it as a tripwire.
+ *   - Dynamic SQL built inside an ordinary body — e.g.
+ *     EXECUTE format('SELECT … WHERE institution_id = %L', p_x) — is a string
+ *     to the gate: the comparison inside it is not read, so a parameter used
+ *     only there is not recognised as an institution id, and a check written
+ *     only there is not seen (W12 on #3985, 2026-09-28).
  *   - A migration that only GRANTs EXECUTE on an EXISTING function whose
  *     CREATE is not in the PR checks zero definitions and passes: the gate
  *     reads bodies from the PR's changed files only, never from older,
