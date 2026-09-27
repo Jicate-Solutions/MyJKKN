@@ -11166,3 +11166,15 @@ CREATE POLICY learner_activation_failures_select
 
 REVOKE ALL    ON public.learner_activation_failures FROM anon, PUBLIC;
 GRANT  SELECT ON public.learner_activation_failures TO authenticated;
+
+-- =====================================================================
+-- Updated: 2026-09-24 - Adoption loop E: adoption_reminders RLS (super admins read; no direct writes)
+-- Source of truth for apply: supabase/migrations/20270324090000_adoption_daily_ask_and_remind.sql
+-- Spec: specs/2026-09-16-adoption-loop.md rulings 2, 6, 9, 10
+-- =====================================================================
+-- Read: super admins only (who was reminded is per-person data, ruling 7).
+-- No INSERT/UPDATE/DELETE policy on purpose — rows come only from
+-- fn_adoption_remind_core (SECURITY DEFINER).
+DROP POLICY IF EXISTS "adoption_reminders_select_super_admin" ON public.adoption_reminders;
+CREATE POLICY "adoption_reminders_select_super_admin" ON public.adoption_reminders
+  FOR SELECT TO authenticated USING ((SELECT is_super_admin()));
