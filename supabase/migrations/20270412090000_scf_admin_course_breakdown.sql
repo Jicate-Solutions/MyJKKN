@@ -13,6 +13,9 @@
 --   * same session maths: a session = (date, period, course); averages use only
 --     sessions with >= 3 responses; low = avg < 3 with >= 3 responses
 --   * aggregates only — no learner id, no free text, no checklist
+--   * ONE deliberate difference: the email lookup is de-duplicated (DISTINCT ON
+--     lower(email)) so a case-variant duplicate cannot multiply responses. The
+--     live faculty summary has the unguarded join; 0 such duplicates on 27 Sep.
 -- Tier 1: additive, idempotent (CREATE OR REPLACE of a NEW name), drops nothing.
 
 CREATE OR REPLACE FUNCTION public.fn_scf_admin_course_breakdown(p_from date, p_to date)
@@ -41,11 +44,15 @@ BEGIN
     FROM public.staff st
     WHERE NULLIF(btrim(st.institution_email), '') IS NOT NULL
   ),
+  -- ONE row per lower(email). staff.email is unique only case-sensitively, so
+  -- 'A@x' and 'a@x' would both match lower(f.faculty_email) and double every
+  -- response (inflating counts past the >= 3 threshold). Active record first.
   staff_by_email AS MATERIALIZED (
-    SELECT lower(st.email) AS lemail, st.institution_email
+    SELECT DISTINCT ON (lower(st.email)) lower(st.email) AS lemail, st.institution_email
     FROM public.staff st
     WHERE NULLIF(btrim(st.institution_email), '') IS NOT NULL
       AND st.email IS NOT NULL
+    ORDER BY lower(st.email), st.is_active DESC, st.id
   ),
   fb AS (
     SELECT f.institution_id AS inst_id,

@@ -144,6 +144,30 @@ describe('fn_scf_admin_course_breakdown — one row per person per course', () =
     expect(r.error).toMatch(/not authorized/);
   });
 
+  it('two person records whose emails differ only by case do not double the responses', async () => {
+    // Critic round 2: the lower(email) lookup matched BOTH records, so the same
+    // 2 responses were counted twice (4 in total, split over two people).
+    const PID = '00000000-0000-4000-8000-0000000000e1';
+    await client.query(`INSERT INTO public.staff (id, email, institution_email) VALUES
+      ('${PID}', 'Meena@jkkn.ac.in', 'meena@jkkn.ac.in'),
+      (gen_random_uuid(), 'meena@jkkn.ac.in', 'meena.k@jkkn.ac.in')`);
+    await client.query(`INSERT INTO public.session_feedback
+      (institution_id, attendance_date, period_id, course_code, course_name, faculty_id, faculty_email, understood) VALUES
+      ('${INST}', '2026-09-15', 'P4', 'MB303', 'Costing', NULL, 'meena@jkkn.ac.in', 1),
+      ('${INST}', '2026-09-15', 'P4', 'MB303', 'Costing', NULL, 'meena@jkkn.ac.in', 1)`);
+    try {
+      const r = await as(HOD, CALL);
+      // Unguarded, each response joins BOTH records and lands twice: once under
+      // each record's institution email. Guarded: one row, the 2 real responses.
+      const rows = r.rows.filter((x) => x.course_code === 'MB303');
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ sessions: 1, responses: 2, avg: null, low: 0 });
+    } finally {
+      await client.query(`DELETE FROM public.session_feedback WHERE course_code = 'MB303'`);
+      await client.query(`DELETE FROM public.staff`);
+    }
+  });
+
   it('anon cannot execute it at all', async () => {
     const r = await as({ role: 'anon' }, CALL);
     expect(r.error).toMatch(/permission denied/);
