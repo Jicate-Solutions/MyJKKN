@@ -138,6 +138,12 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
     enabled: !!consultantId && year != null,
   })
 
+  const { data: walkinHeld } = useQuery({
+    queryKey: ['commission-rate-card-walkin-held', consultantId, year],
+    queryFn: () => ConsultantService.getConsultantRateCardWalkinHeld(consultantId, year!),
+    enabled: !!consultantId && year != null,
+  })
+
   const { data: feeCollection, isLoading: feeLoading } = useQuery({
     queryKey: ['commission-first-year-fees', consultantId, year],
     queryFn: () => ConsultantService.getConsultantFirstYearFeeCollection(consultantId, year!),
@@ -639,6 +645,13 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
             <CardDescription>
               Learners counted are those in Account, Admitted or Active status for the selected
               admission year.
+              {!!walkinHeld && walkinHeld > 0 && (
+                <span className="mt-1 block text-amber-700 dark:text-amber-400">
+                  {walkinHeld} walk-in learner{walkinHeld === 1 ? ' is' : 's are'} not counted yet.
+                  Each is waiting for the release owner to confirm this agency really sent them
+                  (Review Worklist).
+                </span>
+              )}
             </CardDescription>
           </div>
           {canManage && (
