@@ -94,3 +94,18 @@ describe('Industry mentor create refuses a repeat of an active mentor', () => {
     expect(inserted).toHaveLength(3);
   });
 });
+
+describe('the database backstop (23505 from trg_industry_mentor_one_active_per_email)', () => {
+  it('maps to DuplicateIndustryMentorError carrying the existing id; anything else is not a duplicate', async () => {
+    const { duplicateMentorFromDbError, DuplicateIndustryMentorError } = await import(
+      '@/lib/services/cdc/industry-mentor-service'
+    );
+    const id = '11111111-2222-4333-8444-555555555555';
+    const dup = duplicateMentorFromDbError({ code: '23505', details: `existing_mentor_id=${id}` });
+    expect(dup).toBeInstanceOf(DuplicateIndustryMentorError);
+    expect(dup?.existingId).toBe(id);
+    expect(duplicateMentorFromDbError({ code: '23505', details: 'Key (id)=(x) already exists.' })).toBeNull();
+    expect(duplicateMentorFromDbError({ code: '42501', details: `existing_mentor_id=${id}` })).toBeNull();
+    expect(duplicateMentorFromDbError(null)).toBeNull();
+  });
+});

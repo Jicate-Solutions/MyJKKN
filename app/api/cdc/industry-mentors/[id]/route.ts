@@ -7,6 +7,7 @@ import {
   updateIndustryMentor,
   deleteIndustryMentor,
   IndustryMentorEditRefusedError,
+  DuplicateIndustryMentorError,
 } from '@/lib/services/cdc/industry-mentor-service';
 import type { UpdateIndustryMentorInput } from '@/types/cdc/industry-mentors';
 
@@ -41,6 +42,9 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   } catch (e) {
     if (e instanceof IndustryMentorEditRefusedError) {
       return NextResponse.json({ error: e.message }, { status: 403 });
+    }
+    if (e instanceof DuplicateIndustryMentorError) {
+      return NextResponse.json({ error: e.message, existing_id: e.existingId }, { status: 409 });
     }
     if ((e as Error).message === 'Mentor not found') {
       return NextResponse.json({ error: 'Mentor not found' }, { status: 404 });

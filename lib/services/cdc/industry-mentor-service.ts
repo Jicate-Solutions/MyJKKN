@@ -25,6 +25,19 @@ export class DuplicateIndustryMentorError extends Error {
 }
 
 /**
+ * The database's own duplicate refusal (trigger trg_industry_mentor_one_active_per_email,
+ * 23505) carries the existing mentor's id in DETAIL. It is the backstop for two
+ * saves racing past the read check below.
+ */
+export function duplicateMentorFromDbError(
+  error: { code?: string; details?: string | null } | null | undefined
+): DuplicateIndustryMentorError | null {
+  if (!error || error.code !== '23505') return null;
+  const m = /existing_mentor_id=([0-9a-f-]{36})/i.exec(error.details ?? '');
+  return m ? new DuplicateIndustryMentorError(m[1]) : null;
+}
+
+/**
  * The caller can read this mentor but the database refused the change
  * (BUG-005292). The row-level rule on industry_mentors lets only the person
  * who added the mentor, or an admin / institution admin, update it; the
@@ -134,7 +147,7 @@ export async function createIndustryMentor(
     .select()
     .single();
 
-  if (error) throw new Error(error.message);
+  if (error) throw duplicateMentorFromDbError(error) ?? new Error(error.message);
 
   return data as IndustryMentor;
 }
@@ -164,7 +177,7 @@ export async function updateIndustryMentor(
       if (visible) throw new IndustryMentorEditRefusedError();
       throw new Error('Mentor not found');
     }
-    throw new Error(error.message);
+    throw duplicateMentorFromDbError(error) ?? new Error(error.message);
   }
 
   return data as IndustryMentor;
