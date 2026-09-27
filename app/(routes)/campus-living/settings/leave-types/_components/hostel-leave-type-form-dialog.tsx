@@ -27,13 +27,6 @@ import {
   FormLabel,
   FormMessage
 } from '@/components/ui/form';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -41,7 +34,6 @@ import { Switch } from '@/components/ui/switch';
 import { Loader2 } from 'lucide-react';
 import { useHostelLeaveTypes } from '@/hooks/campus-living/use-hostel-leave-types';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { toast } from 'react-hot-toast';
 import {
   HOSTEL_LEAVE_TYPE_COLORS,
@@ -114,10 +106,8 @@ export function HostelLeaveTypeFormDialog({
   mode,
   leaveType
 }: HostelLeaveTypeFormDialogProps) {
-  const { userProfile, isSuperAdmin } = usePermissions();
+  const { userProfile } = usePermissions();
   const { createHostelLeaveType, updateHostelLeaveType } = useHostelLeaveTypes();
-  const { institutions } = useInstitutionsWithAccess();
-  const [selectedInstitutionId, setSelectedInstitutionId] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
 
   const form = useForm<FormValues>({
@@ -151,7 +141,6 @@ export function HostelLeaveTypeFormDialog({
         requires_attachment: leaveType.requires_attachment,
         is_active: leaveType.is_active
       });
-      setSelectedInstitutionId(leaveType.institution_id);
     } else {
       form.reset({
         leave_type_code: '',
@@ -165,28 +154,17 @@ export function HostelLeaveTypeFormDialog({
         requires_attachment: false,
         is_active: true
       });
-      if (!isSuperAdmin && userProfile?.institution_id) {
-        setSelectedInstitutionId(userProfile.institution_id);
-      } else {
-        setSelectedInstitutionId('');
-      }
     }
-  }, [open, mode, leaveType, form, isSuperAdmin, userProfile?.institution_id]);
+  }, [open, mode, leaveType, form]);
 
   const onSubmit = async (data: FormValues) => {
     try {
       setSubmitting(true);
       if (mode === 'create') {
-        const institutionId = isSuperAdmin
-          ? selectedInstitutionId
-          : userProfile?.institution_id;
-        if (!institutionId) {
-          toast.error('Please select an institution');
-          return;
-        }
         await createHostelLeaveType({
-          institution_id: institutionId,
           ...data,
+          leave_type_code: data.leave_type_code,
+          leave_type_name: data.leave_type_name,
           description: data.description || null,
           created_by: userProfile?.id ?? null
         });
@@ -220,7 +198,7 @@ export function HostelLeaveTypeFormDialog({
           </DialogTitle>
           <DialogDescription>
             {mode === 'create'
-              ? 'Add a new leave category for hostelers at your institution.'
+              ? 'Add a new leave category for hostelers. It applies to every institution.'
               : isSystem
               ? 'You can edit this system default, but it cannot be deleted.'
               : 'Update the leave type details.'}
@@ -233,30 +211,6 @@ export function HostelLeaveTypeFormDialog({
               onSubmit={form.handleSubmit(onSubmit)}
               className='space-y-4 pb-4'
             >
-              {isSuperAdmin && mode === 'create' && (
-                <FormItem>
-                  <FormLabel>Institution</FormLabel>
-                  <Select
-                    value={selectedInstitutionId}
-                    onValueChange={setSelectedInstitutionId}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder='Select an institution' />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {institutions.map((inst) => (
-                        <SelectItem key={inst.id} value={inst.id}>
-                          {inst.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormDescription>Select the institution for this leave type</FormDescription>
-                </FormItem>
-              )}
-
               <div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
                 <FormField
                   control={form.control}
