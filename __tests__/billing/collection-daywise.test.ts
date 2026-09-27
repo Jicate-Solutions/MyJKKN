@@ -10,6 +10,8 @@ import {
   transactionDetail,
   localIsoDate,
   DAYWISE_EXPORT_HEADER,
+  projectRowsByCategory,
+  isTransportMaintenanceFee,
 } from '@/lib/services/billing/reports/collection-daywise';
 import type { CollectionDaywiseRow } from '@/types/billing-schedule';
 
@@ -191,5 +193,41 @@ describe('transactionDetail', () => {
 describe('localIsoDate', () => {
   it('uses the local calendar day, zero-padded', () => {
     expect(localIsoDate(new Date(2026, 0, 5, 1, 0, 0))).toBe('2026-01-05');
+  });
+});
+
+describe('projectRowsByCategory', () => {
+  const mixed = row({
+    receipt_number: 'RCP-M',
+    payment_amount: 10500,
+    net_amount: 10500,
+    categories: '1 Year Tuition Fee, Transport Maintenance Fee',
+    category_breakdown: [
+      { category: '1 Year Tuition Fee', amount: 10000 },
+      { category: 'Transport Maintenance Fee', amount: 500 },
+    ],
+  });
+  const tmfOnly = row({
+    receipt_number: 'RCP-T',
+    payment_amount: 5500,
+    net_amount: 5500,
+    categories: 'Transport Maintenance Fee',
+    category_breakdown: [{ category: 'Transport Maintenance Fee', amount: 5500 }],
+  });
+
+  it('excluding TMF drops TMF-only receipts and trims mixed ones', () => {
+    const out = projectRowsByCategory([mixed, tmfOnly], (c) => !isTransportMaintenanceFee(c));
+    expect(out.map((r) => r.receipt_number)).toEqual(['RCP-M']);
+    expect(out[0].payment_amount).toBe(10000);
+    expect(out[0].net_amount).toBe(10000);
+    expect(out[0].categories).toBe('1 Year Tuition Fee');
+  });
+
+  it('TMF-only keeps just the TMF part of each receipt', () => {
+    const out = projectRowsByCategory([mixed, tmfOnly], isTransportMaintenanceFee);
+    expect(out.map((r) => [r.receipt_number, r.payment_amount])).toEqual([
+      ['RCP-M', 500],
+      ['RCP-T', 5500],
+    ]);
   });
 });
