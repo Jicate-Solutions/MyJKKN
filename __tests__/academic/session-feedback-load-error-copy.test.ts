@@ -11,13 +11,13 @@ const DENIED = "You don't have access to the all-college dashboard — contact y
 
 describe('session-feedback load-error headline', () => {
   it('a timeout is not reported as an access problem', () => {
-    const err = new Error('Failed to load facilitator coverage: canceling statement due to statement timeout');
+    const err = new Error('Failed to load coverage: canceling statement due to statement timeout');
     expect(loadErrorHeadline(err, DENIED)).not.toBe(DENIED);
     expect(loadErrorHeadline(err, DENIED)).toMatch(/couldn't load/);
   });
 
   it('a real refusal from the RPC still says no access', () => {
-    const err = new Error('Failed to load faculty summary: fn_scf_admin_faculty_summary: not authorized');
+    const err = new Error('Failed to load summary: fn_scf_admin_college_summary: not authorized');
     expect(loadErrorHeadline(err, DENIED)).toBe(DENIED);
   });
 

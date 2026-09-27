@@ -40,7 +40,7 @@ const PRINCIPAL: RolePermissionData = {
 };
 
 /** Negative control: a teaching role with real permissions but no leadership key. */
-const FACULTY: RolePermissionData = {
+const TEACHING_ROLE: RolePermissionData = {
   role_key: 'faculty',
   permissions: {
     'academic.attendance.view': true,
@@ -63,6 +63,6 @@ describe('leadership reaches the per-faculty session-feedback roll-up', () => {
   });
 
   it('a role without the leadership key still gets no link', () => {
-    expect(hasAdminLane(FACULTY), 'feedback roll-up leaked to faculty').toBe(false);
+    expect(hasAdminLane(TEACHING_ROLE), 'feedback roll-up leaked to a teaching role').toBe(false);
   });
 });
