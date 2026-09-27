@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server';
 import {
   listIndustryMentors,
   createIndustryMentor,
+  DuplicateIndustryMentorError,
 } from '@/lib/services/cdc/industry-mentor-service';
 import type { CreateIndustryMentorInput } from '@/types/cdc/industry-mentors';
 
@@ -60,6 +61,9 @@ export async function POST(req: NextRequest) {
     const mentor = await createIndustryMentor(body);
     return NextResponse.json(mentor, { status: 201 });
   } catch (e) {
+    if (e instanceof DuplicateIndustryMentorError) {
+      return NextResponse.json({ error: e.message, existing_id: e.existingId }, { status: 409 });
+    }
     console.error('[cdc/industry-mentors POST]', e);
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }

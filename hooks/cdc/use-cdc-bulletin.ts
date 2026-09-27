@@ -43,7 +43,7 @@ export function useCreateCdcOpportunity() {
     },
     onError: (err: Error) => {
       console.error('[cdc/bulletin] create error:', err);
-      toast.error('Failed to post opportunity');
+      toast.error(err?.message || 'Failed to post opportunity');
     },
   });
 }

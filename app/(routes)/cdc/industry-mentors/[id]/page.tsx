@@ -75,7 +75,12 @@ function IndustryMentorDetailContent({ params }: Props) {
   }
 
   async function handleSave() {
-    await updateMentor(form);
+    try {
+      await updateMentor(form);
+    } catch {
+      // Shown in the save-error alert (a refusal now says who can edit).
+      return;
+    }
     refetch(); // show what was saved, not the pre-edit copy
     setSaved(true);
     setEditing(false);

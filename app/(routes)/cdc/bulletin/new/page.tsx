@@ -111,8 +111,12 @@ export default function NewBulletinOpportunityPage() {
     // When 'other' is chosen, submit the typed custom category instead of the literal 'other'.
     const resolvedCategory =
       categoryChoice === 'other' ? categoryOther.trim() || null : form.category;
-    const opp = await createMutation.mutateAsync({ ...form, category: resolvedCategory });
-    router.push(`/cdc/bulletin/${opp.id}`);
+    try {
+      const opp = await createMutation.mutateAsync({ ...form, category: resolvedCategory });
+      router.push(`/cdc/bulletin/${opp.id}`);
+    } catch {
+      // The mutation's onError already showed the reason.
+    }
   }
 
   return (

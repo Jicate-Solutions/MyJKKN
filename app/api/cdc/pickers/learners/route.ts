@@ -20,13 +20,7 @@ import {
   createApiInstitutionFilter,
   applyInstitutionFilterToQuery,
 } from '@/lib/auth/api-institution-filter';
-
-interface LearnerPickerRow {
-  id: string;
-  first_name: string | null;
-  last_name: string | null;
-  register_number: string | null;
-}
+import { toLearnerPickerOption, type LearnerPickerRow } from '@/lib/services/cdc/learner-picker';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   // Step 1: Session auth — must be a logged-in user
@@ -50,7 +44,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const supabase = createServiceRoleClient();
     let query = supabase
       .from('learners_profiles')
-      .select('id, first_name, last_name, register_number')
+      // roll_number too (BUG-005031): most learners' roll number differs from
+      // their register number, and a coordinator searches by either.
+      .select('id, first_name, last_name, register_number, roll_number')
       .in('lifecycle_status', ['active', 'graduated'])
       .order('first_name', { ascending: true })
       .limit(5000);
@@ -67,12 +63,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const options = ((data || []) as LearnerPickerRow[]).map((l) => ({
-      value: l.id,
-      label:
-        `${l.first_name ?? ''} ${l.last_name ?? ''}`.trim() +
-        (l.register_number ? ` (${l.register_number})` : ''),
-    }));
+    const options = ((data || []) as LearnerPickerRow[]).map(toLearnerPickerOption);
 
     return NextResponse.json(
       { options },

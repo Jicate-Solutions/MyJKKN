@@ -16,6 +16,9 @@ import { useQuery } from '@tanstack/react-query';
 export interface PickerOption {
   value: string;
   label: string;
+  /** Learners picker only: the numbers the bulk-add box matches on (BUG-005031). */
+  register_number?: string | null;
+  roll_number?: string | null;
 }
 
 // Fetch helper for the institution-scoped service-role picker routes.
