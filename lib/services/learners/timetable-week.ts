@@ -38,6 +38,17 @@ export function displayWeek(now: Date = new Date()): { from: string; to: string 
 export interface TimetableBounds {
   start_date?: string | null;
   end_date?: string | null;
+  /** 'YYYY-MM-DD' dates and 'RANGE:from:to' markers the timetable is configured for. */
+  selected_dates?: string[] | null;
+}
+
+function inSelectedDates(key: string, selected: string[]): boolean {
+  return selected.some((entry) => {
+    if (entry === key) return true;
+    if (!entry.startsWith('RANGE:')) return false;
+    const [, from, to] = entry.split(':');
+    return !!from && !!to && key >= from && key <= to;
+  });
 }
 
 /**
@@ -56,12 +67,12 @@ export function isDateKeyInDisplayWeek(
   const end = bounds.end_date?.slice(0, 10);
   if (start && key < start) return false;
   if (end && key > end) return false;
+  if (bounds.selected_dates && bounds.selected_dates.length > 0 && !inSelectedDates(key, bounds.selected_dates)) {
+    return false;
+  }
   return true;
 }
 
-const WEEKDAY_BY_JS_DAY: Record<number, string> = {
-  1: 'MONDAY', 2: 'TUESDAY', 3: 'WEDNESDAY', 4: 'THURSDAY', 5: 'FRIDAY', 6: 'SATURDAY',
-};
 
 /**
  * Is the day on screen today? Compares day NAMES. The old check compared the
@@ -70,6 +81,9 @@ const WEEKDAY_BY_JS_DAY: Record<number, string> = {
  * put Tuesday at position 0 and the current-class badge vanished.
  */
 export function isShowingToday(shownDay: string | undefined, now: Date = new Date()): boolean {
-  const today = WEEKDAY_BY_JS_DAY[now.getDay()];
-  return !!today && shownDay === today;
+  // India calendar, like displayWeek, so the badge and the filtered week agree.
+  const today = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', weekday: 'long' })
+    .format(now)
+    .toUpperCase();
+  return today !== 'SUNDAY' && shownDay === today;
 }

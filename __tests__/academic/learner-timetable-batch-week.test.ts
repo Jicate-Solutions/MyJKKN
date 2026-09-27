@@ -77,6 +77,20 @@ describe('batch timetable on the learner weekly view', () => {
     expect(slots.filter((s: any) => s.day === 'TUESDAY')).toEqual([]);
   });
 
+  it('a date the timetable is not configured for (selected_dates) is dropped; a RANGE covering it keeps it', async () => {
+    const tuesdays = async (selected: string[]) =>
+      ((await (StudentTimetableService as any).enrichTimetableSlots(batchTimetable, periods, stubClient(), { selected_dates: selected })) as any[])
+        .filter((s) => s.day === 'TUESDAY').map((s) => s.course.course_code);
+    expect(await tuesdays(['2026-09-16'])).toEqual([]);
+    expect(await tuesdays(['RANGE:2026-09-05:2026-10-19'])).toEqual(['PERIO']);
+    expect(await tuesdays(['2026-09-15'])).toEqual(['PERIO']);
+  });
+
+  it('"today" is the India weekday: 20:00 UTC Monday is already Tuesday in India', () => {
+    expect(isShowingToday('TUESDAY', new Date('2026-09-14T20:00:00Z'))).toBe(true);
+    expect(isShowingToday('MONDAY', new Date('2026-09-14T20:00:00Z'))).toBe(false);
+  });
+
   it('the current-class badge knows today by day NAME, not by position in the shown days', () => {
     // A week whose only postings fall on Tuesday shows ['TUESDAY'] — Tuesday is
     // position 0. The old check (getDay() - 1 === position) said "not today".

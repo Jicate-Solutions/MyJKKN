@@ -73,6 +73,7 @@ export class StudentTimetableService {
         timetable_data,
         periods,
         selected_days,
+        selected_dates,
         start_date,
         end_date,
         institution_id,
@@ -180,7 +181,7 @@ export class StudentTimetableService {
             t.timetable_data,
             periods || [],
             supabase,
-            { start_date: t.start_date, end_date: t.end_date }
+            { start_date: t.start_date, end_date: t.end_date, selected_dates: t.selected_dates }
           );
           return slots.map((slot) => ({
             ...slot,
