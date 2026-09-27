@@ -223,9 +223,11 @@
  *     shape that leaked (no check at all); W12 accepted it as a tripwire.
  *   - Dynamic SQL built inside an ordinary body — e.g.
  *     EXECUTE format('SELECT … WHERE institution_id = %L', p_x) — is a string
- *     to the gate: the comparison inside it is not read, so a parameter used
- *     only there is not recognised as an institution id, and a check written
- *     only there is not seen (W12 on #3985, 2026-09-28).
+ *     to the gate: a comparison inside a single-quoted string is blanked, so a
+ *     parameter compared only there is not recognised as an institution id,
+ *     and a check written only there is not seen. (Inside a nested
+ *     dollar-quoted string the text is kept; see LIMITATIONS below.)
+ *     (W12 on #3985, 2026-09-28.)
  *   - A migration that only GRANTs EXECUTE on an EXISTING function whose
  *     CREATE is not in the PR checks zero definitions and passes: the gate
  *     reads bodies from the PR's changed files only, never from older,
