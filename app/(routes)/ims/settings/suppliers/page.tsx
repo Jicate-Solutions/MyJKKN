@@ -431,7 +431,9 @@ function SuppliersPageInner() {
 
       {/* Add/Edit Supplier Dialog */}
       <Dialog open={dialogOpen} onOpenChange={handleDialogOpenChange}>
-        <DialogContent className="max-w-md">
+        {/* Ten fields run ~800px; cap at the window and scroll inside so the title
+            and the Create button stay reachable on a short screen (BUG-005856). */}
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editingSupplier ? 'Edit Supplier' : 'Add New Supplier'}
