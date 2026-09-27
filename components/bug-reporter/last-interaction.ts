@@ -12,17 +12,16 @@
  * label — identity must not be reconstructable out of this object.
  *
  * So the rule is: record structure, never content.
- *   - always recorded: tagName, id, role, how many elements the selector
- *     matches, and the `data-testid` / `data-slot` /
- *     `data-radix-*` hooks, which are authored by us and name UI, not people.
- *   - text: ONLY a CONTROL's authored `aria-label` (button, a, input, select,
- *     textarea, summary, or role=button/link/tab/menuitem), capped at 60
- *     characters. NEVER a control's visible text (review, 27 Sep): a
- *     textarea's text IS what the person typed, a select's text is every
- *     option in it (often people's names), and a link or button in a record
- *     list is routinely the learner's own name ("RAVI KUMAR →").
- *   - never, for anything: visible text, an input's value or placeholder,
- *     table cell contents, or any attribute whose name contains "value".
+ *   - recorded: the tag, `role`, how many elements the selector matches, and
+ *     two AUTHORED hooks — `data-testid` and `data-slot` — only when the value
+ *     looks like a UI name (letters, dashes, underscores; no run of 3+ digits,
+ *     no uuid, at most 40 characters). The same rule applies to every ancestor
+ *     in the selector.
+ *   - NEVER recorded (W12 blind review, 27 Sep): element ids — real controls
+ *     use uploaded learner-photo filenames (they carry roll numbers) and option
+ *     values as ids; any text, visible or aria-label (a label can be built from
+ *     a record, "Remove RAVI"); an input's value or placeholder; data-radix-*
+ *     and every other attribute.
  *
  * A tap usually lands on an icon or a span INSIDE the control; the descriptor
  * is built for the nearest control around the tap (see interactionTarget), so
@@ -35,39 +34,31 @@
 /** A descriptor larger than this is dropped outright rather than truncated. */
 export const LAST_INTERACTION_MAX_BYTES = 512;
 
-/** An accessible name longer than this is cut; labels are UI copy, not prose. */
-export const ACCESSIBLE_NAME_MAX_CHARS = 60;
-
 /** The CSS path carries the element plus at most this many ancestors. */
 export const SELECTOR_MAX_ANCESTORS = 4;
 
-/** Tags that are controls, and whose accessible name is therefore UI copy. */
-const CONTROL_TAGS = new Set([
-  'button',
-  'a',
-  'input',
-  'select',
-  'textarea',
-  'summary'
-]);
+/** The only attributes ever recorded — authored hooks that name UI. */
+const STRUCTURAL_ATTRS = ['data-testid', 'data-slot'] as const;
 
-/** Roles that make a non-control tag behave as a control. */
-const CONTROL_ROLES = new Set(['button', 'link', 'tab', 'menuitem']);
-
-/** Structural hooks worth recording. `data-radix-*` is matched by prefix. */
-const STRUCTURAL_ATTRS = new Set(['data-testid', 'data-slot']);
-const STRUCTURAL_ATTR_PREFIX = 'data-radix-';
+/**
+ * An authored hook names UI ("save-marks", "dialog-content"); a value built
+ * from a record carries digits or an id. Only the former is recorded.
+ */
+export function isSafeHook(value: string | null): value is string {
+  return (
+    !!value &&
+    value.length <= 40 &&
+    /^[A-Za-z][A-Za-z_-]*[A-Za-z]$|^[A-Za-z]$/.test(value)
+  );
+}
 
 export interface LastInteractionDescriptor {
   /** Lower-cased tag name, e.g. 'button'. */
   tagName: string;
   /** Short CSS path, resolvable with document.querySelector. */
   selector: string;
-  id?: string;
   role?: string;
-  /** Accessible name — present only for controls, capped at 60 chars. */
-  name?: string;
-  /** data-testid / data-slot / data-radix-* names and values. */
+  /** data-testid / data-slot values that pass isSafeHook. */
   data?: Record<string, string>;
   /** How many elements `selector` matched when recorded; 1 = a unique anchor. */
   matches?: number;
@@ -84,69 +75,24 @@ function isElementLike(value: unknown): value is Element {
   );
 }
 
-function quoteAttrValue(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-}
-
-/** `#id` when the id is a plain identifier, `[id="..."]` when it is not. */
-function idSelector(id: string): string {
-  return /^[A-Za-z_-][\w-]*$/.test(id)
-    ? `#${id}`
-    : `[id="${quoteAttrValue(id)}"]`;
-}
-
-function isControl(el: Element): boolean {
-  if (CONTROL_TAGS.has(el.tagName.toLowerCase())) return true;
-  const role = el.getAttribute('role');
-  return !!role && CONTROL_ROLES.has(role.toLowerCase());
-}
-
-/**
- * Structural hooks only, and never an attribute whose name mentions "value" —
- * `data-radix-*` internals occasionally carry the selected value of a control.
- */
+/** The authored hooks on an element that pass isSafeHook. */
 function collectStructuralAttributes(
   el: Element
 ): Record<string, string> | undefined {
   const out: Record<string, string> = {};
-  const names = el.getAttributeNames ? el.getAttributeNames() : [];
-
-  for (const rawName of names) {
-    const name = rawName.toLowerCase();
-    if (name.includes('value')) continue;
-    const isStructural =
-      STRUCTURAL_ATTRS.has(name) || name.startsWith(STRUCTURAL_ATTR_PREFIX);
-    if (!isStructural) continue;
-    out[name] = el.getAttribute(rawName) ?? '';
+  for (const name of STRUCTURAL_ATTRS) {
+    const value = el.getAttribute(name);
+    if (isSafeHook(value)) out[name] = value;
   }
-
   return Object.keys(out).length > 0 ? out : undefined;
-}
-
-/**
- * The authored `aria-label` of a CONTROL. Returns undefined for everything
- * else — see the text rule at the top of this file. Never reads visible text,
- * value or placeholder.
- */
-function accessibleName(el: Element): string | undefined {
-  if (!isControl(el)) return undefined;
-
-  const raw = el.getAttribute('aria-label') ?? '';
-  const collapsed = raw.replace(/\s+/g, ' ').trim();
-  if (!collapsed) return undefined;
-
-  return collapsed.slice(0, ACCESSIBLE_NAME_MAX_CHARS);
 }
 
 function selectorPartFor(el: Element): string {
   const tag = el.tagName.toLowerCase();
-
-  const id = el.getAttribute('id');
-  if (id) return `${tag}${idSelector(id)}`;
-
   const testId = el.getAttribute('data-testid');
-  if (testId) return `${tag}[data-testid="${quoteAttrValue(testId)}"]`;
-
+  if (isSafeHook(testId)) return `${tag}[data-testid="${testId}"]`;
+  const slot = el.getAttribute('data-slot');
+  if (isSafeHook(slot)) return `${tag}[data-slot="${slot}"]`;
   return tag;
 }
 
@@ -165,9 +111,6 @@ export function buildElementSelector(el: Element): string {
     if (tag === 'html' || tag === 'body') break;
 
     parts.unshift(selectorPartFor(node));
-
-    // An id is document-unique; nothing above it adds precision.
-    if (node.getAttribute('id')) break;
 
     node = node.parentElement;
     hops += 1;
@@ -212,14 +155,8 @@ export function buildLastInteraction(
     selector: buildElementSelector(el)
   };
 
-  const id = el.getAttribute('id');
-  if (id) descriptor.id = id;
-
   const role = el.getAttribute('role');
-  if (role) descriptor.role = role;
-
-  const name = accessibleName(el);
-  if (name) descriptor.name = name;
+  if (role && isSafeHook(role)) descriptor.role = role;
 
   const data = collectStructuralAttributes(el);
   if (data) descriptor.data = data;

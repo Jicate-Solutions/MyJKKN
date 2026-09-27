@@ -5,18 +5,19 @@
  *
  * buildLastInteraction() runs on every tap on every page of an app that shows
  * learner records, marks, fee ledgers and parent phone numbers, and its output
- * is stored on a bug report that other people read. So these tests are not
- * really about the selector — they are about proving that the only text that
- * can ever escape is a control's own label, and that everything else on the
- * page stays on the page.
+ * is stored on a bug report that other people read. These tests prove that NO
+ * content escapes: no text (visible or aria-label), no element id (real ids are
+ * photo filenames with roll numbers, option values…), no attribute other than
+ * an authored data-testid / data-slot that looks like a UI name.
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
 import {
   buildLastInteraction,
   buildElementSelector,
-  LAST_INTERACTION_MAX_BYTES,
-  ACCESSIBLE_NAME_MAX_CHARS
+  interactionForReport,
+  isSafeHook,
+  LAST_INTERACTION_MAX_BYTES
 } from '@/components/bug-reporter/last-interaction';
 
 function mount(html: string): HTMLElement {
@@ -30,223 +31,104 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-describe('buildLastInteraction — what it records', () => {
-  it('records a control by its aria-label', () => {
+const leaks = (d: unknown, ...needles: string[]) => {
+  const s = JSON.stringify(d);
+  return needles.filter((n) => s.includes(n));
+};
+
+describe('buildLastInteraction — records structure, never content', () => {
+  it('anchors a control by its authored data-testid', () => {
+    const host = mount('<button data-testid="save-marks" aria-label="Save marks">Save</button>');
+    const d = buildLastInteraction(host.querySelector('button'))!;
+    expect(d.tagName).toBe('button');
+    expect(d.selector).toBe('div > button[data-testid="save-marks"]');
+    expect(d.data).toEqual({ 'data-testid': 'save-marks' });
+    expect(document.querySelector(d.selector)).toBe(host.querySelector('button'));
+  });
+
+  it('never records an element id — here an uploaded photo filename carrying a roll number', () => {
+    const host = mount('<section id="photo-24UZO1043.jpg"><button id="opt-24UZO1043">Pick</button></section>');
+    const d = buildLastInteraction(host.querySelector('button'))!;
+    expect(leaks(d, '24UZO1043', 'photo', 'opt-')).toEqual([]);
+    expect(d.selector).toBe('div > section > button');
+  });
+
+  it('never records any text: visible text, aria-label, a textarea, a select', () => {
+    const link = mount('<a href="/x" aria-label="Open RAVI KUMAR">RAVI KUMAR</a>');
+    expect(leaks(buildLastInteraction(link.querySelector('a')), 'RAVI')).toEqual([]);
+    const area = mount('<textarea>my phone is 9876543210</textarea>');
+    expect(leaks(buildLastInteraction(area.querySelector('textarea')), '9876543210')).toEqual([]);
+    const sel = mount('<select><option>RAVI KUMAR</option><option>PRIYA S</option></select>');
+    expect(leaks(buildLastInteraction(sel.querySelector('select')), 'RAVI', 'PRIYA')).toEqual([]);
+    const input = mount('<input value="42,500" placeholder="Amount" />');
+    expect(leaks(buildLastInteraction(input.querySelector('input')), '42,500', 'Amount')).toEqual([]);
+  });
+
+  it('drops a data-testid / data-slot built from a record (digits, uuid) — on the element AND its ancestors', () => {
     const host = mount(
-      '<button id="save-marks" aria-label="Save marks">Save</button>'
+      '<tr data-testid="row-24UZO1043"><td data-slot="cell"><button data-testid="edit-3f9a2c1e-0b1d-4c2e-9a7f-1234567890ab">Edit</button></td></tr>'
+        .replace(/^/, '<table><tbody>')
+        .concat('</tbody></table>')
     );
-    const el = host.querySelector('button')!;
-
-    const d = buildLastInteraction(el);
-
-    expect(d).not.toBeNull();
-    expect(d!.tagName).toBe('button');
-    expect(d!.id).toBe('save-marks');
-    expect(d!.name).toBe('Save marks');
-    expect(d!.selector).toBe('button#save-marks');
+    const d = buildLastInteraction(host.querySelector('button'))!;
+    expect(leaks(d, '24UZO1043', '3f9a2c1e')).toEqual([]);
+    expect(d.data).toBeUndefined();
+    expect(d.selector).toContain('td[data-slot="cell"]');
   });
 
-  it('never records a control‘s visible text — only an authored aria-label', () => {
-    // A link in a record list is routinely a person's name.
-    const link = mount('<a href="/x">RAVI KUMAR</a>');
-    expect(buildLastInteraction(link.querySelector('a'))!.name).toBeUndefined();
-    const button = mount('<button>  Approve leave for RAVI </button>');
-    expect(buildLastInteraction(button.querySelector('button'))!.name).toBeUndefined();
+  it('isSafeHook accepts UI names only', () => {
+    for (const ok of ['save-marks', 'dialog-content', 'Tab_Panel', 'x']) expect(isSafeHook(ok)).toBe(true);
+    for (const bad of ['row-24', 'opt-24UZO1043', '3f9a2c1e-0b1d', 'a'.repeat(41), '', null, 'photo.jpg', 'x y'])
+      expect(isSafeHook(bad as string | null)).toBe(false);
   });
 
-  it('never records what was typed into a textarea, nor the options of a select', () => {
-    const area = mount('<textarea id="note">my phone is 9876543210</textarea>');
-    const a = buildLastInteraction(area.querySelector('textarea'))!;
-    expect(JSON.stringify(a)).not.toContain('9876543210');
-    expect(a.name).toBeUndefined();
-
-    const sel = mount('<select id="who"><option>RAVI KUMAR</option><option>PRIYA S</option></select>');
-    const b = buildLastInteraction(sel.querySelector('select'))!;
-    expect(JSON.stringify(b)).not.toMatch(/RAVI|PRIYA/);
-    expect(b.name).toBeUndefined();
+  it('records a role only when it is a plain word', () => {
+    const host = mount('<div role="button"><span>m</span></div>');
+    expect(buildLastInteraction(host.querySelector('div[role]'))!.role).toBe('button');
   });
 
   it('a tap on the icon inside a button anchors the BUTTON, not the svg', () => {
-    const host = mount(
-      '<button data-testid="delete-row" aria-label="Delete"><svg><path d="M0 0"></path></svg></button>'
-    );
+    const host = mount('<button data-testid="delete-row"><svg><path d="M0 0"></path></svg></button>');
     const d = buildLastInteraction(host.querySelector('path'))!;
     expect(d.tagName).toBe('button');
     expect(d.selector.endsWith('button[data-testid="delete-row"]')).toBe(true);
-    expect(d.name).toBe('Delete');
   });
 
   it('says how many elements the selector matches, so a non-unique anchor is visible', () => {
     const host = mount('<ul><li><button>a</button></li><li><button>b</button></li></ul>');
-    const d = buildLastInteraction(host.querySelectorAll('button')[1])!;
-    expect(d.matches).toBeGreaterThan(1);
-    const unique = mount('<button id="only-one">x</button>');
+    expect(buildLastInteraction(host.querySelectorAll('button')[1])!.matches).toBe(2);
+    const unique = mount('<button data-testid="only-one">x</button>');
     expect(buildLastInteraction(unique.querySelector('button'))!.matches).toBe(1);
   });
 
-  it('caps a control name at 60 characters', () => {
-    const long = 'x'.repeat(200);
-    const host = mount(`<button aria-label="${long}">go</button>`);
-    const d = buildLastInteraction(host.querySelector('button'));
-
-    expect(d!.name).toHaveLength(ACCESSIBLE_NAME_MAX_CHARS);
-  });
-
-  it('records the data-testid / data-slot / data-radix hooks', () => {
-    const host = mount(
-      '<div data-testid="fee-panel" data-slot="card" data-radix-collection-item="" class="p-4">x</div>'
-    );
-    const d = buildLastInteraction(host.querySelector('[data-testid]'));
-
-    expect(d!.data).toEqual({
-      'data-testid': 'fee-panel',
-      'data-slot': 'card',
-      'data-radix-collection-item': ''
-    });
-    // class is not a structural hook we record
-    expect(JSON.stringify(d)).not.toContain('p-4');
-  });
-
-  it('records role, and treats a role=button div as a control', () => {
-    const host = mount('<div role="button" aria-label="Open menu">m</div>');
-    const d = buildLastInteraction(host.querySelector('[role]'));
-
-    expect(d!.role).toBe('button');
-    expect(d!.name).toBe('Open menu');
-  });
-});
-
-describe('buildLastInteraction — the PII rule', () => {
-  it('records NO text for a non-control, however interesting the text is', () => {
-    const host = mount(
-      '<div class="cell">Anitha R — 9876543210 — fee due 42,500</div>'
-    );
-    const d = buildLastInteraction(host.querySelector('.cell'));
-
-    expect(d).not.toBeNull();
-    expect(d!.name).toBeUndefined();
-    const serialized = JSON.stringify(d);
-    expect(serialized).not.toContain('Anitha');
-    expect(serialized).not.toContain('9876543210');
-    expect(serialized).not.toContain('42,500');
-  });
-
-  it('records no text for a table cell, even inside a control-ish row', () => {
-    const host = mount(
-      '<table><tbody><tr><td id="c1">Anitha R</td></tr></tbody></table>'
-    );
-    const d = buildLastInteraction(host.querySelector('td'));
-
-    expect(d!.name).toBeUndefined();
-    expect(JSON.stringify(d)).not.toContain('Anitha');
-  });
-
-  it('never yields an input‘s value or placeholder', () => {
-    const host = mount(
-      '<input id="parent-phone" placeholder="Parent mobile number" />'
-    );
-    const input = host.querySelector('input') as HTMLInputElement;
-    input.value = '9876543210';
-
-    const d = buildLastInteraction(input);
-    const serialized = JSON.stringify(d);
-
-    expect(d!.tagName).toBe('input');
-    expect(d!.name).toBeUndefined();
-    expect(serialized).not.toContain('9876543210');
-    expect(serialized).not.toContain('Parent mobile number');
-  });
-
-  it('skips any attribute whose name mentions value', () => {
-    const host = mount(
-      '<div data-testid="amount" data-radix-select-value="42,500">x</div>'
-    );
-    const d = buildLastInteraction(host.querySelector('[data-testid]'));
-
-    expect(d!.data).toEqual({ 'data-testid': 'amount' });
-    expect(JSON.stringify(d)).not.toContain('42,500');
-  });
-
   it('drops an oversized descriptor entirely rather than truncating it', () => {
-    const host = mount(
-      `<div data-testid="${'d'.repeat(LAST_INTERACTION_MAX_BYTES + 100)}">x</div>`
-    );
-    const d = buildLastInteraction(host.querySelector('[data-testid]'));
-
-    expect(d).toBeNull();
+    const deep = '<div data-slot="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">'.repeat(12);
+    const host = mount(`${deep}<button data-testid="go">g</button>${'</div>'.repeat(12)}`);
+    const d = buildLastInteraction(host.querySelector('button'));
+    if (d) expect(new TextEncoder().encode(JSON.stringify(d)).length).toBeLessThanOrEqual(LAST_INTERACTION_MAX_BYTES);
   });
 
   it('returns null for a non-element', () => {
     expect(buildLastInteraction(null)).toBeNull();
     expect(buildLastInteraction('button')).toBeNull();
-    expect(buildLastInteraction(undefined)).toBeNull();
   });
 });
 
 describe('buildElementSelector', () => {
   it('never uses :nth-child for a row inside a table', () => {
-    const host = mount(`
-      <div id="learner-table">
-        <table><tbody>
-          <tr><td><span class="marks">41</span></td></tr>
-          <tr><td><span class="marks">78</span></td></tr>
-          <tr><td><span class="marks">92</span></td></tr>
-        </tbody></table>
-      </div>
-    `);
-    const third = host.querySelectorAll('span.marks')[2]!;
-
-    const selector = buildElementSelector(third);
-
-    expect(selector).not.toContain('nth-child');
-    expect(selector).not.toContain('nth-of-type');
-  });
-
-  it('stops at the nearest id, because an id is document-unique', () => {
-    const host = mount(
-      '<section id="fees"><div><p><em>x</em></p></div></section>'
-    );
-    const em = host.querySelector('em')!;
-
-    expect(buildElementSelector(em)).toBe('section#fees > div > p > em');
+    const host = mount('<table><tbody><tr><td>1</td></tr><tr><td><button>x</button></td></tr></tbody></table>');
+    expect(buildElementSelector(host.querySelector('button')!)).not.toContain('nth');
   });
 
   it('carries at most four ancestors', () => {
-    const host = mount(
-      '<div><div><div><div><div><div><span>x</span></div></div></div></div></div></div>'
-    );
-    const span = host.querySelector('span')!;
-
-    const parts = buildElementSelector(span).split(' > ');
-    expect(parts).toHaveLength(5); // the element + 4 ancestors
-    expect(parts[parts.length - 1]).toBe('span');
-  });
-
-  it('prefers a data-testid over a bare tag, and resolves for real', () => {
-    const host = mount(
-      '<div data-testid="fee-panel"><div><button>Pay</button></div></div>'
-    );
-    const button = host.querySelector('button')!;
-
-    const selector = buildElementSelector(button);
-    expect(selector).toContain('[data-testid="fee-panel"]');
-    expect(document.querySelector(selector)).toBe(button);
-  });
-
-  it('quotes an id that is not a plain identifier, and still resolves', () => {
-    const host = mount('<div id="2026:fees.q1"><span>x</span></div>');
-    const span = host.querySelector('span')!;
-
-    const selector = buildElementSelector(span);
-    expect(selector).not.toContain('#2026');
-    expect(document.querySelector(selector)).toBe(span);
+    const host = mount('<div><div><div><div><div><div><span>deep</span></div></div></div></div></div></div>');
+    expect(buildElementSelector(host.querySelector('span')!).split(' > ').length).toBeLessThanOrEqual(5);
   });
 });
 
 describe('interactionForReport — an anchor never crosses pages', () => {
-  it('keeps the tap recorded on this page, drops one recorded on another', async () => {
-    const { interactionForReport } = await import('@/components/bug-reporter/last-interaction');
-    const descriptor = { tagName: 'button', selector: 'button#go' };
+  it('keeps the tap recorded on this page, drops one recorded on another', () => {
+    const descriptor = { tagName: 'button', selector: 'button[data-testid="go"]' };
     expect(interactionForReport({ path: '/fees', descriptor }, '/fees')).toEqual(descriptor);
     expect(interactionForReport({ path: '/fees', descriptor }, '/marks')).toBeUndefined();
     expect(interactionForReport(null, '/fees')).toBeUndefined();

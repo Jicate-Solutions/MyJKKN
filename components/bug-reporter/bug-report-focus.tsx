@@ -16,12 +16,16 @@
  * href is a separate change. With no params present this does nothing at all.
  */
 
-import { useEffect } from 'react';
+import { Suspense, useEffect } from 'react';
+import { usePathname, useSearchParams } from 'next/navigation';
 
 export const FOCUS_PARAM = 'bugFocus';
 export const SCROLL_PARAM = 'bugScroll';
 export const HIGHLIGHT_CLASS = 'bug-report-focus-highlight';
 export const HIGHLIGHT_DURATION_MS = 2500;
+/** How long to keep looking for the element while the page streams / fetches. */
+export const FOCUS_WAIT_MS = 3000;
+export const FOCUS_RETRY_MS = 150;
 
 const STYLE_ELEMENT_ID = 'bug-report-focus-style';
 
@@ -130,15 +134,43 @@ export function applyBugFocus(params: BugFocusParams): Element | null {
   return null;
 }
 
-export function BugReportFocus() {
+function findFocusElement(focus: string): Element | null {
+  try {
+    return document.querySelector(focus);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Re-runs on EVERY client-side navigation (pathname or query change): it sits
+ * in the persistent (routes) layout, so a mount-only effect would miss a link
+ * followed from inside the app (W12 review, 27 Sep). The previous outline is
+ * cleared first. The element is looked for every FOCUS_RETRY_MS for up to
+ * FOCUS_WAIT_MS, because streamed and fetched content arrives after the first
+ * frame; only after that does it fall back to bugScroll.
+ */
+function BugReportFocusInner() {
+  const pathname = usePathname();
+  const search = useSearchParams()?.toString() ?? '';
+
   useEffect(() => {
-    const params = parseBugFocusParams(window.location.search);
+    const params = parseBugFocusParams(search);
     if (!params.focus && params.scroll === null) return;
 
     let highlighted: Element | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let cancelled = false;
+    const deadline = Date.now() + FOCUS_WAIT_MS;
 
-    const run = () => {
+    const attempt = () => {
+      if (cancelled) return;
+      const found = params.focus ? findFocusElement(params.focus) : null;
+      if (params.focus && !found && Date.now() < deadline) {
+        retry = setTimeout(attempt, FOCUS_RETRY_MS);
+        return;
+      }
       highlighted = applyBugFocus(params);
       if (highlighted) {
         timer = setTimeout(() => {
@@ -148,21 +180,24 @@ export function BugReportFocus() {
       }
     };
 
-    // One frame of slack so the page's own content is mounted before we look
-    // for the element the reporter was on.
-    let raf: number | undefined;
-    if (typeof window.requestAnimationFrame === 'function') {
-      raf = window.requestAnimationFrame(run);
-    } else {
-      run();
-    }
+    retry = setTimeout(attempt, 0);
 
     return () => {
-      if (raf !== undefined) window.cancelAnimationFrame(raf);
+      cancelled = true;
+      if (retry) clearTimeout(retry);
       if (timer) clearTimeout(timer);
       highlighted?.classList.remove(HIGHLIGHT_CLASS);
     };
-  }, []);
+  }, [pathname, search]);
 
   return null;
+}
+
+/** useSearchParams needs a Suspense boundary in the App Router. */
+export function BugReportFocus() {
+  return (
+    <Suspense fallback={null}>
+      <BugReportFocusInner />
+    </Suspense>
+  );
 }

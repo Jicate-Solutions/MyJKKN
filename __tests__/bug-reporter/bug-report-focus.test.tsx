@@ -11,12 +11,20 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, act } from '@testing-library/react';
+
+// The App Router hooks, read off the jsdom URL so history.replaceState acts as
+// a client-side navigation when the component re-renders.
+vi.mock('next/navigation', () => ({
+  usePathname: () => window.location.pathname,
+  useSearchParams: () => new URLSearchParams(window.location.search)
+}));
 import {
   BugReportFocus,
   applyBugFocus,
   parseBugFocusParams,
-  HIGHLIGHT_CLASS
+  HIGHLIGHT_CLASS,
+  FOCUS_WAIT_MS
 } from '@/components/bug-reporter/bug-report-focus';
 
 let scrollTo: ReturnType<typeof vi.fn>;
@@ -171,5 +179,58 @@ describe('<BugReportFocus />', () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(window.location.search).toBe(before);
+  });
+});
+
+describe('<BugReportFocus /> — links followed inside the app, and slow content', () => {
+  it('applies a bugFocus link reached by CLIENT-SIDE navigation, and clears the previous outline', async () => {
+    document.body.innerHTML =
+      '<button data-testid="first">1</button><button data-testid="second">2</button>';
+    setSearch('?bugFocus=' + encodeURIComponent('button[data-testid="first"]'));
+    const { rerender } = render(<BugReportFocus />);
+    const first = document.querySelector('[data-testid="first"]')!;
+    await vi.waitFor(() => expect(first.classList.contains(HIGHLIGHT_CLASS)).toBe(true));
+
+    // Navigate inside the app (the layout stays mounted), then re-render.
+    window.history.replaceState({}, '', '/marks?bugFocus=' + encodeURIComponent('button[data-testid="second"]'));
+    rerender(<BugReportFocus />);
+
+    const second = document.querySelector('[data-testid="second"]')!;
+    await vi.waitFor(() => expect(second.classList.contains(HIGHLIGHT_CLASS)).toBe(true));
+    expect(first.classList.contains(HIGHLIGHT_CLASS)).toBe(false);
+  });
+
+  it('keeps looking while content streams in, then outlines it (no fallback scroll)', async () => {
+    vi.useFakeTimers();
+    try {
+      setSearch('?bugFocus=' + encodeURIComponent('button[data-testid="late"]') + '&bugScroll=300');
+      render(<BugReportFocus />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1200); });
+      expect(scrollTo).not.toHaveBeenCalled();
+
+      const late = document.createElement('button');
+      late.setAttribute('data-testid', 'late');
+      document.body.appendChild(late);
+      await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+
+      expect(late.classList.contains(HIGHLIGHT_CLASS)).toBe(true);
+      expect(scrollTo).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives up after the wait and falls back to bugScroll', async () => {
+    vi.useFakeTimers();
+    try {
+      setSearch('?bugFocus=' + encodeURIComponent('button[data-testid="never"]') + '&bugScroll=300');
+      render(<BugReportFocus />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(FOCUS_WAIT_MS - 200); });
+      expect(scrollTo).not.toHaveBeenCalled();
+      await act(async () => { await vi.advanceTimersByTimeAsync(600); });
+      expect(scrollTo).toHaveBeenCalledWith(0, 300);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
