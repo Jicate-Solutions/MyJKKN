@@ -230,7 +230,7 @@ const containsWord = (haystack: string, needle: string): boolean => {
 /**
  * Join the columns exactly the way the card back does
  * (lib/id-cards/render-data.ts): `Street, Taluk, District, State - PIN`. Each part is
- * trimmed, empties are dropped, and the taluk is NOT printed.
+ * trimmed and empties are dropped; the taluk IS printed (final format 2026-09-23).
  */
 export function joinPrintableAddress(parts: AddressParts): string {
   // District carries the "(DT)" tag on the card (2026-09-23) so the reader

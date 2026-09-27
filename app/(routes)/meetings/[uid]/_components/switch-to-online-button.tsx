@@ -56,13 +56,17 @@ export function SwitchToOnlineButton({ uid }: { uid: string }) {
   const [days, setDays] = useState<DayGroup[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // ON by default, unlike Reschedule: the host asked to see every time here
+  // (Director, 24 Sep). The server accepts any 07:00-22:00 time for the host
+  // whether or not this is ticked; the box only narrows what is shown.
+  const [anyTime, setAnyTime] = useState(true);
   const [pending, startTransition] = useTransition();
   const router = useRouter();
 
-  async function loadSlots() {
+  async function loadSlots(showEverything = anyTime) {
     setLoading(true);
     setSelected(null);
-    const result = await getMyBookingSlots(uid);
+    const result = await getMyBookingSlots(uid, showEverything);
     setLoading(false);
     if (!result.success) {
       setError(result.error ?? 'Could not load available times.');
@@ -189,6 +193,27 @@ export function SwitchToOnlineButton({ uid }: { uid: string }) {
               Keep current time
             </Button>
           </div>
+
+          {/* The same box as Reschedule. Bookings still block: "any time" is
+              not "on top of something else". */}
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={anyTime}
+              onChange={(e) => {
+                setAnyTime(e.target.checked);
+                void loadSlots(e.target.checked);
+              }}
+              disabled={loading || pending}
+              className="mt-0.5 h-4 w-4"
+            />
+            <span className="text-muted-foreground">
+              Show any time, not just my available hours
+              <span className="block text-xs">
+                7am to 10pm, every day. Times you are already booked stay hidden.
+              </span>
+            </span>
+          </label>
 
           {loading ? (
             <p className="flex items-center gap-2 text-xs text-muted-foreground">

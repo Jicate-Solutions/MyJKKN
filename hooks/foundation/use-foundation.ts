@@ -24,6 +24,8 @@ export const foundationKeys = {
   examDefinitions: (level?: ExamLevel) =>
     [...foundationKeys.all, 'exam-definitions', level ?? 'all'] as const,
   topics: () => [...foundationKeys.all, 'topics'] as const,
+  topicsForExam: (examDefinitionId: string) =>
+    [...foundationKeys.all, 'topics', examDefinitionId] as const,
   cohorts: () => [...foundationKeys.all, 'cohorts'] as const,
   roster: (cohortId: string) =>
     [...foundationKeys.all, 'roster', cohortId] as const,
@@ -63,10 +65,21 @@ export function useExamDefinitions(level?: ExamLevel) {
   });
 }
 
-export function useTopics() {
+export function useTopics(enabled: boolean = true) {
   return useQuery({
     queryKey: foundationKeys.topics(),
     queryFn: () => FoundationService.listTopics(),
+    enabled,
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
+/** Only the topics mapped to this exam (exam_topic_map). Idle while null. */
+export function useTopicsForExam(examDefinitionId: string | null) {
+  return useQuery({
+    queryKey: foundationKeys.topicsForExam(examDefinitionId ?? ''),
+    queryFn: () => FoundationService.listTopicsForExam(examDefinitionId as string),
+    enabled: !!examDefinitionId,
     staleTime: 10 * 60 * 1000,
   });
 }

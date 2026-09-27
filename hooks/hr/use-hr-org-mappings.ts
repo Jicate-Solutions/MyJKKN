@@ -10,6 +10,8 @@ export interface HrOrgMapping {
   institution_id: string;
   hr_organization_id: string;
   organization_name: string;
+  /** false for an institution that pays nobody itself (Main Office). */
+  is_payroll_entity: boolean;
 }
 
 /**

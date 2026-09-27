@@ -4,6 +4,7 @@
 // user is auto-linked (no contact needed for individuals); a guest enters contact details.
 // Created: 2026-06-23.
 
+import type { FormFieldCondition } from '@/types/tournament';
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -43,7 +44,11 @@ import { queryKeys } from '@/lib/query/query-keys';
 import { SchoolMasterService } from '@/lib/services/school-master-service';
 import { TEAM_SPORTS } from '@/types/health-sports';
 import { EventRazorpayHostedRedirect } from '@/components/events/event-razorpay-hosted-redirect';
-import { DynamicFieldInput, isFieldVisible } from '@/components/events/dynamic-field-input';
+import {
+  DynamicFieldInput,
+  isFieldVisible,
+  isSectionVisible,
+} from '@/components/events/dynamic-field-input';
 import type { EventRegistrationFormField } from '@/types/tournament';
 import type { ParticipantOrgType } from '@/types/events';
 
@@ -207,6 +212,8 @@ interface DivisionLite {
 interface SectionLite {
   id: string;
   title: string;
+  /** Section-level "show only when" rule; null/absent = always shown. */
+  condition?: FormFieldCondition | null;
   fields: EventRegistrationFormField[];
 }
 
@@ -523,7 +530,7 @@ export function RegisterForm({
         </div>
       )}
 
-      {sections.map((section) => (
+      {sections.filter((section) => isSectionVisible(section, customFields)).map((section) => (
         <div key={section.id} className="space-y-3 border-t pt-4">
           <p className="text-sm font-semibold">{section.title}</p>
           {section.fields
