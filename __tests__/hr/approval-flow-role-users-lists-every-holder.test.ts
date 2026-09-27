@@ -58,6 +58,7 @@ import { GET } from '@/app/api/hr/recruitment/approval-flows/role-users/route';
 
 const HOD_ROLE = 'role-hod';
 const BIG_ROLE = 'role-faculty';
+const LEARNER_ROLE = 'role-learner';
 
 beforeEach(() => {
   const profiles: Row[] = [];
@@ -68,15 +69,26 @@ beforeEach(() => {
     profiles.push({ id, full_name: `HOD ${String(i).padStart(2, '0')}`, email: `${id}@jkkn.ac.in`, is_super_admin: false, is_active: i > 2, is_login_disabled: i === 3 });
     userRoles.push({ user_id: id, role_id: HOD_ROLE, role_key: 'hod' });
   }
-  // A role with 700 holders, the one to find sorts last (zz…).
-  for (let i = 1; i <= 700; i++) {
-    const id = `fac-${String(i).padStart(3, '0')}`;
-    const name = i === 700 ? 'Zz Kavitha Ramesh' : `Member ${String(i).padStart(3, '0')}`;
+  // A non-learner role with 1,200 holders — past one 1,000-row membership page.
+  // The one to find sorts last (Zz…).
+  for (let i = 1; i <= 1200; i++) {
+    const id = `fac-${String(i).padStart(4, '0')}`;
+    const name = i === 1200 ? 'Zz Kavitha Ramesh' : `Member ${String(i).padStart(4, '0')}`;
     profiles.push({ id, full_name: name, email: `${id}@jkkn.ac.in`, is_super_admin: false, is_active: true, is_login_disabled: false });
     userRoles.push({ user_id: id, role_id: BIG_ROLE, role_key: 'faculty' });
   }
+  // The learner role: 1,100 holders, browsing lists the first 1,000 by name.
+  for (let i = 1; i <= 1100; i++) {
+    const id = `lrn-${String(i).padStart(4, '0')}`;
+    profiles.push({ id, full_name: `Learner ${String(i).padStart(4, '0')}`, email: `${id}@jkkn.ac.in`, is_super_admin: false, is_active: true, is_login_disabled: false });
+    userRoles.push({ user_id: id, role_id: LEARNER_ROLE, role_key: 'student' });
+  }
   tables = {
-    custom_roles: [{ id: HOD_ROLE, role_key: 'hod' }, { id: BIG_ROLE, role_key: 'faculty' }],
+    custom_roles: [
+      { id: HOD_ROLE, role_key: 'hod' },
+      { id: BIG_ROLE, role_key: 'faculty' },
+      { id: LEARNER_ROLE, role_key: 'student' },
+    ],
     user_roles: userRoles,
     profiles,
   };
@@ -104,14 +116,20 @@ describe('approval-flow person picker: choosing a role lists its holders', () =>
     expect(await list({ role_key: 'hod' })).not.toContain('hod-03');
   });
 
-  it('a role with more holders than one page still lists every one when browsed', async () => {
+  it('a non-learner role past one membership page (1,200) lists every holder when browsed', async () => {
     const ids = await list({ role_key: 'faculty' });
-    expect(ids).toHaveLength(700);
+    expect(ids).toHaveLength(1200);
+    expect(ids).toContain('fac-1200');
+  });
+
+  it('only the learner role is cut when browsed (first 1,000 by name) — and its search still finds anyone', async () => {
+    expect(await list({ role_key: 'student' })).toHaveLength(1000);
+    expect(await list({ role_key: 'student', search: 'Learner 1100' })).toEqual(['lrn-1100']);
   });
 
   it('a name search inside a big role finds ANY holder — nobody is cut before the name is applied', async () => {
     // Critic round 2: the old lookup took 500 memberships first, then searched.
-    expect(await list({ role_key: 'faculty', search: 'Kavitha' })).toEqual(['fac-700']);
+    expect(await list({ role_key: 'faculty', search: 'Kavitha' })).toEqual(['fac-1200']);
   });
 
   it('a name search inside a role returns only that role\'s holders', async () => {

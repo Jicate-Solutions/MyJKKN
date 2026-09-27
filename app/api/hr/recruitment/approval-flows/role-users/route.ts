@@ -52,8 +52,10 @@ type ProfileRow = { id: string; full_name: string | null; email: string | null; 
 
 /** A name search is a type-ahead. */
 const TYPE_AHEAD = 20;
-/** Browsing a role: HOD has 99 holders; only student (7,000+) exceeds this. */
-const BROWSE_CAP = 1000;
+/** Browsing the learner role (7,000+ holders) lists this many, alphabetically;
+ *  its name search still finds anyone. Every other role is listed in full. */
+const LEARNER_ROLE_KEY = 'student';
+const LEARNER_BROWSE_CAP = 1000;
 /** Name matches examined before the role filter. */
 const NAME_MATCH_POOL = 1000;
 /** Membership rows per page. */
@@ -108,7 +110,7 @@ export async function GET(request: NextRequest) {
     let rows: ProfileRow[] = [];
 
     if (roleKey === 'super_admin') {
-      let q = eligibleProfiles().eq('is_super_admin', true).limit(BROWSE_CAP);
+      let q = eligibleProfiles().eq('is_super_admin', true);
       if (search) q = q.or(nameFilter);
       const { data, error } = await q;
       if (error) throw error;
@@ -146,8 +148,8 @@ export async function GET(request: NextRequest) {
         rows = matchRows.filter((m) => heldIds.has(m.id)).slice(0, TYPE_AHEAD);
       } else {
         // Browsing a role lists its holders — every one, paged (BUG-004395: a
-        // blanket cap of 20 showed 20 of 99 HODs). Only a role larger than
-        // BROWSE_CAP (student) is cut, alphabetically; its search finds anyone.
+        // blanket cap of 20 showed 20 of 99 HODs). Only the learner role is
+        // cut, alphabetically; its name search finds anyone.
         const holderIds = new Set<string>();
         for (let from = 0; ; from += PAGE) {
           const { data: page, error: pageErr } = await admin
@@ -167,9 +169,8 @@ export async function GET(request: NextRequest) {
           if (error) throw error;
           found.push(...((data ?? []) as ProfileRow[]));
         }
-        rows = found
-          .sort((a, b) => (a.full_name ?? '').localeCompare(b.full_name ?? ''))
-          .slice(0, BROWSE_CAP);
+        found.sort((a, b) => (a.full_name ?? '').localeCompare(b.full_name ?? ''));
+        rows = roleKey === LEARNER_ROLE_KEY ? found.slice(0, LEARNER_BROWSE_CAP) : found;
       }
     } else {
       // Unfiltered directory search — require a real term so we never dump
