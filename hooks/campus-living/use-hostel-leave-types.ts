@@ -8,7 +8,6 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { HostelLeaveTypeService } from '@/lib/services/campus-living/hostel-leave-type-service';
-import { usePermissions } from '@/hooks/use-permissions';
 import type {
   HostelLeaveType,
   HostelLeaveTypeFilters,
@@ -18,7 +17,6 @@ import type {
 import { logger } from '@/lib/utils/enhanced-logger';
 
 export function useHostelLeaveTypes(initialFilters: HostelLeaveTypeFilters = {}) {
-  const { isSuperAdmin, userProfile } = usePermissions();
   const [hostelLeaveTypes, setHostelLeaveTypes] = useState<HostelLeaveType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,13 +38,7 @@ export function useHostelLeaveTypes(initialFilters: HostelLeaveTypeFilters = {})
         setError(null);
         const currentFilters = newFilters || filtersRef.current;
 
-        const result = isSuperAdmin
-          ? await HostelLeaveTypeService.getHostelLeaveTypes(currentFilters)
-          : await HostelLeaveTypeService.getHostelLeaveTypesWithAccess(
-              currentFilters,
-              userProfile?.institution_id,
-              false
-            );
+        const result = await HostelLeaveTypeService.getHostelLeaveTypes(currentFilters);
 
         setHostelLeaveTypes(result.data);
         setMetadata(result.metadata);
@@ -59,7 +51,7 @@ export function useHostelLeaveTypes(initialFilters: HostelLeaveTypeFilters = {})
         setLoading(false);
       }
     },
-    [isSuperAdmin, userProfile?.institution_id]
+    []
   );
 
   const updateFilters = useCallback(
@@ -118,25 +110,16 @@ export function useHostelLeaveTypes(initialFilters: HostelLeaveTypeFilters = {})
 }
 
 /** Active-only hook for the leave-request form selector. */
-export function useActiveHostelLeaveTypes(
-  institutionId: string | null | undefined
-) {
+export function useActiveHostelLeaveTypes() {
   const [hostelLeaveTypes, setHostelLeaveTypes] = useState<HostelLeaveType[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     async function run() {
-      if (!institutionId) {
-        if (!cancelled) {
-          setHostelLeaveTypes([]);
-          setLoading(false);
-        }
-        return;
-      }
       try {
         setLoading(true);
-        const rows = await HostelLeaveTypeService.getActiveHostelLeaveTypes(institutionId);
+        const rows = await HostelLeaveTypeService.getActiveHostelLeaveTypes();
         if (!cancelled) setHostelLeaveTypes(rows);
       } catch (err) {
         logger.error('campus-living/leave-types', 'Error fetching active', err);
@@ -149,7 +132,7 @@ export function useActiveHostelLeaveTypes(
     return () => {
       cancelled = true;
     };
-  }, [institutionId]);
+  }, []);
 
   return { hostelLeaveTypes, loading };
 }

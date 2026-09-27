@@ -21691,20 +21691,24 @@ GRANT  EXECUTE ON FUNCTION public.fn_induction_session_in_my_speaker_event(uuid)
 -- exposes the caller's own org row; self-authorizes via role_has_institution_access().
 -- Drives the institution dropdowns in /hr/leave/* and the HR PolicyEditor.
 -- =====================================================================================
-CREATE OR REPLACE FUNCTION public.fn_hr_orgs_for_institutions()
-RETURNS TABLE (institution_id uuid, hr_organization_id uuid, organization_name text)
+-- 2026-09-23 (20260923121000): also returns is_payroll_entity, so the salary
+-- register's Generate dialog can offer only institutions that pay salaries.
+DROP FUNCTION IF EXISTS public.fn_hr_orgs_for_institutions();
+CREATE FUNCTION public.fn_hr_orgs_for_institutions()
+RETURNS TABLE (institution_id uuid, hr_organization_id uuid, organization_name text, is_payroll_entity boolean)
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT o.institution_id, o.id, o.name
+  SELECT o.institution_id, o.id, o.name, COALESCE(o.is_payroll_entity, true)
   FROM public.hr_organizations o
   WHERE o.institution_id IS NOT NULL
+    AND o.included_in_hr
     AND public.role_has_institution_access(o.institution_id)
 $$;
-REVOKE EXECUTE ON FUNCTION public.fn_hr_orgs_for_institutions() FROM anon;
-GRANT EXECUTE ON FUNCTION public.fn_hr_orgs_for_institutions() TO authenticated;
+REVOKE ALL ON FUNCTION public.fn_hr_orgs_for_institutions() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_orgs_for_institutions() TO authenticated, service_role;
 
 -- Updated: 2026-07-03 (deep-review r5) — SCF "show the split" confirmation rollup.
 -- Mirror of supabase/migrations/20260703003800_scf_confirmation_rollup.sql.
@@ -45614,23 +45618,30 @@ GRANT EXECUTE ON FUNCTION public.fn_hostel_allocation_audit(text, uuid, uuid, uu
 -- The learner-visibility predicate is re-applied by hand, copied from
 -- learners_profiles_select_policy, so DEFINER never widens who can see a learner.
 -- Aggregates only; never bill rows.
-CREATE OR REPLACE FUNCTION public.fn_onboarding_payment_progress(p_learner_ids uuid[])
-RETURNS TABLE (
-  learner_id          uuid,
-  target_code         text,
-  target_label        text,
-  threshold_pct       numeric,
-  threshold_basis     text,
-  achieved_pct        numeric,
-  basis_billed        numeric,
-  basis_paid          numeric,
-  basis_balance       numeric,
-  total_billed        numeric,
-  total_paid          numeric,
-  total_balance       numeric,
-  amount_to_threshold numeric,
-  meets_threshold     boolean,
-  has_basis_due       boolean
+-- Current body: supabase/migrations/20260925160000_onboarding_progress_program_rules.sql
+-- (next instalment 2026-08-22; gate stage + blocked_reason, program rules 2026-09-25)
+DROP FUNCTION IF EXISTS public.fn_onboarding_payment_progress(uuid[]);
+
+CREATE FUNCTION public.fn_onboarding_payment_progress(p_learner_ids uuid[])
+RETURNS TABLE(
+  learner_id uuid, target_code text, target_label text,
+  threshold_pct numeric, threshold_basis text, achieved_pct numeric,
+  basis_billed numeric, basis_paid numeric, basis_balance numeric,
+  total_billed numeric, total_paid numeric, total_balance numeric,
+  amount_to_threshold numeric, meets_threshold boolean, has_basis_due boolean,
+  next_due_date date, next_due_amount numeric,
+  instalments_total integer, instalments_settled integer,
+  -- ADDED 2026-09-25
+  lifecycle_status text,
+  app_bills integer, app_billed numeric, app_paid numeric,
+  uni_bills integer, uni_billed numeric, uni_paid numeric,
+  gate_bills integer, gate_settled integer,
+  pct_billed_to_date numeric,
+  blocked_reason text,
+  -- ADDED 2026-09-25 (program rules)
+  rule_lines jsonb,
+  rule_to_admit numeric,
+  gate_in_program boolean
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -45648,12 +45659,6 @@ BEGIN
     RETURN;
   END IF;
 
-  -- The promotion target for a 'reserved' learner. Resolved with the SAME
-  -- predicate evaluate_learner_status_after_payment uses to find a Stage B
-  -- target: a threshold-bearing status that neither gates a login ('active',
-  -- 60% — never automatic) nor is the universal-paid target ('reserved' itself).
-  -- ORDER BY ASC, not DESC: the engine picks the highest threshold ALREADY MET,
-  -- but this screen answers "which bar is next?", which is the lowest one.
   SELECT s.code, s.label, s.fee_paid_threshold_percent, s.threshold_basis
     INTO v_target_code, v_target_label, v_threshold, v_basis
   FROM public.admission_statuses s
@@ -45667,10 +45672,6 @@ BEGIN
 
   v_basis := COALESCE(v_basis, 'due_to_date');
 
-  -- One permission probe for the whole batch rather than one per learner:
-  -- user_has_permission() is the hot path in every RLS policy on this database
-  -- and calling it 200x per page render is the shape that produces 57014.
-  -- Institution access still varies per row and is checked per row below.
   v_perm := (
     COALESCE(public.user_has_permission('learners.admissions.view'::text), false)
     OR COALESCE(public.user_has_permission('learners.profiles.view'::text), false)
@@ -45679,11 +45680,7 @@ BEGIN
 
   RETURN QUERY
   WITH visible AS (
-    -- Byte-for-byte the predicate in learners_profiles_select_policy. DEFINER
-    -- bypassed that policy, so it is re-applied here by hand. The self-service
-    -- branches are kept so this function is never STRICTER than the policy —
-    -- a learner who can see their own row gets their own figures, nobody else's.
-    SELECT lp.id, lp.institution_id
+    SELECT lp.id, lp.institution_id, lp.lifecycle_status::text AS status
     FROM public.learners_profiles lp
     WHERE lp.id = ANY (p_learner_ids)
       AND (
@@ -45693,12 +45690,141 @@ BEGIN
         OR lp.college_email = (SELECT p.email FROM public.profiles p WHERE p.id = auth.uid())
       )
   ),
+  -- The waterfall, inline. Not read from vw_bill_instalment_state because that
+  -- view is security_invoker: inside this SECURITY DEFINER function it would be
+  -- filtered by whoever is calling, so two admins could see different schedules
+  -- for the same learner.
+  tranche AS (
+    SELECT
+      b.student_id,
+      i.due_date,
+      i.amount,
+      (LEAST(
+         GREATEST(
+           GREATEST(0, b.final_amount - COALESCE(b.balance_amount, b.final_amount))
+           - COALESCE(SUM(i.amount) OVER (
+               PARTITION BY i.bill_id ORDER BY i.due_date, i.sequence_no
+               ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0),
+           0),
+         i.amount) >= i.amount) AS is_settled
+    FROM public.billing_bill_instalments i
+    JOIN public.billing_student_bills b ON b.id = i.bill_id
+    WHERE b.student_id IN (SELECT id FROM visible)
+      AND b.status NOT IN ('cancelled', 'superseded')
+  ),
+  sched AS (
+    SELECT
+      t.student_id,
+      MIN(t.due_date) FILTER (WHERE NOT t.is_settled) AS next_due,
+      COUNT(*)::int                                    AS n_total,
+      COUNT(*) FILTER (WHERE t.is_settled)::int        AS n_settled
+    FROM tranche t
+    GROUP BY t.student_id
+  ),
+  next_amt AS (
+    SELECT t.student_id, SUM(t.amount) AS amt
+    FROM tranche t
+    JOIN sched s2 ON s2.student_id = t.student_id AND s2.next_due = t.due_date
+    WHERE NOT t.is_settled
+    GROUP BY t.student_id
+  ),
+  -- Engine Stage A, per fee. The "settled" predicate is the engine's, verbatim.
+  gate AS (
+    SELECT
+      b.student_id,
+      COUNT(*) FILTER (WHERE bc.kind = 'application_fee')::int AS n_app,
+      COALESCE(SUM(b.final_amount) FILTER (WHERE bc.kind = 'application_fee'), 0) AS app_b,
+      COALESCE(SUM(GREATEST(0, b.final_amount - COALESCE(b.balance_amount, b.final_amount)))
+               FILTER (WHERE bc.kind = 'application_fee'), 0) AS app_p,
+      COUNT(*) FILTER (WHERE bc.kind = 'university_fee')::int AS n_uni,
+      COALESCE(SUM(b.final_amount) FILTER (WHERE bc.kind = 'university_fee'), 0) AS uni_b,
+      COALESCE(SUM(GREATEST(0, b.final_amount - COALESCE(b.balance_amount, b.final_amount)))
+               FILTER (WHERE bc.kind = 'university_fee'), 0) AS uni_p,
+      COUNT(*) FILTER (WHERE
+          b.status::text = 'paid'
+          OR (b.final_amount - COALESCE(b.balance_amount, b.final_amount)) > 0
+          OR (b.final_amount = 0 AND COALESCE(b.balance_amount, 0) = 0))::int AS n_settled
+    FROM public.billing_student_bills b
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id
+    WHERE b.student_id IN (SELECT id FROM visible)
+      AND bc.kind IN ('application_fee', 'university_fee')
+      AND b.status NOT IN ('cancelled', 'superseded')
+    GROUP BY b.student_id
+  ),
+  -- Program rules, exactly as fn_learner_status_apply_item_rules sees them.
+  rule_tranche AS (
+    SELECT
+      b.student_id,
+      i.promotes_to_status_code AS target,
+      bc.category_name::text AS category,
+      i.label,
+      i.sequence_no AS seq,
+      (COUNT(*) OVER (PARTITION BY i.bill_id))::int AS n_of,
+      i.amount,
+      i.due_date,
+      LEAST(
+        GREATEST(
+          GREATEST(0, b.final_amount - COALESCE(b.balance_amount, b.final_amount))
+          - COALESCE(SUM(i.amount) OVER (
+              PARTITION BY i.bill_id ORDER BY i.due_date, i.sequence_no
+              ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0),
+          0),
+        i.amount) AS paid
+    FROM public.billing_bill_instalments i
+    JOIN public.billing_student_bills b ON b.id = i.bill_id
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id
+    WHERE b.student_id IN (SELECT id FROM visible)
+      AND b.status::text NOT IN ('cancelled', 'superseded')
+  ),
+  rule_unscheduled AS (
+    SELECT
+      b.student_id,
+      fsi.promotes_to_status_code AS target,
+      bc.category_name::text AS category,
+      NULL::text AS label,
+      1 AS seq,
+      1 AS n_of,
+      b.final_amount AS amount,
+      b.due_date,
+      GREATEST(0, b.final_amount - COALESCE(b.balance_amount, b.final_amount)) AS paid,
+      (COALESCE(b.status::text = 'paid', false)
+       OR COALESCE(b.balance_amount, b.final_amount) <= 0) AS settled
+    FROM public.billing_student_bills b
+    JOIN public.admission_fee_structure_items fsi ON fsi.id = b.fee_structure_item_id
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id
+    WHERE b.student_id IN (SELECT id FROM visible)
+      AND b.status::text NOT IN ('cancelled', 'superseded')
+      AND fsi.promotes_to_status_code IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM public.billing_bill_instalments i WHERE i.bill_id = b.id)
+  ),
+  rule_rows AS (
+    SELECT student_id, target, category, label, seq, n_of, amount, due_date, paid,
+           (paid >= amount) AS settled
+    FROM rule_tranche WHERE target IS NOT NULL
+    UNION ALL
+    SELECT student_id, target, category, label, seq, n_of, amount, due_date, paid, settled
+    FROM rule_unscheduled
+  ),
+  rules AS (
+    SELECT
+      r.student_id,
+      jsonb_agg(jsonb_build_object(
+        'target', r.target, 'category', r.category, 'label', r.label,
+        'seq', r.seq, 'of', r.n_of, 'amount', r.amount, 'paid', r.paid,
+        'settled', r.settled, 'due_date', r.due_date)
+        ORDER BY r.target, r.due_date, r.category, r.seq) AS lines,
+      bool_or(r.target = 'reserved') AS has_reserved,
+      COALESCE(bool_and(r.settled) FILTER (WHERE r.target = 'reserved'), false) AS reserved_met,
+      bool_or(r.target = 'admitted') AS has_admitted,
+      COALESCE(bool_and(r.settled) FILTER (WHERE r.target = 'admitted'), false) AS admitted_met,
+      SUM(GREATEST(0, r.amount - r.paid)) FILTER (WHERE r.target = 'admitted') AS to_admit
+    FROM rule_rows r
+    GROUP BY r.student_id
+  ),
   progress AS (
     SELECT
       vis.id AS lid,
-      -- Basis-aligned pair. The percent is taken from the view rather than
-      -- recomputed from the amounts: a 0.01 rounding difference between this
-      -- screen and the promotion engine would read as a bug in the gate.
+      vis.status,
       CASE v_basis
         WHEN 'billed_to_date'           THEN v.pct_billed_to_date
         WHEN 'due_to_date_current_year' THEN v.pct_due_current_year
@@ -45715,46 +45841,87 @@ BEGIN
         ELSE                                 v.due_paid
       END AS b_paid,
       v.countable_billed AS t_billed,
-      v.countable_paid   AS t_paid
+      v.countable_paid   AS t_paid,
+      v.pct_billed_to_date AS pct_billed
     FROM visible vis
     JOIN public.vw_learner_payment_progress v ON v.learner_id = vis.id
+  ),
+  judged AS (
+    SELECT
+      p.*,
+      COALESCE(g.n_app, 0) + COALESCE(g.n_uni, 0) AS g_bills,
+      COALESCE(g.n_settled, 0)                    AS g_settled,
+      (v_threshold IS NOT NULL AND COALESCE(p.b_billed, 0) > 0
+        AND COALESCE(p.pct, 0) >= v_threshold)    AS meets,
+      ru.lines                                    AS r_lines,
+      COALESCE(ru.has_reserved, false)            AS r_has_reserved,
+      COALESCE(ru.reserved_met, false)            AS r_reserved_met,
+      COALESCE(ru.has_admitted, false)            AS r_has_admitted,
+      COALESCE(ru.admitted_met, false)            AS r_admitted_met,
+      ru.to_admit                                 AS r_to_admit
+    FROM progress p
+    LEFT JOIN gate g ON g.student_id = p.lid
+    LEFT JOIN rules ru ON ru.student_id = p.lid
   )
   SELECT
-    p.lid,
+    j.lid,
     v_target_code,
     v_target_label,
     v_threshold,
     v_basis,
-    COALESCE(p.pct, 0),
-    COALESCE(p.b_billed, 0),
-    COALESCE(p.b_paid, 0),
-    COALESCE(p.b_billed, 0) - COALESCE(p.b_paid, 0),
-    COALESCE(p.t_billed, 0),
-    COALESCE(p.t_paid, 0),
-    COALESCE(p.t_billed, 0) - COALESCE(p.t_paid, 0),
-    -- NULL, not 0, when nothing is due yet or no threshold is configured.
-    -- Rendering "0 to admit" for a learner whose first instalment has not come
-    -- due would read as "pay nothing and they are in", which is false — they
-    -- are waiting on a due date, not on money.
+    COALESCE(j.pct, 0),
+    COALESCE(j.b_billed, 0),
+    COALESCE(j.b_paid, 0),
+    COALESCE(j.b_billed, 0) - COALESCE(j.b_paid, 0),
+    COALESCE(j.t_billed, 0),
+    COALESCE(j.t_paid, 0),
+    COALESCE(j.t_billed, 0) - COALESCE(j.t_paid, 0),
     CASE
-      WHEN v_threshold IS NULL OR COALESCE(p.b_billed, 0) <= 0 THEN NULL
-      ELSE GREATEST(0, CEIL(p.b_billed * v_threshold / 100.0) - COALESCE(p.b_paid, 0))
+      WHEN v_threshold IS NULL OR COALESCE(j.b_billed, 0) <= 0 THEN NULL
+      ELSE GREATEST(0, CEIL(j.b_billed * v_threshold / 100.0) - COALESCE(j.b_paid, 0))
     END,
-    (v_threshold IS NOT NULL AND COALESCE(p.b_billed, 0) > 0 AND COALESCE(p.pct, 0) >= v_threshold),
-    (COALESCE(p.b_billed, 0) > 0)
-  FROM progress p;
+    j.meets,
+    (COALESCE(j.b_billed, 0) > 0),
+    sc.next_due,
+    na.amt,
+    COALESCE(sc.n_total, 0),
+    COALESCE(sc.n_settled, 0),
+    j.status,
+    COALESCE(g.n_app, 0), COALESCE(g.app_b, 0), COALESCE(g.app_p, 0),
+    COALESCE(g.n_uni, 0), COALESCE(g.uni_b, 0), COALESCE(g.uni_p, 0),
+    j.g_bills,
+    j.g_settled,
+    COALESCE(j.pct_billed, 0),
+    CASE
+      WHEN j.status NOT IN ('account', 'reserved')            THEN 'none'
+      -- Either admit path satisfied: the pooled floor or the program rule.
+      WHEN j.meets OR (j.r_has_admitted AND j.r_admitted_met) THEN 'threshold_met_stuck'
+      WHEN j.status = 'account' AND j.r_has_reserved AND j.r_reserved_met THEN 'gate_met_stuck'
+      -- No App / Univ fee billed and no rule naming 'reserved': this program
+      -- goes account -> admitted directly.
+      WHEN j.status = 'account' AND j.g_bills = 0 AND NOT j.r_has_reserved THEN 'no_gate_in_program'
+      WHEN j.status = 'account' AND j.g_bills = 0             THEN 'gate_no_bills'
+      WHEN j.status = 'account' AND j.g_settled < j.g_bills   THEN 'gate_unpaid'
+      WHEN j.status = 'account'                               THEN 'gate_met_stuck'
+      WHEN COALESCE(j.b_billed, 0) <= 0 AND NOT j.r_has_admitted THEN 'nothing_due'
+      ELSE                                                         'below_threshold'
+    END,
+    COALESCE(j.r_lines, '[]'::jsonb),
+    j.r_to_admit,
+    (j.g_bills > 0 OR j.r_has_reserved)
+  FROM judged j
+  LEFT JOIN gate     g  ON g.student_id  = j.lid
+  LEFT JOIN sched    sc ON sc.student_id = j.lid
+  LEFT JOIN next_amt na ON na.student_id = j.lid;
 END;
 $function$;
 
 COMMENT ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) IS
-  'Per-learner payment position against the configured reserved->admitted fee threshold, for the Awaiting Payment tier of /learners/onboarding. Basis-aware (admission_statuses.threshold_basis). SECURITY DEFINER so bill totals are readable without billing.bills.view, which working this queue does not require; re-applies learners_profiles_select_policy per row so it never widens who can see a learner.';
+  'Fee position for the Awaiting Payment tier (account + reserved). Percentages come from vw_learner_payment_progress so the number on screen and the number in the promotion gate cannot drift. Returns the next unsettled instalment (2026-08-22) and, since 2026-09-25, the Application/University fee gate per fee plus blocked_reason: the first pipeline stage (account->reserved, then reserved->admitted) that is holding the learner back. Since 20260925160000 also the program fee-structure rules (rule_lines, rule_to_admit, gate_in_program), evaluated exactly as fn_learner_status_apply_item_rules does.';
 
--- Supabase grants EXECUTE directly to anon, so REVOKE FROM PUBLIC alone is a
--- no-op — this reads billing aggregates and must not be anon-callable.
-REVOKE ALL ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) FROM anon;
-GRANT EXECUTE ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_onboarding_payment_progress(uuid[])
+  TO authenticated, service_role;
 
 
 -- ===========================================================================
@@ -46547,14 +46714,21 @@ LANGUAGE sql
 IMMUTABLE
 SET search_path TO 'public'
 AS $$
+  WITH n AS (
+    SELECT regexp_replace(btrim(p_name), '\s+', ' ', 'g') AS v
+  )
   SELECT CASE
            WHEN p_name IS NULL THEN NULL
-           ELSE upper(regexp_replace(btrim(p_name), '\s+', ' ', 'g'))
-         END;
+           ELSE upper(coalesce(
+                  nullif(btrim(regexp_replace(n.v, '^((MRS|MR|MS|MISS|DR)(\.\s*|\s+))+', '', 'i')), ''),
+                  n.v))
+         END
+    FROM n;
 $$;
 
+-- Title stripping added by supabase/migrations/20260925120000_staff_name_strip_titles.sql
 COMMENT ON FUNCTION public.fn_canonical_staff_name(text) IS
-  'Canonical staff-name form: trim ends, collapse internal whitespace runs to a single space, uppercase. IMMUTABLE so CHECK constraints may call it.';
+  'Canonical staff-name form: trim ends, collapse internal whitespace, strip leading salutations (MR/MRS/MS/MISS/DR followed by "." or space), uppercase. IMMUTABLE + idempotent so CHECK constraints may call it.';
 
 CREATE OR REPLACE FUNCTION public.fn_normalize_staff_names()
 RETURNS trigger
@@ -56387,9 +56561,21 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  -- 20260925150000: HR Head (staff.role.change) may change a role too, but
+  -- never onto an is_privileged role.
   IF TG_OP = 'UPDATE' AND NEW.role_key IS DISTINCT FROM OLD.role_key THEN
-    RAISE EXCEPTION 'Only a super administrator can change a staff member''s role.'
-      USING ERRCODE = 'P0001';
+    IF NOT coalesce(public.user_has_permission('staff.role.change'), false) THEN
+      RAISE EXCEPTION 'Only HR Head or a super administrator can change a staff member''s role.'
+        USING ERRCODE = 'P0001';
+    END IF;
+
+    SELECT r.is_privileged INTO v_privileged
+    FROM public.custom_roles r WHERE r.role_key = NEW.role_key;
+
+    IF coalesce(v_privileged, false) THEN
+      RAISE EXCEPTION 'Only a super administrator can assign the role "%".', NEW.role_key
+        USING ERRCODE = 'P0001';
+    END IF;
   END IF;
 
   IF TG_OP = 'INSERT' THEN
@@ -56407,7 +56593,7 @@ END;
 $function$;
 
 COMMENT ON FUNCTION public.fn_staff_guard_role_key() IS
-  'Blocks non-super-admins from changing staff.role_key, or creating staff with a privileged role.';
+  'staff.role_key guard: changes need super admin or staff.role.change (never onto an is_privileged role); a privileged role on create needs super admin.';
 
 REVOKE ALL ON FUNCTION public.fn_staff_guard_role_key() FROM anon, authenticated, PUBLIC;
 
@@ -70426,3 +70612,958 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION public.get_cl_billing_audit_summary(uuid[], uuid, uuid, uuid, uuid, text, boolean) FROM PUBLIC, anon;
 GRANT  EXECUTE ON FUNCTION public.get_cl_billing_audit_summary(uuid[], uuid, uuid, uuid, uuid, text, boolean) TO authenticated, service_role;
+
+
+
+-- ===========================================================================
+-- Fee Structure Match audit (Billing -> Coverage -> Audit) + missing-bill generator
+-- Source: supabase/migrations/20260925180000_billing_audit_fee_structure_generate.sql
+-- (supersedes 20260925170000)
+-- ===========================================================================
+CREATE FUNCTION public.fn_billing_audit_fee_structure_rows(
+  p_institution_ids    uuid[],
+  p_lifecycle_statuses text[],
+  p_admission_year     integer,
+  p_degree_id          uuid,
+  p_department_id      uuid,
+  p_program_id         uuid,
+  p_gender             text,
+  p_accommodation_type_ids uuid[]
+)
+RETURNS TABLE (
+  learner_id          uuid,
+  full_name           text,
+  roll_number         text,
+  lifecycle_status    text,
+  institution_id      uuid,
+  institution_name    text,
+  program_name        text,
+  admission_year      integer,
+  institution_has_structures boolean,
+  structure_id        uuid,
+  structure_name      text,
+  item_id             uuid,
+  category_id         uuid,
+  category_name       text,
+  category_kind       text,
+  schedule_mode       text,
+  expected_amount     numeric,
+  expected_instalments integer,
+  bill_count          integer,
+  billed_amount       numeric,
+  paid_amount         numeric,
+  bill_instalments    integer,
+  issue               text,
+  no_structure_reason text,
+  flag_other_structure boolean,
+  flag_amount_mismatch boolean,
+  flag_not_linked     boolean,
+  flag_split_missing  boolean
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  WITH scope AS MATERIALIZED (
+    SELECT lp.id, lp.institution_id, lp.quota_id, lp.community_category_id,
+           lp.lifecycle_status::text AS status,
+           TRIM(CONCAT_WS(' ', lp.first_name, lp.last_name)) AS full_name,
+           lp.roll_number, i.name::text AS institution_name,
+           p.program_name::text AS program_name, adm.year AS adm_year,
+           EXISTS (SELECT 1 FROM public.admission_fee_structures f
+                    WHERE f.institution_id = lp.institution_id
+                      AND f.status = 'active') AS inst_has_fs
+    FROM public.learners_profiles lp
+    JOIN public.admission_years adm ON adm.id = lp.admission_year_id
+    LEFT JOIN public.institutions i ON i.id = lp.institution_id
+    LEFT JOIN public.programs p ON p.id = lp.program_id
+    WHERE lp.institution_id = ANY(p_institution_ids)
+      AND lp.lifecycle_status::text = ANY(p_lifecycle_statuses)
+      AND (p_admission_year IS NULL OR adm.year = p_admission_year)
+      AND (p_degree_id     IS NULL OR lp.degree_id     = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id    IS NULL OR lp.program_id    = p_program_id)
+      AND (p_accommodation_type_ids IS NULL
+           OR lp.accommodation_type_id = ANY(p_accommodation_type_ids))
+      AND (p_gender IS NULL OR UPPER(TRIM(lp.gender)) = UPPER(TRIM(p_gender)))
+  ),
+  computed AS MATERIALIZED (
+    -- What account transition would bill this learner today.
+    SELECT s.*,
+           CASE WHEN s.inst_has_fs
+                THEN public.admission_compute_fee_items_for_learner(s.id)
+                ELSE '[]'::jsonb END AS items
+    FROM scope s
+  ),
+  expected AS MATERIALIZED (
+    SELECT c.id AS lid,
+           NULLIF(it->>'category_id', '')::uuid           AS cat_id,
+           (it->>'amount')::numeric                       AS exp_amt,
+           NULLIF(it->>'fee_structure_item_id', '')::uuid AS fsi_id,
+           NULLIF(it->>'fee_structure_id', '')::uuid      AS fs_id
+    FROM computed c
+    CROSS JOIN LATERAL jsonb_array_elements(c.items) it
+    WHERE NULLIF(it->>'category_id', '') IS NOT NULL
+  ),
+  bills AS MATERIALIZED (
+    SELECT b.student_id, b.item_category_id,
+           COUNT(*)::int                                   AS n_bills,
+           SUM(b.final_amount)                             AS billed,
+           SUM(GREATEST(0, b.final_amount - COALESCE(b.balance_amount, b.final_amount))) AS paid,
+           array_remove(array_agg(DISTINCT b.fee_structure_item_id), NULL) AS fsi_ids,
+           COUNT(*) FILTER (WHERE b.instalment_group_id IS NOT NULL)::int AS n_grouped,
+           COALESCE(SUM((SELECT COUNT(*) FROM public.billing_bill_instalments i
+                           WHERE i.bill_id = b.id)), 0)::int AS n_lines
+    FROM public.billing_student_bills b
+    WHERE b.student_id IN (SELECT id FROM scope)
+      AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+    GROUP BY b.student_id, b.item_category_id
+  ),
+  item_rows AS (
+    SELECT c.*, e.cat_id, e.exp_amt, e.fsi_id,
+           COALESCE(fs.id, e.fs_id) AS fs_id,
+           COALESCE(fs.name::text, 'Legacy fee snapshot') AS fs_name,
+           bc.category_name::text AS cat_name, bc.kind::text AS cat_kind,
+           fi.schedule_mode,
+           CASE WHEN fi.schedule_mode = 'split'
+                THEN (SELECT COUNT(*) FROM public.admission_fee_structure_item_schedules sc
+                       WHERE sc.fee_structure_item_id = fi.id)::int
+                ELSE 1 END AS exp_lines,
+           bl.n_bills, bl.billed, bl.paid, bl.fsi_ids, bl.n_grouped, bl.n_lines
+    FROM computed c
+    JOIN expected e ON e.lid = c.id
+    JOIN public.billing_categories bc ON bc.id = e.cat_id
+    LEFT JOIN public.admission_fee_structure_items fi ON fi.id = e.fsi_id
+    LEFT JOIN public.admission_fee_structures fs ON fs.id = COALESCE(fi.fee_structure_id, e.fs_id)
+    LEFT JOIN bills bl ON bl.student_id = c.id AND bl.item_category_id = e.cat_id
+  ),
+  judged AS (
+    SELECT r.*,
+           (r.n_bills IS NOT NULL AND r.fsi_id IS NOT NULL
+              AND EXISTS (SELECT 1 FROM unnest(r.fsi_ids) x WHERE x <> r.fsi_id))                 AS f_other,
+           (r.n_bills IS NOT NULL AND ABS(COALESCE(r.billed, 0) - r.exp_amt) > 1)                  AS f_amount,
+           (r.n_bills IS NOT NULL AND COALESCE(cardinality(r.fsi_ids), 0) = 0)                    AS f_unlinked,
+           (r.n_bills IS NOT NULL AND r.schedule_mode = 'split'
+              AND COALESCE(r.n_lines, 0) = 0 AND COALESCE(r.n_grouped, 0) < 2)                     AS f_split
+    FROM item_rows r
+  )
+  SELECT j.id, j.full_name, j.roll_number, j.status, j.institution_id, j.institution_name,
+         j.program_name, j.adm_year, j.inst_has_fs, j.fs_id, j.fs_name, j.fsi_id, j.cat_id,
+         j.cat_name, j.cat_kind, j.schedule_mode, j.exp_amt, j.exp_lines, COALESCE(j.n_bills, 0),
+         COALESCE(j.billed, 0), COALESCE(j.paid, 0),
+         GREATEST(COALESCE(j.n_lines, 0), COALESCE(j.n_grouped, 0)),
+         CASE
+           -- Account transition never bills these; their own modules do.
+           WHEN j.n_bills IS NULL AND j.cat_kind IN ('hostel', 'mess', 'transport') THEN 'other_module'
+           WHEN j.n_bills IS NULL THEN 'missing_bill'
+           WHEN j.f_other         THEN 'other_structure'
+           WHEN j.f_amount        THEN 'amount_mismatch'
+           WHEN j.f_unlinked      THEN 'not_linked'
+           WHEN j.f_split         THEN 'split_missing'
+           ELSE 'ok'
+         END,
+         NULL::text,
+         COALESCE(j.f_other, false), COALESCE(j.f_amount, false),
+         COALESCE(j.f_unlinked, false), COALESCE(j.f_split, false)
+  FROM judged j
+  UNION ALL
+  SELECT c.id, c.full_name, c.roll_number, c.status, c.institution_id, c.institution_name,
+         c.program_name, c.adm_year, c.inst_has_fs, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+         NULL, NULL,
+         (SELECT COALESCE(SUM(b.n_bills), 0)::int FROM bills b WHERE b.student_id = c.id),
+         (SELECT COALESCE(SUM(b.billed), 0) FROM bills b WHERE b.student_id = c.id),
+         (SELECT COALESCE(SUM(b.paid), 0) FROM bills b WHERE b.student_id = c.id),
+         0,
+         'no_structure',
+         CASE
+           WHEN NOT c.inst_has_fs               THEN 'institution_has_none'
+           WHEN c.quota_id IS NULL              THEN 'quota_missing'
+           WHEN c.community_category_id IS NULL THEN 'community_missing'
+           ELSE 'no_matching_combo'
+         END,
+         false, false, false, false
+  FROM computed c
+  WHERE NOT EXISTS (SELECT 1 FROM expected e WHERE e.lid = c.id);
+$function$;
+
+COMMENT ON FUNCTION public.fn_billing_audit_fee_structure_rows(uuid[], text[], integer, uuid, uuid, uuid, text, uuid[]) IS
+  'INTERNAL row builder for the Fee Structure Match audit. No permission check inside: callable only by the gated get_billing_audit_fee_structure_match* functions (owner). Expected items come from admission_compute_fee_items_for_learner — what account transition bills.';
+
+REVOKE ALL ON FUNCTION public.fn_billing_audit_fee_structure_rows(uuid[], text[], integer, uuid, uuid, uuid, text, uuid[]) FROM PUBLIC, anon, authenticated;
+
+-- -----------------------------------------------------------------------------
+-- List (paged) — adds category / schedule / structure-name filters
+-- -----------------------------------------------------------------------------
+CREATE FUNCTION public.get_billing_audit_fee_structure_match(
+  p_institution_ids    uuid[]  DEFAULT NULL,
+  p_lifecycle_statuses text[]  DEFAULT ARRAY['account','reserved','admitted','active'],
+  p_admission_year     integer DEFAULT NULL,
+  p_degree_id          uuid    DEFAULT NULL,
+  p_department_id      uuid    DEFAULT NULL,
+  p_program_id         uuid    DEFAULT NULL,
+  p_gender             text    DEFAULT NULL,
+  p_accommodation_type_ids uuid[] DEFAULT NULL,
+  p_issue              text    DEFAULT NULL,
+  p_include_ok         boolean DEFAULT false,
+  p_include_no_structure_institutions boolean DEFAULT false,
+  p_search             text    DEFAULT NULL,
+  p_page               integer DEFAULT 1,
+  p_page_size          integer DEFAULT 50,
+  p_sort_by            text    DEFAULT 'full_name',
+  p_sort_dir           text    DEFAULT 'asc',
+  p_category_ids       uuid[]  DEFAULT NULL,
+  p_schedule_mode      text    DEFAULT NULL,
+  p_structure_search   text    DEFAULT NULL
+)
+RETURNS TABLE (
+  out_learner_id uuid, out_full_name text, out_roll_number text, out_lifecycle_status text,
+  out_institution_id uuid, out_institution_name text, out_program_name text, out_admission_year integer,
+  out_structure_name text, out_category_id uuid, out_category_name text, out_category_kind text,
+  out_schedule_mode text,
+  out_expected_amount numeric, out_expected_instalments integer,
+  out_bill_count integer, out_billed_amount numeric, out_paid_amount numeric, out_bill_instalments integer,
+  out_issue text, out_no_structure_reason text,
+  out_flag_other_structure boolean, out_flag_amount_mismatch boolean,
+  out_flag_not_linked boolean, out_flag_split_missing boolean,
+  out_total_count bigint
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst   uuid[];
+  v_page   int := GREATEST(COALESCE(p_page, 1), 1);
+  v_size   int := LEAST(GREATEST(COALESCE(p_page_size, 50), 1), 5000);
+  v_search text := NULLIF(TRIM(p_search), '');
+  v_fs     text := NULLIF(TRIM(p_structure_search), '');
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.view' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(a.institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid()) a
+  WHERE (p_institution_ids IS NULL OR a.institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN;
+  END IF;
+
+  RETURN QUERY
+  WITH rows AS (
+    SELECT r.*
+    FROM public.fn_billing_audit_fee_structure_rows(
+           v_inst, p_lifecycle_statuses, p_admission_year, p_degree_id,
+           p_department_id, p_program_id, p_gender, p_accommodation_type_ids) r
+    WHERE (p_include_ok OR r.issue <> 'ok')
+      AND (p_include_no_structure_institutions OR r.institution_has_structures)
+      -- 'other_module' rows are shown only when asked for by name.
+      AND (CASE WHEN p_issue IS NULL THEN r.issue <> 'other_module' ELSE r.issue = p_issue END)
+      AND (p_category_ids IS NULL OR r.category_id = ANY(p_category_ids))
+      AND (p_schedule_mode IS NULL OR r.schedule_mode = p_schedule_mode)
+      AND (v_fs IS NULL OR r.structure_name ILIKE '%' || v_fs || '%')
+      AND (v_search IS NULL
+           OR r.full_name ILIKE '%' || v_search || '%'
+           OR r.roll_number ILIKE '%' || v_search || '%'
+           OR r.structure_name ILIKE '%' || v_search || '%')
+  ),
+  counted AS (SELECT r.*, COUNT(*) OVER () AS total FROM rows r)
+  SELECT c.learner_id, c.full_name, c.roll_number, c.lifecycle_status,
+         c.institution_id, c.institution_name, c.program_name, c.admission_year,
+         c.structure_name, c.category_id, c.category_name, c.category_kind, c.schedule_mode,
+         c.expected_amount, c.expected_instalments,
+         c.bill_count, c.billed_amount, c.paid_amount, c.bill_instalments,
+         c.issue, c.no_structure_reason,
+         c.flag_other_structure, c.flag_amount_mismatch, c.flag_not_linked, c.flag_split_missing,
+         c.total
+  FROM counted c
+  ORDER BY
+    CASE WHEN p_sort_dir = 'desc' THEN NULL ELSE
+      CASE p_sort_by
+        WHEN 'institution_name' THEN c.institution_name
+        WHEN 'issue'            THEN c.issue
+        WHEN 'category_name'    THEN c.category_name
+        ELSE c.full_name END END ASC NULLS LAST,
+    CASE WHEN p_sort_dir = 'desc' THEN
+      CASE p_sort_by
+        WHEN 'institution_name' THEN c.institution_name
+        WHEN 'issue'            THEN c.issue
+        WHEN 'category_name'    THEN c.category_name
+        ELSE c.full_name END END DESC NULLS LAST,
+    c.full_name, c.category_name
+  OFFSET (v_page - 1) * v_size
+  LIMIT v_size;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_billing_audit_fee_structure_match(uuid[], text[], integer, uuid, uuid, uuid, text, uuid[], text, boolean, boolean, text, integer, integer, text, text, uuid[], text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_billing_audit_fee_structure_match(uuid[], text[], integer, uuid, uuid, uuid, text, uuid[], text, boolean, boolean, text, integer, integer, text, text, uuid[], text, text) TO authenticated, service_role;
+
+-- -----------------------------------------------------------------------------
+-- Summary — same new filters; reports other_module separately
+-- -----------------------------------------------------------------------------
+CREATE FUNCTION public.get_billing_audit_fee_structure_match_summary(
+  p_institution_ids    uuid[]  DEFAULT NULL,
+  p_lifecycle_statuses text[]  DEFAULT ARRAY['account','reserved','admitted','active'],
+  p_admission_year     integer DEFAULT NULL,
+  p_degree_id          uuid    DEFAULT NULL,
+  p_department_id      uuid    DEFAULT NULL,
+  p_program_id         uuid    DEFAULT NULL,
+  p_gender             text    DEFAULT NULL,
+  p_accommodation_type_ids uuid[] DEFAULT NULL,
+  p_category_ids       uuid[]  DEFAULT NULL,
+  p_schedule_mode      text    DEFAULT NULL,
+  p_structure_search   text    DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst   uuid[];
+  v_fs     text := NULLIF(TRIM(p_structure_search), '');
+  v_result jsonb;
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.view' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(a.institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid()) a
+  WHERE (p_institution_ids IS NULL OR a.institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN jsonb_build_object('learners_checked', 0, 'learners_ok', 0,
+      'issues', '{}'::jsonb, 'learners_by_issue', '{}'::jsonb, 'no_structure_reasons', '{}'::jsonb,
+      'expected_total', 0, 'billed_total', 0,
+      'no_structure_institution_learners', 0, 'no_structure_institutions', '[]'::jsonb,
+      'available_admission_years', '[]'::jsonb, 'categories', '[]'::jsonb);
+  END IF;
+
+  WITH r AS MATERIALIZED (
+    SELECT * FROM public.fn_billing_audit_fee_structure_rows(
+      v_inst, p_lifecycle_statuses, p_admission_year, p_degree_id,
+      p_department_id, p_program_id, p_gender, p_accommodation_type_ids) x
+    WHERE (p_category_ids IS NULL OR x.category_id = ANY(p_category_ids) OR x.issue = 'no_structure')
+      AND (p_schedule_mode IS NULL OR x.schedule_mode = p_schedule_mode OR x.issue = 'no_structure')
+      AND (v_fs IS NULL OR x.structure_name ILIKE '%' || v_fs || '%')
+  ),
+  inscope AS (SELECT * FROM r WHERE institution_has_structures),
+  per_learner AS (
+    -- A learner whose only gaps are other-module fees still counts as matching.
+    SELECT learner_id, bool_and(issue IN ('ok', 'other_module')) AS all_ok FROM inscope GROUP BY learner_id
+  )
+  SELECT jsonb_build_object(
+    'learners_checked', (SELECT COUNT(*) FROM per_learner),
+    'learners_ok',      (SELECT COUNT(*) FROM per_learner WHERE all_ok),
+    'issues', COALESCE((SELECT jsonb_object_agg(issue, n) FROM
+                (SELECT issue, COUNT(*) n FROM inscope GROUP BY issue) x), '{}'::jsonb),
+    'learners_by_issue', COALESCE((SELECT jsonb_object_agg(issue, n) FROM
+                (SELECT issue, COUNT(DISTINCT learner_id) n FROM inscope GROUP BY issue) x), '{}'::jsonb),
+    'no_structure_reasons', COALESCE((SELECT jsonb_object_agg(no_structure_reason, n) FROM
+                (SELECT no_structure_reason, COUNT(*) n FROM inscope
+                  WHERE issue = 'no_structure' GROUP BY no_structure_reason) x), '{}'::jsonb),
+    'expected_total', (SELECT COALESCE(SUM(expected_amount), 0) FROM inscope
+                        WHERE issue NOT IN ('no_structure', 'other_module')),
+    'billed_total',   (SELECT COALESCE(SUM(billed_amount), 0) FROM inscope
+                        WHERE issue NOT IN ('no_structure', 'other_module')),
+    'no_structure_institution_learners',
+        (SELECT COUNT(DISTINCT learner_id) FROM r WHERE NOT institution_has_structures),
+    'no_structure_institutions', COALESCE((
+        SELECT jsonb_agg(jsonb_build_object('institution_name', institution_name, 'learners', n)
+                         ORDER BY n DESC)
+        FROM (SELECT institution_name, COUNT(DISTINCT learner_id) n FROM r
+               WHERE NOT institution_has_structures GROUP BY institution_name) x), '[]'::jsonb),
+    'available_admission_years', COALESCE((
+        SELECT jsonb_agg(y ORDER BY y DESC) FROM (
+          SELECT DISTINCT ay.year AS y FROM public.admission_years ay
+           WHERE ay.institution_id = ANY(v_inst)) ys), '[]'::jsonb),
+    -- Fee items present in scope, for the advanced filter's picker.
+    'categories', COALESCE((
+        SELECT jsonb_agg(jsonb_build_object('id', category_id, 'name', category_name) ORDER BY category_name)
+        FROM (SELECT DISTINCT category_id, category_name FROM inscope WHERE category_id IS NOT NULL) c), '[]'::jsonb)
+  ) INTO v_result;
+
+  RETURN v_result;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_billing_audit_fee_structure_match_summary(uuid[], text[], integer, uuid, uuid, uuid, text, uuid[], uuid[], text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_billing_audit_fee_structure_match_summary(uuid[], text[], integer, uuid, uuid, uuid, text, uuid[], uuid[], text, text) TO authenticated, service_role;
+
+-- -----------------------------------------------------------------------------
+-- Generator
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_billing_generate_missing_structure_bills(
+  p_learner_ids uuid[],
+  p_dry_run     boolean DEFAULT true
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_caller     uuid := auth.uid();
+  v_learner    record;
+  v_item       jsonb;
+  v_cat_id     uuid;
+  v_cat        record;
+  v_amount     numeric;
+  v_item_id    uuid;
+  v_split_rows integer;
+  v_first_due  date;
+  v_bill_id    uuid;
+  v_results    jsonb := '[]'::jsonb;
+  v_learner_bills jsonb;
+  v_skips      jsonb;
+  v_created    integer := 0;
+  v_amount_sum numeric := 0;
+  v_skipped_learners integer := 0;
+BEGIN
+  IF NOT (public.user_has_permission('billing.schedule.bulk_create')
+          OR COALESCE(public.is_super_admin(), false)) THEN
+    RAISE EXCEPTION 'permission denied: billing.schedule.bulk_create' USING ERRCODE = '42501';
+  END IF;
+
+  IF p_learner_ids IS NULL OR array_length(p_learner_ids, 1) IS NULL THEN
+    RETURN jsonb_build_object('dry_run', p_dry_run, 'bills', 0, 'amount', 0, 'learners', '[]'::jsonb);
+  END IF;
+  IF array_length(p_learner_ids, 1) > 500 THEN
+    RAISE EXCEPTION 'too many learners: % (max 500 per call)', array_length(p_learner_ids, 1);
+  END IF;
+
+  FOR v_learner IN
+    SELECT lp.id, lp.institution_id, lp.academic_year_id, lp.lifecycle_status::text AS status,
+           TRIM(CONCAT_WS(' ', lp.first_name, lp.last_name)) AS full_name, lp.roll_number
+    FROM public.learners_profiles lp
+    WHERE lp.id = ANY(p_learner_ids)
+    ORDER BY lp.first_name
+  LOOP
+    v_learner_bills := '[]'::jsonb;
+    v_skips := '[]'::jsonb;
+
+    IF NOT public.role_has_institution_access(v_learner.institution_id) THEN
+      v_skips := v_skips || jsonb_build_object('reason', 'no_institution_access');
+    ELSIF v_learner.status NOT IN ('account', 'reserved', 'admitted', 'active') THEN
+      v_skips := v_skips || jsonb_build_object('reason', 'status_' || v_learner.status);
+    ELSE
+      FOR v_item IN
+        SELECT * FROM jsonb_array_elements(public.admission_compute_fee_items_for_learner(v_learner.id))
+      LOOP
+        v_cat_id := NULLIF(v_item->>'category_id', '')::uuid;
+        v_amount := COALESCE((v_item->>'amount')::numeric, 0);
+        IF v_cat_id IS NULL OR v_amount <= 0 THEN CONTINUE; END IF;
+
+        SELECT bc.id, bc.category_name::text AS name, bc.kind::text AS kind
+          INTO v_cat FROM public.billing_categories bc WHERE bc.id = v_cat_id;
+        IF v_cat.kind IN ('hostel', 'mess', 'transport') THEN CONTINUE; END IF;
+
+        -- Only a category with NO live bill is "missing".
+        IF EXISTS (SELECT 1 FROM public.billing_student_bills b
+                    WHERE b.student_id = v_learner.id
+                      AND b.item_category_id = v_cat_id
+                      AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')) THEN
+          CONTINUE;
+        END IF;
+
+        v_item_id := NULLIF(v_item->>'fee_structure_item_id', '')::uuid;
+
+        SELECT count(*), min(s.instalment_due_date)
+          INTO v_split_rows, v_first_due
+          FROM public.billing_instalment_split_for_learner(
+                 v_learner.id, v_cat_id, v_amount, now()::date, v_item_id) s;
+
+        v_bill_id := NULL;
+        IF NOT p_dry_run THEN
+          INSERT INTO public.billing_student_bills (
+            student_id, institution_id, academic_year_id, item_category_id,
+            bill_description, due_date, quantity,
+            unit_amount, total_amount, tax_amount, final_amount,
+            balance_amount, status, remarks, created_by, fee_structure_item_id
+          ) VALUES (
+            v_learner.id, v_learner.institution_id, v_learner.academic_year_id, v_cat_id,
+            COALESCE(v_item->>'category_name', v_cat.name),
+            COALESCE(v_first_due, (now() + interval '30 days')::date),
+            1, v_amount, v_amount, 0, v_amount, v_amount, 'unpaid',
+            'Generated from Fee Structure Match audit'
+              || CASE WHEN v_split_rows > 1 THEN ' (' || v_split_rows || ' instalments per fee structure schedule)' ELSE '' END,
+            v_caller, v_item_id
+          )
+          RETURNING id INTO v_bill_id;
+
+          IF v_split_rows > 1 THEN
+            INSERT INTO public.billing_bill_instalments
+              (bill_id, sequence_no, amount, due_date, promotes_to_status_code)
+            SELECT v_bill_id, s.instalment_no::smallint, s.instalment_amount,
+                   s.instalment_due_date, s.promotes_to_status_code
+              FROM public.billing_instalment_split_for_learner(
+                     v_learner.id, v_cat_id, v_amount, now()::date, v_item_id) s;
+          END IF;
+        END IF;
+
+        v_learner_bills := v_learner_bills || jsonb_build_object(
+          'category_id', v_cat_id, 'category_name', v_cat.name, 'amount', v_amount,
+          'instalments', GREATEST(v_split_rows, 1),
+          'due_date', COALESCE(v_first_due, (now() + interval '30 days')::date),
+          'bill_id', v_bill_id);
+        v_created := v_created + 1;
+        v_amount_sum := v_amount_sum + v_amount;
+      END LOOP;
+
+      IF jsonb_array_length(v_learner_bills) = 0 THEN
+        v_skips := v_skips || jsonb_build_object('reason', 'nothing_missing');
+      END IF;
+    END IF;
+
+    IF jsonb_array_length(v_learner_bills) = 0 THEN
+      v_skipped_learners := v_skipped_learners + 1;
+    END IF;
+
+    v_results := v_results || jsonb_build_object(
+      'learner_id', v_learner.id, 'full_name', v_learner.full_name,
+      'roll_number', v_learner.roll_number,
+      'bills', v_learner_bills, 'skipped', v_skips);
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'dry_run', p_dry_run,
+    'bills', v_created,
+    'amount', v_amount_sum,
+    'learners_with_bills', array_length(p_learner_ids, 1) - v_skipped_learners,
+    'learners_skipped', v_skipped_learners,
+    'learners', v_results);
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_billing_generate_missing_structure_bills(uuid[], boolean) IS
+  'Fee Structure Match audit action: raises the bills a learner''s fee structure expects but that do not exist (no live bill in the category; hostel/mess/transport excluded). Inserts exactly as admission_account_transition_with_bills does. Gate: billing.schedule.bulk_create + institution access per learner. dry_run (default) writes nothing.';
+
+REVOKE ALL ON FUNCTION public.fn_billing_generate_missing_structure_bills(uuid[], boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_billing_generate_missing_structure_bills(uuid[], boolean) TO authenticated, service_role;
+
+
+-- ===========================================================================
+-- Fee Structure Match audit — per-learner list + detail (rows fn gains p_learner_ids)
+-- Source: supabase/migrations/20260925190000_billing_audit_fee_structure_per_learner.sql
+-- (its fn_billing_audit_fee_structure_rows supersedes the 8-argument one above)
+-- ===========================================================================
+CREATE FUNCTION public.fn_billing_audit_fee_structure_rows(
+  p_institution_ids    uuid[],
+  p_lifecycle_statuses text[],
+  p_admission_year     integer,
+  p_degree_id          uuid,
+  p_department_id      uuid,
+  p_program_id         uuid,
+  p_gender             text,
+  p_accommodation_type_ids uuid[],
+  p_learner_ids        uuid[] DEFAULT NULL
+)
+RETURNS TABLE (
+  learner_id          uuid,
+  full_name           text,
+  roll_number         text,
+  lifecycle_status    text,
+  institution_id      uuid,
+  institution_name    text,
+  program_name        text,
+  admission_year      integer,
+  institution_has_structures boolean,
+  structure_id        uuid,
+  structure_name      text,
+  item_id             uuid,
+  category_id         uuid,
+  category_name       text,
+  category_kind       text,
+  schedule_mode       text,
+  expected_amount     numeric,
+  expected_instalments integer,
+  bill_count          integer,
+  billed_amount       numeric,
+  paid_amount         numeric,
+  bill_instalments    integer,
+  issue               text,
+  no_structure_reason text,
+  flag_other_structure boolean,
+  flag_amount_mismatch boolean,
+  flag_not_linked     boolean,
+  flag_split_missing  boolean
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  WITH scope AS MATERIALIZED (
+    SELECT lp.id, lp.institution_id, lp.quota_id, lp.community_category_id,
+           lp.lifecycle_status::text AS status,
+           TRIM(CONCAT_WS(' ', lp.first_name, lp.last_name)) AS full_name,
+           lp.roll_number, i.name::text AS institution_name,
+           p.program_name::text AS program_name, adm.year AS adm_year,
+           EXISTS (SELECT 1 FROM public.admission_fee_structures f
+                    WHERE f.institution_id = lp.institution_id
+                      AND f.status = 'active') AS inst_has_fs
+    FROM public.learners_profiles lp
+    JOIN public.admission_years adm ON adm.id = lp.admission_year_id
+    LEFT JOIN public.institutions i ON i.id = lp.institution_id
+    LEFT JOIN public.programs p ON p.id = lp.program_id
+    WHERE lp.institution_id = ANY(p_institution_ids)
+      AND (p_learner_ids IS NULL OR lp.id = ANY(p_learner_ids))
+      AND lp.lifecycle_status::text = ANY(p_lifecycle_statuses)
+      AND (p_admission_year IS NULL OR adm.year = p_admission_year)
+      AND (p_degree_id     IS NULL OR lp.degree_id     = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id    IS NULL OR lp.program_id    = p_program_id)
+      AND (p_accommodation_type_ids IS NULL
+           OR lp.accommodation_type_id = ANY(p_accommodation_type_ids))
+      AND (p_gender IS NULL OR UPPER(TRIM(lp.gender)) = UPPER(TRIM(p_gender)))
+  ),
+  computed AS MATERIALIZED (
+    -- What account transition would bill this learner today.
+    SELECT s.*,
+           CASE WHEN s.inst_has_fs
+                THEN public.admission_compute_fee_items_for_learner(s.id)
+                ELSE '[]'::jsonb END AS items
+    FROM scope s
+  ),
+  expected AS MATERIALIZED (
+    SELECT c.id AS lid,
+           NULLIF(it->>'category_id', '')::uuid           AS cat_id,
+           (it->>'amount')::numeric                       AS exp_amt,
+           NULLIF(it->>'fee_structure_item_id', '')::uuid AS fsi_id,
+           NULLIF(it->>'fee_structure_id', '')::uuid      AS fs_id
+    FROM computed c
+    CROSS JOIN LATERAL jsonb_array_elements(c.items) it
+    WHERE NULLIF(it->>'category_id', '') IS NOT NULL
+  ),
+  bills AS MATERIALIZED (
+    SELECT b.student_id, b.item_category_id,
+           COUNT(*)::int                                   AS n_bills,
+           SUM(b.final_amount)                             AS billed,
+           SUM(GREATEST(0, b.final_amount - COALESCE(b.balance_amount, b.final_amount))) AS paid,
+           array_remove(array_agg(DISTINCT b.fee_structure_item_id), NULL) AS fsi_ids,
+           COUNT(*) FILTER (WHERE b.instalment_group_id IS NOT NULL)::int AS n_grouped,
+           COALESCE(SUM((SELECT COUNT(*) FROM public.billing_bill_instalments i
+                           WHERE i.bill_id = b.id)), 0)::int AS n_lines
+    FROM public.billing_student_bills b
+    WHERE b.student_id IN (SELECT id FROM scope)
+      AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+    GROUP BY b.student_id, b.item_category_id
+  ),
+  item_rows AS (
+    SELECT c.*, e.cat_id, e.exp_amt, e.fsi_id,
+           COALESCE(fs.id, e.fs_id) AS fs_id,
+           COALESCE(fs.name::text, 'Legacy fee snapshot') AS fs_name,
+           bc.category_name::text AS cat_name, bc.kind::text AS cat_kind,
+           fi.schedule_mode,
+           CASE WHEN fi.schedule_mode = 'split'
+                THEN (SELECT COUNT(*) FROM public.admission_fee_structure_item_schedules sc
+                       WHERE sc.fee_structure_item_id = fi.id)::int
+                ELSE 1 END AS exp_lines,
+           bl.n_bills, bl.billed, bl.paid, bl.fsi_ids, bl.n_grouped, bl.n_lines
+    FROM computed c
+    JOIN expected e ON e.lid = c.id
+    JOIN public.billing_categories bc ON bc.id = e.cat_id
+    LEFT JOIN public.admission_fee_structure_items fi ON fi.id = e.fsi_id
+    LEFT JOIN public.admission_fee_structures fs ON fs.id = COALESCE(fi.fee_structure_id, e.fs_id)
+    LEFT JOIN bills bl ON bl.student_id = c.id AND bl.item_category_id = e.cat_id
+  ),
+  judged AS (
+    SELECT r.*,
+           (r.n_bills IS NOT NULL AND r.fsi_id IS NOT NULL
+              AND EXISTS (SELECT 1 FROM unnest(r.fsi_ids) x WHERE x <> r.fsi_id))                 AS f_other,
+           (r.n_bills IS NOT NULL AND ABS(COALESCE(r.billed, 0) - r.exp_amt) > 1)                  AS f_amount,
+           (r.n_bills IS NOT NULL AND COALESCE(cardinality(r.fsi_ids), 0) = 0)                    AS f_unlinked,
+           (r.n_bills IS NOT NULL AND r.schedule_mode = 'split'
+              AND COALESCE(r.n_lines, 0) = 0 AND COALESCE(r.n_grouped, 0) < 2)                     AS f_split
+    FROM item_rows r
+  )
+  SELECT j.id, j.full_name, j.roll_number, j.status, j.institution_id, j.institution_name,
+         j.program_name, j.adm_year, j.inst_has_fs, j.fs_id, j.fs_name, j.fsi_id, j.cat_id,
+         j.cat_name, j.cat_kind, j.schedule_mode, j.exp_amt, j.exp_lines, COALESCE(j.n_bills, 0),
+         COALESCE(j.billed, 0), COALESCE(j.paid, 0),
+         GREATEST(COALESCE(j.n_lines, 0), COALESCE(j.n_grouped, 0)),
+         CASE
+           -- Account transition never bills these; their own modules do.
+           WHEN j.n_bills IS NULL AND j.cat_kind IN ('hostel', 'mess', 'transport') THEN 'other_module'
+           WHEN j.n_bills IS NULL THEN 'missing_bill'
+           WHEN j.f_other         THEN 'other_structure'
+           WHEN j.f_amount        THEN 'amount_mismatch'
+           WHEN j.f_unlinked      THEN 'not_linked'
+           WHEN j.f_split         THEN 'split_missing'
+           ELSE 'ok'
+         END,
+         NULL::text,
+         COALESCE(j.f_other, false), COALESCE(j.f_amount, false),
+         COALESCE(j.f_unlinked, false), COALESCE(j.f_split, false)
+  FROM judged j
+  UNION ALL
+  SELECT c.id, c.full_name, c.roll_number, c.status, c.institution_id, c.institution_name,
+         c.program_name, c.adm_year, c.inst_has_fs, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+         NULL, NULL,
+         (SELECT COALESCE(SUM(b.n_bills), 0)::int FROM bills b WHERE b.student_id = c.id),
+         (SELECT COALESCE(SUM(b.billed), 0) FROM bills b WHERE b.student_id = c.id),
+         (SELECT COALESCE(SUM(b.paid), 0) FROM bills b WHERE b.student_id = c.id),
+         0,
+         'no_structure',
+         CASE
+           WHEN NOT c.inst_has_fs               THEN 'institution_has_none'
+           WHEN c.quota_id IS NULL              THEN 'quota_missing'
+           WHEN c.community_category_id IS NULL THEN 'community_missing'
+           ELSE 'no_matching_combo'
+         END,
+         false, false, false, false
+  FROM computed c
+  WHERE NOT EXISTS (SELECT 1 FROM expected e WHERE e.lid = c.id);
+$function$;
+
+COMMENT ON FUNCTION public.fn_billing_audit_fee_structure_rows(uuid[], text[], integer, uuid, uuid, uuid, text, uuid[], uuid[]) IS
+  'INTERNAL row builder for the Fee Structure Match audit. No permission check inside: callable only by the gated get_billing_audit_fee_structure_* functions (owner). Expected items come from admission_compute_fee_items_for_learner — what account transition bills.';
+
+REVOKE ALL ON FUNCTION public.fn_billing_audit_fee_structure_rows(uuid[], text[], integer, uuid, uuid, uuid, text, uuid[], uuid[]) FROM PUBLIC, anon, authenticated;
+
+-- -----------------------------------------------------------------------------
+-- One row per learner
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.get_billing_audit_fee_structure_learners(
+  p_institution_ids    uuid[]  DEFAULT NULL,
+  p_lifecycle_statuses text[]  DEFAULT ARRAY['account','reserved','admitted','active'],
+  p_admission_year     integer DEFAULT NULL,
+  p_degree_id          uuid    DEFAULT NULL,
+  p_department_id      uuid    DEFAULT NULL,
+  p_program_id         uuid    DEFAULT NULL,
+  p_gender             text    DEFAULT NULL,
+  p_accommodation_type_ids uuid[] DEFAULT NULL,
+  p_issue              text    DEFAULT NULL,
+  p_include_ok         boolean DEFAULT false,
+  p_include_no_structure_institutions boolean DEFAULT false,
+  p_search             text    DEFAULT NULL,
+  p_page               integer DEFAULT 1,
+  p_page_size          integer DEFAULT 50,
+  p_sort_by            text    DEFAULT 'full_name',
+  p_sort_dir           text    DEFAULT 'asc',
+  p_category_ids       uuid[]  DEFAULT NULL,
+  p_schedule_mode      text    DEFAULT NULL,
+  p_structure_search   text    DEFAULT NULL
+)
+RETURNS TABLE (
+  out_learner_id uuid, out_full_name text, out_roll_number text, out_lifecycle_status text,
+  out_institution_id uuid, out_institution_name text, out_program_name text, out_admission_year integer,
+  out_structure_name text,
+  out_items integer, out_ok integer, out_missing_bill integer, out_amount_mismatch integer,
+  out_other_structure integer, out_not_linked integer, out_split_missing integer,
+  out_other_module integer, out_no_structure boolean, out_no_structure_reason text,
+  out_problems integer, out_worst_issue text,
+  out_expected_total numeric, out_billed_total numeric, out_paid_total numeric,
+  out_missing_amount numeric,
+  out_total_count bigint
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst   uuid[];
+  v_page   int := GREATEST(COALESCE(p_page, 1), 1);
+  v_size   int := LEAST(GREATEST(COALESCE(p_page_size, 50), 1), 5000);
+  v_search text := NULLIF(TRIM(p_search), '');
+  v_fs     text := NULLIF(TRIM(p_structure_search), '');
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.view' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(a.institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid()) a
+  WHERE (p_institution_ids IS NULL OR a.institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN;
+  END IF;
+
+  RETURN QUERY
+  WITH r AS MATERIALIZED (
+    SELECT x.*
+    FROM public.fn_billing_audit_fee_structure_rows(
+           v_inst, p_lifecycle_statuses, p_admission_year, p_degree_id,
+           p_department_id, p_program_id, p_gender, p_accommodation_type_ids) x
+    WHERE (p_include_no_structure_institutions OR x.institution_has_structures)
+      AND (p_category_ids IS NULL OR x.category_id = ANY(p_category_ids) OR x.issue = 'no_structure')
+      AND (p_schedule_mode IS NULL OR x.schedule_mode = p_schedule_mode OR x.issue = 'no_structure')
+      AND (v_fs IS NULL OR x.structure_name ILIKE '%' || v_fs || '%')
+  ),
+  g AS (
+    SELECT r.learner_id,
+           max(r.full_name) AS full_name, max(r.roll_number) AS roll_number,
+           max(r.lifecycle_status) AS lifecycle_status,
+           (array_agg(r.institution_id))[1] AS institution_id,
+           max(r.institution_name) AS institution_name, max(r.program_name) AS program_name,
+           max(r.admission_year) AS admission_year,
+           string_agg(DISTINCT r.structure_name, ', ') AS structure_name,
+           COUNT(*) FILTER (WHERE r.issue <> 'no_structure')::int     AS items,
+           COUNT(*) FILTER (WHERE r.issue = 'ok')::int                AS ok,
+           COUNT(*) FILTER (WHERE r.issue = 'missing_bill')::int      AS missing_bill,
+           COUNT(*) FILTER (WHERE r.issue = 'amount_mismatch')::int   AS amount_mismatch,
+           COUNT(*) FILTER (WHERE r.issue = 'other_structure')::int   AS other_structure,
+           COUNT(*) FILTER (WHERE r.issue = 'not_linked')::int        AS not_linked,
+           COUNT(*) FILTER (WHERE r.issue = 'split_missing')::int     AS split_missing,
+           COUNT(*) FILTER (WHERE r.issue = 'other_module')::int      AS other_module,
+           bool_or(r.issue = 'no_structure')                          AS no_structure,
+           max(r.no_structure_reason)                                 AS no_structure_reason,
+           COALESCE(SUM(r.expected_amount) FILTER (WHERE r.issue NOT IN ('no_structure','other_module')), 0) AS expected_total,
+           COALESCE(SUM(r.billed_amount), 0)                          AS billed_total,
+           COALESCE(SUM(r.paid_amount), 0)                            AS paid_total,
+           COALESCE(SUM(r.expected_amount) FILTER (WHERE r.issue = 'missing_bill'), 0) AS missing_amount
+    FROM r GROUP BY r.learner_id
+  ),
+  scored AS (
+    SELECT g.*,
+           (g.missing_bill + g.amount_mismatch + g.other_structure + g.not_linked
+             + g.split_missing + CASE WHEN g.no_structure THEN 1 ELSE 0 END)::int AS problems,
+           CASE
+             WHEN g.no_structure         THEN 'no_structure'
+             WHEN g.missing_bill > 0     THEN 'missing_bill'
+             WHEN g.other_structure > 0  THEN 'other_structure'
+             WHEN g.amount_mismatch > 0  THEN 'amount_mismatch'
+             WHEN g.not_linked > 0       THEN 'not_linked'
+             WHEN g.split_missing > 0    THEN 'split_missing'
+             WHEN g.other_module > 0     THEN 'other_module'
+             ELSE 'ok'
+           END AS worst
+    FROM g
+  ),
+  filtered AS (
+    SELECT s.* FROM scored s
+    WHERE (CASE
+             WHEN p_issue IS NULL THEN (p_include_ok OR s.problems > 0)
+             WHEN p_issue = 'missing_bill'    THEN s.missing_bill > 0
+             WHEN p_issue = 'amount_mismatch' THEN s.amount_mismatch > 0
+             WHEN p_issue = 'other_structure' THEN s.other_structure > 0
+             WHEN p_issue = 'not_linked'      THEN s.not_linked > 0
+             WHEN p_issue = 'split_missing'   THEN s.split_missing > 0
+             WHEN p_issue = 'other_module'    THEN s.other_module > 0
+             WHEN p_issue = 'no_structure'    THEN s.no_structure
+             WHEN p_issue = 'ok'              THEN s.problems = 0
+             ELSE true END)
+      AND (v_search IS NULL
+           OR s.full_name ILIKE '%' || v_search || '%'
+           OR s.roll_number ILIKE '%' || v_search || '%'
+           OR s.structure_name ILIKE '%' || v_search || '%')
+  ),
+  counted AS (SELECT f.*, COUNT(*) OVER () AS total FROM filtered f)
+  SELECT c.learner_id, c.full_name, c.roll_number, c.lifecycle_status,
+         c.institution_id, c.institution_name, c.program_name, c.admission_year,
+         c.structure_name,
+         c.items, c.ok, c.missing_bill, c.amount_mismatch, c.other_structure, c.not_linked,
+         c.split_missing, c.other_module, c.no_structure, c.no_structure_reason,
+         c.problems, c.worst,
+         c.expected_total, c.billed_total, c.paid_total, c.missing_amount,
+         c.total
+  FROM counted c
+  ORDER BY
+    CASE WHEN p_sort_dir = 'desc' THEN NULL ELSE
+      CASE p_sort_by
+        WHEN 'institution_name' THEN c.institution_name
+        WHEN 'worst_issue'      THEN c.worst
+        ELSE c.full_name END END ASC NULLS LAST,
+    CASE WHEN p_sort_dir = 'desc' THEN
+      CASE p_sort_by
+        WHEN 'institution_name' THEN c.institution_name
+        WHEN 'worst_issue'      THEN c.worst
+        ELSE c.full_name END END DESC NULLS LAST,
+    CASE WHEN p_sort_by = 'problems' AND p_sort_dir = 'desc' THEN c.problems END DESC NULLS LAST,
+    CASE WHEN p_sort_by = 'problems' AND p_sort_dir <> 'desc' THEN c.problems END ASC NULLS LAST,
+    c.full_name
+  OFFSET (v_page - 1) * v_size
+  LIMIT v_size;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_billing_audit_fee_structure_learners(uuid[], text[], integer, uuid, uuid, uuid, text, uuid[], text, boolean, boolean, text, integer, integer, text, text, uuid[], text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_billing_audit_fee_structure_learners(uuid[], text[], integer, uuid, uuid, uuid, text, uuid[], text, boolean, boolean, text, integer, integer, text, text, uuid[], text, text) TO authenticated, service_role;
+
+-- -----------------------------------------------------------------------------
+-- One learner, for the comparison dialog
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.get_billing_audit_fee_structure_learner_detail(p_learner_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_lp     record;
+  v_items  jsonb;
+  v_extra  jsonb;
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.view' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT lp.id, lp.institution_id, lp.lifecycle_status::text AS status
+    INTO v_lp FROM public.learners_profiles lp WHERE lp.id = p_learner_id;
+  IF NOT FOUND OR NOT public.role_has_institution_access(v_lp.institution_id) THEN
+    RETURN NULL;
+  END IF;
+
+  -- Every structure item with the bills in its category (ok rows included).
+  SELECT jsonb_agg(jsonb_build_object(
+           'category_id', r.category_id, 'category_name', r.category_name,
+           'category_kind', r.category_kind, 'structure_name', r.structure_name,
+           'schedule_mode', r.schedule_mode,
+           'expected_amount', r.expected_amount, 'expected_instalments', r.expected_instalments,
+           'bill_count', r.bill_count, 'billed_amount', r.billed_amount, 'paid_amount', r.paid_amount,
+           'bill_instalments', r.bill_instalments, 'issue', r.issue,
+           'no_structure_reason', r.no_structure_reason,
+           'flag_other_structure', r.flag_other_structure, 'flag_amount_mismatch', r.flag_amount_mismatch,
+           'flag_not_linked', r.flag_not_linked, 'flag_split_missing', r.flag_split_missing,
+           'bills', COALESCE((
+             SELECT jsonb_agg(jsonb_build_object(
+                      'bill_id', b.id, 'description', b.bill_description,
+                      'amount', b.final_amount,
+                      'paid', GREATEST(0, b.final_amount - COALESCE(b.balance_amount, b.final_amount)),
+                      'status', b.status, 'due_date', b.due_date,
+                      'linked_to_structure', b.fee_structure_item_id IS NOT NULL)
+                    ORDER BY b.due_date)
+             FROM public.billing_student_bills b
+             WHERE b.student_id = p_learner_id AND b.item_category_id = r.category_id
+               AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')), '[]'::jsonb))
+         ORDER BY CASE r.issue WHEN 'missing_bill' THEN 0 WHEN 'amount_mismatch' THEN 1
+                               WHEN 'other_structure' THEN 2 WHEN 'ok' THEN 9 ELSE 5 END,
+                  r.category_name)
+    INTO v_items
+  FROM public.fn_billing_audit_fee_structure_rows(
+         ARRAY[v_lp.institution_id], ARRAY[v_lp.status], NULL, NULL, NULL, NULL, NULL, NULL,
+         ARRAY[p_learner_id]) r;
+
+  -- Live bills whose category is not in the structure at all.
+  SELECT jsonb_agg(jsonb_build_object(
+           'bill_id', b.id, 'category_name', bc.category_name, 'category_kind', bc.kind,
+           'description', b.bill_description, 'amount', b.final_amount,
+           'paid', GREATEST(0, b.final_amount - COALESCE(b.balance_amount, b.final_amount)),
+           'status', b.status, 'due_date', b.due_date) ORDER BY bc.category_name)
+    INTO v_extra
+  FROM public.billing_student_bills b
+  JOIN public.billing_categories bc ON bc.id = b.item_category_id
+  WHERE b.student_id = p_learner_id
+    AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+    AND NOT EXISTS (
+      SELECT 1 FROM jsonb_array_elements(COALESCE(v_items, '[]'::jsonb)) it
+       WHERE (it->>'category_id')::uuid = b.item_category_id);
+
+  RETURN jsonb_build_object(
+    'learner_id', p_learner_id,
+    'items', COALESCE(v_items, '[]'::jsonb),
+    'extra_bills', COALESCE(v_extra, '[]'::jsonb));
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_billing_audit_fee_structure_learner_detail(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_billing_audit_fee_structure_learner_detail(uuid) TO authenticated, service_role;

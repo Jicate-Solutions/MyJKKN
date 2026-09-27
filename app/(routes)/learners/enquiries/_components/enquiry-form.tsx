@@ -80,6 +80,7 @@ import {
 } from '@/lib/data/locations';
 import toast from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { FEATURE_KEYS, recordFeatureUse } from '@/lib/usage/record';
 
 // Task 15 — student-self-fill QR + per-section status chips
 import { ShowStudentQRButton } from '@/components/admission/show-student-qr-button';
@@ -1479,6 +1480,8 @@ export function EnquiryForm({
         // Create new draft
         result = await LearnerProfileService.createLearnerProfile(data as any);
         setSavedEnquiryId(result.id);
+        // Adoption loop: a learner profile was created (signed-in client, never blocks).
+        void recordFeatureUse(createClientSupabaseClient(), FEATURE_KEYS.LEARNERS_CREATE_PROFILE);
         toast.success('Progress saved successfully');
 
       }
@@ -1537,6 +1540,8 @@ export function EnquiryForm({
         // Create new draft
         result = await LearnerProfileService.createLearnerProfile(data as any);
         setSavedEnquiryId(result.id);
+        // Adoption loop: a learner profile was created (signed-in client, never blocks).
+        void recordFeatureUse(createClientSupabaseClient(), FEATURE_KEYS.LEARNERS_CREATE_PROFILE);
         toast.success('Progress saved successfully');
       }
 
@@ -1696,6 +1701,8 @@ export function EnquiryForm({
       } else {
         result = await LearnerProfileService.createLearnerProfile(data as any);
         toast.success('Admitted created successfully');
+        // Adoption loop: a learner profile was created (signed-in client, never blocks).
+        void recordFeatureUse(createClientSupabaseClient(), FEATURE_KEYS.LEARNERS_CREATE_PROFILE);
       }
 
       // Check if user account was created
