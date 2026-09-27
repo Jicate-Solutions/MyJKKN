@@ -21,8 +21,10 @@
 -- NOT (x = ANY(v_insts)), and v_super / v_admin are COALESCEd to false. The
 -- helpers they call cannot return NULL live today (read 2026-09-28), so those
 -- are defence only. Section B's permission gate gets the same one-line change,
--- so it is #3983's body plus that line. Rehearsal cases 30-34 fail on
--- 3c7ae723eb and pass here.
+-- so it is #3983's body plus that line. Rehearsal cases 30-32 (the leaks)
+-- fail on 3c7ae723eb and pass here; 33-34 prove a reporter-less report still
+-- opens for an admin and a super admin; 35-36 are defence only (same result on
+-- both heads).
 --
 -- WHAT WAS BROKEN (verified live 2026-09-24)
 --   These 14 SECURITY DEFINER functions start with
