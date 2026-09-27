@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
 
     if (!profile?.learner_id || profile.role !== 'student') {
       return NextResponse.json(
-        { error: 'Student profile not found' },
+        { error: 'Learner profile not found' },
         { status: 404 }
       );
     }
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
 
     if (!learner?.institution_id) {
       return NextResponse.json(
-        { error: 'Student profile incomplete' },
+        { error: 'Learner profile incomplete' },
         { status: 422 }
       );
     }
