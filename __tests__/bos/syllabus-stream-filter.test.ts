@@ -280,3 +280,45 @@ describe('Save — Stream is trimmed', () => {
     expect(update?.[1].stream).toBeUndefined();
   });
 });
+
+describe('GET /api/bos/syllabus — says what the Stream / Board choice hides', () => {
+  // The six reports: Zoology staff filtered by Stream "Arts" (and one Board)
+  // saw 10–16 papers of 27–33, with nothing on screen saying their own filter
+  // was the cause — Zoology's rows carry Arts, Science and blank streams.
+  async function listMeta(qs: string) {
+    const res = await listSyllabi(new NextRequest(`http://x/api/bos/syllabus?limit=500&${qs}`));
+    expect(res.status).toBe(200);
+    return (await res.json()) as { data: Row[]; metadata: { total: number; hidden_by_filters?: number } };
+  }
+
+  beforeEach(() => {
+    state.rows = [...STREAM_ROWS, { ...row('B2', 'Arts'), board_id: 'board-2' }];
+    state.log = { filters: [], writes: [] };
+  });
+
+  it('counts the rows a Stream choice hides (other streams AND blank streams)', async () => {
+    const r = await listMeta('stream=Arts');
+    expect(r.data.map((x) => x.id).sort()).toEqual(['A1', 'A2', 'A3', 'A4', 'A5', 'B2']);
+    // X1, X2, S1, S2, N1 — the Science and blank rows included.
+    expect(r.metadata.hidden_by_filters).toBe(5);
+  });
+
+  it('counts the rows a Board choice hides, together with the Stream choice', async () => {
+    const r = await listMeta('stream=Arts&boardId=board-1');
+    expect(r.metadata.total).toBe(5);
+    expect(r.metadata.hidden_by_filters).toBe(6); // 5 other-stream rows + B2 on the other board
+  });
+
+  it('says nothing when no Stream or Board was chosen, or when nothing is hidden', async () => {
+    expect((await listMeta('')).metadata.hidden_by_filters).toBeUndefined();
+    state.rows = [row('A1', 'Arts'), row('A2', 'ARTS')];
+    expect((await listMeta('stream=Arts')).metadata.hidden_by_filters).toBeUndefined();
+  });
+
+  it('keeps every authorization filter when widening — only Board and Stream are dropped', async () => {
+    await listMeta('stream=Arts&boardId=board-1&institutionsId=inst-1');
+    const eqs = state.log.filters.filter((f) => f[0] === 'eq').map((f) => `${f[1]}=${String(f[2])}`);
+    // board_id=board-1 is applied once (the list), never on the widened count.
+    expect(eqs.filter((e) => e === 'board_id=board-1')).toHaveLength(1);
+  });
+});
