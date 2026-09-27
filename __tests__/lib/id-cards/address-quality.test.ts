@@ -343,14 +343,15 @@ describe('drift guard against the renderer', () => {
   const read = (relative: string) =>
     fs.readFileSync(path.join(process.cwd(), relative), 'utf8');
 
-  it('still feeds the same four columns through joinPrintableAddress in render-data.ts', () => {
+  it('still feeds the same five columns through joinPrintableAddress in render-data.ts', () => {
     const source = read('lib/id-cards/render-data.ts');
     const block = source.slice(source.indexOf('address ='), source.indexOf('addressParts ='));
     expect(block.length).toBeGreaterThan(0);
     expect(block).toContain('joinPrintableAddress(');
-    expect(block).not.toContain('permanent_address_taluk');
+    // Final card format (2026-09-23): Street, Taluk, District, State - PIN.
     const order = [
       'permanent_address_street',
+      'permanent_address_taluk',
       'permanent_address_district',
       'permanent_address_state',
       'permanent_address_pin_code',

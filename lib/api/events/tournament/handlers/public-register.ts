@@ -194,11 +194,18 @@ export async function POST(
     if (formRow) {
       // By form_id, NOT event_id: validating against every field on the event
       // would demand answers to other months' questions.
-      const { data: customFieldDefs } = await (svc as any)
-        .from('event_registration_form_fields')
-        .select('*')
-        .eq('form_id', formRow.id);
-      const customFieldsError = validateCustomFields(customFieldDefs ?? [], dto.custom_fields);
+      const [{ data: customFieldDefs }, { data: customSectionDefs }] = await Promise.all([
+        (svc as any).from('event_registration_form_fields').select('*').eq('form_id', formRow.id),
+        (svc as any)
+          .from('event_registration_form_sections')
+          .select('id, condition')
+          .eq('form_id', formRow.id),
+      ]);
+      const customFieldsError = validateCustomFields(
+        customFieldDefs ?? [],
+        dto.custom_fields,
+        customSectionDefs ?? [],
+      );
       if (customFieldsError) {
         return NextResponse.json({ error: customFieldsError }, { status: 422 });
       }

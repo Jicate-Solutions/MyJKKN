@@ -17,6 +17,7 @@
 // exists. Reusing it would create rows as a side effect of merely viewing a
 // table — on marathon events that have no registration form at all.
 
+import type { MyjkknRegistrantSnapshot } from '@/lib/services/events/registration/registrant-profile';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -58,6 +59,13 @@ export interface EventRegistrationRow {
   /** tournament_entries.status — 'withdrawn' entries cannot be withdrawn again. */
   entry_status: string | null;
   custom_answers: CustomAnswer[];
+  /**
+   * What the signed-in registrant WAS at registration time (learner /
+   * facilitator details), stamped by the public-register API; null for
+   * guests and for rows written by other paths. Shown in the detail dialog
+   * and flattened into the export.
+   */
+  myjkkn_profile: MyjkknRegistrantSnapshot | null;
 }
 
 /**
@@ -149,6 +157,7 @@ interface RegistrationRaw {
   checked_in: boolean | null;
   created_at: string | null;
   custom_fields: Record<string, unknown> | null;
+  myjkkn_profile: MyjkknRegistrantSnapshot | null;
 }
 
 interface EntryRaw {
@@ -291,7 +300,7 @@ export class EventRegistrationsService {
         .select(
           `id, participant_name, participant_phone, participant_email, participant_type,
            institution_name, status, payment_status, payment_amount, payment_method,
-           source, checked_in, created_at, custom_fields`
+           source, checked_in, created_at, custom_fields, myjkkn_profile`
         )
         .eq('event_id', eventId)
         .neq('status', 'cancelled')
@@ -327,6 +336,7 @@ export class EventRegistrationsService {
           source: r.source,
           checked_in: !!r.checked_in,
           created_at: r.created_at,
+          myjkkn_profile: r.myjkkn_profile ?? null,
           division_label: entry?.division_label ?? null,
           entry_name: entry?.entry_name ?? null,
           entry_type: entry?.entry_type ?? null,

@@ -29,16 +29,9 @@ import * as z from 'zod';
 import { PERMISSION_CATEGORIES } from '@/lib/constants/permissions';
 import { MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
 import { toast } from 'react-hot-toast';
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger
-} from '@/components/ui/accordion';
 import { Search } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -47,13 +40,7 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger
-} from '@/components/ui/tooltip';
-import { Info, Eye } from 'lucide-react';
+import { Eye } from 'lucide-react';
 import { ImpactPreviewSheet } from '@/components/permissions-audit/impact-preview-sheet';
 import {
   fetchPermissionHolderCounts,
@@ -62,6 +49,7 @@ import {
   type PermissionHolderCounts
 } from '@/lib/services/roles/permission-holder-counts';
 import { PermissionRemovalWarningDialog } from './permission-removal-warning-dialog';
+import { GroupedPermissionPanel } from './grouped-permission-panel';
 
 interface EditRoleDialogProps {
   open: boolean;
@@ -215,6 +203,16 @@ const flattenPermissions = (
   });
 
   return flat;
+};
+
+// Form field path of a flat key — the same rule nestPermissions uses:
+// "users.view" → users.view, "hr.leave.view" → hr.leave_view, "dashboard" → dashboard._
+const nestedPathOf = (key: string) => {
+  const parts = key.split('.');
+  return {
+    moduleKey: parts[0],
+    actionKey: parts.length > 1 ? parts.slice(1).join('_') : '_'
+  };
 };
 
 export function EditRoleDialog({
@@ -418,140 +416,58 @@ export function EditRoleDialog({
     }
   };
 
-  // Get the active permissions count for a category
-  const getCategoryActiveCount = (categoryKey: string) => {
-    const flatPerms = flattenPermissions(form.watch('permissions'));
-    const categoryPermissions =
-      PERMISSION_CATEGORIES.find((cat) => cat.key === categoryKey)
-        ?.permissions || [];
+  // Flat map of the form's current nested permissions — what the grouped
+  // panel reads for switch state and counts.
+  const flatValues = flattenPermissions(form.watch('permissions'));
 
-    const active = categoryPermissions.reduce((count, perm) => {
-      return flatPerms[perm.key] ? count + 1 : count;
-    }, 0);
-
-    return { active, total: categoryPermissions.length };
-  };
-
-  // Toggle all permissions in a category
-  const toggleCategoryPermissions = (categoryKey: string, enabled: boolean) => {
+  const setPermissionKeys = (keys: string[], enabled: boolean) => {
     if (isSuperAdmin) return; // Don't allow changes for super admin
+    if (keys.length === 0) return;
 
-    // Prevent default form submission behavior
-    try {
-      const currentNestedPerms = { ...form.getValues('permissions') };
-      const categoryPerms = PERMISSION_CATEGORIES.find(
-        (cat) => cat.key === categoryKey
-      );
+    const currentNestedPerms = { ...form.getValues('permissions') };
+    keys.forEach((key) => {
+      const { moduleKey, actionKey } = nestedPathOf(key);
+      currentNestedPerms[moduleKey] = {
+        ...(currentNestedPerms[moduleKey] ?? {}),
+        [actionKey]: enabled
+      };
+    });
 
-      if (categoryPerms && currentNestedPerms[categoryKey]) {
-        categoryPerms.permissions.forEach((perm) => {
-          // Handle multi-part permission keys correctly
-          const fullKey = perm.key;
-          const parts = fullKey.split('.');
-          const moduleKey = parts[0];
-
-          // Normalize action key with underscores
-          let actionKey;
-          if (parts.length > 1) {
-            const remainingParts = parts.slice(1);
-            actionKey = remainingParts.join('_');
-          } else {
-            actionKey = '_';
-          }
-
-          if (currentNestedPerms[moduleKey]) {
-            currentNestedPerms[moduleKey][actionKey] = enabled;
-          }
-        });
-
-        // Update the form state without triggering submission
-        form.setValue('permissions', currentNestedPerms, {
-          shouldDirty: true,
-          shouldValidate: true,
-          shouldTouch: false // Don't mark as touched to prevent auto-submission
-        });
-      }
-    } catch (error) {
-      console.error('Error updating form permissions:', error);
-    }
+    form.setValue('permissions', currentNestedPerms, {
+      shouldDirty: true,
+      shouldValidate: true,
+      shouldTouch: false // Don't mark as touched to prevent auto-submission
+    });
   };
 
-  // Toggle all permissions of a specific action type in a category
-  const toggleActionPermissions = (
-    categoryKey: string,
-    actionType: string,
-    enabled: boolean
+  const handlePermissionToggle = (
+    permissionKey: string,
+    checked: boolean,
+    permissionLabel: string
   ) => {
-    if (isSuperAdmin) return; // Don't allow changes for super admin
+    if (isSuperAdmin) return;
+    const { moduleKey, actionKey } = nestedPathOf(permissionKey);
+    const fieldName = `permissions.${moduleKey}.${actionKey}` as const;
+    const previous = Boolean(form.getValues(fieldName));
+    const holderCount = holderCounts[permissionKey];
 
-    try {
-      const currentNestedPerms = { ...form.getValues('permissions') };
-      const categoryPerms = PERMISSION_CATEGORIES.find(
-        (cat) => cat.key === categoryKey
-      );
-
-      if (categoryPerms && currentNestedPerms[categoryKey]) {
-        // Filter permissions by action type (e.g., 'view', 'edit', 'create', 'delete')
-        const actionPerms = categoryPerms.permissions.filter(
-          (perm) =>
-            perm.key.toLowerCase().includes(`.${actionType.toLowerCase()}`) ||
-            perm.key.toLowerCase().endsWith(`.${actionType.toLowerCase()}`)
-        );
-
-        if (actionPerms.length > 0) {
-          // Update only this action type
-          actionPerms.forEach((perm) => {
-            // Handle multi-part permission keys correctly
-            const fullKey = perm.key;
-            const parts = fullKey.split('.');
-            const moduleKey = parts[0];
-
-            // Normalize action key with underscores
-            let actionKey;
-            if (parts.length > 1) {
-              const remainingParts = parts.slice(1);
-              actionKey = remainingParts.join('_');
-            } else {
-              actionKey = '_';
-            }
-
-            if (currentNestedPerms[moduleKey]) {
-              currentNestedPerms[moduleKey][actionKey] = enabled;
-            }
-          });
-
-          // Update form state
-          form.setValue('permissions', currentNestedPerms, {
-            shouldDirty: true,
-            shouldValidate: true,
-            shouldTouch: false
-          });
-        } else {
-          toast.success(`No ${actionType} permissions found in this category`, {
-            duration: 3000
-          });
-        }
-      }
-    } catch (error) {
-      console.error(`Error updating ${actionType} permissions:`, error);
+    // Taking a permission away from people who are using it is the one move
+    // worth interrupting.
+    if (
+      resolvePermissionToggle({ previous, next: checked, holderCount }) ===
+      'confirm-removal'
+    ) {
+      setPendingRemoval({
+        fieldName,
+        permissionKey,
+        permissionLabel,
+        holderCount: holderCount as number
+      });
+      return; // leave it on until confirmed
     }
+
+    form.setValue(fieldName, checked, { shouldDirty: true });
   };
-
-  // Filter categories and permissions based on search query
-  const filteredCategories = PERMISSION_CATEGORIES.filter((category) => {
-    if (!searchQuery) return true;
-
-    const matchesCategory = category.name
-      .toLowerCase()
-      .includes(searchQuery.toLowerCase());
-    const hasMatchingPermissions = category.permissions.some(
-      (perm) =>
-        perm.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        perm.key.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-
-    return matchesCategory || hasMatchingPermissions;
-  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -756,309 +672,22 @@ export function EditRoleDialog({
                   </CardHeader>
                   <CardContent>
                     <p className='text-sm text-muted-foreground'>
-                      Manage permissions by expanding each category below and
-                      toggling specific permissions.
+                      Expand a module, then a sub-module, and toggle specific
+                      permissions. Click &quot;Save Changes&quot; when done.
                     </p>
                   </CardContent>
                 </Card>
 
                 <div className='flex-1 overflow-y-auto pr-1 sm:pr-4'>
-                  <Accordion type='multiple' className='space-y-4'>
-                    {filteredCategories.map((category) => {
-                      const { active, total } = getCategoryActiveCount(
-                        category.key
-                      );
-                      const filteredPermissions = searchQuery
-                        ? category.permissions.filter(
-                            (perm) =>
-                              perm.label
-                                .toLowerCase()
-                                .includes(searchQuery.toLowerCase()) ||
-                              perm.key
-                                .toLowerCase()
-                                .includes(searchQuery.toLowerCase())
-                          )
-                        : category.permissions;
-
-                      if (filteredPermissions.length === 0) return null;
-
-                      return (
-                        <AccordionItem
-                          key={category.key}
-                          value={category.key}
-                          className='border rounded-lg overflow-hidden'
-                        >
-                          <AccordionTrigger className='px-3 sm:px-4 py-2.5 sm:py-3 hover:bg-muted/50 group'>
-                            <div className='flex items-center w-full justify-between pr-2 sm:pr-4'>
-                              <span className='font-medium text-sm sm:text-base'>
-                                {category.name}
-                              </span>
-                              <div className='flex items-center gap-2'>
-                                <Badge
-                                  variant={active > 0 ? 'default' : 'outline'}
-                                  className='text-[10px] sm:text-xs'
-                                >
-                                  {active}/{total}
-                                </Badge>
-                              </div>
-                            </div>
-                          </AccordionTrigger>
-                          <AccordionContent className='px-4 pb-3 pt-1'>
-                            {!isSuperAdmin && (
-                              <div className='flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-3 px-1 pt-2'>
-                                <div className='flex items-center gap-1'>
-                                  <span className='text-xs sm:text-sm font-medium'>
-                                    All permissions in this category
-                                  </span>
-                                  <TooltipProvider>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Info className='h-4 w-4 text-muted-foreground cursor-help' />
-                                      </TooltipTrigger>
-                                      <TooltipContent>
-                                        <p className='max-w-xs'>
-                                          Don&apos;t forget to click &quot;Save
-                                          Changes&quot; after making your
-                                          selections
-                                        </p>
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  </TooltipProvider>
-                                </div>
-                                <div className='flex gap-2'>
-                                  <Button
-                                    variant='outline'
-                                    size='sm'
-                                    type='button'
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      toggleCategoryPermissions(
-                                        category.key,
-                                        true
-                                      );
-                                    }}
-                                    disabled={isSuperAdmin || isSubmitting}
-                                  >
-                                    Enable All
-                                  </Button>
-                                  <Button
-                                    variant='outline'
-                                    size='sm'
-                                    type='button'
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      toggleCategoryPermissions(
-                                        category.key,
-                                        false
-                                      );
-                                    }}
-                                    disabled={isSuperAdmin || isSubmitting}
-                                  >
-                                    Disable All
-                                  </Button>
-                                </div>
-                              </div>
-                            )}
-                            <div className='flex flex-wrap gap-2 mb-4'>
-                              <div className='flex flex-col gap-2 w-full'>
-                                <span className='text-xs font-medium text-muted-foreground'>
-                                  Enable/disable specific permission types:
-                                </span>
-                                <div className='flex flex-wrap gap-2'>
-                                  <Button
-                                    variant='secondary'
-                                    size='sm'
-                                    type='button'
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      toggleActionPermissions(
-                                        category.key,
-                                        'view',
-                                        true
-                                      );
-                                    }}
-                                    disabled={isSuperAdmin || isSubmitting}
-                                    className='px-2 py-1 h-7 text-xs'
-                                  >
-                                    View
-                                  </Button>
-                                  <Button
-                                    variant='secondary'
-                                    size='sm'
-                                    type='button'
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      toggleActionPermissions(
-                                        category.key,
-                                        'create',
-                                        true
-                                      );
-                                    }}
-                                    disabled={isSuperAdmin || isSubmitting}
-                                    className='px-2 py-1 h-7 text-xs'
-                                  >
-                                    Create
-                                  </Button>
-                                  <Button
-                                    variant='secondary'
-                                    size='sm'
-                                    type='button'
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      toggleActionPermissions(
-                                        category.key,
-                                        'edit',
-                                        true
-                                      );
-                                    }}
-                                    disabled={isSuperAdmin || isSubmitting}
-                                    className='px-2 py-1 h-7 text-xs'
-                                  >
-                                    Edit
-                                  </Button>
-                                  <Button
-                                    variant='secondary'
-                                    size='sm'
-                                    type='button'
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      toggleActionPermissions(
-                                        category.key,
-                                        'delete',
-                                        true
-                                      );
-                                    }}
-                                    disabled={isSuperAdmin || isSubmitting}
-                                    className='px-2 py-1 h-7 text-xs'
-                                  >
-                                    Delete
-                                  </Button>
-                                </div>
-                              </div>
-                            </div>
-                            <div className='grid grid-cols-1 md:grid-cols-2 gap-3'>
-                              {filteredPermissions.map((permission) => {
-                                // FIXED: Construct the correct path for nested form
-                                const fullKey = permission.key;
-                                const parts = fullKey.split('.');
-                                const moduleKey = parts[0];
-
-                                // FIXED: Handle simple vs complex permission keys correctly
-                                let actionKey;
-                                if (parts.length === 2) {
-                                  // Simple case: "users.view" -> use "view" directly
-                                  actionKey = parts[1];
-                                } else if (parts.length > 2) {
-                                  // Complex case: "academic.attendance.view" -> use "attendance_view"
-                                  const remainingParts = parts.slice(1);
-                                  actionKey = remainingParts.join('_');
-                                } else {
-                                  // Single word: "dashboard" -> use "_"
-                                  actionKey = '_';
-                                }
-
-                                // Debug when rendering the specific permission
-                                if (fullKey === 'users.view') {
-                                  console.log(
-                                    'Rendering users.view permission',
-                                    `Field path: permissions.${moduleKey}.${actionKey}`,
-                                    `Current value: ${form.getValues(
-                                      `permissions.${moduleKey}.${actionKey}`
-                                    )}`
-                                  );
-                                }
-
-                                const fieldName =
-                                  `permissions.${moduleKey}.${actionKey}` as const;
-
-                                return (
-                                  <FormField
-                                    key={permission.key}
-                                    control={form.control}
-                                    name={fieldName}
-                                    render={({ field }) => (
-                                      <div className='flex items-center justify-between space-x-2 rounded-md border p-2 sm:p-3 hover:bg-muted/50'>
-                                        <div className='space-y-0.5 min-w-0'>
-                                          <FormLabel className='text-xs sm:text-sm leading-tight'>
-                                            {permission.label}
-                                          </FormLabel>
-                                          <FormDescription className='text-[10px] sm:text-xs truncate'>
-                                            {permission.key}
-                                          </FormDescription>
-                                        </div>
-                                        <FormControl>
-                                          <Switch
-                                            checked={Boolean(field.value)}
-                                            onCheckedChange={(checked) => {
-                                              const previous = Boolean(
-                                                field.value
-                                              );
-                                              const holderCount =
-                                                holderCounts[permission.key];
-
-                                              // Taking a permission away from
-                                              // people who are using it is the
-                                              // one move worth interrupting.
-                                              if (
-                                                resolvePermissionToggle({
-                                                  previous,
-                                                  next: checked,
-                                                  holderCount
-                                                }) === 'confirm-removal'
-                                              ) {
-                                                setPendingRemoval({
-                                                  fieldName,
-                                                  permissionKey:
-                                                    permission.key,
-                                                  permissionLabel:
-                                                    permission.label,
-                                                  holderCount:
-                                                    holderCount as number
-                                                });
-                                                return; // leave it on until confirmed
-                                              }
-
-                                              field.onChange(checked);
-                                            }}
-                                            disabled={
-                                              isSuperAdmin || isSubmitting
-                                            }
-                                            aria-readonly={isSuperAdmin}
-                                            aria-label={`Toggle ${permission.label}`}
-                                          />
-                                        </FormControl>
-                                      </div>
-                                    )}
-                                  />
-                                );
-                              })}
-                            </div>
-                          </AccordionContent>
-                        </AccordionItem>
-                      );
-                    })}
-                  </Accordion>
-
-                  {filteredCategories.length === 0 && (
-                    <div className='flex flex-col items-center justify-center py-8 text-center'>
-                      <p className='text-muted-foreground'>
-                        No permissions match your search
-                      </p>
-                      <Button
-                        variant='link'
-                        onClick={() => setSearchQuery('')}
-                        className='mt-2'
-                      >
-                        Clear search
-                      </Button>
-                    </div>
-                  )}
+                  <GroupedPermissionPanel
+                    values={flatValues}
+                    onToggle={handlePermissionToggle}
+                    onBulkSet={setPermissionKeys}
+                    searchQuery={searchQuery}
+                    onClearSearch={() => setSearchQuery('')}
+                    disabled={isSuperAdmin || isSubmitting}
+                    showActionShortcuts
+                  />
                 </div>
               </TabsContent>
               </Tabs>

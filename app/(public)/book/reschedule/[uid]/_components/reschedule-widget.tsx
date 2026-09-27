@@ -10,13 +10,17 @@
 // meeting being moved is never in doubt. Times render in the VIEWER's own
 // timezone with the zone named, resolved after mount; the server renders IST,
 // which is what an Indian viewer sees anyway.
+//
+// 'too-close': an interview-link booking inside its last two hours. The page
+// opens in it, or the route answers too_close while the page sits open — the
+// window can close under the visitor. Either way the picker goes (#11).
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { ArrowRight, CalendarDays, CheckCircle2, Clock, Loader2 } from 'lucide-react';
 import { SwitchToOnlineRequest } from './switch-to-online-request';
 
-export type ReschedulePageState = 'invalid' | 'not-confirmed' | 'pick';
+export type ReschedulePageState = 'invalid' | 'not-confirmed' | 'too-close' | 'pick';
 
 interface RescheduleWidgetProps {
   uid: string;
@@ -29,12 +33,15 @@ interface RescheduleWidgetProps {
   canAskForVideo: boolean;
   /** Server-decided: is one of their requests already awaiting the host? */
   switchRequestPending: boolean;
+  /** What to tell a candidate inside the change cutoff (#11); the server owns the wording. */
+  tooCloseMessage?: string;
 }
 
 interface SlotsResponse {
   days?: Record<string, Array<{ start: string }>>;
   durationMin?: number;
   error?: string;
+  message?: string;
 }
 
 const IST = 'Asia/Kolkata';
@@ -78,6 +85,7 @@ export function RescheduleWidget({
   currentStart,
   canAskForVideo,
   switchRequestPending,
+  tooCloseMessage: serverTooCloseMessage = '',
 }: RescheduleWidgetProps) {
   const [state, setState] = useState<ReschedulePageState | 'done'>(initialState);
   const [slots, setSlots] = useState<SlotsResponse | null>(null);
@@ -85,6 +93,15 @@ export function RescheduleWidget({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newStart, setNewStart] = useState<string | null>(null);
+  const [tooCloseMessage, setTooCloseMessage] = useState(serverTooCloseMessage);
+
+  /** The route refused: the interview is now inside the change cutoff (#11). */
+  function showTooClose(message: string | undefined) {
+    setTooCloseMessage(message || serverTooCloseMessage);
+    setSlots(null);
+    setSelected(null);
+    setState('too-close');
+  }
 
   // The viewer's own zone, resolved post-hydration. IST until then. Slot
   // grouping follows it too, so a viewer abroad sees days that match their own
@@ -139,6 +156,10 @@ export function RescheduleWidget({
         body: JSON.stringify({ token }),
       });
       const json = (await res.json()) as SlotsResponse;
+      if (res.status === 409 && json.error === 'too_close') {
+        showTooClose(json.message);
+        return;
+      }
       if (!res.ok) throw new Error(json.error || 'Could not load available times.');
       setSlots(json);
     } catch (e) {
@@ -181,6 +202,10 @@ export function RescheduleWidget({
         body: JSON.stringify({ token, start: selected }),
       });
       const json = await res.json();
+      if (res.status === 409 && json.error === 'too_close') {
+        showTooClose(json.message);
+        return;
+      }
       if (res.status === 409 && json.error === 'slot_taken') {
         setError('That time was just taken — please pick another slot.');
         setSelected(null);
@@ -258,6 +283,36 @@ export function RescheduleWidget({
               </p>
             </div>
             <BookAgainLink />
+          </>
+        )}
+
+        {state === 'too-close' && (
+          <>
+            <p className="mt-2 text-sm text-[#12261D]/60 dark:text-[#e8f0ea]/60">
+              Your time stays as it is.
+            </p>
+            <div className={`mt-5 px-4 py-5 ${CARD}`} role="status">
+              <p className="text-base font-semibold">{tooCloseMessage}</p>
+              {currentStart && (
+                <p className="mt-2 flex items-start gap-2 text-sm font-medium">
+                  <CalendarDays
+                    className="mt-0.5 h-4 w-4 shrink-0 text-[#0b6d41] dark:text-[#4fcb92]"
+                    aria-hidden
+                  />
+                  <span>
+                    {whenLong(currentStart)}
+                    <span className="ml-1 font-normal text-[#12261D]/55 dark:text-[#e8f0ea]/55">
+                      {zoneLabel(currentStart)}
+                    </span>
+                  </span>
+                </p>
+              )}
+              {meetingTitle && (
+                <p className="mt-1 text-sm text-[#12261D]/75 dark:text-[#e8f0ea]/75">
+                  <span className="font-medium">{meetingTitle}</span> with {hostName}
+                </p>
+              )}
+            </div>
           </>
         )}
 

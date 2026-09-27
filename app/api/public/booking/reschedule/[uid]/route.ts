@@ -14,10 +14,21 @@
 // /api/public/booking/[slug] dynamic route for nested paths.
 //
 // Pattern: app/api/public/booking/[slug]/{slots,book} (rate limit, shapes).
+//
+// Interview-link bookings only: inside the last two hours (policy
+// hr.recruitment.interview_booking.change_cutoff_min) the candidate can no
+// longer move it here and is told to contact the office (#11). Every other
+// booking keeps the behaviour above.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { NativeSchedulingService } from '@/lib/services/meetings/native-scheduling-service';
+import {
+  CHANGE_CUTOFF_MESSAGE,
+  getChangeCutoffMin,
+  isInsideChangeCutoff,
+  isInterviewLinkSource,
+} from '@/lib/services/hr/interview-booking-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,7 +80,7 @@ export async function POST(
     // cancel page — generic error for unknown uid AND wrong token).
     const { data: booking } = await supabase
       .from('meeting_bookings')
-      .select('cancel_token, status, meeting_type_id')
+      .select('cancel_token, status, meeting_type_id, source, start_time')
       .eq('uid', uid)
       .maybeSingle();
     if (!booking || booking.cancel_token !== token) {
@@ -77,6 +88,21 @@ export async function POST(
     }
     if (booking.status !== 'confirmed') {
       return NextResponse.json({ error: 'not_confirmed' }, { status: 409 });
+    }
+
+    // #11 — measured from the interview they HOLD, in both modes: listing
+    // times the candidate cannot move to would only set up a refusal. Runs
+    // after the token gate, so it reveals nothing to a wrong link. Without it
+    // a too-late move would surface below as INVALID_SLOT → "slot_taken",
+    // which reads as someone else taking the time.
+    if (
+      isInterviewLinkSource(booking.source as string | null) &&
+      isInsideChangeCutoff(booking.start_time as string, await getChangeCutoffMin(supabase))
+    ) {
+      return NextResponse.json(
+        { error: 'too_close', message: CHANGE_CUTOFF_MESSAGE },
+        { status: 409 },
+      );
     }
 
     // ── Mode 1: list slots ────────────────────────────────────────────────
@@ -104,7 +130,9 @@ export async function POST(
       { cancelToken: token },
       start,
     );
-    if (!result.success) {
+    // `=== false`, not `!`: strictNullChecks is off repo-wide, and negation does
+    // not narrow the union — `result.error` was a type error on every read here.
+    if (result.success === false) {
       if (result.error === 'SLOT_TAKEN' || result.error === 'INVALID_SLOT') {
         return NextResponse.json({ error: 'slot_taken' }, { status: 409 });
       }

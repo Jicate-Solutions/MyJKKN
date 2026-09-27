@@ -184,3 +184,86 @@ export function applyRegistrationPrefill<
   }
   return next ?? current;
 }
+
+// ── Built-in contact block ──────────────────────────────────────────────────
+//
+// Every public form used to open with its own "Your name / Phone / Email"
+// block. A form whose custom fields already ask for those (the 360° Townhall
+// asks per category) showed them twice, and a form that opens with a banner
+// wanted the banner first. `event_registration_forms.contact_block` decides:
+//   'top'    — built-in block first (the historic layout)
+//   'bottom' — after the custom sections (banner / questions first)
+//   'hidden' — not shown; name / phone / email are read from the answers.
+
+export const CONTACT_BLOCK_MODES = [
+  { value: 'top', label: 'At the top (default)' },
+  { value: 'bottom', label: 'After my questions' },
+  { value: 'hidden', label: "Don't ask — my own fields collect them" },
+] as const;
+export type ContactBlockMode = (typeof CONTACT_BLOCK_MODES)[number]['value'];
+
+export function isContactBlockMode(v: unknown): v is ContactBlockMode {
+  return v === 'top' || v === 'bottom' || v === 'hidden';
+}
+
+export interface DerivedContact {
+  name: string;
+  email: string;
+  phone: string;
+}
+
+interface ContactSourceField {
+  field_key: string;
+  field_label: string;
+  field_type: string;
+  prefill_source?: string | null;
+}
+
+const str = (v: unknown): string => (v == null ? '' : String(v).trim());
+
+/**
+ * When the built-in block is hidden, find the registrant's name / email /
+ * phone among the answers. A field explicitly mapped to the profile source
+ * (full_name / email / phone) wins; otherwise the first email-typed, phone-
+ * typed, or "name"-labelled text field. Only VISIBLE fields are passed in, so
+ * a "Parent name" hidden by the category rule is never picked up.
+ */
+export function deriveContactFromAnswers(
+  fields: ContactSourceField[],
+  values: Record<string, unknown>,
+): DerivedContact {
+  const bySource = (src: string) =>
+    fields.find((f) => f.prefill_source === src && str(values[f.field_key]));
+  const byPredicate = (p: (f: ContactSourceField) => boolean) =>
+    fields.find((f) => p(f) && str(values[f.field_key]));
+
+  const nameField =
+    bySource('full_name') ??
+    byPredicate((f) => (f.field_type === 'text') && /\bname\b/i.test(f.field_label) && !/(parent|father|mother|guardian|school|college|institution|company|organi[sz]ation)/i.test(f.field_label)) ??
+    byPredicate((f) => f.field_type === 'text' && /\bname\b/i.test(f.field_label));
+  const emailField =
+    bySource('email') ??
+    byPredicate((f) => f.field_type === 'email') ??
+    byPredicate((f) => /\be-?mail\b/i.test(f.field_label));
+  const phoneField =
+    bySource('phone') ??
+    byPredicate((f) => f.field_type === 'phone') ??
+    byPredicate((f) => /(mobile|phone|whatsapp|contact number)/i.test(f.field_label));
+
+  return {
+    name: nameField ? str(values[nameField.field_key]) : '',
+    email: emailField ? str(values[emailField.field_key]) : '',
+    phone: phoneField ? str(values[phoneField.field_key]) : '',
+  };
+}
+
+/**
+ * Builder-side check: can a form with the block hidden still identify the
+ * registrant? True when some field could supply a name (mapped, or a text
+ * field with "name" in its label).
+ */
+export function formCanSupplyName(fields: ContactSourceField[]): boolean {
+  return fields.some(
+    (f) => f.prefill_source === 'full_name' || (f.field_type === 'text' && /\bname\b/i.test(f.field_label)),
+  );
+}
