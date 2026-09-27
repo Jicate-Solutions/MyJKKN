@@ -285,3 +285,85 @@ COMMENT ON FUNCTION public.fn_cdc_emit_willingness_reopen_notification(uuid, uui
   'learner''s own /cdc/drives/<id>/willingness page, never the coordinator page. '
   'expires_at is midnight Asia/Kolkata after the drive date — the moment the '
   'reopening itself stops being usable.';
+
+-- ---------------------------------------------------------------------------
+-- ONLY THE CDC MAY GRANT A REOPENING (W12 blind review, 2026-09-24).
+--
+-- The notification trigger above refuses to SPEAK for a learner-written reopen
+-- marker, but the marker itself still persisted — and the grant is read from
+-- that marker (`isReopenedForLearner`: last audit entry via = 'cdc-reopen'), so
+-- a learner could append one through PostgREST and then answer 'willing' past
+-- the closed window. The grant has to be refused where it is written.
+--
+-- The CDC reopen is written by the API route on the SERVICE ROLE
+-- (app/api/cdc/drives/[id]/responses/route.ts). The learner's own client is
+-- `authenticated`. So for an `authenticated` / `anon` session:
+--   1. the audit is APPEND-ONLY — the entries already there must come back
+--      unchanged and in order (otherwise a learner could drop their own later
+--      answer, or move an old reopening to the end, and re-arm a spent grant);
+--   2. no entry it appends may carry via = 'cdc-reopen'.
+-- Both apply to INSERT (no previous entries) and UPDATE. The learner's normal
+-- answers (`[...previousAudit, entry]` in declareWillingness) satisfy both.
+-- Service-role and owner writes are untouched.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_cdc_willingness_reopen_marker_guard_trg()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_new     jsonb;
+  v_old     jsonb := '[]'::jsonb;
+  v_new_len int;
+  v_old_len int := 0;
+  i         int;
+BEGIN
+  IF COALESCE(current_setting('role', true), 'none') NOT IN ('authenticated', 'anon') THEN
+    RETURN NEW;
+  END IF;
+
+  v_new := CASE WHEN jsonb_typeof(NEW.willingness_audit) = 'array'
+                THEN NEW.willingness_audit ELSE '[]'::jsonb END;
+  IF TG_OP = 'UPDATE' AND jsonb_typeof(OLD.willingness_audit) = 'array' THEN
+    v_old := OLD.willingness_audit;
+  END IF;
+  v_new_len := jsonb_array_length(v_new);
+  v_old_len := jsonb_array_length(v_old);
+
+  IF v_new_len < v_old_len THEN
+    RAISE EXCEPTION USING ERRCODE = '42501',
+      MESSAGE = 'The history of this response can only be added to, not changed.';
+  END IF;
+  FOR i IN 0 .. v_old_len - 1 LOOP
+    IF (v_new -> i) IS DISTINCT FROM (v_old -> i) THEN
+      RAISE EXCEPTION USING ERRCODE = '42501',
+        MESSAGE = 'The history of this response can only be added to, not changed.';
+    END IF;
+  END LOOP;
+
+  -- Must agree with REOPEN_AUDIT_VIA in lib/services/cdc/willingness-service.ts.
+  FOR i IN v_old_len .. v_new_len - 1 LOOP
+    IF jsonb_typeof(v_new -> i) = 'object' AND (v_new -> i ->> 'via') = 'cdc-reopen' THEN
+      RAISE EXCEPTION USING ERRCODE = '42501',
+        MESSAGE = 'Only the CDC team can reopen a declined response.';
+    END IF;
+  END LOOP;
+
+  RETURN NEW;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_cdc_willingness_reopen_marker_guard_trg() FROM PUBLIC;
+
+DROP TRIGGER IF EXISTS trg_cdc_willingness_reopen_marker_guard ON public.cdc_drive_willingness;
+
+CREATE TRIGGER trg_cdc_willingness_reopen_marker_guard
+BEFORE INSERT OR UPDATE OF willingness_audit
+ON public.cdc_drive_willingness
+FOR EACH ROW
+EXECUTE FUNCTION public.fn_cdc_willingness_reopen_marker_guard_trg();
+
+COMMENT ON TRIGGER trg_cdc_willingness_reopen_marker_guard ON public.cdc_drive_willingness IS
+  'A learner''s own client (authenticated/anon) may only APPEND to willingness_audit '
+  'and may never append a via = ''cdc-reopen'' entry: the reopening grant is read from '
+  'that marker, so only the CDC route (service role) may write it.';

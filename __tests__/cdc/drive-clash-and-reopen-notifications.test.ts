@@ -126,7 +126,7 @@ CREATE UNIQUE INDEX notifications_idempotency_key_uq
 
 -- The learner's client (authenticated) and the CDC route (service_role) can both
 -- UPDATE a willingness row, as on production.
-GRANT SELECT, UPDATE ON public.cdc_drive_willingness TO authenticated, service_role;
+GRANT SELECT, INSERT, UPDATE ON public.cdc_drive_willingness TO authenticated, service_role;
 `;
 
 const FIXTURE = `
@@ -198,6 +198,24 @@ async function reopenAs(role: 'service_role' | 'authenticated', at: string, acto
     await db.query('ROLLBACK');
     throw e;
   }
+}
+
+/** Run one statement as the learner's own client (PostgREST's `authenticated`). */
+async function asLearner(sql: string, params: unknown[]) {
+  await db.query('BEGIN');
+  try {
+    await db.query('SET LOCAL ROLE authenticated');
+    await db.query(sql, params);
+    await db.query('COMMIT');
+  } catch (e) {
+    await db.query('ROLLBACK');
+    throw e;
+  }
+}
+
+async function auditOf(id: string): Promise<unknown[]> {
+  const { rows } = await db.query('SELECT willingness_audit FROM public.cdc_drive_willingness WHERE id = $1', [id]);
+  return rows[0].willingness_audit as unknown[];
 }
 
 beforeAll(async () => {
@@ -294,19 +312,61 @@ describe('a CDC reopening tells the learner exactly once', () => {
     expect(rows).toHaveLength(1);
   });
 
-  it('ignores a reopen marker the learner wrote through their own client, and its forged actor', async () => {
-    await reopenAs('authenticated', '2026-09-16T06:30:00Z', FORGED_ACTOR);
+  it('REFUSES a reopen marker the learner writes through their own client — the grant never persists', async () => {
+    await expect(reopenAs('authenticated', '2026-09-16T06:30:00Z', FORGED_ACTOR)).rejects.toMatchObject({
+      code: '42501',
+      message: 'Only the CDC team can reopen a declined response.',
+    });
+    expect(await auditOf(REOPEN_ROW)).toEqual([{ via: 'learner-ui' }]);
     expect(await byCategory('cdc.drive.response_reopened')).toHaveLength(0);
 
     // Non-vacuity: the same write, from the same starting row, through the CDC
-    // path DOES notify, so the silence above is the role guard and not a
-    // trigger that never fires.
-    await db.query(FIXTURE);
+    // path (service role) is accepted and notifies once, naming the coordinator.
     await reopenAs('service_role', '2026-09-16T06:30:00Z');
     const rows = await byCategory('cdc.drive.response_reopened');
     expect(rows).toHaveLength(1);
     expect(rows[0].created_by).toBe(COORDINATOR);
     expect(rows.map((r) => r.created_by)).not.toContain(FORGED_ACTOR);
+  });
+
+  it('lets the learner APPEND their own answer, but not rewrite or trim the history', async () => {
+    await reopenAs('service_role', '2026-09-16T06:30:00Z');
+    // The learner's normal next answer — previous entries kept, one appended.
+    await asLearner(
+      `UPDATE public.cdc_drive_willingness
+       SET willingness_audit = willingness_audit || '[{"via":"learner-ui"}]'::jsonb
+       WHERE id = $1`,
+      [REOPEN_ROW]
+    );
+    expect(await auditOf(REOPEN_ROW)).toHaveLength(3);
+
+    // Dropping their own later answer would re-arm the spent reopening.
+    await expect(
+      asLearner(
+        `UPDATE public.cdc_drive_willingness
+         SET willingness_audit = willingness_audit - (jsonb_array_length(willingness_audit) - 1)
+         WHERE id = $1`,
+        [REOPEN_ROW]
+      )
+    ).rejects.toMatchObject({ code: '42501' });
+    // Replacing the history outright is refused too.
+    await expect(
+      asLearner(
+        `UPDATE public.cdc_drive_willingness SET willingness_audit = '[{"via":"cdc-reopen"}]'::jsonb WHERE id = $1`,
+        [REOPEN_ROW]
+      )
+    ).rejects.toMatchObject({ code: '42501' });
+    expect(await auditOf(REOPEN_ROW)).toHaveLength(3);
+  });
+
+  it('refuses a reopen marker in a row the learner INSERTS', async () => {
+    await expect(
+      asLearner(
+        `INSERT INTO public.cdc_drive_willingness (id, drive_id, learner_id, status, willingness_audit)
+         VALUES (gen_random_uuid(), $1, $2, 'withdrawn', '[{"via":"cdc-reopen"}]')`,
+        [Y, L.c]
+      )
+    ).rejects.toMatchObject({ code: '42501' });
   });
 
   it('says nothing for a cancelled drive', async () => {
