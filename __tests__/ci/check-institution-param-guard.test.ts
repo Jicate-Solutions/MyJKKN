@@ -1139,4 +1139,63 @@ REVOKE EXECUTE ON FUNCTION public.fn_probe_newgrant(uuid) FROM anon, authenticat
       rmSync(repo, { recursive: true, force: true });
     }
   });
+
+  it('W12 2026-09-28 (a): an UNCHANGED grant in another touched file is not "new" — each file is compared to its own base', () => {
+    const repo = mkdtempSync(path.join(tmpdir(), 'institution-param-ownbase-'));
+    try {
+      const git = gitIn(repo);
+      git('init', '-q', '-b', 'main');
+      mkdirSync(path.join(repo, MIG), { recursive: true });
+      const a = path.join(repo, MIG, '20990101000000_a.sql');
+      const b = path.join(repo, MIG, '20990101000001_b.sql');
+      // An old unguarded body that signed-in users can already call (in main
+      // before this PR — the gate did not exist then). Not this PR's doing.
+      const revokedLeak = DEFINER('fn_probe_ownbase', 'p_institution_id uuid',
+        '  SELECT count(*) INTO v_n FROM learners_profiles WHERE institution_id = p_institution_id;');
+      writeFileSync(a, revokedLeak, 'utf8');
+      writeFileSync(b, '-- old grant, long since in main\nGRANT EXECUTE ON FUNCTION public.fn_probe_ownbase(uuid) TO authenticated;\n', 'utf8');
+      git('add', '.');
+      git('commit', '-q', '-m', 'base');
+      git('checkout', '-q', '-b', 'touch-both');
+      writeFileSync(a, `-- a comment added above\n${revokedLeak}`, 'utf8');
+      writeFileSync(b, '-- old grant, long since in main (reworded)\nGRANT EXECUTE ON FUNCTION public.fn_probe_ownbase(uuid) TO authenticated;\n', 'utf8');
+      git('commit', '-q', '-am', 'touch both files, change neither the body nor the grant');
+      const r = run(['--base', 'main'], { cwd: repo });
+      expect(r.code).toBe(0);
+      expect(flagged(r.out, 'fn_probe_ownbase')).toBe(false);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('W12 2026-09-28 (b): a new GRANT on a SAFE overload does not recheck an unrelated overload of the same name', () => {
+    const repo = mkdtempSync(path.join(tmpdir(), 'institution-param-overload-'));
+    try {
+      const git = gitIn(repo);
+      git('init', '-q', '-b', 'main');
+      mkdirSync(path.join(repo, MIG), { recursive: true });
+      const file = path.join(repo, MIG, '20990101000000_ov.sql');
+      // An old unguarded body signed-in users can already call (in main before this PR).
+      const revokedLeak = DEFINER('fn_probe_overload', 'p_institution_id uuid',
+        '  SELECT count(*) INTO v_n FROM learners_profiles WHERE institution_id = p_institution_id;');
+      writeFileSync(file, revokedLeak, 'utf8');
+      git('add', '.');
+      git('commit', '-q', '-m', 'base');
+      git('checkout', '-q', '-b', 'grant-other-overload');
+      writeFileSync(file, `${revokedLeak}GRANT EXECUTE ON FUNCTION public.fn_probe_overload(text) TO authenticated;\n`, 'utf8');
+      git('commit', '-q', '-am', 'grant the text overload only');
+      const r = run(['--base', 'main'], { cwd: repo });
+      expect(r.code).toBe(0);
+      expect(flagged(r.out, 'fn_probe_overload')).toBe(false);
+      // Non-vacuity: a new grant on the SAME signature does recheck it, and it fails.
+      git('checkout', '-q', 'main');
+      git('checkout', '-q', '-b', 'grant-same-overload');
+      writeFileSync(file, `${revokedLeak}GRANT EXECUTE ON FUNCTION public.fn_probe_overload(uuid) TO authenticated;\n`, 'utf8');
+      git('commit', '-q', '-am', 'grant the uuid overload');
+      const same = run(['--base', 'main'], { cwd: repo });
+      expect(same.code).toBe(1);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
 });

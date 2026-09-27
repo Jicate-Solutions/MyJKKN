@@ -221,6 +221,11 @@
  *   - An unrelated check in a decision position still clears a function, with
  *     the row-scoped WARNING where it applies. Deliberate: the gate stops the
  *     shape that leaked (no check at all); W12 accepted it as a tripwire.
+ *   - A migration that only GRANTs EXECUTE on an EXISTING function whose
+ *     CREATE is not in the PR checks zero definitions and passes: the gate
+ *     reads bodies from the PR's changed files only, never from older,
+ *     unchanged migrations or from production. Review must read what such a
+ *     grant exposes (W12 on #3985, 2026-09-28).
  *   - A college id in a parameter that is neither named like one nor compared
  *     straight to an institution_id column (e.g. passed to a helper that does
  *     the comparison) is not recognised.
@@ -1127,6 +1132,9 @@ export function checkFiles(entries) {
   // GRANT / REVOKE are read from the defining file AND every later file in the
   // PR, in order (critic on #3985, 2026-09-28: a later file's regrant counts).
   const allStmts = entries.map(e => topLevelStatements(blankComments(e.raw)));
+  // Each file's statements at the merge base, so a grant is "new" only against
+  // ITS OWN file's base version (W12 on #3985, 2026-09-28).
+  const allBaseSets = entries.map(e => new Set(e.baseRaw ? topLevelStatements(blankComments(e.baseRaw)).map(normStmt) : []));
   for (const [k, { file, raw, baseRaw }] of entries.entries()) {
     const statements = allStmts.slice(k).flat();
     // W12 review of #3985 (2026-09-27): check only what the PR adds or changes.
@@ -1136,7 +1144,6 @@ export function checkFiles(entries) {
     // it still counts as a body an ALTER in this PR can point at.
     const baseStmts = baseRaw ? new Set(extractFunctions(baseRaw).map(f => normStmt(f.stmt))) : null;
     const baseAlters = baseRaw ? extractSecdefAlters(baseRaw) : [];
-    const baseStmtSet = new Set(baseRaw ? topLevelStatements(blankComments(baseRaw)).map(normStmt) : []);
     const events = [
       ...extractFunctions(raw).map(f => ({ at: f.offset, f })),
       ...extractSecdefAlters(raw).map(a => ({ at: a.offset, a })),
@@ -1151,7 +1158,7 @@ export function checkFiles(entries) {
         defs.push(d);
         // An unchanged body is still rechecked when this PR adds a GRANT that can
         // reach it (critic on #3985, 2026-09-28, round 3).
-        if (d.unchanged && newGrantReaches(statements, baseStmtSet, ev.f)) d.unchanged = false;
+        if (d.unchanged && newGrantReaches(allStmts, allBaseSets, k, ev.f)) d.unchanged = false;
         if (d.unchanged) { if (ev.f.secdef && ev.f.params.length > 0) out.unchanged++; continue; }
         if (ev.f.secdef) checkDefinition(out, { file, line: ev.f.line, f: ev.f, statements, hatchSites: [{ raw, offset: ev.f.offset }] });
         continue;
@@ -1193,19 +1200,28 @@ function normStmt(stmt) {
 }
 
 /**
- * Does this PR (the defining file from the definition on, plus later changed
- * files) contain a GRANT … EXECUTE that is not in the base file and that names
- * function f (by name, any signature) or every function in f's schema?
+ * Does the PR — file k and every later changed file — contain a GRANT …
+ * EXECUTE that is not in THAT file's base version and that reaches function f:
+ * naming f with the same argument types (or with no argument list), or every
+ * function in f's schema? (W12 on #3985, 2026-09-28: compare each file to its
+ * own base; match overloads by signature.)
  */
-function newGrantReaches(statements, baseStmtSet, f) {
+function newGrantReaches(allStmts, allBaseSets, k, f) {
   const want = f.name.toLowerCase();
-  return statements.some(stmt => {
-    if (!/^grant\b/i.test(stmt) || !/\bexecute\b|\ball\b/i.test(stmt)) return false;
-    if (baseStmtSet.has(normStmt(stmt))) return false;
-    const allIn = /\bon\s+all\s+(?:functions|routines)\s+in\s+schema\s+([\s\S]*?)\s+to\b/i.exec(stmt);
-    if (allIn) return allIn[1].split(',').map(x => unquote(x.trim()).toLowerCase()).includes(f.schema);
-    return grantTargets(stmt).some(t => t.name.toLowerCase() === want);
-  });
+  for (let j = k; j < allStmts.length; j++) {
+    for (const stmt of allStmts[j]) {
+      if (!/^grant\b/i.test(stmt) || !/\bexecute\b|\ball\b/i.test(stmt)) continue;
+      if (allBaseSets[j].has(normStmt(stmt))) continue;
+      const allIn = /\bon\s+all\s+(?:functions|routines)\s+in\s+schema\s+([\s\S]*?)\s+to\b/i.exec(stmt);
+      if (allIn) {
+        if (allIn[1].split(',').map(x => unquote(x.trim()).toLowerCase()).includes(f.schema)) return true;
+        continue;
+      }
+      if (grantTargets(stmt).some(t => t.name.toLowerCase() === want
+          && (!t.argTypes || !f.argTypes || sameSignature(t.argTypes, f.argTypes)))) return true;
+    }
+  }
+  return false;
 }
 
 /** Check one migration file's text. Same result shape as checkFiles. */
