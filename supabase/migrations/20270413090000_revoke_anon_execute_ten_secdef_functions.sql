@@ -24,8 +24,41 @@
 -- One table rule uses one of them: public.sections INSERT / UPDATE / DELETE
 -- (roles {public}) call fn_role_scope_all_grants. A signed-out WRITE to
 -- sections was already refused by those rules; it now errors with 42501
--- instead. SELECT on sections does not call it. No read changes.
+-- instead. SELECT on sections does not call it. No read changes: the
+-- precondition block below refuses to run if any read path calls one of the
+-- ten, and supabase/tests/revoke-anon-ten-secdef-rehearsal.sql replays it.
 -- ============================================================================
+
+-- Precondition: signed-out READS must not depend on any of the ten. Revoking
+-- EXECUTE makes a signed-out statement that reaches one of them error (42501),
+-- so refuse to run if a view, a materialized view, a SELECT/ALL row rule, a
+-- column default, or a SECURITY INVOKER function signed-out callers can run
+-- calls one. Live inventory 2026-09-28 01:40 IST: none; the only callers are
+-- the three sections INSERT / UPDATE / DELETE rules named in the header.
+DO $pre$
+DECLARE
+  v_re   text := '(fn_is_any_leave_approver|fn_is_configured_leave_approver|fn_my_designated_hr_org_ids|fn_my_hr_context|fn_procurement_rm_post_receipt|fn_role_scope_all_grants|gate_can_record|gate_can_scan|get_admin_overview|hr_resolve_leave_ladder)';
+  v_hits text;
+BEGIN
+  SELECT string_agg(hit, '; ') INTO v_hits FROM (
+    SELECT 'view '||schemaname||'.'||viewname AS hit FROM pg_views WHERE definition ~ v_re
+    UNION ALL SELECT 'materialized view '||schemaname||'.'||matviewname FROM pg_matviews WHERE definition ~ v_re
+    UNION ALL SELECT 'row rule '||schemaname||'.'||tablename||'.'||policyname||' ('||cmd||')'
+      FROM pg_policies
+     WHERE cmd IN ('SELECT', 'ALL')
+       AND coalesce(qual, '')||' '||coalesce(with_check, '') ~ v_re
+    UNION ALL SELECT 'column default '||table_schema||'.'||table_name||'.'||column_name
+      FROM information_schema.columns WHERE column_default ~ v_re
+    UNION ALL SELECT 'invoker function '||p.oid::regprocedure::text
+      FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+       AND NOT p.prosecdef AND p.prosrc ~ v_re
+       AND has_function_privilege('anon', p.oid, 'EXECUTE')
+  ) h;
+  IF v_hits IS NOT NULL THEN
+    RAISE EXCEPTION '20270413090000: a signed-out read path calls one of the ten, so revoking anon EXECUTE would break it: %', v_hits;
+  END IF;
+END $pre$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_is_any_leave_approver()                                          FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.fn_is_configured_leave_approver()                                   FROM PUBLIC, anon;
