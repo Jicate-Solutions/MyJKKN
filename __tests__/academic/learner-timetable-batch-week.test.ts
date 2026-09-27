@@ -15,7 +15,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }));
 
 import { StudentTimetableService } from '@/lib/services/learners/student-timetable-service';
-import { displayWeek, isDateKeyInDisplayWeek } from '@/lib/services/learners/timetable-week';
+import { displayWeek, isDateKeyInDisplayWeek, isShowingToday } from '@/lib/services/learners/timetable-week';
 
 const P1 = 'p1';
 const periods = [{ id: P1, period_name: 'Clinical P1', start_time: '09:00:00', end_time: '15:30:00', is_break: false }];
@@ -69,6 +69,20 @@ describe('batch timetable on the learner weekly view', () => {
 
   it('on a Sunday (India) the page opens on Monday, so the coming week is shown', () => {
     expect(displayWeek(new Date('2026-09-27T06:00:00Z'))).toEqual({ from: '2026-09-28', to: '2026-10-04' });
+  });
+
+  it("a date outside the timetable's own start/end never reaches the week", async () => {
+    const slots = await (StudentTimetableService as any).enrichTimetableSlots(
+      batchTimetable, periods, stubClient(), { start_date: '2026-03-09', end_date: '2026-09-14T23:59:59Z' });
+    expect(slots.filter((s: any) => s.day === 'TUESDAY')).toEqual([]);
+  });
+
+  it('the current-class badge knows today by day NAME, not by position in the shown days', () => {
+    // A week whose only postings fall on Tuesday shows ['TUESDAY'] — Tuesday is
+    // position 0. The old check (getDay() - 1 === position) said "not today".
+    expect(isShowingToday('TUESDAY')).toBe(true);
+    expect(isShowingToday('WEDNESDAY')).toBe(false);
+    expect(isShowingToday('MONDAY', new Date('2026-09-27T06:00:00Z'))).toBe(false); // a Sunday
   });
 
   it('weekday keys are never filtered', () => {

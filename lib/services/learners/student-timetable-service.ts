@@ -7,7 +7,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { StudentTimetableData, EnrichedTimetableSlot, CurrentPeriodInfo } from '@/types/student-portal';
 import { Period, DayOfWeek } from '@/types/academics';
-import { isDateKeyInDisplayWeek } from './timetable-week';
+import { isDateKeyInDisplayWeek, type TimetableBounds } from './timetable-week';
 
 export class StudentTimetableService {
   /**
@@ -179,7 +179,8 @@ export class StudentTimetableService {
           const slots = await this.enrichTimetableSlots(
             t.timetable_data,
             periods || [],
-            supabase
+            supabase,
+            { start_date: t.start_date, end_date: t.end_date }
           );
           return slots.map((slot) => ({
             ...slot,
@@ -375,7 +376,8 @@ export class StudentTimetableService {
   private static async enrichTimetableSlots(
     timetableData: any,
     periods: Period[],
-    supabase: any
+    supabase: any,
+    bounds: TimetableBounds = {}
   ): Promise<EnrichedTimetableSlot[]> {
     try {
       if (!timetableData || typeof timetableData !== 'object') {
@@ -408,7 +410,7 @@ export class StudentTimetableService {
 
           // A date key belongs on the weekly view only if it falls in the week
           // being shown; other weeks' postings must not stack onto this one.
-          if (DATE_REGEX.test(key) && !isDateKeyInDisplayWeek(key)) return;
+          if (DATE_REGEX.test(key) && !isDateKeyInDisplayWeek(key, new Date(), bounds)) return;
 
           // Determine the DayOfWeek for this key
           let dayOfWeek: DayOfWeek;

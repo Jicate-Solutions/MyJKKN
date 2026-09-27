@@ -34,9 +34,42 @@ export function displayWeek(now: Date = new Date()): { from: string; to: string 
   return { from: monday, to: addDays(monday, 6) };
 }
 
-/** True for a date key inside the displayed week. Non-date keys are not judged here. */
-export function isDateKeyInDisplayWeek(key: string, now: Date = new Date()): boolean {
+/** The timetable's own start / end (timestamps or dates); a date outside them is stale. */
+export interface TimetableBounds {
+  start_date?: string | null;
+  end_date?: string | null;
+}
+
+/**
+ * True for a date key inside the displayed week AND inside the timetable's own
+ * start/end. Non-date keys (weekday names) are not judged here.
+ */
+export function isDateKeyInDisplayWeek(
+  key: string,
+  now: Date = new Date(),
+  bounds: TimetableBounds = {}
+): boolean {
   if (!DATE_KEY.test(key)) return true;
   const { from, to } = displayWeek(now);
-  return key >= from && key <= to;
+  if (key < from || key > to) return false;
+  const start = bounds.start_date?.slice(0, 10);
+  const end = bounds.end_date?.slice(0, 10);
+  if (start && key < start) return false;
+  if (end && key > end) return false;
+  return true;
+}
+
+const WEEKDAY_BY_JS_DAY: Record<number, string> = {
+  1: 'MONDAY', 2: 'TUESDAY', 3: 'WEDNESDAY', 4: 'THURSDAY', 5: 'FRIDAY', 6: 'SATURDAY',
+};
+
+/**
+ * Is the day on screen today? Compares day NAMES. The old check compared the
+ * JS weekday number with a position in availableDays, which only lines up when
+ * every weekday from Monday is present — a week with postings on Tuesday alone
+ * put Tuesday at position 0 and the current-class badge vanished.
+ */
+export function isShowingToday(shownDay: string | undefined, now: Date = new Date()): boolean {
+  const today = WEEKDAY_BY_JS_DAY[now.getDay()];
+  return !!today && shownDay === today;
 }
