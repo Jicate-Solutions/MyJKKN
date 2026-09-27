@@ -7,6 +7,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { StudentTimetableData, EnrichedTimetableSlot, CurrentPeriodInfo } from '@/types/student-portal';
 import { Period, DayOfWeek } from '@/types/academics';
+import { isDateKeyInDisplayWeek } from './timetable-week';
 
 export class StudentTimetableService {
   /**
@@ -404,6 +405,10 @@ export class StudentTimetableService {
 
           // Skip RANGE keys (metadata, not actual day slots)
           if (RANGE_REGEX.test(key)) return;
+
+          // A date key belongs on the weekly view only if it falls in the week
+          // being shown; other weeks' postings must not stack onto this one.
+          if (DATE_REGEX.test(key) && !isDateKeyInDisplayWeek(key)) return;
 
           // Determine the DayOfWeek for this key
           let dayOfWeek: DayOfWeek;
