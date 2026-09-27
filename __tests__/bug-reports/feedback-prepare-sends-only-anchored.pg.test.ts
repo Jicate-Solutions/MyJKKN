@@ -14,7 +14,7 @@ import { randomUUID } from 'crypto';
 import { Client } from 'pg';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 
-const REPO = path.resolve(__dirname, '..', '..', '..');
+const REPO = path.resolve(__dirname, '..', '..');
 const MIGRATION = path.join(REPO, 'supabase/migrations/20270207090000_bug_feedback_prepare_requires_a_recorded_fix.sql');
 const PGHOST = process.env.PREPARE_TEST_PGHOST ?? 'localhost';
 const PGPORT = process.env.PREPARE_TEST_PGPORT ?? '5432';
