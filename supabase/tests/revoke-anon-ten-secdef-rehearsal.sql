@@ -11,7 +11,7 @@
 --      ten (and ignores an authenticated-only rule); the file RAISEs on any.
 -- RUN:
 --   psql -h 127.0.0.1 -p <port> -U postgres -v ON_ERROR_STOP=1 -f supabase/tests/revoke-anon-ten-secdef-rehearsal.sql
--- EXPECT: NOTICE REHEARSAL PASS (15 checks) and exit 0; any failed or NULL check RAISEs. (Run from the repo root: it \i's the migration.)
+-- EXPECT: NOTICE REHEARSAL PASS (16 checks) and exit 0; any failed or NULL check RAISEs. (Run from the repo root: it \i's the migration.)
 -- ============================================================================
 \set ON_ERROR_STOP 1
 DO $$ BEGIN
@@ -88,6 +88,13 @@ SELECT (pg_temp.anon_ten_read_paths() IS NULL) AS p2 \gset
 ROLLBACK;
 INSERT INTO result (what, ok) VALUES ('precondition: ignores a SELECT rule for authenticated only', :'p2'::boolean);
 BEGIN;
+CREATE TABLE public.t_probe (id int);
+ALTER TABLE public.t_probe ENABLE ROW LEVEL SECURITY;
+CREATE POLICY t_probe_insert ON public.t_probe FOR INSERT WITH CHECK (public.gate_can_record());
+SELECT (coalesce(pg_temp.anon_ten_read_paths(), '') LIKE '%row rule public.t_probe.t_probe_insert (INSERT)%') AS p6 \gset
+ROLLBACK;
+INSERT INTO result (what, ok) VALUES ('precondition: names an unexpected anon-reachable WRITE rule (only the 3 sections rules are exempt)', :'p6'::boolean);
+BEGIN;
 CREATE VIEW public.v_probe AS SELECT public.gate_can_scan() AS can;
 GRANT SELECT ON public.v_probe TO anon;
 SELECT (coalesce(pg_temp.anon_ten_read_paths(), '') LIKE '%view v_probe%') AS p3 \gset
@@ -111,7 +118,7 @@ DO $v$
 DECLARE v_bad text; v_n int;
 BEGIN
   SELECT string_agg(n || ': ' || what, ' | ' ORDER BY n) FILTER (WHERE ok IS NOT TRUE), count(*) INTO v_bad, v_n FROM result;
-  IF v_n <> 15 THEN RAISE EXCEPTION 'REHEARSAL FAIL: expected 15 checks, ran %', v_n; END IF;
+  IF v_n <> 16 THEN RAISE EXCEPTION 'REHEARSAL FAIL: expected 16 checks, ran %', v_n; END IF;
   IF v_bad IS NOT NULL THEN RAISE EXCEPTION 'REHEARSAL FAIL: %', v_bad; END IF;
   RAISE NOTICE 'REHEARSAL PASS (% checks)', v_n;
 END $v$;

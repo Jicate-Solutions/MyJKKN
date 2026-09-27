@@ -29,12 +29,15 @@
 -- ten, and supabase/tests/revoke-anon-ten-secdef-rehearsal.sql replays it.
 -- ============================================================================
 
--- Precondition: signed-out reads must not depend on any of the ten. Revoking
+-- Precondition: nothing a signed-out caller can reach may depend on any of the ten. Revoking
 -- EXECUTE makes a signed-out statement that reaches one of them error (42501),
 -- so the file refuses to run if any of these call one:
 --   * any view or materialized view (not only those anon may SELECT: a view
 --     anon can read may select from an inner view it has no grant on);
---   * a SELECT/ALL row rule that applies to anon (roles include public or anon);
+--   * ANY row rule (SELECT, INSERT, UPDATE, DELETE or ALL) that applies to anon
+--     (roles include public or anon), except the three sections write rules
+--     named in the header, exempted by name — so an unexpected write
+--     dependency aborts the apply too (W12 review 2026-09-28);
 --   * a column default (evaluated as the inserting role);
 --   * a SECURITY INVOKER function anon may EXECUTE, or any SECURITY INVOKER
 --     trigger function (a trigger fires as the writing role, whatever the grant).
@@ -57,9 +60,11 @@ CREATE OR REPLACE FUNCTION pg_temp.anon_ten_read_paths() RETURNS text LANGUAGE s
     UNION ALL
     SELECT 'row rule '||schemaname||'.'||tablename||'.'||policyname||' ('||cmd||')'
       FROM pg_policies, re
-     WHERE cmd IN ('SELECT', 'ALL')
-       AND roles && ARRAY['public', 'anon']::name[]
+     WHERE roles && ARRAY['public', 'anon']::name[]
        AND coalesce(qual, '')||' '||coalesce(with_check, '') ~ re.v
+       -- the three known callers (header): a signed-out write there is already refused
+       AND NOT (schemaname = 'public' AND tablename = 'sections'
+                AND policyname IN ('sections_insert_admin', 'sections_update_admin', 'sections_delete_admin'))
     UNION ALL
     SELECT 'column default '||table_schema||'.'||table_name||'.'||column_name
       FROM information_schema.columns, re
