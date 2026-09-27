@@ -19,19 +19,20 @@ vi.mock('@/lib/supabase/server', () => ({
 import { BookingIdentityService } from '@/lib/services/meetings/booking-identity-service';
 
 // ── service-role client stub: records whether the account table was probed ───
-function makeServiceClient(profileRow: unknown) {
-  const calls = { ilike: false, eqId: false };
+function makeServiceClient(profileRow: unknown, probeRows: unknown[] = []) {
+  const calls = { ilike: false, eqId: false, pattern: '' };
   const builder: Record<string, unknown> = {};
   builder.select = () => builder;
   builder.eq = (col: string) => {
     if (col === 'id') calls.eqId = true;
     return builder;
   };
-  builder.ilike = () => {
+  builder.ilike = (_col: string, pattern: string) => {
     calls.ilike = true;
+    calls.pattern = pattern;
     return builder;
   };
-  builder.limit = () => builder;
+  builder.limit = () => Promise.resolve({ data: probeRows });
   builder.maybeSingle = () => Promise.resolve({ data: profileRow });
   return { client: { from: () => builder } as never, calls };
 }
@@ -61,7 +62,7 @@ describe('BookingIdentityService.resolve', () => {
 
   it('non-JKKN email that owns an account → login_required (the probing path)', async () => {
     getUser.mockResolvedValue({ data: { user: null } });
-    const { client, calls } = makeServiceClient({ id: 'p9' });
+    const { client, calls } = makeServiceClient(null, [{ id: 'p9', email: 'Someone@Gmail.com' }]);
     const r = await BookingIdentityService.resolve(client, 'someone@gmail.com');
     expect(r).toEqual({ kind: 'login_required', reason: 'account_exists' });
     expect(calls.ilike).toBe(true);
@@ -75,5 +76,33 @@ describe('BookingIdentityService.resolve', () => {
     const { client } = makeServiceClient(null);
     const r = await BookingIdentityService.resolve(client, 'prospect@gmail.com');
     expect(r).toEqual({ kind: 'guest' });
+  });
+
+  it('an address with "*" is never probed — PostgREST would read it as "match anyone"', async () => {
+    getUser.mockResolvedValue({ data: { user: null } });
+    const { client, calls } = makeServiceClient(null, [{ id: 'p9', email: 'someone@gmail.com' }]);
+    const r = await BookingIdentityService.resolve(client, '*@gmail.com');
+    expect(calls.ilike).toBe(false);
+    expect(r).toEqual({ kind: 'guest' });
+  });
+
+  it('% and _ are escaped, and only an EXACT address counts as a match', async () => {
+    getUser.mockResolvedValue({ data: { user: null } });
+    // "_" is a one-character wildcard in LIKE: "a_b@x.com" must not match "axb@x.com".
+    const { client, calls } = makeServiceClient(null, [{ id: 'p9', email: 'axb@x.com' }]);
+    const r = await BookingIdentityService.resolve(client, 'a_b@x.com');
+    expect(calls.pattern).toBe('a\\_b@x.com');
+    expect(r).toEqual({ kind: 'guest' });
+  });
+
+  it('"%" and a backslash are escaped too, so neither widens the match', async () => {
+    getUser.mockResolvedValue({ data: { user: null } });
+    const pct = makeServiceClient(null, [{ id: 'p9', email: 'salesXteam@x.com' }]);
+    expect(await BookingIdentityService.resolve(pct.client, 'sales%team@x.com')).toEqual({ kind: 'guest' });
+    expect(pct.calls.pattern).toBe('sales\\%team@x.com');
+
+    const bs = makeServiceClient(null, []);
+    await BookingIdentityService.resolve(bs.client, 'a\\b@x.com');
+    expect(bs.calls.pattern).toBe('a\\\\b@x.com');
   });
 });
