@@ -28,6 +28,7 @@ import {
 } from '@/lib/services/id-cards/print-jobs-client';
 import { resolveLearnerInstitutions } from '@/lib/services/id-cards/card-preview-client';
 import { pickTemplateForInstitution } from '@/lib/services/id-cards/institution-template';
+import { toastReplacementFee } from './replacement-fee-toast';
 
 interface PreviewCardButtonProps {
   /** learners_profiles.id */
@@ -70,7 +71,20 @@ export function PreviewCardButton({ learnerId, personName, rollNumber }: Preview
       const outcome = await enqueuePrintJob(profileId, choice.template.id);
       if (outcome.status === 'queued') toast.success(`ID card for ${personName} queued for printing`);
       else if (outcome.status === 'already_queued') toast('Already in the print queue');
-      else toast.error(outcome.message);
+      else if (outcome.status === 'replacement_fee') {
+        toastReplacementFee(personName, outcome, async () => {
+          const paid = await enqueuePrintJob(profileId, choice.template.id, {
+            acknowledgeReplacementFee: true
+          });
+          if (paid.status === 'queued') {
+            toast.success(paid.chargeMessage ?? `Replacement ID card for ${personName} queued`);
+          } else if (paid.status === 'already_queued') {
+            toast('Already in the print queue');
+          } else {
+            toast.error(paid.message);
+          }
+        });
+      } else toast.error(outcome.message);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not queue the card');
     }

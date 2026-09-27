@@ -43,9 +43,20 @@ export const metadata: Metadata = {
  * as themselves, which is what the book route does with their session. null =
  * an anonymous visitor.
  */
+// Same rule as the book route's EMAIL_RE.
+const USABLE_EMAIL = /^[^\s@*%]+@[^\s@*%]+\.[^\s@*%]+$/;
+
+/**
+ * A signed-in account with no usable email cannot book as itself: the form
+ * hides the email box for a signed-in person, and the book route would refuse
+ * the empty address — a dead end with no visible reason (review finding,
+ * 2026-09-24). The page says so instead of showing a form that cannot submit.
+ */
+type PageViewer = InterviewBookingViewer | { kind: 'no_email' };
+
 async function loadViewer(
   serviceDb: SupabaseClient,
-): Promise<InterviewBookingViewer | null> {
+): Promise<PageViewer | null> {
   const userId = await getSignedInUserId();
   if (!userId) return null;
 
@@ -59,12 +70,11 @@ async function loadViewer(
       .select('full_name, email')
       .eq('id', userId)
       .maybeSingle();
-    const email = (profile?.email as string | undefined) ?? '';
-    return {
-      kind: 'self',
-      name: (profile?.full_name as string | undefined) ?? email ?? 'JKKN User',
-      email,
-    };
+    const email = ((profile?.email as string | undefined) ?? '').trim();
+    if (!USABLE_EMAIL.test(email)) return { kind: 'no_email' };
+    // `||`, not `??`: an EMPTY name must fall through to the email too.
+    const name = ((profile?.full_name as string | undefined) ?? '').trim() || email;
+    return { kind: 'self', name, email };
   } catch {
     return null;
   }
@@ -97,6 +107,11 @@ export default async function BookInterviewPage() {
   }
 
   const viewer = await loadViewer(serviceDb);
+  if (viewer?.kind === 'no_email') {
+    return (
+      <BookingClosedNotice message="Your MyJKKN account has no email address on it, so this form cannot book for you while you are signed in. Sign out and book as a guest, or ask the office to add your email to your profile." />
+    );
+  }
 
   return (
     <InterviewBookingForm

@@ -261,7 +261,7 @@ describe('book — who is booked, and on whose behalf', () => {
     });
   });
 
-  it('a team member booking for a candidate (#1): no rate limit, no identity lookup, the candidate is booked, the team member is creator', async () => {
+  it('a team member booking for a candidate (#1): no per-attempt limit, no identity lookup, the candidate is booked, the team member is creator', async () => {
     m.loadActiveStaffBooker.mockResolvedValue(OFFICE_BOOKER);
     const ip = '10.9.9.9';
     for (let i = 0; i < 8; i++) {
@@ -281,12 +281,55 @@ describe('book — who is booked, and on whose behalf', () => {
     });
   });
 
-  it('everyone else keeps the /meet limit: the sixth attempt in an hour from one IP is refused', async () => {
+  it('a walk-in drive: 20 ordinary bookings from ONE campus IP all go through — booking itself is never limited (#8, review #4)', async () => {
     const ip = '10.8.8.8';
-    for (let i = 0; i < 5; i++) expect((await book(bookReq(VALID, ip))).status).toBe(200);
-    const sixth = await book(bookReq(VALID, ip));
-    expect(sixth.status).toBe(429);
-    expect(m.createBooking).toHaveBeenCalledTimes(5);
+    for (let i = 0; i < 20; i++) expect((await book(bookReq(VALID, ip))).status).toBe(200);
+    expect(m.createBooking).toHaveBeenCalledTimes(20);
+  });
+
+  it('validation errors cost nothing either', async () => {
+    const ip = '10.8.8.9';
+    for (let i = 0; i < 15; i++) expect((await book(bookReq({ ...VALID, phone: '' }, ip))).status).toBe(400);
+    expect((await book(bookReq(VALID, ip))).status).toBe(200);
+  });
+
+  it('each answer that reveals something costs one; the 11th "which person?" from one IP is refused and reveals nothing', async () => {
+    const ip = '10.8.9.1';
+    const matches = [{ id: 'c-1', label: 'R. — applied for Accounts Officer' }];
+    m.resolveCandidateChoice.mockResolvedValue({ ok: false, reason: 'needs_choice', matches });
+    for (let i = 0; i < 10; i++) expect((await book(bookReq(VALID, ip))).status).toBe(409);
+    const eleventh = await book(bookReq(VALID, ip));
+    expect(eleventh.status).toBe(429);
+    const body = await eleventh.json();
+    expect(JSON.stringify(body)).not.toContain('Accounts Officer');
+    expect(m.createBooking).not.toHaveBeenCalled();
+  });
+
+  it('"this email has an account" spends from the same budget, and once it is used up the answer is withheld', async () => {
+    const ip = '10.8.9.2';
+    m.identityResolve.mockResolvedValue({ kind: 'login_required', reason: 'account_exists' });
+    for (let i = 0; i < 10; i++) expect((await book(bookReq(VALID, ip))).status).toBe(403);
+    const eleventh = await book(bookReq(VALID, ip));
+    expect(eleventh.status).toBe(429);
+    expect(JSON.stringify(await eleventh.json())).not.toContain('account_exists');
+  });
+
+  it('team members are budgeted per PERSON, generously but not without limit (review #1)', async () => {
+    m.loadActiveStaffBooker.mockResolvedValue({ profileId: 'staff-budget-test', name: 'Office' });
+    m.resolveCandidateChoice.mockResolvedValue({
+      ok: false, reason: 'needs_choice', matches: [{ id: 'c-1', label: 'R. — applied for Accounts Officer' }],
+    });
+    // Different IPs each time: the budget follows the person, not the connection.
+    for (let i = 0; i < 60; i++) expect((await book(bookReq(VALID, `10.7.${i}.1`))).status).toBe(409);
+    expect((await book(bookReq(VALID, '10.7.200.1'))).status).toBe(429);
+  });
+
+  it('a signed-in account with no usable email is told so, and nothing is booked', async () => {
+    m.identityResolve.mockResolvedValue({ kind: 'authenticated', profileId: 'p-1', name: 'Someone', email: '' });
+    const res = await book(bookReq(VALID));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'account_email_missing' });
+    expect(m.createBooking).not.toHaveBeenCalled();
   });
 });
 

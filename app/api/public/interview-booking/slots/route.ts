@@ -21,8 +21,12 @@ import { loadActiveStaffBooker } from '../book/active-staff';
 
 export const dynamic = 'force-dynamic';
 
+// Loading free times reveals nothing about anyone and is cheap, but every phone
+// at a walk-in drive shares one campus IP and reloads times on each step — so
+// the cap is generous (120 an hour per IP; staff exempt, #1). It only stops a
+// runaway client, never a room full of candidates (review finding, 2026-09-24).
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT = 20;
+const RATE_LIMIT = 120;
 const RATE_WINDOW_MS = 60 * 60 * 1000;
 
 function checkRateLimit(ip: string): boolean {

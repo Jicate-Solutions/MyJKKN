@@ -7,8 +7,6 @@
 
 import { useMemo } from 'react';
 import { useHostelLeaveTypes } from '@/hooks/campus-living/use-hostel-leave-types';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
-import { usePermissions } from '@/hooks/use-permissions';
 import { HostelLeaveTypeService } from '@/lib/services/campus-living/hostel-leave-type-service';
 import { CrudDataTable } from '@/components/shared/crud-master/crud-data-table';
 import { createColumns } from './columns';
@@ -16,19 +14,7 @@ import { createColumns } from './columns';
 export function HostelLeaveTypesDataTable() {
   const { hostelLeaveTypes, loading, error, fetchHostelLeaveTypes } =
     useHostelLeaveTypes();
-  const { institutions } = useInstitutionsWithAccess();
-  const { isSuperAdmin } = usePermissions();
-
-  const institutionMap = useMemo(() => {
-    const map = new Map<string, string>();
-    institutions.forEach((inst) => map.set(inst.id, inst.name));
-    return map;
-  }, [institutions]);
-
-  const columns = useMemo(
-    () => createColumns({ institutionMap, isSuperAdmin }),
-    [institutionMap, isSuperAdmin]
-  );
+  const columns = useMemo(() => createColumns(), []);
 
   return (
     <CrudDataTable

@@ -43,6 +43,8 @@ import {
   toNumber,
   type AdoptionMetricRow,
   rollingWeekStart,
+  countsWhat,
+  COUNTS_WHAT_LABEL,
 } from '@/lib/adoption/summarise';
 
 /** Beyond this the list stops being something a person reads and starts being
@@ -241,6 +243,15 @@ export default async function AdoptionPage() {
                   {featureIsDead ? (
                     <Badge variant="outline" className="text-red-600 dark:text-red-400">
                       dead
+                    </Badge>
+                  ) : null}
+                  {countsWhat(group) ? (
+                    <Badge
+                      variant="outline"
+                      className="text-muted-foreground"
+                      title={COUNTS_WHAT_LABEL[countsWhat(group)!].hint}
+                    >
+                      {COUNTS_WHAT_LABEL[countsWhat(group)!].label}
                     </Badge>
                   ) : null}
                   <Badge

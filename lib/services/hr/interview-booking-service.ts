@@ -452,6 +452,22 @@ export async function recordInterviewBooking(
 // Call-back requests (#14)
 // ---------------------------------------------------------------------------
 
+/**
+ * A COMPARISON key for a phone number — never stored, never dialled — so a
+ * call-back request typed "+91 98765 43210" and a later booking typed
+ * "9876543210" are recognised as the same number when the booking closes the
+ * request (review finding, 2026-09-24). Keeps digits and
+ * a leading "+"; drops spaces, dashes, dots and brackets. A leading "+91" or "0"
+ * on a 10-digit Indian mobile is dropped so both spellings meet.
+ */
+export function normalizePhone(raw: string | null | undefined): string {
+  const trimmed = (raw ?? '').trim();
+  const digits = trimmed.replace(/[^\d]/g, '');
+  if (/^91\d{10}$/.test(digits) && (trimmed.startsWith('+') || digits.length === 12)) return digits.slice(2);
+  if (/^0\d{10}$/.test(digits)) return digits.slice(1);
+  return digits;
+}
+
 export interface CallbackRequestInput {
   post: { id: string; title: string; institution_id: string | null };
   name: string;
@@ -470,7 +486,9 @@ export async function createCallbackRequest(
       post_title: input.post.title,
       institution_id: input.post.institution_id,
       name: input.name,
-      phone: input.phone,
+      // Stored exactly as typed — it is what the office DIALS. Normalising is
+      // for comparing two numbers only (see closeCallbackRequestsFor).
+      phone: input.phone.trim(),
       email: input.email ? input.email.trim().toLowerCase() : null,
     })
     .select('id')
@@ -499,7 +517,7 @@ async function closeCallbackRequestsFor(
   // finding, 2026-09-24).
   const patch = { status: 'done', closed_by_booking_id: args.bookingId, handled_at: new Date().toISOString() };
   const email = args.email.trim().toLowerCase();
-  const phone = (args.phone ?? '').trim();
+  const phone = normalizePhone(args.phone);
 
   const byEmail = await serviceDb
     .from('hr_interview_callback_requests')
@@ -510,13 +528,28 @@ async function closeCallbackRequestsFor(
   if (byEmail.error) console.error('[interview-booking] closing call-back requests by email failed', byEmail.error);
 
   if (!phone) return;
+  // Compared in code, not with .eq(): the stored number is as typed, so equality
+  // has to be on the normalised form. Only requests carrying no email qualify.
+  const { data: candidates, error: readErr } = await serviceDb
+    .from('hr_interview_callback_requests')
+    .select('id, phone')
+    .eq('job_id', args.jobId)
+    .eq('status', 'open')
+    .is('email', null)
+    .limit(200);
+  if (readErr) {
+    console.error('[interview-booking] reading call-back requests by phone failed', readErr);
+    return;
+  }
+  const ids = ((candidates ?? []) as Array<{ id: string; phone: string | null }>)
+    .filter((r) => normalizePhone(r.phone) === phone)
+    .map((r) => r.id);
+  if (ids.length === 0) return;
   const byPhone = await serviceDb
     .from('hr_interview_callback_requests')
     .update(patch)
-    .eq('job_id', args.jobId)
-    .eq('status', 'open')
-    .eq('phone', phone)
-    .is('email', null);
+    .in('id', ids)
+    .eq('status', 'open');
   if (byPhone.error) console.error('[interview-booking] closing call-back requests by phone failed', byPhone.error);
 }
 

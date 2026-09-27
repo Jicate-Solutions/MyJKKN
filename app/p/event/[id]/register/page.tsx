@@ -17,11 +17,12 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { createClient as createAnonOrService } from '@supabase/supabase-js';
 import { createClient as createSessionClient } from '@/lib/supabase/server';
+import { findLiveRegistration } from '@/lib/services/events/waitlist-service';
 import {
-  buildRegistrationPrefill,
   isContactBlockMode,
   type RegistrationPrefill,
 } from '@/lib/services/events/registration/form-prefill';
+import { resolveMyjkknRegistrant } from '@/lib/services/events/registration/registrant-profile';
 import { Ban, CalendarClock, CalendarDays, MapPin, Ticket } from 'lucide-react';
 import { effectiveFee, formRegistrationState, isFormOpen } from '@/types/tournament';
 import {
@@ -233,9 +234,7 @@ export default async function PublicEventRegisterPage({
     if (user) {
       const { data: profile } = await svc
         .from('profiles')
-        .select(
-          'id, full_name, email, phone_number, gender, date_of_birth, institution_id, department_id, learner_id',
-        )
+        .select('id, full_name')
         .eq('id', user.id)
         .maybeSingle();
       viewerProfileId = profile?.id ?? null;
@@ -243,54 +242,11 @@ export default async function PublicEventRegisterPage({
       signedInEmail = user.email ?? null;
 
       if (profile) {
-        const [{ data: staff }, { data: learner }] = await Promise.all([
-          svc
-            .from('staff')
-            .select(
-              'staff_id, first_name, last_name, email, phone, gender, date_of_birth, designation, institution_id, department_id',
-            )
-            .eq('profile_id', profile.id)
-            .limit(1)
-            .maybeSingle(),
-          profile.learner_id
-            ? svc
-                .from('learners_profiles')
-                .select(
-                  'first_name, last_name, student_email, college_email, student_mobile, gender, date_of_birth, roll_number, register_number, institution_id, department_id, degree_id, program_id',
-                )
-                .eq('id', profile.learner_id)
-                .maybeSingle()
-            : Promise.resolve({ data: null }),
-        ]);
-
-        const ids = (...vals: (string | null | undefined)[]) =>
-          Array.from(new Set(vals.filter((v): v is string => !!v)));
-        const instIds = ids(profile.institution_id, staff?.institution_id, learner?.institution_id);
-        const deptIds = ids(profile.department_id, staff?.department_id, learner?.department_id);
-        const degIds = ids(learner?.degree_id);
-        const progIds = ids(learner?.program_id);
-        const lookup = async (table: string, col: string, list: string[]) => {
-          if (!list.length) return {} as Record<string, string>;
-          const { data } = await svc.from(table).select(`id, ${col}`).in('id', list);
-          const out: Record<string, string> = {};
-          // The column name is dynamic, so the query typer cannot name the row.
-          for (const row of (data ?? []) as unknown as Record<string, string>[]) {
-            out[row.id] = row[col] ?? '';
-          }
-          return out;
-        };
-        const [institutions, departments, degrees, programs] = await Promise.all([
-          lookup('institutions', 'name', instIds),
-          lookup('departments', 'department_name', deptIds),
-          lookup('degrees', 'degree_name', degIds),
-          lookup('programs', 'program_name', progIds),
-        ]);
-        prefill = buildRegistrationPrefill({
-          profile,
-          staff: staff ?? null,
-          learner: learner ?? null,
-          names: { institutions, departments, degrees, programs },
-        });
+        const resolved = await resolveMyjkknRegistrant(svc as any, user.id);
+        if (resolved) {
+          prefill = resolved.prefill;
+          signedInName = resolved.fullName ?? signedInName;
+        }
       }
     }
   } catch {
@@ -383,6 +339,12 @@ export default async function PublicEventRegisterPage({
       />
     );
   }
+
+  // A signed-in person who already holds a live registration on THIS form is
+  // told so up front instead of being handed a form that will refuse them.
+  const alreadyRegistered = viewerProfileId
+    ? !!(await findLiveRegistration(svc as never, id, formRow.id, viewerProfileId).catch(() => null))
+    : false;
 
   // Fields by form_id, NEVER event_id — filtering by event renders every other
   // month's questions on this month's form.
@@ -517,6 +479,7 @@ export default async function PublicEventRegisterPage({
         signedInEmail={signedInEmail}
         prefill={prefill}
         contactBlock={isContactBlockMode(formRow.contact_block) ? formRow.contact_block : 'top'}
+        alreadyRegistered={alreadyRegistered}
         full={full}
         claimOnly={windowClosedButHoldsAPlace}
         sections={sections as never}

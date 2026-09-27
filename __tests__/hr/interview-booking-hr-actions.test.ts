@@ -4,7 +4,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 type Call = [string, unknown[]];
-type Result = { data: unknown; error: unknown };
+type Result = { data: unknown; error: unknown; count?: number | null };
 
 /**
  * A session-client double. Each from() starts a chain that records every call;
@@ -86,6 +86,24 @@ describe('loadCallbackRequests (#14)', () => {
     if (res.success === false) return;
     expect(res.open.map((r) => r.id)).toEqual(['o1']);
     expect(res.done[0].handler_name).toBe('Priya');
+  });
+
+  it('caps the open list at 200 and reports how many are really waiting, so none drop off silently (review #8)', async () => {
+    const f = fakeClient({
+      resolve: (_t, calls) =>
+        has(calls, 'eq', 'status', 'open')
+          ? { data: [{ id: 'o1', handler: null }, { id: 'o2', handler: null }], error: null, count: 250 }
+          : { data: [], error: null },
+    });
+    state.client = f.client;
+    const res = await loadCallbackRequests();
+    const open = f.chains.find((c) => has(c.calls, 'eq', 'status', 'open'))!;
+    expect(has(open.calls, 'limit', 200)).toBe(true);
+    expect(open.calls.find(([m]) => m === 'select')?.[1][1]).toEqual({ count: 'exact' });
+    expect(res.success).toBe(true);
+    if (res.success === false) return;
+    expect(res.openTotal).toBe(250);
+    expect(res.open).toHaveLength(2);
   });
 
   it('a refused read is a failure (the card hides), not an empty list', async () => {
@@ -179,32 +197,35 @@ describe('reopenCallbackRequest', () => {
 });
 
 describe('loadClosedPostInterviews (#13)', () => {
-  it('asks only for FUTURE SCHEDULED interviews, then only filled/closed posts, and keeps just those', async () => {
+  it('reads filled/closed posts FIRST, then only their FUTURE SCHEDULED interviews, capped (review #7)', async () => {
     const f = fakeClient({
       resolve: (table) =>
-        table === 'hr_recruitment_interviews'
-          ? {
+        table === 'hr_recruitment_jobs'
+          ? { data: [{ id: 'j-filled', title: 'Accounts Officer', status: 'filled' }], error: null }
+          : {
               data: [
                 { id: 'i1', job_id: 'j-filled', scheduled_at: '2026-10-01T05:30:00Z', round_number: 2, round_name: 'Panel', candidate: { name: 'Anitha' } },
-                { id: 'i2', job_id: 'j-open', scheduled_at: '2026-10-02T05:30:00Z', round_number: 1, round_name: null, candidate: { name: 'Babu' } },
               ],
               error: null,
-            }
-          : { data: [{ id: 'j-filled', title: 'Accounts Officer', status: 'filled' }], error: null },
+            },
     });
     state.client = f.client;
     const before = Date.now();
     const res = await loadClosedPostInterviews();
 
+    // Order matters: posts first, so the interview read is bounded by them.
+    expect(f.chains.map((c) => c.table)).toEqual(['hr_recruitment_jobs', 'hr_recruitment_interviews']);
+
+    const jobs = f.chains.find((c) => c.table === 'hr_recruitment_jobs')!.calls;
+    expect(has(jobs, 'in', 'status', ['filled', 'closed'])).toBe(true);
+
     const iv = f.chains.find((c) => c.table === 'hr_recruitment_interviews')!.calls;
     expect(has(iv, 'eq', 'status', 'scheduled')).toBe(true);
+    expect(has(iv, 'in', 'job_id', ['j-filled'])).toBe(true);
+    expect(has(iv, 'limit', 500)).toBe(true);
     const gte = iv.find(([m]) => m === 'gte')!;
     expect(gte[1][0]).toBe('scheduled_at');
     expect(new Date(gte[1][1] as string).getTime()).toBeGreaterThanOrEqual(before - 1000);
-
-    const jobs = f.chains.find((c) => c.table === 'hr_recruitment_jobs')!.calls;
-    expect(has(jobs, 'in', 'id', ['j-filled', 'j-open'])).toBe(true);
-    expect(has(jobs, 'in', 'status', ['filled', 'closed'])).toBe(true);
 
     expect(res).toEqual({
       success: true,
@@ -217,10 +238,10 @@ describe('loadClosedPostInterviews (#13)', () => {
     });
   });
 
-  it('no upcoming interviews → no post query at all', async () => {
+  it('no filled or closed posts → no interview query at all', async () => {
     const f = fakeClient({ resolve: () => ({ data: [], error: null }) });
     state.client = f.client;
     expect(await loadClosedPostInterviews()).toEqual({ success: true, rows: [] });
-    expect(f.chains.map((c) => c.table)).toEqual(['hr_recruitment_interviews']);
+    expect(f.chains.map((c) => c.table)).toEqual(['hr_recruitment_jobs']);
   });
 });

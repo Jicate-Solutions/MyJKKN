@@ -59,8 +59,8 @@ export default function HostelLeaveTypesPage() {
                     <h2 className='text-lg font-semibold'>Leave Types</h2>
                     <p className='text-sm text-muted-foreground'>
                       Configure leave categories for hostelers — max duration, parent
-                      consent, warden approval flow, attachment requirements. System
-                      defaults (7 types) are seeded per institution and cannot be deleted.
+                      consent, warden approval flow, attachment requirements. One common
+                      list applies to every institution; system defaults cannot be deleted.
                     </p>
                   </div>
                   <PermissionGuard

@@ -31,6 +31,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import type { CookieOptions } from '@supabase/ssr';
 import { grantAndNotifyTags } from '@/lib/services/shared/comment-mention-alerts';
+import { FEATURE_KEYS, recordFeatureUse } from '@/lib/usage/record';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** A remark that needs more than this many people is a broadcast, not a tag. */
@@ -181,6 +182,13 @@ export async function POST(
       count: outcome.notNotified.length,
       error: outcome.alertError,
     });
+  }
+
+  // Adoption: a colleague was newly tagged on a candidate discussion. Counted on
+  // `created`, not `tagged`, so re-sending the same tag counts nothing; on the
+  // SESSION client, because fn_feature_used keys on auth.uid().
+  if (outcome.created.length > 0) {
+    await recordFeatureUse(supabase, FEATURE_KEYS.HR_RECRUITMENT_TAG_COLLEAGUE);
   }
 
   const toNames = (ids: string[]) => ids.map((uid) => names.get(uid) ?? 'Unknown');

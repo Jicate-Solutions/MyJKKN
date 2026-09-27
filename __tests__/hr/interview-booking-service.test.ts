@@ -187,6 +187,7 @@ describe('priorOutcomeAtBooking — warn about a decision taken BEFORE the booki
 import {
   ROUND_STATUSES,
   interviewModeFor,
+  normalizePhone,
   recordInterviewBooking,
   type RecordInterviewInput,
 } from '@/lib/services/hr/interview-booking-service';
@@ -289,19 +290,26 @@ describe('recordInterviewBooking', () => {
     const { db, log } = recordingDb({
       'hr_recruitment_interviews:select': [{ count: 0, error: null }],
       'hr_recruitment_interviews:insert': [{ data: { id: 'iv-1' }, error: null }],
+      // The phone candidates: open, this post, NO email. Stored as typed.
+      'hr_interview_callback_requests:select': [
+        { data: [{ id: 'cb-same', phone: '+91 90000 00001' }, { id: 'cb-other', phone: '98888 88888' }], error: null },
+      ],
     });
     await recordInterviewBooking(db, baseInput());
-    const updates = log.filter((e) => e.table === 'hr_interview_callback_requests' && e.op === 'update');
-    expect(updates).toHaveLength(2);
-    const [byEmail, byPhone] = updates;
-    expect(byEmail.calls).toContainEqual(['eq', ['email', 'cand@x.com']]);
-    expect(byEmail.calls.some(([m, a]) => m === 'eq' && a[0] === 'phone')).toBe(false);
-    expect(byPhone.calls).toContainEqual(['eq', ['phone', '9000000001']]);
-    expect(byPhone.calls).toContainEqual(['is', ['email', null]]);
-    for (const u of updates) {
-      expect(u.calls).toContainEqual(['eq', ['job_id', 'job-1']]);
-      expect(u.calls).toContainEqual(['eq', ['status', 'open']]);
-    }
+    const cb = log.filter((e) => e.table === 'hr_interview_callback_requests');
+
+    const byEmail = cb.find((e) => e.op === 'update' && e.calls.some(([m, a]) => m === 'eq' && a[0] === 'email'));
+    expect(byEmail?.calls).toContainEqual(['eq', ['email', 'cand@x.com']]);
+    expect(byEmail?.calls).toContainEqual(['eq', ['job_id', 'job-1']]);
+    expect(byEmail?.calls).toContainEqual(['eq', ['status', 'open']]);
+
+    // Phone: only requests with no email are even read …
+    const read = cb.find((e) => e.op === 'select');
+    expect(read?.calls).toContainEqual(['is', ['email', null]]);
+    expect(read?.calls).toContainEqual(['eq', ['job_id', 'job-1']]);
+    // … and only the one whose number is the SAME number, however it was typed, is closed.
+    const byPhone = cb.find((e) => e.op === 'update' && e.calls.some(([m]) => m === 'in'));
+    expect(byPhone?.calls).toContainEqual(['in', ['id', ['cb-same']]]);
   });
 
   it('does not attempt a phone close when no phone was given', async () => {
@@ -311,5 +319,18 @@ describe('recordInterviewBooking', () => {
     });
     await recordInterviewBooking(db, baseInput({ person: { name: 'C', email: 'c@x.com', phone: null } }));
     expect(log.filter((e) => e.table === 'hr_interview_callback_requests')).toHaveLength(1);
+  });
+});
+
+describe('normalizePhone — a comparison key, never stored or dialled (review #6)', () => {
+  it('meets the common spellings of one Indian mobile number', () => {
+    for (const p of ['+91 90000 00001', '9000000001', '09000000001', '919000000001', '90000-00001', '(900) 000-0001']) {
+      expect(normalizePhone(p)).toBe('9000000001');
+    }
+  });
+  it('keeps different numbers different, and blank as blank', () => {
+    expect(normalizePhone('98888 88888')).not.toBe(normalizePhone('9000000001'));
+    expect(normalizePhone('')).toBe('');
+    expect(normalizePhone(null)).toBe('');
   });
 });

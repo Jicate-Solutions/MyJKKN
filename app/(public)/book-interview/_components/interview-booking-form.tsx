@@ -323,6 +323,11 @@ export function InterviewBookingForm({ posts, durationMin, locationMode, viewer 
         case 'login_required':
           setLoginGate(true);
           return;
+        case 'account_email_missing':
+          setError(
+            'Your MyJKKN account has no email address on it, so this form cannot book for you while you are signed in. Sign out and book as a guest, or ask the office to add your email to your profile.',
+          );
+          return;
         case 'slot_taken':
         case 'venue_taken':
           setSelectedStart(null);

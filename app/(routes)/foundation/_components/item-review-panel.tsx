@@ -27,13 +27,19 @@ import type {
   ItemFlag,
   ItemFlagResolution,
 } from '@/lib/services/foundation/foundation-service';
+import { JABT_LEVEL_LABELS, levelOf } from '@/lib/services/onemark/paper-service';
 import { ItemFlagButton } from './item-flag-button';
 
 interface ItemReviewPanelProps {
   examDefinitionId: string;
+  /** OneMark subject exam: show the JABT level, never the 1-5 difficulty (decision 6). */
+  isOneMark?: boolean;
 }
 
-export function ItemReviewPanel({ examDefinitionId }: ItemReviewPanelProps) {
+export function ItemReviewPanel({
+  examDefinitionId,
+  isOneMark = false,
+}: ItemReviewPanelProps) {
   const { canAccess, userProfile } = usePermissions();
   const canReview = canAccess('foundation', 'items.manage');
   // fp_items carries the answer keys, so reading the bank is permission-gated.
@@ -123,7 +129,9 @@ export function ItemReviewPanel({ examDefinitionId }: ItemReviewPanelProps) {
                     </span>
                     <span className="mt-1 flex flex-wrap items-center gap-2">
                       <Badge variant="secondary" className="text-[10px]">
-                        D{it.difficulty ?? '?'}
+                        {isOneMark
+                          ? JABT_LEVEL_LABELS[levelOf({ bloom_level: it.bloom_level ?? null })]
+                          : `D${it.difficulty ?? '?'}`}
                       </Badge>
                       {openCount > 0 && (
                         <Badge

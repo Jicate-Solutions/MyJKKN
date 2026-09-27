@@ -38,19 +38,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { DepartmentContactForm } from './department-contact-form';
 import { LogoUpload } from './logo-upload';
-
-// Contact validation schema
-const contactSchema = z
-  .object({
-    contact_name: z.string().optional(),
-    designation: z.string().optional(),
-    email: z.string().email('Invalid email').optional(),
-    mobile: z
-      .string()
-      .regex(/^\+?[0-9\s-()]{10,}$/, 'Invalid mobile number')
-      .optional()
-  })
-  .optional();
+import { contactSchema } from './contact-schema';
 
 // Main form schema
 const institutionSchema = z.object({
