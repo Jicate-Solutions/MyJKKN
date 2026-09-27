@@ -12,7 +12,8 @@
  * label — identity must not be reconstructable out of this object.
  *
  * So the rule is: record structure, never content.
- *   - recorded: the tag, `role`, how many elements the selector matches, and
+ *   - recorded: the tag, `role` (when it passes isSafeHook), how many
+ *     elements the selector matches, and
  *     two AUTHORED hooks — `data-testid` and `data-slot` — only when the value
  *     looks like a UI name (letters, dashes, underscores; no run of 3+ digits,
  *     no uuid, at most 40 characters). The same rule applies to every ancestor
@@ -155,6 +156,9 @@ export function buildLastInteraction(
     selector: buildElementSelector(el)
   };
 
+  // A role is recorded only when it passes the same isSafeHook test as a data
+  // hook (letters, - and _, no digits) — ARIA roles are single words, so this
+  // admits every real role and nothing built from a record.
   const role = el.getAttribute('role');
   if (role && isSafeHook(role)) descriptor.role = role;
 

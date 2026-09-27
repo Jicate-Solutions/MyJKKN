@@ -394,9 +394,9 @@ export function BugReporterWidget() {
   //
   // This fires on EVERY tap on EVERY page, and these pages carry learner
   // records, marks, fee ledgers and parent phone numbers — which is why
-  // buildLastInteraction() records structural identity only (tag, id, role,
-  // data-* hooks, and a control's own label), never an input's value, a
-  // placeholder, or the text of anything that is not a control. The text rule
+  // buildLastInteraction() records structure only — the tag, a role, and a
+  // data-testid / data-slot that looks like a UI name — and never an element
+  // id, any text (visible or aria-label), a value or a placeholder. The rule
   // and its reasoning live in components/bug-reporter/last-interaction.ts.
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
