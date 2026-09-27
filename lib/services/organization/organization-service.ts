@@ -56,6 +56,25 @@ export function departmentContactChanges(
   return { upserts, cleared };
 }
 
+/**
+ * A saved contact row as the form expects it. Empty columns are NULL in the
+ * database, but the form's schema takes optional strings only, so a NULL left
+ * in would block the next save of a reopened contact (W12 review, #4042).
+ */
+export function departmentContactForForm(row: {
+  contact_name: string | null;
+  designation: string | null;
+  email: string | null;
+  mobile: string | null;
+}): DepartmentContact {
+  return {
+    contact_name: row.contact_name ?? undefined,
+    designation: row.designation ?? undefined,
+    email: row.email ?? undefined,
+    mobile: row.mobile ?? undefined,
+  };
+}
+
 export class OrganizationService {
   private static get supabase() {
     return createClientSupabaseClient();
@@ -412,12 +431,7 @@ export class OrganizationService {
     const transformedDepartments: Record<string, any> = {};
 
     departments.forEach((dept) => {
-      transformedDepartments[dept.department_type] = {
-        contact_name: dept.contact_name,
-        designation: dept.designation,
-        email: dept.email,
-        mobile: dept.mobile
-      };
+      transformedDepartments[dept.department_type] = departmentContactForForm(dept);
     });
 
     return transformedDepartments;

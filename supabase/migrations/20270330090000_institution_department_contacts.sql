@@ -15,14 +15,16 @@
 -- form has been silently thrown away, and getInstitution read the academic
 -- `departments` table instead, so the form always came back blank.
 --
--- WHO MAY SEE / CHANGE A CONTACT
---   The create and edit screens are SuperAdminOnly. Institutions rows are
---   readable by every signed-in user, but these rows carry people's email and
---   mobile, so they get their own, narrower rules:
---     read  : super admin, or holders of organizations.institutions.view or
---             .edit (an upsert over an existing contact needs to see it)
---     write : super admin, or holders of organizations.institutions.edit
---   anon gets nothing.
+-- WHO MAY SEE / CHANGE A CONTACT (Director, 27 Sep 2026 06:47, W12-tab
+-- interview: "visible to staff of that college, editable only by college
+-- editors")
+--   read  : super admin, or a STAFF member (not a learner) who has access to
+--           THAT institution — role_has_institution_access(institution_id):
+--           own college, its CAS sibling, or an all-colleges role
+--   write : super admin, or a holder of organizations.institutions.edit who
+--           has access to THAT institution
+--   anon gets nothing. The key alone is not enough: user_has_permission is
+--   global, so it must be paired with the row's institution.
 -- =====================================================================
 
 CREATE TABLE IF NOT EXISTS public.institution_departments (
@@ -49,28 +51,34 @@ DROP POLICY IF EXISTS institution_departments_read ON public.institution_departm
 CREATE POLICY institution_departments_read ON public.institution_departments
   FOR SELECT TO authenticated
   USING ((SELECT public.is_super_admin())
-         OR (SELECT public.user_has_permission('organizations.institutions.view'))
-         OR (SELECT public.user_has_permission('organizations.institutions.edit')));
+         OR (public.role_has_institution_access(institution_id)
+             AND NOT EXISTS (SELECT 1 FROM public.profiles pr
+                             WHERE pr.id = (SELECT auth.uid())
+                               AND pr.learner_id IS NOT NULL)));
 
 DROP POLICY IF EXISTS institution_departments_insert ON public.institution_departments;
 CREATE POLICY institution_departments_insert ON public.institution_departments
   FOR INSERT TO authenticated
   WITH CHECK ((SELECT public.is_super_admin())
-              OR (SELECT public.user_has_permission('organizations.institutions.edit')));
+              OR ((SELECT public.user_has_permission('organizations.institutions.edit'))
+                  AND public.role_has_institution_access(institution_id)));
 
 DROP POLICY IF EXISTS institution_departments_update ON public.institution_departments;
 CREATE POLICY institution_departments_update ON public.institution_departments
   FOR UPDATE TO authenticated
   USING ((SELECT public.is_super_admin())
-         OR (SELECT public.user_has_permission('organizations.institutions.edit')))
+         OR ((SELECT public.user_has_permission('organizations.institutions.edit'))
+             AND public.role_has_institution_access(institution_id)))
   WITH CHECK ((SELECT public.is_super_admin())
-              OR (SELECT public.user_has_permission('organizations.institutions.edit')));
+              OR ((SELECT public.user_has_permission('organizations.institutions.edit'))
+                  AND public.role_has_institution_access(institution_id)));
 
 DROP POLICY IF EXISTS institution_departments_delete ON public.institution_departments;
 CREATE POLICY institution_departments_delete ON public.institution_departments
   FOR DELETE TO authenticated
   USING ((SELECT public.is_super_admin())
-         OR (SELECT public.user_has_permission('organizations.institutions.edit')));
+         OR ((SELECT public.user_has_permission('organizations.institutions.edit'))
+             AND public.role_has_institution_access(institution_id)));
 
 CREATE INDEX IF NOT EXISTS institution_departments_institution_idx
   ON public.institution_departments (institution_id);

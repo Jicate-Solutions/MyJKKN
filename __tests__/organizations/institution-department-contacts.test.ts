@@ -119,3 +119,20 @@ describe('getInstitution — the edit form reads the saved contacts', () => {
     await expect(OrganizationService.getInstitution('inst-1')).rejects.toThrow(/department contacts/);
   });
 });
+
+describe('reopening a saved contact — what the edit form receives', () => {
+  it('turns NULL columns into absent fields, so the form schema accepts the contact and the next save is not blocked', async () => {
+    const { departmentContactForForm } = await import('@/lib/services/organization/organization-service');
+    const { contactSchema } = await import('@/app/(routes)/organizations/institutions/_components/contact-schema');
+    const saved = { contact_name: 'Priya', designation: null, email: null, mobile: null };
+    // The raw row is what used to reach the form — and it fails the schema.
+    expect(contactSchema.safeParse(saved).success).toBe(false);
+    const forForm = departmentContactForForm(saved);
+    expect(forForm).toEqual({ contact_name: 'Priya', designation: undefined, email: undefined, mobile: undefined });
+    expect(contactSchema.safeParse(forForm).success).toBe(true);
+    // Filled columns pass through unchanged.
+    const full = { contact_name: 'Priya', designation: 'Clerk', email: 'p@jkkn.ac.in', mobile: '9800000000' };
+    expect(departmentContactForForm(full)).toEqual(full);
+    expect(contactSchema.safeParse(departmentContactForForm(full)).success).toBe(true);
+  });
+});
