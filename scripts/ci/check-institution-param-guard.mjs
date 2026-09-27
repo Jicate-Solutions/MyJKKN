@@ -628,10 +628,13 @@ function sameSignature(a, b) {
 export function comparedToInstitutionId(body, name) {
   if (!body || !name) return false;
   const P = escRe(name);
-  const COL = String.raw`(?:\b[A-Za-z_][A-Za-z0-9_]*\s*\.\s*)?\binstitution_id\b`;
+  // The column may be qualified and/or double-quoted ("institution_id",
+  // lp."institution_id"); the parameter may sit in any number of parentheses
+  // (critic on #3985, 2026-09-28: `institution_id = (p_org)` was missed).
+  const COL = String.raw`(?:(?:\b[A-Za-z_][A-Za-z0-9_]*|"[^"]+")\s*\.\s*)?(?:\binstitution_id\b|"institution_id")`;
   const OP = String.raw`(?:=|<>|!=|\bis\s+(?:not\s+)?distinct\s+from\b)`;
-  return new RegExp(String.raw`${COL}\s*${OP}\s*(?:any\s*\(\s*)?\b${P}\b(?!\s*\.)`, 'i').test(body)
-      || new RegExp(String.raw`(?<![.\w])${P}\b\s*${OP}\s*${COL}`, 'i').test(body);
+  return new RegExp(String.raw`${COL}\s*${OP}\s*(?:any\s*)?(?:\(\s*)*\b${P}\b(?!\s*\.)`, 'i').test(body)
+      || new RegExp(String.raw`(?<![.\w"])(?:\(\s*)*${P}\b(?:\s*\))*\s*${OP}\s*${COL}`, 'i').test(body);
 }
 
 /** A uuid (or uuid[]) input, or one named inst_id — the only kinds that can hold a college id. */
@@ -852,10 +855,16 @@ export function reachability(statements, fn, argTypes = null) {
   for (const stmt of statements) {
     const head = /^(grant|revoke)\b/i.exec(stmt);
     if (!head) continue;
+    // REVOKE GRANT OPTION FOR … takes away only the right to pass EXECUTE on;
+    // the role keeps EXECUTE (critic on #3985, 2026-09-28).
+    if (/^revoke\s+grant\s+option\s+for\b/i.test(stmt)) continue;
     if (!/\bexecute\b|\ball\b/i.test(stmt)) continue;
     let applies = false, nameOnly = false;
-    if (/\bon\s+all\s+(?:functions|routines)\s+in\s+schema\b/i.test(stmt)) {
-      applies = true;
+    const allIn = /\bon\s+all\s+(?:functions|routines)\s+in\s+schema\s+([\s\S]*?)\s+(?:to|from)\b/i.exec(stmt);
+    if (allIn) {
+      // Only a blanket statement that names the public schema touches a public
+      // function (critic on #3985, 2026-09-28: IN SCHEMA private was applied too).
+      applies = allIn[1].split(',').map(x => unquote(x.trim()).toLowerCase()).includes('public');
     } else {
       for (const t of grantTargets(stmt)) {
         if (t.name.toLowerCase() !== want) continue;

@@ -468,6 +468,9 @@ describe('W12 review item 3 — a uuid compared to institution_id is an institut
     ['p_scope', 'WHERE p_scope = lp.institution_id'],
     ['p_orgs', 'WHERE institution_id = ANY(p_orgs)'],
     ['p_where', 'WHERE lp.institution_id IS NOT DISTINCT FROM p_where'],
+    // critic 2026-09-28: a quoted column and a parenthesised operand
+    ['p_paren', 'WHERE institution_id = (p_paren)'],
+    ['p_quoted', 'WHERE lp."institution_id" = p_quoted'],
   ] as const;
   for (const [param, where] of COMPARED) {
     it(`FAILS unguarded: ${where}`, () => {
@@ -1069,5 +1072,29 @@ REVOKE EXECUTE ON FUNCTION public.fn_probe_regrant(uuid) FROM anon, authenticate
     ]);
     expect(withRegrant.code).toBe(1);
     expect(flagged(withRegrant.out, 'fn_probe_regrant', 'p_institution_id')).toBe(true);
+  });
+
+  it('critic 2026-09-28: REVOKE GRANT OPTION FOR keeps EXECUTE, so the function stays in scope', () => {
+    const fn = DEFINER('fn_probe_grant_option', 'p_institution_id uuid',
+      '  SELECT count(*) INTO v_n FROM learners_profiles WHERE institution_id = p_institution_id;', false);
+    const r = runSql(`${fn}
+REVOKE EXECUTE ON FUNCTION public.fn_probe_grant_option(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_probe_grant_option(uuid) TO anon, authenticated WITH GRANT OPTION;
+REVOKE GRANT OPTION FOR EXECUTE ON FUNCTION public.fn_probe_grant_option(uuid) FROM anon, authenticated;`, 'grant-option.sql');
+    expect(r.code).toBe(1);
+    expect(flagged(r.out, 'fn_probe_grant_option', 'p_institution_id')).toBe(true);
+  });
+
+  it('critic 2026-09-28: REVOKE … ON ALL FUNCTIONS IN SCHEMA private does not touch a public function', () => {
+    const fn = DEFINER('fn_probe_other_schema', 'p_institution_id uuid',
+      '  SELECT count(*) INTO v_n FROM learners_profiles WHERE institution_id = p_institution_id;', false);
+    const other = runSql(`${fn}
+REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA private FROM anon, authenticated, PUBLIC;`, 'other-schema.sql');
+    expect(other.code).toBe(1);
+    expect(flagged(other.out, 'fn_probe_other_schema', 'p_institution_id')).toBe(true);
+    // Non-vacuity: the same statement naming public DOES take it out of scope.
+    const pub = runSql(`${fn}
+REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM anon, authenticated, PUBLIC;`, 'public-schema.sql');
+    expect(pub.code).toBe(0);
   });
 });
