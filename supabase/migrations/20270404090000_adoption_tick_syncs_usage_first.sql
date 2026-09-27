@@ -24,9 +24,10 @@
 --      * dry run: copies nothing, writes nothing (as before);
 --      * loop off: copies nothing, sends nothing (the send half says so);
 --      * the copy fails: the failure is reported in the answer ('usage_sync')
---        and the run STILL SENDS — the 7-day stale guard inside the send half
---        already skips any feature whose last good copy is too old, so a
---        failed copy can only make the run send less, never send wrongly.
+--        and the run STILL SENDS from the last good copy. Accepted fallback
+--        (W12, 2026-09-27): someone whose first use came after that copy may
+--        still be reminded, as the first run was; the 7-day stale guard in the
+--        send half caps how old that copy may be, and skips the feature past it.
 --   Neither function can send more than before; every limit lives in the send
 --   half, which this file does not touch.
 --
