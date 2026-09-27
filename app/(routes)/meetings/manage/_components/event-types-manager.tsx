@@ -23,6 +23,7 @@ import {
   Calendar,
   CalendarClock,
   Clock,
+  Copy,
   CreditCard,
   EyeOff,
   Loader2,
@@ -70,6 +71,7 @@ import {
   updateMyEventType,
   type EventTypeFormInput,
   type ManageEventType,
+  type MyBookingPage,
   type ManageEventTypeLocation,
   type MeetingLocationMode,
   type ScheduleChoice,
@@ -309,8 +311,14 @@ const SLOT_INTERVAL_PRESETS = [
 
 export function EventTypesManager({
   initialEventTypes,
+  bookingPage = null,
+  bookingPageError = null,
 }: {
   initialEventTypes: ManageEventType[];
+  /** The host's /meet/<handle> page; null when they have none yet. */
+  bookingPage?: MyBookingPage | null;
+  /** Set when the page address could not be read — said on click, never hidden. */
+  bookingPageError?: string | null;
 }) {
   const [eventTypes, setEventTypes] = useState<ManageEventType[]>(initialEventTypes);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -384,6 +392,37 @@ export function EventTypesManager({
   function openEdit(et: ManageEventType) {
     setEditing(et);
     setDialogOpen(true);
+  }
+
+  // The booking link was shown nowhere copyable (Director, 25 Sep 2026, #21).
+  // Hidden types get it too: a hidden type is booked through a link sent to
+  // one person, and the card already carries its "Hidden" label.
+  async function copyBookingLink(et: ManageEventType) {
+    if (!bookingPage) {
+      toast.error(
+        bookingPageError ??
+          "You don't have a public booking page yet, so this meeting type has no link. Contact the Meetings team to set one up.",
+      );
+      return;
+    }
+    const url = `${window.location.origin}/meet/${bookingPage.handle}/${et.slug}`;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      toast.error(`Could not copy automatically. The link is: ${url}`, { duration: 15000 });
+      return;
+    }
+    if (!bookingPage.isPublic) {
+      toast.warning(
+        `Link copied: ${url}. Your booking page is switched off, so it will not open for others until it is switched on.`,
+      );
+    } else if (et.hidden) {
+      toast.success(
+        `Link copied: ${url}. This type is hidden, so only people you send the link to can book it.`,
+      );
+    } else {
+      toast.success(`Link copied: ${url}`);
+    }
   }
 
   function handleSaved(saved: ManageEventType) {
@@ -547,7 +586,16 @@ export function EventTypesManager({
                   </p>
                 )}
 
-                <div className="mt-auto flex justify-end gap-1 pt-1">
+                <div className="mt-auto flex flex-wrap justify-end gap-1 pt-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void copyBookingLink(et)}
+                    aria-label={`Copy the booking link for ${et.title}`}
+                  >
+                    <Copy className="mr-1 h-3.5 w-3.5" aria-hidden />
+                    Copy link
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"
