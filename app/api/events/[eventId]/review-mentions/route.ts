@@ -122,7 +122,7 @@ export async function POST(
     return NextResponse.json(
       {
         success: false,
-        error: "Only team members of this event's institution can be tagged — learners never see this thread.",
+        error: "Only team members of this event's institution can be tagged — learners cannot be tagged.",
         skipped: ineligible.map((id) => names.get(id) ?? 'Unknown'),
       },
       { status: 400 },
