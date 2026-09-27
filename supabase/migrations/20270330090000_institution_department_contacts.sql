@@ -57,6 +57,7 @@ GRANT ALL ON public.institution_departments TO service_role;
 -- records. SECURITY DEFINER because a staff member cannot, in general, read
 -- their own public.staff row (staff_select_scope_aware needs staff.view); it
 -- returns only the caller's own institution ids, nothing else.
+-- ci:allow-secdef-authenticated Callable by any signed-in user by design: it takes no argument and returns only the CALLER's own active staff colleges (profile_id = auth.uid()), so it reveals nothing about anyone else; the RLS read policy on institution_departments needs it.
 CREATE OR REPLACE FUNCTION public.fn_my_staff_institution_ids()
 RETURNS uuid[]
 LANGUAGE sql
