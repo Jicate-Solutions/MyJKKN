@@ -122,7 +122,7 @@ describe('institution_departments — who may save and see contacts', () => {
   });
 
   const EDITOR = { perms: ['organizations.institutions.edit'], insts: [INST] };
-  const STAFF = { insts: [INST], staffAt: [INST] };
+  const TEAM_MEMBER = { insts: [INST], staffAt: [INST] };
 
   it("an editor of THIS college can save and edit its contact", async () => {
     expect((await as(EDITOR, insertContact('admission'))).error).toBeNull();
@@ -138,19 +138,19 @@ describe('institution_departments — who may save and see contacts', () => {
     expect(del.count).toBe(0);
   });
 
-  it("staff of the college see its contacts but not another college's, and cannot write", async () => {
-    const mine = await as(STAFF, `SELECT count(*)::int n FROM public.institution_departments WHERE institution_id = '${INST}'`);
+  it("team members of the college see its contacts but not another college's, and cannot write", async () => {
+    const mine = await as(TEAM_MEMBER, `SELECT count(*)::int n FROM public.institution_departments WHERE institution_id = '${INST}'`);
     expect(mine.rows[0].n).toBeGreaterThan(0);
-    const theirs = await as(STAFF, `SELECT count(*)::int n FROM public.institution_departments WHERE institution_id = '${OTHER}'`);
+    const theirs = await as(TEAM_MEMBER, `SELECT count(*)::int n FROM public.institution_departments WHERE institution_id = '${OTHER}'`);
     expect(theirs.rows[0].n).toBe(0);
-    expect((await as(STAFF, insertContact('placement'))).error).toMatch(/row-level security/);
+    expect((await as(TEAM_MEMBER, insertContact('placement'))).error).toMatch(/row-level security/);
     // A global view key does not widen reading to other colleges.
     const viewKey = await as({ perms: ['organizations.institutions.view'], insts: [INST], staffAt: [INST] },
       `SELECT count(*)::int n FROM public.institution_departments WHERE institution_id = '${OTHER}'`);
     expect(viewKey.rows[0].n).toBe(0);
   });
 
-  it("staff of ANOTHER college with a grant to this one (or an all-colleges role) see 0 — only staff OF THAT college read", async () => {
+  it("team members of ANOTHER college with a grant to this one (or an all-colleges role) see 0 — only team members OF THAT college read", async () => {
     // College A staff, whose roles reach college B too: not staff of B.
     const r = await as({ insts: [INST, OTHER], staffAt: [OTHER] },
       `SELECT count(*)::int n FROM public.institution_departments WHERE institution_id = '${INST}'`);
@@ -160,13 +160,13 @@ describe('institution_departments — who may save and see contacts', () => {
     expect(own.rows[0].n).toBeGreaterThan(0);
   });
 
-  it("an INACTIVE staff record at the college reveals nothing", async () => {
+  it("an INACTIVE team-member record at the college reveals nothing", async () => {
     const r = await as({ insts: [INST], inactiveStaffAt: [INST] },
       `SELECT count(*)::int n FROM public.institution_departments WHERE institution_id = '${INST}'`);
     expect(r.rows[0].n).toBe(0);
   });
 
-  it("a college editor without a staff record there can read (to upsert) — but only that college", async () => {
+  it("a college editor without a team-member record there can read (to upsert) — but only that college", async () => {
     const r = await as({ perms: ['organizations.institutions.edit'], insts: [INST] },
       `SELECT count(*)::int n FROM public.institution_departments WHERE institution_id = '${INST}'`);
     expect(r.rows[0].n).toBeGreaterThan(0);
@@ -175,7 +175,7 @@ describe('institution_departments — who may save and see contacts', () => {
     expect(other.rows[0].n).toBe(0);
   });
 
-  it("a student of the college sees no contact — even with NO learner link (a missing link is not proof of staff)", async () => {
+  it("a learner of the college sees no contact — even with NO learner link (a missing link is not proof of being a team member)", async () => {
     // Production, 27 Sep: 270 student profiles have learner_id NULL. College
     // access alone, without an active staff record, must not reveal contacts.
     const r = await as({ insts: [INST] }, `SELECT count(*)::int n FROM public.institution_departments`);
