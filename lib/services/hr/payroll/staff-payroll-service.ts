@@ -128,7 +128,13 @@ export class StaffPayrollService {
   ): Promise<StaffPayerAssignment | null> {
     const { data, error } = await (supabase as any)
       .from('hr_staff_payroll')
-      .select('staff_id, hr_organization_id, notes, organization:hr_organizations(name)')
+      // The FK must be named: hr_staff_payroll has TWO foreign keys to
+      // hr_organizations (the plain one and the composite
+      // hr_staff_payroll_org_must_run_payroll), and an unqualified embed is
+      // rejected by PostgREST as ambiguous (PGRST201) for every row.
+      .select(
+        'staff_id, hr_organization_id, notes, organization:hr_organizations!hr_staff_payroll_hr_organization_id_fkey(name)'
+      )
       .eq('staff_id', staffId)
       .maybeSingle();
 
