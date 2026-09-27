@@ -136,4 +136,18 @@ describe('Meetings → Manage: Copy link', () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
     expect(toast.error.mock.calls[0][0]).toContain(URL);
   });
+
+  it('clipboard refused on a hidden type → the manual-copy message keeps the hidden warning', async () => {
+    writeText.mockRejectedValue(new Error('denied'));
+    render(
+      <EventTypesManager
+        initialEventTypes={[type({ hidden: true })]}
+        bookingPage={{ handle: 'omm', isPublic: true, autoHidden: false }}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Copy the booking link for Interview' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(toast.error.mock.calls[0][0]).toContain(URL);
+    expect(toast.error.mock.calls[0][0]).toContain('will not open for anyone until you make it visible');
+  });
 });
