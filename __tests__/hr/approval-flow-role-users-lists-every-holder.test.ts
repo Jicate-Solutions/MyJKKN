@@ -19,7 +19,9 @@ let tables: Record<string, Row[]> = {};
 function query(table: string) {
   let rows = [...(tables[table] ?? [])];
   let cap = Infinity;
+  let skip = 0;
   const q: any = {
+    range: (from: number, to: number) => { skip = from; cap = to - from + 1; return q; },
     select: () => q,
     order: (col: string) => { rows.sort((a, b) => String(a[col]).localeCompare(String(b[col]))); return q; },
     limit: (n: number) => { cap = n; return q; },
@@ -32,7 +34,7 @@ function query(table: string) {
       return q;
     },
     then: (res: (v: { data: Row[]; error: null }) => unknown) => {
-      let out = rows.slice(0, cap);
+      let out = rows.slice(skip, skip + cap);
       if (table === 'user_roles' && out.some((r) => r.role_key)) {
         out = out.map((r) => ({ ...r, custom_roles: { role_key: r.role_key } }));
       }
@@ -55,6 +57,7 @@ vi.mock('next/server', async (orig) => ({ ...(await orig<typeof import('next/ser
 import { GET } from '@/app/api/hr/recruitment/approval-flows/role-users/route';
 
 const HOD_ROLE = 'role-hod';
+const BIG_ROLE = 'role-faculty';
 
 beforeEach(() => {
   const profiles: Row[] = [];
@@ -65,7 +68,18 @@ beforeEach(() => {
     profiles.push({ id, full_name: `HOD ${String(i).padStart(2, '0')}`, email: `${id}@jkkn.ac.in`, is_super_admin: false, is_active: i > 2, is_login_disabled: i === 3 });
     userRoles.push({ user_id: id, role_id: HOD_ROLE, role_key: 'hod' });
   }
-  tables = { custom_roles: [{ id: HOD_ROLE, role_key: 'hod' }], user_roles: userRoles, profiles };
+  // A role with 700 holders, the one to find sorts last (zz…).
+  for (let i = 1; i <= 700; i++) {
+    const id = `fac-${String(i).padStart(3, '0')}`;
+    const name = i === 700 ? 'Zz Kavitha Ramesh' : `Member ${String(i).padStart(3, '0')}`;
+    profiles.push({ id, full_name: name, email: `${id}@jkkn.ac.in`, is_super_admin: false, is_active: true, is_login_disabled: false });
+    userRoles.push({ user_id: id, role_id: BIG_ROLE, role_key: 'faculty' });
+  }
+  tables = {
+    custom_roles: [{ id: HOD_ROLE, role_key: 'hod' }, { id: BIG_ROLE, role_key: 'faculty' }],
+    user_roles: userRoles,
+    profiles,
+  };
 });
 
 async function list(params: Record<string, string>) {
@@ -88,6 +102,20 @@ describe('approval-flow person picker: choosing a role lists its holders', () =>
 
   it('never offers a login-disabled account either (same eligibility as #4062)', async () => {
     expect(await list({ role_key: 'hod' })).not.toContain('hod-03');
+  });
+
+  it('a role with more holders than one page still lists every one when browsed', async () => {
+    const ids = await list({ role_key: 'faculty' });
+    expect(ids).toHaveLength(700);
+  });
+
+  it('a name search inside a big role finds ANY holder — nobody is cut before the name is applied', async () => {
+    // Critic round 2: the old lookup took 500 memberships first, then searched.
+    expect(await list({ role_key: 'faculty', search: 'Kavitha' })).toEqual(['fac-700']);
+  });
+
+  it('a name search inside a role returns only that role\'s holders', async () => {
+    expect(await list({ role_key: 'hod', search: 'Kavitha' })).toEqual([]);
   });
 
   it('a name search across all roles stays short (it is a type-ahead)', async () => {
