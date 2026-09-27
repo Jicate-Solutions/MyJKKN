@@ -50,6 +50,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   useAdminCollegeSummary,
   useAdminFacultySummary,
+  useAdminCourseBreakdown,
   useAdminTrend,
   useFacilitatorFeedbackCoverage,
 } from '@/hooks/use-session-feedback';
@@ -66,6 +67,7 @@ import { UnderstandingBand } from '@/components/session-feedback/understanding-b
 import type {
   AdminCollegeSummaryRow,
   AdminFacultySummaryRow,
+  AdminCourseBreakdownRow,
   AdminTrendRow,
   FacilitatorCoverageRow,
 } from '@/types/session-feedback';
@@ -166,6 +168,7 @@ export default function AdminFeedbackDashboardPage() {
 
   const college = useAdminCollegeSummary(from, to);
   const faculty = useAdminFacultySummary(from, to);
+  const byCourse = useAdminCourseBreakdown(from, to);
   // Trend returns no institution column, so it cannot be narrowed client-side —
   // the RPC takes the college as an argument instead (3-arg overload).
   const trend = useAdminTrend(from, to, selectedInstitutionId);
@@ -208,6 +211,13 @@ export default function AdminFeedbackDashboardPage() {
       ? rows.filter((r) => r.institution_id === selectedInstitutionId)
       : rows;
   }, [faculty.data, selectedInstitutionId]);
+
+  const courseRows = useMemo(() => {
+    const rows = (byCourse.data ?? []) as AdminCourseBreakdownRow[];
+    return selectedInstitutionId
+      ? rows.filter((r) => r.institution_id === selectedInstitutionId)
+      : rows;
+  }, [byCourse.data, selectedInstitutionId]);
 
   const coverageRows = useMemo(() => {
     const rows = (coverage.data ?? []) as FacilitatorCoverageRow[];
@@ -593,6 +603,76 @@ export default function AdminFeedbackDashboardPage() {
                     <TableCell className="text-right tabular-nums">
                       {r.responses}
                     </TableCell>
+                    <TableCell className="text-right">
+                      <UnderstandingBand avg={r.avg_understood} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {r.low_sessions > 0 ? (
+                        <Badge variant="destructive">{r.low_sessions}</Badge>
+                      ) : (
+                        <span className="text-muted-foreground tabular-nums">0</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableShell>
+        </CardContent>
+      </Card>
+
+      {/* By course — the split the summary above merges: one row per
+          teacher per course, whole window, same maths (BUG-004624). */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5" style={{ color: BRAND_GREEN }} />
+            Feedback by Course
+          </CardTitle>
+          <CardDescription>
+            The same numbers split by course: one row for each course a Learning
+            Facilitator taught, weakest course first within each person.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <TableShell
+            isLoading={byCourse.isLoading}
+            isError={byCourse.isError}
+            error={byCourse.error}
+            isEmpty={courseRows.length === 0}
+            emptyLabel="No course feedback in this period."
+          >
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Learning Facilitator</TableHead>
+                  <TableHead>Course</TableHead>
+                  <TableHead className="text-right">Sessions</TableHead>
+                  <TableHead className="text-right">Responses</TableHead>
+                  <TableHead className="text-right">Avg understood</TableHead>
+                  <TableHead className="text-right">Low sessions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {courseRows.map((r, i) => (
+                  <TableRow
+                    key={`${r.institution_id}-${r.faculty_email ?? 'na'}-${r.course_code ?? 'na'}-${i}`}
+                  >
+                    <TableCell className="text-sm">
+                      {r.faculty_email ?? (
+                        <span className="text-muted-foreground italic">unassigned</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      <span className="font-medium">{r.course_code ?? '—'}</span>
+                      {r.course_name ? (
+                        <span className="block text-xs text-muted-foreground">
+                          {r.course_name}
+                        </span>
+                      ) : null}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">{r.sessions}</TableCell>
+                    <TableCell className="text-right tabular-nums">{r.responses}</TableCell>
                     <TableCell className="text-right">
                       <UnderstandingBand avg={r.avg_understood} />
                     </TableCell>
