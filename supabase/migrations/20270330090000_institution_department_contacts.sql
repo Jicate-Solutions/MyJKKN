@@ -18,7 +18,10 @@
 -- WHO MAY SEE / CHANGE A CONTACT (Director, 27 Sep 2026 06:47, W12-tab
 -- interview: "visible to staff of that college, editable only by college
 -- editors")
---   read  : super admin, or a STAFF member (not a learner) who has access to
+--   read  : super admin, or a STAFF member — an active row in public.staff
+--           (fn_my_staff_ids), a positive identity; a missing learner link is
+--           NOT proof of staff: 270 student profiles have learner_id NULL
+--           (W12 review, 27 Sep) — or a college editor, who has access to
 --           THAT institution — role_has_institution_access(institution_id):
 --           own college, its CAS sibling, or an all-colleges role
 --   write : super admin, or a holder of organizations.institutions.edit who
@@ -52,9 +55,8 @@ CREATE POLICY institution_departments_read ON public.institution_departments
   FOR SELECT TO authenticated
   USING ((SELECT public.is_super_admin())
          OR (public.role_has_institution_access(institution_id)
-             AND NOT EXISTS (SELECT 1 FROM public.profiles pr
-                             WHERE pr.id = (SELECT auth.uid())
-                               AND pr.learner_id IS NOT NULL)));
+             AND ((SELECT cardinality(public.fn_my_staff_ids())) > 0
+                  OR (SELECT public.user_has_permission('organizations.institutions.edit')))));
 
 DROP POLICY IF EXISTS institution_departments_insert ON public.institution_departments;
 CREATE POLICY institution_departments_insert ON public.institution_departments
