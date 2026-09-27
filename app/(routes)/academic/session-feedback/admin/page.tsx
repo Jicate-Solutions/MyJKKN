@@ -630,8 +630,8 @@ export default function AdminFeedbackDashboardPage() {
             Feedback by Course
           </CardTitle>
           <CardDescription>
-            The same numbers split by course: one row for each course a Learning
-            Facilitator taught, weakest course first within each person.
+            The same numbers split by course: one row for each course a Senior
+            Learner taught, weakest course first within each person.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -645,7 +645,7 @@ export default function AdminFeedbackDashboardPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Learning Facilitator</TableHead>
+                  <TableHead>Senior Learner</TableHead>
                   <TableHead>Course</TableHead>
                   <TableHead className="text-right">Sessions</TableHead>
                   <TableHead className="text-right">Responses</TableHead>

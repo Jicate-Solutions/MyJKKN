@@ -113,8 +113,8 @@ afterAll(async () => {
   try { psql(['-d', 'postgres', '-c', `DROP DATABASE IF EXISTS ${DBNAME}`]); } catch { /* best effort */ }
 });
 
-describe('fn_scf_admin_course_breakdown — one row per teacher per course', () => {
-  it("a HOD sees one teacher's two courses as two rows, with each course's own numbers", async () => {
+describe('fn_scf_admin_course_breakdown — one row per person per course', () => {
+  it("a HOD sees one person's two courses as two rows, with each course's own numbers", async () => {
     const r = await as(HOD, CALL);
     expect(r.error).toBeNull();
     expect(r.rows).toEqual([
