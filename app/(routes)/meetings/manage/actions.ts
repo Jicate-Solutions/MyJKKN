@@ -781,6 +781,8 @@ async function syncCohosts(
 export interface MyBookingPage {
   handle: string;
   isPublic: boolean;
+  /** Set by the system when the host's Google connection broke (D19). */
+  autoHidden: boolean;
 }
 
 /**
@@ -793,7 +795,7 @@ export async function getMyBookingPage(): Promise<ActionResult<MyBookingPage | n
     const userId = await getCurrentUserId(supabase);
     const { data, error } = await supabase
       .from('meeting_host_pages')
-      .select('handle, is_public')
+      .select('handle, is_public, auto_hidden')
       .eq('host_profile_id', userId)
       .maybeSingle();
     if (error) {
@@ -801,8 +803,15 @@ export async function getMyBookingPage(): Promise<ActionResult<MyBookingPage | n
       return { success: false, error: 'Could not load your booking page address.' };
     }
     if (!data) return { success: true, data: null };
-    const row = data as { handle: string; is_public: boolean | null };
-    return { success: true, data: { handle: row.handle, isPublic: row.is_public === true } };
+    const row = data as { handle: string; is_public: boolean | null; auto_hidden: boolean | null };
+    return {
+      success: true,
+      data: {
+        handle: row.handle,
+        isPublic: row.is_public === true,
+        autoHidden: row.auto_hidden === true,
+      },
+    };
   } catch (err) {
     return {
       success: false,

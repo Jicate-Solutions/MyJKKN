@@ -395,8 +395,9 @@ export function EventTypesManager({
   }
 
   // The booking link was shown nowhere copyable (Director, 25 Sep 2026, #21).
-  // Hidden types get it too: a hidden type is booked through a link sent to
-  // one person, and the card already carries its "Hidden" label.
+  // Hidden types get it too (Director #21), but the public page refuses a
+  // hidden type, so the message says the link will not open until it is made
+  // visible. Same for a switched-off or system-hidden booking page.
   async function copyBookingLink(et: ManageEventType) {
     if (!bookingPage) {
       toast.error(
@@ -416,9 +417,13 @@ export function EventTypesManager({
       toast.warning(
         `Link copied: ${url}. Your booking page is switched off, so it will not open for others until it is switched on.`,
       );
+    } else if (bookingPage.autoHidden) {
+      toast.warning(
+        `Link copied: ${url}. Your booking page was hidden because your Google connection stopped working, so the link will not open until you reconnect Google.`,
+      );
     } else if (et.hidden) {
-      toast.success(
-        `Link copied: ${url}. This type is hidden, so only people you send the link to can book it.`,
+      toast.warning(
+        `Link copied: ${url}. This type is hidden, so the link will not open for anyone until you make it visible (Edit → turn off "Hide from booking page").`,
       );
     } else {
       toast.success(`Link copied: ${url}`);

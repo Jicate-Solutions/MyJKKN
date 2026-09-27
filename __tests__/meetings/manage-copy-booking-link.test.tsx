@@ -2,7 +2,8 @@
 //
 // Director, 25 Sep 2026 (#21): the /meet/<handle>/<slug> booking link was shown
 // nowhere copyable on Meetings → Manage. Each type now has a "Copy link" button;
-// hidden types get it too, and no page / a switched-off page is said out loud.
+// hidden types get it too, with a warning that the public page refuses them
+// until made visible; no page / a switched-off or system-hidden page is said out loud.
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import '@testing-library/jest-dom/vitest';
@@ -68,7 +69,7 @@ describe('Meetings → Manage: Copy link', () => {
     render(
       <EventTypesManager
         initialEventTypes={[type({})]}
-        bookingPage={{ handle: 'omm', isPublic: true }}
+        bookingPage={{ handle: 'omm', isPublic: true, autoHidden: false }}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Copy the booking link for Interview' }));
@@ -76,24 +77,38 @@ describe('Meetings → Manage: Copy link', () => {
     expect(toast.success).toHaveBeenCalledWith(`Link copied: ${URL}`);
   });
 
-  it('a hidden type gets the button too, and the toast says only link-holders can book', async () => {
+  it('a hidden type gets the button too, and warns the link will not open until it is visible', async () => {
     render(
       <EventTypesManager
         initialEventTypes={[type({ hidden: true })]}
-        bookingPage={{ handle: 'omm', isPublic: true }}
+        bookingPage={{ handle: 'omm', isPublic: true, autoHidden: false }}
       />,
     );
     expect(screen.getByText('Hidden')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Copy the booking link for Interview' }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(URL));
-    expect(toast.success.mock.calls[0][0]).toContain('hidden');
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(toast.warning.mock.calls[0][0]).toContain('will not open for anyone until you make it visible');
+  });
+
+  it('a system-hidden page (Google disconnected) warns the link will not open', async () => {
+    render(
+      <EventTypesManager
+        initialEventTypes={[type({})]}
+        bookingPage={{ handle: 'omm', isPublic: true, autoHidden: true }}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Copy the booking link for Interview' }));
+    await waitFor(() => expect(toast.warning).toHaveBeenCalled());
+    expect(toast.warning.mock.calls[0][0]).toContain('reconnect Google');
+    expect(toast.success).not.toHaveBeenCalled();
   });
 
   it('a switched-off booking page still copies, with a warning that it will not open', async () => {
     render(
       <EventTypesManager
         initialEventTypes={[type({})]}
-        bookingPage={{ handle: 'omm', isPublic: false }}
+        bookingPage={{ handle: 'omm', isPublic: false, autoHidden: false }}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Copy the booking link for Interview' }));
@@ -114,7 +129,7 @@ describe('Meetings → Manage: Copy link', () => {
     render(
       <EventTypesManager
         initialEventTypes={[type({})]}
-        bookingPage={{ handle: 'omm', isPublic: true }}
+        bookingPage={{ handle: 'omm', isPublic: true, autoHidden: false }}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Copy the booking link for Interview' }));
