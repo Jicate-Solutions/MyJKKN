@@ -37,11 +37,16 @@ export function useMyBlockAccess() {
 
 // --- Query hooks ---
 
-export function useHostelAttendance(institutionId: string | undefined, filters?: AttendanceFilters) {
+export function useHostelAttendance(
+  institutionId: string | undefined,
+  filters?: AttendanceFilters,
+  pageSize?: number,
+) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
-    queryKey: hostelAttendanceKeys.list({ institutionId, ...filters }),
-    queryFn: () => HostelAttendanceService.getAttendance(isSuperAdmin ? undefined : institutionId, filters),
+    queryKey: hostelAttendanceKeys.list({ institutionId, ...filters, ...(pageSize ? { pageSize } : {}) }),
+    queryFn: () =>
+      HostelAttendanceService.getAttendance(isSuperAdmin ? undefined : institutionId, filters, 1, pageSize),
     enabled: isSuperAdmin || !!institutionId,
   });
 }
