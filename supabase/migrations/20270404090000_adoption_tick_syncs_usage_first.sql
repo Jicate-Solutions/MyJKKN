@@ -6,11 +6,11 @@
 -- THE GAP (read on production 2026-09-27 08:30, after #4020 went live at 08:13):
 -- ten features are counted from MyJKKN's usage log through the bridge
 -- fn_adoption_sync_usage_events, and nothing ran that bridge except the Sync
--- button on /admin/adoption. It was last pressed 2026-09-23 03:48 IST. So:
+-- button on /admin/adoption. It was last pressed 2026-09-23 09:18 IST. So:
 --   * the first daily run reminded "you have never done X" from four-day-old
 --     usage — 348 people had done an X for the first time since that copy
 --     (ai_pulse.open 126, dashboard.open 141, application_hub.open 81, …);
---   * from 2026-09-30 03:48 the run's own 7-day stale guard drops every bridged
+--   * from 2026-09-30 09:18 IST the run's own 7-day stale guard drops every bridged
 --     feature, and the loop goes quiet with nobody told.
 --
 -- THE FIX, and nothing else:
