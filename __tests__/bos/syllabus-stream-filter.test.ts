@@ -194,7 +194,7 @@ describe('GET /api/bos/syllabus — Stream filter', () => {
     expect(await list('Science')).toEqual(['S1', 'S2']);
   });
 
-  it('wildcards in the value are never passed through ("*", "%", "_" match nothing)', async () => {
+  it('wildcards in the value are matched literally, never as wildcards ("*", "%", "_" match nothing here)', async () => {
     expect(await list('*')).toEqual([]);
     expect(await list('%')).toEqual([]);
     expect(await list('A_ts')).toEqual([]);
@@ -204,10 +204,11 @@ describe('GET /api/bos/syllabus — Stream filter', () => {
     for (const f of state.log.filters) {
       if (f[0] !== 'filter' || f[1] !== 'stream') continue;
       // Strip the fixed wrapper the helper adds; what is left came from the user.
+      // Every regex metacharacter in it must arrive ESCAPED (literal), never live.
       const userPart = String(f[3])
         .replace(/\[\[:space:\]\][*+]/g, '')
         .replace(/^\^|\$$/g, '');
-      expect(userPart).not.toMatch(/[*%_\\^$.?+()[\]{}|]/);
+      expect(userPart.replace(/\\./g, '')).not.toMatch(/[*\\^$.?+()[\]{}|]/);
     }
   });
 });

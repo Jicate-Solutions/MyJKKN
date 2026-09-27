@@ -1,32 +1,39 @@
 import { describe, it, expect } from 'vitest';
 import { streamMatchPattern } from '@/lib/utils/bos/stream-filter';
 
-// W12 desk review question (24 Sep): PostgREST `imatch` is a POSIX regex, so a
-// stream value carrying regex metacharacters must never reach the pattern.
-describe('streamMatchPattern — regex metacharacters never reach imatch', () => {
-  const META = /[.*+?()[\]{}|\\%_]/;
-  const body = (p: string | null) =>
-    (p ?? '').replace(/^\^\[\[:space:\]\]\*/, '').replace(/\[\[:space:\]\]\*\$$/, '').split('[[:space:]]+').join(' ');
+// PostgREST `imatch` is Postgres `~*` (case-insensitive regex). A stream's
+// punctuation must be matched LITERALLY: escaped, never deleted (W12 review,
+// 24 Sep — deleting it turned "Arts (Hons)" into "Arts Hons").
+// JS regex stands in for `~*` here: `[[:space:]]` → `\s`, flag `i`; the escapes
+// used (backslash before punctuation) mean the same in both engines.
+const asRegex = (p: string) => new RegExp(p.replace(/\[\[:space:\]\]/g, '\\s'), 'i');
 
+describe('streamMatchPattern — punctuation is matched literally', () => {
   it.each([
-    ['Arts (Hons)', 'Arts Hons'],
-    ['B.Sc', 'BSc'],
-    ['Arts|.*', 'Arts'],
-    ['a+b?', 'ab'],
-    ['[Science]{2}', 'Science2'],
-    ['Arts\\', 'Arts'],
-    ['50%_off', '50off'],
-  ])('%s → literal text only', (input, expected) => {
-    const p = streamMatchPattern(input);
-    expect(body(p)).toBe(expected);
-    expect(body(p)).not.toMatch(META);
-    // The whole pattern compiles as a regex and is anchored.
-    expect(() => new RegExp(p!.replace(/\[\[:space:\]\]/g, '\\s'))).not.toThrow();
-    expect(p!.startsWith('^')).toBe(true);
-    expect(p!.endsWith('$')).toBe(true);
+    ['Arts (Hons)', ['Arts (Hons)', ' arts (hons) ', 'ARTS  (Hons)'], ['Arts Hons', 'Arts (Hons) X', 'ArtsHons']],
+    ['B.Sc', ['B.Sc', 'b.sc'], ['BxSc', 'BSc']],
+    ['Arts|.*', ['Arts|.*'], ['Arts', 'Science', '']],
+    ['a+b?', ['a+b?'], ['aab', 'a']],
+    ['[Science]{2}', ['[science]{2}'], ['S', 'Science2', 'ScienceScience']],
+    ['Arts\\', ['Arts\\'], ['Arts']],
+    ['50%_off', ['50%_off'], ['50off', '50x_off']],
+    ['^Arts$', ['^Arts$'], ['Arts']],
+  ])('%s', (input, matches, rejects) => {
+    const p = streamMatchPattern(input)!;
+    expect(p.startsWith('^[[:space:]]*')).toBe(true);
+    expect(p.endsWith('[[:space:]]*$')).toBe(true);
+    const re = asRegex(p);
+    for (const m of matches) expect(re.test(m), `${input} should match ${JSON.stringify(m)}`).toBe(true);
+    for (const r of rejects) expect(re.test(r), `${input} must not match ${JSON.stringify(r)}`).toBe(false);
   });
 
-  it('only metacharacters → null (caller falls back to an exact match, never to no filter)', () => {
-    expect(streamMatchPattern('.*()[]')).toBeNull();
+  it('only spaces → null (caller falls back to an exact match, never to no filter)', () => {
+    expect(streamMatchPattern('   ')).toBeNull();
+  });
+
+  it('a value that is only metacharacters still filters, literally', () => {
+    const re = asRegex(streamMatchPattern('.*()[]')!);
+    expect(re.test('.*()[]')).toBe(true);
+    expect(re.test('Arts')).toBe(false);
   });
 });

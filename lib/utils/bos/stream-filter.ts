@@ -14,28 +14,30 @@
  */
 
 /**
- * Keep only characters a stream name can reasonably contain. Everything else —
- * in particular `*`, `%`, `_` (PostgREST/SQL wildcards, and a backslash does
- * not escape `*` in PostgREST) and every regex metacharacter — is dropped, so
- * the pattern built below never carries user-controlled wildcard or regex
- * syntax.
+ * Escape every POSIX/ARE regex metacharacter so the stream's own text is
+ * matched literally. The text is NOT changed — "Arts (Hons)" still means
+ * exactly "Arts (Hons)" (W12 review 24 Sep: deleting punctuation turned it into
+ * "Arts Hons" and broke filters on rows saved with punctuation). `%`, `_` and
+ * `*` are ordinary characters inside an `imatch` pattern (PostgREST turns `*`
+ * into `%` only for like/ilike), and escaping `*` makes it literal anyway.
  */
-function safeStreamText(value: string): string {
-  return value.replace(/[^\p{L}\p{N}\s&-]/gu, '').trim();
+function escapeRegexLiteral(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**
  * PostgREST `imatch` (Postgres `~*`, case-insensitive regex) pattern that
  * matches the chosen stream exactly, ignoring case and surrounding spaces.
- * Internal runs of spaces match any run of spaces.
+ * Internal runs of spaces match any run of spaces; every other character,
+ * punctuation included, must match literally.
  *
- * Returns null when nothing usable is left after cleaning — the caller must
- * then fall back to an exact match (never to "no filter").
+ * Returns null when the stream is only spaces — the caller must then fall
+ * back to an exact match (never to "no filter").
  */
 export function streamMatchPattern(stream: string): string | null {
-  const cleaned = safeStreamText(stream);
-  if (!cleaned) return null;
-  const body = cleaned.split(/\s+/).join('[[:space:]]+');
+  const trimmed = stream.trim();
+  if (!trimmed) return null;
+  const body = trimmed.split(/\s+/).map(escapeRegexLiteral).join('[[:space:]]+');
   return `^[[:space:]]*${body}[[:space:]]*$`;
 }
 
