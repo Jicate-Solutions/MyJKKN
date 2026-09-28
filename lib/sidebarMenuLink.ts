@@ -779,7 +779,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   //   bypass). This key makes the faculty completion lane REACHABLE by faculty.
   // principal lane: gated to academic.attendance.dashboard.view (held by
   //   principal/hod, not plain faculty) — the escalation oversight audience.
-  // (admin lane is super-admin-only via requiresSuperAdmin on the menu item.)
+  // admin lane: gated to academic.session_feedback.leadership.view (below).
   '/academic/session-feedback/faculty': 'academic.attendance.view',
   '/academic/session-feedback/principal': 'academic.attendance.dashboard.view',
   // Admin lane of session feedback (D2 gate) — leadership-view key
@@ -2644,19 +2644,19 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
-          // Post-class feedback — SUPER-ADMIN all-college dashboard (L5). The
-          // cross-college rollup (submission + understanding per college / faculty
-          // / day). Cross-college reach is super-admin-only, so the sidebar entry
-          // is gated to super admin via requiresSuperAdmin (super_admin sees ALL
-          // menus via the bypass earlier in GetRoleBasedPages). The page's RPCs
-          // still authorize institution leadership if they navigate directly.
+          // Post-class feedback — leadership roll-up (L5): submission + understanding
+          // per college / faculty / day. Gated by MENU_PERMISSIONS to
+          // academic.session_feedback.leadership.view, the same key every
+          // fn_scf_admin_* read authorizes; rows are scoped server-side by
+          // role_has_institution_access, so a HOD sees only their own college(s).
+          // It used to carry requiresSuperAdmin, which returns false before
+          // MENU_PERMISSIONS is read — HODs had the data and no link (BUG-004624).
           href: '/academic/session-feedback/admin',
           label: 'All-College Feedback',
           active: pathname.startsWith('/academic/session-feedback/admin'),
           icon: BarChart,
-          requiresSuperAdmin: true,
           submenus: []
-        } as MenuItem & { requiresSuperAdmin: boolean }
+        }
       ]
     },
     {

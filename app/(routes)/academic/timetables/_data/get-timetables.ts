@@ -21,12 +21,20 @@ import { cache } from 'react';
 
 import type { Timetable } from '@/types/academics';
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export interface TimetablesFilters {
   institutionId?: string;
   academicYearId?: string;
   degreeId?: string;
   programId?: string;
   departmentId?: string;
+  /**
+   * With departmentId: also list rows this user created, whatever their
+   * department. See resolveTimetableListScope (./list-scope.ts).
+   */
+  alsoCreatedBy?: string;
   semesterId?: string;
   sectionId?: string;
   isActive?: boolean;
@@ -101,7 +109,17 @@ export const getTimetables = cache(async function getTimetables(
     query = query.eq('program_id', filters.programId);
   }
   if (filters.departmentId) {
-    query = query.eq('department_id', filters.departmentId);
+    // Both ids are interpolated into a PostgREST filter string, so only
+    // well-formed UUIDs may take this path; anything else keeps the plain
+    // department match.
+    query =
+      filters.alsoCreatedBy &&
+      UUID_RE.test(filters.alsoCreatedBy) &&
+      UUID_RE.test(filters.departmentId)
+        ? query.or(
+            `department_id.eq.${filters.departmentId},created_by.eq.${filters.alsoCreatedBy}`
+          )
+        : query.eq('department_id', filters.departmentId);
   }
   if (filters.semesterId) {
     query = query.eq('semester_id', filters.semesterId);

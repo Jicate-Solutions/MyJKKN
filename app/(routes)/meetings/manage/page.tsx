@@ -28,7 +28,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 
-import { listMyEventTypes } from './actions';
+import { getMyBookingPage, listMyEventTypes } from './actions';
 import { EventTypesManager } from './_components/event-types-manager';
 
 export const dynamic = 'force-dynamic';
@@ -40,7 +40,7 @@ const TABS = [
 ] as const;
 
 export default async function MeetingsManagePage() {
-  const initial = await listMyEventTypes();
+  const [initial, bookingPage] = await Promise.all([listMyEventTypes(), getMyBookingPage()]);
 
   return (
     <ContentLayout title="Manage Meeting Types">
@@ -86,7 +86,11 @@ export default async function MeetingsManagePage() {
         </nav>
 
         {initial.success ? (
-          <EventTypesManager initialEventTypes={initial.data} />
+          <EventTypesManager
+            initialEventTypes={initial.data}
+            bookingPage={bookingPage.success ? bookingPage.data : null}
+            bookingPageError={bookingPage.success ? null : bookingPage.error}
+          />
         ) : (
           <Card className="border-destructive/40">
             <CardContent className="space-y-3 py-10 text-center">

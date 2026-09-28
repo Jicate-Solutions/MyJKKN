@@ -40,6 +40,9 @@ export async function GET(request: NextRequest) {
     // 2026-09-16: the bug-feedback step
     bug_feedback_dropped: 0,
     bug_feedback_released: 0,
+    bug_feedback_still_open_expired: 0,
+    bug_feedback_still_open_closed: 0,
+    bug_feedback_still_open_expired_unseen: 0,
     bug_feedback_reminders: 0,
     errors: [] as string[],
   };
@@ -229,6 +232,20 @@ export async function GET(request: NextRequest) {
         results.errors.push(`Bug-feedback drop sweep error: ${dropErr.message}`);
       } else {
         results.bug_feedback_dropped = Number(dropRes?.dropped ?? 0);
+      }
+
+      // Ruling 4 (18 Sep): a shown "is this still happening?" prompt left
+      // unanswered for its 14 days closes its report, with a note.
+      const { data: silenceRes, error: silenceErr } = await svc.rpc('fn_bug_still_open_expire');
+      if (silenceErr) {
+        results.errors.push(`Bug still-open silence sweep error: ${silenceErr.message}`);
+      } else if (silenceRes?.success === false) {
+        results.errors.push(`Bug still-open silence sweep refused: ${silenceRes?.error ?? 'unknown'}`);
+      } else {
+        results.bug_feedback_still_open_expired = Number(silenceRes?.expired ?? 0);
+        results.bug_feedback_still_open_closed = Number(silenceRes?.closed ?? 0);
+        // Expired without ever being seen — closes nothing (Director, 27 Sep).
+        results.bug_feedback_still_open_expired_unseen = Number(silenceRes?.expired_unseen ?? 0);
       }
 
       const { data: queuedReporters, error: queuedErr } = await svc

@@ -82,14 +82,16 @@ export function EventsDataTable() {
   // profiles.id = auth.uid() is an invariant here — so it is the right value to
   // compare against events.created_by.
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, canAccess } = usePermissions();
+  const canEditAny = canAccess('events', 'edit');
   const viewer = useMemo(
     () => ({
       userId: profile?.id,
       institutionId: profile?.institution_id,
       isSuperAdmin,
+      canEditAny,
     }),
-    [profile?.id, profile?.institution_id, isSuperAdmin]
+    [profile?.id, profile?.institution_id, isSuperAdmin, canEditAny]
   );
 
   // The general-event mutation hooks invalidate ['general-events', …]; bridge
