@@ -1,28 +1,3 @@
--- A learner who attends the same subject twice in a day can confirm both.
---
--- fn_scf_pending_for_learner hid an already-answered session by matching the
--- period OR the course. The course arm meant the first confirmation of a
--- course on a day suppressed every other period of that course that day: the
--- learner was offered one, answered it, and the rest vanished from the list.
---
--- Production, 1-16 Sep, restricted to days where the same course genuinely ran
--- two SEPARATE periods (start of the second more than 10 minutes after the end
--- of the first, so back-to-back blocks are excluded): 6,924 such learner-days
--- across 1,725 learners. Of the 1,488 where the learner confirmed at least one,
--- 1,485 - 99.8% - could only ever confirm one. Exactly 3 learner-days in the
--- fortnight recorded both. 1,485 periods lost in two weeks among learners who
--- were actively trying.
---
--- This does NOT recover the periods already lost; their feedback windows are
--- long closed. Re-offering them is a separate decision and a separate change.
---
--- Nothing else changes: same signature, same volatility, same security, same
--- grants; no table, policy or grant is touched.
---
--- HELD: rewrites a live function (R21) - the Director's number first.
---
--- ci:allow-secdef-authenticated fn_scf_pending_for_learner is learner self-service: called from the browser as the signed-in learner (lib/services/session-feedback-service.ts); the body resolves auth.uid() to the caller's own learners_profiles row and returns only that learner's own pending sessions. Same grants as main (20260815100000), re-stated below so the anon lock is explicit.
-
 CREATE OR REPLACE FUNCTION public.fn_scf_pending_for_learner(p_lookback_days integer DEFAULT 30)
  RETURNS TABLE(attendance_date date, timetable_id uuid, period_id text, section_id uuid, course_id uuid, course_code text, course_name text, faculty_name text, period_name text, start_time text, end_time text)
  LANGUAGE plpgsql
@@ -92,26 +67,12 @@ BEGIN
       SELECT 1 FROM public.session_feedback f
       WHERE f.student_id = v_lp
         AND f.attendance_date = sa.attendance_date
-        -- FIXED 2026-09-23: this used to read
-        --     f.period_id = period.key
-        --     OR (course_id matches this period's course)
-        -- The course_id arm meant one confirmation for a course on a day hid
-        -- EVERY other period of that course that day. A learner who attended
-        -- the same subject twice was offered one of the two and never saw the
-        -- second, which is exactly what the reports say ("not showing all
-        -- subject feedback", "only two feedback is come").
-        --
-        -- Keyed on the period alone now. The arm was dead weight: across
-        -- 25,647 feedback rows in Sep and 110,019 in Jul, ZERO carry a
-        -- period_id that matches no roster key, so nothing relied on the
-        -- course fallback to be found.
-        AND f.period_id = period.key
+        AND (
+          f.period_id = period.key
+          OR (NULLIF(period.value ->> 'course_id','') IS NOT NULL
+              AND f.course_id = NULLIF(period.value ->> 'course_id','')::uuid)
+        )
     )
   ORDER BY sa.attendance_date DESC, period.value ->> 'start_time';
 END;
-$function$;
-
--- Re-stated, unchanged from 20260815100000: CREATE OR REPLACE keeps existing
--- grants, but the anon lock must be explicit in every migration that touches it.
-REVOKE EXECUTE ON FUNCTION public.fn_scf_pending_for_learner(integer) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_scf_pending_for_learner(integer) TO authenticated, service_role;
+$function$

@@ -3,14 +3,15 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
- * A learner who attends the same subject twice in a day must be able to
- * confirm both.
+ * A learner who attends the same subject in two SEPARATE periods of a day must
+ * be able to confirm both; a back-to-back block class still asks once.
  *
  * fn_scf_pending_for_learner hid an answered session by matching the period OR
- * the course. The course arm meant the first confirmation of a course on a day
- * suppressed every other period of it: production 1-16 Sep, on days where the
- * course genuinely ran two separated periods, 1,485 of 1,488 engaged
- * learner-days could only ever confirm one; exactly 3 recorded both.
+ * the course anywhere in the day: production 1-16 Sep, on days where the course
+ * genuinely ran two separated periods, 1,485 of 1,488 engaged learner-days could
+ * only ever confirm one. The course arm now only reaches periods of the same
+ * block. Behaviour is proved in pending-separate-periods.pg.test.ts; this file
+ * pins the shape of the migration.
  *
  * Comments are stripped before matching, so the explanation above the SQL (and
  * inside it) cannot satisfy these checks.
@@ -18,19 +19,24 @@ import { join } from 'node:path';
 const sql = readFileSync(
   join(
     process.cwd(),
-    'supabase/migrations/20270208090000_scf_pending_keys_on_period_not_course.sql',
+    'supabase/migrations/20270208090000_scf_pending_separate_periods_offered.sql',
   ),
   'utf8',
 ).replace(/^\s*--.*$/gm, '');
 
-describe('the pending list keys on the period, not the course', () => {
+describe('the pending list hides the same period, or the same course only within its block', () => {
   it('excludes an answered session by period id', () => {
-    expect(sql).toMatch(/AND f\.period_id = period\.key/);
+    expect(sql).toMatch(/f\.period_id = period\.key/);
   });
 
-  it('no longer falls back to the course id', () => {
-    expect(sql).not.toMatch(/f\.course_id\s*=/);
-    expect(sql).not.toMatch(/OR\s*\(\s*NULLIF\(period\.value\s*->>\s*'course_id'/);
+  it('the course arm is limited to the same block', () => {
+    expect(sql).toMatch(
+      /f\.course_id = NULLIF\(period\.value ->> 'course_id',''\)::uuid\s+AND f\.period_id = ANY \(public\.fn_scf_block_period_keys\(sa\.attendance_data, period\.key\)\)/,
+    );
+  });
+
+  it('a block is broken by a gap of more than 10 minutes', () => {
+    expect(sql).toMatch(/st > prev_et \+ interval '10 minutes'/);
   });
 
   it('still scopes the exclusion to this learner and this day', () => {
@@ -47,17 +53,20 @@ describe('the pending list keys on the period, not the course', () => {
     expect(sql).toMatch(/now\(\) <= /);
   });
 
-  it('replaces only the function — no table or policy, and no change to who may call it', () => {
+  it('adds one pure helper and replaces one function — no table or policy, and no change to who may call it', () => {
     for (const forbidden of [/\bALTER TABLE\b/i, /\bDROP\s+TABLE\b/i, /CREATE POLICY/i]) {
       expect(sql).not.toMatch(forbidden);
     }
-    expect((sql.match(/CREATE OR REPLACE FUNCTION/g) || []).length).toBe(1);
+    expect((sql.match(/CREATE OR REPLACE FUNCTION/g) || []).length).toBe(2);
+    expect(sql).not.toMatch(/fn_scf_block_period_keys[\s\S]*?SECURITY DEFINER[\s\S]*?CREATE OR REPLACE FUNCTION public\.fn_scf_pending/);
 
     // The anon-lock gate needs the revoke written in every migration that
     // replaces a SECURITY DEFINER function. The only grant/revoke allowed here
     // is the exact pair already on main (20260815100000) — re-stated, not changed.
     const grants = (sql.match(/^\s*(GRANT|REVOKE)\b.*$/gim) || []).map((l) => l.trim().replace(/\s+/g, ' '));
     expect(grants).toEqual([
+      'REVOKE EXECUTE ON FUNCTION public.fn_scf_block_period_keys(jsonb, text) FROM anon, PUBLIC;',
+      'GRANT EXECUTE ON FUNCTION public.fn_scf_block_period_keys(jsonb, text) TO authenticated, service_role;',
       'REVOKE EXECUTE ON FUNCTION public.fn_scf_pending_for_learner(integer) FROM anon, PUBLIC;',
       'GRANT EXECUTE ON FUNCTION public.fn_scf_pending_for_learner(integer) TO authenticated, service_role;',
     ]);
