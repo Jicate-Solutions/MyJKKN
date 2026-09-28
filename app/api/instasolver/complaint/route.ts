@@ -26,8 +26,11 @@
 //      afterwards, so the assignment notification is never reached — that is
 //      the gate, and it is why the assignment is an insert field rather than a
 //      follow-up call.
-//   2. No INSERT trigger on grievance_tickets sends anything. The only trigger
-//      is emit_grievance_evidence_on_resolve, AFTER UPDATE OF status.
+//   2. The INSERT triggers on grievance_tickets (routing on create, and its
+//      notice — migration 20270420090000) skip this ticket: they never touch
+//      a ticket marked metadata.about_superior (set below), nor one that
+//      already has an assignee. The SLA escalation run skips the HOD and
+//      Principal for it too and goes straight to the Director level.
 //   3. The dashboard work-item generator (fn_generate_unresolved_*_items)
 //      targets COALESCE(assigned_to, the institution's Director) — never the
 //      filer's department head. Tickets from this route also carry no
@@ -179,6 +182,9 @@ export async function POST(request: NextRequest) {
   const extraMetadata: Record<string, unknown> = {};
 
   if (aboutSuperior) {
+    // Read by the database (fn_grievance_sensitive_reason): routing on create
+    // and SLA escalation never send this ticket to a HOD or Principal.
+    extraMetadata.about_superior = true;
     const routeTo = await resolveSuperiorRouteProfileId(supabase);
 
     // A UUID-shaped policy value is not proof the profile still exists, and

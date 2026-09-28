@@ -10395,3 +10395,23 @@ REVOKE ALL ON TABLE public.adoption_reminders FROM anon, PUBLIC;
 REVOKE ALL ON TABLE public.adoption_reminders FROM authenticated;
 GRANT SELECT ON TABLE public.adoption_reminders TO authenticated;
 GRANT ALL    ON TABLE public.adoption_reminders TO service_role;
+
+-- =====================================================================
+-- Updated: 2026-09-28 - Grievance: route on create, escalate on breach (columns)
+-- Source of truth for apply: supabase/migrations/20270420090000_grievance_sla_escalation.sql
+-- =====================================================================
+-- ---------------------------------------------------------------------
+-- 1) Two columns: when the ticket last moved up, and that level's own deadline
+-- ---------------------------------------------------------------------
+-- sla_deadline / sla_breached_at are left alone on purpose: they are the
+-- original SLA, the NAAC record, and update_grievance_sla_status recomputes
+-- sla_status from sla_deadline on every UPDATE.
+ALTER TABLE public.grievance_tickets
+  ADD COLUMN IF NOT EXISTS escalated_at        timestamptz,
+  ADD COLUMN IF NOT EXISTS escalation_deadline timestamptz;
+
+COMMENT ON COLUMN public.grievance_tickets.escalated_at IS
+  'When fn_grievance_escalation_tick last moved this ticket up the chain (HOD -> Principal -> Director). NULL = never escalated.';
+COMMENT ON COLUMN public.grievance_tickets.escalation_deadline IS
+  'The deadline of the CURRENT escalation level (now + grievance.escalation.level<N>_hours when it moved up). Passing it moves the ticket up one more level. sla_deadline stays the original SLA.';
+
