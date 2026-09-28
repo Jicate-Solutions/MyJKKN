@@ -1016,43 +1016,23 @@ export class LeaveOndutyService {
       department_id: string | null;
     }>
   > {
-    const supabase = getSupabase();
-    const q = params.query.trim();
-    const limit = params.limit ?? 20;
+    // Runs server-side (not via getSupabase()/RLS): learners_profiles_select_policy
+    // only admits a student to their OWN row, so a browser-side query against
+    // other students' rows always came back empty and Team OnDuty could never
+    // get a team-mate added. See app/api/learners/leave-onduty/team-members.
+    const search = new URLSearchParams();
+    search.set('query', params.query.trim());
+    search.set('limit', String(params.limit ?? 20));
 
-    let query: any = supabase
-      .from('learners_profiles')
-      .select('id, first_name, last_name, roll_number, register_number, student_email, section_id, department_id')
-      .eq('institution_id', params.institutionId)
-      .limit(limit);
+    const response = await fetch(`/api/learners/leave-onduty/team-members?${search.toString()}`);
+    const result = await response.json();
 
-    if (params.excludeLearnerId) {
-      query = query.neq('id', params.excludeLearnerId);
+    if (!response.ok) {
+      console.error('[leave-onduty/team-search] failed', result?.error);
+      throw new Error(result?.error || 'Team member search failed');
     }
 
-    if (q.length > 0) {
-      // Use or() against name / roll / register / email — wildcard on each side
-      // so the match is substring, case-insensitive.
-      const pattern = `%${q}%`;
-      query = query.or(
-        [
-          `first_name.ilike.${pattern}`,
-          `last_name.ilike.${pattern}`,
-          `roll_number.ilike.${pattern}`,
-          `register_number.ilike.${pattern}`,
-          `student_email.ilike.${pattern}`,
-        ].join(',')
-      );
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.error('[leave-onduty/team-search] failed', error);
-      throw new Error(`Team member search failed: ${error.message}`);
-    }
-
-    return data || [];
+    return result.data || [];
   }
 
   /**

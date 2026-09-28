@@ -116,7 +116,10 @@ export default function EditInstitutionPage({
           <Card>
             <CardContent className='p-6'>
               <InstitutionForm
-                institution={institution?.institution}
+                institution={{
+                  ...institution.institution,
+                  departments: institution.departments
+                }}
                 isEditing={true}
               />
             </CardContent>

@@ -163,8 +163,15 @@ describe('events that never chose their tools — 55 of 55 in production today',
     expect(tabs).toContain('qr');
   });
 
-  it('leaves the tournament console untouched — it passes no selection at all', () => {
+  it('the tournament console passes no selection: every tab except Kit / T-shirt', () => {
     const tabs = keys(visibleLogisticsTabs({ eventType: 'sports_tournament' }));
-    expect(tabs).toHaveLength(EVENT_LOGISTICS_TABS.length);
+    expect(tabs).toHaveLength(EVENT_LOGISTICS_TABS.length - 1);
+    expect(tabs).not.toContain('kit');
+  });
+
+  it('BUG-006175: a tournament never shows Kit / T-shirt, even when it is ticked; a marathon still does', () => {
+    expect(keys(visibleLogisticsTabs({ eventType: 'sports_tournament', enabledTools: ['kit'] }))).not.toContain('kit');
+    expect(keys(visibleLogisticsTabs({ eventType: 'marathon' }))).toContain('kit');
+    expect(keys(visibleLogisticsTabs({ eventType: 'lecture' }))).toContain('kit');
   });
 });
