@@ -1,6 +1,9 @@
 -- ci:allow-secdef-anon  fn_role_scope_all_grants() is called only from RLS
 --   policy expressions and answers only about auth.uid() (NULL for anon ⇒
 --   false), same rationale as 20260826020000.
+-- ci:allow-secdef-authenticated  It is a policy predicate that only reports
+--   whether auth.uid() itself holds a scope='all' role granting p_key; it
+--   writes nothing and reveals nothing about other users.
 --
 -- ============================================================================
 -- Let institution_scope='all' roles create/edit/delete sections in ANY
