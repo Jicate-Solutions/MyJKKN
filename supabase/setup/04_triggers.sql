@@ -2796,3 +2796,21 @@ CREATE TRIGGER trg_activate_learner_on_first_present
 AFTER INSERT OR UPDATE OF attendance_data ON public.student_attendance
 FOR EACH ROW
 EXECUTE FUNCTION public.fn_activate_learner_on_first_present();
+
+-- =====================================================================
+-- Updated: 2026-09-28 - Grievance: route on create, escalate on breach (triggers)
+-- Source of truth for apply: supabase/migrations/20270420090000_grievance_sla_escalation.sql
+-- =====================================================================
+DROP TRIGGER IF EXISTS trg_grievance_route_on_create ON public.grievance_tickets;
+CREATE TRIGGER trg_grievance_route_on_create
+  BEFORE INSERT ON public.grievance_tickets
+  FOR EACH ROW EXECUTE FUNCTION public.fn_grievance_route_on_create();
+
+DROP TRIGGER IF EXISTS trg_grievance_notify_on_create ON public.grievance_tickets;
+CREATE TRIGGER trg_grievance_notify_on_create
+  AFTER INSERT ON public.grievance_tickets
+  FOR EACH ROW
+  WHEN (NEW.assigned_to IS NOT NULL
+        AND (NEW.metadata -> 'auto_route' ->> 'assigned_to') = NEW.assigned_to::text)
+  EXECUTE FUNCTION public.fn_grievance_notify_on_create();
+
