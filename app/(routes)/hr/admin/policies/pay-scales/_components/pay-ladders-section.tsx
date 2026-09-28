@@ -99,6 +99,8 @@ export interface PayLaddersSectionProps {
   referenceNotes: string[];
   onChange: (ladders: PayLadder[], notes: string[]) => void;
   disabled?: boolean;
+  /** The reference band comes from the server: loading, ready, or a refusal to show. */
+  referenceStatus?: 'loading' | 'ready' | { error: string };
 }
 
 export function PayLaddersSection({
@@ -106,6 +108,7 @@ export function PayLaddersSection({
   notes,
   referenceLadders,
   referenceNotes,
+  referenceStatus = 'ready',
   onChange,
   disabled = false,
 }: PayLaddersSectionProps) {
@@ -162,7 +165,15 @@ export function PayLaddersSection({
           </p>
         </div>
         <div className="flex-shrink-0">
-          {referenceLadders.length === 0 ? (
+          {referenceStatus === 'loading' ? (
+            <p className="text-sm text-muted-foreground">
+              Loading the reference band…
+            </p>
+          ) : typeof referenceStatus === 'object' ? (
+            <p className="text-sm text-destructive max-w-xs">
+              {referenceStatus.error}
+            </p>
+          ) : referenceLadders.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               No reference ladders are prepared for this college.
             </p>

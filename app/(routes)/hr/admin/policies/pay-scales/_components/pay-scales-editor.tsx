@@ -6,6 +6,7 @@
 // strip. Never shows raw JSONB.
 
 import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { ShieldAlert, Info, Save, Plus, Trash2 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -29,11 +30,10 @@ import {
   type PayMatrixRow,
   type PayScalesValue,
 } from '@/hooks/admin/use-hr-compensation-policies';
-import {
-  referenceLaddersFor,
-  referenceNotesFor,
-} from '@/lib/hr/pay-scales/jkkn-reference-ladders';
 import { PayLaddersSection } from './pay-ladders-section';
+// The band is fetched from the server, never imported here: a client import
+// would ship the salary figures in a public JavaScript file.
+import { getReferencePayLadders } from '../actions';
 
 // ---------------------------------------------------------------------------
 // Defaults — applied when the row exists but a key is missing, so the editor
@@ -65,6 +65,21 @@ export function PayScalesEditor() {
     HR_COMPENSATION_KEYS.PAY_SCALES,
     institutionId
   );
+
+  const referenceQ = useQuery({
+    queryKey: ['hr-pay-scales-reference-ladders', institutionId],
+    queryFn: () => getReferencePayLadders(institutionId),
+    staleTime: Infinity,
+  });
+  const reference = referenceQ.data;
+  const referenceStatus: 'loading' | 'ready' | { error: string } =
+    referenceQ.isLoading
+      ? 'loading'
+      : referenceQ.isError
+        ? { error: referenceQ.error.message || 'Could not load the reference pay band.' }
+        : reference && !reference.success
+          ? { error: reference.error }
+          : 'ready';
 
   const [draft, setDraft] = useState<PayScalesValue>(EMPTY_VALUE);
   const [dirty, setDirty] = useState(false);
@@ -170,11 +185,14 @@ export function PayScalesEditor() {
             Institution
           </Label>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Pay scales are stored per institution. Switch to edit each one.
+            {dirty
+              ? 'Save your changes before switching institution.'
+              : 'Pay scales are stored per institution. Switch to edit each one.'}
           </p>
         </div>
         <Select
           value={institutionId}
+          disabled={dirty}
           onValueChange={(v) =>
             setInstitutionId(v as PayScaleInstitutionId)
           }
@@ -333,19 +351,30 @@ export function PayScalesEditor() {
       </section>
 
       {/* Year ladders — reference only, never changes anyone's pay */}
-      <section className="rounded-lg border border-border bg-card p-6">
-        <PayLaddersSection
-          ladders={draft.ladders ?? []}
-          notes={draft.ladder_notes ?? []}
-          referenceLadders={referenceLaddersFor(institutionId)}
-          referenceNotes={referenceNotesFor(institutionId)}
-          onChange={(ladders, notes) => {
-            setDraft((prev) => ({ ...prev, ladders, ladder_notes: notes }));
-            setDirty(true);
-          }}
-          disabled={updateM.isPending || seedMissing}
-        />
-      </section>
+      <PayLaddersSection
+        ladders={draft.ladders ?? []}
+        notes={draft.ladder_notes ?? []}
+        referenceLadders={reference?.success ? reference.ladders : []}
+        referenceNotes={reference?.success ? reference.notes : []}
+        referenceStatus={referenceStatus}
+        onChange={(ladders, notes) => {
+          setDraft((prev) => ({ ...prev, ladders, ladder_notes: notes }));
+          setDirty(true);
+        }}
+        disabled={updateM.isPending || seedMissing}
+      />
+      {dirty && (
+        <div className="flex flex-wrap items-center justify-end gap-3 rounded-lg border border-border bg-muted/40 p-3">
+          <p className="text-sm text-muted-foreground">
+            You have unsaved changes. Nothing is kept until you save, and
+            saving changes nobody&apos;s pay.
+          </p>
+          <Button size="sm" onClick={handleSave} disabled={updateM.isPending}>
+            <Save className="h-4 w-4 mr-2" />
+            {updateM.isPending ? 'Saving…' : 'Save policy'}
+          </Button>
+        </div>
+      )}
 
       {/* Overrides + governance */}
       <section className="rounded-lg border border-border bg-card p-6 space-y-4">

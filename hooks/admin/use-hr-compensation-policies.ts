@@ -57,7 +57,7 @@ export const PAY_SCALE_INSTITUTIONS = [
   },
   {
     id: 'b0b8a724-7c65-4f07-8047-2a38e8100ad5',
-    label: 'JKKN Arts & Science',
+    label: 'JKKN Arts & Science (Self)',
   },
 ] as const;
 
