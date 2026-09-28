@@ -2,9 +2,9 @@
  * JKKN pay band reference ladders — every figure, exactly as read from
  * `JKKN Salary Band.xlsx` on 2026-09-28 (rounded half-up to whole rupees).
  *
- * The expected table is the hand-written fixture beside this file
- * (fixtures/pay-scale-reference-ladders.expected.json); it never reads the
- * module's own data file, so each one checks the other.
+ * The expected table is the fixture beside this file
+ * (fixtures/pay-scale-reference-ladders.expected.json). It never reads the
+ * module's own data file, so an edit to one without the other fails here.
  *
  * Run: npx vitest run __tests__/hr/pay-scales-reference-ladders.test.ts
  */
@@ -22,9 +22,9 @@ import {
   referenceNotesFor,
 } from '@/lib/hr/pay-scales/jkkn-reference-ladders';
 import type { PayLadder } from '@/types/hr-pay-ladders';
-// The expected table is a separate hand-written file, written independently of
-// the module's own data file, so a typo in one is caught by the other. It holds
-// the official designations exactly as the workbook writes them.
+// The expected table is a separate file so a slip in the module's data file is
+// caught here. Both came from the same cell reading; the independent check was a
+// blind re-read of the workbook on 2026-09-28 that matched every figure.
 import expected from './fixtures/pay-scale-reference-ladders.expected.json';
 
 const DENTAL_INSTITUTION_ID = 'e8fbe8aa-c44e-41aa-a44b-39dab2c8b9a5';
@@ -75,9 +75,9 @@ describe('JKKN reference ladders — every figure', () => {
 });
 
 describe('JKKN reference ladders — counts and shape', () => {
-  it('Engineering: 11 ladders, 61 steps', () => {
-    expect(ENGINEERING_LADDERS).toHaveLength(11);
-    expect(stepCount(ENGINEERING_LADDERS)).toBe(61);
+  it('Engineering: 12 ladders, 66 steps', () => {
+    expect(ENGINEERING_LADDERS).toHaveLength(12);
+    expect(stepCount(ENGINEERING_LADDERS)).toBe(66);
   });
 
   it('Arts & Science: 1 ladder, 12 steps', () => {
@@ -148,7 +148,7 @@ describe('referenceLaddersFor / referenceNotesFor', () => {
     supportRow.steps.pop();
 
     const second = referenceLaddersFor(ENGINEERING_INSTITUTION_ID);
-    expect(second).toHaveLength(14);
+    expect(second).toHaveLength(15);
     expect(second[0].steps[0].basic_pay).toBe(18000);
     expect(second[0].designation).toBe(EXPECTED[0].designation);
     expect(second.find((l) => l.id === 'support-librarian')!.steps).toHaveLength(15);
@@ -159,6 +159,6 @@ describe('referenceLaddersFor / referenceNotesFor', () => {
 
     const notes = referenceNotesFor(ENGINEERING_INSTITUTION_ID);
     notes.push('extra');
-    expect(referenceNotesFor(ENGINEERING_INSTITUTION_ID)).toHaveLength(3);
+    expect(referenceNotesFor(ENGINEERING_INSTITUTION_ID)).toHaveLength(4);
   });
 });

@@ -73,6 +73,14 @@ function ladderName(l: PayLadder): string {
   return `${l.designation} · ${l.qualification ?? 'any qualification'}`;
 }
 
+/** Unique enough for a screen reader: two versions of one scale can share a
+ *  designation and qualification (the 13,000 and 15,000 Science & Humanities
+ *  ladders), so the starting amount tells their buttons apart. */
+function ladderLabel(l: PayLadder): string {
+  const start = l.steps[0]?.basic_pay;
+  return start == null ? ladderName(l) : `${ladderName(l)}, starting ${inr(start)}`;
+}
+
 function stepRange(steps: PayLadderStep[]): string {
   if (steps.length === 0) return 'no steps';
   const first = steps[0].basic_pay;
@@ -219,7 +227,7 @@ export function PayLaddersSection({
                       {ladder.note}
                     </p>
                   )}
-                  <p className="text-xs text-muted-foreground/70 break-words">
+                  <p className="text-xs text-muted-foreground break-words">
                     Source: {ladder.source}
                   </p>
                 </div>
@@ -228,7 +236,7 @@ export function PayLaddersSection({
                   size="icon"
                   onClick={() => handleRemove(li)}
                   disabled={disabled}
-                  aria-label={`Remove ladder ${ladderName(ladder)}`}
+                  aria-label={`Remove ladder ${ladderLabel(ladder)}`}
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>
@@ -255,9 +263,9 @@ export function PayLaddersSection({
                         }
                         disabled={disabled}
                         className="h-8 text-right tabular-nums"
-                        aria-label={`${ladderName(ladder)}, ${step.label}, basic pay in rupees`}
+                        aria-label={`${ladderLabel(ladder)}, ${step.label}, basic pay in rupees`}
                       />
-                      <span className="text-xs text-muted-foreground/70 text-right tabular-nums">
+                      <span className="text-xs text-muted-foreground text-right tabular-nums">
                         {inr(step.basic_pay)}
                       </span>
                     </label>

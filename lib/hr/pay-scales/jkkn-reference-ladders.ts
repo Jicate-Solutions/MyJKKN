@@ -7,7 +7,8 @@
  * row so a person's pay can be READ against the band.
  *
  * The figures live in `jkkn-reference-ladders.data.json` beside this file — the
- * official designations and qualifications exactly as the workbook writes them.
+ * pay band's own designations, with the workbook's qualification wording tidied
+ * (e.g. "M.E (Mech, EEE & ECE)" is stored as "M.E (Mech/EEE/ECE)").
  * Figures were read cell by cell from `JKKN Salary Band.xlsx` on 2026-09-28 and
  * rounded half-up to whole rupees. Do not "correct" a figure here — a
  * disagreement with the workbook is raised with the Director, not fixed in code.

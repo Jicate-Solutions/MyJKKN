@@ -7,7 +7,7 @@
  * test here asserts exactly what onChange received (or that it was not called).
  *
  * Real reference data: referenceLaddersFor / referenceNotesFor for Engineering
- * (11 Engineering ladders + 3 support-staff ladders = 14, and 3 band notes).
+ * (12 Engineering ladders + 3 support-staff ladders = 15, and 4 band notes).
  */
 
 import '@testing-library/jest-dom';
@@ -35,8 +35,14 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-function name(l: PayLadder): string {
+/** The visible heading of a ladder card. */
+function title(l: PayLadder): string {
   return `${l.designation} · ${l.qualification ?? 'any qualification'}`;
+}
+
+/** The spoken name on a ladder's buttons and inputs (heading + starting amount). */
+function name(l: PayLadder): string {
+  return `${l.designation} · ${l.qualification ?? 'any qualification'}, starting ₹${l.steps[0].basic_pay.toLocaleString('en-IN')}`;
 }
 
 function renderSection(
@@ -56,11 +62,11 @@ function renderSection(
 }
 
 describe('reference data sanity (guards the numbers the tests below rely on)', () => {
-  it('Engineering has 14 reference ladders with unique ids and 3 notes', () => {
+  it('Engineering has 15 reference ladders with unique ids and 4 notes', () => {
     const ladders = refLadders();
-    expect(ladders).toHaveLength(14);
-    expect(new Set(ladders.map((l) => l.id)).size).toBe(14);
-    expect(refNotes()).toHaveLength(3);
+    expect(ladders).toHaveLength(15);
+    expect(new Set(ladders.map((l) => l.id)).size).toBe(15);
+    expect(refNotes()).toHaveLength(4);
   });
 });
 
@@ -98,12 +104,12 @@ describe('PayLaddersSection — load reference ladders', () => {
       screen.getByRole('button', { name: /Load JKKN reference ladders/ })
     );
     const dialog = screen.getByRole('dialog');
-    expect(within(dialog).getByText(/14 ladders will be added\./)).toBeInTheDocument();
+    expect(within(dialog).getByText(/15 ladders will be added\./)).toBeInTheDocument();
     for (const l of refLadders()) {
-      expect(within(dialog).getAllByText(name(l)).length).toBeGreaterThan(0);
+      expect(within(dialog).getAllByText(title(l)).length).toBeGreaterThan(0);
     }
     expect(
-      within(dialog).getByRole('button', { name: 'Add 14 ladders' })
+      within(dialog).getByRole('button', { name: 'Add 15 ladders' })
     ).toBeEnabled();
     expect(onChange).not.toHaveBeenCalled();
   });
@@ -120,20 +126,20 @@ describe('PayLaddersSection — load reference ladders', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('Confirm calls onChange once with all 14 ladders and the 3 notes, then closes', () => {
+  it('Confirm calls onChange once with all 15 ladders and the 4 notes, then closes', () => {
     const { onChange } = renderSection();
     fireEvent.click(
       screen.getByRole('button', { name: /Load JKKN reference ladders/ })
     );
     fireEvent.click(
-      within(screen.getByRole('dialog')).getByRole('button', { name: 'Add 14 ladders' })
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Add 15 ladders' })
     );
     expect(onChange).toHaveBeenCalledTimes(1);
     const [ladders, notes] = onChange.mock.calls[0];
-    expect(ladders).toHaveLength(14);
+    expect(ladders).toHaveLength(15);
     expect(ladders).toEqual(refLadders());
     expect(notes).toEqual(refNotes());
-    expect(notes).toHaveLength(3);
+    expect(notes).toHaveLength(4);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
@@ -145,17 +151,17 @@ describe('PayLaddersSection — load reference ladders', () => {
       screen.getByRole('button', { name: /Load JKKN reference ladders/ })
     );
     const dialog = screen.getByRole('dialog');
-    expect(within(dialog).getByText(/13 ladders will be added\./)).toBeInTheDocument();
+    expect(within(dialog).getByText(/14 ladders will be added\./)).toBeInTheDocument();
     expect(within(dialog).getByText(/1 already stored will be left exactly\s+as it is\./)).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 13 ladders' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 14 ladders' }));
     expect(onChange).toHaveBeenCalledTimes(1);
     const [ladders, notes] = onChange.mock.calls[0];
-    expect(ladders).toHaveLength(14);
+    expect(ladders).toHaveLength(15);
     expect(ladders[0]).toEqual(stored[0]);
     expect(notes).toEqual(['my note', ...refNotes()]);
   });
 
-  it('with all 14 already present the button is disabled and says so', () => {
+  it('with all 15 already present the button is disabled and says so', () => {
     const { onChange } = renderSection({ ladders: refLadders(), notes: refNotes() });
     const btn = screen.getByRole('button', {
       name: /All reference ladders are already loaded/,
@@ -187,7 +193,7 @@ describe('PayLaddersSection — editing a step', () => {
     const [next, nextNotes] = onChange.mock.calls[0] as [PayLadder[], string[]];
 
     // exactly one step differs
-    expect(next).toHaveLength(14);
+    expect(next).toHaveLength(15);
     next.forEach((l, i) => {
       if (i !== 1) expect(l).toEqual(before[i]);
     });
@@ -230,7 +236,7 @@ describe('PayLaddersSection — remove', () => {
     );
     expect(onChange).toHaveBeenCalledTimes(1);
     const [next, notes] = onChange.mock.calls[0];
-    expect(next).toHaveLength(13);
+    expect(next).toHaveLength(14);
     expect(next).toEqual(before.filter((_, i) => i !== 5));
     expect(next.map((l: PayLadder) => l.id)).not.toContain(victim.id);
     expect(notes).toEqual(refNotes());
