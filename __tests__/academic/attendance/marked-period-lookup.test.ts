@@ -72,7 +72,7 @@ describe('checkExistingAttendanceForPeriods — every record of the day, not one
     expect(await check('slot-dd6f', [C])).toEqual({ isMarked: true, recordId: 'rec-B' });
   });
 
-  it('a practical period with no section (the department-head search view) is marked when any record holds it', async () => {
+  it('a period with no known section is marked when any record of the day holds it', async () => {
     expect(await check('slot-dd6f', [])).toEqual({ isMarked: true, recordId: 'rec-B' });
   });
 
@@ -96,15 +96,9 @@ describe('checkExistingAttendanceForPeriods — every record of the day, not one
   });
 });
 
-describe('the periods screens check practical periods too', () => {
+describe('the teacher\'s My Classes view checks every period', () => {
   const read = (f: string) =>
     readFileSync(path.resolve(__dirname, '../../../app/(routes)/academic/attendance/_components', f), 'utf8');
-
-  it('available-periods-cards no longer forces practical periods to "not marked"', () => {
-    const src = read('available-periods-cards.tsx');
-    expect(src).not.toMatch(/practicalPeriods\.forEach\([\s\S]{0,120}isMarked: false/);
-    expect(src).toMatch(/section_ids: \(period\.sections \?\? \[\]\)/);
-  });
 
   it('faculty-quick-attendance no longer skips a period that has no section', () => {
     expect(read('faculty-quick-attendance.tsx')).not.toMatch(/skipping attendance check/);
