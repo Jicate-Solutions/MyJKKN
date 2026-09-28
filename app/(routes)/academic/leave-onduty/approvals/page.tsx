@@ -24,7 +24,7 @@ import {
   useApprovalStatistics,
   useAllApplicationsForSuperAdminByStatus,
   useSuperAdminApprovalStatistics,
-  useApplicationsByStatusForInstitution,
+  useMyApprovalQueue,
   useSponsorPendingApprovals,
   useProcessSponsorApproval,
 } from '@/hooks/academic/use-leave-onduty';
@@ -139,14 +139,11 @@ function ApprovalsPageInner() {
   const { data: superAdminApps, isLoading: superAdminLoading, error: superAdminError } =
     useAllApplicationsForSuperAdminByStatus(statusFilter, isSuperAdmin);
 
-  // Institution-based: fetch applications for user's institution/department
+  // Everyone else: the server resolves the queue from role + scope steps
+  // (department / institution / all institutions / hostel block), so a CAO
+  // sees every institution and a Warden sees only their block.
   const { data: institutionApps, isLoading: institutionLoading, error: institutionError } =
-    useApplicationsByStatusForInstitution(
-      statusFilter,
-      profile?.institution_id || null,
-      profile?.department_id || null,
-      !isSuperAdmin // Only enable for non-super admin
-    );
+    useMyApprovalQueue(statusFilter, !isSuperAdmin);
 
   // Stats hooks - only enable the relevant one
   const { data: approverStats } = useApprovalStatistics(
@@ -183,23 +180,12 @@ function ApprovalsPageInner() {
   const error = isSuperAdmin ? superAdminError : institutionError;
   const stats = isSuperAdmin ? superAdminStats : approverStats;
 
-  // Normalize data structure - both super admin and institution return applications directly
-  const normalizedApprovals = useMemo(() => {
-    const raw = isSuperAdmin ? (superAdminApps || []) : (institutionApps || []);
-
-    // On the Pending tab, non-super-admin approvers should only see rows
-    // where THEIR specific step is still pending. Without this the row
-    // stays in the queue after they approve (because the application's
-    // overall status stays 'pending' until all steps finish), inviting a
-    // second click that hits the "not authorized" error.
-    if (statusFilter !== 'pending' || isSuperAdmin || !profile?.id) return raw;
-    return (raw as any[]).filter((app: any) => {
-      const approvals = app.approvals ?? [];
-      return approvals.some(
-        (a: any) => a.approver_id === profile.id && a.status === 'pending'
-      );
-    });
-  }, [isSuperAdmin, superAdminApps, institutionApps, statusFilter, profile?.id]);
+  // The non-super-admin queue is already exactly "applications whose CURRENT
+  // step I can act on" (fn_lo_my_approval_queue), so no client-side filter.
+  const normalizedApprovals = useMemo(
+    () => (isSuperAdmin ? (superAdminApps || []) : (institutionApps || [])),
+    [isSuperAdmin, superAdminApps, institutionApps]
+  );
 
   const selectedApplication = normalizedApprovals?.find(
     (app: any) => app.id === selectedApplicationId
@@ -402,7 +388,7 @@ function ApprovalsPageInner() {
                           {learnerName}
                         </span>
                         <Badge variant="outline" className="text-xs capitalize">
-                          {app.sub_category.replace(/_/g, ' ')}
+                          {app.leave_type?.name ?? app.sub_category?.replace(/_/g, ' ')}
                         </Badge>
                         {app.learner?.roll_number && (
                           <span className="text-xs text-muted-foreground">
@@ -774,7 +760,7 @@ function ApprovalsPageInner() {
                     : 'Unknown learner'}
                 </div>
                 <div className="text-xs text-muted-foreground capitalize">
-                  {sponsorAction.application.sub_category.replace(/_/g, ' ')} · {format(new Date(sponsorAction.application.start_date), 'MMM d, yyyy')}
+                  {sponsorAction.application.leave_type?.name ?? sponsorAction.application.sub_category?.replace(/_/g, ' ')} · {format(new Date(sponsorAction.application.start_date), 'MMM d, yyyy')}
                   {sponsorAction.application.start_date !== sponsorAction.application.end_date &&
                     ` – ${format(new Date(sponsorAction.application.end_date), 'MMM d, yyyy')}`}
                 </div>

@@ -67,7 +67,7 @@ function formatCurrency(amount: number) {
  * list so the two cannot capture different things.
  *
  * The submit button stays disabled until BOTH a reason of real length and at
- * least one document are present. That mirrors fn_cancel_student_bill, which
+ * least one document are present. That mirrors fn_request_bill_cancellation, which
  * refuses either way — the disabled button is the courtesy, the RPC is the rule.
  */
 export function BillCancelDialog({
@@ -123,11 +123,15 @@ function BillCancelForm({
       <DialogHeader className='p-6 pb-4 shrink-0'>
         <DialogTitle className='flex items-center gap-2'>
           <Ban className='h-5 w-5 text-amber-600' />
-          {bills.length > 1 ? `Cancel ${bills.length} Bills` : 'Cancel Bill'}
+          {bills.length > 1
+            ? `Request Cancellation of ${bills.length} Bills`
+            : 'Request Bill Cancellation'}
         </DialogTitle>
         <DialogDescription>
-          The amount stops counting toward what the learner owes. The bill is kept
-          for audit, along with the reason and documents you record here.
+          Your request goes to the approver for this institution. The bill stays
+          payable until it is approved; on approval the amount stops counting toward
+          what the learner owes, and the bill is kept for audit with the reason and
+          documents you record here.
         </DialogDescription>
       </DialogHeader>
 
@@ -147,7 +151,7 @@ function BillCancelForm({
             </p>
           )}
           <div className='flex items-center justify-between pt-2 mt-1 border-t text-sm font-semibold'>
-            <span>Amount cancelled</span>
+            <span>Amount to cancel</span>
             <span>{formatCurrency(total)}</span>
           </div>
         </div>
@@ -221,7 +225,7 @@ function BillCancelForm({
           disabled={!canSubmit}
           onClick={() => onConfirm({ reasonCode, reason: reason.trim(), attachments })}
         >
-          {isPending ? 'Cancelling…' : bills.length > 1 ? 'Cancel Bills' : 'Cancel Bill'}
+          {isPending ? 'Submitting…' : 'Submit for Approval'}
         </Button>
       </div>
     </>

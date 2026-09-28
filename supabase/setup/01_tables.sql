@@ -10395,3 +10395,128 @@ REVOKE ALL ON TABLE public.adoption_reminders FROM anon, PUBLIC;
 REVOKE ALL ON TABLE public.adoption_reminders FROM authenticated;
 GRANT SELECT ON TABLE public.adoption_reminders TO authenticated;
 GRANT ALL    ON TABLE public.adoption_reminders TO service_role;
+
+-- ============================================================================
+-- Bill cancel REQUEST flow (request -> approval flow -> cancel)
+-- Migration: 20260928100000_bill_cancel_request_flow.sql
+-- ============================================================================
+-- ---------------------------------------------------------------------------
+-- 1. Tables
+-- ---------------------------------------------------------------------------
+CREATE SEQUENCE IF NOT EXISTS public.billing_bill_cancel_number_seq;
+
+CREATE TABLE IF NOT EXISTS public.billing_bill_cancel_requests (
+  id                        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_number            text NOT NULL UNIQUE,
+  -- SET NULL, not CASCADE: a super admin may still hard-delete a bill, and the
+  -- history of who asked to cancel it must outlive the row. bill_snapshot
+  -- preserves its identity.
+  bill_id                   uuid REFERENCES public.billing_student_bills(id) ON DELETE SET NULL,
+  institution_id            uuid NOT NULL,
+  student_id                uuid,
+  reason_code               text NOT NULL
+                            CHECK (reason_code IN ('duplicate_bill','raised_in_error','fee_waived',
+                                                   'learner_withdrawn','structure_corrected','other')),
+  reason                    text NOT NULL,
+  -- [{name, drive_file_id, drive_url, mime, size}] -- same shape as
+  -- billing_bill_cancellations.attachments, copied there on approval.
+  attachments               jsonb NOT NULL DEFAULT '[]'::jsonb,
+  bill_snapshot             jsonb NOT NULL DEFAULT '{}'::jsonb,
+  amount                    numeric NOT NULL,
+  status                    text NOT NULL DEFAULT 'pending_approval'
+                            CHECK (status IN ('pending_approval','approved','declined','withdrawn','failed')),
+  -- Identity SNAPSHOTS: a profile can be renamed or deactivated long after the
+  -- fact; the uuid alone cannot answer "who asked / who approved" years later.
+  requested_by              uuid,
+  requested_by_name         text,
+  requested_by_email        text,
+  requested_by_role         text,
+  requested_at              timestamptz NOT NULL DEFAULT now(),
+  decided_by                uuid,
+  decided_by_name           text,
+  decided_by_email          text,
+  decided_by_role           text,
+  decided_by_designation    text,
+  decided_by_is_super_admin boolean,
+  decided_at                timestamptz,
+  decision_notes            text,
+  created_at                timestamptz NOT NULL DEFAULT now(),
+  updated_at                timestamptz NOT NULL DEFAULT now()
+);
+
+-- At most ONE open request per bill.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bill_cancel_open_per_bill
+  ON public.billing_bill_cancel_requests (bill_id)
+  WHERE status = 'pending_approval';
+CREATE INDEX IF NOT EXISTS idx_bill_cancel_req_status
+  ON public.billing_bill_cancel_requests (status, requested_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bill_cancel_req_institution
+  ON public.billing_bill_cancel_requests (institution_id);
+CREATE INDEX IF NOT EXISTS idx_bill_cancel_req_student
+  ON public.billing_bill_cancel_requests (student_id);
+CREATE INDEX IF NOT EXISTS idx_bill_cancel_req_bill
+  ON public.billing_bill_cancel_requests (bill_id);
+
+CREATE TABLE IF NOT EXISTS public.billing_bill_cancel_request_actions (
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_id           uuid NOT NULL
+                       REFERENCES public.billing_bill_cancel_requests(id) ON DELETE CASCADE,
+  action_type          text NOT NULL
+                       CHECK (action_type IN ('requested','approved','declined','withdrawn','failed')),
+  actor_id             uuid,
+  actor_name           text,
+  actor_email          text,
+  actor_role_name      text,
+  actor_is_super_admin boolean,
+  notes                text,
+  created_at           timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_bill_cancel_actions_request
+  ON public.billing_bill_cancel_request_actions (request_id, created_at);
+
+CREATE TABLE IF NOT EXISTS public.billing_bill_cancel_approval_flows (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- NULL = group-wide default. A row for a specific institution wins over it.
+  institution_id    uuid REFERENCES public.institutions(id) ON DELETE CASCADE,
+  flow_name         text NOT NULL,
+  approver_role_key text REFERENCES public.custom_roles(role_key)
+                         ON UPDATE CASCADE ON DELETE RESTRICT,
+  approver_user_id  uuid REFERENCES public.profiles(id) ON DELETE RESTRICT,
+  is_active         boolean NOT NULL DEFAULT true,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now(),
+  created_by        uuid REFERENCES public.profiles(id),
+  updated_by        uuid REFERENCES public.profiles(id),
+  CONSTRAINT billing_bill_cancel_flow_one_approver CHECK (
+    (approver_role_key IS NOT NULL)::int + (approver_user_id IS NOT NULL)::int = 1
+  )
+);
+COMMENT ON TABLE public.billing_bill_cancel_approval_flows IS
+  'Who may decide a bill-cancellation request. One active flow per institution, plus an optional group-wide default. No flow = super admin only.';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bill_cancel_flow_active_institution
+  ON public.billing_bill_cancel_approval_flows (institution_id)
+  WHERE is_active AND institution_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bill_cancel_flow_active_global
+  ON public.billing_bill_cancel_approval_flows ((institution_id IS NULL))
+  WHERE is_active AND institution_id IS NULL;
+CREATE INDEX IF NOT EXISTS idx_bill_cancel_flow_role
+  ON public.billing_bill_cancel_approval_flows (approver_role_key);
+CREATE INDEX IF NOT EXISTS idx_bill_cancel_flow_user
+  ON public.billing_bill_cancel_approval_flows (approver_user_id);
+
+-- The final audit row points back at the approval that authorised it.
+ALTER TABLE public.billing_bill_cancellations
+  ADD COLUMN IF NOT EXISTS request_id uuid
+  REFERENCES public.billing_bill_cancel_requests(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_bill_cancellations_request
+  ON public.billing_bill_cancellations (request_id);
+
+REVOKE ALL ON TABLE public.billing_bill_cancel_requests FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.billing_bill_cancel_request_actions FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.billing_bill_cancel_approval_flows FROM anon, PUBLIC;
+REVOKE ALL ON SEQUENCE public.billing_bill_cancel_number_seq FROM anon, PUBLIC;
+
+ALTER TABLE public.billing_bill_cancel_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.billing_bill_cancel_request_actions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.billing_bill_cancel_approval_flows ENABLE ROW LEVEL SECURITY;

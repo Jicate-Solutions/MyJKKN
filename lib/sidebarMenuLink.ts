@@ -732,10 +732,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Leave/OnDuty Application System (NEW - 2026-01-28)
   '/academic/leave-onduty/approvals': 'academic.leave_onduty.approve',
-  '/academic/leave-onduty/settings': 'academic.leave_onduty.manage',
+  // '/academic/leave-onduty/settings' retired to a redirect (2027-04) — see
+  // '/learners/leave-onduty/settings' below.
   '/academic/leave-onduty/reports': 'academic.leave_onduty.reports',
   '/learners/leave-onduty/apply': 'learners.leave_onduty.apply',
   '/learners/leave-onduty/my-applications': 'learners.leave_onduty.view',
+  // Global Learner Leave Types + Approval Flows settings (2027-04) — replaces
+  // '/academic/leave-onduty/settings' and '/campus-living/settings/leave-types'.
+  '/learners/leave-onduty/settings': 'learners.leave_types.view',
 
   // Exceptions & Privileges
   '/academic/privileges': 'academic.privileges.view',
@@ -1028,6 +1032,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Gated on the REQUEST key so accounts staff can watch their own requests;
   // approve/decline inside is gated separately and re-checked by the RPC.
   '/billing/receipt-cancellations': 'billing.receipts.cancel.request',
+  // Same shape: requesters see it; flow-named approvers are admitted by the
+  // page guard (fn_is_bill_cancel_approver) and every write re-checks in the RPC.
+  '/billing/bill-cancellations': 'billing.schedule.cancel.request',
   '/billing/apportionment': 'billing.apportionment.view',
   '/billing/apportionment/rules': 'billing.apportionment.view',
   '/billing/invoices': 'billing.invoices.view',
@@ -1418,7 +1425,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/campus-living/my-hostel/premium/invite-roommate': 'campus_living.premium.invite_roommate',
   '/campus-living/vacate-requests': 'campus_living.vacate_requests.view',
   '/campus-living/attendance': 'campus_living.attendance.view',
-  '/campus-living/leave': 'campus_living.leave.view',
+  // '/campus-living/leave' retired to a redirect (2027-04) — see
+  // '/learners/leave-onduty/settings' / '/learners/leave-onduty/my-applications'.
   '/campus-living/gate-passes': 'campus_living.gate_passes.view',
   // Gated on the WRITE key, not .view: the scan screen exists only to record
   // exits and returns, so a read-only holder has nothing to do there.
@@ -1538,7 +1546,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/campus-living/settings/mess-services': 'campus_living.settings.view',
   '/campus-living/settings/fee-config': 'campus_living.settings.view',
   '/campus-living/settings/fees-economics': 'campus_living.settings.view',
-  '/campus-living/settings/leave-types': 'campus_living.settings.view',
+  // '/campus-living/settings/leave-types' retired to a redirect (2027-04) —
+  // see '/learners/leave-onduty/settings'.
   '/campus-living/settings/policies-workflows': 'campus_living.settings.view',
   '/campus-living/settings/maintenance-sla': 'campus_living.settings.view',
   '/campus-living/settings/notification-rules': 'campus_living.settings.view',
@@ -2755,16 +2764,15 @@ export function GetPages(pathname: string): MenuGroup[] {
         {
           href: '/campus-living/attendance',
           label: 'Attendance & Leave',
-          active:
-            pathname.startsWith('/campus-living/attendance')
-            || pathname.startsWith('/campus-living/leave'),
+          active: pathname.startsWith('/campus-living/attendance'),
           icon: UserCheck,
           submenus: [
             { href: '/campus-living/attendance', label: 'Attendance', active: pathname === '/campus-living/attendance' },
             { href: '/campus-living/attendance/mark', label: 'Mark Attendance', active: pathname.startsWith('/campus-living/attendance/mark') },
             { href: '/campus-living/attendance/absentees', label: 'Absentees', active: pathname.startsWith('/campus-living/attendance/absentees') },
             { href: '/campus-living/attendance/history', label: 'History', active: pathname.startsWith('/campus-living/attendance/history') },
-            { href: '/campus-living/leave', label: 'Leave', active: pathname.startsWith('/campus-living/leave') },
+            // 'Leave' retired (2027-04) — hostel leave requests now go through
+            // the global /learners/leave-onduty/my-applications flow.
           ]
         },
         {
@@ -2935,7 +2943,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/campus-living/settings/mess-services', label: 'Mess & Daily Services', active: pathname.startsWith('/campus-living/settings/mess-services') },
             { href: '/campus-living/settings/fee-config', label: 'Fee Config', active: pathname.startsWith('/campus-living/settings/fee-config') },
             { href: '/campus-living/settings/fees-economics', label: 'Fees & Economics', active: pathname.startsWith('/campus-living/settings/fees-economics') },
-            { href: '/campus-living/settings/leave-types', label: 'Leave Types', active: pathname.startsWith('/campus-living/settings/leave-types') },
+            // 'Leave Types' retired (2027-04) — see the global learner Leave
+            // Settings page under Learners.
             { href: '/campus-living/settings/approval-chains', label: 'Approval Chains', active: pathname.startsWith('/campus-living/settings/approval-chains') },
             { href: '/campus-living/settings/policies-workflows', label: 'Policies & Workflows', active: pathname.startsWith('/campus-living/settings/policies-workflows') },
             { href: '/campus-living/settings/maintenance-sla', label: 'Maintenance SLA', active: pathname.startsWith('/campus-living/settings/maintenance-sla') },
@@ -3819,6 +3828,9 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/learners/leave-onduty', label: 'Leave/OnDuty · Landing', active: pathname === '/learners/leave-onduty' },
             { href: '/learners/leave-onduty/my-applications', label: 'Leave/OnDuty · My Applications', active: pathname === '/learners/leave-onduty/my-applications' },
             { href: '/learners/leave-onduty/apply', label: 'Leave/OnDuty · Apply', active: pathname === '/learners/leave-onduty/apply' },
+            // Global leave/on-duty types + approval flows — staff who hold
+            // learners.leave_types.view see this via MENU_PERMISSIONS filtering.
+            { href: '/learners/leave-onduty/settings', label: 'Leave/OnDuty · Settings', active: pathname.startsWith('/learners/leave-onduty/settings') },
             { href: '/academic/privileges/my', label: 'My Privileges', active: pathname.startsWith('/academic/privileges/my') },
             // Admin
             { href: '/learners/analytics', label: 'Analytics Dashboard', active: pathname.startsWith('/learners/analytics') },
@@ -3863,6 +3875,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/billing/refunds', label: 'Refunds', active: pathname.startsWith('/billing/refunds') },
             { href: '/billing/refund-approvals', label: 'Refund Approvals', active: pathname.startsWith('/billing/refund-approvals') },
             { href: '/billing/receipt-cancellations', label: 'Receipt Cancellations', active: pathname.startsWith('/billing/receipt-cancellations') },
+            { href: '/billing/bill-cancellations', label: 'Bill Cancellations', active: pathname.startsWith('/billing/bill-cancellations') },
             { href: '/billing/apportionment', label: 'Apportionment', active: pathname.startsWith('/billing/apportionment') },
             { href: '/billing/invoices', label: 'Invoices', active: pathname.startsWith('/billing/invoices') },
             { href: '/billing/late-charges', label: 'Late Charges', active: pathname.startsWith('/billing/late-charges') },
