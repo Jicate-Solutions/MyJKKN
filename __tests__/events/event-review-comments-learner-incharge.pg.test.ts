@@ -45,7 +45,8 @@ const NEW = MIG('20270321090401_event_review_comments_tournament_learner_incharg
 
 const PGHOST = process.env.ERC_TEST_PGHOST ?? 'localhost';
 const PGPORT = process.env.ERC_TEST_PGPORT ?? '5432';
-const PGUSER = process.env.ERC_TEST_PGUSER ?? process.env.USER ?? 'postgres';
+const PGUSER =
+  process.env.ERC_TEST_PGUSER ?? (process.env.CI ? 'postgres' : process.env.USER ?? 'postgres');
 const DBNAME = `myjkkn_erc_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
 
 /**
