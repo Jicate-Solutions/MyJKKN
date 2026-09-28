@@ -448,3 +448,212 @@ export interface DuplicateYearAuditSummary {
     extra_bills: number;
   })[];
 }
+
+// ── Fee Structure Match audit (2026-09-25) ──────────────────────────────────
+// get_billing_audit_fee_structure_match[_summary]: one row per (learner,
+// fee-structure item), plus one per learner with no matching structure. The
+// structure is resolved with admission_match_fee_structure_for_learner — the
+// same resolver bill generation uses.
+
+export type FeeStructureAuditIssue =
+  | 'missing_bill'
+  | 'other_structure'
+  | 'amount_mismatch'
+  | 'not_linked'
+  | 'split_missing'
+  | 'no_structure'
+  | 'other_module'
+  | 'ok';
+
+export type NoStructureReason =
+  | 'institution_has_none'
+  | 'quota_missing'
+  | 'community_missing'
+  | 'no_matching_combo';
+
+export const FEE_STRUCTURE_AUDIT_ISSUES: readonly FeeStructureAuditIssue[] = [
+  'missing_bill',
+  'amount_mismatch',
+  'other_structure',
+  'not_linked',
+  'split_missing',
+  'no_structure',
+  'other_module'
+];
+
+export const FEE_STRUCTURE_AUDIT_ISSUE_LABELS: Record<FeeStructureAuditIssue, string> = {
+  missing_bill: 'Missing bill',
+  other_structure: 'Billed from another structure',
+  amount_mismatch: 'Amount mismatch',
+  not_linked: 'Not linked to structure',
+  split_missing: 'Split / instalments missing',
+  no_structure: 'No structure matched',
+  other_module: 'Billed by Campus Living / Transport',
+  ok: 'Matches'
+};
+
+export const NO_STRUCTURE_REASON_LABELS: Record<NoStructureReason, string> = {
+  institution_has_none: 'Institution has no fee structures',
+  quota_missing: 'Quota not set on learner',
+  community_missing: 'Community not set on learner',
+  no_matching_combo: 'No structure for this combination'
+};
+
+export interface FeeStructureAuditRow {
+  /** learner + category — unique per row, used as the table id. */
+  row_id: string;
+  learner_id: string;
+  full_name: string;
+  roll_number: string | null;
+  lifecycle_status: string;
+  institution_id: string;
+  institution_name: string | null;
+  program_name: string | null;
+  admission_year: number | null;
+  structure_name: string | null;
+  category_id: string | null;
+  category_name: string | null;
+  category_kind: string | null;
+  schedule_mode: string | null;
+  expected_amount: number | null;
+  expected_instalments: number | null;
+  bill_count: number;
+  billed_amount: number;
+  paid_amount: number;
+  bill_instalments: number;
+  issue: FeeStructureAuditIssue;
+  no_structure_reason: NoStructureReason | null;
+  flag_other_structure: boolean;
+  flag_amount_mismatch: boolean;
+  flag_not_linked: boolean;
+  flag_split_missing: boolean;
+  total_count: number;
+}
+
+export interface FeeStructureAuditFilters {
+  issue?: FeeStructureAuditIssue | null;
+  include_ok?: boolean;
+  include_no_structure_institutions?: boolean;
+  /** Advanced filters (Fee Structure Match sub-tab only). */
+  category_ids?: string[] | null;
+  schedule_mode?: 'split' | 'single' | null;
+  structure_search?: string | null;
+}
+
+/** One learner in a generate-missing-bills preview / result. */
+export interface GenerateMissingBillsLearner {
+  learner_id: string;
+  full_name: string;
+  roll_number: string | null;
+  bills: {
+    category_id: string;
+    category_name: string;
+    amount: number;
+    instalments: number;
+    due_date: string;
+    /** Null on a dry run. */
+    bill_id: string | null;
+  }[];
+  skipped: { reason: string }[];
+}
+
+export interface GenerateMissingBillsResult {
+  dry_run: boolean;
+  bills: number;
+  amount: number;
+  learners_with_bills: number;
+  learners_skipped: number;
+  learners: GenerateMissingBillsLearner[];
+}
+
+export interface FeeStructureAuditSummary {
+  learners_checked: number;
+  learners_ok: number;
+  /** Row counts per issue (one row per learner + fee item). */
+  issues: Partial<Record<FeeStructureAuditIssue, number>>;
+  /** Distinct learners per issue. */
+  learners_by_issue: Partial<Record<FeeStructureAuditIssue, number>>;
+  no_structure_reasons: Partial<Record<NoStructureReason, number>>;
+  expected_total: number;
+  billed_total: number;
+  /** Learners at institutions that have no fee structure at all — excluded from the rows by default. */
+  no_structure_institution_learners: number;
+  no_structure_institutions: { institution_name: string; learners: number }[];
+  available_admission_years: number[];
+  /** Fee items present in scope — feeds the advanced filter picker. */
+  categories: { id: string; name: string }[];
+}
+
+/** get_billing_audit_fee_structure_learners — one row per learner (2026-09-25). */
+export interface FeeStructureAuditLearnerRow {
+  learner_id: string;
+  full_name: string;
+  roll_number: string | null;
+  lifecycle_status: string;
+  institution_id: string;
+  institution_name: string | null;
+  program_name: string | null;
+  admission_year: number | null;
+  structure_name: string | null;
+  /** Fee items in the learner's structure. */
+  items: number;
+  ok: number;
+  missing_bill: number;
+  amount_mismatch: number;
+  other_structure: number;
+  not_linked: number;
+  split_missing: number;
+  other_module: number;
+  no_structure: boolean;
+  no_structure_reason: NoStructureReason | null;
+  /** Items with a real problem (other_module excluded). */
+  problems: number;
+  worst_issue: FeeStructureAuditIssue;
+  expected_total: number;
+  billed_total: number;
+  paid_total: number;
+  /** Structure amount of the items that have no bill. */
+  missing_amount: number;
+  total_count: number;
+}
+
+export interface FeeStructureDetailBill {
+  bill_id: string;
+  description: string | null;
+  amount: number;
+  paid: number;
+  status: string;
+  due_date: string | null;
+  linked_to_structure?: boolean;
+  category_name?: string;
+  category_kind?: string;
+}
+
+export interface FeeStructureDetailItem {
+  category_id: string | null;
+  category_name: string | null;
+  category_kind: string | null;
+  structure_name: string | null;
+  schedule_mode: string | null;
+  expected_amount: number | null;
+  expected_instalments: number | null;
+  bill_count: number;
+  billed_amount: number;
+  paid_amount: number;
+  bill_instalments: number;
+  issue: FeeStructureAuditIssue;
+  no_structure_reason: NoStructureReason | null;
+  flag_other_structure: boolean;
+  flag_amount_mismatch: boolean;
+  flag_not_linked: boolean;
+  flag_split_missing: boolean;
+  bills: FeeStructureDetailBill[];
+}
+
+/** get_billing_audit_fee_structure_learner_detail */
+export interface FeeStructureLearnerDetail {
+  learner_id: string;
+  items: FeeStructureDetailItem[];
+  /** Live bills whose category is not in the learner's structure. */
+  extra_bills: FeeStructureDetailBill[];
+}

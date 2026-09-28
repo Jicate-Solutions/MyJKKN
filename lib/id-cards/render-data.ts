@@ -179,7 +179,12 @@ export type CardPersonData = {
     state: string | null;
     pinCode: string | null;
   } | null;
-  /** Person's own contact: student_mobile (learners) / staff.phone. */
+  /**
+   * CONTACT row on the back. Learners: the PARENT's number — father_mobile,
+   * then mother_mobile, and the learner's own student_mobile only when both
+   * parents are blank (in-charge decision 2026-09-26: a school card must reach
+   * a parent). Team members: staff.phone.
+   */
   contactPhone: string | null;
   /**
    * Barcode payload: learners_profiles.roll_number for learners,
@@ -1232,7 +1237,12 @@ export async function assembleCardData(
         state: learner.permanent_address_state ?? null,
         pinCode: learner.permanent_address_pin_code ?? null
       };
-      contactPhone = learner.student_mobile?.trim() || null;
+      // Parent first; the learner's own mobile is the last resort, never the default.
+      contactPhone =
+        learner.father_mobile?.trim() ||
+        learner.mother_mobile?.trim() ||
+        learner.student_mobile?.trim() ||
+        null;
       idCode = learner.roll_number?.trim() || null;
       studyPeriod = deriveStudyPeriodLabel(learner.batch);
       academicYearLabel = learner.academic_year?.academic_year_name?.trim() || null;
@@ -1248,7 +1258,9 @@ export async function assembleCardData(
       valueBag['learners_profiles.date_of_birth'] = dateOfBirthLabel ?? '';
       valueBag['learners_profiles.father_name'] = learner.father_name ?? '';
       valueBag['learners_profiles.mother_name'] = learner.mother_name ?? '';
-      valueBag['learners_profiles.student_mobile'] = contactPhone ?? '';
+      valueBag['learners_profiles.father_mobile'] = learner.father_mobile ?? '';
+      valueBag['learners_profiles.mother_mobile'] = learner.mother_mobile ?? '';
+      valueBag['learners_profiles.student_mobile'] = learner.student_mobile ?? '';
     } else {
       // Degraded learner path: profiles.learner_id IS learners_profiles.id, so
       // the identity link still resolves even though the learner read failed.

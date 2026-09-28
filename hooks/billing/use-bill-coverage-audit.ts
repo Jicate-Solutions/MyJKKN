@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { BillCoverageAuditService } from '@/lib/services/billing/coverage/bill-coverage-audit-service';
-import type { BillCoverageFilters } from '@/types/billing-coverage';
+import type { BillCoverageFilters, FeeStructureAuditFilters } from '@/types/billing-coverage';
 
 // Query keys — local to the module, same convention as use-bill-coverage.ts.
 // Kept under their own root rather than nested inside billCoverageKeys so a
@@ -14,7 +14,9 @@ export const billAuditKeys = {
   duplicateYearsSummary: (f: BillCoverageFilters) =>
     [...billAuditKeys.all, 'duplicate-years', 'summary', f] as const,
   duplicateYears: (f: BillCoverageFilters) =>
-    [...billAuditKeys.all, 'duplicate-years', 'list', f] as const
+    [...billAuditKeys.all, 'duplicate-years', 'list', f] as const,
+  feeStructureSummary: (f: BillCoverageFilters) =>
+    [...billAuditKeys.all, 'fee-structure', 'summary', f] as const
 };
 
 const STALE = 2 * 60 * 1000; // 2 minutes, matching the Coverage tab.
@@ -42,6 +44,21 @@ export function useDuplicateYearAuditSummary(
   return useQuery({
     queryKey: billAuditKeys.duplicateYearsSummary(filters),
     queryFn: () => BillCoverageAuditService.getDuplicateYearsSummary(filters),
+    enabled,
+    staleTime: STALE,
+    placeholderData: (prev) => prev
+  });
+}
+
+export function useFeeStructureAuditSummary(
+  filters: BillCoverageFilters & FeeStructureAuditFilters,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: billAuditKeys.feeStructureSummary(filters),
+    queryFn: () => BillCoverageAuditService.getFeeStructureMatchSummary(filters),
+    // Resolves a fee structure for every in-scope learner — only run while the
+    // Fee Structure Match sub-tab is on screen.
     enabled,
     staleTime: STALE,
     placeholderData: (prev) => prev

@@ -16,8 +16,10 @@
 //
 // Offers are listed FIRST, with the time left on the hold.
 
-import { useQuery } from '@tanstack/react-query';
-import { Clock, ListOrdered } from 'lucide-react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { Check, Clock, ListOrdered, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
@@ -49,7 +51,15 @@ function contactLine(entry: WaitlistEntry): string {
   return [entry.participant_phone, entry.participant_email].filter(Boolean).join(' · ');
 }
 
-function QueueRow({ entry }: { entry: WaitlistEntry }) {
+function QueueRow({
+  entry,
+  onApprove,
+  approving,
+}: {
+  entry: WaitlistEntry;
+  onApprove: (ids: string[]) => void;
+  approving: boolean;
+}) {
   const offered = entry.status === 'offered';
   return (
     <li className="flex items-start justify-between gap-3 border-b py-2 last:border-b-0">
@@ -81,6 +91,17 @@ function QueueRow({ entry }: { entry: WaitlistEntry }) {
             {!entry.notified_at && (
               <span className="text-[11px] text-muted-foreground">Not announced yet</span>
             )}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1 px-2 text-xs"
+              disabled={approving}
+              onClick={() => onApprove([entry.id])}
+            >
+              <Check className="h-3 w-3" />
+              Approve
+            </Button>
           </>
         ) : (
           <Badge variant="outline">Waiting</Badge>
@@ -96,6 +117,26 @@ type CardState =
   | { kind: 'ready'; panel: WaitlistPanel };
 
 /** Every outcome is a value, never a thrown error, so the three pixels above stay distinct. */
+interface ApproveResult {
+  registered: number;
+  already_registered: number;
+  skipped: number;
+}
+
+/** Register held places with the answers stored on the waiting-list row. */
+async function approveOffers(eventId: string, ids?: string[]): Promise<ApproveResult> {
+  const res = await fetch(`/api/events/${encodeURIComponent(eventId)}/waitlist/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(ids ? { ids } : {}),
+  });
+  const payload = await res.json().catch(() => null);
+  if (!res.ok || payload?.success !== true) {
+    throw new Error(payload?.error || 'Could not approve the waiting list.');
+  }
+  return payload as ApproveResult;
+}
+
 async function readWaitlist(eventId: string): Promise<CardState> {
   try {
     const res = await fetch(`/api/events/${encodeURIComponent(eventId)}/waitlist`, {
@@ -117,6 +158,19 @@ export function EventWaitlistCard({ eventId }: { eventId: string }) {
     queryKey: ['events', eventId, 'waitlist'],
     queryFn: () => readWaitlist(eventId),
     staleTime: 0,
+  });
+
+  const approve = useMutation({
+    mutationFn: (ids?: string[]) => approveOffers(eventId, ids),
+    onSuccess: (r) => {
+      const parts = [`${r.registered} registered`];
+      if (r.already_registered) parts.push(`${r.already_registered} were already registered`);
+      if (r.skipped) parts.push(`${r.skipped} could not be approved`);
+      if (r.skipped) toast.warning(parts.join(' · '));
+      else toast.success(parts.join(' · '));
+      void refetch();
+    },
+    onError: (err: Error) => toast.error(err.message),
   });
 
   // Nothing while we do not yet know: a skeleton here would flash at every
@@ -171,10 +225,36 @@ export function EventWaitlistCard({ eventId }: { eventId: string }) {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-lg">
-          <ListOrdered className="h-5 w-5" />
-          Waiting list
-        </CardTitle>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <ListOrdered className="h-5 w-5" />
+            Waiting list
+          </CardTitle>
+          {panel.offered_count > 0 && (
+            <Button
+              type="button"
+              size="sm"
+              className="gap-1"
+              disabled={approve.isPending}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Register all ${panel.offered_count} people holding a place, using the details they gave when they joined the waiting list?`
+                  )
+                ) {
+                  approve.mutate(undefined);
+                }
+              }}
+            >
+              {approve.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Check className="h-4 w-4" />
+              )}
+              Approve all held ({panel.offered_count})
+            </Button>
+          )}
+        </div>
         <CardDescription>
           {panel.waiting_count} waiting
           {panel.offered_count > 0 && ` · ${panel.offered_count} holding a place`} ·{' '}
@@ -185,16 +265,22 @@ export function EventWaitlistCard({ eventId }: { eventId: string }) {
       <CardContent className="space-y-3">
         <ul className="space-y-0">
           {panel.entries.map((entry) => (
-            <QueueRow key={entry.id} entry={entry} />
+            <QueueRow
+              key={entry.id}
+              entry={entry}
+              approving={approve.isPending}
+              onApprove={(ids) => approve.mutate(ids)}
+            />
           ))}
         </ul>
 
         {panel.offered_count > 0 && (
           <p className="rounded-md bg-muted/60 p-3 text-xs text-muted-foreground">
             A held place counts as taken until that person sends the registration form
-            while signed in, or until the hold lapses 24 hours after it was made — then
-            the place is offered to the next person automatically. They are told in
-            MyJKKN; nobody has to phone anybody.
+            while signed in, you approve it here, or the hold lapses 24 hours after it
+            was made — then the place is offered to the next person automatically.
+            Approving registers them with the details they gave when they joined the
+            waiting list.
           </p>
         )}
       </CardContent>

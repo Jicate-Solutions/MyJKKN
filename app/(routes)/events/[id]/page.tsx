@@ -510,7 +510,7 @@ export default function GeneralEventDetailPage() {
   } = useEventCancellation(id, event?.status === 'cancelled');
   const { institutions } = useInstitutionsWithAccess();
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, canAccess } = usePermissions();
   const [dialogOpen, setDialogOpen] = useState(false);
 
   // Whoever created the event edits it; everyone else reads it. Mirrors the
@@ -524,6 +524,7 @@ export default function GeneralEventDetailPage() {
       userId: profile?.id,
       institutionId: profile?.institution_id,
       isSuperAdmin,
+      canEditAny: canAccess('events', 'edit'),
     });
 
   // Who to contact about this event (BUG-006129). Read BEFORE the loading and

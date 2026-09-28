@@ -166,6 +166,13 @@ export function BulkPrintDialog({
           summary.queued.push(learner.name);
         } else if (outcome.status === 'already_queued') {
           summary.alreadyQueued.push(learner.name);
+        } else if (outcome.status === 'replacement_fee') {
+          // Bulk never accepts a charge on someone's behalf: name the fee and
+          // point at the one place that can — the learner's profile.
+          summary.failed.push({
+            name: learner.name,
+            message: `replacement card ${outcome.replacementNumber} — ${outcome.feeCurrency} ${outcome.feeAmount} fee; print from the learner profile to accept it`
+          });
         } else {
           summary.failed.push({ name: learner.name, message: outcome.message });
         }

@@ -69,6 +69,25 @@
 //     A run that STOPS happening is now caught too, but not here — that is
 //     lib/cron/absence.ts, read by the same cron-failure-alerts route.
 //
+// ── THE OUTPUT GATE (2026-09-15)
+// The prompt tells the model the vocabulary and the model obeys it 87% of the
+// time: 64 of 475 write-ups on production said student, faculty or staff, all
+// of them written after the rule went into the prompt. So nothing the model
+// returns is published on the strength of the prompt any more. The COLLECT
+// pass runs forbiddenVocabulary() on every parsed answer: a hit is sent back
+// ONCE with the words named (the job carries the writer's subject for that),
+// and a second hit files 'skipped' with skip_reason = 'vocab' — never
+// 'approved'. The SUBMIT pass runs accessHoleLanguage() on the commit SUBJECT
+// and files 'skipped' / 'security' without asking the model at all, because
+// on 2026-09-15 the model wrote up a closed access hole for every reader
+// (49ae115) and the "security lines reach super admins only" rule could not
+// catch it — that rule keys on kind = 'security' and the commit was a fix.
+//
+// EVERY 'skipped' ROW NOW SAYS WHY. skip_reason was NULL on all 95 skipped
+// rows because only the takedown path set it. Every path here sets it now,
+// and changelog_highlights_skipped_has_reason_check refuses a row that does
+// not.
+//
 // WHY 5, 7 AND 8 ARE NOT OPTIONAL EXTRAS. This route runs TWICE AN HOUR and
 // publishes UNREVIEWED — both explicit rulings. A fault therefore repeats 48
 // times a day onto a page nobody is paid to check. The spec records that the
@@ -92,10 +111,13 @@ import {
 } from '@/lib/services/platform/ai-jobs-lane';
 import { selectHighlights, WRITEUP_BACKLOG_FLOOR } from '@/lib/changelog/highlights';
 import {
+  accessHoleLanguage,
   buildHighlightPrompt,
+  forbiddenVocabulary,
   highlightDedupeKey,
   isRefusal,
   parseHighlightResult,
+  type HighlightSubject,
 } from '@/lib/changelog/highlight-prompt';
 import {
   findRevertTakedowns,
@@ -159,6 +181,13 @@ type DraftContext = {
   sha: string;
   /** carried only so a log line can name the change a human recognises */
   subject: string;
+  /** Everything the prompt was built from, so a vocabulary retry can rebuild it
+   *  at collect time without re-reading the entry. Absent on jobs enqueued
+   *  before 2026-09-15; those cannot be retried and are re-queued instead. */
+  writer?: HighlightSubject;
+  /** Present on the ONE retry the gate allows: the forbidden words the first
+   *  answer used. A retry that still fails is filed 'skipped' / 'vocab'. */
+  vocab_retry?: string[];
 };
 
 /** A highlight row as the SUBMIT and RETRACT passes need it. */
@@ -231,6 +260,16 @@ async function handler(request: NextRequest) {
   let candidatesTotal = 0;
   /** Ruling 5: answers discarded because a person had already decided the row. */
   let supersededByPerson = 0;
+  /** The output gate: answers sent back once because they used a forbidden word. */
+  let vocabRetried = 0;
+  /** The output gate: answers that failed the vocabulary twice — filed 'skipped' / 'vocab'. */
+  let vocabRejected = 0;
+  /** The output gate: answers from pre-gate jobs that failed and carry no writer
+   *  context to retry with — filed nothing, so the entry re-qualifies. */
+  let vocabRequeued = 0;
+  /** Access-hole subjects filed 'skipped' / 'security' without publishing — at
+   *  submit (no model call) or at collect (a job already in flight). */
+  let securityRouted = 0;
   const drafted: Array<Record<string, unknown>> = [];
   /** Ruling 6: write-ups taken down this run because the change was reverted. */
   const retracted: Array<Record<string, unknown>> = [];
@@ -332,20 +371,73 @@ async function handler(request: NextRequest) {
         continue;
       }
 
-      const refused = isRefusal(parsed);
+      // THE SECURITY ROUTE, at collect. The submit pass below files these
+      // before a job is ever enqueued, so this only meets jobs that were in
+      // flight when the gate shipped — but "regardless of what the model
+      // wrote" has to hold here too, or the first run after deploy publishes
+      // exactly the line the gate exists to stop.
+      const hole =
+        accessHoleLanguage(ctx.subject ?? '') ??
+        (ctx.writer?.kind === 'security' ? 'kind: security' : null);
+      const refused = !hole && isRefusal(parsed);
+      // THE VOCABULARY GATE. Only a draft can carry a forbidden word; a
+      // refusal has no lines to publish and a security hit is never published.
+      const badWords = hole || isRefusal(parsed) ? [] : forbiddenVocabulary(parsed);
+      if (badWords.length > 0 && !ctx.vocab_retry) {
+        if (!ctx.writer) {
+          // A pre-gate job: nothing to rebuild the prompt from. File nothing —
+          // the entry has no row, so selection offers it again with the new
+          // context, and THAT job can be retried. Bounded: the new context is
+          // always present from here on.
+          vocabRequeued++;
+          console.warn(
+            `[cron/whats-new-highlight-drafts] vocabulary hit (${badWords.join(', ')}) on a pre-gate job for ${ctx.sha}; re-queued`
+          );
+          continue;
+        }
+        // THE ONE RETRY. Same dedupe key, so selection below sees it in flight
+        // and does not enqueue a second job for the same change.
+        const retry = await enqueueJobsLane(admin, {
+          jobType: JOB_TYPE,
+          prompt: buildHighlightPrompt(ctx.writer, { rewriteWithout: badWords }),
+          context: { ...ctx, vocab_retry: badWords } as unknown as Record<string, unknown>,
+          dedupeKey: highlightDedupeKey(ctx.app_key ?? 'myjkkn', ctx.sha),
+        });
+        if (retry.ok) {
+          vocabRetried++;
+        } else {
+          // Not filed, so the entry re-qualifies on a later run rather than
+          // being published with the words in it or retired without a retry.
+          vocabRequeued++;
+          console.warn(
+            `[cron/whats-new-highlight-drafts] vocabulary retry could not be enqueued for ${ctx.sha}: ${(retry as { reason?: string }).reason ?? ''}`
+          );
+        }
+        continue;
+      }
+      const vocabFailed = badWords.length > 0;
+      const publish = !hole && !refused && !vocabFailed;
+      const draft = isRefusal(parsed) ? null : parsed;
+
       const row = {
         app_key: ctx.app_key ?? 'myjkkn',
         sha: ctx.sha,
-        headline: refused ? null : parsed.headline,
-        affects: refused ? null : parsed.affects,
-        action: refused ? null : parsed.action,
+        headline: publish && draft ? draft.headline : null,
+        affects: publish && draft ? draft.affects : null,
+        action: publish && draft ? draft.action : null,
         // A refusal is retired as 'skipped' — kept rather than deleted so
         // selection never offers the same entry again, which is exactly what
-        // that status is for.
-        status: refused ? 'skipped' : 'approved',
-        selection_reason: refused
-          ? `Written up automatically; no user-visible effect. ${parsed.reason}`
-          : 'Written up automatically from the shipped change.',
+        // that status is for. A gate rejection is retired the same way, and
+        // skip_reason says which of the three it was.
+        status: publish ? 'approved' : 'skipped',
+        skip_reason: hole ? 'security' : refused ? 'ai_refused' : vocabFailed ? 'vocab' : null,
+        selection_reason: hole
+          ? `Not published: the change closes an access hole (subject says "${hole}"). Security lines do not go on the page.`
+          : refused
+            ? `Written up automatically; no user-visible effect. ${(parsed as { reason: string }).reason}`
+            : vocabFailed
+              ? `Not published: the writer used forbidden words twice (${badWords.join(', ')}; first answer used ${(ctx.vocab_retry ?? []).join(', ')}). A person can write this one from the queue.`
+              : 'Written up automatically from the shipped change.',
         source: 'ai',
         // No review stamp. Nobody reviewed it, and the CHECK in
         // 20261203180000 requires an 'ai' row to carry neither column.
@@ -366,18 +458,30 @@ async function handler(request: NextRequest) {
         );
         continue;
       }
-      if (refused) skippedNoEffect++;
+      if (hole) securityRouted++;
+      else if (refused) skippedNoEffect++;
+      else if (vocabFailed) vocabRejected++;
       else published++;
       drafted.push(
-        refused
-          ? { sha: ctx.sha, subject: ctx.subject, status: 'skipped', reason: parsed.reason }
-          : {
+        publish && draft
+          ? {
               sha: ctx.sha,
               subject: ctx.subject,
               status: 'approved',
-              headline: parsed.headline,
-              affects: parsed.affects,
-              action: parsed.action,
+              headline: draft.headline,
+              affects: draft.affects,
+              action: draft.action,
+            }
+          : {
+              sha: ctx.sha,
+              subject: ctx.subject,
+              status: 'skipped',
+              skip_reason: row.skip_reason,
+              reason: hole
+                ? `access hole: ${hole}`
+                : refused
+                  ? (parsed as { reason: string }).reason
+                  : `forbidden words: ${badWords.join(', ')}`,
             }
       );
     }
@@ -498,21 +602,68 @@ async function handler(request: NextRequest) {
         const row = bySha.get(c.entry.h);
         if (!row) continue;
         const mod = modules[row.module_key];
+
+        // THE SECURITY ROUTE, at submit. A subject that describes an access
+        // hole — or a commit typed security outright — is filed 'skipped' /
+        // 'security' here and never reaches the model. Not asking is cheaper
+        // than asking and discarding, and it cannot be argued with: on
+        // 2026-09-15 the model was asked and wrote the hole up anyway.
+        const hole =
+          accessHoleLanguage(row.subject) ?? (row.kind === 'security' ? 'kind: security' : null);
+        if (hole) {
+          const { error: secErr } = await (admin as any).from('changelog_highlights').upsert(
+            {
+              app_key: row.app_key,
+              sha: row.sha,
+              headline: null,
+              affects: null,
+              action: null,
+              status: 'skipped',
+              skip_reason: 'security',
+              selection_reason: `Not published: the change closes an access hole (subject says "${hole}"). Security lines do not go on the page.`,
+              source: 'ai',
+              reviewed_by: null,
+              reviewed_at: null,
+            },
+            { onConflict: 'app_key,sha' }
+          );
+          if (secErr) {
+            fileFailed++;
+            console.error(
+              `[cron/whats-new-highlight-drafts] security route failed for ${row.sha}: ${secErr.message}`
+            );
+          } else {
+            securityRouted++;
+            drafted.push({
+              sha: row.sha,
+              subject: row.subject,
+              status: 'skipped',
+              skip_reason: 'security',
+              reason: `access hole: ${hole}`,
+            });
+          }
+          continue;
+        }
+
+        const writer: HighlightSubject = {
+          subject: row.subject,
+          moduleLabel: mod?.label ?? row.module_key,
+          moduleHref: mod?.href ?? null,
+          author: row.author,
+          kind: row.kind,
+          breaking: row.breaking,
+        };
         const ctx: DraftContext = {
           app_key: row.app_key,
           sha: row.sha,
           subject: row.subject,
+          // So the collect pass can rebuild the prompt for the one vocabulary
+          // retry without a second read of the entry.
+          writer,
         };
         const res = await enqueueJobsLane(admin, {
           jobType: JOB_TYPE,
-          prompt: buildHighlightPrompt({
-            subject: row.subject,
-            moduleLabel: mod?.label ?? row.module_key,
-            moduleHref: mod?.href ?? null,
-            author: row.author,
-            kind: row.kind,
-            breaking: row.breaking,
-          }),
+          prompt: buildHighlightPrompt(writer),
           context: ctx as unknown as Record<string, unknown>,
           dedupeKey: highlightDedupeKey(row.app_key, row.sha),
         });
@@ -680,6 +831,13 @@ async function handler(request: NextRequest) {
     // What this run FILED (the previous run's jobs coming home).
     published,
     skipped_no_effect: skippedNoEffect,
+    // The output gate, by outcome. `vocab_rejected` climbing is the gate
+    // working; `published` staying at 0 while `vocab_retried` climbs is the
+    // model ignoring the retry and is worth a look at the prompt.
+    vocab_retried: vocabRetried,
+    vocab_rejected: vocabRejected,
+    vocab_requeued: vocabRequeued,
+    security_routed: securityRouted,
     unparsed,
     file_failed: fileFailed,
     // Ruling 5: answers thrown away because a person had already decided the
@@ -697,6 +855,27 @@ async function handler(request: NextRequest) {
     // Ruling 6: write-ups taken down this run because their change was reverted.
     retracted,
     alert,
+    // THE LEDGER. withCronRun copies this object into cron_run_log.meta, which
+    // was `{}` for every run of this job until 2026-09-15 — a takedown left no
+    // trace beyond the row it changed. The counts and the takedown list are
+    // enough to answer "what did the 02:13 run do" from the log alone;
+    // `drafted` (the text) is left out because the row already holds it.
+    meta: {
+      published,
+      skipped_no_effect: skippedNoEffect,
+      vocab_retried: vocabRetried,
+      vocab_rejected: vocabRejected,
+      vocab_requeued: vocabRequeued,
+      security_routed: securityRouted,
+      unparsed,
+      file_failed: fileFailed,
+      superseded_by_person: supersededByPerson,
+      candidates_total: candidatesTotal,
+      enqueued,
+      in_flight: inFlight,
+      retracted,
+      ...(alert ? { alert } : {}),
+    },
     // `error` is the key withCronRun's peekError() reads off a failed response,
     // so a faulty run's reason lands in cron_run_log.error and then in the bell
     // notification cron-failure-alerts sends. Without it the alert would say a
