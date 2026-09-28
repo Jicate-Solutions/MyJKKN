@@ -281,7 +281,7 @@ export default function HrSupervisorTeamReviewPage() {
           <AlertTitle>You are a supervisor</AlertTitle>
           <AlertDescription className="text-sm">
             Rows below are appraisals for staff in your department. Review the ones marked
-            <em> "Waiting for your review" </em> and push them to the SEDC committee.
+            <em> &ldquo;Waiting for your review&rdquo; </em> and push them to the SEDC committee.
           </AlertDescription>
         </Alert>
 

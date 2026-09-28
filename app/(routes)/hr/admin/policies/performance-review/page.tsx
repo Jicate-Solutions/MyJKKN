@@ -51,6 +51,8 @@ interface PerfReviewValue {
   review_committee: string;
   final_approver: string;
   facilitator_grading_doc_ref: string | null;
+  /** Written example required when Collegiality is rated Below. */
+  collegiality_below_requires_example: boolean;
 }
 
 const MONTHS = [
@@ -78,6 +80,7 @@ const DEFAULT_VALUE: PerfReviewValue = {
   review_committee: 'SEDC',
   final_approver: 'Director',
   facilitator_grading_doc_ref: null,
+  collegiality_below_requires_example: true,
 };
 
 function parseValue(raw: unknown): PerfReviewValue {
@@ -103,6 +106,10 @@ function parseValue(raw: unknown): PerfReviewValue {
       obj.facilitator_grading_doc_ref != null
         ? String(obj.facilitator_grading_doc_ref)
         : null,
+    // Absent means ON — the safeguard applies until a college turns it off,
+    // so no existing policy row has to be edited.
+    collegiality_below_requires_example:
+      obj.collegiality_below_requires_example !== false,
   };
 }
 
@@ -201,6 +208,29 @@ function PerfReviewEditor({
               }
               disabled={disabled}
               aria-label="Toggle distribution on term completion"
+            />
+          </div>
+
+          <div className="flex items-start justify-between gap-4 rounded-md bg-muted/40 p-3">
+            <div>
+              <div className="text-sm font-medium">
+                A &ldquo;Below&rdquo; in Collegiality needs a written example
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Collegiality is the one area that leaves no record of its own, unlike a
+                class taught or a paper published, so it is the easiest to use against
+                someone. When ON, a reviewer who rates it Below has to write what the
+                rating is based on before they can submit. Turning this OFF lets a Below
+                be given with no reason recorded.
+              </p>
+            </div>
+            <Switch
+              checked={value.collegiality_below_requires_example}
+              onCheckedChange={(c) =>
+                onChange({ ...value, collegiality_below_requires_example: c })
+              }
+              disabled={disabled}
+              aria-label="Require a written example for a Below in Collegiality"
             />
           </div>
         </div>
