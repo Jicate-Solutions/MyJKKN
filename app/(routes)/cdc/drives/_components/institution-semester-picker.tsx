@@ -228,6 +228,29 @@ export function InstitutionSemesterPicker({
     onTargetingChange(next);
   }
 
+  function renderSemChip(instId: string, order: number, chosen: number[]) {
+    const on = chosen.includes(order);
+    return (
+      <button
+        key={order}
+        type="button"
+        disabled={disabled}
+        onClick={() => toggleOrder(instId, order)}
+        aria-pressed={on}
+        className={cn(
+          "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+          on
+            ? "bg-primary text-primary-foreground border-primary"
+            : "bg-background hover:bg-muted text-foreground",
+          disabled && "opacity-60 cursor-not-allowed",
+        )}
+        title={`Semester ${order}`}
+      >
+        Sem {order}
+      </button>
+    );
+  }
+
   const available = institutions.filter(
     (i) => !selectedInstitutions.includes(i.id),
   );
@@ -313,6 +336,19 @@ export function InstitutionSemesterPicker({
                 o.ids.some((id) => chosenPrograms.includes(id)),
               ).length;
               const isOpen = openSections.has(instId);
+              // Degree-wise semester rows (UG 1–8, PG 1–4 …); when programs are
+              // ticked, only the degrees those programs belong to are shown.
+              const allDegreeGroups = semData?.degrees?.[instId] ?? [];
+              const matchedDegreeGroups =
+                chosenPrograms.length > 0
+                  ? allDegreeGroups.filter((g) =>
+                      g.program_ids.some((id) => chosenPrograms.includes(id)),
+                    )
+                  : allDegreeGroups;
+              const degreeGroups =
+                matchedDegreeGroups.length > 0
+                  ? matchedDegreeGroups
+                  : allDegreeGroups;
               return (
                 <div key={instId} className="rounded-md border p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -466,30 +502,34 @@ export function InstitutionSemesterPicker({
                           No semesters are configured for this institution — all
                           of its learners will be included.
                         </p>
+                      ) : degreeGroups.length > 0 ? (
+                        <div className="space-y-2">
+                          {degreeGroups.map((g) => (
+                            <div
+                              key={g.key}
+                              className="flex flex-wrap items-center gap-2"
+                            >
+                              <span className="w-28 shrink-0 text-xs text-muted-foreground">
+                                {g.label}
+                                {g.degree_type ? ` (${g.degree_type})` : ""}
+                              </span>
+                              {g.orders.map((order) =>
+                                renderSemChip(instId, order, chosen),
+                              )}
+                            </div>
+                          ))}
+                          {degreeGroups.length > 1 ? (
+                            <p className="text-[11px] text-muted-foreground">
+                              A semester number applies to every degree listed
+                              that has it.
+                            </p>
+                          ) : null}
+                        </div>
                       ) : (
                         <div className="flex flex-wrap gap-2">
-                          {options.map((opt) => {
-                            const on = chosen.includes(opt.order);
-                            return (
-                              <button
-                                key={opt.order}
-                                type="button"
-                                disabled={disabled}
-                                onClick={() => toggleOrder(instId, opt.order)}
-                                aria-pressed={on}
-                                className={cn(
-                                  "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
-                                  on
-                                    ? "bg-primary text-primary-foreground border-primary"
-                                    : "bg-background hover:bg-muted text-foreground",
-                                  disabled && "opacity-60 cursor-not-allowed",
-                                )}
-                                title={opt.label}
-                              >
-                                Sem {opt.order}
-                              </button>
-                            );
-                          })}
+                          {options.map((opt) =>
+                            renderSemChip(instId, opt.order, chosen),
+                          )}
                         </div>
                       )}
                     </div>
