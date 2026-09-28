@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Calendar, Check, Loader2 } from 'lucide-react';
@@ -27,6 +27,7 @@ import { SectionSelectionModal } from './_components/section-selection-modal';
 import { formatTimeRange } from '@/utils/time-format';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { resolvePeriodSectionId } from '@/lib/utils/academic/attendance-section-scope';
+import { rolledOverAttendanceDate } from '@/lib/utils/academic/attendance-auto-date';
 import type {
   AttendanceSearchContext,
   AttendancePeriodOption
@@ -77,15 +78,41 @@ export default function AttendancePage() {
   const { checkStaffPermissions } = useAttendanceRoster();
 
   // Set client flag and initial attendance date on client side to avoid hydration mismatch
+  // The date this page set by itself; a date the viewer picks is never replaced.
+  const autoDateRef = useRef<string | null>(null);
   useEffect(() => {
     setIsClient(true);
     if (!searchContext.attendance_date) {
+      const today = format(new Date(), 'yyyy-MM-dd');
+      autoDateRef.current = today;
       setSearchContext((prev) => ({
         ...prev,
-        attendance_date: format(new Date(), 'yyyy-MM-dd')
+        attendance_date: today
       }));
     }
   }, [searchContext.attendance_date]);
+
+  // BUG-006152: left open overnight, the page kept yesterday's date and Mark
+  // opened the day before. On every return to the screen, move a date this page
+  // set by itself to today.
+  useEffect(() => {
+    const onReturn = () => {
+      if (document.visibilityState !== 'visible') return;
+      const today = format(new Date(), 'yyyy-MM-dd');
+      setSearchContext((prev) => {
+        const next = rolledOverAttendanceDate(prev.attendance_date, autoDateRef.current, today);
+        if (!next) return prev;
+        autoDateRef.current = next;
+        return { ...prev, attendance_date: next };
+      });
+    };
+    document.addEventListener('visibilitychange', onReturn);
+    window.addEventListener('focus', onReturn);
+    return () => {
+      document.removeEventListener('visibilitychange', onReturn);
+      window.removeEventListener('focus', onReturn);
+    };
+  }, []);
 
   // Update search context
   const updateSearchContext = (updates: Partial<AttendanceSearchContext>) => {
