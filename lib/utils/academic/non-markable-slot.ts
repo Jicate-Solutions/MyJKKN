@@ -8,8 +8,8 @@
  * still carried a course + staff surfaced in "My Classes" as a real hour.
  */
 export function isNonMarkableSlot(
-  slot: { is_break_slot?: boolean | null } | null | undefined,
-  periodDef: { is_break?: boolean | null } | null | undefined
+  slot: { is_break_slot?: boolean | null; [key: string]: unknown } | null | undefined,
+  periodDef: { is_break?: boolean | null; [key: string]: unknown } | null | undefined
 ): boolean {
   return !!slot?.is_break_slot || !!periodDef?.is_break;
 }
