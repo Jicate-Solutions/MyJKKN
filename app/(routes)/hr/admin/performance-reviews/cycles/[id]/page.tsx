@@ -23,11 +23,14 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle, ArrowLeft, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { ReviewDecisionPanel } from '@/features/hr/appraisal/review-decision-panel';
+import { parseRatings, resolveAreas, summariseRatings } from '@/lib/hr/appraisal-ratings';
 import {
   PerformanceReviewService,
   type CycleStatus,
   type HRPerformanceReview,
   type HRPerformanceReviewCycle,
+  type HRPerformanceReviewPolicy,
   type ReviewStatus,
 } from '@/lib/services/hr/performance-review-service';
 
@@ -71,6 +74,33 @@ export default function HrPerformanceReviewCycleDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [transitioning, setTransitioning] = useState(false);
+
+  const [policy, setPolicy] = useState<HRPerformanceReviewPolicy | null>(null);
+  const [selected, setSelected] = useState<HRPerformanceReview | null>(null);
+  const [approverProfileId, setApproverProfileId] = useState<string | null>(null);
+
+  // Policy (for the rating rule) and the signed-in profile (stamped on
+  // approval). Both are needed only by the decision panel.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [pol, auth] = await Promise.all([
+          PerformanceReviewService.getPolicy(supabase),
+          supabase.auth.getUser(),
+        ]);
+        if (cancelled) return;
+        setPolicy(pol);
+        setApproverProfileId(auth.data.user?.id ?? null);
+      } catch {
+        // Neither is fatal for the read-only list; the panel reports its own
+        // failure when a sign-off is actually attempted.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
 
   // Group reviews by status for the progress counters.
   const counters = useMemo(() => {
@@ -228,6 +258,20 @@ export default function HrPerformanceReviewCycleDetailPage() {
           </Card>
         )}
 
+        {selected && (
+          <ReviewDecisionPanel
+            supabase={supabase}
+            review={selected}
+            policy={policy}
+            approverProfileId={approverProfileId}
+            onClose={() => setSelected(null)}
+            onDone={(updated) => {
+              setReviews((rs) => rs.map((r) => (r.id === updated.id ? updated : r)));
+              setSelected(null);
+            }}
+          />
+        )}
+
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Staff progress</CardTitle>
@@ -249,7 +293,9 @@ export default function HrPerformanceReviewCycleDetailPage() {
                       <th className="py-2 pr-4">Self-submitted</th>
                       <th className="py-2 pr-4">Supervisor</th>
                       <th className="py-2 pr-4">SEDC</th>
+                      <th className="py-2 pr-4">Ratings</th>
                       <th className="py-2 pr-4">Final score</th>
+                      <th className="py-2 pr-4"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -266,8 +312,26 @@ export default function HrPerformanceReviewCycleDetailPage() {
                         <td className="py-2 pr-4 text-xs text-muted-foreground">
                           {r.sedc_reviewed_at ? new Date(r.sedc_reviewed_at).toLocaleDateString() : '—'}
                         </td>
+                        <td className="py-2 pr-4 text-xs">
+                          {summariseRatings(
+                            parseRatings(
+                              r.sedc_review_jsonb ??
+                                r.supervisor_review_jsonb ??
+                                r.self_appraisal_jsonb,
+                              resolveAreas(),
+                            ),
+                            resolveAreas(),
+                          )}
+                        </td>
                         <td className="py-2 pr-4 font-medium">
                           {r.final_score !== null ? r.final_score.toFixed(2) : '—'}
+                        </td>
+                        <td className="py-2 pr-4">
+                          {(r.status === 'supervisor_reviewed' || r.status === 'sedc_reviewed') && (
+                            <Button variant="outline" size="sm" onClick={() => setSelected(r)}>
+                              {r.status === 'sedc_reviewed' ? 'Sign off' : 'Committee review'}
+                            </Button>
+                          )}
                         </td>
                       </tr>
                     ))}

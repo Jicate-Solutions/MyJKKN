@@ -28,6 +28,13 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  deriveAppraisalScore,
+  parseRatings,
+  resolveAreas,
+  resolveRatingPoints,
+  type AppraisalRatingPolicySlice,
+} from '@/lib/hr/appraisal-ratings';
 
 // ---------------------------------------------------------------------------
 // Types — kept local to the module. (No /types/hr-performance file yet; if
@@ -104,6 +111,13 @@ export interface HRPerformanceReviewPolicy {
   review_committee?: string;
   final_approver?: string;
   facilitator_grading_doc_ref?: string;
+  /**
+   * Three-rating model settings. Both optional: an absent key means the
+   * default, so no existing policy row has to be edited for this to work.
+   * See lib/hr/appraisal-ratings.ts.
+   */
+  rating_points?: AppraisalRatingPolicySlice['rating_points'];
+  collegiality_below_requires_example?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -361,23 +375,99 @@ export class PerformanceReviewService {
     return data as HRPerformanceReview;
   }
 
-  /** Director path. sedc_reviewed → final_approved (terminal). */
+  /**
+   * Director path. sedc_reviewed → final_approved (terminal).
+   *
+   * The Director approves the ratings the committee normalised; he does not
+   * type a number. final_score is DERIVED from those ratings by the policy's
+   * rule and exists only so promotion has an ordering — it is never shown as
+   * the appraisal result. There is deliberately no way to pass a score in:
+   * that was the one place a figure could be entered that no rating supported.
+   *
+   * Throws when any area is unrated, so an incomplete appraisal cannot be
+   * closed with a number that looks decided.
+   */
   static async finalApprove(
     supabase: SupabaseClient,
     reviewId: string,
-    args: { final_score: number; final_remarks: string; approver_profile_id: string },
+    args: {
+      final_remarks: string;
+      approver_profile_id: string;
+      /** Pass the already-loaded policy to avoid a second round trip. */
+      policy?: HRPerformanceReviewPolicy | null;
+    },
   ): Promise<HRPerformanceReview> {
     const current = await this.requireReview(supabase, reviewId);
     assertTransition(current.status, 'final_approved');
 
+    // The approved ratings ARE the committee's normalised ratings. The
+    // Director's decision at this step is approve or send back, so nothing is
+    // re-rated here and no tier's payload is written over by another.
+    const policy = args.policy ?? (await this.getPolicy(supabase));
+    const areas = resolveAreas();
+    const ratings = parseRatings(current.sedc_review_jsonb, areas);
+    const derived = deriveAppraisalScore(ratings, areas, resolveRatingPoints(policy));
+    if (derived === null) {
+      throw new Error(
+        'The committee has not rated every area. Send this review back to the committee rather than approving it.',
+      );
+    }
+
     const { data, error } = await supabase
       .from('hr_performance_reviews')
       .update({
-        final_score: args.final_score,
+        final_score: derived,
         final_remarks: args.final_remarks,
         status: 'final_approved',
         final_approved_at: new Date().toISOString(),
         final_approved_by: args.approver_profile_id,
+      })
+      .eq('id', reviewId)
+      .select('*')
+      .single();
+    if (error) throw error;
+    return data as HRPerformanceReview;
+  }
+
+  /**
+   * Send a review one step back for rework — the only alternative to approving
+   * it. Without this the Director's single option at sign-off would be to
+   * approve, which makes the sign-off meaningless. Uses the same transition
+   * table as the forward path, so it can never skip a tier.
+   */
+  static async sendBack(
+    supabase: SupabaseClient,
+    reviewId: string,
+    to: ReviewStatus,
+    reason: string,
+  ): Promise<HRPerformanceReview> {
+    const current = await this.requireReview(supabase, reviewId);
+    assertTransition(current.status, to);
+    if (!reason.trim()) {
+      throw new Error('Say why it is going back — the next reviewer has to act on it.');
+    }
+
+    // Stamp the reason on the tier that is sending it back, so the record
+    // shows who returned it and why. The returning tier's own ratings are
+    // left intact: it should see what it wrote when it picks this up again.
+    const stampColumn =
+      current.status === 'sedc_reviewed'
+        ? 'sedc_review_jsonb'
+        : current.status === 'supervisor_reviewed'
+          ? 'supervisor_review_jsonb'
+          : 'self_appraisal_jsonb';
+    const existingPayload =
+      (current[stampColumn as keyof HRPerformanceReview] as Record<string, unknown> | null) ?? {};
+
+    const { data, error } = await supabase
+      .from('hr_performance_reviews')
+      .update({
+        status: to,
+        [stampColumn]: {
+          ...existingPayload,
+          sent_back_reason: reason,
+          sent_back_at: new Date().toISOString(),
+        },
       })
       .eq('id', reviewId)
       .select('*')

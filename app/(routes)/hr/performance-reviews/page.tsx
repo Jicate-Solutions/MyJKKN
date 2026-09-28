@@ -17,7 +17,6 @@ import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
@@ -25,6 +24,16 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle, ClipboardCheck, Save, Send } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { RatingPicker } from '@/features/hr/appraisal/rating-picker';
+import {
+  collegialityExampleMissing,
+  missingAreas,
+  parseCollegialityExample,
+  parseRatings,
+  resolveAreas,
+  AREA_LABELS,
+  type AppraisalRatingMap,
+} from '@/lib/hr/appraisal-ratings';
 import {
   PerformanceReviewService,
   type HRPerformanceReview,
@@ -45,23 +54,33 @@ interface SelfAppraisalShape {
   achievements: string;
   goals_next_year: string;
   challenges: string;
-  self_rating: number; // 1-10
+  /** Exceeds / Meets / Below per area — replaces the old 1-10 self_rating. */
+  ratings: AppraisalRatingMap;
+  collegiality_example: string;
 }
 
 const EMPTY: SelfAppraisalShape = {
   achievements: '',
   goals_next_year: '',
   challenges: '',
-  self_rating: 0,
+  ratings: {},
+  collegiality_example: '',
 };
 
+/**
+ * Rows saved before the three-rating model hold a `self_rating` number. That
+ * number is deliberately NOT converted into a band: nobody knows whether a 7
+ * out of 10 meant Meets or Exceeds, and guessing would put words in a
+ * reviewer's mouth. Such a draft simply reopens with the areas unrated.
+ */
 function coerceShape(raw: Record<string, unknown> | null): SelfAppraisalShape {
   if (!raw) return EMPTY;
   return {
     achievements: typeof raw.achievements === 'string' ? raw.achievements : '',
     goals_next_year: typeof raw.goals_next_year === 'string' ? raw.goals_next_year : '',
     challenges: typeof raw.challenges === 'string' ? raw.challenges : '',
-    self_rating: typeof raw.self_rating === 'number' ? raw.self_rating : 0,
+    ratings: parseRatings(raw, resolveAreas()),
+    collegiality_example: parseCollegialityExample(raw),
   };
 }
 
@@ -138,8 +157,18 @@ export default function HrSelfAppraisalPage() {
         toast.error('Achievements and goals are required to submit.');
         return;
       }
-      if (form.self_rating < 1 || form.self_rating > 10) {
-        toast.error('Self-rating must be between 1 and 10.');
+      const areas = resolveAreas();
+      const unrated = missingAreas(form.ratings, areas);
+      if (unrated.length > 0) {
+        toast.error(
+          `Rate every area before submitting. Still to rate: ${unrated
+            .map((a) => AREA_LABELS[a])
+            .join(', ')}.`,
+        );
+        return;
+      }
+      if (collegialityExampleMissing(form.ratings, form.collegiality_example, policy)) {
+        toast.error('A Below in Collegiality needs a written example.');
         return;
       }
     }
@@ -243,15 +272,22 @@ export default function HrSelfAppraisalPage() {
                 />
               </div>
 
-              <div className="max-w-xs">
-                <Label htmlFor="rating">Self-rating (1-10)</Label>
-                <Input
-                  id="rating"
-                  type="number"
-                  min={1}
-                  max={10}
-                  value={form.self_rating || ''}
-                  onChange={(e) => setForm((f) => ({ ...f, self_rating: Number(e.target.value) }))}
+              <div className="border-t pt-5">
+                <h3 className="text-sm font-semibold">How would you rate your year?</h3>
+                <p className="mt-1 mb-3 text-xs text-muted-foreground">
+                  Four areas, three bands each. There is no total and no percentage —
+                  your supervisor and the committee see these same four words.
+                </p>
+                <RatingPicker
+                  idPrefix="self"
+                  areas={resolveAreas()}
+                  value={form.ratings}
+                  onChange={(ratings) => setForm((f) => ({ ...f, ratings }))}
+                  collegialityExample={form.collegiality_example}
+                  onCollegialityExampleChange={(collegiality_example) =>
+                    setForm((f) => ({ ...f, collegiality_example }))
+                  }
+                  policy={policy}
                   disabled={readonly}
                 />
               </div>

@@ -19,7 +19,6 @@ import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
@@ -27,10 +26,21 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle, ArrowLeft, RefreshCw, Send, UsersRound } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { RatingPicker } from '@/features/hr/appraisal/rating-picker';
+import {
+  collegialityExampleMissing,
+  missingAreas,
+  parseCollegialityExample,
+  parseRatings,
+  resolveAreas,
+  AREA_LABELS,
+  type AppraisalRatingMap,
+} from '@/lib/hr/appraisal-ratings';
 import {
   PerformanceReviewService,
   type HRPerformanceReview,
   type HRPerformanceReviewCycle,
+  type HRPerformanceReviewPolicy,
   type ReviewStatus,
 } from '@/lib/services/hr/performance-review-service';
 
@@ -44,21 +54,26 @@ const REVIEW_STATUS_LABEL: Record<ReviewStatus, string> = {
 
 interface SupervisorReviewShape {
   validation_notes: string;
-  supervisor_rating: number; // 1-10
+  /** Exceeds / Meets / Below per area — replaces the old 1-10 rating. */
+  ratings: AppraisalRatingMap;
+  collegiality_example: string;
   recommendations: string;
 }
 
 const EMPTY: SupervisorReviewShape = {
   validation_notes: '',
-  supervisor_rating: 0,
+  ratings: {},
+  collegiality_example: '',
   recommendations: '',
 };
 
+/** A pre-model row holds `supervisor_rating`; it is not converted to a band. */
 function coerceShape(raw: Record<string, unknown> | null): SupervisorReviewShape {
   if (!raw) return EMPTY;
   return {
     validation_notes: typeof raw.validation_notes === 'string' ? raw.validation_notes : '',
-    supervisor_rating: typeof raw.supervisor_rating === 'number' ? raw.supervisor_rating : 0,
+    ratings: parseRatings(raw, resolveAreas()),
+    collegiality_example: parseCollegialityExample(raw),
     recommendations: typeof raw.recommendations === 'string' ? raw.recommendations : '',
   };
 }
@@ -67,6 +82,7 @@ export default function HrSupervisorTeamReviewPage() {
   const supabase = useMemo(() => createClientSupabaseClient(), []);
 
   const [openCycle, setOpenCycle] = useState<HRPerformanceReviewCycle | null>(null);
+  const [policy, setPolicy] = useState<HRPerformanceReviewPolicy | null>(null);
   const [reviews, setReviews] = useState<HRPerformanceReview[]>([]);
   const [selected, setSelected] = useState<HRPerformanceReview | null>(null);
   const [form, setForm] = useState<SupervisorReviewShape>(EMPTY);
@@ -86,6 +102,8 @@ export default function HrSupervisorTeamReviewPage() {
         setOpenCycle(open);
         if (open) {
           const rs = await PerformanceReviewService.listTeamReviews(supabase, open.id);
+          const pol = await PerformanceReviewService.getPolicy(supabase);
+          setPolicy(pol);
           if (cancelled) return;
           setReviews(rs);
         } else {
@@ -133,8 +151,16 @@ export default function HrSupervisorTeamReviewPage() {
       toast.error('Validation notes are required.');
       return;
     }
-    if (form.supervisor_rating < 1 || form.supervisor_rating > 10) {
-      toast.error('Rating must be between 1 and 10.');
+    const areas = resolveAreas();
+    const unrated = missingAreas(form.ratings, areas);
+    if (unrated.length > 0) {
+      toast.error(
+        `Rate every area. Still to rate: ${unrated.map((a) => AREA_LABELS[a]).join(', ')}.`,
+      );
+      return;
+    }
+    if (collegialityExampleMissing(form.ratings, form.collegiality_example, policy)) {
+      toast.error('A Below in Collegiality needs a written example.');
       return;
     }
     setSubmitting(true);
@@ -196,15 +222,24 @@ export default function HrSupervisorTeamReviewPage() {
                   />
                 </div>
 
-                <div className="max-w-xs">
-                  <Label htmlFor="rating">Your rating (1-10)</Label>
-                  <Input
-                    id="rating"
-                    type="number"
-                    min={1}
-                    max={10}
-                    value={form.supervisor_rating || ''}
-                    onChange={(e) => setForm((f) => ({ ...f, supervisor_rating: Number(e.target.value) }))}
+                <div className="border-t pt-4">
+                  <h5 className="text-sm font-semibold">Your rating</h5>
+                  <p className="mt-1 mb-3 text-xs text-muted-foreground">
+                    What the person gave themselves is shown beside each area. You are not
+                    required to agree with it.
+                  </p>
+                  <RatingPicker
+                    idPrefix="sup"
+                    areas={resolveAreas()}
+                    value={form.ratings}
+                    onChange={(ratings) => setForm((f) => ({ ...f, ratings }))}
+                    collegialityExample={form.collegiality_example}
+                    onCollegialityExampleChange={(collegiality_example) =>
+                      setForm((f) => ({ ...f, collegiality_example }))
+                    }
+                    policy={policy}
+                    prior={parseRatings(selected.self_appraisal_jsonb, resolveAreas())}
+                    priorLabel="Self"
                   />
                 </div>
 
