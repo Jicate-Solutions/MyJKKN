@@ -38,6 +38,9 @@ while IFS= read -r nav; do
 
     # Strip the `href:` prefix + surrounding quotes
     path=$(echo "$raw_href" | sed -E "s/href:[[:space:]]*['\"]//; s/['\"]$//")
+    # A query or fragment picks a tab or a spot on the page, not the page itself
+    # ('/learners/leave-onduty/settings?tab=flows', 2026-09-28): check the path alone.
+    path="${path%%\?*}"; path="${path%%#*}"
 
     # Skip dynamic-segment hrefs (template strings with ${...}, or unresolved [id])
     if echo "$path" | grep -qE '\$\{|\[[a-zA-Z_]+\]'; then
