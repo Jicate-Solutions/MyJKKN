@@ -478,3 +478,37 @@ export function validateEventForm(form: EventCreateForm): Partial<Record<FormTab
 
   return errors;
 }
+
+// ---------------------------------------------------------------------------
+// Host institution
+// ---------------------------------------------------------------------------
+
+/**
+ * Which institution this event is filed under.
+ *
+ * The wizard used to fall back to `institutions[0]` whenever the user's own
+ * institution was not in the offered list — a silent default that filed the
+ * event under a college the organizer had never chosen, and that the events
+ * INSERT policy then refused. It hit everyone whose home entity is not an
+ * `entity_type = 'institution'` row: Main Office staff, school staff. The
+ * office was missing from the list because the list asked for institutions
+ * only, so the default was always wrong for them and never visible.
+ *
+ * A host that was not chosen is now NO host: the caller renders "pick one"
+ * rather than writing a guess. The ambient value is still kept while the list
+ * is loading so nothing gated on the host flickers on first paint.
+ */
+export function resolveHostInstitutionId(args: {
+  hostOverride: string | null;
+  institutions: Array<{ id: string }>;
+  ambientInstitutionId: string;
+}): string {
+  const { hostOverride, institutions, ambientInstitutionId } = args;
+  if (hostOverride) return hostOverride;
+  // Before the accessible list resolves, keep the ambient value so nothing that
+  // gates on the host flickers.
+  if (!institutions.length) return ambientInstitutionId;
+  return institutions.some((i) => i.id === ambientInstitutionId)
+    ? ambientInstitutionId
+    : '';
+}

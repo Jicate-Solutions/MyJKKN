@@ -25,6 +25,8 @@ import {
 } from '@/components/ui/select';
 import { ArrowRight, ArrowUpDown, UserCheck, Loader2 } from 'lucide-react';
 import { getOnboardingColumns } from './columns';
+import { getOnboardingExportConfig } from './onboarding-export-config';
+import { exportOnboardingLearners } from '../_actions/export-onboarding-learners';
 import { PaymentThresholdBanner } from './payment-threshold-banner';
 import { AwaitingPaymentExportButton } from './awaiting-payment-export-button';
 import type {
@@ -222,6 +224,16 @@ export function OnboardingTableServer({
     };
   }, [localData, localMetadata]);
 
+  // "Export All" must not page through fetchData above: it returns the same
+  // server-rendered page whatever page is asked for, so it would export that
+  // page N times. Re-read the whole tier under the URL's filters instead.
+  const fetchAllForExport = useCallback(
+    () => exportOnboardingLearners(Object.fromEntries(searchParams.entries()), tier),
+    [searchParams, tier]
+  );
+
+  const exportConfig = useMemo(() => getOnboardingExportConfig(tier), [tier]);
+
   const renderCustomToolbar = (props: {
     selectedRows: any[];
     allSelectedIds: (string | number)[];
@@ -301,17 +313,17 @@ export function OnboardingTableServer({
       <DataTable
         fetchDataFn={fetchData}
         getColumns={() => columns as any}
-        exportConfig={{
-          entityName: `onboarding-${tier}-learners`,
-          columnMapping: {},
-          columnWidths: [],
-          headers: []
-        }}
+        fetchAllItemsFn={fetchAllForExport}
+        exportConfig={exportConfig}
         idField="id"
         config={{
           enableUrlState: true,
           enableDateFilter: false,
-          enableExport: false,
+          enableExport: true,
+          exportAllPagesByDefault: true,
+          // fetchAllItemsFn is here for export only. Select-all across pages
+          // would feed Assign Academic Info hundreds of ids in one URL.
+          enableCrossPageSelectAll: false,
           enableRowSelection: true,
           enableSearch: false,
           // Columns keep their declared widths and the table scrolls sideways;
