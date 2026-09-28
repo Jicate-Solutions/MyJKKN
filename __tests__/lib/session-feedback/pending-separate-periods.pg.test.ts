@@ -41,6 +41,7 @@ const PGPASSWORD = process.env.SCF_TEST_PGPASSWORD;
 const DBNAME = `scf_pending_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
 
 const C = '00000000-0000-4000-8000-0000000000c1'; // the course that meets twice
+const PRESENT = 'Present'; // the roster status the function requires
 const D = '00000000-0000-4000-8000-0000000000d1'; // another course
 
 const STUBS = `
@@ -83,7 +84,7 @@ async function scenario(slots: Record<string, Slot>, answered: string[]) {
       course_id: s.course ?? '',
       start_time: s.start,
       end_time: s.end,
-      students: [{ student_id: lp, status: 'Present' }],
+      students: [{ student_id: lp, status: PRESENT }],
     };
   }
   await db.query('INSERT INTO public.learners_profiles VALUES ($1, $2)', [lp, profile]);
@@ -129,8 +130,8 @@ afterAll(async () => {
   }
 });
 
-describe('fn_scf_pending_for_learner: separate classes each ask, a block asks once', () => {
-  it('offers the second of two SEPARATE classes of a course after the first is answered (live hides it)', async () => {
+describe('fn_scf_pending_for_learner: separate sessions each ask, a block asks once', () => {
+  it('offers the second of two SEPARATE sessions of a course after the first is answered (live hides it)', async () => {
     const s = await scenario(
       {
         p1: { course: C, start: '09:00', end: '09:50' },
