@@ -101,7 +101,13 @@ function AreaRow({
                 value={r}
                 checked={selected}
                 disabled={disabled}
-                onChange={() => onChange(r)}
+                // Guarded here as well as by the disabled attribute: a
+                // submitted appraisal is a record, and one stray click must
+                // not be able to edit it if a style or attribute ever slips.
+                onChange={() => {
+                  if (disabled) return;
+                  onChange(r);
+                }}
               />
               {RATING_LABELS[r]}
             </label>
