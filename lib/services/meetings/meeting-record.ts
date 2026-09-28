@@ -3,32 +3,42 @@
 // Everything a finished meeting's record (the downloadable PDF) prints, read
 // in one place.
 //
-// WHY THIS READS THROUGH THE VIEWER'S SESSION CLIENT, never the service role:
-// these are the SAME reads app/(routes)/meetings/[uid]/page.tsx makes, so the
-// PDF can never show more than the page already shows that person. RLS on
-// meeting_bookings decides whether the booking exists for them at all (null →
-// the route answers 404), and fn_can_view_meeting_note decides whether the note
-// comes with it. A service-role read here would hand the notes to anyone who
-// knows — or guesses — a booking uid.
+// WHO CAN READ IT. Every read goes through the VIEWER'S SESSION CLIENT, never
+// the service role, so the same row rules as /meetings/{uid} decide what comes
+// back: RLS on meeting_bookings decides whether the booking exists for them at
+// all (null → the route answers 404), fn_can_view_meeting_note decides whether
+// the note comes with it, and meeting_note_participants follows its note
+// exactly. A service-role read here would hand the notes to anyone who knows —
+// or guesses — a booking uid.
 //
-// WHAT IS DELIBERATELY NOT READ: meeting_notes.recording_url / audio_url /
-// video_url. Those are signed links that play the recording for whoever holds
-// them; a PDF gets forwarded, so it must never carry one. Only the transcript
-// PAGE link is read, and raw is narrowed to raw->meeting_attendees so nothing
-// else in the stored payload can leak into the document.
+// WHAT THE PDF SHOWS THAT THE PAGE DOES NOT. The page does not list who was on
+// the call; the PDF does, by NAME ONLY (see peopleOf in lib/pdf/meeting-record-pdf.ts).
+// Participants come from meeting_note_participants — the display table the
+// Fireflies ingest fills — never from meeting_notes.raw, which the schema marks
+// "diagnostic only, not rendered to users".
+//
+// WHAT IS DELIBERATELY NOT READ, because a PDF gets forwarded:
+//   • meeting_notes.recording_url / audio_url / video_url — signed links that
+//     play the recording for whoever holds them;
+//   • meeting_notes.transcript_url — the Fireflies transcript page stays on the
+//     meeting page only;
+//   • meeting_notes.raw — the stored provider payload.
+//
+// A FAILED READ IS AN ERROR, NEVER AN EMPTY SECTION. Every query's error is
+// checked and thrown, so the route answers 500 instead of printing "No summary
+// was recorded" for a meeting that has one.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { MeetingActionItemService } from '@/lib/services/meetings/meeting-action-item-service';
 
 export interface MeetingRecordParticipant {
   name: string | null;
+  /** Kept only to collapse duplicates; the PDF never prints it. */
   email: string | null;
 }
 
 export interface MeetingRecordNote {
   title: string | null;
   summary: string | null;
-  transcriptUrl: string | null;
   durationMinutes: number | null;
   occurredAt: string | null;
   participants: MeetingRecordParticipant[];
@@ -60,26 +70,32 @@ function text(v: unknown): string | null {
   return typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
 }
 
-/** Fireflies' meeting_attendees, defensive on shape: rows written by other
- *  versions of the ingest may be missing fields, or not be an array at all. */
-function parseParticipants(value: unknown): MeetingRecordParticipant[] {
-  if (!Array.isArray(value)) return [];
-  const out: MeetingRecordParticipant[] = [];
-  for (const row of value) {
-    if (!row || typeof row !== 'object') continue;
-    const r = row as Record<string, unknown>;
-    const email = text(r.email);
-    const name = text(r.displayName) ?? text(r.name);
-    if (!email && !name) continue;
-    out.push({ name, email });
+/** Throw a plain error for a failed read; the route turns it into a 500. */
+function check(what: string, error: { message?: string } | null | undefined): void {
+  if (error) {
+    console.error(`[meeting-record] ${what} read failed:`, error.message);
+    throw new Error(`Could not read the ${what}.`);
   }
-  return out;
+}
+
+/**
+ * The button's rule, repeated server-side: the meeting is over (marked held or
+ * no-show, or its end time has passed) AND something was recorded — a linked
+ * note or at least one follow-up. Mirrors canDownloadRecord in
+ * app/(routes)/meetings/[uid]/page.tsx.
+ */
+export function isMeetingRecordReady(record: MeetingRecord, now: Date = new Date()): boolean {
+  const isPast =
+    record.status === 'completed' ||
+    record.status === 'no_show' ||
+    new Date(record.endTime).getTime() < now.getTime();
+  return isPast && (record.note !== null || record.followUps.length > 0);
 }
 
 /**
  * The record of one meeting, as the viewer is allowed to see it.
  * Returns null when RLS hides the booking (or the uid does not exist) — the
- * caller must not be able to tell those two apart.
+ * caller must not be able to tell those two apart. Throws when any read fails.
  */
 export async function loadMeetingRecord(
   client: SupabaseClient,
@@ -90,33 +106,58 @@ export async function loadMeetingRecord(
     .select('id, uid, status, start_time, end_time, attendee_name, attendee_email, host_profile_id, meeting_type_id')
     .eq('uid', uid)
     .maybeSingle();
-  if (error) {
-    console.error('[meeting-record] booking read failed:', error.message);
-    throw new Error('Could not read the meeting.');
-  }
+  check('meeting', error);
   if (!booking) return null;
 
   const b = booking as Record<string, unknown>;
   const bookingId = b.id as string;
 
-  const [typeRes, noteRes, hostRes, items] = await Promise.all([
+  const [typeRes, noteRes, hostRes, itemsRes] = await Promise.all([
     b.meeting_type_id
       ? client.from('meeting_types').select('title').eq('id', b.meeting_type_id as string).maybeSingle()
-      : Promise.resolve({ data: null }),
+      : Promise.resolve({ data: null, error: null }),
     client
       .from('meeting_notes')
-      .select('title, summary, transcript_url, duration_minutes, occurred_at, meeting_attendees:raw->meeting_attendees')
+      .select('id, title, summary, duration_minutes, occurred_at')
       .eq('booking_id', bookingId)
-      .order('occurred_at', { ascending: false })
+      .order('occurred_at', { ascending: false, nullsFirst: false })
       .limit(1)
       .maybeSingle(),
     client.from('profiles').select('full_name, email').eq('id', b.host_profile_id as string).maybeSingle(),
-    MeetingActionItemService.listForBooking(client, bookingId),
+    // Read here rather than through MeetingActionItemService.listForBooking,
+    // which answers [] on a failed read — that would print "None recorded".
+    // Same order as that service: open before done, then by due date.
+    client
+      .from('meeting_action_items')
+      .select('action_text, decision_text, owner_label, due_date, status')
+      .eq('booking_id', bookingId)
+      .order('status', { ascending: true })
+      .order('due_date', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true }),
   ]);
+  check('meeting type', typeRes.error);
+  check('meeting note', noteRes.error);
+  check('host', hostRes.error);
+  check('follow-ups', itemsRes.error);
 
   const typeRow = (typeRes.data ?? null) as Record<string, unknown> | null;
   const noteRow = (noteRes.data ?? null) as Record<string, unknown> | null;
   const hostRow = (hostRes.data ?? null) as Record<string, unknown> | null;
+  const itemRows = (itemsRes.data ?? []) as Array<Record<string, unknown>>;
+
+  let participants: MeetingRecordParticipant[] = [];
+  if (noteRow) {
+    const { data: rows, error: pErr } = await client
+      .from('meeting_note_participants')
+      .select('display_name, email')
+      .eq('note_id', noteRow.id as string)
+      .order('display_name', { ascending: true, nullsFirst: false })
+      .order('email', { ascending: true });
+    check('participants', pErr);
+    participants = ((rows ?? []) as Array<Record<string, unknown>>)
+      .map((r) => ({ name: text(r.display_name), email: text(r.email) }))
+      .filter((p) => p.name || p.email);
+  }
 
   return {
     uid: b.uid as string,
@@ -132,18 +173,18 @@ export async function loadMeetingRecord(
       ? {
           title: text(noteRow.title),
           summary: text(noteRow.summary),
-          transcriptUrl: text(noteRow.transcript_url),
           durationMinutes: typeof noteRow.duration_minutes === 'number' ? noteRow.duration_minutes : null,
           occurredAt: text(noteRow.occurred_at),
-          participants: parseParticipants(noteRow.meeting_attendees),
+          participants,
         }
       : null,
-    followUps: items.map((i) => ({
-      actionText: i.action_text,
+    // Every row, none dropped: the route's gate counts these, and so does the page.
+    followUps: itemRows.map((i) => ({
+      actionText: typeof i.action_text === 'string' ? i.action_text : '',
       decisionText: text(i.decision_text),
       ownerLabel: text(i.owner_label),
       dueDate: text(i.due_date),
-      status: i.status,
+      status: i.status === 'done' ? 'done' : 'open',
     })),
   };
 }

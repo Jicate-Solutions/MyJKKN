@@ -91,8 +91,10 @@ const nextConfig: NextConfig = {
       './node_modules/@sparticuz/chromium/**/*',
       './public/fonts/pdf/**/*',
     ],
-    // Meeting record PDF (lib/pdf/meeting-record-pdf.ts). Same Chromium and
-    // embedded fonts — without them Tamil in summaries and names prints as boxes.
+    // Meeting record PDF (app/api/meetings/record/[uid]; HTML from
+    // lib/pdf/meeting-record-pdf.ts, printed by lib/pdf/syllabus-pdf.ts). Same
+    // Chromium and embedded fonts as the BoS sheets — without them Tamil in
+    // summaries and names prints as boxes. No logos: the record has none.
     '/api/meetings/record/*': [
       './node_modules/@sparticuz/chromium/**/*',
       './public/fonts/pdf/**/*',

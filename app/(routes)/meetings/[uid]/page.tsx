@@ -28,7 +28,6 @@ import {
   ExternalLink,
   UserSearch,
   Mic,
-  Download,
 } from 'lucide-react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -49,6 +48,7 @@ import {
   switchSourceMode,
 } from '@/lib/services/meetings/meeting-mode-switch';
 import { EndRecordingButton } from './_components/end-recording-button';
+import { DownloadRecordButton } from './_components/download-record-button';
 import { CancelBookingButton } from './_components/cancel-booking-button';
 import { RescheduleBookingButton } from './_components/reschedule-booking-button';
 import { SwitchToOnlineButton } from './_components/switch-to-online-button';
@@ -557,16 +557,11 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
 
         {/* The finished record as a document someone can keep or forward.
             Only for a meeting that is over AND has something to put in it —
-            a note or at least one follow-up. The route re-reads everything as
-            this viewer, so it can never print more than this page shows. */}
-        {canDownloadRecord ? (
-          <Button asChild variant="outline" className="w-full justify-start">
-            <a href={`/api/meetings/record/${encodeURIComponent(booking.uid)}`} download>
-              <Download className="mr-2 h-4 w-4" aria-hidden />
-              Download record (PDF)
-            </a>
-          </Button>
-        ) : null}
+            a note or at least one follow-up; the route repeats this rule. The
+            route re-reads everything as this viewer. The PDF also lists who
+            was on the call (names only, no email addresses or links), which
+            this page does not show. */}
+        {canDownloadRecord ? <DownloadRecordButton uid={booking.uid} /> : null}
 
         {/* Only rendered when there is something to show or something the
             viewer may do. A meeting that is not an interview, seen by somebody

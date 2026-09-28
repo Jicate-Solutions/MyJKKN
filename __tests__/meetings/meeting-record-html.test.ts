@@ -1,12 +1,11 @@
 // __tests__/meetings/meeting-record-html.test.ts
 //
 // The pure half of the meeting-record PDF: what buildMeetingRecordHtml prints.
-// Chromium is mocked out — only the HTML is under test here.
+// No Chromium here — the route prints this HTML with renderSyllabusPdf; only
+// the HTML is under test.
 
 import { describe, it, expect, vi } from 'vitest';
 
-vi.mock('puppeteer-core', () => ({ default: { launch: vi.fn() } }));
-vi.mock('@sparticuz/chromium', () => ({ default: { args: [], executablePath: vi.fn() } }));
 vi.mock('@/lib/utils/bos/pdf-fonts', () => ({
   pdfFontFaceCss: () => '/* fonts */',
   PDF_FONT_STACK: `'Tinos', 'Noto Sans Tamil', serif`,
@@ -15,6 +14,8 @@ vi.mock('@/lib/utils/bos/pdf-fonts', () => ({
 import {
   buildMeetingRecordHtml,
   meetingRecordFilename,
+  meetingRecordFooterText,
+  printableName,
   summaryToHtml,
 } from '@/lib/pdf/meeting-record-pdf';
 import type { MeetingRecord } from '@/lib/services/meetings/meeting-record';
@@ -35,7 +36,6 @@ function record(overrides: Partial<MeetingRecord> = {}): MeetingRecord {
     note: {
       title: 'Weekly review',
       summary: '- **Decision:** move the review to Friday',
-      transcriptUrl: 'https://app.fireflies.ai/view/abc',
       durationMinutes: 28,
       occurredAt: '2026-09-25T05:30:00Z',
       participants: [],
@@ -43,6 +43,11 @@ function record(overrides: Partial<MeetingRecord> = {}): MeetingRecord {
     followUps: [],
     ...overrides,
   };
+}
+
+/** The printed document without its <style> block (font CSS uses '@font-face'). */
+function printed(html: string): string {
+  return html.replace(/<style>[\s\S]*?<\/style>/, '');
 }
 
 describe('escaping', () => {
@@ -66,15 +71,6 @@ describe('escaping', () => {
     expect(html).not.toContain('<u>o</u>');
     expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
     expect(html).toContain('&lt;b&gt;raw&lt;/b&gt; &amp; &quot;quoted&quot;');
-  });
-
-  it('never prints a non-http transcript link', () => {
-    const html = buildMeetingRecordHtml(
-      record({ note: { ...record().note!, transcriptUrl: 'javascript:alert(1)' } }),
-      meta,
-    );
-    expect(html).not.toContain('javascript:');
-    expect(html).toContain('No transcript link.');
   });
 });
 
@@ -111,6 +107,11 @@ describe('Tamil', () => {
     expect(meetingRecordFilename(record({ attendeeName: 'கவியா' }))).toBe('meeting-record-2026-09-25-kavya.pdf');
     expect(meetingRecordFilename(record())).toBe('meeting-record-2026-09-25-kavya-r.pdf');
   });
+
+  it('keeps the running footer ASCII — it is drawn without the Tamil face', () => {
+    expect(meetingRecordFooterText(record())).toBe('MyJKKN meeting record - booking abc123');
+    expect(meetingRecordFooterText(record({ meetingTypeTitle: 'கூட்டம்' }))).toMatch(/^[\x20-\x7E]+$/);
+  });
 });
 
 describe('empty sections', () => {
@@ -118,30 +119,62 @@ describe('empty sections', () => {
     const html = buildMeetingRecordHtml(record({ note: null, followUps: [] }), meta);
     expect(html).toContain('No summary was recorded.');
     expect(html.match(/None recorded\./g)).toHaveLength(2); // decisions + follow-ups
-    expect(html).toContain('No transcript link.');
   });
 });
 
-describe('people and follow-ups', () => {
-  it('lists host, booker and Fireflies participants once each by email', () => {
+describe('people — names only, never an email address', () => {
+  it('lists host, booker and participants once each, by name, with no "@" anywhere', () => {
     const html = buildMeetingRecordHtml(
       record({
         note: {
           ...record().note!,
           participants: [
-            { name: 'Kavya', email: 'KAVYA@jkkn.ac.in' },
-            { name: 'Host again', email: 'host@jkkn.ac.in' },
-            { name: 'Third', email: 'third@jkkn.ac.in' },
+            { name: 'Kavya', email: 'kavya@jkkn.ac.in' }, // the booker again
+            { name: 'Host again', email: 'host@jkkn.ac.in' }, // the host again
+            { name: 'Third Person', email: 'third@jkkn.ac.in' },
           ],
         },
       }),
       meta,
     );
-    expect(html.match(/kavya@jkkn\.ac\.in/gi)).toHaveLength(1);
-    expect(html.match(/host@jkkn\.ac\.in/g)).toHaveLength(1);
-    expect(html).toContain('third@jkkn.ac.in');
+    const doc = printed(html);
+    expect(doc).not.toContain('@');
+    expect(doc).not.toMatch(/<th>Email<\/th>/);
+    expect(doc).toContain('<td>Host Person</td>');
+    expect(doc).toContain('<td>Kavya R</td>');
+    expect(doc).toContain('<td>Third Person</td>');
+    expect(doc).not.toContain('Host again'); // collapsed on the host's email
+    expect(doc.match(/<td>Participant<\/td>/g)).toHaveLength(1); // only "Third Person"'s role cell
   });
 
+  it('a missing name prints the part before "@", else "Participant"', () => {
+    const html = buildMeetingRecordHtml(
+      record({
+        hostName: null,
+        attendeeName: 'kavya@jkkn.ac.in', // a "name" that is really an address
+        note: {
+          ...record().note!,
+          participants: [
+            { name: null, email: 'third@jkkn.ac.in' },
+            { name: 'fourth@jkkn.ac.in', email: null },
+          ],
+        },
+      }),
+      { ...meta, viewerName: 'viewer@jkkn.ac.in' },
+    );
+    const doc = printed(html);
+    expect(doc).not.toContain('@');
+    expect(doc).toContain('<td>host</td>');
+    expect(doc).toContain('<td>kavya</td>');
+    expect(doc).toContain('<td>third</td>');
+    expect(doc).toContain('<td>fourth</td>');
+    expect(doc).toContain('by viewer from MyJKKN');
+    expect(printableName(null, null)).toBe('Participant');
+    expect(printableName('  ', '')).toBe('Participant');
+  });
+});
+
+describe('follow-ups', () => {
   it('prints decisions and follow-ups with owner, due date and status', () => {
     const html = buildMeetingRecordHtml(
       record({
@@ -160,17 +193,20 @@ describe('people and follow-ups', () => {
   });
 });
 
-describe('signed media links', () => {
-  it('never carries a recording, audio or video link', () => {
+describe('links a forwarded PDF must never carry', () => {
+  it('prints no transcript link and no recording, audio or video link', () => {
     const polluted = {
       ...record(),
+      note: { ...record().note!, transcriptUrl: 'https://app.fireflies.ai/view/abc' },
       recording_url: 'https://signed.example/rec?token=secret',
       audio_url: 'https://signed.example/audio?token=secret',
       video_url: 'https://signed.example/video?token=secret',
     } as unknown as MeetingRecord;
     const html = buildMeetingRecordHtml(polluted, meta);
+    expect(html).not.toContain('fireflies');
     expect(html).not.toContain('signed.example');
     expect(html).not.toContain('token=secret');
-    expect(html).toContain('https://app.fireflies.ai/view/abc');
+    expect(html).not.toContain('<a ');
+    expect(html).not.toMatch(/transcript/i);
   });
 });

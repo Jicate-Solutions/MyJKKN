@@ -1,25 +1,29 @@
 // lib/pdf/meeting-record-pdf.ts
 //
 // The downloadable record of a finished meeting: summary, decisions,
-// follow-ups and the people who were there, as one A4 PDF.
+// follow-ups and the people who were there, as HTML for one A4 PDF.
 //
-// Two halves, kept apart on purpose:
-//   • buildMeetingRecordHtml — PURE. Every value is HTML-escaped; the summary's
-//     Markdown is converted by a tiny line-based reader that understands only
-//     '#' headings, '- ' / '* ' bullets and **bold**. Nothing the summary
-//     contains is ever passed through as markup, so a summary cannot inject
-//     anything into the document. Tested in
-//     __tests__/meetings/meeting-record-html.test.ts.
-//   • renderMeetingRecordPdf — prints that HTML with the same launcher contract
-//     and embedded fonts as the BoS documents (lib/pdf/bos-meeting-notice.ts,
-//     lib/utils/bos/pdf-fonts.ts). The fonts matter: @sparticuz/chromium ships
-//     Open Sans only, and Tamil appears in meeting summaries and attendee names;
-//     without the embedded Noto Sans Tamil it prints as boxes on Vercel.
+// This file is PURE — it builds the HTML and the filename, nothing else. The
+// route prints it with the shared renderer renderSyllabusPdf
+// (lib/pdf/syllabus-pdf.ts, also used by /api/bos/po-pso/pdf), so there is one
+// Chromium launcher to keep working, not two. Tested in
+// __tests__/meetings/meeting-record-html.test.ts.
 //
-// No link that plays a recording is ever printed — only the transcript page.
+// Every value is HTML-escaped; the summary's Markdown is converted by a tiny
+// line-based reader that understands only '#' headings, '- ' / '* ' bullets and
+// **bold**. Nothing the summary contains is ever passed through as markup, so a
+// summary cannot inject anything into the document.
+//
+// The fonts matter: @sparticuz/chromium ships Open Sans only, and Tamil appears
+// in meeting summaries and names; without the embedded Noto Sans Tamil
+// (pdfFontFaceCss) it prints as boxes on Vercel.
+//
+// A PDF gets forwarded, so it prints LESS than a screen would:
+//   • people by NAME only — never an email address (a missing name falls back
+//     to the part of the address before '@', else "Participant");
+//   • no transcript link (it stays on the meeting page);
+//   • no link that plays a recording.
 
-import puppeteerCore, { type Browser } from 'puppeteer-core';
-import chromium from '@sparticuz/chromium';
 import { pdfFontFaceCss, PDF_FONT_STACK } from '@/lib/utils/bos/pdf-fonts';
 import type { MeetingRecord } from '@/lib/services/meetings/meeting-record';
 
@@ -139,24 +143,23 @@ function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
-/** Only an http(s) link may be printed as a link. */
-function safeHttpUrl(value: string | null): string | null {
-  if (!value) return null;
-  try {
-    const u = new URL(value);
-    return u.protocol === 'https:' || u.protocol === 'http:' ? u.toString() : null;
-  } catch {
-    return null;
-  }
-}
-
 interface Person {
   role: string;
-  name: string | null;
-  email: string | null;
+  name: string;
 }
 
-/** Host, booked attendee, then everyone Fireflies heard — one row per email. */
+/** A name for print. Never an address: a missing name — or a "name" that is
+ *  itself an address, which providers sometimes store — falls back to the part
+ *  before '@', and with neither the row reads "Participant". */
+export function printableName(name: string | null, email: string | null): string {
+  const n = name?.trim() ?? '';
+  if (n && !n.includes('@')) return n;
+  const local = (n || email || '').split('@')[0].trim();
+  return local ? local : 'Participant';
+}
+
+/** Host, booked attendee, then everyone on the call — one row per person
+ *  (collapsed on email, which is used only for that and never printed). */
 function peopleOf(record: MeetingRecord): Person[] {
   const seen = new Set<string>();
   const people: Person[] = [];
@@ -164,7 +167,7 @@ function peopleOf(record: MeetingRecord): Person[] {
     const key = email ? `e:${email.toLowerCase()}` : name ? `n:${name.toLowerCase()}` : null;
     if (!key || seen.has(key)) return;
     seen.add(key);
-    people.push({ role, name, email });
+    people.push({ role, name: printableName(name, email) });
   };
   add('Host', record.hostName, record.hostEmail);
   add('Booked by', record.attendeeName, record.attendeeEmail);
@@ -186,13 +189,8 @@ export function buildMeetingRecordHtml(record: MeetingRecord, meta: MeetingRecor
 
   const people = peopleOf(record);
   const peopleHtml = people.length
-    ? `<table><thead><tr><th>Role</th><th>Name</th><th>Email</th></tr></thead><tbody>${people
-        .map(
-          (p) =>
-            `<tr><td>${escapeHtml(p.role)}</td><td>${p.name ? escapeHtml(p.name) : '—'}</td><td>${
-              p.email ? escapeHtml(p.email) : '—'
-            }</td></tr>`,
-        )
+    ? `<table><thead><tr><th>Role</th><th>Name</th></tr></thead><tbody>${people
+        .map((p) => `<tr><td>${escapeHtml(p.role)}</td><td>${escapeHtml(p.name)}</td></tr>`)
         .join('')}</tbody></table>`
     : '<p class="empty">No people were recorded.</p>';
 
@@ -216,14 +214,10 @@ export function buildMeetingRecordHtml(record: MeetingRecord, meta: MeetingRecor
         .join('')}</tbody></table>`
     : '<p class="empty">None recorded.</p>';
 
-  const transcript = safeHttpUrl(record.note?.transcriptUrl ?? null);
-  const linksHtml = transcript
-    ? `<p>Full transcript: <a href="${escapeHtml(transcript)}">${escapeHtml(transcript)}</a></p>`
-    : '<p class="empty">No transcript link.</p>';
-
   const generated = formatDateTimeIst(meta.generatedAt.toISOString());
+  const viewer = meta.viewerName ? printableName(meta.viewerName, null) : null;
   const footer = `Generated ${escapeHtml(generated)}${
-    meta.viewerName ? ` by ${escapeHtml(meta.viewerName)}` : ''
+    viewer ? ` by ${escapeHtml(viewer)}` : ''
   } from MyJKKN · booking ${escapeHtml(record.uid)}`;
 
   return `<!DOCTYPE html>
@@ -244,7 +238,6 @@ th, td { text-align: left; vertical-align: top; padding: 4px 6px; border-bottom:
 th { font-size: 9.5pt; text-transform: uppercase; letter-spacing: 0.03em; color: #444; }
 ul { margin: 4px 0; padding-left: 18px; }
 li { margin: 2px 0; }
-a { color: #1a4fa0; word-break: break-all; }
 footer { margin-top: 24px; padding-top: 6px; border-top: 1px solid #ccc; font-size: 8.5pt; color: #555; }
 </style>
 </head>
@@ -258,10 +251,19 @@ footer { margin-top: 24px; padding-top: 6px; border-top: 1px solid #ccc; font-si
 <section><h2>Summary</h2>${summaryHtml}</section>
 <section><h2>Decisions</h2>${decisionsHtml}</section>
 <section><h2>Follow-ups</h2>${followUpsHtml}</section>
-<section><h2>Links</h2>${linksHtml}</section>
 <footer>${footer}</footer>
 </body>
 </html>`;
+}
+
+/**
+ * The running footer renderSyllabusPdf prints on every page (page numbers are
+ * added on the right). ASCII only: that footer is drawn outside the document,
+ * without the embedded Tamil face, so a Tamil title there would print as boxes.
+ */
+export function meetingRecordFooterText(record: MeetingRecord): string {
+  const uid = record.uid.replace(/[^\x20-\x7E]/g, '');
+  return `MyJKKN meeting record - booking ${uid}`;
 }
 
 /**
@@ -287,59 +289,4 @@ export function meetingRecordFilename(record: MeetingRecord): string {
       .replace(/-+$/g, '');
   const who = slug(record.attendeeName) || slug(record.attendeeEmail?.split('@')[0] ?? null) || 'meeting';
   return `meeting-record-${date}-${who}.pdf`;
-}
-
-// ============================================================================
-// RENDER
-// ============================================================================
-
-async function launchBrowser(): Promise<Browser> {
-  const isServerless = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
-  if (isServerless) {
-    return puppeteerCore.launch({
-      args: chromium.args,
-      defaultViewport: { width: 1280, height: 1024 },
-      executablePath: await chromium.executablePath(),
-      headless: true,
-    });
-  }
-  const puppeteer = (await import('puppeteer')).default;
-  return puppeteer.launch({
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-    headless: true,
-  }) as unknown as Promise<Browser>;
-}
-
-export async function renderMeetingRecordPdf(html: string): Promise<Buffer> {
-  let browser: Browser | null = null;
-  let page: Awaited<ReturnType<Browser['newPage']>> | null = null;
-  try {
-    browser = await launchBrowser();
-    page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'domcontentloaded' });
-    // The embedded faces decode off the main parse; printing before they are
-    // ready lays the page out against the fallback font (and Tamil as boxes).
-    await page.evaluate(() => document.fonts.ready);
-    const pdf = await page.pdf({
-      format: 'A4',
-      printBackground: true,
-      margin: { top: '14mm', right: '14mm', bottom: '14mm', left: '14mm' },
-    });
-    return Buffer.from(pdf);
-  } finally {
-    if (page) {
-      try {
-        await page.close();
-      } catch (err) {
-        console.warn('[meeting-record-pdf] page close failed:', err);
-      }
-    }
-    if (browser) {
-      try {
-        await browser.close();
-      } catch (err) {
-        console.warn('[meeting-record-pdf] browser close failed:', err);
-      }
-    }
-  }
 }
