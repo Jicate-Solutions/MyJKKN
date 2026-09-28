@@ -1819,6 +1819,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/health/admin/programs': 'health.programs.manage',
   '/health/counselor': 'health.counselor.view',
   '/health/programs': 'health.programs.view',
+  '/health/surveys': 'health.programs.view',
 
   // IMS (Inventory Management System) — Added 2026-04-27. Module-level
   // taxonomy mirrors Admission CRM precedent; gateway permission `ims.view`
@@ -4326,6 +4327,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/health/admin/programs', label: 'Manage Programs', active: pathname.startsWith('/health/admin/programs') },
             { href: '/health/counselor', label: 'Counselor Dashboard', active: pathname === '/health/counselor' },
             { href: '/health/programs', label: 'Wellness Programs', active: pathname === '/health/programs' || pathname.startsWith('/health/programs/') },
+            { href: '/health/surveys', label: 'Wellness Surveys', active: pathname === '/health/surveys' },
             // Sports activities surfaced under Health & Wellness (Director ask, 2026-06-22).
             // These are NAV LINKS to the events-platform modules — NOT route moves:
             // /events/marathon & /events/tournament keep their canonical homes + permissions
