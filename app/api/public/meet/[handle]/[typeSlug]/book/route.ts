@@ -39,7 +39,9 @@ function checkRateLimit(ip: string): boolean {
   return true;
 }
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// "*" and "%" are refused: the account check matches with a PostgREST ilike,
+// where "*" is a wildcard that cannot be escaped.
+const EMAIL_RE = /^[^\s@*%]+@[^\s@*%]+\.[^\s@*%]+$/;
 
 export async function POST(
   request: NextRequest,

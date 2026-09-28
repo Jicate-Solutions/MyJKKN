@@ -57281,39 +57281,255 @@ END;
 $function$;
 
 -- ============================================================================
--- Bill cancellation (mig 20260901010000_billing_bill_cancellations).
--- fn_cancel_student_bill is the ONLY authorised route into
--- billing_student_bills.status='cancelled'; fn_guard_bill_cancellation (wired
--- as a trigger in 04_triggers.sql) rejects every other one.
+-- Bill cancellation — REQUEST + APPROVAL (mig 20260928100000_bill_cancel_request_flow,
+-- superseding the direct fn_cancel_student_bill of 20260901010000, now DROPPED).
+-- fn_request_bill_cancellation raises; fn_act_on_bill_cancellation decides via
+-- billing_bill_cancel_approval_flows and calls _fn_exec_bill_cancel, the only
+-- writer of status='cancelled'. fn_guard_bill_cancellation (trigger in
+-- 04_triggers.sql) rejects every other route.
 -- ============================================================================
--- Dropped first because the RETURNS TABLE shape below is authoritative for the
--- activity log: institution_id and the description come back FROM THE BILL, so
--- the log entry cannot be shaped by whatever the client chose to send.
-DROP FUNCTION IF EXISTS public.fn_cancel_student_bill(uuid, text, text, jsonb);
+-- ---------------------------------------------------------------------------
+-- 2. Approver resolution (mirrors the receipt-cancellation functions; reuses
+--    _fn_current_user_holds_role, which unions profiles.role and user_roles)
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_resolve_bill_cancel_approver(p_institution_id uuid)
+RETURNS public.billing_bill_cancel_approval_flows
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  SELECT *
+  FROM public.billing_bill_cancel_approval_flows
+  WHERE is_active
+    AND (institution_id = p_institution_id OR institution_id IS NULL)
+  ORDER BY institution_id NULLS LAST
+  LIMIT 1;
+$function$;
 
-CREATE OR REPLACE FUNCTION public.fn_cancel_student_bill(
-  p_bill_id     uuid,
-  p_reason_code text,
-  p_reason      text,
-  p_attachments jsonb
-)
-RETURNS TABLE(cancellation_id uuid, cancelled_bill_id uuid, amount_cancelled numeric,
-              institution_id uuid, student_id uuid, bill_description text)
+CREATE OR REPLACE FUNCTION public.fn_is_bill_cancel_approver(p_institution_id uuid DEFAULT NULL)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_flow public.billing_bill_cancel_approval_flows;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN false;
+  END IF;
+  IF is_super_admin() THEN
+    RETURN true;
+  END IF;
+
+  IF p_institution_id IS NULL THEN
+    RETURN EXISTS (
+      SELECT 1 FROM public.billing_bill_cancel_approval_flows f
+      WHERE f.is_active
+        AND (f.approver_user_id = auth.uid()
+             OR public._fn_current_user_holds_role(f.approver_role_key))
+    );
+  END IF;
+
+  v_flow := public.fn_resolve_bill_cancel_approver(p_institution_id);
+  IF v_flow.id IS NULL THEN
+    RETURN false; -- no flow: super admins only, and they returned above
+  END IF;
+
+  RETURN COALESCE((
+    v_flow.approver_user_id = auth.uid()
+    OR public._fn_current_user_holds_role(v_flow.approver_role_key)
+  ), false) AND role_has_institution_access(p_institution_id);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.fn_can_decide_bill_cancellation(p_request_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst uuid;
+BEGIN
+  SELECT institution_id INTO v_inst
+  FROM public.billing_bill_cancel_requests WHERE id = p_request_id;
+  IF NOT FOUND THEN
+    RETURN false;
+  END IF;
+  RETURN public.fn_is_bill_cancel_approver(v_inst);
+END;
+$function$;
+
+-- ---------------------------------------------------------------------------
+-- 4. Eligibility -- ONE answer for the button and the RPC guard.
+--    Takes an array so a list page asks once per page, not once per row.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_bill_cancel_eligibility(p_bill_ids uuid[])
+RETURNS TABLE(bill_id uuid, eligible boolean, blocked_reason text,
+              receipted_amount numeric, receipt_numbers text, pending_request_id uuid,
+              pending_request_number text)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN;
+  END IF;
+
+  RETURN QUERY
+  WITH b AS (
+    SELECT sb.id, sb.status, sb.institution_id
+    FROM public.billing_student_bills sb
+    WHERE sb.id = ANY(p_bill_ids)
+      -- Only bills the caller could see anyway.
+      AND (is_super_admin() OR role_has_institution_access(sb.institution_id))
+  ),
+  money AS (
+    SELECT ri.bill_id,
+           COALESCE(SUM(ri.amount_paid), 0) AS amt,
+           string_agg(DISTINCT r.receipt_number, ', ') AS refs
+    FROM public.billing_receipt_items ri
+    JOIN public.billing_receipts r ON r.id = ri.receipt_id
+    WHERE ri.bill_id = ANY(p_bill_ids)
+    GROUP BY ri.bill_id
+  ),
+  pend AS (
+    SELECT q.bill_id, q.id, q.request_number
+    FROM public.billing_bill_cancel_requests q
+    WHERE q.bill_id = ANY(p_bill_ids) AND q.status = 'pending_approval'
+  )
+  SELECT b.id,
+         (b.status IN ('unpaid','partially_paid','overdue')
+            AND COALESCE(m.amt, 0) = 0
+            AND p.id IS NULL) AS eligible,
+         CASE
+           WHEN b.status = 'cancelled' THEN 'Bill is already cancelled'
+           WHEN b.status NOT IN ('unpaid','partially_paid','overdue')
+             AND COALESCE(m.amt, 0) = 0 THEN format('Bills with status "%s" cannot be cancelled', b.status)
+           WHEN COALESCE(m.amt, 0) > 0 THEN
+             format('Rs %s is receipted against this bill (%s). Cancel the receipt(s) first.',
+                    to_char(m.amt, 'FM99,99,99,999.00'), COALESCE(m.refs, 'receipt unknown'))
+           WHEN p.id IS NOT NULL THEN format('Cancellation request %s is already awaiting approval', p.request_number)
+           ELSE NULL
+         END,
+         COALESCE(m.amt, 0)::numeric,
+         m.refs::text,
+         p.id,
+         p.request_number::text
+  FROM b
+  LEFT JOIN money m ON m.bill_id = b.id
+  LEFT JOIN pend  p ON p.bill_id = b.id;
+END;
+$function$;
+
+-- ---------------------------------------------------------------------------
+-- 5. Caller identity snapshot helper (role lookup with the profiles.role
+--    fallback that user_has_permission() already has).
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public._fn_bill_cancel_actor()
+RETURNS TABLE(actor_name text, actor_email text, actor_role text,
+              actor_designation text, actor_is_super_admin boolean)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_role text;
+BEGIN
+  SELECT cr.role_name INTO v_role
+  FROM public.user_roles ur JOIN public.custom_roles cr ON cr.id = ur.role_id
+  WHERE ur.user_id = auth.uid() LIMIT 1;
+
+  IF v_role IS NULL THEN
+    SELECT cr.role_name INTO v_role
+    FROM public.profiles p JOIN public.custom_roles cr ON cr.role_key = p.role
+    WHERE p.id = auth.uid() LIMIT 1;
+  END IF;
+
+  RETURN QUERY
+  SELECT p.full_name::text, p.email::text, v_role, p.designation::text, is_super_admin()
+  FROM public.profiles p WHERE p.id = auth.uid();
+END;
+$function$;
+
+-- ---------------------------------------------------------------------------
+-- 6. The cancellation itself, WITHOUT authorization. Only reachable from
+--    fn_act_on_bill_cancellation; EXECUTE revoked from everyone.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public._fn_exec_bill_cancel(p_request_id uuid)
+RETURNS uuid
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path TO 'public'
 AS $function$
 DECLARE
-  v_bill      public.billing_student_bills%ROWTYPE;
-  v_receipted numeric;
-  v_refs      text;
-  v_id        uuid;
-  v_name      text;
-  v_email     text;
-  v_role      text;
-  v_super     boolean;
-  v_category  text;
+  v_req    public.billing_bill_cancel_requests%ROWTYPE;
+  v_bill   public.billing_student_bills%ROWTYPE;
+  v_actor  record;
+  v_id     uuid;
 BEGIN
+  SELECT * INTO v_req FROM public.billing_bill_cancel_requests WHERE id = p_request_id;
+  SELECT * INTO v_bill FROM public.billing_student_bills WHERE id = v_req.bill_id FOR UPDATE;
+  SELECT * INTO v_actor FROM public._fn_bill_cancel_actor();
+
+  INSERT INTO public.billing_bill_cancellations (
+    bill_id, institution_id, student_id, reason_code, reason, attachments,
+    bill_snapshot, amount_cancelled,
+    cancelled_by, cancelled_by_name, cancelled_by_email, cancelled_by_role,
+    cancelled_by_is_super_admin, request_id
+  ) VALUES (
+    v_bill.id, v_bill.institution_id, v_bill.student_id,
+    v_req.reason_code, v_req.reason, v_req.attachments,
+    v_req.bill_snapshot, v_bill.final_amount,
+    auth.uid(), v_actor.actor_name, v_actor.actor_email, v_actor.actor_role,
+    v_actor.actor_is_super_admin, p_request_id
+  ) RETURNING id INTO v_id;
+
+  -- Transaction-local flag trg_billing_bills_guard_cancel looks for.
+  PERFORM set_config('app.bill_cancel_ctx', v_bill.id::text, true);
+
+  UPDATE public.billing_student_bills
+     SET status = 'cancelled', balance_amount = 0, updated_at = now()
+   WHERE id = v_bill.id;
+
+  PERFORM set_config('app.bill_cancel_ctx', '', true);
+  RETURN v_id;
+END;
+$function$;
+
+-- ---------------------------------------------------------------------------
+-- 7. Request
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_request_bill_cancellation(
+  p_bill_id     uuid,
+  p_reason_code text,
+  p_reason      text,
+  p_attachments jsonb
+)
+RETURNS TABLE(request_id uuid, request_number text)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_bill     public.billing_student_bills%ROWTYPE;
+  v_elig     record;
+  v_actor    record;
+  v_category text;
+  v_id       uuid;
+  v_number   text;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
   SELECT * INTO v_bill FROM public.billing_student_bills WHERE id = p_bill_id;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Bill % not found', p_bill_id;
@@ -57323,63 +57539,44 @@ BEGIN
   -- bill's state from the error message.
   IF NOT (
     is_super_admin()
-    OR (user_has_permission('billing.schedule.cancel')
+    OR (user_has_permission('billing.schedule.cancel.request')
         AND role_has_institution_access(v_bill.institution_id))
   ) THEN
-    RAISE EXCEPTION 'Not authorized to cancel bills for this institution';
+    RAISE EXCEPTION 'Not authorized to request bill cancellation for this institution';
   END IF;
 
-  IF v_bill.status = 'cancelled' THEN
-    RAISE EXCEPTION 'This bill is already cancelled';
+  SELECT * INTO v_elig FROM public.fn_bill_cancel_eligibility(ARRAY[p_bill_id]);
+  IF NOT COALESCE(v_elig.eligible, false) THEN
+    RAISE EXCEPTION '%', COALESCE(v_elig.blocked_reason, 'This bill cannot be cancelled');
   END IF;
 
-  IF v_bill.status NOT IN ('unpaid', 'partially_paid', 'overdue') THEN
-    RAISE EXCEPTION 'Cannot cancel a bill with status "%". Only unpaid, partially paid or overdue bills can be cancelled.',
-      v_bill.status;
+  IF p_reason_code IS NULL OR p_reason_code NOT IN
+     ('duplicate_bill','raised_in_error','fee_waived','learner_withdrawn','structure_corrected','other') THEN
+    RAISE EXCEPTION 'A valid reason code is required';
   END IF;
-
-  -- Money guard. See the header: a receipt pointing at a void bill is silently
-  -- reported as collected revenue.
-  SELECT COALESCE(SUM(ri.amount_paid), 0),
-         string_agg(DISTINCT r.receipt_number, ', ')
-    INTO v_receipted, v_refs
-  FROM public.billing_receipt_items ri
-  JOIN public.billing_receipts r ON r.id = ri.receipt_id
-  WHERE ri.bill_id = p_bill_id;
-
-  IF v_receipted > 0 THEN
-    RAISE EXCEPTION 'Cannot cancel: Rs % is receipted against this bill (%). Cancel that receipt first, then cancel the bill.',
-      to_char(v_receipted, 'FM99,99,99,999.00'), COALESCE(v_refs, 'receipt unknown');
-  END IF;
-
   IF p_reason IS NULL OR length(trim(p_reason)) < 5 THEN
     RAISE EXCEPTION 'A reason of at least 5 characters is required';
   END IF;
-
   IF p_attachments IS NULL
      OR jsonb_typeof(p_attachments) <> 'array'
      OR jsonb_array_length(p_attachments) < 1 THEN
-    RAISE EXCEPTION 'At least one supporting document must be attached before a bill can be cancelled';
+    RAISE EXCEPTION 'At least one supporting document must be attached';
   END IF;
-
-  SELECT p.full_name, p.email, COALESCE(p.is_super_admin, false)
-    INTO v_name, v_email, v_super
-  FROM public.profiles p WHERE p.id = auth.uid();
-
-  SELECT cr.role_name INTO v_role
-  FROM public.user_roles ur JOIN public.custom_roles cr ON cr.id = ur.role_id
-  WHERE ur.user_id = auth.uid() LIMIT 1;
 
   SELECT bc.category_name INTO v_category
   FROM public.billing_categories bc WHERE bc.id = v_bill.item_category_id;
 
-  INSERT INTO public.billing_bill_cancellations (
-    bill_id, institution_id, student_id, reason_code, reason, attachments,
-    bill_snapshot, amount_cancelled,
-    cancelled_by, cancelled_by_name, cancelled_by_email, cancelled_by_role,
-    cancelled_by_is_super_admin
+  SELECT * INTO v_actor FROM public._fn_bill_cancel_actor();
+
+  v_number := 'BCX-' || EXTRACT(YEAR FROM now())::text || '-'
+              || LPAD(nextval('public.billing_bill_cancel_number_seq')::text, 6, '0');
+
+  INSERT INTO public.billing_bill_cancel_requests (
+    request_number, bill_id, institution_id, student_id, reason_code, reason,
+    attachments, bill_snapshot, amount,
+    requested_by, requested_by_name, requested_by_email, requested_by_role
   ) VALUES (
-    p_bill_id, v_bill.institution_id, v_bill.student_id,
+    v_number, p_bill_id, v_bill.institution_id, v_bill.student_id,
     p_reason_code, trim(p_reason), p_attachments,
     jsonb_build_object('bill_description', v_bill.bill_description,
                        'final_amount',     v_bill.final_amount,
@@ -57389,38 +57586,255 @@ BEGIN
                        'fee_source',       v_bill.fee_source,
                        'category_name',    v_category),
     v_bill.final_amount,
-    auth.uid(), v_name, v_email, v_role, v_super
+    auth.uid(), v_actor.actor_name, v_actor.actor_email, v_actor.actor_role
   ) RETURNING id INTO v_id;
 
-  -- Transaction-local flag the guard trigger below looks for. Set AFTER every
-  -- check has passed, and only for this one bill id.
-  PERFORM set_config('app.bill_cancel_ctx', p_bill_id::text, true);
+  INSERT INTO public.billing_bill_cancel_request_actions (
+    request_id, action_type, actor_id, actor_name, actor_email, actor_role_name,
+    actor_is_super_admin, notes
+  ) VALUES (v_id, 'requested', auth.uid(), v_actor.actor_name, v_actor.actor_email,
+            v_actor.actor_role, v_actor.actor_is_super_admin, trim(p_reason));
 
-  UPDATE public.billing_student_bills
-     SET status         = 'cancelled',
-         balance_amount = 0,
-         updated_at     = now()
-   WHERE id = p_bill_id;
-
-  PERFORM set_config('app.bill_cancel_ctx', '', true);
-
-  RETURN QUERY SELECT v_id, p_bill_id, v_bill.final_amount,
-                      v_bill.institution_id, v_bill.student_id,
-                      COALESCE(v_bill.bill_description, v_category, 'Student bill');
+  RETURN QUERY SELECT v_id, v_number;
 END;
 $function$;
 
-REVOKE ALL ON FUNCTION public.fn_cancel_student_bill(uuid, text, text, jsonb) FROM anon, PUBLIC;
-GRANT EXECUTE ON FUNCTION public.fn_cancel_student_bill(uuid, text, text, jsonb) TO authenticated, service_role;
+-- ---------------------------------------------------------------------------
+-- 8. Decide
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_act_on_bill_cancellation(
+  p_request_id uuid,
+  p_action     text,
+  p_notes      text DEFAULT NULL
+)
+RETURNS TABLE(status text, request_number text, message text)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_req   public.billing_bill_cancel_requests%ROWTYPE;
+  v_elig  record;
+  v_actor record;
+  v_fail  text;
+BEGIN
+  IF p_action NOT IN ('approve','decline') THEN
+    RAISE EXCEPTION 'p_action must be approve or decline';
+  END IF;
+
+  SELECT * INTO v_req FROM public.billing_bill_cancel_requests
+  WHERE id = p_request_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Cancellation request % not found', p_request_id;
+  END IF;
+  IF v_req.status <> 'pending_approval' THEN
+    RAISE EXCEPTION 'This request is already %', v_req.status;
+  END IF;
+
+  IF NOT public.fn_can_decide_bill_cancellation(p_request_id) THEN
+    RAISE EXCEPTION 'You are not an approver for this institution''s bill cancellations';
+  END IF;
+
+  IF v_req.requested_by IS NOT NULL AND v_req.requested_by = auth.uid() THEN
+    RAISE EXCEPTION 'You cannot decide your own cancellation request - another approver must act on it';
+  END IF;
+
+  IF p_action = 'decline' AND (p_notes IS NULL OR length(trim(p_notes)) < 3) THEN
+    RAISE EXCEPTION 'A reason is required to decline a request';
+  END IF;
+
+  SELECT * INTO v_actor FROM public._fn_bill_cancel_actor();
+
+  IF p_action = 'decline' THEN
+    UPDATE public.billing_bill_cancel_requests
+       SET status='declined', decided_by=auth.uid(), decided_at=now(),
+           decision_notes=trim(p_notes), decided_by_name=v_actor.actor_name,
+           decided_by_email=v_actor.actor_email, decided_by_role=v_actor.actor_role,
+           decided_by_designation=v_actor.actor_designation,
+           decided_by_is_super_admin=v_actor.actor_is_super_admin, updated_at=now()
+     WHERE id = p_request_id;
+    INSERT INTO public.billing_bill_cancel_request_actions
+      (request_id, action_type, actor_id, actor_name, actor_email, actor_role_name,
+       actor_is_super_admin, notes)
+    VALUES (p_request_id, 'declined', auth.uid(), v_actor.actor_name, v_actor.actor_email,
+            v_actor.actor_role, v_actor.actor_is_super_admin, trim(p_notes));
+    RETURN QUERY SELECT 'declined'::text, v_req.request_number, 'Request declined. The bill is unchanged.'::text;
+    RETURN;
+  END IF;
+
+  -- Re-validate: the bill was not frozen while the request waited. Record the
+  -- failure (and RETURN, not RAISE, so the record survives the transaction).
+  IF v_req.bill_id IS NULL THEN
+    v_fail := 'The bill no longer exists';
+  ELSE
+    -- The request's own pending row would make the bill ineligible; the
+    -- eligibility function counts it, so test the other conditions directly.
+    SELECT * INTO v_elig FROM public.fn_bill_cancel_eligibility(ARRAY[v_req.bill_id]);
+    IF v_elig.bill_id IS NULL THEN
+      v_fail := 'The bill is not visible to the approver';
+    ELSIF v_elig.receipted_amount > 0 THEN
+      v_fail := v_elig.blocked_reason;
+    ELSIF v_elig.pending_request_id IS DISTINCT FROM p_request_id THEN
+      v_fail := COALESCE(v_elig.blocked_reason, 'The bill is no longer in a cancellable state');
+    ELSIF NOT EXISTS (SELECT 1 FROM public.billing_student_bills
+                       WHERE id = v_req.bill_id
+                         AND billing_student_bills.status IN ('unpaid','partially_paid','overdue')) THEN
+      v_fail := 'The bill is no longer in a cancellable state';
+    END IF;
+  END IF;
+
+  IF v_fail IS NOT NULL THEN
+    UPDATE public.billing_bill_cancel_requests
+       SET status='failed', decided_by=auth.uid(), decided_at=now(), decision_notes=v_fail,
+           decided_by_name=v_actor.actor_name, decided_by_email=v_actor.actor_email,
+           decided_by_role=v_actor.actor_role, decided_by_designation=v_actor.actor_designation,
+           decided_by_is_super_admin=v_actor.actor_is_super_admin, updated_at=now()
+     WHERE id = p_request_id;
+    INSERT INTO public.billing_bill_cancel_request_actions
+      (request_id, action_type, actor_id, actor_name, actor_email, actor_role_name,
+       actor_is_super_admin, notes)
+    VALUES (p_request_id, 'failed', auth.uid(), v_actor.actor_name, v_actor.actor_email,
+            v_actor.actor_role, v_actor.actor_is_super_admin, v_fail);
+    RETURN QUERY SELECT 'failed'::text, v_req.request_number, v_fail;
+    RETURN;
+  END IF;
+
+  PERFORM public._fn_exec_bill_cancel(p_request_id);
+
+  UPDATE public.billing_bill_cancel_requests
+     SET status='approved', decided_by=auth.uid(), decided_at=now(),
+         decision_notes=NULLIF(trim(COALESCE(p_notes, '')), ''),
+         decided_by_name=v_actor.actor_name, decided_by_email=v_actor.actor_email,
+         decided_by_role=v_actor.actor_role, decided_by_designation=v_actor.actor_designation,
+         decided_by_is_super_admin=v_actor.actor_is_super_admin, updated_at=now()
+   WHERE id = p_request_id;
+  INSERT INTO public.billing_bill_cancel_request_actions
+    (request_id, action_type, actor_id, actor_name, actor_email, actor_role_name,
+     actor_is_super_admin, notes)
+  VALUES (p_request_id, 'approved', auth.uid(), v_actor.actor_name, v_actor.actor_email,
+          v_actor.actor_role, v_actor.actor_is_super_admin, NULLIF(trim(COALESCE(p_notes, '')), ''));
+
+  RETURN QUERY SELECT 'approved'::text, v_req.request_number,
+                      'Bill cancelled and its balance cleared.'::text;
+END;
+$function$;
 
 -- ---------------------------------------------------------------------------
--- 4. Close every other route into status='cancelled'.
---    Without this the document requirement is advisory: the UPDATE policy lets
---    any billing.schedule.update holder set the status directly.
---    Only transitions INTO 'cancelled' are guarded -- editing a bill that is
---    already cancelled (the balance repair migration, for instance) is
---    untouched, and 'superseded' is a different status with its own flow.
+-- 9. Withdraw -- the requester (or a super admin) while still pending.
 -- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_withdraw_bill_cancellation(
+  p_request_id uuid,
+  p_notes      text DEFAULT NULL
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_req   public.billing_bill_cancel_requests%ROWTYPE;
+  v_actor record;
+BEGIN
+  SELECT * INTO v_req FROM public.billing_bill_cancel_requests
+  WHERE id = p_request_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Cancellation request % not found', p_request_id;
+  END IF;
+  IF v_req.status <> 'pending_approval' THEN
+    RAISE EXCEPTION 'This request is already %', v_req.status;
+  END IF;
+  IF v_req.requested_by IS DISTINCT FROM auth.uid() AND NOT is_super_admin() THEN
+    RAISE EXCEPTION 'Only the requester can withdraw this request';
+  END IF;
+
+  SELECT * INTO v_actor FROM public._fn_bill_cancel_actor();
+
+  UPDATE public.billing_bill_cancel_requests
+     SET status='withdrawn', updated_at=now() WHERE id = p_request_id;
+
+  INSERT INTO public.billing_bill_cancel_request_actions
+    (request_id, action_type, actor_id, actor_name, actor_email, actor_role_name,
+     actor_is_super_admin, notes)
+  VALUES (p_request_id, 'withdrawn', auth.uid(), v_actor.actor_name, v_actor.actor_email,
+          v_actor.actor_role, v_actor.actor_is_super_admin, NULLIF(trim(COALESCE(p_notes, '')), ''));
+END;
+$function$;
+
+-- ---------------------------------------------------------------------------
+-- 10. Activity log -- one user_activity_logs row per history action.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public._fn_log_bill_cancel_activity()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_req    public.billing_bill_cancel_requests%ROWTYPE;
+  v_desc   text;
+  v_label  text;
+  v_actor  uuid;
+BEGIN
+  SELECT * INTO v_req FROM public.billing_bill_cancel_requests WHERE id = NEW.request_id;
+  IF NOT FOUND THEN
+    RETURN NEW;
+  END IF;
+  v_actor := COALESCE(NEW.actor_id, v_req.requested_by);
+  IF v_actor IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  v_label := COALESCE(v_req.bill_snapshot->>'bill_description',
+                      v_req.bill_snapshot->>'category_name', 'bill');
+
+  v_desc := CASE NEW.action_type
+    WHEN 'requested' THEN format('Cancellation requested for bill "%s" (Rs %s) - awaiting approval, bill still payable', v_label, v_req.amount)
+    WHEN 'approved'  THEN format('Cancellation APPROVED for bill "%s" (Rs %s) - bill cancelled', v_label, v_req.amount)
+    WHEN 'declined'  THEN format('Cancellation declined for bill "%s" - bill unchanged', v_label)
+    WHEN 'withdrawn' THEN format('Cancellation request withdrawn for bill "%s" - bill unchanged', v_label)
+    WHEN 'failed'    THEN format('Cancellation failed for bill "%s": %s', v_label, COALESCE(NEW.notes, ''))
+    ELSE format('Cancellation %s for bill "%s"', NEW.action_type, v_label)
+  END;
+
+  INSERT INTO public.user_activity_logs (
+    user_id, action_type, resource_type, resource_id, resource_name,
+    description, institution_id, metadata
+  ) VALUES (
+    v_actor,
+    'cancel_' || CASE NEW.action_type
+                   WHEN 'requested' THEN 'request'
+                   WHEN 'approved'  THEN 'approve'
+                   WHEN 'declined'  THEN 'decline'
+                   WHEN 'withdrawn' THEN 'withdraw'
+                   ELSE NEW.action_type END,
+    'student_bill',
+    v_req.bill_id,
+    v_label,
+    v_desc,
+    v_req.institution_id,
+    jsonb_build_object(
+      'sub_type',             'bill_cancel_request',
+      'request_id',           v_req.id,
+      'request_number',       v_req.request_number,
+      'amount',               v_req.amount,
+      'reason_code',          v_req.reason_code,
+      'reason',               v_req.reason,
+      'student_id',           v_req.student_id,
+      'action_notes',         NEW.notes,
+      'actor_name',           NEW.actor_name,
+      'actor_role',           NEW.actor_role_name,
+      'actor_is_super_admin', NEW.actor_is_super_admin
+    )
+  );
+  RETURN NEW;
+END;
+$function$;
+
+-- ---------------------------------------------------------------------------
+-- 11. Close the direct route.
+-- ---------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.fn_cancel_student_bill(uuid, text, text, jsonb);
+
 CREATE OR REPLACE FUNCTION public.fn_guard_bill_cancellation()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -57430,12 +57844,34 @@ AS $function$
 BEGIN
   IF NEW.status = 'cancelled' AND OLD.status IS DISTINCT FROM 'cancelled' THEN
     IF COALESCE(current_setting('app.bill_cancel_ctx', true), '') <> NEW.id::text THEN
-      RAISE EXCEPTION 'Bills must be cancelled through fn_cancel_student_bill, which records the reason and supporting documents. Direct status updates are not permitted.';
+      RAISE EXCEPTION 'Bills can only be cancelled through an approved bill cancellation request (Billing > Bill Cancellations). Direct status updates are not permitted.';
     END IF;
   END IF;
   RETURN NEW;
 END;
 $function$;
+
+-- ---------------------------------------------------------------------------
+-- 12. Grants
+-- ---------------------------------------------------------------------------
+REVOKE ALL ON FUNCTION public.fn_resolve_bill_cancel_approver(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_is_bill_cancel_approver(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_can_decide_bill_cancellation(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_bill_cancel_eligibility(uuid[]) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public._fn_bill_cancel_actor() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public._fn_exec_bill_cancel(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public._fn_log_bill_cancel_activity() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fn_request_bill_cancellation(uuid, text, text, jsonb) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_act_on_bill_cancellation(uuid, text, text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_withdraw_bill_cancellation(uuid, text) FROM PUBLIC, anon;
+
+GRANT EXECUTE ON FUNCTION public.fn_resolve_bill_cancel_approver(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_is_bill_cancel_approver(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_can_decide_bill_cancellation(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_bill_cancel_eligibility(uuid[]) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_request_bill_cancellation(uuid, text, text, jsonb) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_act_on_bill_cancellation(uuid, text, text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_withdraw_bill_cancellation(uuid, text) TO authenticated, service_role;
 
 -- ============================================================================
 -- 2026-08-31 — role approval steps scoped to the approver's own institution
@@ -70613,7 +71049,7 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.get_cl_billing_audit_summary(uuid[], uuid, uuid, uuid, uuid, text, boolean) FROM PUBLIC, anon;
 GRANT  EXECUTE ON FUNCTION public.get_cl_billing_audit_summary(uuid[], uuid, uuid, uuid, uuid, text, boolean) TO authenticated, service_role;
 
-
+
 
 -- ===========================================================================
 -- Fee Structure Match audit (Billing -> Coverage -> Audit) + missing-bill generator
@@ -71567,3 +72003,993 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.get_billing_audit_fee_structure_learner_detail(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.get_billing_audit_fee_structure_learner_detail(uuid) TO authenticated, service_role;
+
+-- =====================================================================
+-- Updated: 2026-09-24 - Adoption loop E: why-not core, reminders, the daily run, reminder summary
+-- Source of truth for apply: supabase/migrations/20270324090000_adoption_daily_ask_and_remind.sql
+-- Spec: specs/2026-09-16-adoption-loop.md rulings 2, 6, 9, 10
+-- =====================================================================
+-- 4) fn_adoption_ask_why_core — the why-not body, reusable by the tick
+-- ---------------------------------------------------------------------
+-- Every rule below is fn_adoption_ask_why's as applied on production
+-- (20260918230000; live body md5 af2d51ee… read 2026-09-24, identical). The
+-- only additions, each able only to send FEWER questions:
+--   p_actor    who the notice is from (a person, or the loop owner for the tick)
+--   p_dry_run  count who WOULD be asked, write nothing
+--   p_limit    ask at most this many people (what is left of the day's budget)
+--   p_exclude  people this run has already messaged
+-- Service-only: no signed-in person may call it (the super-admin check lives
+-- in fn_adoption_ask_why; the tick is service-role only).
+CREATE OR REPLACE FUNCTION public.fn_adoption_ask_why_core(
+  p_feature_key text,
+  p_as_of       date,
+  p_actor       uuid,
+  p_dry_run     boolean DEFAULT false,
+  p_limit       integer DEFAULT NULL,
+  p_exclude     uuid[]  DEFAULT '{}'::uuid[]
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_feat    public.feature_registry%ROWTYPE;
+  v_nid     uuid;
+  v_n       integer := 0;
+  v_targets uuid[] := '{}'::uuid[];
+  v_options jsonb := '["Did not know it exists","Tried it, too hard","Do not need it","Use something else"]'::jsonb;
+  v_tstart  date;
+  v_tend    date;
+  v_today   date := COALESCE(p_as_of, (now() AT TIME ZONE 'Asia/Kolkata')::date);
+  v_from    date;   -- "no use since" boundary: term start for term features, forever for weekly
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtext('adoption_messages'));
+
+  IF NOT COALESCE(public.fn_get_policy_bool('adoption.loop.enabled', false), false) THEN
+    RETURN jsonb_build_object('success', false, 'error', 'adoption loop is switched off (policy adoption.loop.enabled)');
+  END IF;
+
+  SELECT * INTO v_feat FROM public.feature_registry WHERE feature_key = p_feature_key;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error', 'unknown feature');
+  END IF;
+  IF v_feat.cadence = 'event' THEN
+    -- "Used when needed": a low share means few occasions arose, not that the
+    -- feature failed. There is nothing to ask about (2026-09-23).
+    RETURN jsonb_build_object('success', false, 'error', 'this feature is used only when the occasion arises, so a low share is not evidence — it is never judged dead');
+  END IF;
+  IF v_feat.skip_reason IS NOT NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'this feature is skipped on purpose: ' || v_feat.skip_reason);
+  END IF;
+  IF p_feature_key = 'app.login' THEN
+    -- The sign-in line is the app-wide denominator (ruling 1c), not a feature,
+    -- and asking about it refutes itself twice over. The question arrives on a
+    -- blocking screen that a person can only reach BY signing in, so every
+    -- recipient has just done the thing they are being asked why they never do.
+    -- And the recipient list is not a population of non-users: sign-in recording
+    -- began on 2026-09-18, so "no row" means "we had not started counting", not
+    -- "never signed in". Measured 2026-09-23: one call would have messaged 6,643
+    -- people, against 458 with a recorded sign-in.
+    RETURN jsonb_build_object('success', false, 'error', 'the sign-in line is the app-wide measure, not a feature — it is never asked about');
+  END IF;
+  IF NOT v_feat.usage_wired THEN
+    RETURN jsonb_build_object('success', false, 'error', 'no usage recording for this feature yet — it cannot be judged dead');
+  END IF;
+  IF v_feat.usage_event_module IS NOT NULL
+     AND (v_feat.usage_synced_at IS NULL OR v_feat.usage_synced_at < now() - interval '7 days') THEN
+    RETURN jsonb_build_object('success', false, 'error', 'usage for this feature was last pulled from the log more than 7 days ago — pull first');
+  END IF;
+  IF v_feat.status = 'retired' THEN
+    RETURN jsonb_build_object('success', false, 'error', 'feature is retired');
+  END IF;
+  IF v_feat.shipped_at > now() - interval '14 days' THEN
+    RETURN jsonb_build_object('success', false, 'error', 'feature is younger than 14 days');
+  END IF;
+
+  IF v_feat.cadence = 'term' THEN
+    SELECT w.term_start, w.term_end INTO v_tstart, v_tend FROM public.fn_adoption_term_window(v_today) w;
+    IF v_today < v_tend - 14 THEN
+      RETURN jsonb_build_object('success', false,
+        'error', 'a term-judged feature is asked about only in the last 14 days of the term (term ends ' || v_tend::text || ')');
+    END IF;
+    v_from := v_tstart;
+  ELSE
+    v_from := DATE '1900-01-01';
+  END IF;
+
+  SELECT COALESCE(array_agg(t.user_id ORDER BY t.user_id), '{}'::uuid[]) INTO v_targets
+  FROM (
+    SELECT DISTINCT pr.user_id
+    FROM public.fn_adoption_person_roles() pr
+    WHERE pr.is_super_admin = false
+      AND (cardinality(v_feat.intended_roles) = 0
+           OR 'all' = ANY (v_feat.intended_roles)
+           OR pr.role = ANY (v_feat.intended_roles))
+      AND NOT EXISTS (SELECT 1 FROM public.feature_usage fu
+                      WHERE fu.user_id = pr.user_id AND fu.feature_key = p_feature_key
+                        AND fu.day >= v_from)
+      AND NOT EXISTS (SELECT 1 FROM public.adoption_asks aa
+                      WHERE aa.user_id = pr.user_id AND aa.feature_key = p_feature_key)
+      AND NOT EXISTS (SELECT 1 FROM public.adoption_asks aa
+                      WHERE aa.user_id = pr.user_id AND aa.asked_at > now() - interval '7 days')
+      -- one adoption message per person per IST day, whoever sends it (review 3)
+      AND NOT EXISTS (SELECT 1 FROM public.adoption_reminders ar
+                      WHERE ar.user_id = pr.user_id AND ar.sent_at >= (date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata') AT TIME ZONE 'Asia/Kolkata'))
+      AND NOT (pr.user_id = ANY (COALESCE(p_exclude, '{}'::uuid[])))
+    ORDER BY pr.user_id
+    LIMIT CASE WHEN p_limit IS NULL THEN NULL ELSE GREATEST(p_limit, 0) END
+  ) t;
+
+  v_n := cardinality(v_targets);
+  IF v_n = 0 OR p_dry_run THEN
+    RETURN jsonb_build_object('success', true, 'asked', v_n, 'dry_run', COALESCE(p_dry_run, false),
+                              'notification_id', NULL, 'targets', to_jsonb(v_targets));
+  END IF;
+
+  IF p_actor IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'no sender for the notice');
+  END IF;
+
+  BEGIN
+    INSERT INTO public.notifications
+      (title, body, url, created_by, targeting, priority, category, metadata,
+       requires_acknowledgment, requires_answer, answer_options, expires_at)
+    VALUES
+      ('Have you used ' || v_feat.title || '?',
+       'MyJKKN added "' || v_feat.title || '" so you can ' || v_feat.core_action ||
+       '. You have not used it yet. One tap tells us why, so we can make it simpler, show how it works, or retire it.',
+       '/',
+       p_actor,
+       jsonb_build_object('type', 'adoption_why', 'feature_key', p_feature_key),
+       'normal',
+       'adoption',
+       jsonb_build_object('kind', 'adoption_why', 'feature_key', p_feature_key, 'source', 'adoption_loop'),
+       false,
+       true,
+       v_options,
+       now() + interval '30 days')
+    RETURNING id INTO v_nid;
+  EXCEPTION
+    WHEN undefined_column THEN
+      RETURN jsonb_build_object('success', false,
+        'error', 'feedback gate not applied yet (PR #3829: notifications.requires_answer)');
+  END;
+
+  INSERT INTO public.user_notifications (user_id, notification_id)
+  SELECT t, v_nid FROM unnest(v_targets) AS t;
+
+  INSERT INTO public.adoption_asks (user_id, feature_key, notification_id, asked_at)
+  SELECT t, p_feature_key, v_nid, now() FROM unnest(v_targets) AS t;
+
+  RETURN jsonb_build_object('success', true, 'asked', v_n, 'dry_run', false,
+                            'notification_id', v_nid, 'targets', to_jsonb(v_targets));
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_ask_why_core(text, date, uuid, boolean, integer, uuid[]) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_adoption_ask_why_core(text, date, uuid, boolean, integer, uuid[]) TO service_role;
+
+-- ---------------------------------------------------------------------
+-- 5) fn_adoption_ask_why — the button, unchanged for people
+-- ---------------------------------------------------------------------
+-- Same signature and grants as 20260918230000. Still super admin only, and still
+-- never returns person ids: the core's 'targets' list is stripped here. Since
+-- reviews 3, 4 and 7 it is capped by what is left of the day's global budget and
+-- takes the shared lock first; it does not read the exclusion list (deliberate).
+-- ci:allow-secdef-authenticated the body RAISES 42501 unless is_super_admin(); only the Adoption desk / super admins may send the why-not question.
+CREATE OR REPLACE FUNCTION public.fn_adoption_ask_why(p_feature_key text, p_as_of date DEFAULT NULL)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_left integer;
+BEGIN
+  IF NOT COALESCE(is_super_admin(), false) THEN
+    RAISE EXCEPTION 'super admin required' USING ERRCODE = '42501';
+  END IF;
+
+  -- The button shares the daily run's budget and its one-message-per-day rule
+  -- (review 3): a press after the run has spent the day's budget sends nothing.
+  -- It does NOT read the exclusion list — that list steers the automatic run;
+  -- a super admin pressing Ask why on a feature is a deliberate choice.
+  -- The shared lock is taken BEFORE the budget is read (review 4): two presses,
+  -- or a press during the daily run, cannot both spend the same remainder.
+  PERFORM pg_advisory_xact_lock(hashtext('adoption_messages'));
+  v_left := public.fn_adoption_day_remaining();
+  IF v_left <= 0 THEN
+    RETURN jsonb_build_object('success', false,
+      'error', 'today''s adoption message budget is used up — try again tomorrow');
+  END IF;
+
+  RETURN public.fn_adoption_ask_why_core(p_feature_key, p_as_of, auth.uid(), false, v_left, '{}'::uuid[])
+         - 'targets' - 'dry_run';
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_ask_why(text, date) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_adoption_ask_why(text, date) TO authenticated, service_role;
+
+-- ---------------------------------------------------------------------
+-- 6) fn_adoption_remind_core — ruling 10
+-- ---------------------------------------------------------------------
+-- One plain in-app notice (NOT must-answer, not blocking, no acknowledgement)
+-- to each intended person who has NEVER done the core action. Refuses the same
+-- features the why-not question refuses, plus 'event' (a when-needed feature
+-- is used when the occasion arises; reminding everyone to apply for leave is
+-- wrong). Limits:
+--   * never a super admin
+--   * at most once per person per feature per 30 days (ruling 10)
+--   * not on an Indian calendar day (IST) on which the person already had an
+--     adoption reminder or question
+--   * people never reminded about this feature go first, then those reminded
+--     longest ago, so a backlog larger than the cap is worked through in turn
+--   * p_limit / p_exclude as in the ask core
+-- Service-only: signed-in callers go through fn_adoption_remind.
+CREATE OR REPLACE FUNCTION public.fn_adoption_remind_core(
+  p_feature_key text,
+  p_actor       uuid,
+  p_dry_run     boolean DEFAULT false,
+  p_limit       integer DEFAULT NULL,
+  p_exclude     uuid[]  DEFAULT '{}'::uuid[],
+  p_first_only  boolean DEFAULT false,
+  p_only        uuid[]  DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_feat    public.feature_registry%ROWTYPE;
+  v_nid     uuid;
+  v_n       integer := 0;
+  v_targets uuid[] := '{}'::uuid[];
+  v_body    text;
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtext('adoption_messages'));
+
+  IF NOT COALESCE(public.fn_get_policy_bool('adoption.loop.enabled', false), false) THEN
+    RETURN jsonb_build_object('success', false, 'error', 'adoption loop is switched off (policy adoption.loop.enabled)');
+  END IF;
+
+  SELECT * INTO v_feat FROM public.feature_registry WHERE feature_key = p_feature_key;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error', 'unknown feature');
+  END IF;
+  IF p_feature_key = 'app.login' THEN
+    RETURN jsonb_build_object('success', false, 'error', 'the sign-in line is the app-wide measure, not a feature — nobody is reminded about it');
+  END IF;
+  IF v_feat.cadence = 'event' THEN
+    RETURN jsonb_build_object('success', false, 'error', 'this feature is used only when the occasion arises — nobody is reminded to use it');
+  END IF;
+  IF v_feat.skip_reason IS NOT NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'this feature is skipped on purpose: ' || v_feat.skip_reason);
+  END IF;
+  IF NOT v_feat.usage_wired THEN
+    RETURN jsonb_build_object('success', false, 'error', 'no usage recording for this feature yet — "never used" cannot be known');
+  END IF;
+  IF v_feat.usage_event_module IS NOT NULL
+     AND (v_feat.usage_synced_at IS NULL OR v_feat.usage_synced_at < now() - interval '7 days') THEN
+    RETURN jsonb_build_object('success', false, 'error', 'usage for this feature was last pulled from the log more than 7 days ago — pull first');
+  END IF;
+  IF v_feat.status = 'retired' THEN
+    RETURN jsonb_build_object('success', false, 'error', 'feature is retired');
+  END IF;
+  IF v_feat.shipped_at > now() - interval '14 days' THEN
+    RETURN jsonb_build_object('success', false, 'error', 'feature is younger than 14 days');
+  END IF;
+
+  SELECT COALESCE(array_agg(t.user_id ORDER BY t.last_sent NULLS FIRST, t.user_id), '{}'::uuid[]) INTO v_targets
+  FROM (
+    SELECT DISTINCT pr.user_id,
+           (SELECT max(ar.sent_at) FROM public.adoption_reminders ar
+             WHERE ar.user_id = pr.user_id AND ar.feature_key = p_feature_key) AS last_sent
+    FROM public.fn_adoption_person_roles() pr
+    WHERE pr.is_super_admin = false
+      AND (cardinality(v_feat.intended_roles) = 0
+           OR 'all' = ANY (v_feat.intended_roles)
+           OR pr.role = ANY (v_feat.intended_roles))
+      -- never done the core action, ever
+      AND NOT EXISTS (SELECT 1 FROM public.feature_usage fu
+                      WHERE fu.user_id = pr.user_id AND fu.feature_key = p_feature_key)
+      -- ruling 10: once a month per person per feature
+      AND NOT EXISTS (SELECT 1 FROM public.adoption_reminders ar
+                      WHERE ar.user_id = pr.user_id AND ar.feature_key = p_feature_key
+                        AND ar.sent_at > now() - interval '30 days')
+      -- p_first_only: only people never reminded about THIS feature (the tick's
+      -- first rounds, so a big backlog on one feature cannot hold back others)
+      AND NOT (COALESCE(p_first_only, false) AND EXISTS (SELECT 1 FROM public.adoption_reminders ar
+                      WHERE ar.user_id = pr.user_id AND ar.feature_key = p_feature_key))
+      -- p_only: the tick's cross-feature repeat round names exactly who to remind
+      AND (p_only IS NULL OR pr.user_id = ANY (p_only))
+      -- one adoption message per person per day, reminders and questions together
+      AND NOT EXISTS (SELECT 1 FROM public.adoption_reminders ar
+                      WHERE ar.user_id = pr.user_id AND ar.sent_at >= (date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata') AT TIME ZONE 'Asia/Kolkata'))
+      AND NOT EXISTS (SELECT 1 FROM public.adoption_asks aa
+                      WHERE aa.user_id = pr.user_id AND aa.asked_at >= (date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata') AT TIME ZONE 'Asia/Kolkata'))
+      AND NOT (pr.user_id = ANY (COALESCE(p_exclude, '{}'::uuid[])))
+    ORDER BY last_sent NULLS FIRST, pr.user_id
+    LIMIT CASE WHEN p_limit IS NULL THEN NULL ELSE GREATEST(p_limit, 0) END
+  ) t;
+
+  v_n := cardinality(v_targets);
+  IF v_n = 0 OR p_dry_run THEN
+    RETURN jsonb_build_object('success', true, 'reminded', v_n, 'dry_run', COALESCE(p_dry_run, false),
+                              'notification_id', NULL, 'targets', to_jsonb(v_targets));
+  END IF;
+
+  IF p_actor IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'no sender for the notice');
+  END IF;
+
+  v_body := 'MyJKKN has "' || v_feat.title || '" so you can ' || v_feat.core_action ||
+            '. We have not seen you use it recently.' ||
+            CASE WHEN v_feat.href IS NOT NULL THEN ' Open this notice to go straight to it.' ELSE '' END;
+
+  INSERT INTO public.notifications
+    (title, body, url, created_by, targeting, priority, category, metadata,
+     requires_acknowledgment, expires_at)
+  VALUES
+    ('A reminder: ' || v_feat.title,
+     v_body,
+     v_feat.href,
+     p_actor,
+     jsonb_build_object('type', 'adoption_reminder', 'feature_key', p_feature_key),
+     'low',
+     'adoption',
+     jsonb_build_object('kind', 'adoption_reminder', 'feature_key', p_feature_key, 'source', 'adoption_loop'),
+     false,
+     now() + interval '30 days')
+  RETURNING id INTO v_nid;
+
+  INSERT INTO public.user_notifications (user_id, notification_id)
+  SELECT t, v_nid FROM unnest(v_targets) AS t;
+
+  INSERT INTO public.adoption_reminders (user_id, feature_key, notification_id, sent_at)
+  SELECT t, p_feature_key, v_nid, now() FROM unnest(v_targets) AS t;
+
+  RETURN jsonb_build_object('success', true, 'reminded', v_n, 'dry_run', false,
+                            'notification_id', v_nid, 'targets', to_jsonb(v_targets));
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_remind_core(text, uuid, boolean, integer, uuid[], boolean, uuid[]) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_adoption_remind_core(text, uuid, boolean, integer, uuid[], boolean, uuid[]) TO service_role;
+
+-- ---------------------------------------------------------------------
+-- 7) fn_adoption_loop_sender — who a machine-sent notice is from
+-- ---------------------------------------------------------------------
+-- notifications.created_by is NOT NULL and references profiles. A person's
+-- call sends as that person; the daily run sends as the loop's owner (the
+-- Director owns this loop, loop_registry.feature-adoption.owner_email), the
+-- same account the Owners panel on /admin/loops shows. NULL = no sender, and
+-- the cores then refuse rather than invent one.
+CREATE OR REPLACE FUNCTION public.fn_adoption_loop_sender()
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT p.id
+  FROM public.loop_registry lr
+  JOIN public.profiles p ON lower(p.email) = lower(lr.owner_email)
+  WHERE lr.loop_key = 'feature-adoption'
+  ORDER BY p.is_active DESC NULLS LAST, p.id
+  LIMIT 1
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_loop_sender() FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_adoption_loop_sender() TO service_role;
+
+-- ---------------------------------------------------------------------
+-- 7b) The two shared limits: the day's remaining budget and the exclusion list
+-- ---------------------------------------------------------------------
+-- The cap is per Indian calendar DAY, not per call: a second run, a manual
+-- run or a reminder sent by hand all draw from the same daily budget. Every
+-- why-not question and reminder sent since midnight IST counts, including
+-- questions sent with the Ask why button.
+-- The daily cap, read from the GLOBAL row only (review 7). fn_get_policy_int
+-- honours user- and role-level overrides, so the scheduler (no user) and the
+-- Ask why button (a super admin) could see different caps and together exceed
+-- the global one. Every entry point reads this instead. A missing or unreadable
+-- row falls back to 100; a negative value counts as 0.
+CREATE OR REPLACE FUNCTION public.fn_adoption_tick_cap()
+RETURNS integer
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_cap integer;
+BEGIN
+  BEGIN
+    SELECT (pp.value #>> '{}')::integer INTO v_cap
+    FROM public.platform_policies pp
+    WHERE pp.policy_key = 'adoption.tick.max_notifications'
+      AND pp.scope_type = 'global' AND pp.scope_id IS NULL AND pp.is_active
+    LIMIT 1;
+  EXCEPTION WHEN others THEN
+    v_cap := NULL;
+  END;
+  RETURN GREATEST(COALESCE(v_cap, 100), 0);
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_tick_cap() FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_adoption_tick_cap() TO service_role;
+
+CREATE OR REPLACE FUNCTION public.fn_adoption_day_remaining()
+RETURNS integer
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_cap        integer;
+  v_day_start  timestamptz := date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata') AT TIME ZONE 'Asia/Kolkata';
+  v_sent       integer;
+BEGIN
+  v_cap := public.fn_adoption_tick_cap();
+  SELECT (SELECT count(*) FROM public.adoption_asks WHERE asked_at >= v_day_start)
+       + (SELECT count(*) FROM public.adoption_reminders WHERE sent_at >= v_day_start)
+    INTO v_sent;
+  RETURN GREATEST(v_cap - COALESCE(v_sent, 0), 0);
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_day_remaining() FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_adoption_day_remaining() TO service_role;
+
+-- The exclusion list FAILS CLOSED: NULL means "cannot tell what is excluded",
+-- and every caller then sends nothing. That covers a missing row, a
+-- switched-off row, a value that is not a list, and any element that is not
+-- a text key. An empty list [] is a deliberate "exclude nothing" and is fine.
+CREATE OR REPLACE FUNCTION public.fn_adoption_tick_excluded()
+RETURNS text[]
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_value  jsonb;
+  v_active boolean;
+  v_keys   text[];
+BEGIN
+  SELECT pp.value, pp.is_active INTO v_value, v_active
+  FROM public.platform_policies pp
+  WHERE pp.policy_key = 'adoption.tick.exclude_features'
+    AND pp.scope_type = 'global' AND pp.scope_id IS NULL
+  ORDER BY pp.updated_at DESC NULLS LAST
+  LIMIT 1;
+  IF NOT FOUND OR NOT COALESCE(v_active, false) OR v_value IS NULL
+     OR jsonb_typeof(v_value) <> 'array' THEN
+    RETURN NULL;
+  END IF;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_value) e WHERE jsonb_typeof(e) <> 'string') THEN
+    RETURN NULL;
+  END IF;
+  SELECT COALESCE(array_agg(e), '{}'::text[]) INTO v_keys FROM jsonb_array_elements_text(v_value) e;
+  RETURN v_keys;
+EXCEPTION WHEN OTHERS THEN
+  RETURN NULL;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_tick_excluded() FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_adoption_tick_excluded() TO service_role;
+
+-- ---------------------------------------------------------------------
+-- 8) fn_adoption_remind — the callable reminder
+-- ---------------------------------------------------------------------
+-- Super admins only; the daily run goes through the core directly. A call
+-- obeys the same two limits as the run: it never sends more than what is
+-- left of today's cap, and it refuses a feature on the exclusion list (or
+-- anything at all while that list cannot be read). Returns counts only.
+-- ci:allow-secdef-authenticated the body RAISES 42501 unless is_super_admin().
+CREATE OR REPLACE FUNCTION public.fn_adoption_remind(p_feature_key text, p_dry_run boolean DEFAULT false)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_excluded text[];
+  v_left     integer;
+BEGIN
+  IF NOT COALESCE(is_super_admin(), false) THEN
+    RAISE EXCEPTION 'super admin required' USING ERRCODE = '42501';
+  END IF;
+
+  -- same lock as the daily run: the day's budget is read and spent by one
+  -- caller at a time
+  PERFORM pg_advisory_xact_lock(hashtext('adoption_messages'));
+
+  v_excluded := public.fn_adoption_tick_excluded();
+  IF v_excluded IS NULL THEN
+    RETURN jsonb_build_object('success', false,
+      'error', 'the exclusion list (policy adoption.tick.exclude_features) is missing, switched off or not a list — nothing is sent until it is fixed');
+  END IF;
+  IF p_feature_key = ANY (v_excluded) THEN
+    RETURN jsonb_build_object('success', false,
+      'error', 'this feature is on the exclusion list (policy adoption.tick.exclude_features)');
+  END IF;
+
+  v_left := public.fn_adoption_day_remaining();
+  IF v_left <= 0 THEN
+    RETURN jsonb_build_object('success', false,
+      'error', 'today''s limit (policy adoption.tick.max_notifications) is already used up');
+  END IF;
+
+  RETURN public.fn_adoption_remind_core(p_feature_key, auth.uid(), COALESCE(p_dry_run, false), v_left, '{}'::uuid[])
+         - 'targets';
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_remind(text, boolean) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_remind(text, boolean) FROM service_role;
+GRANT  EXECUTE ON FUNCTION public.fn_adoption_remind(text, boolean) TO authenticated;
+
+-- ---------------------------------------------------------------------
+-- 9) fn_adoption_daily_tick — the clock's one call
+-- ---------------------------------------------------------------------
+-- Looks at every live, recorded, labelled feature at least 14 days old (never
+-- skipped, never when-needed, never the sign-in line), in two passes:
+--   1) ASK first. A feature is near-zero when every intended role is under
+--      5 % — in the last 7 days for a weekly feature, this term for a term
+--      feature (the page's dead bar, lib/adoption/summarise.ts
+--      DEAD_WEEKLY_PCT). Its non-users get the why-not question through the
+--      same core the button uses, so every ruling-6 limit holds unchanged.
+--      Asking goes first because it is the step that has never run and the
+--      one the loop's next decision (ruling 8/9) is waiting on.
+--   2) REMIND next (ruling 10), newest feature first: the people most likely
+--      not to know a feature exists are the ones it was built for last month,
+--      not last year.
+-- Features listed in adoption.tick.exclude_features are skipped in both
+-- passes (and if that list cannot be read, nothing is sent). Stops when the
+-- day's adoption.tick.max_notifications budget is used up, counting what was
+-- already sent today; people left over are reached on a later day. Nobody gets more than one adoption message
+-- from one run, and nobody who had one earlier the same IST day is messaged again.
+-- Service role only: a signed-in person cannot run it (EXECUTE is not granted
+-- and the body refuses any caller with a user id).
+CREATE OR REPLACE FUNCTION public.fn_adoption_daily_tick(p_dry_run boolean DEFAULT false)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_dry       boolean := COALESCE(p_dry_run, false);
+  v_cap       integer;
+  v_left      integer;
+  v_actor     uuid;
+  v_touched   uuid[] := '{}'::uuid[];
+  v_week_from date := (now() AT TIME ZONE 'Asia/Kolkata')::date - 6;
+  v_tstart    date;
+  v_tend      date;
+  v_feat      record;
+  v_from      date;
+  v_near_zero boolean;
+  v_res       jsonb;
+  v_n         integer;
+  v_total_ask integer := 0;
+  v_total_rem integer := 0;
+  v_rows      jsonb := '{}'::jsonb;   -- feature_key → what this run did
+  v_capped    boolean := false;
+  v_excluded  text[];
+  v_keys      text[] := '{}'::text[];  -- features for the current pass, in order
+  v_key       text;
+  v_share     integer;
+  v_round     integer;
+  v_extra     integer;   -- round 1: features that get one more than the floor share
+  v_i         integer;
+  v_lim       integer;
+  v_cand      jsonb;     -- round 3: repeat candidates across every feature
+  v_pick      record;
+BEGIN
+  IF auth.uid() IS NOT NULL THEN
+    RAISE EXCEPTION 'the adoption daily run is started by the scheduler, not by a person' USING ERRCODE = '42501';
+  END IF;
+
+  IF NOT COALESCE(public.fn_get_policy_bool('adoption.loop.enabled', false), false) THEN
+    RETURN jsonb_build_object('success', true, 'skipped', 'adoption loop is switched off (policy adoption.loop.enabled)',
+                              'dry_run', v_dry, 'asked', 0, 'reminded', 0, 'features', '{}'::jsonb);
+  END IF;
+
+  -- one run at a time: a manual run and the scheduled one cannot interleave
+  PERFORM pg_advisory_xact_lock(hashtext('adoption_messages'));
+
+  -- Features this run leaves alone entirely. FAIL CLOSED: if the list
+  -- cannot be read, nothing is sent at all, and the run says why.
+  v_excluded := public.fn_adoption_tick_excluded();
+  IF v_excluded IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'dry_run', v_dry, 'asked', 0, 'reminded', 0,
+      'error', 'the exclusion list (policy adoption.tick.exclude_features) is missing, switched off or not a list — nothing was sent');
+  END IF;
+
+  -- The cap is per IST day: whatever was already sent today (by an earlier
+  -- run, a manual run or the Ask why button) comes off it.
+  v_cap := public.fn_adoption_tick_cap();
+  v_left := public.fn_adoption_day_remaining();
+  v_capped := v_left <= 0;
+
+  v_actor := public.fn_adoption_loop_sender();
+  IF v_actor IS NULL AND NOT v_dry THEN
+    RETURN jsonb_build_object('success', false,
+      'error', 'no sender: the feature-adoption loop''s owner_email matches no profile');
+  END IF;
+
+  SELECT w.term_start, w.term_end INTO v_tstart, v_tend FROM public.fn_adoption_term_window() w;
+
+  -- One adoption message per person per day holds across runs too: anyone
+  -- reminded earlier the same IST day is not messaged by this run. (Anyone asked
+  -- in the last 7 days is excluded by the ask core; anyone asked the same IST
+  -- day by the remind core.)
+  SELECT COALESCE(array_agg(DISTINCT ar.user_id), '{}'::uuid[]) INTO v_touched
+  FROM public.adoption_reminders ar
+  WHERE ar.sent_at >= (date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata') AT TIME ZONE 'Asia/Kolkata');
+
+  -- ---- pass 1: ask why, on near-zero features ----
+  FOR v_feat IN
+    SELECT fr.*
+    FROM public.feature_registry fr
+    WHERE fr.feature_key <> 'app.login'
+      AND fr.status <> 'retired'
+      AND fr.skip_reason IS NULL
+      AND fr.usage_wired
+      AND fr.cadence <> 'event'
+      AND fr.shipped_at <= now() - interval '14 days'
+      AND NOT (fr.feature_key = ANY (v_excluded))
+      -- review 8: a feature the core would refuse must not hold a share
+      AND NOT (fr.usage_event_module IS NOT NULL
+               AND (fr.usage_synced_at IS NULL OR fr.usage_synced_at < now() - interval '7 days'))
+    ORDER BY fr.shipped_at, fr.feature_key
+  LOOP
+    v_from := CASE WHEN v_feat.cadence = 'term' THEN v_tstart ELSE v_week_from END;
+    WITH roles AS (
+      SELECT DISTINCT r AS role
+      FROM unnest(CASE WHEN cardinality(v_feat.intended_roles) = 0 THEN ARRAY['all']
+                       ELSE v_feat.intended_roles END) AS r
+    ),
+    people AS (
+      SELECT DISTINCT ro.role, pr.user_id
+      FROM roles ro
+      JOIN public.fn_adoption_person_roles() pr ON (ro.role = 'all' OR pr.role = ro.role)
+    ),
+    agg AS (
+      SELECT p.role,
+             count(*) AS intended,
+             count(*) FILTER (WHERE EXISTS (
+               SELECT 1 FROM public.feature_usage fu
+               WHERE fu.user_id = p.user_id AND fu.feature_key = v_feat.feature_key
+                 AND fu.day >= v_from)) AS active
+      FROM people p
+      GROUP BY p.role
+    )
+    SELECT count(*) > 0 AND bool_and(active * 100 < 5 * intended)
+      INTO v_near_zero
+    FROM agg;
+    v_near_zero := COALESCE(v_near_zero, false);
+
+    v_rows := v_rows || jsonb_build_object(v_feat.feature_key,
+      jsonb_build_object('near_zero', v_near_zero, 'asked', 0, 'reminded', 0));
+
+    -- review 8: a term feature is asked about only in the last 14 days of its
+    -- term (the core refuses otherwise), so outside that window it takes no share
+    IF v_near_zero
+       AND NOT (v_feat.cadence = 'term'
+                AND (now() AT TIME ZONE 'Asia/Kolkata')::date < v_tend - 14) THEN
+      v_keys := v_keys || v_feat.feature_key;
+    END IF;
+  END LOOP;
+
+  -- Fair order (review 5): round 1 gives every near-zero feature an equal share
+  -- of what is left today, oldest feature first; round 2 spends any leftover in
+  -- the same order. A feature with thousands to ask cannot hold the others back.
+  -- Questions come before reminders on purpose: a question backlog can pause
+  -- reminders, never the other way round.
+  -- Round 1 share (review 6): the FLOOR of what is left divided by the number of
+  -- features, plus one more for the first (remainder) features in order — so the
+  -- whole budget can reach every feature, never 2 each to the first few and 0 to the rest.
+  FOR v_round IN 1..2 LOOP
+    IF cardinality(v_keys) > 0 THEN
+      v_share := floor(v_left::numeric / cardinality(v_keys))::integer;
+      v_extra := v_left - v_share * cardinality(v_keys);
+    END IF;
+    v_i := 0;
+    FOREACH v_key IN ARRAY v_keys LOOP
+      v_i := v_i + 1;
+      IF v_left <= 0 THEN
+        v_capped := true;
+        v_rows := jsonb_set(v_rows, ARRAY[v_key, 'ask_note'], to_jsonb('run cap reached'::text));
+        CONTINUE;
+      END IF;
+      v_lim := CASE WHEN v_round = 1
+                    THEN LEAST(v_share + CASE WHEN v_i <= v_extra THEN 1 ELSE 0 END, v_left)
+                    ELSE v_left END;
+      CONTINUE WHEN v_lim <= 0;
+      v_res := public.fn_adoption_ask_why_core(v_key, NULL, v_actor, v_dry, v_lim, v_touched);
+      IF COALESCE((v_res->>'success')::boolean, false) THEN
+        v_n := COALESCE((v_res->>'asked')::integer, 0);
+        v_touched := v_touched || ARRAY(SELECT jsonb_array_elements_text(COALESCE(v_res->'targets', '[]'::jsonb))::uuid);
+        v_left := v_left - v_n;
+        v_total_ask := v_total_ask + v_n;
+        v_rows := jsonb_set(v_rows, ARRAY[v_key, 'asked'],
+                    to_jsonb(COALESCE((v_rows->v_key->>'asked')::integer, 0) + v_n));
+      ELSE
+        v_rows := jsonb_set(v_rows, ARRAY[v_key, 'ask_note'], to_jsonb(v_res->>'error'));
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  -- ---- pass 2: remind the never-users ----
+  -- Fair order (review 5), in three rounds over the eligible features, newest first:
+  --   1. first reminders only, the floor share per feature plus the remainder in order
+  --   2. first reminders only, any leftover
+  --   3. repeat reminders (30 days on), ranked ACROSS features, oldest reminder first
+  -- So nobody gets a repeat while anyone on any feature still awaits a first one.
+  v_keys := '{}'::text[];
+  FOR v_feat IN
+    SELECT fr.feature_key
+    FROM public.feature_registry fr
+    WHERE fr.feature_key <> 'app.login'
+      AND fr.status <> 'retired'
+      AND fr.skip_reason IS NULL
+      AND fr.usage_wired
+      AND fr.cadence <> 'event'
+      AND fr.shipped_at <= now() - interval '14 days'
+      AND NOT (fr.feature_key = ANY (v_excluded))
+      -- review 8: a feature the core would refuse must not hold a share
+      AND NOT (fr.usage_event_module IS NOT NULL
+               AND (fr.usage_synced_at IS NULL OR fr.usage_synced_at < now() - interval '7 days'))
+    ORDER BY fr.shipped_at DESC, fr.feature_key
+  LOOP
+    v_keys := v_keys || v_feat.feature_key;
+  END LOOP;
+
+  -- Rounds 1 and 2: first reminders only — round 1 the floor share plus the
+  -- remainder in order (review 6), round 2 any leftover.
+  FOR v_round IN 1..2 LOOP
+    IF cardinality(v_keys) > 0 THEN
+      v_share := floor(v_left::numeric / cardinality(v_keys))::integer;
+      v_extra := v_left - v_share * cardinality(v_keys);
+    END IF;
+    v_i := 0;
+    FOREACH v_key IN ARRAY v_keys LOOP
+      v_i := v_i + 1;
+      IF v_left <= 0 THEN
+        v_capped := true;
+        v_rows := jsonb_set(v_rows, ARRAY[v_key, 'remind_note'], to_jsonb('run cap reached'::text));
+        CONTINUE;
+      END IF;
+      v_lim := CASE WHEN v_round = 1
+                    THEN LEAST(v_share + CASE WHEN v_i <= v_extra THEN 1 ELSE 0 END, v_left)
+                    ELSE v_left END;
+      CONTINUE WHEN v_lim <= 0;
+      v_res := public.fn_adoption_remind_core(v_key, v_actor, v_dry, v_lim, v_touched, true, NULL);
+      IF COALESCE((v_res->>'success')::boolean, false) THEN
+        v_n := COALESCE((v_res->>'reminded')::integer, 0);
+        v_touched := v_touched || ARRAY(SELECT jsonb_array_elements_text(COALESCE(v_res->'targets', '[]'::jsonb))::uuid);
+        v_left := v_left - v_n;
+        v_total_rem := v_total_rem + v_n;
+        v_rows := jsonb_set(v_rows, ARRAY[v_key, 'reminded'],
+                    to_jsonb(COALESCE((v_rows->v_key->>'reminded')::integer, 0) + v_n));
+      ELSE
+        v_rows := jsonb_set(v_rows, ARRAY[v_key, 'remind_note'], to_jsonb(v_res->>'error'));
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  -- Round 3 (review 6): repeat reminders ranked ACROSS features. Gather everyone
+  -- due a repeat on any feature (a dry look, writes nothing), keep each person's
+  -- longest-ago reminder only (one message a day), take the oldest first up to
+  -- what is left, then send per feature to exactly those people.
+  IF v_left > 0 AND cardinality(v_keys) > 0 THEN
+    v_cand := '[]'::jsonb;
+    FOREACH v_key IN ARRAY v_keys LOOP
+      v_res := public.fn_adoption_remind_core(v_key, v_actor, true, NULL, v_touched, false, NULL);
+      IF COALESCE((v_res->>'success')::boolean, false) THEN
+        v_cand := v_cand || COALESCE((
+          SELECT jsonb_agg(jsonb_build_object(
+                   'k', v_key, 'u', t.u,
+                   'at', (SELECT max(ar.sent_at) FROM public.adoption_reminders ar
+                           WHERE ar.user_id = t.u::uuid AND ar.feature_key = v_key)))
+          FROM jsonb_array_elements_text(COALESCE(v_res->'targets', '[]'::jsonb)) AS t(u)), '[]'::jsonb);
+      END IF;
+    END LOOP;
+
+    FOR v_pick IN
+      WITH c AS (
+        SELECT x.k, x.u, x.at FROM jsonb_to_recordset(v_cand) AS x(k text, u uuid, at timestamptz)
+      ),
+      one AS (
+        SELECT DISTINCT ON (c.u) c.k, c.u, c.at FROM c ORDER BY c.u, c.at NULLS FIRST, c.k
+      ),
+      chosen AS (
+        SELECT one.k, one.u FROM one ORDER BY one.at NULLS FIRST, one.u LIMIT v_left
+      )
+      SELECT chosen.k, array_agg(chosen.u) AS us FROM chosen GROUP BY chosen.k ORDER BY chosen.k
+    LOOP
+      v_res := public.fn_adoption_remind_core(v_pick.k, v_actor, v_dry, cardinality(v_pick.us),
+                                              v_touched, false, v_pick.us);
+      IF COALESCE((v_res->>'success')::boolean, false) THEN
+        v_n := COALESCE((v_res->>'reminded')::integer, 0);
+        v_touched := v_touched || ARRAY(SELECT jsonb_array_elements_text(COALESCE(v_res->'targets', '[]'::jsonb))::uuid);
+        v_left := v_left - v_n;
+        v_total_rem := v_total_rem + v_n;
+        v_rows := jsonb_set(v_rows, ARRAY[v_pick.k, 'reminded'],
+                    to_jsonb(COALESCE((v_rows->v_pick.k->>'reminded')::integer, 0) + v_n));
+      ELSE
+        v_rows := jsonb_set(v_rows, ARRAY[v_pick.k, 'remind_note'], to_jsonb(v_res->>'error'));
+      END IF;
+    END LOOP;
+  END IF;
+  IF v_left <= 0 THEN v_capped := true; END IF;
+
+  RETURN jsonb_build_object(
+    'success',  true,
+    'dry_run',  v_dry,
+    'cap',      v_cap,
+    'day_left', v_left,
+    'capped',   v_capped,
+    'excluded', to_jsonb(v_excluded),
+    'asked',    v_total_ask,
+    'reminded', v_total_rem,
+    'features', v_rows);
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_daily_tick(boolean) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_adoption_daily_tick(boolean) TO service_role;
+
+-- ---------------------------------------------------------------------
+-- 10) fn_adoption_reminder_summary — the page's count per feature
+-- ---------------------------------------------------------------------
+-- SECURITY INVOKER on purpose: RLS on adoption_reminders already limits rows to
+-- super admins, so anyone else simply reads nothing. Totals only, no names.
+CREATE OR REPLACE FUNCTION public.fn_adoption_reminder_summary()
+RETURNS TABLE (feature_key text, sent_count bigint, last_sent_at timestamptz)
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public
+AS $$
+  SELECT ar.feature_key, count(*)::bigint, max(ar.sent_at)
+  FROM public.adoption_reminders ar
+  GROUP BY ar.feature_key
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_reminder_summary() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_adoption_reminder_summary() TO authenticated, service_role;
+
+
+-- =====================================================================
+-- Updated: 2026-09-27 - Adoption loop E.1: the daily run copies usage in before it reads it
+-- Source of truth for apply: supabase/migrations/20270404090000_adoption_tick_syncs_usage_first.sql
+-- Spec: specs/2026-09-16-adoption-loop.md rulings 9, 10
+-- =====================================================================
+-- 1) the bridge body, without the caller check
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_adoption_sync_usage_events_core(p_days integer DEFAULT 30)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_feat  record;
+  v_rows  integer := 0;
+  v_n     integer;
+  v_feats integer := 0;
+  v_from  timestamptz := (((now() AT TIME ZONE 'Asia/Kolkata')::date - GREATEST(COALESCE(p_days, 30), 1)) ::timestamp AT TIME ZONE 'Asia/Kolkata');
+BEGIN
+  IF NOT COALESCE(public.fn_get_policy_bool('adoption.loop.enabled', false), false) THEN
+    RETURN jsonb_build_object('success', false, 'error', 'adoption loop is switched off (policy adoption.loop.enabled)');
+  END IF;
+
+  FOR v_feat IN
+    SELECT fr.feature_key, fr.usage_event_module, fr.usage_event_feature, fr.usage_event_type
+    FROM public.feature_registry fr
+    WHERE fr.usage_event_module IS NOT NULL AND fr.status <> 'retired'
+  LOOP
+    INSERT INTO public.feature_usage (user_id, feature_key, day, count, institution_id, role, first_at, last_at)
+    SELECT ue.user_id, v_feat.feature_key,
+           (ue.created_at AT TIME ZONE 'Asia/Kolkata')::date,
+           count(*)::integer,
+           COALESCE((array_agg(ue.institution_id) FILTER (WHERE ue.institution_id IS NOT NULL))[1],
+                    (array_agg(p.institution_id)  FILTER (WHERE p.institution_id  IS NOT NULL))[1]),
+           COALESCE(max(ue.role), max(p.role)),
+           min(ue.created_at), max(ue.created_at)
+    FROM public.usage_events ue
+    JOIN public.profiles p ON p.id = ue.user_id
+    WHERE ue.module = v_feat.usage_event_module
+      AND (v_feat.usage_event_feature IS NULL OR ue.feature = v_feat.usage_event_feature)
+      AND (CASE WHEN v_feat.usage_event_type IS NULL THEN ue.event_type <> 'page_visit'
+                ELSE ue.event_type = v_feat.usage_event_type END)
+      AND ue.created_at >= v_from
+    GROUP BY ue.user_id, (ue.created_at AT TIME ZONE 'Asia/Kolkata')::date
+    ON CONFLICT (user_id, feature_key, day) DO UPDATE
+      SET count    = GREATEST(public.feature_usage.count, EXCLUDED.count),
+          first_at = LEAST(public.feature_usage.first_at, EXCLUDED.first_at),
+          last_at  = GREATEST(public.feature_usage.last_at, EXCLUDED.last_at);
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    v_rows := v_rows + v_n;
+    v_feats := v_feats + 1;
+    UPDATE public.feature_registry
+    SET usage_wired = true, usage_synced_at = now(), updated_at = now()
+    WHERE feature_key = v_feat.feature_key;
+  END LOOP;
+
+  RETURN jsonb_build_object('success', true, 'features', v_feats, 'rows', v_rows, 'since', v_from);
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_sync_usage_events_core(integer) FROM anon, authenticated, service_role, PUBLIC;
+
+-- The Sync button: same name, grants and caller check as before; the body is the core.
+CREATE OR REPLACE FUNCTION public.fn_adoption_sync_usage_events(p_days integer DEFAULT 30)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT COALESCE(is_super_admin(), false) THEN
+    RAISE EXCEPTION 'super admin required' USING ERRCODE = '42501';
+  END IF;
+  RETURN public.fn_adoption_sync_usage_events_core(p_days);
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_sync_usage_events(integer) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_adoption_sync_usage_events(integer) TO authenticated, service_role;
+
+-- ---------------------------------------------------------------------
+-- 2) the daily run: #4020's body becomes the send half, untouched
+-- ---------------------------------------------------------------------
+-- Guarded so a re-apply of this file never renames the NEW wrapper.
+DO $$
+BEGIN
+  IF to_regprocedure('public.fn_adoption_daily_tick_send(boolean)') IS NULL THEN
+    ALTER FUNCTION public.fn_adoption_daily_tick(boolean) RENAME TO fn_adoption_daily_tick_send;
+  END IF;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_daily_tick_send(boolean) FROM anon, authenticated, service_role, PUBLIC;
+
+CREATE OR REPLACE FUNCTION public.fn_adoption_daily_tick(p_dry_run boolean DEFAULT false)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_dry  boolean := COALESCE(p_dry_run, false);
+  v_sync jsonb;
+  v_res  jsonb;
+BEGIN
+  IF auth.uid() IS NOT NULL THEN
+    RAISE EXCEPTION 'the adoption daily run is started by the scheduler, not by a person' USING ERRCODE = '42501';
+  END IF;
+
+  IF v_dry THEN
+    v_sync := jsonb_build_object('skipped', 'dry run copies nothing');
+  ELSIF NOT COALESCE(public.fn_get_policy_bool('adoption.loop.enabled', false), false) THEN
+    v_sync := jsonb_build_object('skipped', 'adoption loop is switched off (policy adoption.loop.enabled)');
+  ELSE
+    -- A failed copy rolls back only itself; the send half still runs, and its
+    -- 7-day stale guard skips any feature whose last good copy is too old.
+    BEGIN
+      v_sync := public.fn_adoption_sync_usage_events_core(30);
+    EXCEPTION WHEN OTHERS THEN
+      v_sync := jsonb_build_object('success', false, 'error', SQLERRM);
+    END;
+  END IF;
+
+  v_res := public.fn_adoption_daily_tick_send(v_dry);
+  RETURN v_res || jsonb_build_object('usage_sync', v_sync);
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_adoption_daily_tick(boolean) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_adoption_daily_tick(boolean) TO service_role;

@@ -2030,6 +2030,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/billing/bill-cancellations",
+        "label": "Bill Cancellations",
+        "iconName": "Wallet",
+        "children": []
+      },
+      {
         "path": "/billing/categories",
         "label": "Categories",
         "iconName": "Wallet",
@@ -5448,6 +5454,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/learners/leave-onduty/my-applications",
             "label": "My Applications",
             "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/learners/leave-onduty/settings",
+            "label": "Settings",
+            "iconName": "Settings",
             "children": []
           }
         ]

@@ -25,7 +25,10 @@ import {
 import { StudentBill } from '@/types/billing-schedule';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useDeleteStudentBill } from '@/hooks/billing/use-student-bills';
-import { useCancelBill } from '@/hooks/billing/use-bill-cancellation';
+import {
+  useBillCancelEligibility,
+  useRequestBillCancellation
+} from '@/hooks/billing/use-bill-cancel-requests';
 import { BillCancelDialog } from '@/components/billing/bill-cancel-dialog';
 import Link from 'next/link';
 import type {
@@ -44,16 +47,22 @@ export function DataTableRowActions<TData>({
 }: DataTableRowActionsProps<TData>) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const bill = row.original as StudentBill;
   const { canAccess, isSuperAdmin } = usePermissions();
   const deleteStudentBill = useDeleteStudentBill();
-  const cancelBill = useCancelBill();
+  const requestCancel = useRequestBillCancellation();
 
   const canEditBills = isSuperAdmin || canAccess('billing.schedule', 'update');
-  // Its own key, not billing.schedule.update: cancelling writes off money.
-  const canCancelBills = isSuperAdmin || canAccess('billing.schedule', 'cancel');
+  // Raising is its own key; deciding comes from the bill-cancel approval flow.
+  const canRequestCancel =
+    isSuperAdmin || canAccess('billing.schedule', 'cancel.request');
   const isCancellable = CANCELLABLE_STATUSES.includes(bill.status);
+  // Asked only when the menu opens, so the list does not pay one RPC per row.
+  const { data: eligibilityMap, isLoading: eligibilityLoading } =
+    useBillCancelEligibility([bill.id], menuOpen && canRequestCancel && isCancellable);
+  const eligibility = eligibilityMap?.[bill.id];
 
   const handleDelete = async () => {
     try {
@@ -65,16 +74,15 @@ export function DataTableRowActions<TData>({
   };
 
   // The dialog collects the reason code, notes and documents that
-  // fn_cancel_student_bill requires. This used to send NOTHING but the id --
-  // the service accepted a `reason` argument no caller ever passed.
+  // fn_request_bill_cancellation requires; an approver then decides.
   const handleCancel = async (payload: {
     reasonCode: BillCancelReasonCode;
     reason: string;
     attachments: BillCancellationAttachment[];
   }) => {
-    if (cancelBill.isPending) return;
+    if (requestCancel.isPending) return;
     try {
-      await cancelBill.mutateAsync({ billId: bill.id, ...payload });
+      await requestCancel.mutateAsync({ billId: bill.id, ...payload });
       setShowCancelDialog(false);
     } catch {
       // Guard message already surfaced by the hook; keep the dialog open so
@@ -84,7 +92,7 @@ export function DataTableRowActions<TData>({
 
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
           <Button
             variant='ghost'
@@ -111,13 +119,22 @@ export function DataTableRowActions<TData>({
               </Link>
             </DropdownMenuItem>
           )}
-          {canCancelBills && isCancellable && (
+          {canRequestCancel && isCancellable && (
             <DropdownMenuItem
-              className='text-amber-700 focus:text-amber-800 focus:bg-amber-50'
+              className='text-amber-700 focus:text-amber-800 focus:bg-amber-50 flex-col items-start'
+              disabled={eligibilityLoading || !eligibility?.eligible}
               onClick={() => setShowCancelDialog(true)}
             >
-              <Ban className='mr-2 h-4 w-4' />
-              Cancel Bill
+              <span className='flex items-center'>
+                <Ban className='mr-2 h-4 w-4' />
+                {eligibility?.pending_request_id ? 'Cancel Pending' : 'Request Cancel'}
+              </span>
+              {/* Says WHY it is disabled: the receipt to cancel first, or the open request. */}
+              {!eligibilityLoading && eligibility && !eligibility.eligible && (
+                <span className='text-muted-foreground text-xs whitespace-normal pl-6'>
+                  {eligibility.blocked_reason}
+                </span>
+              )}
             </DropdownMenuItem>
           )}
           {isSuperAdmin && (
@@ -150,7 +167,7 @@ export function DataTableRowActions<TData>({
           }
         ]}
         institutionName={bill.institution?.name || 'Unknown Institution'}
-        isPending={cancelBill.isPending}
+        isPending={requestCancel.isPending}
         onConfirm={handleCancel}
       />
 

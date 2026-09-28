@@ -18,7 +18,8 @@ import {
   CreditCard,
   Filter,
   EllipsisVertical,
-  MoreHorizontal
+  MoreHorizontal,
+  Ban
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -59,6 +60,11 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { toast } from 'react-hot-toast';
 import { StudentBillService } from '@/lib/services/billing/schedule/student-bill-service';
 import type { StudentBill } from '@/types/billing-schedule';
+import { BillCancelDialog } from '@/components/billing/bill-cancel-dialog';
+import {
+  useBillCancelEligibility,
+  useRequestBillCancellation
+} from '@/hooks/billing/use-bill-cancel-requests';
 import { isBillableBill } from '@/lib/billing/bill-status';
 import { Card } from '@/components/ui/card';
 import {
@@ -104,6 +110,12 @@ export function StudentBillsTable({
     !isStudentView && (isSuperAdmin || canAccess('billing.receipts', 'create'));
   const canApplyDiscounts =
     !isStudentView && (isSuperAdmin || canAccess('billing.discounts', 'create'));
+  // Raising a cancel request; an approver decides. Never offered to learners.
+  const canRequestCancel =
+    !isStudentView &&
+    (isSuperAdmin || canAccess('billing.schedule', 'cancel.request'));
+  const [cancelTarget, setCancelTarget] = useState<StudentBill | null>(null);
+  const requestCancel = useRequestBillCancellation();
 
   // Filter bills based on status
   const filteredBills = useMemo(() => {
@@ -121,6 +133,12 @@ export function StudentBillsTable({
     [filteredBills]
   );
   const { data: instalmentsByBill } = useBillInstalments(billIds);
+  // One RPC for the page: which bills can be put up for cancellation, which
+  // already have a request pending, and which receipt blocks the rest.
+  const { data: cancelEligibility } = useBillCancelEligibility(
+    billIds,
+    canRequestCancel
+  );
   const invalidateInstalments = useInvalidateBillInstalments();
   const instalmentsFor = (billId: string) => instalmentsByBill?.get(billId) ?? [];
 
@@ -586,6 +604,17 @@ export function StudentBillsTable({
         <div className='flex flex-col items-center gap-1'>
           {getStatusBadge(bill.status)}
           {getRefundBadge(bill)}
+          {cancelEligibility?.[bill.id]?.pending_request_id && (
+            <Link href='/billing/bill-cancellations'>
+              <Badge
+                variant='outline'
+                className='border-amber-300 text-amber-700 text-[10px]'
+                title={`Request ${cancelEligibility[bill.id].pending_request_number} awaiting approval`}
+              >
+                Cancel pending
+              </Badge>
+            </Link>
+          )}
         </div>
       </TableCell>
       <TableCell className='text-center'>
@@ -623,6 +652,26 @@ export function StudentBillsTable({
                 </Link>
               </DropdownMenuItem>
             )}
+            {canRequestCancel &&
+              ['unpaid', 'partially_paid', 'overdue'].includes(bill.status) && (
+                <DropdownMenuItem
+                  className='text-amber-700 focus:text-amber-800 flex-col items-start'
+                  disabled={!cancelEligibility?.[bill.id]?.eligible}
+                  onSelect={() => setCancelTarget(bill)}
+                >
+                  <span className='flex items-center'>
+                    <Ban className='mr-2 h-4 w-4' />
+                    Request Cancel
+                  </span>
+                  {/* Why it is disabled: the receipt to cancel first, or the open request. */}
+                  {cancelEligibility?.[bill.id] &&
+                    !cancelEligibility[bill.id].eligible && (
+                      <span className='text-muted-foreground text-xs whitespace-normal pl-6 max-w-[240px]'>
+                        {cancelEligibility[bill.id].blocked_reason}
+                      </span>
+                    )}
+                </DropdownMenuItem>
+              )}
             {canDeleteBills && (
               <>
                 <DropdownMenuSeparator />
@@ -861,6 +910,36 @@ export function StudentBillsTable({
           </div>
         </Card>
       )}
+
+      <BillCancelDialog
+        open={!!cancelTarget}
+        onOpenChange={(open) => {
+          if (!open) setCancelTarget(null);
+        }}
+        bills={
+          cancelTarget
+            ? [
+                {
+                  id: cancelTarget.id,
+                  bill_description: cancelTarget.bill_description,
+                  final_amount: cancelTarget.final_amount,
+                  status: cancelTarget.status
+                }
+              ]
+            : []
+        }
+        institutionName={cancelTarget?.institution?.name || 'Unknown Institution'}
+        isPending={requestCancel.isPending}
+        onConfirm={async (payload) => {
+          if (!cancelTarget || requestCancel.isPending) return;
+          try {
+            await requestCancel.mutateAsync({ billId: cancelTarget.id, ...payload });
+            setCancelTarget(null);
+          } catch {
+            // Guard message already toasted; keep the dialog open beside it.
+          }
+        }}
+      />
     </div>
   );
 }

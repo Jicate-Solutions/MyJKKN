@@ -26,6 +26,8 @@ export interface EventEditViewer {
   userId?: string | null;
   institutionId?: string | null;
   isSuperAdmin?: boolean;
+  /** Holds `events.edit` — may edit any event in their own institution. */
+  canEditAny?: boolean;
 }
 
 /**
@@ -57,6 +59,15 @@ export type EventOwnership = Pick<Event, 'created_by' | 'institution_id'>;
  */
 export function canEditEvent(event: EventOwnership, viewer: EventEditViewer): boolean {
   if (viewer.isSuperAdmin) return true;
+  // events.edit — mirrors events_edit_permission_update (permission AND
+  // institution access). Checked before ownership, which would return early.
+  if (
+    viewer.canEditAny &&
+    !!viewer.institutionId &&
+    event.institution_id === viewer.institutionId
+  ) {
+    return true;
+  }
   if (event.created_by) return event.created_by === viewer.userId;
   return !!viewer.institutionId && event.institution_id === viewer.institutionId;
 }
