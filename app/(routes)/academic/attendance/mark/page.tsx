@@ -37,7 +37,7 @@ import {
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
 import toast from 'react-hot-toast';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
@@ -2266,7 +2266,8 @@ export default function AttendanceMarkPage() {
             <div className='flex flex-wrap items-center gap-2'>
               <Badge className='bg-white/20 text-white border-white/30 hover:bg-white/30'>
                 <Calendar className='h-3 w-3 mr-1' />
-                {date ? format(new Date(date), 'dd MMM yyyy') : 'No date'}
+                {/* parseISO, not new Date: "2026-09-17" read as UTC midnight showed 16 Sep on a US-timezone laptop (BUG-006152). */}
+                {date ? format(parseISO(date), 'dd MMM yyyy') : 'No date'}
               </Badge>
               <Badge className='bg-white/20 text-white border-white/30 hover:bg-white/30'>
                 <Clock className='h-3 w-3 mr-1' />
@@ -2575,7 +2576,7 @@ export default function AttendanceMarkPage() {
                     Date:
                   </span>
                   <span className='text-gray-900 dark:text-gray-200 font-semibold'>
-                    {date ? format(new Date(date), 'dd-MMM-yyyy') : 'N/A'}
+                    {date ? format(parseISO(date), 'dd-MMM-yyyy') : 'N/A'}
                   </span>
                 </div>
                 <div className='flex flex-col items-start gap-2'>
