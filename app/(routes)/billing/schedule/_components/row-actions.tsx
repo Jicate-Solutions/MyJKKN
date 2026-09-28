@@ -166,7 +166,6 @@ export function DataTableRowActions<TData>({
             }`.trim()
           }
         ]}
-        institutionName={bill.institution?.name || 'Unknown Institution'}
         isPending={requestCancel.isPending}
         onConfirm={handleCancel}
       />
