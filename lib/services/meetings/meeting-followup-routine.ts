@@ -8,25 +8,97 @@
 // Two passes, both rules-based, no model:
 //   A. "Meeting record ready": a Fireflies note has been matched to a meeting
 //      and its follow-ups have been turned into tasks. The host gets one bell
-//      card per note, saying how many follow-ups are still open.
-//   B. Weekly digest: a host with follow-ups still open after STALE_DAYS gets
-//      one card a week naming how many, across how many meetings, and the three
-//      oldest meetings.
+//      card per note, saying how many follow-ups are still open on that
+//      meeting.
+//   B. Weekly digest: a host with follow-ups still open after the stale window
+//      gets one card a week naming how many, across how many meetings, and the
+//      three oldest meetings.
+//
+// THE TUNABLES ARE CONFIG ROWS (docs/architecture/config-table-pattern.md).
+// Each knob below is a global platform_policies row seeded by migration
+// 20270421104700 and editable on Platform Policies without a deploy. The route
+// reads them on every run; DEFAULT_POLICIES are only the values it falls back to
+// when a row is missing, switched off, or holds something unusable — and a row
+// that holds something unusable is named in the run's report, never dropped
+// silently.
 
-/** A follow-up open longer than this counts as stale for the weekly digest. */
-export const STALE_DAYS = 7;
+export const POLICY_PREFIX = 'meetings.followup_routine.';
+
+export const POLICY_KEYS = {
+  /** A follow-up open longer than this many days counts as stale for the weekly digest. */
+  staleDays: 'meetings.followup_routine.stale_days',
+  /**
+   * A "record ready" card is only sent for a note whose follow-ups were applied
+   * within this many days. Without this cap, switching the routine on weeks
+   * after the schedule row was created would send one card for every note
+   * applied in between, all at once.
+   */
+  recordReadyLookbackDays: 'meetings.followup_routine.record_ready_lookback_days',
+  /** How long a "record ready" card stays in the bell before it expires. */
+  recordReadyExpiryDays: 'meetings.followup_routine.record_ready_expiry_days',
+  /** How long a weekly digest card stays in the bell before it expires. */
+  digestExpiryDays: 'meetings.followup_routine.digest_expiry_days',
+} as const;
+
+export interface FollowupPolicies {
+  staleDays: number;
+  recordReadyLookbackDays: number;
+  recordReadyExpiryDays: number;
+  digestExpiryDays: number;
+}
+
+/** Fallbacks only — the live values are the platform_policies rows. */
+export const DEFAULT_POLICIES: Readonly<FollowupPolicies> = Object.freeze({
+  staleDays: 7,
+  recordReadyLookbackDays: 7,
+  recordReadyExpiryDays: 7,
+  digestExpiryDays: 8,
+});
+
+/** A day count above this is treated as a typo, not a setting. */
+export const MAX_POLICY_DAYS = 365;
+
+export interface PolicyRow {
+  policy_key: string;
+  value: unknown;
+  is_active: boolean | null;
+}
+
+function asDays(v: unknown): number | null {
+  const n =
+    typeof v === 'number'
+      ? v
+      : typeof v === 'string' && v.trim() !== ''
+        ? Number(v)
+        : Number.NaN;
+  return Number.isFinite(n) && n > 0 && n <= MAX_POLICY_DAYS ? n : null;
+}
 
 /**
- * A "record ready" card is only sent for a note whose follow-ups were applied
- * within this many days. The card itself expires after 7 days, so a card about
- * an older note would arrive already past its own usefulness — and without this
- * cap, switching the routine on weeks after the schedule row was created would
- * send one card for every note applied in between, all at once.
+ * Turn the routine's platform_policies rows into the values a run uses.
+ * A missing or switched-off row keeps its default. An ACTIVE row whose value is
+ * not a day count between 0 (exclusive) and MAX_POLICY_DAYS also keeps its
+ * default, and its key is returned in `ignored` so the run reports it.
  */
-export const RECORD_READY_LOOKBACK_DAYS = 7;
-
-export const RECORD_READY_TTL_DAYS = 7;
-export const DIGEST_TTL_DAYS = 8;
+export function readPolicies(rows: PolicyRow[]): {
+  policies: FollowupPolicies;
+  ignored: string[];
+} {
+  const policies: FollowupPolicies = { ...DEFAULT_POLICIES };
+  const ignored: string[] = [];
+  const fieldByKey = new Map<string, keyof FollowupPolicies>(
+    (Object.entries(POLICY_KEYS) as Array<[keyof FollowupPolicies, string]>).map(([f, k]) => [k, f]),
+  );
+  for (const row of rows) {
+    if (row.is_active === false) continue;
+    const field = fieldByKey.get(row.policy_key);
+    if (!field) continue;
+    const days = asDays(row.value);
+    if (days === null) ignored.push(row.policy_key);
+    else policies[field] = days;
+  }
+  return { policies, ignored };
+}
 
 export const RECORD_READY_CATEGORY = 'meetings:record-ready';
 export const DIGEST_CATEGORY = 'meetings:followups-weekly';
@@ -46,9 +118,9 @@ export interface AppliedNote {
  * later of the routine's own creation time (so the historical notes that
  * existed before the routine are never carded) and the lookback window.
  */
-export function effectiveFloor(floorIso: string, now: Date): string {
+export function effectiveFloor(floorIso: string, now: Date, lookbackDays: number): string {
   const floorMs = Date.parse(floorIso);
-  const lookbackMs = now.getTime() - RECORD_READY_LOOKBACK_DAYS * DAY_MS;
+  const lookbackMs = now.getTime() - lookbackDays * DAY_MS;
   return new Date(Math.max(floorMs, lookbackMs)).toISOString();
 }
 
@@ -69,16 +141,24 @@ export function recordReadyTitle(noteTitle: string | null): string {
 }
 
 /**
- * "<N> follow-ups to confirm", plus ", and mark whether it happened" while the
- * meeting still reads 'confirmed' — i.e. nobody has yet said whether it took
- * place.
+ * "<N> open follow-ups to review on this meeting". The count is every open
+ * follow-up on the MEETING (booking), not only the ones this note produced —
+ * hand-entered items and items from an earlier note on the same meeting are
+ * included — so the wording says "on this meeting". The meeting page offers
+ * "Mark as done" / "Mark as open" per item, so the card asks the host to
+ * review them, not to "confirm" them. While the meeting still reads
+ * 'confirmed' — nobody has yet said whether it took place — the card also asks
+ * the host to mark whether it happened.
  */
 export function recordReadyBody(openCount: number, bookingStatus: string | null): string {
-  const head =
-    openCount === 0
-      ? 'No open follow-ups to confirm'
-      : `${openCount} follow-up${openCount === 1 ? '' : 's'} to confirm`;
-  return bookingStatus === 'confirmed' ? `${head}, and mark whether it happened` : head;
+  const awaitingOutcome = bookingStatus === 'confirmed';
+  if (openCount === 0) {
+    return awaitingOutcome
+      ? 'No open follow-ups on this meeting. Mark whether it happened'
+      : 'No open follow-ups on this meeting';
+  }
+  const head = `${openCount} open follow-up${openCount === 1 ? '' : 's'} to review on this meeting`;
+  return awaitingOutcome ? `${head}, and mark whether it happened` : head;
 }
 
 export function recordReadyKey(noteId: string): string {
@@ -122,11 +202,11 @@ export interface HostDigest {
 }
 
 /**
- * Group open follow-ups older than STALE_DAYS by host. A host with none gets no
+ * Group open follow-ups older than `staleDays` by host. A host with none gets no
  * digest. "Oldest meetings" are ordered by each meeting's oldest open item.
  */
-export function buildHostDigests(items: OpenItem[], now: Date): HostDigest[] {
-  const cutoff = now.getTime() - STALE_DAYS * DAY_MS;
+export function buildHostDigests(items: OpenItem[], now: Date, staleDays: number): HostDigest[] {
+  const cutoff = now.getTime() - staleDays * DAY_MS;
   const byHost = new Map<string, Map<string, number>>();
   const countByHost = new Map<string, number>();
 
@@ -161,7 +241,9 @@ export function digestTitle(d: HostDigest): string {
   );
 }
 
+const DIGEST_ACTION = 'Open each meeting to review them and mark the finished ones done.';
+
 export function digestBody(oldestTitles: string[]): string {
-  if (oldestTitles.length === 0) return 'Open the meeting to confirm or close them.';
-  return `Oldest: ${oldestTitles.join('; ')}. Open the meeting to confirm or close them.`;
+  if (oldestTitles.length === 0) return DIGEST_ACTION;
+  return `Oldest: ${oldestTitles.join('; ')}. ${DIGEST_ACTION}`;
 }

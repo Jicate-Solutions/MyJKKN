@@ -7,27 +7,51 @@
 // and nothing reaches the host. The follow-ups sit on the meeting page until
 // somebody happens to open it.
 //
+// ONLY STAMPED NOTES ARE SEEN. Pass A selects on action_items_applied_at. On
+// main that stamp is set only when the ingest's calendar matcher links the
+// note itself; a note a person links by hand (fn_link_meeting_note) is never
+// stamped, so it never gets a card. PR #4049 makes the hand-link path apply
+// the follow-ups and stamp the note — hand-linked meetings get a card once it
+// lands, and not before.
+//
 // WHAT THIS DOES (rules-based, no model):
 //   Pass A — record ready. One bell card per note applied since the floor:
-//     "Meeting record ready — <note title>" / "<N> follow-ups to confirm"
-//     (+ ", and mark whether it happened" while the meeting still reads
-//     'confirmed'). Linked to the meeting page, where the follow-ups and the
-//     outcome buttons live. Idempotency key meetings:record-ready:<note_id>.
+//     "Meeting record ready — <note title>" / "<N> open follow-ups to review
+//     on this meeting" (+ ", and mark whether it happened" while the meeting
+//     still reads 'confirmed'). N counts every open follow-up on the meeting,
+//     not only this note's. Linked to the meeting page, where the follow-ups
+//     (Mark as done / Mark as open) and the outcome buttons live. Idempotency
+//     key meetings:record-ready:<note_id>.
 //   Pass B — weekly digest. One card per host per ISO week (IST) when the host
-//     has follow-ups open longer than STALE_DAYS: how many, across how many
-//     meetings, the oldest age, and the three oldest meetings by name. Key
-//     meetings:followups:<host>:<ISO-week>, so the daily wake sends it once.
+//     has follow-ups open longer than the stale window: how many, across how
+//     many meetings, the oldest age, and the three oldest meetings by name.
+//     Key meetings:followups:<host>:<ISO-week>, so the daily wake sends it
+//     once.
 //
-// THE FLOOR. Pass A never cards a note applied before this routine's own
-// ai_routine_schedules.created_at, so the first run cannot card the notes that
-// existed before the routine did. If that row is missing the route sends
-// NOTHING (both passes) and reports floorMissing — a missing row means the
-// migration was never applied, and guessing a floor would be a silent choice.
+// THE FLOOR (Pass A only). Pass A never cards a note applied before this
+// routine's own ai_routine_schedules.created_at, so the first run cannot card
+// the notes that existed before the routine did. If that row is missing the
+// route sends NOTHING (both passes) and reports floorMissing — a missing row
+// means the migration was never applied, and guessing a floor would be a
+// silent choice.
+//
+// PASS B HAS NO FLOOR. It reads every follow-up still open and older than the
+// stale window, however old. The first enabled run therefore sends each host
+// ONE digest card covering every old open follow-up at once (read 28 Sep: 61
+// open follow-ups older than 7 days, all under one host, oldest from 15 Sep).
+// One card per host, not one per item — a summary, not a flood.
+//
+// TUNABLES ARE CONFIG ROWS. Stale window, record-ready lookback and the two
+// card lifetimes are platform_policies rows 'meetings.followup_routine.*'
+// (seeded by the same migration as the schedule row), read on every run; the
+// values in lib/services/meetings/meeting-followup-routine.ts are fallbacks
+// only. A row holding an unusable value is named in policy_ignored.
 //
 // SWITCHED OFF. The schedule row ships enabled=false. The dispatcher only fires
 // enabled rows, and this route also refuses to write while the row is disabled,
 // so a hand-run cannot send cards before the Director switches it on. ?dry=1
-// always works and writes nothing.
+// always works and writes nothing. A run that writes nothing reports
+// would_card / would_digest; only a run that writes reports carded / digests.
 //
 // Runs via the AI-routine dispatcher (ai_routine_schedules row
 // 'meetings-followup-routine', daily 18:47 IST) — NOT a raw vercel.json cron,
@@ -47,21 +71,21 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 import {
   DIGEST_CATEGORY,
-  DIGEST_TTL_DAYS,
+  POLICY_PREFIX,
   RECORD_READY_CATEGORY,
-  RECORD_READY_TTL_DAYS,
-  STALE_DAYS,
   buildHostDigests,
   digestBody,
   digestKey,
   digestTitle,
   effectiveFloor,
+  readPolicies,
   recordReadyBody,
   recordReadyKey,
   recordReadyTitle,
   selectRecordReadyNotes,
   type AppliedNote,
   type OpenItem,
+  type PolicyRow,
 } from '@/lib/services/meetings/meeting-followup-routine';
 
 const ROUTINE_ID = 'meetings-followup-routine';
@@ -123,13 +147,12 @@ export async function GET(request: NextRequest) {
 
     const schedRow = sched as { created_at: string; enabled: boolean } | null;
     if (!schedRow?.created_at) {
+      // Nothing was looked at, so there is no would-send count to report either.
       return NextResponse.json({
         ok: true,
         floorMissing: true,
+        wrote: false,
         examined: 0,
-        carded: 0,
-        duplicate: 0,
-        digests: 0,
         floor: null,
         reason: `No ai_routine_schedules row '${ROUTINE_ID}' — nothing sent.`,
         elapsed_ms: Date.now() - started,
@@ -138,7 +161,17 @@ export async function GET(request: NextRequest) {
 
     // Disabled row: report what would happen, write nothing.
     const writes = !dry && schedRow.enabled === true;
-    const floor = effectiveFloor(schedRow.created_at, now);
+
+    // ── the tunables (platform_policies rows) ──────────────────────────────
+    const { data: policyRows, error: pErr } = await svc
+      .from('platform_policies')
+      .select('policy_key, value, is_active')
+      .eq('scope_type', 'global')
+      .like('policy_key', `${POLICY_PREFIX}%`);
+    if (pErr) throw new Error(`platform_policies read failed: ${pErr.message}`);
+    const { policies, ignored: policyIgnored } = readPolicies((policyRows ?? []) as PolicyRow[]);
+
+    const floor = effectiveFloor(schedRow.created_at, now, policies.recordReadyLookbackDays);
 
     // ── Pass A: record ready ───────────────────────────────────────────────
     const { data: noteRows, error: notesErr } = await svc
@@ -186,20 +219,28 @@ export async function GET(request: NextRequest) {
     }
 
     const seenA = await existingKeys(svc, notes.map((n) => recordReadyKey(n.id)));
-    let carded = 0;
+    let cardCount = 0;
     let duplicate = 0;
-    const recordReadyExpires = new Date(now.getTime() + RECORD_READY_TTL_DAYS * DAY_MS).toISOString();
+    let skippedNoHost = 0;
+    const recordReadyExpires = new Date(
+      now.getTime() + policies.recordReadyExpiryDays * DAY_MS,
+    ).toISOString();
 
     for (const note of notes) {
       const booking = bookingById.get(note.booking_id as string);
-      if (!booking?.host_profile_id) continue;
+      if (!booking?.host_profile_id) {
+        // The note points at a booking that is gone, or one with no host:
+        // there is nobody to tell. Counted, never dropped silently.
+        skippedNoHost += 1;
+        continue;
+      }
       const key = recordReadyKey(note.id);
       if (seenA.has(key)) {
         duplicate += 1;
         continue;
       }
       if (!writes) {
-        carded += 1;
+        cardCount += 1;
         continue;
       }
       const res = await fanoutNotification(svc, {
@@ -216,11 +257,11 @@ export async function GET(request: NextRequest) {
         extraColumns: { expires_at: recordReadyExpires },
       });
       if (res.skipped === 'idempotent') duplicate += 1;
-      else if (res.notified > 0) carded += 1;
+      else if (res.notified > 0) cardCount += 1;
     }
 
-    // ── Pass B: weekly digest ──────────────────────────────────────────────
-    const staleCutoff = new Date(now.getTime() - STALE_DAYS * DAY_MS).toISOString();
+    // ── Pass B: weekly digest (NOT bounded by the floor — see header) ──────
+    const staleCutoff = new Date(now.getTime() - policies.staleDays * DAY_MS).toISOString();
     const { data: items, error: iErr } = await svc
       .from('meeting_action_items')
       .select('host_profile_id, booking_id, created_at')
@@ -229,7 +270,7 @@ export async function GET(request: NextRequest) {
       .limit(5000);
     if (iErr) throw new Error(`stale follow-ups read failed: ${iErr.message}`);
 
-    const hostDigests = buildHostDigests((items ?? []) as OpenItem[], now);
+    const hostDigests = buildHostDigests((items ?? []) as OpenItem[], now, policies.staleDays);
     const labelIds = [...new Set(hostDigests.flatMap((d) => d.oldestBookingIds))];
     const labelById = new Map<string, { uid: string; title: string }>();
 
@@ -257,8 +298,8 @@ export async function GET(request: NextRequest) {
     }
 
     const seenB = await existingKeys(svc, hostDigests.map((d) => digestKey(d.hostId, now)));
-    let digests = 0;
-    const digestExpires = new Date(now.getTime() + DIGEST_TTL_DAYS * DAY_MS).toISOString();
+    let digestCount = 0;
+    const digestExpires = new Date(now.getTime() + policies.digestExpiryDays * DAY_MS).toISOString();
 
     for (const d of hostDigests) {
       const key = digestKey(d.hostId, now);
@@ -267,7 +308,7 @@ export async function GET(request: NextRequest) {
         continue;
       }
       if (!writes) {
-        digests += 1;
+        digestCount += 1;
         continue;
       }
       const oldest = labelById.get(d.oldestBookingIds[0]);
@@ -287,8 +328,15 @@ export async function GET(request: NextRequest) {
         extraColumns: { expires_at: digestExpires },
       });
       if (res.skipped === 'idempotent') duplicate += 1;
-      else if (res.notified > 0) digests += 1;
+      else if (res.notified > 0) digestCount += 1;
     }
+
+    // A run that wrote nothing reports what it WOULD have sent under different
+    // names, so a status line or summary that reads `carded` alone can never
+    // mistake a dry or switched-off run for delivered cards.
+    const sendCounts = writes
+      ? { carded: cardCount, digests: digestCount }
+      : { would_card: cardCount, would_digest: digestCount };
 
     return NextResponse.json({
       ok: true,
@@ -296,10 +344,12 @@ export async function GET(request: NextRequest) {
       enabled: schedRow.enabled,
       wrote: writes,
       examined: notes.length,
-      carded,
+      ...sendCounts,
       duplicate,
-      digests,
+      skipped_no_host: skippedNoHost,
       floor,
+      policies,
+      ...(policyIgnored.length > 0 ? { policy_ignored: policyIgnored } : {}),
       elapsed_ms: Date.now() - started,
     });
   } catch (err) {
