@@ -96,7 +96,7 @@ describe('checkExistingAttendanceForPeriods — every record of the day, not one
   });
 });
 
-describe('the teacher\'s My Classes view checks every period', () => {
+describe('the Senior Learner\'s own periods view checks every period', () => {
   const read = (f: string) =>
     readFileSync(path.resolve(__dirname, '../../../app/(routes)/academic/attendance/_components', f), 'utf8');
 
