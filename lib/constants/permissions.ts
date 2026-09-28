@@ -2805,6 +2805,11 @@ export const PERMISSION_CATEGORIES = [
       // tables (registrations, payment transactions, tournament matches …), so
       // it is deliberately not bundled into any existing events key.
       { key: 'events.delete', label: 'Delete Events (permanent — cascades registrations & payments)' },
+      // Edit any event in your institution (2026-09-28). Before this key, edit
+      // was ownership-only (creator / super admin), so Role Management had
+      // nothing to grant. DB authority: events_edit_permission_update, scoped by
+      // role_has_institution_access. Mirrored client-side in canEditEvent().
+      { key: 'events.edit', label: 'Edit Any Event in Your Institution (details, status, visibility)' },
       // Target sections (2026-09-07). Grants writing event_target_classes — the
       // sections an event is aimed at. Reading them rides events.view, so a
       // coordinator who can see an event can see who it is for; only changing
