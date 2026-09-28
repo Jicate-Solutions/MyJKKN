@@ -14,7 +14,7 @@
  *
  * RUNNING IT
  *   brew services start postgresql@16
- *   ./node_modules/.bin/vitest run __tests__/lib/session-feedback/pending-separate-periods.pg.test.ts
+ *   ./node_modules/.bin/vitest run __tests__/session-feedback/pending-separate-periods.pg.test.ts
  *
  * Override the server with SCF_TEST_PGHOST / _PGPORT / _PGUSER / _PGPASSWORD.
  * Loud rather than skipped when no server is reachable.
@@ -26,7 +26,7 @@ import { randomUUID } from 'crypto';
 import { Client } from 'pg';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 
-const REPO = path.resolve(__dirname, '..', '..', '..');
+const REPO = path.resolve(__dirname, '..', '..');
 const MIGRATION = path.join(
   REPO,
   'supabase/migrations/20270208090000_scf_pending_separate_periods_offered.sql',
