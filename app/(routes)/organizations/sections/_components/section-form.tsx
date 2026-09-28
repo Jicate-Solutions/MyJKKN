@@ -81,6 +81,9 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
 
   // Loading states
   const [loadingInstitutions, setLoadingInstitutions] = useState(true);
+  const [accessibleInstitutions, setAccessibleInstitutions] = useState<
+    typeof institutions
+  >([]);
   const [loadingDegrees, setLoadingDegrees] = useState(false);
   const [loadingDepartments, setLoadingDepartments] = useState(false);
   const [loadingPrograms, setLoadingPrograms] = useState(false);
@@ -189,6 +192,18 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
         );
         setInstitutions(institutionNames);
 
+        // Non-super-admins may pick among the institutions their role reaches
+        // (institution_scope='all' roles such as Admission Officer reach every
+        // institution; the sections write RLS allows it — 20260926120000).
+        if (!isSuperAdmin && userProfile?.id) {
+          const accessible = await OrganizationService.getInstitutionNames(
+            true,
+            userProfile.id,
+            'all'
+          );
+          setAccessibleInstitutions(accessible);
+        }
+
         // Auto-set institution for faculty users after institutions are loaded
         if (!isSuperAdmin && userProfile?.institution_id && !isEditing) {
           form.setValue('institution_id', userProfile.institution_id);
@@ -202,7 +217,11 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
     };
 
     fetchInstitutions();
-  }, [form, isSuperAdmin, userProfile?.institution_id, isEditing]);
+  }, [form, isSuperAdmin, userProfile?.id, userProfile?.institution_id, isEditing]);
+
+  const canPickInstitution = isSuperAdmin || accessibleInstitutions.length > 1;
+  const institutionOptions =
+    isSuperAdmin || !canPickInstitution ? institutions : accessibleInstitutions;
 
   // Initialize form with section data when editing
   useEffect(() => {
@@ -513,7 +532,7 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                       onValueChange={field.onChange}
                       value={field.value}
                       disabled={
-                        !isSuperAdmin || loadingInstitutions || isEditing
+                        !canPickInstitution || loadingInstitutions || isEditing
                       }
                     >
                       <FormControl>
@@ -522,7 +541,7 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                             placeholder={
                               loadingInstitutions
                                 ? 'Loading institutions...'
-                                : isSuperAdmin
+                                : canPickInstitution
                                 ? 'Select institution'
                                 : 'Auto-assigned from your profile'
                             }
@@ -530,7 +549,7 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {institutions.map((institution) => (
+                        {institutionOptions.map((institution) => (
                           <SelectItem
                             key={institution.id}
                             value={institution.id}
@@ -541,7 +560,7 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
                       </SelectContent>
                     </Select>
                     <FormMessage />
-                    {!isSuperAdmin && (
+                    {!canPickInstitution && (
                       <p className='text-xs text-muted-foreground'>
                         Institution is automatically set based on your profile
                       </p>
