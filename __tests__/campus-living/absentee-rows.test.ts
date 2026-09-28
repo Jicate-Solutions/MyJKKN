@@ -7,12 +7,12 @@
 import { readFileSync } from 'fs';
 import path from 'path';
 import { describe, it, expect } from 'vitest';
-import { buildAbsenteeRows, tierFor } from '@/lib/campus-living/absentee-rows';
+import { absenteeWindowStart, buildAbsenteeRows, fetchAllPages, localIsoDate, tierFor } from '@/lib/campus-living/absentee-rows';
 
-const rec = (learner_id: string, date: string, evening_status = 'absent', name = learner_id) => ({
-  learner_id, date, evening_status: evening_status as never,
+const rec = (learner_id: string, date: string, evening_status = 'absent', name = learner_id, blockId = 'b') => ({
+  learner_id, date, evening_status: evening_status as never, block_id: blockId,
   learner: { id: learner_id, full_name: name, email: `${learner_id}@t` },
-  block: { id: 'b', name: 'Block A', code: 'A' },
+  block: { id: blockId, name: `Block ${blockId.toUpperCase()}`, code: blockId.toUpperCase() },
 });
 
 describe('buildAbsenteeRows (BUG-006210)', () => {
@@ -30,7 +30,7 @@ describe('buildAbsenteeRows (BUG-006210)', () => {
       ['cy', 1, 'normal', '2026-09-27'],
       ['eve', 1, 'normal', '2026-09-27'],
     ]);
-    expect(rows[0].block).toBe('Block A');
+    expect(rows[0].block).toBe('Block B');
   });
 
   it('a run that reaches the start of the window is flagged as "at least"', () => {
@@ -54,5 +54,57 @@ describe('buildAbsenteeRows (BUG-006210)', () => {
     const page = readFileSync(path.resolve(__dirname, '../../app/(routes)/campus-living/attendance/absentees/page.tsx'), 'utf8');
     expect(page).toContain('buildAbsenteeRows');
     expect(page).not.toMatch(/statusConfig\[student\.status\]/);
+  });
+
+  it('"today" is each block\'s own latest marked day: a block that marks late keeps its absentees', () => {
+    const rows = buildAbsenteeRows([
+      rec('ann', '2026-09-27', 'absent', 'ann', 'a'),
+      rec('bob', '2026-09-26', 'absent', 'bob', 'b'), // block B has not marked 27 Sep yet
+      rec('bob', '2026-09-25', 'absent', 'bob', 'b'),
+    ], '2026-09-23');
+    expect(rows.map((r) => [r.learnerId, r.consecutiveDays])).toEqual([['bob', 2], ['ann', 1]]);
+  });
+
+  it('a block that marked today with no absences does not show yesterday\'s absentees', () => {
+    const rows = buildAbsenteeRows([
+      rec('ann', '2026-09-27', 'absent', 'ann', 'a'),
+      rec('cy', '2026-09-27', 'present', 'cy', 'c'),
+      rec('dee', '2026-09-26', 'absent', 'dee', 'c'), // came back on the 27th
+    ], '2026-09-23');
+    expect(rows.map((r) => r.learnerId)).toEqual(['ann']);
+  });
+});
+
+describe('absentee window dates (IST before 05:30)', () => {
+  it('uses the local calendar day, not UTC: 00:30 IST on 28 Sep gives a 5-day window from 24 Sep', () => {
+    // 2026-09-27T19:00Z is 00:30 on 28 Sep in IST; toISOString would say the 27th.
+    const d = new Date(2026, 8, 28, 0, 30);
+    expect(localIsoDate(d)).toBe('2026-09-28');
+    expect(absenteeWindowStart(d)).toBe('2026-09-24');
+  });
+});
+
+describe('fetchAllPages (rows past the 1000 cap are not dropped)', () => {
+  const pager = (total: number, size = 1000) => (page: number) =>
+    Promise.resolve({
+      data: Array.from({ length: Math.max(0, Math.min(size, total - (page - 1) * size)) }, (_, i) => (page - 1) * size + i),
+      count: total,
+    });
+
+  it('reads every page until the count is reached', async () => {
+    const res = await fetchAllPages(pager(2350));
+    expect(res.data).toHaveLength(2350);
+    expect(res.truncated).toBe(false);
+  });
+
+  it('flags the list as truncated when the page cap is hit', async () => {
+    const res = await fetchAllPages(pager(5000), 2);
+    expect(res).toMatchObject({ count: 5000, truncated: true });
+    expect(res.data).toHaveLength(2000);
+  });
+
+  it('stops on an empty page even if the count says more', async () => {
+    const res = await fetchAllPages(() => Promise.resolve({ data: [] as number[], count: 10 }));
+    expect(res.data).toHaveLength(0);
   });
 });

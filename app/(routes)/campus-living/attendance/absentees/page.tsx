@@ -18,8 +18,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useAuth } from '@/hooks/use-auth';
-import { useHostelAttendance } from '@/hooks/campus-living/use-hostel-attendance';
-import { ABSENTEE_WINDOW_DAYS, buildAbsenteeRows, type AbsenteeTier } from '@/lib/campus-living/absentee-rows';
+import { useAllHostelAttendance } from '@/hooks/campus-living/use-hostel-attendance';
+import { absenteeWindowStart, buildAbsenteeRows, type AbsenteeTier } from '@/lib/campus-living/absentee-rows';
 import {
   ArrowLeft,
   Search,
@@ -40,21 +40,15 @@ const statusConfig: Record<AbsenteeTier, { label: string; variant: 'default' | '
 export default function AbsenteesPage() {
   const { profile } = useAuth();
   // BUG-006210: the raw attendance rows carry evening_status, not the page's
-  // `status` / `name` / `consecutive_days` — build one row per resident absent on
-  // the latest marked day from the last ABSENTEE_WINDOW_DAYS days of absences.
-  const [windowStart] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - (ABSENTEE_WINDOW_DAYS - 1));
-    return d.toISOString().slice(0, 10);
+  // `status` / `name` / `consecutive_days`. Read EVERY record of the last
+  // ABSENTEE_WINDOW_DAYS days (all statuses, all pages — a super admin sees every
+  // college), then build one row per resident absent on their block's latest
+  // marked day.
+  const [windowStart] = useState(() => absenteeWindowStart(new Date()));
+  const { data: attendance, isLoading } = useAllHostelAttendance(profile?.institution_id ?? '', {
+    date_from: windowStart,
   });
-  const { data: rawAbsentees, isLoading } = useHostelAttendance(
-    profile?.institution_id ?? '',
-    { status: 'absent', date_from: windowStart },
-    1000,
-  );
-  const raw = rawAbsentees as any;
-  const records = Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [];
-  const absentees = buildAbsenteeRows(records, windowStart);
+  const absentees = buildAbsenteeRows(attendance?.data ?? [], windowStart);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
@@ -131,6 +125,12 @@ export default function AbsenteesPage() {
             </Button>
           </div>
         </div>
+
+        {attendance?.truncated && (
+          <p className="text-sm text-amber-700 dark:text-amber-300">
+            Showing the first {attendance.data.length} of {attendance.count} attendance records. Narrow by college to see everyone.
+          </p>
+        )}
 
         {/* Alert Indicators */}
         {criticalCount > 0 && (

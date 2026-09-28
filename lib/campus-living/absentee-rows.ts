@@ -42,19 +42,29 @@ export function tierFor(days: number): AbsenteeTier {
 }
 
 /**
- * One row per resident absent on the LATEST day present in `records` (the most
- * recent day attendance was marked). The run counts back one calendar day at a
- * time while the resident was marked absent on that day; `windowStart` (the
- * first day fetched) caps it, and a run that reaches it is flagged `atLeast`.
- * Rows with no learner id are ignored. Sorted by longest run, then name.
+ * One row per resident absent on their BLOCK's latest marked day — the most
+ * recent day that block has any attendance record for, whatever the status, so a
+ * block that marks late keeps its still-absent residents until it marks, and a
+ * block with no absences today does not show yesterday's. Pass every record in
+ * the window, not only absences. The run counts back one calendar day at a time
+ * while the resident was marked absent on that day; `windowStart` (the first day
+ * fetched) caps it, and a run that reaches it is flagged `atLeast`. Rows with no
+ * learner id are ignored. Sorted by longest run, then name.
  */
 export function buildAbsenteeRows(
-  records: Pick<HostelAttendance, 'learner_id' | 'date' | 'evening_status' | 'learner' | 'block'>[],
+  records: Pick<HostelAttendance, 'learner_id' | 'date' | 'evening_status' | 'learner' | 'block' | 'block_id'>[],
   windowStart: string,
 ): AbsenteeRow[] {
+  const blockKey = (r: (typeof records)[number]) => r.block_id ?? r.block?.id ?? '';
+  const latestByBlock = new Map<string, string>();
+  for (const r of records) {
+    if (!r.date) continue;
+    const k = blockKey(r);
+    const cur = latestByBlock.get(k);
+    if (!cur || r.date > cur) latestByBlock.set(k, r.date);
+  }
   const absent = records.filter((r) => r.evening_status === 'absent' && r.learner_id && r.date);
   if (absent.length === 0) return [];
-  const latest = absent.reduce((max, r) => (r.date > max ? r.date : max), absent[0].date);
 
   const byLearner = new Map<string, typeof absent>();
   for (const r of absent) {
@@ -66,7 +76,10 @@ export function buildAbsenteeRows(
   const rows: AbsenteeRow[] = [];
   for (const [learnerId, list] of byLearner) {
     const days = new Set(list.map((r) => r.date));
-    if (!days.has(latest)) continue; // not absent on the latest marked day
+    // The block of the resident's newest absence decides which day is "today".
+    const newest = list.reduce((a, r) => (r.date > a.date ? r : a), list[0]);
+    const latest = latestByBlock.get(blockKey(newest)) ?? newest.date;
+    if (!days.has(latest)) continue; // not absent on their block's latest marked day
     let run = 0;
     let day = latest;
     let first = latest;
@@ -89,4 +102,39 @@ export function buildAbsenteeRows(
     });
   }
   return rows.sort((a, b) => b.consecutiveDays - a.consecutiveDays || a.name.localeCompare(b.name));
+}
+
+/** YYYY-MM-DD of `d` in the viewer's own time zone (toISOString is UTC, which in
+ *  IST before 05:30 is still yesterday). */
+export function localIsoDate(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** First day of an `ABSENTEE_WINDOW_DAYS`-day window ending on `today` (local). */
+export function absenteeWindowStart(today: Date): string {
+  const d = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  d.setDate(d.getDate() - (ABSENTEE_WINDOW_DAYS - 1));
+  return localIsoDate(d);
+}
+
+/**
+ * Reads every page of a counted query instead of trusting one capped page: the
+ * API returns at most 1000 rows per request, and five days across every college
+ * can pass that. Stops once `count` rows are in, a page comes back short, or
+ * `maxPages` is hit — then `truncated` says the list is incomplete.
+ */
+export async function fetchAllPages<T>(
+  fetchPage: (page: number) => Promise<{ data: T[]; count: number }>,
+  maxPages = 20,
+): Promise<{ data: T[]; count: number; truncated: boolean }> {
+  const data: T[] = [];
+  let count = 0;
+  for (let page = 1; page <= maxPages; page += 1) {
+    const res = await fetchPage(page);
+    count = res.count;
+    data.push(...res.data);
+    if (data.length >= count || res.data.length === 0) return { data, count, truncated: false };
+  }
+  return { data, count, truncated: data.length < count };
 }

@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { HostelAttendanceService } from '@/lib/services/campus-living/hostel-attendance-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { fetchAllPages } from '@/lib/campus-living/absentee-rows';
 import type {
   HostelAttendance,
   CreateHostelAttendanceDTO,
@@ -37,16 +38,26 @@ export function useMyBlockAccess() {
 
 // --- Query hooks ---
 
-export function useHostelAttendance(
-  institutionId: string | undefined,
-  filters?: AttendanceFilters,
-  pageSize?: number,
-) {
+export function useHostelAttendance(institutionId: string | undefined, filters?: AttendanceFilters) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
-    queryKey: hostelAttendanceKeys.list({ institutionId, ...filters, ...(pageSize ? { pageSize } : {}) }),
+    queryKey: hostelAttendanceKeys.list({ institutionId, ...filters }),
+    queryFn: () => HostelAttendanceService.getAttendance(isSuperAdmin ? undefined : institutionId, filters),
+    enabled: isSuperAdmin || !!institutionId,
+  });
+}
+
+// Every matching row, read 1000 at a time until the count is reached (the
+// Absentees page; a super admin sees every college). `truncated` is set only if
+// the page cap in fetchAllPages is hit.
+export function useAllHostelAttendance(institutionId: string | undefined, filters?: AttendanceFilters) {
+  const { isSuperAdmin } = usePermissions();
+  return useQuery({
+    queryKey: hostelAttendanceKeys.list({ institutionId, ...filters, all: true }),
     queryFn: () =>
-      HostelAttendanceService.getAttendance(isSuperAdmin ? undefined : institutionId, filters, 1, pageSize),
+      fetchAllPages((page) =>
+        HostelAttendanceService.getAttendance(isSuperAdmin ? undefined : institutionId, filters, page, 1000),
+      ),
     enabled: isSuperAdmin || !!institutionId,
   });
 }
