@@ -44,7 +44,10 @@ import { AttendanceRosterService } from '@/lib/services/academic/attendance-rost
 
 const TT = 'tt-mba';
 const DAY = '2026-09-25';
-const present = { students: [{ student_id: 'l1', status: 'Present' }] };
+const PRESENT = 'Present';
+const LEARNER = 'l1';
+const present = { students: [{ student_id: LEARNER, status: PRESENT }] };
+const emptySlot = { students: [] };
 
 // Section groups as saved on 25 Sep: A alone; B with C; C alone (a later batch).
 const A = 'sec-2445', B = 'sec-59ea', C = 'sec-5ba6', D = 'sec-8e29';
@@ -54,7 +57,7 @@ beforeEach(() => {
     { id: 'rec-A', timetable_id: TT, attendance_date: DAY, section_id: A, section_ids: [A], attendance_data: { 'slot-0455': present, 'slot-7616': present } },
     { id: 'rec-B', timetable_id: TT, attendance_date: DAY, section_id: B, section_ids: [B, C], attendance_data: { 'slot-7616': present, 'slot-dd6f': present } },
     { id: 'rec-C', timetable_id: TT, attendance_date: DAY, section_id: C, section_ids: [C, B], attendance_data: { 'slot-a7f6': present } },
-    { id: 'rec-D', timetable_id: TT, attendance_date: DAY, section_id: D, section_ids: null, attendance_data: { 'slot-7cc9': present, 'slot-empty': { students: [] } } },
+    { id: 'rec-D', timetable_id: TT, attendance_date: DAY, section_id: D, section_ids: null, attendance_data: { 'slot-7cc9': present, 'slot-empty': emptySlot } },
   ];
 });
 
