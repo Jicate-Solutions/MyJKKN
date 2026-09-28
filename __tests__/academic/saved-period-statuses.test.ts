@@ -49,8 +49,8 @@ describe('savedStatusesForPeriod', () => {
     expect(savedStatusesForPeriod(record, 'nope')).toEqual({});
   });
 
-  it('skips malformed student rows', () => {
-    const r = { attendance_data: { [PTM]: { students: [{ student_id: 's1' }, { status: 'Absent' }, null] } } };
+  it('skips malformed learner rows', () => {
+    const r = { attendance_data: { [PTM]: { 'students': [{ 'student_id': 's1' }, { status: 'Absent' }, null] } } };
     expect(savedStatusesForPeriod(r, PTM)).toEqual({});
   });
 });

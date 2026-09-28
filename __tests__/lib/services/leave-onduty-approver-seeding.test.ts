@@ -80,8 +80,7 @@ let rpcCalls: Array<{ fn: string; args: any }> = [];
 let deletedApplicationIds: string[] = [];
 /** Tables the service wrote to directly — must never include approvals. */
 let insertedTables: string[] = [];
-const LEAVE_TYPE_ID = '22222222-2222-4222-8222-222222222222';
-/** Whether the leave type demands sponsor pre-approval. */
+/** Whether the sub-category demands sponsor pre-approval. */
 let requiresSponsorApproval = false;
 
 function makeClient() {
@@ -92,7 +91,13 @@ function makeClient() {
   return {
     rpc(fn: string, args: any) {
       rpcCalls.push({ fn, args });
-      if (fn === 'fn_lo_seed_approvals') return Promise.resolve(seedResult);
+      if (fn === 'fn_seed_application_approvals') return Promise.resolve(seedResult);
+      // Rollback of a failed submission goes through this RPC (a learner's
+      // plain DELETE is refused by RLS on a pending row).
+      if (fn === 'fn_discard_unseeded_application') {
+        deletedApplicationIds.push(args.p_application_id);
+        return Promise.resolve({ data: true, error: null });
+      }
       throw new Error(`Unexpected rpc in test: ${fn}`);
     },
     from(table: string) {
@@ -144,19 +149,13 @@ function makeClient() {
         };
       }
 
-      if (table === 'learner_leave_types') {
+      if (table === 'leave_onduty_sub_categories') {
         const b: any = {
           select: () => b,
           eq: () => b,
           maybeSingle: () =>
             Promise.resolve({
-              data: {
-                id: LEAVE_TYPE_ID,
-                code: 'industrial_visits',
-                category: 'onduty',
-                requires_sponsor_approval: requiresSponsorApproval,
-                is_active: true,
-              },
+              data: { requires_sponsor_approval: requiresSponsorApproval },
               error: null,
             }),
         };
@@ -204,7 +203,6 @@ import { LeaveOndutyService } from '@/lib/services/academic/leave-onduty-service
 const APPLICATION_INPUT: any = {
   category: 'onduty',
   sub_category: 'industrial_visits',
-  leave_type_id: LEAVE_TYPE_ID,
   start_date: APPLY_DATE,
   end_date: APPLY_DATE,
   period_type: 'fullday',
@@ -229,14 +227,14 @@ afterEach(() => {
 });
 
 describe('createApplication — approver seeding', () => {
-  it('delegates seeding to fn_lo_seed_approvals for the new application', async () => {
+  it('delegates seeding to fn_seed_application_approvals for the new application', async () => {
     const app = await LeaveOndutyService.createApplication(
       APPLICATION_INPUT, LEARNER_ID, INSTITUTION_ID
     );
 
     expect(app).toEqual({ id: APPLICATION_ID });
     expect(rpcCalls).toEqual([
-      { fn: 'fn_lo_seed_approvals', args: { p_application_id: APPLICATION_ID } },
+      { fn: 'fn_seed_application_approvals', args: { p_application_id: APPLICATION_ID } },
     ]);
     expect(deletedApplicationIds).toEqual([]);
   });
@@ -263,7 +261,7 @@ describe('createApplication — approver seeding', () => {
 
     await expect(
       LeaveOndutyService.createApplication(APPLICATION_INPUT, LEARNER_ID, INSTITUTION_ID)
-    ).rejects.toThrow(/permission denied/);
+    ).rejects.toThrow(/Failed to seed approvers: permission denied/);
 
     expect(deletedApplicationIds).toEqual([APPLICATION_ID]);
   });
@@ -278,12 +276,10 @@ describe('createApplication — approver seeding', () => {
     expect(deletedApplicationIds).toEqual([APPLICATION_ID]);
   });
 
-  it('accepts zero approvers for a sponsor-gated leave type without rolling back', async () => {
-    // fn_lo_seed_approvals still runs (it validates the type's rules) but returns
-    // 0 for a sponsor type — the academic chain is seeded after the sponsor
-    // approves, so zero approvers at creation must NOT trigger the rollback.
+  it('skips seeding entirely for a sponsor-gated sub-category', async () => {
+    // The academic chain is seeded after the sponsor approves, so zero approvers
+    // at creation is expected here and must NOT trigger the rollback.
     requiresSponsorApproval = true;
-    seedResult = { data: 0, error: null };
 
     const app = await LeaveOndutyService.createApplication(
       { ...APPLICATION_INPUT, sponsor_id: '33333333-3333-4333-8333-333333333333' },
@@ -292,9 +288,7 @@ describe('createApplication — approver seeding', () => {
     );
 
     expect(app).toEqual({ id: APPLICATION_ID });
-    expect(rpcCalls).toEqual([
-      { fn: 'fn_lo_seed_approvals', args: { p_application_id: APPLICATION_ID } },
-    ]);
+    expect(rpcCalls).toEqual([]);
     expect(deletedApplicationIds).toEqual([]);
   });
 });
