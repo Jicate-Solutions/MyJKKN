@@ -6,6 +6,7 @@ import { logger } from '@/lib/utils/enhanced-logger';
 import { isTimetableOnApprovedLeave } from '@/lib/utils/academic/approved-leave-scope';
 import { fillPeriodSectionNames, sectionIdsNeedingNames } from '@/lib/utils/academic/fill-period-section-names';
 import { practicalSectionIdsForStaff } from '@/lib/utils/practical-period-sections';
+import { isNonMarkableSlot } from '@/lib/utils/academic/non-markable-slot';
 import type {
   TimetableWithRelations,
   TimetableDataStructure,
@@ -568,8 +569,9 @@ export class FacultyAttendanceService {
           // Find period definition (handles both array and object format)
           const periodDef = findPeriodDef(periodId);
           if (!periodDef) continue;
-          // Skip break periods - they are not markable
-          if (periodDef.is_break) continue;
+          // Skip break periods - they are not markable. Honour the slot's own
+          // is_break_slot too: master break rows can be is_break=false (BUG-005817).
+          if (isNonMarkableSlot(slot, periodDef)) continue;
 
           // Collect course IDs for batch fetching
           if (slot.course_id) courseIds.add(slot.course_id);
@@ -1039,8 +1041,8 @@ export class FacultyAttendanceService {
                 if (isAssignedToStaff) {
                   // Find period definition (handles both array and object format)
                   const periodDef = findPeriodDef(periodId);
-                  // Skip break periods - they are not markable
-                  if (periodDef?.is_break) continue;
+                  // Skip break periods - they are not markable (slot flag included, BUG-005817)
+                  if (isNonMarkableSlot(slot, periodDef)) continue;
 
                   const timetableSlotId =
                     slot.slot_id || `${timetable.id}_${day}_${periodId}`;

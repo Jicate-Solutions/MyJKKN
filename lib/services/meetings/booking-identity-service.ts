@@ -80,13 +80,19 @@ export class BookingIdentityService {
 
     // ── 3. Email matches a real login account → require login (rate-limited
     //    upstream; this is the only enumeration-bearing path). ───────────────
-    if (email) {
-      const { data: match } = await serviceClient
+    //    PostgREST reads "*" in an ilike as "%" and no escape stops it, so an
+    //    address carrying "*" is never probed ("*@gmail.com" would otherwise
+    //    answer "does any Gmail account exist?"). % and _ are escaped, and the
+    //    rows are re-checked for an exact match in code.
+    if (email && !email.includes('*')) {
+      const { data: rows } = await serviceClient
         .from('profiles')
-        .select('id')
-        .ilike('email', email)
-        .limit(1)
-        .maybeSingle();
+        .select('id, email')
+        .ilike('email', email.replace(/[\\%_]/g, '\\$&'))
+        .limit(5);
+      const match = ((rows ?? []) as { id: string; email: string | null }[]).find(
+        (r) => (r.email ?? '').trim().toLowerCase() === email,
+      );
       if (match?.id) {
         console.log(`${LOG_PREFIX} known-account email attempted guest booking`);
         return { kind: 'login_required', reason: 'account_exists' };
