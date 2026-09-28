@@ -121,20 +121,25 @@ export function MarkEntryGrid({
 }: MarkEntryGridProps) {
   const entryStatus: EntryWindowStatus = getEntryWindowStatus(round);
 
-  // Detect if marks were already saved for this course+round. This makes the
-  // grid view-only — prevents accidental edits to previously submitted data.
-  // Must require EVERY currently-registered learner to already have a saved
-  // mark, not just "some learner somewhere" — otherwise a learner added to
-  // the registration list after the initial submission (late approval,
-  // arrear/condonation, etc.) permanently shows blank/0 with no way to enter
-  // their marks: the grid locks read-only before they ever get a turn.
-  const alreadySaved = useMemo(() => {
-    if (!existingMarks || existingMarks.length === 0 || learners.length === 0) return false;
-    return learners.every((learner) => {
-      const record = existingMarks.find((m) => m.register_number === learner.register_number);
-      return !!record && Object.values(record.marks).some((v) => v !== null && v !== undefined);
-    });
-  }, [existingMarks, learners]);
+  // BUG-003868: marks are locked PER LEARNER. A learner with a saved mark keeps
+  // it read-only; a learner added to the registration after the first save
+  // (late approval, arrear, condonation) gets an open row and is the only one
+  // sent on Save. COE's /api/v1/cia-marks/sync upserts per (student, course
+  // offering, session, round), so a partial save never touches the others.
+  // The whole grid is view-only only once EVERY current learner has a mark.
+  const savedRegisterNumbers = useMemo(() => {
+    const saved = new Set<string>();
+    for (const m of existingMarks ?? []) {
+      if (Object.values(m.marks).some((v) => v !== null && v !== undefined)) {
+        saved.add(m.register_number);
+      }
+    }
+    return saved;
+  }, [existingMarks]);
+  const alreadySaved =
+    learners.length > 0 && learners.every((l) => savedRegisterNumbers.has(l.register_number));
+  const unsavedCount = learners.filter((l) => !savedRegisterNumbers.has(l.register_number)).length;
+  const partiallySaved = !alreadySaved && unsavedCount < learners.length;
 
   // Read-only when: entry window expired/upcoming OR marks already saved OR user lacks edit permission.
   // Per COE spec §6.4, 'no-dates' is treated as open (selectable, no time restriction).
@@ -217,6 +222,7 @@ export function MarkEntryGrid({
   const validationErrors = useMemo(() => {
     const errors: string[] = [];
     for (const row of rows) {
+      if (savedRegisterNumbers.has(row.registerNumber)) continue;
       for (const comp of components) {
         const mark = row.marks[comp.code];
         if (mark !== null && mark !== undefined) {
@@ -234,7 +240,7 @@ export function MarkEntryGrid({
       }
     }
     return errors;
-  }, [rows, components]);
+  }, [rows, components, savedRegisterNumbers]);
 
   // Summary stats
   // Entry/Edit mode: a row is "complete" only when EVERY component has a
@@ -253,9 +259,11 @@ export function MarkEntryGrid({
     const hasAnyMark = (r: MarkRow) =>
       Object.values(r.marks).some((v) => v !== null && v !== undefined);
 
-    const entered = alreadySaved
-      ? rows.filter(hasAnyMark).length
-      : rows.filter(isRowComplete).length;
+    // A saved learner counts by the view-mode rule, a learner still to be
+    // entered only when every component has a mark.
+    const entered = rows.filter((r) =>
+      alreadySaved || savedRegisterNumbers.has(r.registerNumber) ? hasAnyMark(r) : isRowComplete(r)
+    ).length;
 
     return {
       total: rows.length,
@@ -263,13 +271,15 @@ export function MarkEntryGrid({
       pending: rows.length - entered,
       absent: 0,
     };
-  }, [rows, components, alreadySaved]);
+  }, [rows, components, alreadySaved, savedRegisterNumbers]);
 
   // Build sync records for submission
   const handleSubmit = useCallback(() => {
     // Guard 1: find any rows where a component mark is missing (null/undefined)
     // Every student must have marks entered for every component before saving
-    const incomplete = rows.filter((row) =>
+    // Only learners without a saved mark are sent; saved rows are locked.
+    const toSend = rows.filter((row) => !savedRegisterNumbers.has(row.registerNumber));
+    const incomplete = toSend.filter((row) =>
       components.some((c) => {
         const v = row.marks[c.code];
         return v === null || v === undefined;
@@ -291,7 +301,7 @@ export function MarkEntryGrid({
       return;
     }
 
-    const records: CiaMarkSyncRecord[] = rows.map((row) => {
+    const records: CiaMarkSyncRecord[] = toSend.map((row) => {
       // Build extra_marks / extra_marks_max for any custom (end-user-defined) codes.
       // Per COE spec §4: standard codes go to dedicated columns via COMPONENT_MARK_FIELDS;
       // custom codes (anything not in STANDARD_COMPONENT_CODES) go to JSONB.
@@ -394,6 +404,7 @@ export function MarkEntryGrid({
     onSubmit(records, generatePDF);
   }, [
     rows,
+    savedRegisterNumbers,
     validationErrors,
     institutionId,
     examSessionId,
@@ -417,6 +428,15 @@ export function MarkEntryGrid({
             <span className='font-semibold'>View-only mode.</span> Marks have already been
             saved for this course and round. Contact your administrator if corrections are
             needed.
+          </AlertDescription>
+        </Alert>
+      )}
+      {partiallySaved && !isReadOnly && (
+        <Alert className='border-blue-500 bg-blue-50 dark:bg-blue-950/30'>
+          <AlertTriangle className='h-4 w-4 text-blue-600' />
+          <AlertDescription className='text-blue-800 dark:text-blue-200'>
+            <span className='font-semibold'>Saved marks are locked.</span> Only the{' '}
+            {unsavedCount} learner(s) without marks can be entered and saved now.
           </AlertDescription>
         </Alert>
       )}
@@ -557,12 +577,13 @@ export function MarkEntryGrid({
                         mark > comp.max_marks;
 
                       const isFilled = mark !== null && mark !== undefined;
+                      const rowSaved = savedRegisterNumbers.has(row.registerNumber);
                       // Option B per COE spec §5/§7.3: in View mode (after save),
                       // every learner has every component — missing values render
                       // as `0` in bold blue, not blank. In entry/edit, blank-until-typed.
                       const cellStateClass = isOverMax
                         ? 'border-red-500 bg-red-50 text-red-700 focus-visible:ring-red-500 dark:bg-red-950/40 dark:text-red-300'
-                        : alreadySaved
+                        : alreadySaved || rowSaved
                         // View mode (saved data): uniform bold-blue regardless of source
                         ? 'border-blue-200 bg-blue-50/50 text-blue-700 font-bold dark:bg-blue-950/30 dark:text-blue-300 dark:border-blue-800'
                         : isFilled
@@ -577,7 +598,7 @@ export function MarkEntryGrid({
                       const displayValue =
                         isFilled
                           ? mark
-                          : alreadySaved
+                          : alreadySaved || rowSaved
                             ? 0
                             : '';
                       return (
@@ -617,7 +638,7 @@ export function MarkEntryGrid({
                                 }
                               }
                             }}
-                            disabled={isReadOnly}
+                            disabled={isReadOnly || rowSaved}
                             className={cn(
                               'h-9 text-center w-20 mx-auto font-medium transition-colors',
                               cellStateClass
@@ -636,7 +657,7 @@ export function MarkEntryGrid({
                         - View mode (after save): ALWAYS render, including ZERO for total = 0
                         - Entry/Edit mode: blank until at least one component is touched */}
                     <td className='px-3 py-1.5 text-xs text-muted-foreground'>
-                      {alreadySaved
+                      {alreadySaved || savedRegisterNumbers.has(row.registerNumber)
                         ? numberToWords(getRowTotal(row))
                         : Object.values(row.marks).some((v) => v !== null && v !== undefined)
                           ? numberToWords(getRowTotal(row))
