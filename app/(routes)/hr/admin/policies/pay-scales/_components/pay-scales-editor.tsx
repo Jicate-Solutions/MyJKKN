@@ -21,14 +21,19 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  COMPENSATION_INSTITUTIONS,
+  PAY_SCALE_INSTITUTIONS,
   HR_COMPENSATION_KEYS,
   useCompensationPolicy,
   useUpdateCompensationPolicy,
-  type CompensationInstitutionId,
+  type PayScaleInstitutionId,
   type PayMatrixRow,
   type PayScalesValue,
 } from '@/hooks/admin/use-hr-compensation-policies';
+import {
+  referenceLaddersFor,
+  referenceNotesFor,
+} from '@/lib/hr/pay-scales/jkkn-reference-ladders';
+import { PayLaddersSection } from './pay-ladders-section';
 
 // ---------------------------------------------------------------------------
 // Defaults — applied when the row exists but a key is missing, so the editor
@@ -50,7 +55,7 @@ function inrFormat(v: number | null | undefined): string {
 
 export function PayScalesEditor() {
   const [institutionId, setInstitutionId] =
-    useState<CompensationInstitutionId>(COMPENSATION_INSTITUTIONS[0].id);
+    useState<PayScaleInstitutionId>(PAY_SCALE_INSTITUTIONS[0].id);
 
   const policyQ = useCompensationPolicy<PayScalesValue>(
     HR_COMPENSATION_KEYS.PAY_SCALES,
@@ -171,14 +176,14 @@ export function PayScalesEditor() {
         <Select
           value={institutionId}
           onValueChange={(v) =>
-            setInstitutionId(v as CompensationInstitutionId)
+            setInstitutionId(v as PayScaleInstitutionId)
           }
         >
           <SelectTrigger id="institution-select" className="w-64">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {COMPENSATION_INSTITUTIONS.map((inst) => (
+            {PAY_SCALE_INSTITUTIONS.map((inst) => (
               <SelectItem key={inst.id} value={inst.id}>
                 {inst.label}
               </SelectItem>
@@ -192,9 +197,9 @@ export function PayScalesEditor() {
           <Info className="h-4 w-4" />
           <AlertTitle>No row seeded yet for this institution</AlertTitle>
           <AlertDescription>
-            The hr.pay_scales row for this institution has not been seeded.
-            Apply migrations/20260605_hr_compensation_seeds.sql, then return.
-            Saves will no-op until the row exists.
+            The pay-scale record for this institution has not been created
+            yet, so nothing can be saved here. Ask an administrator to apply
+            the migration that creates it, then return.
           </AlertDescription>
         </Alert>
       )}
@@ -325,6 +330,21 @@ export function PayScalesEditor() {
             </tfoot>
           </table>
         </div>
+      </section>
+
+      {/* Year ladders — reference only, never changes anyone's pay */}
+      <section className="rounded-lg border border-border bg-card p-6">
+        <PayLaddersSection
+          ladders={draft.ladders ?? []}
+          notes={draft.ladder_notes ?? []}
+          referenceLadders={referenceLaddersFor(institutionId)}
+          referenceNotes={referenceNotesFor(institutionId)}
+          onChange={(ladders, notes) => {
+            setDraft((prev) => ({ ...prev, ladders, ladder_notes: notes }));
+            setDirty(true);
+          }}
+          disabled={updateM.isPending || seedMissing}
+        />
       </section>
 
       {/* Overrides + governance */}

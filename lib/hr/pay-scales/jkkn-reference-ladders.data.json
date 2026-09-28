@@ -1,0 +1,638 @@
+{
+  "engineering": [
+    {
+      "id": "eng-ap-me-mech-eee-ece",
+      "staff_group": "teaching",
+      "designation": "Assistant Professor",
+      "qualification": "M.E (Mech/EEE/ECE)",
+      "steps": [
+        {
+          "label": "0-1",
+          "basic_pay": 18000
+        },
+        {
+          "label": "2",
+          "basic_pay": 18720
+        },
+        {
+          "label": "3",
+          "basic_pay": 19469
+        },
+        {
+          "label": "4",
+          "basic_pay": 20248
+        },
+        {
+          "label": "5",
+          "basic_pay": 21058
+        }
+      ],
+      "note": null,
+      "source": "JKKN Salary Band.xlsx · Engr 2nd Work Sheet 6% · dated 24 Jan 2024"
+    },
+    {
+      "id": "eng-ap-me-cse-it",
+      "staff_group": "teaching",
+      "designation": "Assistant Professor",
+      "qualification": "M.E (CSE/IT)",
+      "steps": [
+        {
+          "label": "0-1",
+          "basic_pay": 20000
+        },
+        {
+          "label": "2",
+          "basic_pay": 20800
+        },
+        {
+          "label": "3",
+          "basic_pay": 21632
+        },
+        {
+          "label": "4",
+          "basic_pay": 22497
+        },
+        {
+          "label": "5",
+          "basic_pay": 23397
+        }
+      ],
+      "note": null,
+      "source": "JKKN Salary Band.xlsx · Engr 2nd Work Sheet 6% · dated 24 Jan 2024"
+    },
+    {
+      "id": "eng-ap-years-6-10",
+      "staff_group": "teaching",
+      "designation": "Assistant Professor",
+      "qualification": null,
+      "steps": [
+        {
+          "label": "6",
+          "basic_pay": 25000
+        },
+        {
+          "label": "7",
+          "basic_pay": 26000
+        },
+        {
+          "label": "8",
+          "basic_pay": 27040
+        },
+        {
+          "label": "9",
+          "basic_pay": 28122
+        },
+        {
+          "label": "10",
+          "basic_pay": 29247
+        }
+      ],
+      "note": "Years 6 to 10, after either M.E track.",
+      "source": "JKKN Salary Band.xlsx · Engr 2nd Work Sheet 6% · dated 24 Jan 2024"
+    },
+    {
+      "id": "eng-associate-professor",
+      "staff_group": "teaching",
+      "designation": "Associate Professor",
+      "qualification": null,
+      "steps": [
+        {
+          "label": "11",
+          "basic_pay": 31000
+        },
+        {
+          "label": "12",
+          "basic_pay": 32240
+        },
+        {
+          "label": "13",
+          "basic_pay": 33530
+        },
+        {
+          "label": "14",
+          "basic_pay": 34871
+        },
+        {
+          "label": "15",
+          "basic_pay": 36266
+        }
+      ],
+      "note": null,
+      "source": "JKKN Salary Band.xlsx · Engr 2nd Work Sheet 6% · dated 24 Jan 2024"
+    },
+    {
+      "id": "eng-professor",
+      "staff_group": "teaching",
+      "designation": "Professor",
+      "qualification": null,
+      "steps": [
+        {
+          "label": "16",
+          "basic_pay": 40000
+        },
+        {
+          "label": "17",
+          "basic_pay": 41600
+        },
+        {
+          "label": "18",
+          "basic_pay": 43264
+        },
+        {
+          "label": "19",
+          "basic_pay": 44995
+        },
+        {
+          "label": "20",
+          "basic_pay": 46795
+        }
+      ],
+      "note": null,
+      "source": "JKKN Salary Band.xlsx · Engr 2nd Work Sheet 6% · dated 24 Jan 2024"
+    },
+    {
+      "id": "eng-ap-sh-msc-mca",
+      "staff_group": "teaching",
+      "designation": "Assistant Professor (Science & Humanities)",
+      "qualification": "M.Sc./M.C.A.",
+      "steps": [
+        {
+          "label": "0-1",
+          "basic_pay": 13000
+        },
+        {
+          "label": "2",
+          "basic_pay": 13520
+        },
+        {
+          "label": "3",
+          "basic_pay": 14061
+        },
+        {
+          "label": "4",
+          "basic_pay": 14623
+        },
+        {
+          "label": "5",
+          "basic_pay": 15208
+        }
+      ],
+      "note": "The sheet says this scale equals Arts & Science Assistant Professor.",
+      "source": "JKKN Salary Band.xlsx · Engr 2nd Work Sheet 6% · dated 24 Jan 2024"
+    },
+    {
+      "id": "eng-ap-mba-mphil",
+      "staff_group": "teaching",
+      "designation": "Assistant Professor",
+      "qualification": "MBA/M.Phil",
+      "steps": [
+        {
+          "label": "0-1",
+          "basic_pay": 14000
+        },
+        {
+          "label": "2",
+          "basic_pay": 14560
+        },
+        {
+          "label": "3",
+          "basic_pay": 15142
+        },
+        {
+          "label": "4",
+          "basic_pay": 15745
+        },
+        {
+          "label": "5",
+          "basic_pay": 16375
+        },
+        {
+          "label": "6",
+          "basic_pay": 17030
+        },
+        {
+          "label": "7",
+          "basic_pay": 17711
+        },
+        {
+          "label": "8",
+          "basic_pay": 18419
+        },
+        {
+          "label": "9",
+          "basic_pay": 19156
+        },
+        {
+          "label": "10",
+          "basic_pay": 19922
+        },
+        {
+          "label": "11",
+          "basic_pay": 20719
+        },
+        {
+          "label": "12",
+          "basic_pay": 21548
+        },
+        {
+          "label": "13",
+          "basic_pay": 22410
+        },
+        {
+          "label": "14",
+          "basic_pay": 23306
+        },
+        {
+          "label": "15",
+          "basic_pay": 24238
+        }
+      ],
+      "note": "The sheet leaves open whether this should start at 15,000.",
+      "source": "JKKN Salary Band.xlsx · Engr 2nd Work Sheet 6% · dated 24 Jan 2024"
+    },
+    {
+      "id": "eng-ap-set-net",
+      "staff_group": "teaching",
+      "designation": "Assistant Professor",
+      "qualification": "SET/NET",
+      "steps": [
+        {
+          "label": "0-1",
+          "basic_pay": 15000
+        },
+        {
+          "label": "2",
+          "basic_pay": 15600
+        },
+        {
+          "label": "3",
+          "basic_pay": 16224
+        },
+        {
+          "label": "4",
+          "basic_pay": 16873
+        },
+        {
+          "label": "5",
+          "basic_pay": 17548
+        }
+      ],
+      "note": null,
+      "source": "JKKN Salary Band.xlsx · Engr 2nd Work Sheet 6% · dated 24 Jan 2024"
+    },
+    {
+      "id": "eng-lab-instructor-degree",
+      "staff_group": "non_teaching",
+      "designation": "Lab Instructor",
+      "qualification": "B.E./M.Sc./M.C.A.",
+      "steps": [
+        {
+          "label": "0-1",
+          "basic_pay": 11000
+        },
+        {
+          "label": "2",
+          "basic_pay": 11440
+        },
+        {
+          "label": "3",
+          "basic_pay": 11898
+        },
+        {
+          "label": "4",
+          "basic_pay": 12374
+        },
+        {
+          "label": "5",
+          "basic_pay": 12869
+        }
+      ],
+      "note": null,
+      "source": "JKKN Salary Band.xlsx · Engr 2nd Work Sheet 6% · dated 24 Jan 2024"
+    },
+    {
+      "id": "eng-lab-instructor-diploma",
+      "staff_group": "non_teaching",
+      "designation": "Lab Instructor",
+      "qualification": "Diploma",
+      "steps": [
+        {
+          "label": "0-1",
+          "basic_pay": 8000
+        },
+        {
+          "label": "2",
+          "basic_pay": 8240
+        },
+        {
+          "label": "3",
+          "basic_pay": 8487
+        },
+        {
+          "label": "4",
+          "basic_pay": 8742
+        },
+        {
+          "label": "5",
+          "basic_pay": 9004
+        }
+      ],
+      "note": null,
+      "source": "JKKN Salary Band.xlsx · Engr 2nd Work Sheet 6% · dated 24 Jan 2024"
+    },
+    {
+      "id": "eng-lab-instructor-other-ug",
+      "staff_group": "non_teaching",
+      "designation": "Lab Instructor",
+      "qualification": "Any other UG degree",
+      "steps": [
+        {
+          "label": "0-1",
+          "basic_pay": 9000
+        }
+      ],
+      "note": "The sheet leaves years 2 to 5 blank.",
+      "source": "JKKN Salary Band.xlsx · Engr 2nd Work Sheet 6% · dated 24 Jan 2024"
+    }
+  ],
+  "artsScience": [
+    {
+      "id": "as-assistant-professor",
+      "staff_group": "teaching",
+      "designation": "Assistant Professor",
+      "qualification": null,
+      "steps": [
+        {
+          "label": "Step 1",
+          "basic_pay": 15000
+        },
+        {
+          "label": "Step 2",
+          "basic_pay": 15500
+        },
+        {
+          "label": "Step 3",
+          "basic_pay": 16000
+        },
+        {
+          "label": "Step 4",
+          "basic_pay": 16500
+        },
+        {
+          "label": "Step 5",
+          "basic_pay": 17000
+        },
+        {
+          "label": "Step 6",
+          "basic_pay": 17500
+        },
+        {
+          "label": "Step 7",
+          "basic_pay": 18000
+        },
+        {
+          "label": "Step 8",
+          "basic_pay": 18500
+        },
+        {
+          "label": "Step 9",
+          "basic_pay": 19000
+        },
+        {
+          "label": "Step 10",
+          "basic_pay": 19500
+        },
+        {
+          "label": "Step 11",
+          "basic_pay": 20000
+        },
+        {
+          "label": "Step 12",
+          "basic_pay": 21500
+        }
+      ],
+      "note": "The last step rises 1,500, not 500, as written in the sheet.",
+      "source": "JKKN Salary Band.xlsx · Arts & Science Basic + 5% · dated 24 Jan 2024"
+    }
+  ],
+  "support": [
+    {
+      "id": "support-office-assistant-typist",
+      "staff_group": "non_teaching",
+      "designation": "Office Assistant & Typist",
+      "qualification": "High school diploma",
+      "steps": [
+        {
+          "label": "0-1",
+          "basic_pay": 7000
+        },
+        {
+          "label": "2",
+          "basic_pay": 7210
+        },
+        {
+          "label": "3",
+          "basic_pay": 7426
+        },
+        {
+          "label": "4",
+          "basic_pay": 7649
+        },
+        {
+          "label": "5",
+          "basic_pay": 7878
+        },
+        {
+          "label": "6",
+          "basic_pay": 8115
+        },
+        {
+          "label": "7",
+          "basic_pay": 8358
+        },
+        {
+          "label": "8",
+          "basic_pay": 8609
+        },
+        {
+          "label": "9",
+          "basic_pay": 8867
+        },
+        {
+          "label": "10",
+          "basic_pay": 9133
+        },
+        {
+          "label": "11",
+          "basic_pay": 9407
+        },
+        {
+          "label": "12",
+          "basic_pay": 9689
+        },
+        {
+          "label": "13",
+          "basic_pay": 9980
+        },
+        {
+          "label": "14",
+          "basic_pay": 10279
+        },
+        {
+          "label": "15",
+          "basic_pay": 10588
+        }
+      ],
+      "note": "3% a year.",
+      "source": "JKKN Salary Band.xlsx · Office Assistants cum Typist"
+    },
+    {
+      "id": "support-lab-technician",
+      "staff_group": "non_teaching",
+      "designation": "Lab Technician",
+      "qualification": null,
+      "steps": [
+        {
+          "label": "0-1",
+          "basic_pay": 7000
+        },
+        {
+          "label": "2",
+          "basic_pay": 7210
+        },
+        {
+          "label": "3",
+          "basic_pay": 7426
+        },
+        {
+          "label": "4",
+          "basic_pay": 7649
+        },
+        {
+          "label": "5",
+          "basic_pay": 7878
+        },
+        {
+          "label": "6",
+          "basic_pay": 8115
+        },
+        {
+          "label": "7",
+          "basic_pay": 8358
+        },
+        {
+          "label": "8",
+          "basic_pay": 8609
+        },
+        {
+          "label": "9",
+          "basic_pay": 8867
+        },
+        {
+          "label": "10",
+          "basic_pay": 9133
+        },
+        {
+          "label": "11",
+          "basic_pay": 9407
+        },
+        {
+          "label": "12",
+          "basic_pay": 9689
+        },
+        {
+          "label": "13",
+          "basic_pay": 9980
+        },
+        {
+          "label": "14",
+          "basic_pay": 10279
+        },
+        {
+          "label": "15",
+          "basic_pay": 10588
+        }
+      ],
+      "note": "The Lab Technician sheet is a copy of the Office Assistant sheet.",
+      "source": "JKKN Salary Band.xlsx · Lab Technician"
+    },
+    {
+      "id": "support-librarian",
+      "staff_group": "non_teaching",
+      "designation": "Librarian",
+      "qualification": "Master's in Library Science",
+      "steps": [
+        {
+          "label": "0-1",
+          "basic_pay": 10000
+        },
+        {
+          "label": "2",
+          "basic_pay": 10500
+        },
+        {
+          "label": "3",
+          "basic_pay": 11025
+        },
+        {
+          "label": "4",
+          "basic_pay": 11576
+        },
+        {
+          "label": "5",
+          "basic_pay": 12155
+        },
+        {
+          "label": "6",
+          "basic_pay": 12763
+        },
+        {
+          "label": "7",
+          "basic_pay": 13401
+        },
+        {
+          "label": "8",
+          "basic_pay": 14071
+        },
+        {
+          "label": "9",
+          "basic_pay": 14775
+        },
+        {
+          "label": "10",
+          "basic_pay": 15513
+        },
+        {
+          "label": "11",
+          "basic_pay": 16289
+        },
+        {
+          "label": "12",
+          "basic_pay": 17103
+        },
+        {
+          "label": "13",
+          "basic_pay": 17959
+        },
+        {
+          "label": "14",
+          "basic_pay": 18856
+        },
+        {
+          "label": "15",
+          "basic_pay": 19799
+        }
+      ],
+      "note": "5% a year.",
+      "source": "JKKN Salary Band.xlsx · Librarians"
+    }
+  ],
+  "engineeringNotes": [
+    "Head of department allowance: 3,000 a month on top of the ladder.",
+    "There is no Ph.D. line in the band. A doctorate makes someone eligible to move up, and the Director approves each person.",
+    "The sheet is headed as held for the MD's final approval."
+  ],
+  "artsScienceNotes": [
+    "The sheet shows one designation only: Assistant Professor."
+  ]
+}
