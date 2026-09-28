@@ -85,7 +85,7 @@ describe('JKKN reference ladders — counts and shape', () => {
     expect(stepCount(ARTS_SCIENCE_LADDERS)).toBe(12);
   });
 
-  it('Support staff: 3 ladders, 45 steps', () => {
+  it('Support ladders: 3 ladders, 45 steps', () => {
     expect(SUPPORT_STAFF_LADDERS).toHaveLength(3);
     expect(stepCount(SUPPORT_STAFF_LADDERS)).toBe(45);
   });
