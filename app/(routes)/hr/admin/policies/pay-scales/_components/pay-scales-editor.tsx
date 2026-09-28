@@ -77,7 +77,7 @@ export function PayScalesEditor() {
       ? 'loading'
       : referenceQ.isError
         ? { error: referenceQ.error.message || 'Could not load the reference pay band.' }
-        : reference && !reference.success
+        : reference && 'error' in reference
           ? { error: reference.error }
           : 'ready';
 
@@ -354,8 +354,8 @@ export function PayScalesEditor() {
       <PayLaddersSection
         ladders={draft.ladders ?? []}
         notes={draft.ladder_notes ?? []}
-        referenceLadders={reference?.success ? reference.ladders : []}
-        referenceNotes={reference?.success ? reference.notes : []}
+        referenceLadders={reference && 'ladders' in reference ? reference.ladders : []}
+        referenceNotes={reference && 'notes' in reference ? reference.notes : []}
         referenceStatus={referenceStatus}
         onChange={(ladders, notes) => {
           setDraft((prev) => ({ ...prev, ladders, ladder_notes: notes }));

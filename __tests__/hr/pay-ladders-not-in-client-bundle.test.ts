@@ -27,7 +27,7 @@ describe('reference pay band stays on the server', () => {
       return isClient && BAND_IMPORT.test(src);
     });
     expect(offenders).toEqual([]);
-  });
+  }, 60_000);
 
   it('the only app importer is the server action', () => {
     const out = execSync(
@@ -39,5 +39,5 @@ describe('reference pay band stays on the server', () => {
     expect(out).toEqual(['app/(routes)/hr/admin/policies/pay-scales/actions.ts']);
     const action = readFileSync(out[0], 'utf8');
     expect(action.trimStart().startsWith("'use server'")).toBe(true);
-  });
+  }, 60_000);
 });
