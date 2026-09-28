@@ -32,14 +32,15 @@ export interface InstitutionSemesterOption {
 }
 
 /**
- * One degree's semester range within an institution ("B.E. → 1–8",
- * "M.E. → 1–4"), read from the same `semesters` master. Degrees sharing a
- * label (duplicate master rows) are merged.
+ * One degree type's semester range within an institution ("UG → 1–8",
+ * "PG → 1–4"), read from the same `semesters` master. All degrees of the same
+ * degrees.degree_type are merged into one group.
  */
 export interface InstitutionDegreeSemesters {
+  /** Upper-cased degree_type ("UG", "PG"), or the degree name when untyped. */
   key: string;
   label: string;
-  /** degrees.degree_type, e.g. "UG" / "PG" (null when not set). */
+  /** Upper-cased degrees.degree_type (null when not set). */
   degree_type: string | null;
   /** Programs whose semester rows fall under this degree. */
   program_ids: string[];
@@ -121,15 +122,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }
     }
 
-    // institution -> degree label -> group
+    // institution -> degree TYPE (UG / PG …) -> group. Grouping by type, not by
+    // degree name, puts B.E. + B.Tech in one "UG" block and M.E. + MBA in "PG".
+    // A degree with no type falls back to its own name.
+    const TYPE_LABEL: Record<string, string> = { UG: 'Undergraduate (UG)', PG: 'Postgraduate (PG)' };
     const degByInst = new Map<string, Map<string, { label: string; type: string | null; sort: number; programs: Set<string>; orders: Set<number> }>>();
     for (const row of rows) {
       if (row.semester_order == null) continue;
       const meta = row.degree_id ? degreeMeta.get(row.degree_id) : undefined;
-      const label = meta?.label ?? 'Other';
-      const key = label.toLowerCase();
+      const type = meta?.type ? meta.type.toUpperCase() : null;
+      const key = type ?? (meta?.label ?? 'Other').toUpperCase();
+      const label = type ? TYPE_LABEL[type] ?? type : meta?.label ?? 'Other';
       const inst = degByInst.get(row.institution_id) ?? new Map();
-      const g = inst.get(key) ?? { label, type: meta?.type ?? null, sort: meta?.order ?? 9999, programs: new Set<string>(), orders: new Set<number>() };
+      const g = inst.get(key) ?? { label, type, sort: meta?.order ?? 9999, programs: new Set<string>(), orders: new Set<number>() };
       g.sort = Math.min(g.sort, meta?.order ?? 9999);
       if (row.program_id) g.programs.add(row.program_id);
       g.orders.add(row.semester_order);
