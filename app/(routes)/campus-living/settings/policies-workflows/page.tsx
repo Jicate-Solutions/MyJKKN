@@ -9,11 +9,10 @@
  *
  * Each sub-domain's editor body was extracted into a reusable chrome-less Section
  * component (the …Section exports below); this page embeds them directly so every
- * editor is inline on one page. Leave Types stays a self-fetching table + dialog.
+ * editor is inline on one page. Leave Types links to the global Learner Leave Types page.
  * No editor logic is rewritten; same `campus_living.settings.view` gate, no new key.
  */
 
-import { useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -25,13 +24,10 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus } from 'lucide-react';
+import Link from 'next/link';
+import { ExternalLink } from 'lucide-react';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { PermissionError } from '@/components/errors/permission-error';
-
-// Reuse — leave types editor (self-fetching table + form dialog)
-import { HostelLeaveTypesDataTable } from '../leave-types/_components/hostel-leave-types-data-table';
-import { HostelLeaveTypeFormDialog } from '../leave-types/_components/hostel-leave-type-form-dialog';
 
 // Inline — the extracted chrome-less section editors (each renders its own heading + cards)
 import { CurfewSection } from '../curfew/_components/-curfew-section';
@@ -65,7 +61,6 @@ function SectionDivider() {
 }
 
 export default function PoliciesWorkflowsConfigPage() {
-  const [leaveTypeCreate, setLeaveTypeCreate] = useState(false);
 
   return (
     // Super-admin / hostel-admin gate (fail-closed; super-admins bypass). Matches the
@@ -118,19 +113,22 @@ export default function PoliciesWorkflowsConfigPage() {
 
           <SectionDivider />
 
-          {/* Leave types — inline (self-fetching table + form dialog) */}
+          {/* Leave types — hostel leave types are now part of the global Learner Leave Types
+              list (learner_leave_types), managed on one page for every residency; the old
+              hostel editor was retired, so this section links there (2026-09-28). */}
           <Card>
             <CardContent className='p-6 space-y-6'>
               <SectionHeader
                 title='Leave types'
-                description='Leave categories for hostelers — max duration, parent consent, warden approval flow and attachment requirements. System defaults are seeded per institution and cannot be deleted.'
+                description='Leave categories for hostelers are now managed with every other learner leave type, in one list for all residencies.'
                 action={
-                  <Button onClick={() => setLeaveTypeCreate(true)}>
-                    <Plus className='h-4 w-4 mr-2' /> Add leave type
+                  <Button asChild variant='outline'>
+                    <Link href='/learners/leave-onduty/settings?tab=types'>
+                      <ExternalLink className='h-4 w-4 mr-2' /> Open Learner Leave Types
+                    </Link>
                   </Button>
                 }
               />
-              <HostelLeaveTypesDataTable />
             </CardContent>
           </Card>
 
@@ -149,12 +147,6 @@ export default function PoliciesWorkflowsConfigPage() {
           {/* General settings — inline */}
           <GeneralSettingsSection />
 
-          {/* Dialogs */}
-          <HostelLeaveTypeFormDialog
-            open={leaveTypeCreate}
-            onOpenChange={setLeaveTypeCreate}
-            mode='create'
-          />
         </div>
       </ContentLayout>
     </PermissionGuard>
