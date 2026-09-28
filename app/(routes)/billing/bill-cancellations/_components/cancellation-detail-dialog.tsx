@@ -319,31 +319,32 @@ export function CancellationDetailDialog({
 
               <Separator />
 
-              {/* ── Documents ───────────────────────────────────────────── */}
-              <section className='space-y-3'>
-                <SectionHeading icon={Paperclip}>Documents</SectionHeading>
-                {attachments.length === 0 ? (
-                  <p className='text-muted-foreground text-sm'>No documents attached.</p>
-                ) : (
-                  <ul className='space-y-1'>
-                    {attachments.map((a) => (
-                      <li key={a.drive_file_id}>
-                        <a
-                          href={a.drive_url}
-                          target='_blank'
-                          rel='noopener noreferrer'
-                          className='inline-flex items-center gap-1.5 text-sm text-primary underline underline-offset-2'
-                        >
-                          <ExternalLink className='h-3.5 w-3.5 shrink-0' aria-hidden='true' />
-                          {a.name}
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
+              {/* ── Documents ─ requests no longer collect them; shown only
+                  for older requests that carried Drive links. */}
+              {attachments.length > 0 && (
+                <>
+                  <section className='space-y-3'>
+                    <SectionHeading icon={Paperclip}>Documents</SectionHeading>
+                    <ul className='space-y-1'>
+                      {attachments.map((a) => (
+                        <li key={a.drive_file_id}>
+                          <a
+                            href={a.drive_url}
+                            target='_blank'
+                            rel='noopener noreferrer'
+                            className='inline-flex items-center gap-1.5 text-sm text-primary underline underline-offset-2'
+                          >
+                            <ExternalLink className='h-3.5 w-3.5 shrink-0' aria-hidden='true' />
+                            {a.name}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
 
-              <Separator />
+                  <Separator />
+                </>
+              )}
 
               {/* ── Requester / decision ────────────────────────────────── */}
               <section className='space-y-3'>

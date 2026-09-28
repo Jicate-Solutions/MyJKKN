@@ -31,7 +31,7 @@ export default function BillCancellationsPage() {
               Bills raised by mistake are cancelled through approval rather
               than deleted. The accounts team (Chief Accountant / Accountant
               Assistant) raises a request from the billing schedule with a
-              reason and supporting documents; whoever the{' '}
+              reason and notes; whoever the{' '}
               <strong>approval flow</strong> names decides it, and super
               admins always can. A pending request leaves the bill payable —
               only approval cancels it. Bills with receipted money must have

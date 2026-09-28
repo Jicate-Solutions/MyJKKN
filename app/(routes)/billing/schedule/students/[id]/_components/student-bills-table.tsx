@@ -928,7 +928,6 @@ export function StudentBillsTable({
               ]
             : []
         }
-        institutionName={cancelTarget?.institution?.name || 'Unknown Institution'}
         isPending={requestCancel.isPending}
         onConfirm={async (payload) => {
           if (!cancelTarget || requestCancel.isPending) return;

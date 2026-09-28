@@ -57557,10 +57557,9 @@ BEGIN
   IF p_reason IS NULL OR length(trim(p_reason)) < 5 THEN
     RAISE EXCEPTION 'A reason of at least 5 characters is required';
   END IF;
-  IF p_attachments IS NULL
-     OR jsonb_typeof(p_attachments) <> 'array'
-     OR jsonb_array_length(p_attachments) < 1 THEN
-    RAISE EXCEPTION 'At least one supporting document must be attached';
+  -- Documents are optional (mig 20260928110000): reason code + notes are the evidence.
+  IF p_attachments IS NULL OR jsonb_typeof(p_attachments) <> 'array' THEN
+    p_attachments := '[]'::jsonb;
   END IF;
 
   SELECT bc.category_name INTO v_category

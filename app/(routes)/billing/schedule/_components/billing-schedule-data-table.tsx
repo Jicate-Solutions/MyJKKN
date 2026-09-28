@@ -599,7 +599,7 @@ export function BillingScheduleDataTable({
         warningMessage='This will permanently remove all payment history, discounts, and related financial records.'
       />
 
-      {/* One reason and one document set covers the whole selection — the
+      {/* One reason and one set of notes covers the whole selection — the
           "these twelve rows are the same duplicate" case. Each bill still
           goes through the RPC on its own, so an ineligible one fails alone. */}
       <BillCancelDialog
@@ -613,9 +613,6 @@ export function BillingScheduleDataTable({
           final_amount: b.final_amount,
           status: b.status
         }))}
-        institutionName={
-          cancelModal.selectedBills[0]?.institution?.name || 'Unknown Institution'
-        }
         isPending={cancelModal.isLoading}
         onConfirm={handleConfirmCancel}
       />
