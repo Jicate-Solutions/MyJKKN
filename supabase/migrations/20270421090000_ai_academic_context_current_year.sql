@@ -1,5 +1,5 @@
 -- ============================================================================
--- 20270416090000_ai_academic_context_current_year.sql
+-- 20270421090000_ai_academic_context_current_year.sql
 -- Created: 2026-09-28
 --
 -- PROBLEM (measured live 2026-09-28, read-only):
@@ -15,12 +15,15 @@
 --   2. otherwise the latest year that has already started (covers the
 --      April–May gap between one year's end_date and the next start_date);
 --   3. otherwise the earliest upcoming year.
+--   Ties on start_date (e.g. an '… Additional 2' shadow row) break to the
+--   plain year, then name, then id — never on storage order.
 --   Everything else in the body — identity pin, super-admin meaning of NULL,
 --   role_has_institution_access check, NO_INSTITUTION answer — is unchanged.
 --
 -- Built from the LIVE body (md5(prosrc) ea25a9619c8d80a6674158eef0031275,
--- read 2026-09-28). The DO block refuses to run if the live body is neither
--- that nor what this file leaves behind.
+-- read 2026-09-28). The first DO block refuses to run if the live body is
+-- neither that nor this file's result (3a1c6829337ba2b69f39862f2cb64275); the
+-- last DO block checks the result after apply.
 -- ============================================================================
 
 DO $pre$
@@ -28,9 +31,10 @@ DECLARE v_md5 text;
 BEGIN
   SELECT md5(prosrc) INTO v_md5 FROM pg_proc
    WHERE oid = 'public.ai_rpc_academic_context(uuid)'::regprocedure;
+  -- before = the live body this file was built from; after = what this file leaves.
   IF v_md5 IS DISTINCT FROM 'ea25a9619c8d80a6674158eef0031275'
-     AND position('[current-year 2026-09-28]' IN (SELECT prosrc FROM pg_proc WHERE oid = 'public.ai_rpc_academic_context(uuid)'::regprocedure)) = 0 THEN
-    RAISE EXCEPTION '20270416090000: ai_rpc_academic_context drifted — live md5(prosrc) % is not the body this file was built from (ea25a961…). Re-read pg_get_functiondef and rebuild.', v_md5;
+     AND v_md5 IS DISTINCT FROM '3a1c6829337ba2b69f39862f2cb64275' THEN
+    RAISE EXCEPTION '20270421090000: ai_rpc_academic_context drifted — live md5(prosrc) % is neither ea25a961… (built from) nor 3a1c6829… (this file''s result). Re-read pg_get_functiondef and rebuild.', v_md5;
   END IF;
 END
 $pre$;
@@ -86,7 +90,12 @@ BEGIN
       ELSE 2
     END,
     CASE WHEN start_date <= v_today THEN start_date END DESC NULLS LAST,
-    start_date ASC NULLS LAST
+    start_date ASC NULLS LAST,
+    -- tie-break (two active rows with one start_date, e.g. an '… Additional 2' shadow row):
+    -- the plain year first, then name, then id, so LIMIT 1 never depends on storage order.
+    (academic_year_name ILIKE '%additional%') ASC,
+    academic_year_name ASC,
+    id ASC
   LIMIT 1;
 
   RETURN jsonb_build_object(
@@ -100,3 +109,18 @@ $function$;
 
 REVOKE EXECUTE ON FUNCTION public.ai_rpc_academic_context(uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.ai_rpc_academic_context(uuid) TO authenticated;
+
+-- Post-apply self-check: the body is exactly what this file wrote, and anon cannot run it.
+DO $post$
+DECLARE v_md5 text;
+BEGIN
+  SELECT md5(prosrc) INTO v_md5 FROM pg_proc
+   WHERE oid = 'public.ai_rpc_academic_context(uuid)'::regprocedure;
+  IF v_md5 IS DISTINCT FROM '3a1c6829337ba2b69f39862f2cb64275' THEN
+    RAISE EXCEPTION '20270421090000: post-apply md5 % is not the expected 3a1c6829…', v_md5;
+  END IF;
+  IF has_function_privilege('anon', 'public.ai_rpc_academic_context(uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION '20270421090000: anon can still execute ai_rpc_academic_context';
+  END IF;
+END
+$post$;
