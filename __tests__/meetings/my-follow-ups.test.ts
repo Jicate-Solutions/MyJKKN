@@ -71,8 +71,21 @@ function fakeClient() {
           rows = rows.filter((r) => vals.includes(r[col]));
           return chain;
         },
-        order: () => chain,
-        limit: () => chain,
+        order(col: string, opts?: { ascending?: boolean }) {
+          const asc = opts?.ascending !== false;
+          filters.push(['order', `${col}.${asc ? 'asc' : 'desc'}`]);
+          rows = [...rows].sort((a, b) => {
+            const x = String(a[col]);
+            const y = String(b[col]);
+            return (x < y ? -1 : x > y ? 1 : 0) * (asc ? 1 : -1);
+          });
+          return chain;
+        },
+        limit(n: number) {
+          filters.push(['limit', n]);
+          rows = rows.slice(0, n);
+          return chain;
+        },
         maybeSingle: async () => ({ data: rows[0] ?? null, error: null }),
         then(resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) {
           return Promise.resolve(run()).then(resolve, reject);
@@ -96,7 +109,11 @@ vi.mock('@/lib/supabase/server', () => ({
   createServiceRoleClient: () => fakeClient(),
 }));
 
-import { MeetingActionItemService } from '@/lib/services/meetings/meeting-action-item-service';
+import {
+  FOLLOW_UP_LIMIT,
+  MeetingActionItemService,
+  followUpLimitNote,
+} from '@/lib/services/meetings/meeting-action-item-service';
 import {
   markMeetingFollowUpsDoneAction,
   setFollowUpStatusAction,
@@ -193,6 +210,35 @@ describe('listForProfile — the explicit host-or-owner filter', () => {
     const cancelled = res.data!.find((g) => g.booking_id === 'b-cancelled')!;
     expect(cancelled.booking_status).toBe('cancelled');
     expect(cancelled.items.map((i) => i.id)).toEqual(['i-cancelled']);
+  });
+
+  it('past the limit the NEWEST follow-ups are kept, the oldest left out, and the page is told', async () => {
+    const base = Date.parse('2026-01-01T00:00:00Z');
+    tables.meeting_action_items = Array.from({ length: FOLLOW_UP_LIMIT + 2 }, (_, n) =>
+      item(`n-${n}`, { created_at: new Date(base + n * 60_000).toISOString() }),
+    );
+    const res = await MeetingActionItemService.listForProfile(fakeClient() as never, HOST);
+    const ids = res.data!.flatMap((g) => g.items.map((i) => i.id));
+    expect(ids).toHaveLength(FOLLOW_UP_LIMIT);
+    expect(ids).toContain(`n-${FOLLOW_UP_LIMIT + 1}`); // the newest
+    expect(ids).not.toContain('n-0'); // the two oldest are the ones cut
+    expect(ids).not.toContain('n-1');
+    // Newest-first is asked of the database BEFORE the cap.
+    const itemRead = reads.find((r) => r.table === 'meeting_action_items')!;
+    const orderAt = itemRead.filters.findIndex(([k]) => k === 'order');
+    const limitAt = itemRead.filters.findIndex(([k]) => k === 'limit');
+    expect(itemRead.filters[orderAt]).toEqual(['order', 'created_at.desc']);
+    expect(itemRead.filters[limitAt]).toEqual(['limit', FOLLOW_UP_LIMIT]);
+    expect(orderAt).toBeLessThan(limitAt);
+    // Inside one meeting the items still read oldest-kept → newest.
+    expect(ids[0]).toBe('n-2');
+    expect(ids[ids.length - 1]).toBe(`n-${FOLLOW_UP_LIMIT + 1}`);
+    expect(followUpLimitNote(res.data!)).toBe('Showing the latest 500 follow-ups');
+  });
+
+  it('no limit note when every follow-up fits', async () => {
+    const res = await MeetingActionItemService.listForProfile(fakeClient() as never, HOST);
+    expect(followUpLimitNote(res.data!)).toBeNull();
   });
 
   it('refuses a non-uuid profile id instead of interpolating it into the filter', async () => {

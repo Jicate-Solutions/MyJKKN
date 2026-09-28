@@ -113,7 +113,20 @@ export interface FollowUpMeetingGroup {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const FOLLOW_UP_LIMIT = 500;
+/**
+ * Most follow-ups one read returns. The read takes the NEWEST rows first, so
+ * past this cap it is the oldest ones that are left out — never the latest.
+ */
+export const FOLLOW_UP_LIMIT = 500;
+
+/**
+ * The line the page shows when the read hit FOLLOW_UP_LIMIT, so a cut-short
+ * list never passes for the whole list. null when everything was returned.
+ */
+export function followUpLimitNote(groups: FollowUpMeetingGroup[]): string | null {
+  const shown = groups.reduce((n, g) => n + g.items.length, 0);
+  return shown >= FOLLOW_UP_LIMIT ? `Showing the latest ${FOLLOW_UP_LIMIT} follow-ups` : null;
+}
 
 /**
  * PostgREST filter for "rows this person hosts OR owns". The id is
@@ -416,8 +429,10 @@ export class MeetingActionItemService {
       )
       .or(hostOrOwner);
     if (!opts.includeDone) query = query.eq('status', 'open');
+    // NEWEST first before the cap: past FOLLOW_UP_LIMIT the oldest rows are
+    // the ones left out (the page says so — see followUpLimitNote).
     const { data: itemRows, error: iErr } = await query
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: false })
       .limit(FOLLOW_UP_LIMIT);
     if (iErr) {
       console.error(`${LOG_PREFIX} listForProfile items error:`, iErr.message);
@@ -425,9 +440,11 @@ export class MeetingActionItemService {
     }
 
     // Defence in depth: never render a row the predicate should have excluded.
-    const items = ((itemRows ?? []) as Array<Omit<FollowUpItem, 'owner_name' | 'band'>>).filter(
-      (it) => it.host_profile_id === profileId || it.owner_profile_id === profileId,
-    );
+    // Reversed so that, inside one meeting, items read in the order they were
+    // written (oldest first); meetings themselves are sorted newest-first below.
+    const items = ((itemRows ?? []) as Array<Omit<FollowUpItem, 'owner_name' | 'band'>>)
+      .filter((it) => it.host_profile_id === profileId || it.owner_profile_id === profileId)
+      .reverse();
     if (items.length === 0) return { success: true, data: [] };
 
     const bookingIds = Array.from(new Set(items.map((it) => it.booking_id)));

@@ -25,7 +25,10 @@ import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { MeetingActionItemService } from '@/lib/services/meetings/meeting-action-item-service';
+import {
+  MeetingActionItemService,
+  followUpLimitNote,
+} from '@/lib/services/meetings/meeting-action-item-service';
 
 import { FollowUpGroup } from './_components/follow-up-group';
 
@@ -97,6 +100,7 @@ export default async function MyFollowUpsPage({ searchParams }: PageProps) {
     (n, g) => n + g.items.filter((it) => it.status === 'open').length,
     0,
   );
+  const limitNote = followUpLimitNote(groups);
 
   return (
     <ContentLayout title={PAGE_TITLE}>
@@ -105,12 +109,19 @@ export default async function MyFollowUpsPage({ searchParams }: PageProps) {
         <PageHeader title={PAGE_TITLE} description={PAGE_DESCRIPTION} />
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-muted-foreground">
-            {openCount === 1 ? '1 open follow-up' : `${openCount} open follow-ups`}
-            {groups.length > 0
-              ? ` from ${groups.length === 1 ? '1 meeting' : `${groups.length} meetings`}`
-              : ''}
-          </p>
+          <div className="space-y-0.5">
+            <p className="text-sm text-muted-foreground">
+              {openCount === 1 ? '1 open follow-up' : `${openCount} open follow-ups`}
+              {groups.length > 0
+                ? ` from ${groups.length === 1 ? '1 meeting' : `${groups.length} meetings`}`
+                : ''}
+            </p>
+            {limitNote ? (
+              <p className="text-xs text-muted-foreground" role="status">
+                {limitNote}. Older ones are not listed here.
+              </p>
+            ) : null}
+          </div>
           <Link
             href={includeDone ? '/meetings/action-items' : '/meetings/action-items?show=done'}
             className="inline-flex"
