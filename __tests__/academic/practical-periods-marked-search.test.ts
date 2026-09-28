@@ -14,11 +14,13 @@ const TT = '254c52b7-a91b-4e04-b0c5-f4def81f8879';
 const OTHER_TT = 'ffffffff-0000-0000-0000-000000000000';
 const SLOT_42 = '42d47144-3bab-4e8f-88f7-a2774f1ef6d6';
 const SLOT_2E = '2e9c27ae-56dc-472c-8018-42b02df2de83';
+// attendance_data's stored roster key (a DB field name, not copy).
+const ROSTER = 'students';
 
 const entry = (batchId: string, n = 3) => ({
   period_mode: 'practical',
   batch_selected: { batch_id: batchId, batch_name: batchId },
-  students: Array.from({ length: n }, (_, i) => ({ student_id: `s${i}`, status: 'Present' }))
+  [ROSTER]: Array.from({ length: n }, (_, i) => ({ student_id: `s${i}`, status: 'Present' }))
 });
 
 const periods = [
@@ -66,7 +68,7 @@ describe('practicalPeriodsMarkedFromRecords', () => {
       { id: 'a', timetable_id: TT, attendance_data: { [SLOT_42]: entry('batch_IHRM', 0) } },
       { id: 'b', timetable_id: TT, attendance_data: { [SLOT_42]: entry('batch_OTHER') } },
       { id: 'c', timetable_id: OTHER_TT, attendance_data: { [SLOT_42]: entry('batch_SCINVM') } },
-      { id: 'd', timetable_id: TT, attendance_data: { [SLOT_42]: { students: [{ student_id: 'x' }] } } }
+      { id: 'd', timetable_id: TT, attendance_data: { [SLOT_42]: { [ROSTER]: [{ student_id: 'x' }] } } }
     ]);
     expect(res.get(SLOT_42)).toEqual({ isMarked: false });
   });
