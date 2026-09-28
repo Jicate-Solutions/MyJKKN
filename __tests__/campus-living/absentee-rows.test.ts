@@ -106,5 +106,6 @@ describe('fetchAllPages (rows past the 1000 cap are not dropped)', () => {
   it('stops on an empty page even if the count says more', async () => {
     const res = await fetchAllPages(() => Promise.resolve({ data: [] as number[], count: 10 }));
     expect(res.data).toHaveLength(0);
+    expect(res.truncated).toBe(true);
   });
 });

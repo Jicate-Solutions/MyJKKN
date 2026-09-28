@@ -134,7 +134,7 @@ export async function fetchAllPages<T>(
     const res = await fetchPage(page);
     count = res.count;
     data.push(...res.data);
-    if (data.length >= count || res.data.length === 0) return { data, count, truncated: false };
+    if (data.length >= count || res.data.length === 0) return { data, count, truncated: data.length < count };
   }
   return { data, count, truncated: data.length < count };
 }
