@@ -3,13 +3,15 @@
 // From a meeting note to somebody's task list — the ONE path, shared by the two
 // doors a note can come through:
 //
-//   1. app/api/meetings/notes/ingest/route.ts — a Fireflies transcript whose
-//      calendar id matched exactly one booking (the route's MATCHING rule).
-//   2. app/(routes)/meetings/notes/actions.ts — a note a human linked by hand
-//      through fn_link_meeting_note().
+//   1. app/api/meetings/notes/ingest/route.ts — every scheduled tick. A NEW
+//      note is applied to the booking its calendar id matched (the route's
+//      MATCHING rule); a note already stored is applied to the booking it is
+//      linked to now, which may be one a human chose.
+//   2. app/(routes)/meetings/notes/actions.ts — the moment a human links a note
+//      by hand through fn_link_meeting_note().
 //
-// Moved out of the ingest route unchanged in behaviour except for four points,
-// each written down where it happens:
+// Moved out of the ingest route unchanged in behaviour except for the points
+// below, each written down where it happens:
 //
 //   a. The once-only stamp (meeting_notes.action_items_applied_at) is NOT set
 //      for a note Fireflies has not summarised yet and that produced nothing.
@@ -17,14 +19,24 @@
 //      follow-ups.
 //   b. The booking's own host and attendee (MyJKKN identities) are owner
 //      candidates alongside the Fireflies participants. The EXACTLY-ONE rule is
-//      unchanged: two plausible people still means nobody is chosen.
+//      unchanged: two plausible people still means nobody is chosen. Names are
+//      compared with titles, initials, case and SPACING set aside (nameKeys),
+//      still by exact equality.
 //   c. due_date is set only from an explicit calendar date in the item's own
-//      words — never from "tomorrow", "in two days" or "next week".
+//      words — never from "tomorrow", "in two days" or "next week" — and only
+//      when that date falls on or after the meeting day and within 180 days.
 //   d. Each owner who is not the host gets ONE bell per note, never twice.
+//   e. Follow-ups are written only onto the booking the note is linked to NOW
+//      (meeting_notes.booking_id, re-read here). A note a human unlinked gets
+//      nothing, whichever door asks.
+//   f. The HR interview record is filled in only when the caller says the
+//      booking came from the exact calendar-id match. A hand-link is a human
+//      judgement that can be wrong, and a candidate's interview record is not
+//      something an unlink puts back.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { createBellNotification } from '@/lib/services/meetings/meeting-trigger-service';
+import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 const MODULE = 'meetings/note-followups';
@@ -115,12 +127,39 @@ export function nameTokens(value: string | null | undefined): string[] {
 }
 
 /**
+ * The forms of a name that are compared, with the SPACING taken out of the
+ * picture. The same person can be written "Ravikumar S" by Fireflies and
+ * "RAVI KUMAR S" in their profile, or "Dr Kala Priya" and "KALAPRIYA M.R" —
+ * the words are the same, only where the spaces fall differs.
+ *
+ * So every run of consecutive name words is also joined into one string:
+ * "ravi kumar" gives ravi, kumar and ravikumar. Titles ("Dr", "Prof"),
+ * initials and dots are dropped first (nameTokens), and case is folded.
+ *
+ * This is still EXACT equality between two strings — "ravi" never matches
+ * "ravikumar", and "kala" never matches "kalapriya". Only forms of 4+
+ * characters count, as before, so initials and short words cannot match.
+ */
+export function nameKeys(value: string | null | undefined): string[] {
+  const tokens = nameTokens(value);
+  const keys = new Set<string>();
+  for (let start = 0; start < tokens.length; start += 1) {
+    let joined = '';
+    for (let end = start; end < tokens.length; end += 1) {
+      joined += tokens[end];
+      if (joined.length >= 4) keys.add(joined);
+    }
+  }
+  return [...keys];
+}
+
+/**
  * Which real person does a name in the transcript belong to?
  *
  * NEVER a guess, and never a near-miss. A candidate is accepted only when a
- * DISTINCTIVE token (4+ characters — enough to exclude initials and "the") is
- * shared, and only when EXACTLY ONE person in the meeting qualifies. Two
- * plausible people means nobody is chosen.
+ * DISTINCTIVE name form (4+ characters — enough to exclude initials and "the";
+ * nameKeys sets spacing aside) is shared EXACTLY, and only when EXACTLY ONE
+ * person in the meeting qualifies. Two plausible people means nobody is chosen.
  *
  * "One person" is counted by profile id: the host who is also a Fireflies
  * participant appears twice in the candidate list and is still one person.
@@ -134,13 +173,13 @@ export function resolveOwnerProfileId(
   ownerName: string | null,
   people: Array<{ profileId: string | null; names: string[] }>,
 ): string | null {
-  const wanted = nameTokens(ownerName).filter((t) => t.length >= 4);
+  const wanted = nameKeys(ownerName);
   if (wanted.length === 0) return null;
 
   const hits = new Set<string>();
   for (const person of people) {
     if (!person.profileId) continue;
-    const theirs = new Set(person.names.flatMap(nameTokens).filter((t) => t.length >= 4));
+    const theirs = new Set(person.names.flatMap(nameKeys));
     if (wanted.some((t) => theirs.has(t))) hits.add(person.profileId);
   }
 
@@ -156,6 +195,15 @@ export function resolveOwnerProfileId(
 // "September 30", "2026-09-30". Numeric dates are read day-first (the Indian
 // convention) and must carry a four-digit year, because "3/4" is as likely to
 // be a score as a date. Two different dates in one item mean nothing is set.
+//
+// And the date must be one a follow-up can be DUE on: on or after the meeting
+// day (campus time), and within DUE_WINDOW_DAYS of it. A date before the
+// meeting almost always names something that already happened — "share the
+// minutes of the 15 Sep review", "reply to the 12/09/2026 letter" — not a
+// deadline. Read as one, it makes the task overdue on day one or, rolled into
+// next year, look safely a year away. So a year-less date is read in the
+// MEETING's year and never rolled forward: "5 Jan" said on 20 Dec is left
+// blank, which a person can fill in, rather than guessed.
 
 const MONTHS: Array<[RegExp, number]> = [
   [/^jan(?:uary)?$/i, 1],
@@ -218,28 +266,41 @@ function campusDay(occurredAt: string | null): { y: number; m: number; d: number
   return { y: ist.getUTCFullYear(), m: ist.getUTCMonth() + 1, d: ist.getUTCDate() };
 }
 
+/** How many days after the meeting day a written date is still read as a due date. */
+export const DUE_WINDOW_DAYS = 180;
+
 /**
- * A year-less "30 Sep" is the NEXT 30 Sep on or after the meeting day: a
- * follow-up agreed in a meeting is never due before that meeting. With no
- * meeting date there is nothing to anchor the year to, so nothing is set.
+ * A year-less "30 Sep" is read in the meeting's OWN year — never rolled to the
+ * next one (see the note above). With no meeting date there is nothing to
+ * anchor the year to, so nothing is set.
  */
-function withInferredYear(m: number, d: number, occurredAt: string | null): string | null {
+function withMeetingYear(m: number, d: number, occurredAt: string | null): string | null {
   const day = campusDay(occurredAt);
   if (!day) return null;
-  const sameYear = isoDate(day.y, m, d);
-  const meetingIso = isoDate(day.y, day.m, day.d);
-  if (sameYear && meetingIso && sameYear >= meetingIso) return sameYear;
-  return isoDate(day.y + 1, m, d);
+  return isoDate(day.y, m, d);
+}
+
+/** Whole days from one 'YYYY-MM-DD' to another. */
+function daysBetween(fromIso: string, toIso: string): number {
+  const from = Date.parse(`${fromIso}T00:00:00Z`);
+  const to = Date.parse(`${toIso}T00:00:00Z`);
+  return Math.round((to - from) / 86_400_000);
 }
 
 /**
  * The due date written in one follow-up, as 'YYYY-MM-DD', or null.
  *
- * Null covers: no date at all, only a relative phrase, an impossible date, a
- * year-less date on a note with no meeting date, and two different dates.
+ * Null covers: no date at all, only a relative phrase, an impossible date, two
+ * different dates, a note with no meeting date (there is nothing to check the
+ * date against), and a date before the meeting day or more than
+ * DUE_WINDOW_DAYS after it — the meeting day read in campus time (IST).
  */
 export function parseExplicitDueDate(text: string, occurredAt: string | null): string | null {
   if (!text) return null;
+  const meeting = campusDay(occurredAt);
+  const meetingIso = meeting ? isoDate(meeting.y, meeting.m, meeting.d) : null;
+  if (!meetingIso) return null;
+
   const found = new Set<string>();
   let unreadable = false;
 
@@ -252,13 +313,13 @@ export function parseExplicitDueDate(text: string, occurredAt: string | null): s
     const month = monthNumber(m[2]);
     if (!month) continue; // lower-case "may"
     const day = Number(m[1]);
-    add(m[3] ? isoDate(Number(m[3]), month, day) : withInferredYear(month, day, occurredAt));
+    add(m[3] ? isoDate(Number(m[3]), month, day) : withMeetingYear(month, day, occurredAt));
   }
   for (const m of text.matchAll(MONTH_DAY)) {
     const month = monthNumber(m[1]);
     if (!month) continue;
     const day = Number(m[2]);
-    add(m[3] ? isoDate(Number(m[3]), month, day) : withInferredYear(month, day, occurredAt));
+    add(m[3] ? isoDate(Number(m[3]), month, day) : withMeetingYear(month, day, occurredAt));
   }
   for (const m of text.matchAll(NUMERIC_DMY)) {
     add(isoDate(Number(m[4]), Number(m[3]), Number(m[1])));
@@ -270,7 +331,13 @@ export function parseExplicitDueDate(text: string, occurredAt: string | null): s
   // Something date-shaped we could not read (31 Feb, 13/13/2026) means the item
   // is not saying what we think it says. Set nothing rather than half of it.
   if (unreadable || found.size !== 1) return null;
-  return [...found][0];
+
+  // A date that cannot be a due date is not guessed into one (see the note at
+  // the top of this section).
+  const due = [...found][0];
+  const offset = daysBetween(meetingIso, due);
+  if (offset < 0 || offset > DUE_WINDOW_DAYS) return null;
+  return due;
 }
 
 // ── A STORED NOTE, READ THE WAY THE FIREFLIES CLIENT READS A TRANSCRIPT ──────
@@ -324,8 +391,18 @@ export function noteFollowupInputFromStored(note: {
 type Person = { profileId: string | null; names: string[]; email: string | null };
 type ProfileRow = { id: string; email: string | null; full_name: string | null };
 
+export interface ApplyNoteOptions {
+  /**
+   * True ONLY when `bookingId` came from the ingest's exact calendar-id match.
+   * Only then is the booking's HR interview record filled in from the note. A
+   * hand-link is a person's judgement; if it is wrong, an unlink takes the note
+   * away but would not take a candidate's interview record back.
+   */
+  calendarMatched?: boolean;
+}
+
 /**
- * Turn a matched note into the things a person can act on.
+ * Turn a linked note into the things a person can act on.
  *
  * Runs ONCE per note, guarded by meeting_notes.action_items_applied_at. The
  * ingest is scheduled every half hour and re-reads the same transcripts on
@@ -334,6 +411,13 @@ type ProfileRow = { id: string; email: string | null; full_name: string | null }
  * After the stamp is set the machine never touches these rows again — they
  * belong to whoever edits them next. The same guard makes a hand-link that is
  * undone and redone a no-op the second time.
+ *
+ * And ONLY onto the booking the note is linked to at this moment. The caller's
+ * `bookingId` is checked against meeting_notes.booking_id, read here: a note a
+ * human unlinked (booking_id NULL) or moved elsewhere gets nothing. Because a
+ * note that is not summarised yet stays unstamped (below), this check — not the
+ * stamp — is what keeps a later tick from writing onto a meeting a human took
+ * the note away from.
  *
  * Nothing here can fail the caller. A note that is stored but whose follow-ups
  * could not be applied is a smaller problem than a transcript we did not keep,
@@ -345,16 +429,17 @@ export async function applyNoteToBooking(
   noteId: string,
   bookingId: string,
   note: NoteFollowupInput,
+  options: ApplyNoteOptions = {},
 ): Promise<void> {
   const { data: stamp } = await supabase
     .from('meeting_notes')
-    .select('action_items_applied_at')
+    .select('action_items_applied_at, booking_id')
     .eq('id', noteId)
     .maybeSingle();
 
-  if (!stamp || (stamp as { action_items_applied_at: string | null }).action_items_applied_at) {
-    return;
-  }
+  const current = stamp as { action_items_applied_at: string | null; booking_id: string | null } | null;
+  if (!current || current.action_items_applied_at) return;
+  if (current.booking_id !== bookingId) return;
 
   // ── who was in the room, as real people ────────────────────────────────────
   // Matching is on EMAIL, which is exact, never on a name, which is not.
@@ -465,14 +550,17 @@ export async function applyNoteToBooking(
   }
 
   // ── the interview record, when this meeting is one ────────────────────────
-  // Only ever FILLS IN a blank. A person who has written their own outcome has
+  // Only through the calendar-id match (ApplyNoteOptions.calendarMatched), and
+  // only ever FILLS IN a blank. A person who has written their own outcome has
   // said something the machine has not, and overwriting it would delete the
   // more valuable of the two.
-  const { data: interview } = await supabase
-    .from('hr_recruitment_interviews')
-    .select('id, outcome_summary, duration_minutes')
-    .eq('booking_id', bookingId)
-    .maybeSingle();
+  const { data: interview } = options.calendarMatched
+    ? await supabase
+        .from('hr_recruitment_interviews')
+        .select('id, outcome_summary, duration_minutes')
+        .eq('booking_id', bookingId)
+        .maybeSingle()
+    : { data: null };
 
   if (interview) {
     const patch: Record<string, unknown> = {};
@@ -517,8 +605,10 @@ export async function applyNoteToBooking(
 /**
  * One in-app bell per owner, per note — never to the host, who already sees
  * every follow-up on their own meeting. The idempotency key is enforced by the
- * notifications table's own unique index, so a retried run cannot bell twice.
- * A bell that fails is logged and forgotten: it must not undo the follow-ups.
+ * notifications table's own unique index (fanoutNotification checks it first
+ * and treats a racing duplicate as already sent), so a retried run cannot bell
+ * twice. A bell that fails is logged and forgotten: it must not undo the
+ * follow-ups.
  */
 async function notifyOwners(
   supabase: SupabaseClient,
@@ -539,8 +629,8 @@ async function notifyOwners(
 
   for (const [ownerId, count] of counts) {
     try {
-      await createBellNotification(supabase, {
-        recipientIds: [ownerId],
+      await fanoutNotification(supabase, {
+        userIds: [ownerId],
         createdBy: hostProfileId,
         title: count === 1 ? 'A follow-up is yours' : `${count} follow-ups are yours`,
         body:
@@ -548,7 +638,10 @@ async function notifyOwners(
             ? `From ${meeting}, one follow-up was put on your list.`
             : `From ${meeting}, ${count} follow-ups were put on your list.`,
         url: FOLLOWUPS_URL,
+        icon: '/icons/icon-192x192.png',
+        priority: 'high',
         category: BELL_CATEGORY,
+        source: MODULE,
         metadata: { note_id: noteId, booking_id: bookingId, item_count: count },
         idempotencyKey: `meetings:note-followup-owner:${noteId}:${ownerId}`,
       });

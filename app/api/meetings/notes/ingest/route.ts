@@ -119,6 +119,16 @@ async function resolveBookingId(
 // live in lib/services/meetings/meeting-note-followups.ts, because a note a
 // human links by hand (app/(routes)/meetings/notes/actions.ts) must become
 // follow-ups by exactly the same rules as one matched here.
+//
+// WHICH booking a note's follow-ups go onto follows the same rule as
+// `booking_id` itself: the calendar match decides it ONCE, on the first insert.
+// After that the note's STORED booking_id decides — including one a human set
+// by hand, and including NULL, which means a human unlinked it and nothing is
+// written anywhere. The calendar result is never used for an existing note,
+// because a note stays unstamped until Fireflies summarises it, and the tick
+// that brings the summary may come long after somebody moved or removed the
+// link. The HR interview record is filled only when the booking being applied
+// IS the calendar match (calendarMatched), never through a hand-link alone.
 
 async function storeTranscript(
   supabase: ReturnType<typeof createServiceRoleClient>,
@@ -130,7 +140,7 @@ async function storeTranscript(
   // re-attach a note they deliberately detached).
   const { data: existing, error: readError } = await supabase
     .from('meeting_notes')
-    .select('id')
+    .select('id, booking_id')
     .eq('provider', 'fireflies')
     .eq('provider_ref', transcript.id)
     .maybeSingle();
@@ -155,6 +165,9 @@ async function storeTranscript(
   };
 
   let noteId: string | null = existing?.id ?? null;
+  // The booking this note's follow-ups belong to: the stored link for a note we
+  // already hold, the calendar match for a new one (see the note above).
+  const linkedBookingId: string | null = existing ? existing.booking_id : bookingId;
 
   if (noteId) {
     const { error } = await supabase.from('meeting_notes').update(common).eq('id', noteId);
@@ -206,8 +219,10 @@ async function storeTranscript(
     }
   }
 
-  if (noteId && bookingId) {
-    await applyNoteToBooking(supabase, noteId, bookingId, transcript);
+  if (noteId && linkedBookingId) {
+    await applyNoteToBooking(supabase, noteId, linkedBookingId, transcript, {
+      calendarMatched: bookingId !== null && linkedBookingId === bookingId,
+    });
   }
 
   return 'stored';
