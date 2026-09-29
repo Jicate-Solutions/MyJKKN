@@ -441,6 +441,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/learners/change-requests/[id]': 'learners.change-requests.view',
   '/learners/school-master': 'learners.school_master.view',
   '/learners/postal-codes': 'learners.postal_codes.view',
+  // Access-neutral: no dedicated key was ever mapped, so the route guard's
+  // longest-prefix walk already resolved these to '/learners'.
+  '/learners/onboarding': 'learners.profiles.view',
+  '/learners/advisor-caseload': 'learners.profiles.view',
 
   // Learner Counseling (Phase 1 — placeholder gate; module pages land in Phase 2)
   // Spec: specs/counselor-taxonomy-spec.md. Role seed:
@@ -3709,14 +3713,16 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'My Timetable',
           active: pathname === '/learners/my-timetable',
           icon: CalendarClock,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           href: '/learners/my-attendance',
           label: 'My Attendance',
           active: pathname.startsWith('/learners/my-attendance'),
           icon: ClipboardCheck,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           // Post-class feedback — the student gives a 10-second rating that
@@ -3735,14 +3741,16 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Learning Studio Feedback',
           active: pathname.startsWith('/learners/class-feedback'),
           icon: MessageSquare,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           href: '/learners/my-profile',
           label: 'My Profile',
           active: pathname === '/learners/my-profile',
           icon: Users,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           // Fresher induction — the student's own induction view (their batch
@@ -3752,7 +3760,8 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'My Induction',
           active: pathname.startsWith('/learners/my-induction'),
           icon: Rocket,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           // Senior Peer Mentor — a final-year student's lane to run their assigned
@@ -3764,7 +3773,8 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Senior Peer Mentor',
           active: pathname.startsWith('/my-induction-feedback'),
           icon: UserCheck,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           // My Individual Development Plan — learner self-service (BUG-004298).
@@ -3775,14 +3785,16 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'My Development Plan',
           active: pathname.startsWith('/learner/idp'),
           icon: ClipboardList,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           href: '/learners/my-marks',
           label: 'My Marks',
           active: pathname.startsWith('/learners/my-marks'),
           icon: GraduationCap,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           // No MENU_PERMISSIONS entry, same as My Marks above: the page gates
@@ -3791,56 +3803,97 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'My Learning Pathway',
           active: pathname.startsWith('/learners/my-syllabus'),
           icon: BookOpen,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           href: '/learners/my-bills',
           label: 'My Bills',
           active: pathname.startsWith('/learners/my-bills'),
           icon: Wallet,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           href: '/learners/leave-onduty/my-applications',
           label: 'Leave/OnDuty',
           active: pathname.startsWith('/learners/leave-onduty'),
           icon: Briefcase,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
 
-        // Admin Features
+        // Every plain-link row in this group carries noSubmenus: true. Without it,
+        // menu.tsx auto-discovers ALL /learners/* manifest pages under the first
+        // submenus:[] row of the slug (the anchor) — for staff that is Analytics
+        // Dashboard, which then listed the student-only My * pages.
+        // Admin Features — regrouped 2026-09-29. The old single "Admission
+        // Management" row mixed admission, learner records, leave/on-duty and
+        // masters, and repeated the student-portal links already shown above.
+        // One row per sub-module now, each with hand-authored submenus (HR /
+        // Campus Living pattern). Every href below MUST stay in MENU_PERMISSIONS.
+        // Active predicates are mutually exclusive across these rows.
+        // /learners/lifecycle is deliberately NOT here: it already has a row in
+        // the Admin group, and one href in two menus highlights both.
         {
           href: '/learners/analytics',
           label: 'Analytics Dashboard',
           active: pathname.startsWith('/learners/analytics'),
           icon: BarChart,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           href: '/learners/enquiries',
-          label: 'Admission Management',
-          active: pathname.startsWith('/learners/enquiries') || pathname.startsWith('/learners/applications'),
+          label: 'Admission',
+          active:
+            pathname.startsWith('/learners/enquiries') ||
+            pathname.startsWith('/learners/applications') ||
+            pathname.startsWith('/learners/onboarding'),
           icon: ClipboardCheck,
           submenus: [
-            // Student portal (role=student — filtered downstream)
-            { href: '/learners/my-timetable', label: 'My Timetable', active: pathname === '/learners/my-timetable' },
-            { href: '/learners/my-attendance', label: 'My Attendance', active: pathname.startsWith('/learners/my-attendance') },
-            { href: '/learners/my-profile', label: 'My Profile', active: pathname === '/learners/my-profile' },
-            { href: '/learners/my-bills', label: 'My Bills', active: pathname.startsWith('/learners/my-bills') },
-            { href: '/learners/leave-onduty', label: 'Leave/OnDuty · Landing', active: pathname === '/learners/leave-onduty' },
-            { href: '/learners/leave-onduty/my-applications', label: 'Leave/OnDuty · My Applications', active: pathname === '/learners/leave-onduty/my-applications' },
-            { href: '/learners/leave-onduty/apply', label: 'Leave/OnDuty · Apply', active: pathname === '/learners/leave-onduty/apply' },
-            // Global leave/on-duty types + approval flows — staff who hold
-            // learners.leave_types.view see this via MENU_PERMISSIONS filtering.
-            { href: '/learners/leave-onduty/settings', label: 'Leave/OnDuty · Settings', active: pathname.startsWith('/learners/leave-onduty/settings') },
-            { href: '/academic/privileges/my', label: 'My Privileges', active: pathname.startsWith('/academic/privileges/my') },
-            // Admin
-            { href: '/learners/analytics', label: 'Analytics Dashboard', active: pathname.startsWith('/learners/analytics') },
-            { href: '/learners/enquiries', label: 'Admission · All Admitted', active: pathname === '/learners/enquiries' },
-            { href: '/learners/enquiries/new', label: 'Admission · New Admitted', active: pathname === '/learners/enquiries/new' },
-            { href: '/learners/profiles', label: 'Learner Profiles', active: pathname.startsWith('/learners/profiles') },
+            { href: '/learners/enquiries', label: 'All Admissions', active: pathname === '/learners/enquiries' },
+            { href: '/learners/enquiries/new', label: 'New Enquiries', active: pathname === '/learners/enquiries/new' },
+            { href: '/learners/onboarding', label: 'Onboarding', active: pathname.startsWith('/learners/onboarding') },
+          ]
+        },
+        {
+          href: '/learners/profiles',
+          label: 'Learner Profiles',
+          active:
+            pathname.startsWith('/learners/profiles') ||
+            pathname.startsWith('/learners/alumni') ||
+            pathname.startsWith('/learners/change-requests') ||
+            pathname.startsWith('/learners/advisor-caseload'),
+          icon: GraduationCap,
+          submenus: [
+            { href: '/learners/profiles', label: 'All Profiles', active: pathname === '/learners/profiles' },
+            { href: '/learners/profiles/promotion', label: 'Promotion', active: pathname.startsWith('/learners/profiles/promotion') },
             { href: '/learners/alumni', label: 'Alumni & Graduates', active: pathname.startsWith('/learners/alumni') },
             { href: '/learners/change-requests', label: 'Change Requests', active: pathname.startsWith('/learners/change-requests') },
+            { href: '/learners/advisor-caseload', label: 'Advisor Caseload', active: pathname.startsWith('/learners/advisor-caseload') },
+          ]
+        },
+        {
+          // Staff-only: the global leave/on-duty types + approval flows. My
+          // Applications / Apply are STUDENT pages (they redirect every non-
+          // student) and already have the student "Leave/OnDuty" row above, so
+          // they are deliberately not repeated here.
+          href: '/learners/leave-onduty/settings',
+          label: 'Leave / On-Duty Settings',
+          active: pathname.startsWith('/learners/leave-onduty/settings'),
+          icon: Briefcase,
+          submenus: [],
+          noSubmenus: true
+        },
+        {
+          href: '/learners/school-master',
+          label: 'Masters',
+          active:
+            pathname.startsWith('/learners/school-master') ||
+            pathname.startsWith('/learners/postal-codes'),
+          icon: Database,
+          submenus: [
             { href: '/learners/school-master', label: 'School Master', active: pathname.startsWith('/learners/school-master') },
             { href: '/learners/postal-codes', label: 'Postal Codes', active: pathname.startsWith('/learners/postal-codes') },
           ]
@@ -4876,8 +4929,18 @@ export function normalizeRoute(href: string): string {
  *
  * Single source of truth — used by both the top-level row filter AND the
  * nested-submenu filter (these links also appear as flyout submenus under the
- * admin "Admission Management" parent), for super admin and every other role.
+ * admin learner parents), for super admin and every other role.
  */
+/**
+ * Student-lane pages a super admin may still open and see in the sidebar.
+ * Learning Studio Feedback has no role redirect (it self-scopes to the caller's
+ * own sessions), so a super admin can review the learner experience; every
+ * other student-portal page redirects non-students and stays hidden.
+ */
+export const SUPER_ADMIN_VISIBLE_STUDENT_ROUTES: ReadonlySet<string> = new Set([
+  '/learners/class-feedback',
+]);
+
 export function isStudentPortalRoute(href: string): boolean {
   return (
     href.includes('/learners/my-') ||
@@ -4972,14 +5035,22 @@ export function GetRoleBasedPages(
         // Hide student-portal top-level rows (my-* and leave-onduty/my-applications)
         // from super admin. Bug report pages are NOT student-portal routes, so
         // they remain visible to everyone including super admin.
-        .filter((menu) => !isStudentPortalRoute(menu.href))
+        .filter(
+          (menu) =>
+            !isStudentPortalRoute(menu.href) ||
+            SUPER_ADMIN_VISIBLE_STUDENT_ROUTES.has(menu.href)
+        )
         // Also strip any student-portal links nested as submenus under an admin
-        // parent. The "Admission Management" (/learners/enquiries) flyout carries
+        // parent. Admin flyouts (e.g. Admission, Leave / On-Duty) may carry
         // My Attendance / My Profile / My Timetable as submenus — without this
         // they would still leak into the super-admin flyout.
         .map((menu) => ({
           ...menu,
-          submenus: menu.submenus.filter((submenu) => !isStudentPortalRoute(submenu.href)),
+          submenus: menu.submenus.filter(
+            (submenu) =>
+              !isStudentPortalRoute(submenu.href) ||
+              SUPER_ADMIN_VISIBLE_STUDENT_ROUTES.has(submenu.href)
+          ),
         })),
     })).filter((group) => group.menus.length > 0);
   }

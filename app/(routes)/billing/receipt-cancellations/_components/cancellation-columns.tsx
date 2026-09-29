@@ -27,6 +27,8 @@ export interface CancellationRow {
   id: string;
   request_number: string;
   receipt_number: string;
+  learner_name: string;
+  learner_program: string;
   amount: number;
   reason: string;
   requested_by_name: string;
@@ -41,6 +43,8 @@ export function toCancellationRow(r: ReceiptCancelRequest): CancellationRow {
     id: r.id,
     request_number: r.request_number,
     receipt_number: r.receipt_snapshot?.receipt_number ?? '',
+    learner_name: r.learner_name ?? '',
+    learner_program: r.learner_program ?? '',
     amount: Number(r.receipt_snapshot?.payment_amount ?? 0),
     reason: r.reason,
     requested_by_name: r.requested_by_name ?? '',
@@ -67,7 +71,7 @@ export function statusVariant(status: string) {
  * and the trailing view icon both open the detail dialog, where the decision is
  * taken with that evidence on screen.
  *
- * `enableSorting: false` on the three snapshot-derived columns is not a style
+ * `enableSorting: false` on the snapshot-/lookup-derived columns is not a style
  * choice — sorting is server-side, and those values live inside a JSONB blob
  * that the paged query has no ORDER BY for.
  */
@@ -95,6 +99,22 @@ export function getCancellationColumns(
       cell: ({ row }) => row.original.receipt_number || '—',
       enableSorting: false,
       size: 150,
+    },
+    {
+      accessorKey: 'learner_name',
+      header: ({ column }) => <DataTableColumnHeader column={column} title='Learner' />,
+      cell: ({ row }) => (
+        <div className='min-w-0'>
+          <p className='truncate font-medium'>{row.original.learner_name || '—'}</p>
+          {row.original.learner_program && (
+            <p className='text-muted-foreground truncate text-xs'>
+              {row.original.learner_program}
+            </p>
+          )}
+        </div>
+      ),
+      enableSorting: false,
+      size: 220,
     },
     {
       accessorKey: 'amount',
