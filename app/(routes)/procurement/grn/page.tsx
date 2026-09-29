@@ -48,12 +48,12 @@ export default function GrnListPage() {
   const grns = response?.data ?? [];
 
   return (
-    <ContentLayout title="Receive">
+    <ContentLayout title="Deliveries">
       <div className="space-y-4 sm:space-y-6">
         <div className="space-y-2">
           <PageHeader
-            title="Receive"
-            description="Receive deliveries against an order, check they match the order and invoice, and add accepted stock to inventory once verified."
+            title="Deliveries"
+            description="Receive deliveries against a purchase order, check they match the PO and invoice, and add accepted stock to inventory once verified."
           />
           <ReceiveSwitcher active="receipts" />
         </div>
@@ -106,7 +106,7 @@ export default function GrnListPage() {
             ) : grns.length === 0 ? (
               <EmptyState
                 title="No delivery records found"
-                description="Open an approved order to record a delivery."
+                description="Open an approved purchase order to record a delivery."
               />
             ) : (
               <ResponsiveList
@@ -123,7 +123,7 @@ export default function GrnListPage() {
                     cell: (grn) => grn.grn_number,
                   },
                   { key: 'date', header: 'Date', cell: (grn) => formatDateDMY(grn.created_at) },
-                  { key: 'po', header: 'Order #', cell: (grn) => grn.purchase_order?.po_number || '-' },
+                  { key: 'po', header: 'PO #', cell: (grn) => grn.purchase_order?.po_number || '-' },
                   { key: 'vendor', header: 'Vendor', cell: (grn) => grn.supplier?.name || '-' },
                   { key: 'invoice', header: 'Invoice', cell: (grn) => grn.invoice_number || '-' },
                   { key: 'items', header: 'Items', cell: (grn) => grn.item_count ?? '-' },

@@ -54,6 +54,7 @@ import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
 import { cn } from '@/lib/utils';
+import { displayRequestNumber } from '@/lib/procurement/display-number';
 
 /**
  * The quotation workspace — one screen, three numbered steps:
@@ -69,20 +70,6 @@ import { cn } from '@/lib/utils';
  */
 
 const rupees = (n: number) => `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
-
-function SectionTitle({ n, title, hint }: { n: number; title: string; hint?: string }) {
-  return (
-    <div className="flex items-start gap-3">
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
-        {n}
-      </span>
-      <div>
-        <CardTitle className="text-base">{title}</CardTitle>
-        {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
-      </div>
-    </div>
-  );
-}
 
 export default function RfqQuotationsPage() {
   const router = useRouter();
@@ -236,42 +223,14 @@ export default function RfqQuotationsPage() {
     }
   }
 
-  const cellFor = (row: ComparisonRow, supplierId: string) => row.quotes.find((q) => q.supplier_id === supplierId);
+  const fullQuoteTotals = vendorColumns
+    .map((v) => vendorTotals.get(v.supplierId))
+    .filter((t): t is { total: number; count: number } => !!t && t.count === comparison.length)
+    .map((t) => t.total);
+  const savingVsSingle =
+    fullQuoteTotals.length && unchosenCount === 0 ? Math.min(...fullQuoteTotals) - awardSummary.grandTotal : 0;
 
-  // Vendor ranking, the way purchase committees read it: L1 = lowest total. Vendors
-  // who quoted every item rank first; a partial quote can look cheap only because
-  // it left items out, so it ranks after them.
-  const ranked = vendorColumns
-    .map((v) => {
-      const t = vendorTotals.get(v.supplierId) ?? { total: 0, count: 0 };
-      const q = quotations.find((x) => x.supplier_id === v.supplierId);
-      return {
-        ...v,
-        total: t.total,
-        count: t.count,
-        full: t.count === comparison.length,
-        delivery: q?.delivery_time_days ?? null,
-        terms: q?.payment_terms ?? null,
-      };
-    })
-    .sort((a, b) => Number(b.full) - Number(a.full) || a.total - b.total);
-  const bestTotal = ranked.find((r) => r.full)?.total ?? ranked[0]?.total ?? 0;
-  const rankOf = new Map(
-    ranked.map((v, i) => {
-      const isL1 = i === 0 && v.full && ranked.length > 1;
-      const diff = v.total - bestTotal;
-      const note = ranked.length < 2
-        ? null
-        : isL1
-          ? 'Lowest total'
-          : !v.full
-            ? `Quoted ${v.count} of ${comparison.length} items`
-            : `+${rupees(diff)} (${bestTotal > 0 ? Math.round((diff / bestTotal) * 100) : 0}% more)`;
-      return [v.supplierId, { label: v.full ? `L${i + 1}` : 'Partial', isL1, note }] as const;
-    })
-  );
-  const deliveries = ranked.map((r) => r.delivery).filter((d): d is number => d != null);
-  const fastest = deliveries.length > 1 ? Math.min(...deliveries) : null;
+  const cellFor = (row: ComparisonRow, supplierId: string) => row.quotes.find((q) => q.supplier_id === supplierId);
 
   // A price 5× away from the others on the same item is almost always a misread
   // (a total read as a unit price, a missing zero) — say so next to it.
@@ -287,35 +246,51 @@ export default function RfqQuotationsPage() {
   };
 
   return (
-    <ContentLayout title={`${rfq.rfq_number} — Quotations`}>
+    <ContentLayout title={`Quotations — ${displayRequestNumber(rfq.source_request?.request_number) || rfq.rfq_number}`}>
       <div className="space-y-4 sm:space-y-6">
         {/* ── Header ─────────────────────────────────────────────────────── */}
-        <div className="flex flex-col gap-2 sm:gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2 sm:gap-3">
-            <Button variant="ghost" size="sm" aria-label="Back to purchase" onClick={() => router.push('/procurement/rfqs')}>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-2">
+            <Button variant="ghost" size="sm" aria-label="Back to quotations" onClick={() => router.push('/procurement/rfqs')}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Quotations</h2>
+                <h2 className="text-xl font-bold tracking-tight">Compare quotations</h2>
                 <StatusBadge status={rfq.status} config={RFQ_STATUS_CONFIG} />
               </div>
-              <p className="text-muted-foreground">
-                {rfq.rfq_number}
-                {rfq.source_request?.request_number ? ` · for request ${rfq.source_request.request_number}` : ''}
-                {` · ${comparison.length} item${comparison.length === 1 ? '' : 's'}`}
+              <p className="truncate text-sm text-muted-foreground">
+                {displayRequestNumber(rfq.source_request?.request_number) || rfq.rfq_number}
+                {' · '}
+                {comparison.map((r) => r.item_name).join(', ')}
               </p>
             </div>
           </div>
-          {rfq.status === 'awarded' && orders.length > 0 && (
-            <div className="flex shrink-0 flex-wrap gap-2">
-              {orders.map((o) => (
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {rfq.status === 'awarded' &&
+              orders.map((o) => (
                 <Button key={o.id} size="sm" onClick={() => router.push(`/procurement/purchase-orders/${o.id}`)}>
-                  Open order {o.po_number}
+                  Open PO {o.po_number}
                 </Button>
               ))}
-            </div>
-          )}
+            {canManage && quotations.length > 0 && (
+              <>
+                <Button size="sm" variant="outline" onClick={() => setUploadOpen(true)}>
+                  <Upload className="mr-1.5 h-4 w-4" />
+                  Add quotations
+                </Button>
+                <Button size="sm" variant="ghost" title="Type a quotation in by hand" aria-label="Type a quotation in by hand" onClick={addQuotation}>
+                  <PenLine className="h-4 w-4" />
+                </Button>
+              </>
+            )}
+            {quotations.length > 0 && (
+              <Button size="sm" variant="outline" onClick={() => setChatOpen(true)}>
+                <Sparkles className="mr-1.5 h-4 w-4" />
+                Ask AI
+              </Button>
+            )}
+          </div>
         </div>
 
         {rfq.award_rejection_reason && !isLocked && (
@@ -370,41 +345,10 @@ export default function RfqQuotationsPage() {
           </Card>
         )}
 
-        {/* ── ① Quotations & comparison — ONE table ─────────────────────────
-            Items first, then the details rows underneath (total + L1/L2 rank,
-            delivery, payment terms, reference, PDF) — the paper comparative
-            statement layout. No separate vendor cards: every fact appears once. */}
-        <Card>
-          <CardHeader className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <SectionTitle
-              n={1}
-              title={`Compare & choose${quotations.length ? ` · ${quotations.length} quotation${quotations.length === 1 ? '' : 's'}` : ''}`}
-            />
-            {quotations.length > 0 && (
-              <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-                {canManage && (
-                  <>
-                    <Button size="sm" variant="outline" onClick={() => setUploadOpen(true)}>
-                      <Upload className="mr-1.5 h-4 w-4" />
-                      Upload PDFs
-                    </Button>
-                    <Button size="sm" variant="ghost" title="Type a quotation in by hand" aria-label="Type a quotation in by hand" onClick={addQuotation}>
-                      <PenLine className="h-4 w-4" />
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={chooseLowestForAll} disabled={choosingAll}>
-                      <Wand2 className="mr-1.5 h-4 w-4" />
-                      {choosingAll ? 'Choosing…' : 'Lowest for all'}
-                    </Button>
-                  </>
-                )}
-                <Button size="sm" variant="outline" onClick={() => setChatOpen(true)}>
-                  <Sparkles className="mr-1.5 h-4 w-4" />
-                  Ask AI
-                </Button>
-              </div>
-            )}
-          </CardHeader>
-          <CardContent className="space-y-2 p-4 pt-0">
+        {/* ── The comparison: vendors across, items down. Each vendor's total and
+            terms sit in its column header; no separate footer rows. ──────── */}
+        <Card className="overflow-hidden">
+          <CardContent className="space-y-2 p-0">
             {quotesLoading ? (
               <div className="flex justify-center py-8">
                 <BeatLoader color="hsl(var(--primary))" size={8} />
@@ -412,7 +356,7 @@ export default function RfqQuotationsPage() {
             ) : quotesError ? (
               <AlertBox type="error" message="Failed to load quotations. Please try again." />
             ) : quotations.length === 0 ? (
-              <div className="flex flex-col items-center gap-3 rounded-lg border-2 border-dashed px-4 py-8 text-center">
+              <div className="m-4 flex flex-col items-center gap-3 rounded-lg border-2 border-dashed px-4 py-8 text-center">
                 <p className="font-medium">No quotations yet</p>
                 {canManage && (
                   <div className="flex flex-col items-center gap-2 sm:flex-row">
@@ -429,69 +373,94 @@ export default function RfqQuotationsPage() {
               </div>
             ) : (
               <>
-                <div className="overflow-x-auto rounded-md border">
+                <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b bg-muted/50 text-left">
-                        <th className="sticky left-0 z-10 min-w-[150px] bg-muted/50 px-3 py-2 font-medium">Item</th>
+                      <tr className="border-b text-left align-bottom">
+                        <th className="sticky left-0 z-10 min-w-[170px] bg-background px-3 py-3 font-normal">
+                          <span className="block text-xs text-muted-foreground">{canManage ? 'Click a price to choose it' : 'Item'}</span>
+                          {canManage && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="mt-1.5 h-7 border-dashed border-primary px-2 text-xs text-primary"
+                              onClick={chooseLowestForAll}
+                              disabled={choosingAll}
+                            >
+                              <Wand2 className="mr-1 h-3.5 w-3.5" />
+                              {choosingAll ? 'Choosing…' : 'Choose lowest for every item'}
+                            </Button>
+                          )}
+                        </th>
                         {vendorColumns.map((v) => {
-                          const rk = rankOf.get(v.supplierId);
+                          const t = vendorTotals.get(v.supplierId);
                           const q = quotations.find((x) => x.supplier_id === v.supplierId);
+                          const all = !!t && t.count === comparison.length;
+                          const terms = [
+                            all ? `all ${comparison.length} item${comparison.length === 1 ? '' : 's'}` : `${t?.count ?? 0} of ${comparison.length} items`,
+                            q?.delivery_time_days != null ? `${q.delivery_time_days} days` : null,
+                            q?.payment_terms || null,
+                          ].filter(Boolean);
                           return (
-                            <th key={v.supplierId} className="min-w-[140px] px-3 py-2 font-medium">
+                            <th key={v.supplierId} className="min-w-[170px] border-l px-3 py-3 font-normal">
                               <span className="flex items-center gap-1.5">
-                                {rk && (
-                                  <span
-                                    className={cn(
-                                      'rounded px-1 text-[10px] font-bold',
-                                      rk.isL1 ? 'bg-green-600 text-white' : 'bg-muted text-muted-foreground'
-                                    )}
-                                  >
-                                    {rk.label}
-                                  </span>
-                                )}
-                                <span className="truncate" title={v.name}>
+                                <span className="truncate text-sm font-semibold" title={v.name}>
                                   {v.name}
                                 </span>
-                                {q?.document_file_id ? (
-                                  <button
-                                    type="button"
-                                    title="View quotation PDF"
-                                    aria-label={`View ${v.name} quotation PDF`}
-                                    className="text-muted-foreground hover:text-primary"
-                                    onClick={() => setPdfQuote({ fileId: q.document_file_id!, name: v.name })}
-                                  >
-                                    <FileText className="h-3.5 w-3.5" />
-                                  </button>
-                                ) : q?.document_url ? (
-                                  <a
-                                    href={q.document_url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    title="Open quotation PDF"
-                                    aria-label={`Open ${v.name} quotation PDF`}
-                                    className="text-muted-foreground hover:text-primary"
-                                  >
-                                    <ExternalLink className="h-3.5 w-3.5" />
-                                  </a>
-                                ) : null}
-                                {canManage && q && (
-                                  <button
-                                    type="button"
-                                    title="Remove this quotation"
-                                    aria-label={`Remove ${v.name} quotation`}
-                                    className="ml-auto text-muted-foreground hover:text-destructive"
-                                    onClick={() => run(() => deleteQuotation.mutateAsync(q.id), 'Quotation removed')}
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </button>
-                                )}
+                                <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                                  {q?.document_file_id ? (
+                                    <button
+                                      type="button"
+                                      title="View quotation PDF"
+                                      aria-label={`View ${v.name} quotation PDF`}
+                                      className="text-muted-foreground hover:text-primary"
+                                      onClick={() => setPdfQuote({ fileId: q.document_file_id!, name: v.name })}
+                                    >
+                                      <FileText className="h-3.5 w-3.5" />
+                                    </button>
+                                  ) : q?.document_url ? (
+                                    <a
+                                      href={q.document_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      title="Open quotation PDF"
+                                      aria-label={`Open ${v.name} quotation PDF`}
+                                      className="text-muted-foreground hover:text-primary"
+                                    >
+                                      <ExternalLink className="h-3.5 w-3.5" />
+                                    </a>
+                                  ) : null}
+                                  {canManage && q && (
+                                    <button
+                                      type="button"
+                                      title="Remove this quotation"
+                                      aria-label={`Remove ${v.name} quotation`}
+                                      className="text-muted-foreground hover:text-destructive"
+                                      onClick={() => run(() => deleteQuotation.mutateAsync(q.id), 'Quotation removed')}
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
+                                </span>
+                              </span>
+                              <span className="mt-1 block text-lg font-bold tabular-nums">{t ? rupees(t.total) : '—'}</span>
+                              <span
+                                className={cn('block truncate text-xs', all ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400')}
+                                title={terms.join(' · ')}
+                              >
+                                {terms.join(' · ')}
                               </span>
                             </th>
                           );
                         })}
-                        <th className="min-w-[140px] border-l bg-green-50/60 px-3 py-2 font-medium dark:bg-green-950/20">
-                          Your choice
+                        <th className="min-w-[170px] border-l border-green-200 bg-green-50/70 px-3 py-3 font-normal dark:border-green-900 dark:bg-green-950/20">
+                          <span className="block text-sm font-semibold text-green-800 dark:text-green-300">Your choice</span>
+                          <span className="mt-1 block text-lg font-bold tabular-nums">{rupees(awardSummary.grandTotal)}</span>
+                          {savingVsSingle > 0 && (
+                            <span className="block text-xs text-green-700 dark:text-green-400">
+                              {rupees(savingVsSingle)} less than buying all from one vendor
+                            </span>
+                          )}
                         </th>
                       </tr>
                     </thead>
@@ -591,80 +560,43 @@ export default function RfqQuotationsPage() {
                         </tr>
                       ))}
                     </tbody>
-                    <tfoot className="text-xs">
-                      <tr className="bg-muted/30">
-                        <td className="sticky left-0 z-10 bg-muted/30 px-3 py-2 font-medium">Total</td>
-                        {vendorColumns.map((v) => {
-                          const t = vendorTotals.get(v.supplierId);
-                          const rk = rankOf.get(v.supplierId);
-                          return (
-                            <td key={v.supplierId} className="px-3 py-2">
-                              <span className={cn('text-sm font-semibold', rk?.isL1 && 'text-green-700')}>
-                                {t ? rupees(t.total) : '—'}
-                              </span>
-                              {rk?.note && !rk.isL1 && <span className="block text-muted-foreground">{rk.note}</span>}
-                            </td>
-                          );
-                        })}
-                        <td className="border-l bg-green-50/60 px-3 py-2 dark:bg-green-950/20">
-                          <span className="text-sm font-semibold">{rupees(awardSummary.grandTotal)}</span>
-                        </td>
-                      </tr>
-                      <tr className="border-t">
-                        <td className="sticky left-0 z-10 bg-background px-3 py-2 text-muted-foreground">Delivery · Payment</td>
-                        {vendorColumns.map((v) => {
-                          const q = quotations.find((x) => x.supplier_id === v.supplierId);
-                          const parts = [
-                            q?.delivery_time_days != null ? `${q.delivery_time_days} days` : null,
-                            q?.payment_terms || null,
-                          ].filter(Boolean);
-                          return (
-                            <td
-                              key={v.supplierId}
-                              className={cn(
-                                'max-w-[200px] truncate px-3 py-2 text-muted-foreground',
-                                q?.delivery_time_days != null && q.delivery_time_days === fastest && 'text-blue-700'
-                              )}
-                              title={parts.join(' · ')}
-                            >
-                              {parts.join(' · ') || '—'}
-                            </td>
-                          );
-                        })}
-                        <td className="border-l bg-green-50/60 dark:bg-green-950/20" />
-                      </tr>
-                    </tfoot>
                   </table>
                 </div>
                 {quotations.length === 1 && canManage && (
-                  <p className="text-xs text-amber-700">Add 2–3 quotations to compare.</p>
+                  <p className="px-4 pb-3 text-xs text-amber-700">Add another quotation to compare prices.</p>
                 )}
               </>
             )}
           </CardContent>
         </Card>
 
-        {/* ── ② Send for approval — always in reach at the bottom ──────────── */}
+        {/* ── Send for approval — always in reach at the bottom ──────────── */}
         {canManage && quotations.length > 0 && (
           <div className="sticky bottom-3 z-20 rounded-lg border bg-background/95 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/85">
             <div className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-3 text-sm">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
-                  2
-                </span>
-                <div>
-                  <p className="font-medium">
-                    {chosenCount} of {comparison.length} item{comparison.length === 1 ? '' : 's'} chosen
-                    {awardSummary.grandTotal > 0 ? ` · Total ${rupees(awardSummary.grandTotal)}` : ''}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {chosenCount === 0
-                      ? 'Choose a vendor for each item to continue.'
-                      : unchosenCount > 0
-                        ? `${unchosenCount} item${unchosenCount === 1 ? '' : 's'} without a vendor will not be ordered.`
-                        : 'All items chosen — send to the Super Admin for approval.'}
-                  </p>
-                </div>
+              <div className="text-sm">
+                <p>
+                  <b>
+                    {unchosenCount === 0
+                      ? `All ${comparison.length} item${comparison.length === 1 ? '' : 's'} chosen`
+                      : `${chosenCount} of ${comparison.length} items chosen`}
+                  </b>
+                  {awardSummary.vendors.length > 0 &&
+                    ` · ${awardSummary.vendors.length} vendor${awardSummary.vendors.length === 1 ? '' : 's'}`}
+                  {awardSummary.grandTotal > 0 && (
+                    <>
+                      {' · '}
+                      <b className="tabular-nums">{rupees(awardSummary.grandTotal)}</b>
+                    </>
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {chosenCount === 0
+                    ? 'Choose a vendor for each item to continue.'
+                    : unchosenCount > 0
+                      ? `${unchosenCount} item${unchosenCount === 1 ? '' : 's'} without a vendor will not be ordered.`
+                      : 'One purchase order per vendor is created when the Super Admin approves.'}
+                </p>
               </div>
               <Button
                 className="shrink-0"
@@ -672,7 +604,7 @@ export default function RfqQuotationsPage() {
                 onClick={() => run(() => submitAward.mutateAsync(rfqId), 'Sent to Super Admin for approval')}
               >
                 <Send className="mr-2 h-4 w-4" />
-                {submitAward.isPending ? 'Sending…' : 'Send to Super Admin'}
+                {submitAward.isPending ? 'Sending…' : 'Send for approval'}
               </Button>
             </div>
           </div>
@@ -725,7 +657,7 @@ export default function RfqQuotationsPage() {
       <Dialog open={sendBackOpen} onOpenChange={setSendBackOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Send back {rfq.rfq_number}</DialogTitle>
+            <DialogTitle>Send back {displayRequestNumber(rfq.source_request?.request_number) || rfq.rfq_number}</DialogTitle>
           </DialogHeader>
           <div className="space-y-2">
             <Label htmlFor="send-back-reason">What needs to change?</Label>

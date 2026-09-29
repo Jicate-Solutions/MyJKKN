@@ -53,6 +53,8 @@ interface DocumentHeaderProps {
   /** Other actions in priority order; the lowest-priority ones move into ⋯ when the row runs out of room. */
   actions?: DocAction[];
   className?: string;
+  /** Smaller title, info line and buttons — for short pages like a request. */
+  compact?: boolean;
 }
 
 // Widths the row must leave for the back button and a readable title (px).
@@ -76,6 +78,7 @@ export function DocumentHeader({
   reject,
   actions = [],
   className,
+  compact = false,
 }: DocumentHeaderProps) {
   const ordered = [...actions.filter((a) => !a.destructive), ...actions.filter((a) => a.destructive)];
   const rootRef = useRef<HTMLDivElement>(null);
@@ -131,7 +134,8 @@ export function DocumentHeader({
 
   const shown = ordered.slice(0, visibleCount);
   const hidden = ordered.slice(visibleCount);
-  const btnSize = 'h-10 sm:h-9';
+  // Compact: smaller text, tighter padding and icons; phones keep a 36 px tap target.
+  const btnSize = compact ? 'h-9 gap-1.5 px-2.5 text-xs sm:h-7 [&_svg]:h-3.5 [&_svg]:w-3.5' : 'h-10 sm:h-9';
 
   const actionButton = (a: DocAction, extra?: string) => {
     const Icon = a.icon;
@@ -172,7 +176,7 @@ export function DocumentHeader({
         type="button"
         disabled={primary.disabled}
         onClick={() => run(primary)}
-        className={cn(btnSize, 'flex-1 px-4', primary.menu?.length && 'rounded-r-none')}
+        className={cn(btnSize, 'flex-1', compact ? 'px-3' : 'px-4', primary.menu?.length && 'rounded-r-none')}
       >
         {primary.icon && <primary.icon className="h-4 w-4" />}
         {primary.label}
@@ -266,7 +270,7 @@ export function DocumentHeader({
             <h2
               className={cn(
                 'truncate font-bold tracking-tight transition-[font-size]',
-                stuck ? 'text-lg' : 'text-xl sm:text-2xl'
+                stuck || compact ? 'text-lg' : 'text-xl sm:text-2xl'
               )}
             >
               {title}
@@ -274,7 +278,7 @@ export function DocumentHeader({
             {status && <span className="shrink-0">{status}</span>}
           </div>
           {next && (
-            <p className={cn('text-sm text-muted-foreground sm:truncate', stuck && 'sm:hidden')}>{next}</p>
+            <p className={cn(compact ? 'text-xs' : 'text-sm', 'text-muted-foreground sm:truncate', stuck && 'sm:hidden')}>{next}</p>
           )}
         </div>
 

@@ -147,7 +147,7 @@ export default function NewGrnPage() {
   if (!po) {
     return (
       <ContentLayout title="Receive Goods">
-        <p className="text-muted-foreground py-12 text-center">Order not found.</p>
+        <p className="text-muted-foreground py-12 text-center">Purchase order not found.</p>
       </ContentLayout>
     );
   }
@@ -369,7 +369,7 @@ export default function NewGrnPage() {
           back={
             <button
               type="button"
-              aria-label="Back to order"
+              aria-label="Back to purchase order"
               className="-ml-2 inline-flex h-10 items-center gap-1 px-2 text-sm text-muted-foreground hover:text-foreground sm:h-auto sm:px-0"
               onClick={() => router.push(`/procurement/purchase-orders/${po.id}`)}
             >

@@ -130,7 +130,7 @@ export default function GrnDetailPage() {
   const STATUS_HINT: Record<string, string> = {
     draft: 'Not yet submitted for verification.',
     pending_verification:
-      'Nothing has reached inventory yet. Verifying checks this against the order and the invoice, then posts the accepted quantities.',
+      'Nothing has reached inventory yet. Verifying checks this against the purchase order and the invoice, then posts the accepted quantities.',
     partially_accepted:
       'Accepted quantities are in inventory. Rejected lines were excluded and are not stock.',
     replacement_requested:

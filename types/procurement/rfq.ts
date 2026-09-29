@@ -43,6 +43,10 @@ export interface ProcurementRfq {
   source_request?: { request_number: string } | null;
   item_count?: number;
   vendor_count?: number;
+  /** List view: quotations received so far. */
+  quote_count?: number;
+  /** List view: what is being bought, so a row reads "Keyboard × 5". */
+  item_preview?: Array<{ item_name: string; quantity: number }>;
 }
 
 export interface ProcurementRfqItem {
@@ -86,15 +90,17 @@ export interface RfqFilters {
 }
 
 export const RFQ_STATUS_CONFIG: Record<RfqStatus, { label: string; color: string }> = {
-  draft: { label: 'Draft', color: 'gray' },
-  pending_review: { label: 'Pending Review', color: 'amber' },
-  approved: { label: 'Approved', color: 'green' },
-  rejected: { label: 'Rejected', color: 'red' },
-  sent: { label: 'Sent to Vendors', color: 'blue' },
-  quotations_received: { label: 'Quotations Received', color: 'indigo' },
-  compared: { label: 'Compared', color: 'purple' },
+  // Plain stages: a quotation is never really a "draft" to the people using it.
+  // pending_review / approved / rejected / sent are the retired review gate.
+  draft: { label: 'Waiting for quotes', color: 'blue' },
+  pending_review: { label: 'Waiting for quotes', color: 'blue' },
+  approved: { label: 'Waiting for quotes', color: 'blue' },
+  rejected: { label: 'Sent back', color: 'red' },
+  sent: { label: 'Waiting for quotes', color: 'blue' },
+  quotations_received: { label: 'Comparing quotes', color: 'purple' },
+  compared: { label: 'Comparing quotes', color: 'purple' },
   pending_award_approval: { label: 'Waiting for Super Admin', color: 'amber' },
-  awarded: { label: 'Approved · order created', color: 'green' },
+  awarded: { label: 'Ordered', color: 'green' },
   closed: { label: 'Closed', color: 'gray' },
   cancelled: { label: 'Cancelled', color: 'red' },
 };

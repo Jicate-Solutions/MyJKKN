@@ -33,13 +33,13 @@ const config: ModuleNavConfig = {
       matchPaths: ['/procurement/requests'],
     },
     {
-      label: 'Purchase',
+      label: 'Quotations',
       icon: 'FileSearch',
       href: '/procurement/rfqs',
       matchPaths: ['/procurement/rfqs'],
     },
     {
-      label: 'Receive',
+      label: 'Deliveries',
       icon: 'PackageCheck',
       href: '/procurement/purchase-orders',
       matchPaths: ['/procurement/purchase-orders', '/procurement/grn'],

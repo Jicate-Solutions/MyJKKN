@@ -5,6 +5,7 @@
 // Numbering uses the shared procurement_next_number RPC (doc_type 'PR').
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { toStoredRequestNumber } from '@/lib/procurement/display-number';
 import type {
   ProcurementPurchaseRequest,
   PurchaseRequestWithItems,
@@ -33,11 +34,13 @@ export class ProcurementPurchaseRequestService {
           `*,
            requested_by_profile:profiles!requested_by(full_name),
            approved_by_profile:profiles!approved_by(full_name),
-           items:procurement_purchase_request_items(count)`,
+           items:procurement_purchase_request_items(count),
+           item_preview:procurement_purchase_request_items(item_name, required_quantity),
+           quotes:procurement_rfqs(status, orders:procurement_purchase_orders(status))`,
           { count: 'exact' }
         );
 
-      if (filters.search) query = query.ilike('request_number', `%${filters.search}%`);
+      if (filters.search) query = query.ilike('request_number', `%${toStoredRequestNumber(filters.search)}%`);
       if (filters.status) query = query.eq('status', filters.status);
       if (filters.request_type) query = query.eq('request_type', filters.request_type);
       if (filters.store_id) query = query.eq('store_id', filters.store_id);
@@ -55,6 +58,10 @@ export class ProcurementPurchaseRequestService {
       const rows = (data || []).map((r: any) => ({
         ...r,
         item_count: Array.isArray(r.items) ? r.items[0]?.count ?? 0 : 0,
+        quote_statuses: Array.isArray(r.quotes) ? r.quotes.map((q: { status: string }) => q.status) : [],
+        order_statuses: Array.isArray(r.quotes)
+          ? r.quotes.flatMap((q: { orders?: Array<{ status: string }> }) => (q.orders ?? []).map((o) => o.status))
+          : [],
       }));
 
       return {
@@ -338,12 +345,23 @@ export class ProcurementPurchaseRequestService {
         .eq('id', id)
         .eq('status', fromStatus)
         .select()
-        .single();
+        .maybeSingle();
       if (error) throw error;
-      if (!data) {
-        throw new Error(`Purchase request is not in "${fromStatus}" state; refresh and retry.`);
-      }
-      return data as ProcurementPurchaseRequest;
+      if (data) return data as ProcurementPurchaseRequest;
+
+      // Zero rows: the request already moved on — a double click, another tab, or
+      // someone else acting first. Say where it is now instead of PostgREST's
+      // "JSON object requested, multiple (or no) rows returned".
+      const { data: current } = await this.supabase
+        .from('procurement_purchase_requests')
+        .select('status')
+        .eq('id', id)
+        .maybeSingle();
+      throw new Error(
+        current?.status
+          ? `This request is already ${String(current.status).replace(/_/g, ' ')} — the page has been refreshed.`
+          : 'This request could not be found — it may have been removed.'
+      );
     } catch (error) {
       console.error('[ProcurementPurchaseRequestService] transition:', error);
       throw error;

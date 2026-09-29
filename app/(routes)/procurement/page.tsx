@@ -14,6 +14,7 @@ import { useRfqs } from '@/hooks/procurement/use-rfqs';
 import { usePurchaseOrders } from '@/hooks/procurement/use-purchase-orders';
 import { useGrns } from '@/hooks/procurement/use-grns';
 import { formatDateDMY } from '@/lib/utils/date-format';
+import { displayRequestNumber } from '@/lib/procurement/display-number';
 import { CircleAlert, CheckCircle2, Plus, ChevronRight } from 'lucide-react';
 
 /**
@@ -66,11 +67,11 @@ const GATES: ReadonlyArray<{
   },
   {
     step: 4,
-    name: 'Orders',
+    name: 'Purchase orders',
     waiting: 'awaiting delivery',
     permission: 'grn_create',
     href: '/procurement/purchase-orders',
-    docLabel: 'Order',
+    docLabel: 'Purchase order',
   },
   {
     step: 5,
@@ -136,7 +137,7 @@ export default function ProcurementHome() {
       for (const r of list ?? []) {
         rows.push({
           id: String(r.id),
-          number: String(r[numberKey] ?? '—'),
+          number: numberKey === 'request_number' ? displayRequestNumber(String(r[numberKey] ?? '')) || '—' : String(r[numberKey] ?? '—'),
           docLabel: GATES[gateIndex].docLabel,
           createdAt: (r.created_at as string) ?? null,
           href: `${GATES[gateIndex].href}/${r.id}${GATES[gateIndex].itemSuffix ?? ''}`,

@@ -10,13 +10,13 @@ import { cn } from '@/lib/utils';
  * Requests · Purchase · Receive (docs/procurement/simplified-flow-spec.md).
  */
 const VIEWS = [
-  { key: 'orders', label: 'Orders to receive', href: '/procurement/purchase-orders' },
+  { key: 'orders', label: 'Purchase orders', href: '/procurement/purchase-orders' },
   { key: 'receipts', label: 'Goods received', href: '/procurement/grn' },
 ] as const;
 
 export function ReceiveSwitcher({ active }: { active: (typeof VIEWS)[number]['key'] }) {
   return (
-    <div role="tablist" aria-label="Receive" className="inline-flex rounded-md border bg-muted/40 p-1">
+    <div role="tablist" aria-label="Deliveries" className="inline-flex rounded-md border bg-muted/40 p-1">
       {VIEWS.map((v) => (
         <Link
           key={v.key}
