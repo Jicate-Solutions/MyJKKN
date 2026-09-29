@@ -222,7 +222,7 @@ export function ReviewDecisionPanel({
             {previewScore === null
               ? 'Every area must be rated before this can be approved.'
               : `Promotion reads this as ${previewScore} out of 100. That number exists only to ` +
-                'order candidates; it is not the appraisal result and is not shown to staff.'}
+                'order candidates; it is not the appraisal result and is not shown to the team member.'}
           </p>
           {blocked && (
             <p className="mt-2 font-medium text-amber-700 dark:text-amber-300">
@@ -249,7 +249,10 @@ export function ReviewDecisionPanel({
           <Button variant="outline" onClick={sendBack} disabled={busy || !notes.trim()}>
             <Undo2 className="h-4 w-4" />
             <span className="ml-2">
-              {isDirectorStep ? 'Send back to committee' : 'Send back to staff'}
+              {/* The committee can only return it one step, to the head of
+                  department — not all the way to the person. Labelled for
+                  where it actually lands. */}
+              {isDirectorStep ? 'Send back to committee' : 'Send back to the head of department'}
             </span>
           </Button>
           {!notes.trim() && (

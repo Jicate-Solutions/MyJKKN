@@ -191,7 +191,7 @@ function PerfReviewEditor({
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                 The appraisal itself is four words, not a score. Promotion still needs a way
                 to order two candidates, and this is it. All Meets comes to 50 out of 100,
-                all Exceeds to 100. Staff are never shown this number.
+                all Exceeds to 100. Team members are never shown this number.
               </p>
             </div>
 

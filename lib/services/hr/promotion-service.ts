@@ -201,8 +201,13 @@ export async function calculateMeritScore(
   lookback_years: number;
   /**
    * True when a college has chosen that a Below stops the increment, and one
-   * of these appraisals has one. The score is then 0, but the reason is
-   * reported separately so "blocked" is never mistaken for "scored badly".
+   * of these appraisals has one.
+   *
+   * The score alongside it stays REAL. Flattening it to zero would destroy
+   * the thing the reader needs: somebody rated Exceeds in three areas and
+   * Below in one is not the same as somebody rated Below in all four, and a
+   * stored zero cannot tell them apart afterwards. The block is a separate
+   * fact, and every screen that shows the score must show this beside it.
    */
   increment_blocked: boolean;
 }> {
@@ -254,14 +259,6 @@ export async function calculateMeritScore(
   const blocked = rows.some((r) =>
     incrementBlocked(parseRatings(r.sedc_review_jsonb, areas), appraisalPolicy),
   );
-  if (blocked) {
-    return {
-      score: 0,
-      review_count: rows.length,
-      lookback_years: lookbackYears,
-      increment_blocked: true,
-    };
-  }
 
   // final_score is the 0-100 figure derived from the ratings at sign-off.
   // Averaged across the appraisals in the lookback window, divided by 10, and
@@ -275,7 +272,7 @@ export async function calculateMeritScore(
     score: Math.round(capped * 100) / 100,
     review_count: rows.length,
     lookback_years: lookbackYears,
-    increment_blocked: false,
+    increment_blocked: blocked,
   };
 }
 

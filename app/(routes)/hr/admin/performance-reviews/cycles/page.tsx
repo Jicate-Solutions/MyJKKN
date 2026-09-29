@@ -240,7 +240,7 @@ export default function HrPerformanceReviewCyclesPage() {
                     ))}
                   </select>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Only staff of that college will see this round. Choosing
+                    Only team members of that college will see this round. Choosing
                     &ldquo;Every college&rdquo; opens it for all nine at once, which is
                     what happened before rounds could belong to a college. Only one round
                     can be open per college at a time.

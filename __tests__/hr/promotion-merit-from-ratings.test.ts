@@ -146,16 +146,34 @@ describe('a Below blocking the increment (configurable per college)', () => {
     expect(r.score).toBe(5);
   });
 
-  it('zeroes the merit and says WHY when the college turned it on', async () => {
+  it('flags the block but KEEPS the real score', async () => {
     const { client } = stubClient(
       { data: [{ final_score: 50, sedc_review_jsonb: belowService }] },
       { below_blocks_increment: true },
     );
     const r = await calculateMeritScore(client, 'staff-1', POLICY);
     expect(r.increment_blocked).toBe(true);
-    expect(r.score).toBe(0);
-    // "blocked" must be distinguishable from "scored badly".
+    // The real score survives. Flattening it to zero would make three
+    // Exceeds and one Below indistinguishable from four Belows.
+    expect(r.score).toBe(5);
     expect(r.review_count).toBe(1);
+  });
+
+  it('tells a blocked good record apart from a genuinely bad one', async () => {
+    const pol = { below_blocks_increment: true };
+    const good = stubClient(
+      { data: [{ final_score: 75, sedc_review_jsonb: belowService }] }, pol,
+    );
+    const bad = stubClient(
+      { data: [{ final_score: 0, sedc_review_jsonb: belowService }] }, pol,
+    );
+    const g = await calculateMeritScore(good.client, 'staff-1', POLICY);
+    const b = await calculateMeritScore(bad.client, 'staff-2', POLICY);
+    expect(g.increment_blocked).toBe(true);
+    expect(b.increment_blocked).toBe(true);
+    expect(g.score).toBe(7.5);
+    expect(b.score).toBe(0);
+    expect(g.score).not.toBe(b.score);
   });
 
   it('leaves a clean record alone even with the rule on', async () => {

@@ -76,7 +76,7 @@ export const AREA_LABELS: Record<AppraisalArea, string> = {
  * work done FOR the institution, and a reviewer must not have to guess.
  */
 export const AREA_HELP: Record<AppraisalArea, string> = {
-  teaching: 'Classroom and lab teaching, supervision, and student learning.',
+  teaching: 'Teaching, supervision, and how much learners take away from it.',
   research: 'Research, scholarship, publication, and creative work.',
   service:
     'Work done for the institution — committees, admissions, accreditation, events, ' +
