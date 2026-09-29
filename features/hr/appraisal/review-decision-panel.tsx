@@ -220,7 +220,7 @@ export function ReviewDecisionPanel({
             placeholder={
               isDirectorStep
                 ? 'Recorded against the appraisal. Required if you send it back.'
-                : 'Why the committee changed, or kept, the supervisor&rsquo;s ratings.'
+                : 'Why the committee changed, or kept, the supervisor’s ratings.'
             }
           />
         </div>

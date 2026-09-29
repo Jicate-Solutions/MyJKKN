@@ -126,6 +126,13 @@ describe('committee step (supervisor_reviewed)', () => {
     expect(checkedBand('Collegiality')).toBe('meets');
   });
 
+  it('shows the notes hint as words, not an HTML entity (a JS string does not decode &rsquo;)', () => {
+    renderPanel(review);
+    const hint = screen.getByLabelText('Normalisation notes').getAttribute('placeholder') ?? '';
+    expect(hint).toContain('supervisor’s ratings');
+    expect(hint).not.toMatch(/&[a-z]+;/);
+  });
+
   it('offers Send to Director and Send back to the head, and send-back needs a reason', () => {
     renderPanel(review);
     expect(screen.getByRole('button', { name: /Send to Director/ })).toBeEnabled();
