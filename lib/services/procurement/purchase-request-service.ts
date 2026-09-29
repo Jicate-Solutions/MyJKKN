@@ -140,10 +140,11 @@ export class ProcurementPurchaseRequestService {
           request_number: requestNumber,
           domain: data.domain ?? 'ims',
           request_type: requestType,
-          // Filed straight away — the review dialog on the create page is the
-          // confirmation, so a separate Draft → Submit click added nothing.
-          status: 'submitted',
-          submitted_at: new Date().toISOString(),
+          // Draft only for the instant the lines are being written: the request is
+          // submitted below, in this same call — the person never clicks Submit.
+          // Inserting it as 'submitted' here as well made that flip find no draft
+          // and fail after everything had already been saved.
+          status: 'draft',
           requested_by: userId,
           notes: data.notes ?? null,
         })
