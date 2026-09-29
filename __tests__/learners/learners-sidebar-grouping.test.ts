@@ -135,4 +135,14 @@ describe('Learners sidebar grouping', () => {
       }
     }
   });
+
+  it('super admin still sees Learning Studio Feedback, staff and other student pages stay hidden', () => {
+    const sa = GetRoleBasedPages('/', { role_key: 'super_admin', permissions: {} } as never).find((g) => g.groupLabel === 'Learners')!;
+    const labels = sa.menus.map((m) => m.label);
+    expect(labels).toContain('Learning Studio Feedback');
+    expect(labels).not.toContain('My Marks');
+    expect(labels).not.toContain('My Bills');
+    const hod = GetRoleBasedPages('/', { role_key: 'hod', permissions: { 'learners.profiles.view': true } } as never).find((g) => g.groupLabel === 'Learners')!;
+    expect(hod.menus.map((m) => m.label)).not.toContain('Learning Studio Feedback');
+  });
 });

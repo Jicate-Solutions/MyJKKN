@@ -4931,6 +4931,16 @@ export function normalizeRoute(href: string): string {
  * nested-submenu filter (these links also appear as flyout submenus under the
  * admin learner parents), for super admin and every other role.
  */
+/**
+ * Student-lane pages a super admin may still open and see in the sidebar.
+ * Learning Studio Feedback has no role redirect (it self-scopes to the caller's
+ * own sessions), so a super admin can review the learner experience; every
+ * other student-portal page redirects non-students and stays hidden.
+ */
+export const SUPER_ADMIN_VISIBLE_STUDENT_ROUTES: ReadonlySet<string> = new Set([
+  '/learners/class-feedback',
+]);
+
 export function isStudentPortalRoute(href: string): boolean {
   return (
     href.includes('/learners/my-') ||
@@ -5025,14 +5035,22 @@ export function GetRoleBasedPages(
         // Hide student-portal top-level rows (my-* and leave-onduty/my-applications)
         // from super admin. Bug report pages are NOT student-portal routes, so
         // they remain visible to everyone including super admin.
-        .filter((menu) => !isStudentPortalRoute(menu.href))
+        .filter(
+          (menu) =>
+            !isStudentPortalRoute(menu.href) ||
+            SUPER_ADMIN_VISIBLE_STUDENT_ROUTES.has(menu.href)
+        )
         // Also strip any student-portal links nested as submenus under an admin
         // parent. Admin flyouts (e.g. Admission, Leave / On-Duty) may carry
         // My Attendance / My Profile / My Timetable as submenus — without this
         // they would still leak into the super-admin flyout.
         .map((menu) => ({
           ...menu,
-          submenus: menu.submenus.filter((submenu) => !isStudentPortalRoute(submenu.href)),
+          submenus: menu.submenus.filter(
+            (submenu) =>
+              !isStudentPortalRoute(submenu.href) ||
+              SUPER_ADMIN_VISIBLE_STUDENT_ROUTES.has(submenu.href)
+          ),
         })),
     })).filter((group) => group.menus.length > 0);
   }

@@ -38,6 +38,7 @@ import { cn } from '@/lib/utils';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   MENU_PERMISSIONS,
+  SUPER_ADMIN_VISIBLE_STUDENT_ROUTES,
   isStudentPortalRoute,
   normalizeRoute,
 } from '@/lib/sidebarMenuLink';
@@ -249,7 +250,12 @@ export function AutoTabNav({
   }
 
   const canShowChip = (href: string): boolean => {
-    if (isKnownNonStudent && isStudentPortalRoute(normalizeRoute(href))) return false;
+    if (isKnownNonStudent && isStudentPortalRoute(normalizeRoute(href))) {
+      // Super admin keeps the student-lane pages that don't redirect them.
+      const superAdminMayOpen =
+        isSuperAdmin && SUPER_ADMIN_VISIBLE_STUDENT_ROUTES.has(normalizeRoute(href));
+      if (!superAdminMayOpen) return false;
+    }
     if (isLoading) return true;
     if (isSuperAdmin) return true;
     const perm = MENU_PERMISSIONS[normalizeRoute(href)];
