@@ -169,6 +169,7 @@ describe('GET /api/hr/salary-revisions', () => {
     const res = await listRoute.GET(req('/api/hr/salary-revisions?view=director'), {} as never);
     const body = await res.json();
     const order = calls.map((c) => c.fn).filter((f) => f.startsWith('fn_hr_salary_revision_'));
+    expect(order.indexOf('fn_hr_salary_revision_apply_due')).toBeGreaterThanOrEqual(0);
     expect(order.indexOf('fn_hr_salary_revision_apply_due')).toBeLessThan(order.indexOf('fn_hr_salary_revision_list'));
     expect(body.requests[0].band_warning).toBe('Above the band by ₹6,500');
   });
