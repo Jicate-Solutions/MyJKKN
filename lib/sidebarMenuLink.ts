@@ -534,6 +534,20 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // once — the union of the three above, which is a wider grant than any of
   // them individually.
   '/hr/payroll/register': 'hr.payroll.register.view',
+  // SALARY REVISIONS (2026-09-29, 20270519090000) — ask, check, approve. Not
+  // under /hr/payroll on purpose: principals and heads of department ask from
+  // here, and longest-prefix resolution would hand /hr/payroll/* to
+  // hr.payroll.institution.view, which they do not hold. Each page names its own
+  // key; WHO may ask for WHOM is decided in Postgres, not by these keys alone.
+  '/hr/salary-revisions': 'hr.payroll.salary_revision.ask',
+  '/hr/salary-revisions/ask': 'hr.payroll.salary_revision.ask',
+  '/hr/salary-revisions/[id]': 'hr.payroll.salary_revision.ask',
+  '/hr/salary-revisions/college-check': 'hr.payroll.salary_revision.college_check',
+  '/hr/salary-revisions/approve': 'hr.payroll.salary_revision.approve',
+  // The outcome notice a team member reaches from the bell after the
+  // Director's yes (ruling 5). hr.view, the key the whole HR module already
+  // opens on: the table behind it returns only the caller's own rows.
+  '/hr/my-pay-changes': 'hr.view',
   // Closing an attendance month. Its own key, NOT the self-service
   // '/hr/attendance' one: 22 roles hold hr.attendance.view_self, and without an
   // entry here longest-prefix resolution would hand all of them the ability to
@@ -3635,6 +3649,22 @@ export function GetPages(pathname: string): MenuGroup[] {
             // The /hr/admin/payroll hub (periods, preview) — payroll setup,
             // listed with payroll rather than under an "Admin" row.
             { href: '/hr/admin/payroll', label: 'Payroll Setup', active: pathname.startsWith('/hr/admin/payroll') },
+          ]
+        },
+        {
+          // Salary Revisions (2026-09-29) — its own row, not a Payroll child:
+          // principals and heads of department use it and hold none of the
+          // Payroll row's keys, and the row anchor must land somewhere they can
+          // open. Ask → the principal's check (HOD requests) → the Director.
+          href: '/hr/salary-revisions',
+          label: 'Salary Revisions',
+          active: pathname.startsWith('/hr/salary-revisions'),
+          icon: Wallet,
+          submenus: [
+            { href: '/hr/salary-revisions', label: 'Salary Revision Requests', active: pathname === '/hr/salary-revisions' },
+            { href: '/hr/salary-revisions/ask', label: 'Ask for a Salary Revision', active: pathname === '/hr/salary-revisions/ask' },
+            { href: '/hr/salary-revisions/college-check', label: "Principal's Check", active: pathname.startsWith('/hr/salary-revisions/college-check') },
+            { href: '/hr/salary-revisions/approve', label: 'Approve Salary Revisions', active: pathname.startsWith('/hr/salary-revisions/approve') },
           ]
         },
         {

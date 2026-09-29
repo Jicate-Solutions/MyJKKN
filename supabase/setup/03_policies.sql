@@ -11241,3 +11241,78 @@ CREATE POLICY billing_bill_cancel_flows_write
 GRANT SELECT ON public.billing_bill_cancel_requests TO authenticated;
 GRANT SELECT ON public.billing_bill_cancel_request_actions TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.billing_bill_cancel_approval_flows TO authenticated;
+
+
+-- ============================================================================
+-- Updated: 2026-09-29 - Salary revisions: ask -> principal's check -> the Director's yes or no
+-- Row level security: SELECT policies only; every write is a function. Copied from supabase/migrations/20270519090000_hr_salary_revision_requests.sql,
+-- which carries the full reasoning (the Director's 16 rulings of 29 Sep 2026).
+-- ============================================================================
+-- ----------------------------------------------------------------------------
+-- 10. Row level security — SELECT only; every write is a function above
+-- ----------------------------------------------------------------------------
+ALTER TABLE public.hr_salary_revision_requests       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hr_salary_revision_comments       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hr_salary_revision_decision_notes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hr_salary_revision_outcomes       ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_salary_revision_requests_select ON public.hr_salary_revision_requests;
+CREATE POLICY hr_salary_revision_requests_select ON public.hr_salary_revision_requests
+  FOR SELECT TO authenticated
+  USING (public.fn_hr_salary_revision_visible(staff_id, institution_id, department_id, asked_by));
+
+DROP POLICY IF EXISTS hr_salary_revision_comments_select ON public.hr_salary_revision_comments;
+CREATE POLICY hr_salary_revision_comments_select ON public.hr_salary_revision_comments
+  FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.hr_salary_revision_requests r WHERE r.id = request_id));
+
+-- RULING 14: the asker, the principal of an HOD's request, the Director.
+DROP POLICY IF EXISTS hr_salary_revision_decision_notes_select ON public.hr_salary_revision_decision_notes;
+CREATE POLICY hr_salary_revision_decision_notes_select ON public.hr_salary_revision_decision_notes
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.fn_hr_salary_revision_is_approver())
+    OR EXISTS (
+      SELECT 1 FROM public.hr_salary_revision_requests r
+       WHERE r.id = request_id
+         AND (r.asked_by = auth.uid()
+              OR (r.route = 'via_principal'
+                  AND (SELECT public.user_has_permission('hr.payroll.salary_revision.college_check'))
+                  AND r.institution_id = ANY (public.fn_my_staff_institution_ids())
+                  AND NOT (r.staff_id = ANY (public.fn_my_staff_ids())))))
+  );
+
+-- RULING 5: the person sees their own outcome — which exists only after a yes.
+DROP POLICY IF EXISTS hr_salary_revision_outcomes_select ON public.hr_salary_revision_outcomes;
+CREATE POLICY hr_salary_revision_outcomes_select ON public.hr_salary_revision_outcomes
+  FOR SELECT TO authenticated
+  USING (
+    staff_id = ANY (public.fn_my_staff_ids())
+    OR (SELECT public.fn_hr_salary_revision_is_approver())
+  );
+
+DROP POLICY IF EXISTS hr_salary_revision_requests_service_role ON public.hr_salary_revision_requests;
+CREATE POLICY hr_salary_revision_requests_service_role ON public.hr_salary_revision_requests
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS hr_salary_revision_comments_service_role ON public.hr_salary_revision_comments;
+CREATE POLICY hr_salary_revision_comments_service_role ON public.hr_salary_revision_comments
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS hr_salary_revision_decision_notes_service_role ON public.hr_salary_revision_decision_notes;
+CREATE POLICY hr_salary_revision_decision_notes_service_role ON public.hr_salary_revision_decision_notes
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS hr_salary_revision_outcomes_service_role ON public.hr_salary_revision_outcomes;
+CREATE POLICY hr_salary_revision_outcomes_service_role ON public.hr_salary_revision_outcomes
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+REVOKE ALL ON public.hr_salary_revision_requests, public.hr_salary_revision_comments,
+              public.hr_salary_revision_decision_notes, public.hr_salary_revision_outcomes
+  FROM anon, PUBLIC;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.hr_salary_revision_requests, public.hr_salary_revision_comments,
+              public.hr_salary_revision_decision_notes, public.hr_salary_revision_outcomes
+  FROM authenticated;
+GRANT SELECT ON public.hr_salary_revision_requests, public.hr_salary_revision_comments,
+               public.hr_salary_revision_decision_notes, public.hr_salary_revision_outcomes
+  TO authenticated;
+GRANT ALL ON public.hr_salary_revision_requests, public.hr_salary_revision_comments,
+            public.hr_salary_revision_decision_notes, public.hr_salary_revision_outcomes
+  TO service_role;

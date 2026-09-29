@@ -4709,6 +4709,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/hr/my-pay-changes",
+        "label": "My Pay Changes",
+        "iconName": "Wallet",
+        "children": []
+      },
+      {
         "path": "/hr/offboarding",
         "label": "Offboarding",
         "iconName": "FileText",
@@ -4847,6 +4853,31 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/hr/recruitment/submit",
             "label": "Submit",
             "iconName": "UserSearch",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/hr/salary-revisions",
+        "label": "Salary Revisions",
+        "iconName": "Wallet",
+        "children": [
+          {
+            "path": "/hr/salary-revisions/approve",
+            "label": "Approve Salary Revisions",
+            "iconName": "BadgeCheck",
+            "children": []
+          },
+          {
+            "path": "/hr/salary-revisions/ask",
+            "label": "Ask for a Salary Revision",
+            "iconName": "Wallet",
+            "children": []
+          },
+          {
+            "path": "/hr/salary-revisions/college-check",
+            "label": "Principal’s Check",
+            "iconName": "ClipboardCheck",
             "children": []
           }
         ]
