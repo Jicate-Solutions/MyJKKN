@@ -2435,16 +2435,23 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/organizations/institutions', label: 'Institutions', active: pathname.startsWith('/organizations/institutions') },
             { href: '/organizations/degrees', label: 'Degrees', active: pathname.startsWith('/organizations/degrees') },
             { href: '/organizations/departments', label: 'Departments', active: pathname === '/organizations/departments' },
-            // Both entries added 2026-08-04. Leadership is new; HoD Assignment
-            // already worked but had no sidebar entry, which is why 82 of 89
-            // departments still have no Head.
-            { href: '/organizations/leadership', label: 'College Leadership', active: pathname.startsWith('/organizations/leadership') },
-            { href: '/organizations/departments/hod-assignment', label: 'HoD Assignment', active: pathname.startsWith('/organizations/departments/hod-assignment') },
             { href: '/organizations/programs', label: 'Programs', active: pathname.startsWith('/organizations/programs') },
             { href: '/organizations/semesters', label: 'Semesters', active: pathname.startsWith('/organizations/semesters') },
             { href: '/organizations/sections', label: 'Sections', active: pathname.startsWith('/organizations/sections') },
             { href: '/organizations/courses', label: 'Courses', active: pathname.startsWith('/organizations/courses') },
             { href: '/organizations/courses/mappings', label: 'Course Mappings', active: pathname === '/organizations/courses/mappings' },
+          ]
+        },
+        {
+          // Moved out of the Organizations submenu. URLs and MENU_PERMISSIONS
+          // keys are unchanged (they key on href, not on group).
+          href: '/organizations/leadership',
+          label: 'Leadership',
+          active: pathname.startsWith('/organizations/leadership') || pathname.startsWith('/organizations/departments/hod-assignment'),
+          icon: UserCog,
+          submenus: [
+            { href: '/organizations/leadership', label: 'College Leadership', active: pathname.startsWith('/organizations/leadership') },
+            { href: '/organizations/departments/hod-assignment', label: 'HoD Assignment', active: pathname.startsWith('/organizations/departments/hod-assignment') },
           ]
         },
         {
