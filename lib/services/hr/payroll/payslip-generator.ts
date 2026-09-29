@@ -178,6 +178,9 @@ interface BuiltRun {
   previewRows: LopPreviewRow[];
 }
 
+/** A full hr_payroll_periods row, as `select('*')` returns it. */
+export type PayrollPeriodRow = BuiltRun['period'];
+
 /** Day counts are held to 2dp — half-days exist. */
 function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
@@ -259,19 +262,28 @@ export class PayslipGenerator {
    *
    * Works on a period in ANY status, so the effect of absence can be inspected
    * while the period is still a draft. Writes nothing, ever.
+   *
+   * Pass the period row when the caller has already read it (the preview route
+   * has, to check the college), so it is not fetched twice; pass an id otherwise.
    */
   static async previewLop(
     supabase: SupabaseClient,
-    periodId: string,
+    periodOrId: string | PayrollPeriodRow,
   ): Promise<LopPreviewResult> {
-    const { data: period, error: periodErr } = await (supabase as any)
-      .from('hr_payroll_periods')
-      .select('*')
-      .eq('id', periodId)
-      .single();
+    let period: PayrollPeriodRow;
+    if (typeof periodOrId === 'string') {
+      const { data, error: periodErr } = await (supabase as any)
+        .from('hr_payroll_periods')
+        .select('*')
+        .eq('id', periodOrId)
+        .single();
 
-    if (periodErr || !period) {
-      throw new Error(`Period not found: ${periodErr?.message ?? 'null'}`);
+      if (periodErr || !data) {
+        throw new Error(`Period not found: ${periodErr?.message ?? 'null'}`);
+      }
+      period = data as PayrollPeriodRow;
+    } else {
+      period = periodOrId;
     }
 
     const built = await this.buildRun(supabase, period);
@@ -486,7 +498,7 @@ export class PayslipGenerator {
 
     if (lop.summariesUnreadable) {
       throw new Error(
-        'Cannot read the closed month’s day counts: this account is missing hr.attendance.period.view. Every person would be skipped as "no attendance record", which is indistinguishable from the month having no records — and the difference decides whether anyone gets paid. Ask an administrator to grant it.',
+        'Cannot read the closed month’s day counts: this account is missing hr.attendance.period.view. Without it the account sees at most its own row, so everybody else would be skipped as "no attendance record", which is indistinguishable from the month having no records — and the difference decides whether anyone gets paid. Ask an administrator to grant it.',
       );
     }
 
@@ -624,8 +636,16 @@ export class PayslipGenerator {
       // LOP adjustment — every earning cut by paid-days / working-days.
       const pay = applyLop({ basicPay, earnings, factor: days.factor });
 
-      // Run deduction engine on the LOP-ADJUSTED figures. This is the engine's
-      // documented contract, and it is why a docked month also pays less tax.
+      // Run deduction engine on the LOP-ADJUSTED figures, so PF, ESI and the
+      // professional-tax slab follow what the month actually earns.
+      //
+      // TAX CAVEAT, pre-existing and not changed here: computeTds ANNUALISES
+      // the gross it is handed (this month × 12). A month with unpaid days is
+      // therefore projected as if the whole year were docked the same way, and
+      // withholds less income tax this month than the person's real annual
+      // liability would call for. No year-to-date true-up exists in lib/ or
+      // app/ to correct it later; Finance should know the monthly figure runs
+      // low in a docked month.
       const deductions: DeductionResult = computeDeductions(
         { basicPay: pay.lopAdjustedBasic, grossPay: pay.lopAdjustedGross, paymentMode: 'neft' },
         policies,
@@ -723,7 +743,7 @@ export class PayslipGenerator {
     ).length;
     if (monthNotClosedCount > 0) {
       result.warnings.push(
-        `${monthNotClosedCount} person(s) are not on this payroll because their work location has not closed attendance for this month.`,
+        `${monthNotClosedCount} person(s) are not on this payroll because their work location has not closed attendance for this month. HR: lock attendance for this month at each of those work locations before re-running this payroll.`,
       );
     }
 
@@ -830,6 +850,26 @@ export class PayslipGenerator {
       return { lockedPeriodByInstitution, summaryByStaff, summariesUnreadable: false };
     }
 
+    // READABILITY IS DECIDED FROM THE PERMISSION, NEVER FROM THE ROW COUNT.
+    //
+    // hr_attendance_period_summaries is readable with hr.attendance.period.view
+    // OR for your OWN row (staff_id IN fn_my_staff_ids()). An operator without
+    // the key gets no error and only the rows that are theirs: ZERO if they are
+    // not on the payroll, exactly ONE if they are. Inferring "unreadable" from
+    // an empty result misses the second case, and everybody else would then be
+    // skipped as "no attendance record" when the real cause is a missing
+    // permission. A partial read must never pass for "no record", so ask up
+    // front, before reading anything.
+    const [{ data: canSeePeriods }, { data: isSuperAdmin }] = await Promise.all([
+      (supabase as any).rpc('user_has_permission', {
+        permission_name: 'hr.attendance.period.view',
+      }),
+      (supabase as any).rpc('is_super_admin'),
+    ]);
+    if (!canSeePeriods && !isSuperAdmin) {
+      return { lockedPeriodByInstitution, summaryByStaff, summariesUnreadable: true };
+    }
+
     // Chunked for the same reason as every other `.in()` in this file: a single
     // list over a whole organisation can truncate at the PostgREST row cap, and
     // a truncated read here would dock a full month from people whose chunk was
@@ -863,23 +903,7 @@ export class PayslipGenerator {
       }
     }
 
-    // hr_attendance_period_summaries is gated on hr.attendance.period.view, so
-    // an operator without that key reads ZERO rows and NO error — identical to
-    // "the month holds no records". Those two demand OPPOSITE outcomes: one
-    // must skip everybody, the other must not run at all. Ask, never infer.
-    // Only runs in the already-degenerate case, so a normal run pays nothing.
-    let summariesUnreadable = false;
-    if (summaryByStaff.size === 0 && staffIds.length > 0) {
-      const [{ data: canSeePeriods }, { data: isSuperAdmin }] = await Promise.all([
-        (supabase as any).rpc('user_has_permission', {
-          permission_name: 'hr.attendance.period.view',
-        }),
-        (supabase as any).rpc('is_super_admin'),
-      ]);
-      summariesUnreadable = !canSeePeriods && !isSuperAdmin;
-    }
-
-    return { lockedPeriodByInstitution, summaryByStaff, summariesUnreadable };
+    return { lockedPeriodByInstitution, summaryByStaff, summariesUnreadable: false };
   }
 
   /**

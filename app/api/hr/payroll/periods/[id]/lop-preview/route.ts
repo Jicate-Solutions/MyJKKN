@@ -18,16 +18,24 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse, connection } from 'next/server';
 import { withAuth } from '@/lib/auth/with-auth';
-import { PayslipGenerator } from '@/lib/services/hr/payroll/payslip-generator';
+import {
+  PayslipGenerator,
+  type PayrollPeriodRow,
+} from '@/lib/services/hr/payroll/payslip-generator';
+
+const NO_ACCESS =
+  'You do not have access to this institution’s payroll. Ask an administrator to grant you access to it, then reload.';
 
 export const GET = withAuth(async (_request, auth, context) => {
   await connection();
   try {
     const { id } = await context!.params!;
 
-    const { data: period, error: periodErr } = await auth.supabase
+    // The full row, read once and handed to the preview, so the period is not
+    // fetched a second time inside previewLop.
+    const { data: period, error: periodErr } = await (auth.supabase as any)
       .from('hr_payroll_periods')
-      .select('id, institution_id')
+      .select('*')
       .eq('id', id)
       .maybeSingle();
 
@@ -40,24 +48,26 @@ export const GET = withAuth(async (_request, auth, context) => {
     // narrows the read, but an operator who can see a period for one college
     // must not preview the pay of another's, and a refusal must SAY SO rather
     // than bounce somewhere quiet where nobody can tell what happened.
-    const institutionId = (period as { institution_id: string | null }).institution_id;
-    if (institutionId) {
-      const { data: hasAccess } = await (auth.supabase as any).rpc(
-        'role_has_institution_access',
-        { check_institution_id: institutionId },
-      );
-      if (!hasAccess) {
-        return NextResponse.json(
-          {
-            error:
-              'You do not have access to this institution’s payroll. Ask an administrator to grant you access to it, then reload.',
-          },
-          { status: 403 },
-        );
-      }
+    //
+    // An EMPTY institution is refused, not waved through. The column is NOT
+    // NULL today, but a check that skips itself on a missing value is a check
+    // that stops working the day the schema changes.
+    const institutionId = (period as PayrollPeriodRow).institution_id;
+    if (!institutionId) {
+      return NextResponse.json({ error: NO_ACCESS }, { status: 403 });
+    }
+    const { data: hasAccess } = await (auth.supabase as any).rpc(
+      'role_has_institution_access',
+      { check_institution_id: institutionId },
+    );
+    if (!hasAccess) {
+      return NextResponse.json({ error: NO_ACCESS }, { status: 403 });
     }
 
-    const preview = await PayslipGenerator.previewLop(auth.supabase, id);
+    const preview = await PayslipGenerator.previewLop(
+      auth.supabase,
+      period as PayrollPeriodRow,
+    );
 
     return NextResponse.json({ data: preview });
   } catch (err) {

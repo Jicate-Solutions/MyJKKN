@@ -30,6 +30,7 @@ import {
   LOP_SKIP_REASONS,
 } from '@/lib/hr/payroll/lop-engine';
 import type { PayrollPolicies } from '@/lib/services/hr/payroll/deduction-engine';
+import type { PayrollPeriodRow } from '@/lib/services/hr/payroll/payslip-generator';
 
 // ============================================================================
 // Policies — the statutory shapes the deduction engine expects.
@@ -308,7 +309,13 @@ function stubSupabase(fx: Fixture) {
 
   return {
     from: (table: string) => builder(table),
-    rpc: (name: string) => Promise.resolve({ data: rpcDefaults[name] ?? null, error: null }),
+    // An rpc value may be a function of the call's arguments, so one test can
+    // grant one permission and withhold another.
+    rpc: (name: string, args?: Record<string, unknown>) => {
+      const v = rpcDefaults[name];
+      const data = typeof v === 'function' ? (v as (a?: unknown) => unknown)(args) : v;
+      return Promise.resolve({ data: data ?? null, error: null });
+    },
   } as unknown as Parameters<typeof PayslipGenerator.previewLop>[0] & {
     from: (table: string) => unknown;
   };
@@ -446,7 +453,9 @@ describe('PayslipGenerator.previewLop — the generator actually reads attendanc
     const absent = preview.rows.find((r) => r.staff_id === 'staff-absent')!;
 
     // The whole point of LOP-adjusting BEFORE the deduction engine runs. If the
-    // engine were handed the full gross, these two would be equal.
+    // engine were handed the full gross, these two would be equal. (Income tax
+    // falls further than the month's real share: the engine annualises this
+    // month's gross × 12. Pre-existing; see the note in the generator.)
     expect(absent.total_deductions).toBeLessThan(present.total_deductions);
     expect(present.total_deductions).toBeGreaterThan(0);
   });
@@ -578,6 +587,73 @@ describe('PayslipGenerator.previewLop — the generator actually reads attendanc
     await expect(
       PayslipGenerator.previewLop(stubSupabase(fx), 'period-1'),
     ).rejects.toThrow(/hr\.attendance\.period\.view/);
+  });
+
+  it('an operator WITHOUT the key who sees only their OWN row is told the permission is missing, not "no attendance record"', async () => {
+    // The summaries SELECT policy also returns the caller's own row
+    // (staff_id IN fn_my_staff_ids()). So an operator on the payroll who lacks
+    // hr.attendance.period.view reads exactly ONE row — theirs — and no error.
+    // A check keyed on "zero rows came back" never fires, and everybody else
+    // would be skipped as "No attendance record". The permission, not the row
+    // count, must decide.
+    const fx = baseFixture();
+    fx.tables.hr_attendance_period_summaries = (
+      fx.tables.hr_attendance_period_summaries as Record<string, unknown>[]
+    ).filter((s) => s.staff_id === 'staff-present');
+    fx.rpc = {
+      user_has_permission: (args?: { permission_name?: string }) =>
+        args?.permission_name !== 'hr.attendance.period.view',
+      is_super_admin: false,
+    };
+
+    await expect(
+      PayslipGenerator.previewLop(stubSupabase(fx), 'period-1'),
+    ).rejects.toThrow(/missing hr\.attendance\.period\.view/);
+  });
+
+  it('WITH the key, a genuinely missing record still says "No attendance record"', async () => {
+    const fx = baseFixture();
+    fx.tables.hr_attendance_period_summaries = (
+      fx.tables.hr_attendance_period_summaries as Record<string, unknown>[]
+    ).filter((s) => s.staff_id === 'staff-present');
+    fx.rpc = { user_has_permission: true, is_super_admin: false };
+
+    const preview = await PayslipGenerator.previewLop(stubSupabase(fx), 'period-1');
+    const absent = preview.rows.find((r) => r.staff_id === 'staff-absent')!;
+    expect(absent.payable).toBe(false);
+    expect(absent.reason).toBe(LOP_SKIP_REASONS.noSummary);
+    expect(preview.payable_count).toBe(1);
+  });
+
+  it('a super admin without the key is not refused (the policy lets them read every row)', async () => {
+    const fx = baseFixture();
+    fx.rpc = {
+      user_has_permission: (args?: { permission_name?: string }) =>
+        args?.permission_name !== 'hr.attendance.period.view',
+      is_super_admin: true,
+    };
+
+    const preview = await PayslipGenerator.previewLop(stubSupabase(fx), 'period-1');
+    expect(preview.payable_count).toBe(2);
+  });
+
+  it('accepts an already-loaded period row and does not fetch it again', async () => {
+    const fx = baseFixture();
+    const client = stubSupabase(fx);
+    const touched: string[] = [];
+    const realFrom = client.from;
+    client.from = (table: string) => {
+      touched.push(table);
+      return realFrom(table);
+    };
+
+    const preview = await PayslipGenerator.previewLop(
+      client,
+      fx.period as PayrollPeriodRow,
+    );
+
+    expect(touched).not.toContain('hr_payroll_periods');
+    expect(preview.payable_count).toBe(2);
   });
 
   it('reports days the attendance evaluator could not judge', async () => {

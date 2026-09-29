@@ -187,6 +187,13 @@ function LopPreviewContent({ id }: { id: string }) {
             from people who worked it. Confirm the month&apos;s import coverage on the
             attendance close screen before approving anything here.
           </div>
+
+          <div className="mt-3 rounded-md border border-amber-700/30 bg-amber-50 p-3 text-sm text-amber-900 shadow-sm dark:border-amber-400/30 dark:bg-amber-950/30 dark:text-amber-100">
+            <span className="font-semibold">Lock attendance before re-running a payroll month already under way.</span>{' '}
+            Payroll now pays only people whose work location has locked that month&apos;s
+            attendance. Re-run a month before it is locked and everyone there is left
+            off, each with the reason shown below.
+          </div>
         </CardContent>
       </Card>
 
