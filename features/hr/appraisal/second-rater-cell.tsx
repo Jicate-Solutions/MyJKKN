@@ -164,8 +164,9 @@ export function SecondRaterCell({
       )}
       {hidden > 0 && (
         <p className="text-xs text-muted-foreground">
-          {hidden === 1 ? '1 match is' : `${hidden} matches are`} not shown: they can read every
-          appraisal (HR or an admin), so they would see the head&rsquo;s rating.
+          {hidden === 1 ? '1 match is' : `${hidden} matches are`}{' '}
+          not shown: they can read every appraisal (HR or an admin), so they would see the
+          head&rsquo;s rating.
         </p>
       )}
       <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setPicking(false)}>

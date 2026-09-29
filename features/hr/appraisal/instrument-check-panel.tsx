@@ -126,8 +126,8 @@ export function InstrumentCheckPanel({
         <section>
           <h4 className="text-sm font-semibold">Do two heads agree on the same evidence?</h4>
           <p className="mt-1 text-xs text-muted-foreground">
-            {agreement.pairs} {agreement.pairs === 1 ? 'appraisal has' : 'appraisals have'} both a
-            head&rsquo;s rating and a blind second rating.
+            {agreement.pairs} {agreement.pairs === 1 ? 'appraisal has' : 'appraisals have'}{' '}
+            both a head&rsquo;s rating and a blind second rating.
           </p>
           <div
             role="status"
