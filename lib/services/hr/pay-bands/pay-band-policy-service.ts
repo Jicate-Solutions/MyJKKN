@@ -3,19 +3,26 @@
 // Every college's pay band, read on the SERVER for the Pay Band Check screen.
 // ============================================================================
 //
-// SERVER ONLY. This file is imported by app/api/hr/payroll/pay-bands/route.ts
-// and by nothing that runs in the browser. The guard test
+// SERVER ONLY, enforced twice: `import 'server-only'` makes a client bundle
+// that reaches this file fail to build, and the guard test
 // __tests__/hr/pay-band-server-only-guard.test.ts fails if a 'use client' file
 // imports it, or if the screen's own files query the band themselves.
 //
-// WHY IT IS NOT READ IN THE BROWSER. The band lives in the institution-scoped
+// WHY IT IS NOT A TABLE READ. The band lives in the institution-scoped
 // `hr.pay_scales` rows of platform_policies. That table's only SELECT policy on
 // main is `auth.uid() IS NOT NULL` (20260429000002_platform_policies_substrate
-// .sql), so Postgres does NOT restrict who can read a pay matrix: any signed-in
-// account, a learner included, gets every college's row. The only thing that
-// limits this read is the route's check of `hr.payroll.salary.view`, which is
-// why the read has to sit behind that route and nowhere else. Tightening the
-// table's policy is a separate, live change and is not made here.
+// .sql), so a plain SELECT returns every college's pay matrix to any signed-in
+// account. The read therefore goes through hr_pay_band_policies()
+// (20270416120000_hr_pay_band_policies_rpc.sql), which does in the database what
+// hr_staff_salary_directory() does for the people on the same screen:
+//   - RAISES insufficient_privilege without `hr.payroll.salary.view`;
+//   - returns only the colleges role_has_institution_access() admits, judged on
+//     the caller's own auth.uid(). An own-college role holding the key sees its
+//     own college's band and nobody else's.
+// The client passed in MUST be the caller's session client. No college id is
+// taken from the request; the database decides which colleges come back.
+// Tightening the table's own policy is a separate, live change and is not
+// made here.
 //
 // A COLLEGE IS LISTED ONLY WHEN ITS BAND HAS AT LEAST ONE USABLE RUNG — the
 // same test checkPayBand applies (usablePayBandRungs). A row whose matrix is
@@ -25,6 +32,8 @@
 // READ ONLY. There is no writer here; the band is edited on its own screen.
 // ============================================================================
 
+import 'server-only';
+
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   usablePayBandRungs,
@@ -32,9 +41,17 @@ import {
   type PayBandRung,
 } from '@/lib/hr/pay-band-check';
 
-/** The policy key and scope read here. Same pair the Pay Scales editor writes. */
-export const PAY_BAND_POLICY_KEY = 'hr.pay_scales' as const;
-const SCOPE_TYPE = 'institution';
+/**
+ * The database function that returns the caller's bands. It reads the
+ * institution-scoped `hr.pay_scales` rows the Pay Scales editor writes.
+ */
+export const PAY_BAND_RPC = 'hr_pay_band_policies' as const;
+
+/** Postgres' insufficient_privilege, raised by the RPC when the key is missing. */
+export const INSUFFICIENT_PRIVILEGE = '42501';
+
+/** A refusal from the database, kept distinct so the route can answer 403, not 500. */
+export class PayBandAccessError extends Error {}
 
 /** One college's band as sent to the screen. */
 export interface CollegePayBand {
@@ -47,6 +64,13 @@ export interface CollegePayBand {
 /** The route's response body. An array because a Map does not survive JSON. */
 export interface PayBandPoliciesResponse {
   bands: CollegePayBand[];
+}
+
+/** One row of hr_pay_band_policies(). */
+interface PayBandRpcRow {
+  institution_id: string | null;
+  band: unknown;
+  band_updated_at: string | null;
 }
 
 export interface PayBandPolicyRow {
@@ -132,19 +156,23 @@ export function collegePayBandsFromRows(rows: readonly PayBandPolicyRow[]): Coll
 
 export const PayBandPolicyService = {
   /**
-   * Read every recorded band with the caller's own session client. The caller
-   * must already have checked `hr.payroll.salary.view`: RLS on
-   * platform_policies adds nothing here (see the header).
+   * The bands for the colleges the caller may see, read with the caller's own
+   * session client so the database judges scope on their auth.uid(). Throws
+   * PayBandAccessError when the database refuses the key.
    */
   async load(supabase: SupabaseClient): Promise<PayBandPoliciesResponse> {
-    const { data, error } = await supabase
-      .from('platform_policies')
-      .select('scope_id, value, updated_at')
-      .eq('policy_key', PAY_BAND_POLICY_KEY)
-      .eq('scope_type', SCOPE_TYPE);
+    const { data, error } = await supabase.rpc(PAY_BAND_RPC);
 
-    if (error) throw new Error(error.message);
+    if (error) {
+      if (error.code === INSUFFICIENT_PRIVILEGE) throw new PayBandAccessError(error.message);
+      throw new Error(error.message);
+    }
 
-    return { bands: collegePayBandsFromRows((data ?? []) as PayBandPolicyRow[]) };
+    const rows: PayBandPolicyRow[] = ((data ?? []) as PayBandRpcRow[]).map((r) => ({
+      scope_id: r.institution_id,
+      value: r.band,
+      updated_at: r.band_updated_at,
+    }));
+    return { bands: collegePayBandsFromRows(rows) };
   },
 };

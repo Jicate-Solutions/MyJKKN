@@ -131,6 +131,32 @@ describe('pay band guard: the matrix stays on the server', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('the band service is server-only and reads through the scoped database function', () => {
+    const service = files.find(
+      (f) => f.path === 'lib/services/hr/pay-bands/pay-band-policy-service.ts'
+    )!.code;
+    // A client bundle that reaches this file then fails to build, barrel or not.
+    expect(service).toMatch(/^\s*import\s+['"]server-only['"];/);
+    // The table's SELECT policy admits anyone signed in, so a direct read
+    // would return every college; the function scopes by college.
+    expect(service).not.toMatch(/\.from\(\s*['"]platform_policies['"]/);
+    expect(service).toMatch(/PAY_BAND_RPC\s*=\s*['"]hr_pay_band_policies['"]/);
+  });
+
+  it('the database function checks the key, scopes by college as the caller, and is closed to anon', () => {
+    const sql = readFileSync(
+      join(ROOT, 'supabase/migrations/20270416120000_hr_pay_band_policies_rpc.sql'),
+      'utf8'
+    )
+      .replace(/--.*$/gm, '')
+      .replace(/\s+/g, ' ');
+    expect(sql).toMatch(/user_has_permission\('hr\.payroll\.salary\.view'\)/);
+    expect(sql).toMatch(/AND public\.role_has_institution_access\(pp\.scope_id\)/);
+    expect(sql).toMatch(/pp\.scope_id IS NOT NULL/);
+    expect(sql).toMatch(/REVOKE EXECUTE ON FUNCTION public\.hr_pay_band_policies\(\) FROM anon, PUBLIC;/);
+    expect(sql).toMatch(/GRANT EXECUTE ON FUNCTION public\.hr_pay_band_policies\(\) TO authenticated;/);
+  });
+
   it('the route that serves the bands checks the salary key and refuses API keys', () => {
     const route = files.find((f) => f.path === 'app/api/hr/payroll/pay-bands/route.ts')!.code;
     expect(isClientFile(route)).toBe(false);

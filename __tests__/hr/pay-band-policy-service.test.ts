@@ -9,7 +9,9 @@
  *
  * Run: npx vitest run __tests__/hr/pay-band-policy-service.test.ts
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('server-only', () => ({}));
 import {
   collegePayBandsFromRows,
   parsePayBandPolicy,

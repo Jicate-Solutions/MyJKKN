@@ -18,9 +18,12 @@
  *   - THE PAY comes from hr_staff_salary_directory(), which RAISES
  *     insufficient_privilege in Postgres without that key.
  *   - THE BANDS come from GET /api/hr/payroll/pay-bands, which checks the key
- *     on the server. Postgres does NOT protect them: platform_policies' SELECT
- *     policy is `auth.uid() IS NOT NULL`, so the route's check is the only gate,
- *     and this page must never query the table from the browser.
+ *     and then reads through hr_pay_band_policies(). That function checks the
+ *     key again in Postgres and returns only the colleges the caller can
+ *     access, the same scoping the salary directory applies. The table itself
+ *     protects nothing (platform_policies' SELECT policy is
+ *     `auth.uid() IS NOT NULL`), so this page must never query it from the
+ *     browser.
  * The canView check below decides what to SAY to someone who reaches the URL,
  * and stops the band request from being made at all. It is not what stops them
  * reading the data.

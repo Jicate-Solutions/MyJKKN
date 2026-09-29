@@ -8,7 +8,7 @@
  * NOT read that table. Its SELECT policy is `auth.uid() IS NOT NULL`, so a
  * browser query would hand every college's pay matrix to any signed-in account;
  * the read lives behind GET /api/hr/payroll/pay-bands, which checks
- * `hr.payroll.salary.view` first. __tests__/hr/pay-band-server-only-guard.test.ts
+ * `hr.payroll.salary.view` and returns only the colleges the caller can access. __tests__/hr/pay-band-server-only-guard.test.ts
  * fails if this file (or any client file) goes back to reading it directly.
  *
  * `enabled` must be the caller's permission: a person without the key is shown
