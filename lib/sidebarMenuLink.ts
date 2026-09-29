@@ -3875,16 +3875,16 @@ export function GetPages(pathname: string): MenuGroup[] {
           ]
         },
         {
-          href: '/learners/leave-onduty',
-          label: 'Leave / On-Duty',
-          active: pathname.startsWith('/learners/leave-onduty'),
+          // Staff-only: the global leave/on-duty types + approval flows. My
+          // Applications / Apply are STUDENT pages (they redirect every non-
+          // student) and already have the student "Leave/OnDuty" row above, so
+          // they are deliberately not repeated here.
+          href: '/learners/leave-onduty/settings',
+          label: 'Leave / On-Duty Settings',
+          active: pathname.startsWith('/learners/leave-onduty/settings'),
           icon: Briefcase,
-          submenus: [
-            { href: '/learners/leave-onduty/my-applications', label: 'My Applications', active: pathname === '/learners/leave-onduty/my-applications' },
-            { href: '/learners/leave-onduty/apply', label: 'Apply', active: pathname === '/learners/leave-onduty/apply' },
-            // Global leave/on-duty types + approval flows (learners.leave_types.view)
-            { href: '/learners/leave-onduty/settings', label: 'Settings', active: pathname.startsWith('/learners/leave-onduty/settings') },
-          ]
+          submenus: [],
+          noSubmenus: true
         },
         {
           href: '/learners/school-master',

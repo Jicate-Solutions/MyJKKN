@@ -7,7 +7,7 @@ const learnersGroup = (pathname = '/') => {
   return group;
 };
 
-const ADMIN_LABELS = ['Analytics Dashboard', 'Admission', 'Learner Profiles', 'Leave / On-Duty', 'Masters'];
+const ADMIN_LABELS = ['Analytics Dashboard', 'Admission', 'Learner Profiles', 'Leave / On-Duty Settings', 'Masters'];
 const adminRows = (pathname = '/') =>
   learnersGroup(pathname).menus.filter((m) => ADMIN_LABELS.includes(m.label));
 
@@ -19,11 +19,6 @@ const EXPECTED_SUBMENUS: Record<string, string[]> = {
     '/learners/alumni',
     '/learners/change-requests',
     '/learners/advisor-caseload',
-  ],
-  'Leave / On-Duty': [
-    '/learners/leave-onduty/my-applications',
-    '/learners/leave-onduty/apply',
-    '/learners/leave-onduty/settings',
   ],
   Masters: ['/learners/school-master', '/learners/postal-codes'],
 };
@@ -116,6 +111,28 @@ describe('Learners sidebar grouping', () => {
     // finds; for staff that leaked the student-only My * pages under Analytics.
     for (const m of learnersGroup().menus) {
       if (m.submenus.length === 0) expect(m.noSubmenus, m.label).toBe(true);
+    }
+  });
+
+  it('students do not see the staff leave settings row, and only super admin/staff see it via key', () => {
+    const student = GetRoleBasedPages('/', {
+      role_key: 'student',
+      permissions: { 'learners.my-timetable.view': true, 'learners.leave_onduty.view': true, 'learners.leave_onduty.apply': true },
+    } as never).find((g) => g.groupLabel === 'Learners')!;
+    expect(student.menus.some((m) => m.label === 'Leave / On-Duty Settings')).toBe(false);
+    expect(student.menus.some((m) => m.label === 'Leave/OnDuty')).toBe(true);
+    const hod = GetRoleBasedPages('/', {
+      role_key: 'hod',
+      permissions: { 'learners.leave_types.view': true },
+    } as never).find((g) => g.groupLabel === 'Learners')!;
+    expect(hod.menus.some((m) => m.label === 'Leave / On-Duty Settings')).toBe(true);
+  });
+
+  it('no admin row lists a student-only page (Apply / My Applications)', () => {
+    for (const row of adminRows()) {
+      for (const s of row.submenus) {
+        expect(s.href).not.toMatch(/leave-onduty\/(apply|my-applications)/);
+      }
     }
   });
 });
