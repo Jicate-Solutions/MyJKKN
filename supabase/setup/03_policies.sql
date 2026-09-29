@@ -7256,7 +7256,11 @@ CREATE POLICY platform_policies_social_attr_update ON public.platform_policies
 --   (FILE ONLY, not applied). platform_policies_select is `auth.uid() IS NOT NULL`,
 --   so every signed-in account could read every college's pay matrix. These
 --   RESTRICTIVE policies are ANDed with every permissive SELECT policy: for the two
---   pay keys a row needs admin or hr.payroll.salary.view; every other key is unchanged.
+--   pay keys a row needs admin, or hr.payroll.salary.view AND a college row
+--   (scope_type 'institution') of a college the caller can access
+--   (role_has_institution_access). Group-wide (NULL scope) pay rows are admin-only.
+--   Every other key is unchanged.
+-- Updated: 2026-09-29 - round 2 (W12 review): college scoping added.
 DROP POLICY IF EXISTS platform_policies_pay_keys_restricted ON public.platform_policies;
 CREATE POLICY platform_policies_pay_keys_restricted ON public.platform_policies
   AS RESTRICTIVE
@@ -7266,7 +7270,12 @@ CREATE POLICY platform_policies_pay_keys_restricted ON public.platform_policies
     policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments')
     OR (SELECT public.is_super_admin())
     OR (SELECT public.is_admin())
-    OR (SELECT public.user_has_permission('hr.payroll.salary.view'))
+    OR (
+      scope_type = 'institution'
+      AND scope_id IS NOT NULL
+      AND (SELECT public.user_has_permission('hr.payroll.salary.view'))
+      AND public.role_has_institution_access(scope_id)
+    )
   );
 
 DROP POLICY IF EXISTS hr_policy_audit_log_pay_keys_restricted ON public.hr_policy_audit_log;
@@ -7278,7 +7287,12 @@ CREATE POLICY hr_policy_audit_log_pay_keys_restricted ON public.hr_policy_audit_
     policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments')
     OR (SELECT public.is_super_admin())
     OR (SELECT public.is_admin())
-    OR (SELECT public.user_has_permission('hr.payroll.salary.view'))
+    OR (
+      scope_type = 'institution'
+      AND scope_id IS NOT NULL
+      AND (SELECT public.user_has_permission('hr.payroll.salary.view'))
+      AND public.role_has_institution_access(scope_id)
+    )
   );
 
 -- =====================================================================

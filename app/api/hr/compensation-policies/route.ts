@@ -13,6 +13,11 @@ export const dynamic = 'force-dynamic';
  * restricted to the same key at the database (migration 20270506090000), so
  * this check and RLS agree.
  *
+ * COLLEGE SCOPING: institutionId is never trusted. The row comes from
+ * hr_compensation_policies(p_key), run as the caller, which returns only the
+ * colleges role_has_institution_access() lets them see (admins: every college).
+ * A college outside that list gets 403, not an empty row.
+ *
  * allowApiKey: false — this is a browser screen's data, not an integration
  * endpoint, and an API key skips withAuth's permission check.
  *
@@ -22,6 +27,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse, connection } from 'next/server';
 import { withAuth } from '@/lib/auth/with-auth';
 import {
+  CompensationPolicyAccessError,
   CompensationPolicyReadService,
   COMPENSATION_POLICY_READ_KEYS,
   isCompensationPolicyReadKey,
@@ -49,6 +55,10 @@ export const GET = withAuth(
       const body = await CompensationPolicyReadService.load(auth.supabase, key, institutionId);
       return NextResponse.json(body);
     } catch (err: unknown) {
+      if (err instanceof CompensationPolicyAccessError) {
+        // Rule #27: a college outside the caller's scope is refused out loud.
+        return NextResponse.json({ error: err.message }, { status: 403 });
+      }
       console.error('[HR Compensation Policies] read error:', err);
       const message = err instanceof Error ? err.message : 'Failed to read the policy';
       return NextResponse.json({ error: message }, { status: 500 });

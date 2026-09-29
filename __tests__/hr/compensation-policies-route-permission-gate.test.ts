@@ -15,32 +15,33 @@ import { NextRequest } from 'next/server';
 
 const REQUIRED_KEY = 'hr.payroll.salary.view';
 const COLLEGE = '5de4fba1-4564-41ed-8c73-5d948b74b843';
+const OTHER_COLLEGE = 'e8fbe8aa-c44e-41aa-a44b-39dab2c8b9a5';
+const RPC = 'hr_compensation_policies';
 
 let heldKeys: string[] = [];
 let superAdmin = false;
 let hasSessionCookie = true;
 const rpcCalls: Array<{ fn: string; args?: Record<string, unknown> }> = [];
 const tablesRead: string[] = [];
-const filters: Array<[string, unknown]> = [];
+/** The colleges the stand-in database says the caller can access. */
+let accessibleColleges: string[] = [COLLEGE, OTHER_COLLEGE];
+/** Replaces the function's answer for one test (e.g. a database refusal). */
+let rpcOverride: (() => { data: unknown; error: unknown }) | null = null;
 
-const payRow = {
-  policy_key: 'hr.pay_scales',
-  value: { pay_matrix: [{ designation: 'Professor', qualification: 'PhD', basic_pay: 98765 }] },
-  description: 'pay matrix',
-  updated_at: '2026-09-01T00:00:00Z',
-  updated_by: null,
-};
-
-function policyQuery() {
-  const q = {
-    select: () => q,
-    eq: (col: string, val: unknown) => {
-      filters.push([col, val]);
-      return q;
+/** What hr_compensation_policies() returns: one row per accessible college. */
+function rpcRows() {
+  return accessibleColleges.map((id) => ({
+    institution_id: id,
+    has_row: true,
+    policy_value: {
+      pay_matrix: [
+        { designation: 'Professor', qualification: 'PhD', basic_pay: id === COLLEGE ? 98765 : 55555 },
+      ],
     },
-    maybeSingle: async () => ({ data: payRow, error: null }),
-  };
-  return q;
+    description: 'pay matrix',
+    updated_at: '2026-09-01T00:00:00Z',
+    updated_by: null,
+  }));
 }
 
 const fakeClient = {
@@ -49,7 +50,6 @@ const fakeClient = {
   },
   from: (table: string) => {
     tablesRead.push(table);
-    if (table === 'platform_policies') return policyQuery();
     // profiles, read by withAuth's session step.
     return {
       select: () => ({
@@ -75,6 +75,7 @@ const fakeClient = {
     if (fn === 'user_has_permission') {
       return { data: heldKeys.includes(String(args?.permission_name)), error: null };
     }
+    if (fn === RPC) return rpcOverride ? rpcOverride() : { data: rpcRows(), error: null };
     return { data: null, error: null };
   },
 };
@@ -115,8 +116,11 @@ beforeEach(() => {
   hasSessionCookie = true;
   rpcCalls.length = 0;
   tablesRead.length = 0;
-  filters.length = 0;
+  accessibleColleges = [COLLEGE, OTHER_COLLEGE];
+  rpcOverride = null;
 });
+
+const readRow = () => rpcCalls.some((c) => c.fn === RPC);
 
 describe('Compensation policies route: who the permission gate lets through', () => {
   it('ALLOWS an account that is not a super admin but holds hr.payroll.salary.view', async () => {
@@ -131,19 +135,16 @@ describe('Compensation policies route: who the permission gate lets through', ()
     });
     const body = await res.json();
     expect(body.row.value.pay_matrix[0].basic_pay).toBe(98765);
-    // The read is pinned to the one institution-scoped row asked for.
-    expect(filters).toEqual([
-      ['policy_key', 'hr.pay_scales'],
-      ['scope_type', 'institution'],
-      ['scope_id', COLLEGE],
-    ]);
+    // The read goes through the scoped database function, never the table.
+    expect(rpcCalls).toContainEqual({ fn: RPC, args: { p_key: 'hr.pay_scales' } });
+    expect(tablesRead).not.toContain('platform_policies');
   });
 
   it('REFUSES an account without the key with 403, and never reads the row', async () => {
     const res = await call(PAY_QUERY);
 
     expect(res.status).toBe(403);
-    expect(tablesRead).not.toContain('platform_policies');
+    expect(readRow()).toBe(false);
     const text = JSON.stringify(await res.json());
     expect(text).toContain(REQUIRED_KEY);
     expect(text).not.toContain('98765');
@@ -155,7 +156,7 @@ describe('Compensation policies route: who the permission gate lets through', ()
     const res = await call(PAY_QUERY);
 
     expect(res.status).toBe(403);
-    expect(tablesRead).not.toContain('platform_policies');
+    expect(readRow()).toBe(false);
   });
 
   it('ALLOWS a super admin who holds no key (the editors are super-admin pages)', async () => {
@@ -164,7 +165,7 @@ describe('Compensation policies route: who the permission gate lets through', ()
     const res = await call(PAY_QUERY);
 
     expect(res.status).toBe(200);
-    expect(tablesRead).toContain('platform_policies');
+    expect(readRow()).toBe(true);
   });
 
   it('REFUSES a request carrying an API key instead of a session with 401, before any read', async () => {
@@ -173,7 +174,7 @@ describe('Compensation policies route: who the permission gate lets through', ()
     const res = await call(PAY_QUERY, { authorization: 'Bearer jk_not_a_real_key' });
 
     expect(res.status).toBe(401);
-    expect(tablesRead).not.toContain('platform_policies');
+    expect(readRow()).toBe(false);
   });
 });
 
@@ -185,7 +186,7 @@ describe('Compensation policies route: it cannot be turned into a general policy
       const res = await call(`key=${encodeURIComponent(key)}&institutionId=${COLLEGE}`);
       expect(res.status, key).toBe(400);
     }
-    expect(tablesRead).not.toContain('platform_policies');
+    expect(readRow()).toBe(false);
   });
 
   it('refuses a missing or malformed institution id', async () => {
@@ -193,7 +194,7 @@ describe('Compensation policies route: it cannot be turned into a general policy
 
     expect((await call('key=hr.pay_scales')).status).toBe(400);
     expect((await call('key=hr.pay_scales&institutionId=all')).status).toBe(400);
-    expect(tablesRead).not.toContain('platform_policies');
+    expect(readRow()).toBe(false);
   });
 
   it('serves the allowances and motivation-fund rows the other two editors read', async () => {
@@ -203,5 +204,48 @@ describe('Compensation policies route: it cannot be turned into a general policy
       const res = await call(`key=${key}&institutionId=${COLLEGE}`);
       expect(res.status, key).toBe(200);
     }
+  });
+});
+
+describe('Compensation policies route: a key holder sees only their own colleges', () => {
+  it('serves the caller\'s own college', async () => {
+    heldKeys = [REQUIRED_KEY];
+    accessibleColleges = [COLLEGE];
+
+    const res = await call(PAY_QUERY);
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).row.value.pay_matrix[0].basic_pay).toBe(98765);
+  });
+
+  it('REFUSES another college with 403 and none of its figures, even though the id was asked for', async () => {
+    heldKeys = [REQUIRED_KEY];
+    accessibleColleges = [COLLEGE];
+
+    const res = await call(`key=hr.pay_scales&institutionId=${OTHER_COLLEGE}`);
+
+    expect(res.status).toBe(403);
+    const text = JSON.stringify(await res.json());
+    expect(text).toContain('do not have access to this college');
+    expect(text).not.toContain('55555');
+    expect(text).not.toContain('98765');
+  });
+
+  it('a college the caller can see but that has no row yet is an empty row, not a refusal', async () => {
+    heldKeys = [REQUIRED_KEY];
+    accessibleColleges = [COLLEGE];
+    rpcOverride = () => ({ data: [{ ...rpcRows()[0], has_row: false, policy_value: null }], error: null });
+
+    const res = await call(PAY_QUERY);
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).row).toBeNull();
+  });
+
+  it('a database refusal (42501) is a 403, not a 500', async () => {
+    heldKeys = [REQUIRED_KEY];
+    rpcOverride = () => ({ data: null, error: { code: '42501', message: 'hr.payroll.salary.view is required' } });
+
+    expect((await call(PAY_QUERY)).status).toBe(403);
   });
 });

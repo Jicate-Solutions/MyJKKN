@@ -111,6 +111,15 @@ describe('pay policy guard: the pay rows stay on the server', () => {
     expect(hook).not.toMatch(TABLE_READ);
   });
 
+  it('the server reader goes through the college-scoped database function, not the table', () => {
+    const service = files.find(
+      (f) => f.path === 'lib/services/hr/compensation-policies/compensation-policy-read-service.ts',
+    )!.code;
+    expect(service).toMatch(/\.rpc\(\s*COMPENSATION_POLICY_RPC/);
+    expect(service).toMatch(/COMPENSATION_POLICY_RPC = 'hr_compensation_policies'/);
+    expect(service).not.toMatch(TABLE_READ);
+  });
+
   it('the route checks the salary key and refuses API keys', () => {
     const route = files.find((f) => f.path === ROUTE)!.code;
     expect(isClientFile(route)).toBe(false);
