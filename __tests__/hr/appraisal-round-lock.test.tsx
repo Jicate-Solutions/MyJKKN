@@ -158,6 +158,36 @@ describe('the service refuses to lock a round while appraisals wait for their he
   });
 });
 
+describe('every move out of an open round is guarded, not only locking', () => {
+  const waiting: Row[] = [{ staff_id: 'p1', status: 'self_submitted' }];
+
+  it.each(['closed', 'draft'] as const)('refuses open -> %s while one waits, and changes nothing', async (to) => {
+    const { client, updates } = fakeDb({ roundStatus: 'open', reviews: waiting, personDept: PEOPLE, deptNames: DEPTS });
+    await expect(
+      PerformanceReviewService.updateCycle(client, 'cyc-1', { status: to }),
+    ).rejects.toThrow(
+      '1 appraisal is still waiting for their head of department (Physics). ' +
+        'Lock the round once they are passed on or sent back.',
+    );
+    expect(updates).toEqual([]);
+  });
+
+  it.each(['closed', 'draft'] as const)('allows open -> %s when none wait', async (to) => {
+    const { client, updates } = fakeDb({
+      roundStatus: 'open',
+      reviews: [{ staff_id: 'p1', status: 'draft' }, { staff_id: 'p2', status: 'sedc_reviewed' }],
+    });
+    await PerformanceReviewService.updateCycle(client, 'cyc-1', { status: to });
+    expect(updates).toEqual([{ status: to }]);
+  });
+
+  it('does not check anything when the status is not being changed', async () => {
+    const { client, updates } = fakeDb({ roundStatus: 'open', reviews: waiting });
+    await PerformanceReviewService.updateCycle(client, 'cyc-1', { description: 'Renamed' });
+    expect(updates).toEqual([{ description: 'Renamed' }]);
+  });
+});
+
 describe('the refusal message', () => {
   it('lists at most five departments, then how many more', () => {
     const names = ['F', 'E', 'D', 'C', 'B', 'A', 'G'];
@@ -237,7 +267,8 @@ describe('the database refuses the same move', () => {
   });
 
   it('refuses open to locked while any appraisal is self_submitted', () => {
-    expect(fn).toContain("OLD.status = 'open' AND NEW.status = 'locked'");
+    expect(fn).toContain("OLD.status = 'open' AND NEW.status <> 'open'");
+    expect(fn).not.toContain("NEW.status = 'locked'");
     expect(fn).toContain("status = 'self_submitted'");
     expect(fn).toContain("USING ERRCODE = 'check_violation'");
   });

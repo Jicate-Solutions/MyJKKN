@@ -237,7 +237,9 @@ COMMENT ON TABLE public.hr_performance_reviews IS
 --    them: their head could neither pass them on nor send them back, and the
 --    only way out was reopening the round for everybody.
 --
---    So the lock waits instead. Drafts do NOT block: those people never
+--    So the lock waits instead. Updated the same day (round-6 review): the
+--    same holds for ANY move out of open, including open to closed and open
+--    to draft, which strand the same rows. Drafts do NOT block: those people never
 --    submitted and are left out of the round, which the round page makes the
 --    admin confirm first. PerformanceReviewService.updateCycle refuses the
 --    same move with the same words; this trigger is what a direct write
@@ -255,7 +257,9 @@ AS $$
 DECLARE
   v_pending integer;
 BEGIN
-  IF OLD.status = 'open' AND NEW.status = 'locked' THEN
+  -- ANY move out of open, not only to locked (round-6 review): closing the
+  -- round or sending it back to draft ends the head's step just the same.
+  IF OLD.status = 'open' AND NEW.status <> 'open' THEN
     SELECT count(*) INTO v_pending
     FROM public.hr_performance_reviews
     WHERE cycle_id = NEW.id AND status = 'self_submitted';
@@ -278,6 +282,6 @@ CREATE TRIGGER trg_hr_perf_cycle_lock_guard
   FOR EACH ROW EXECUTE FUNCTION public.fn_hr_perf_cycle_lock_guard();
 
 COMMENT ON FUNCTION public.fn_hr_perf_cycle_lock_guard() IS
-  'Refuses moving an appraisal round from open to locked while any appraisal '
+  'Refuses moving an appraisal round out of open (to locked, closed or draft) while any appraisal '
   'in it is still self_submitted. Once locked, the head of department can no '
   'longer act, so those appraisals would be stranded. Drafts do not block.';

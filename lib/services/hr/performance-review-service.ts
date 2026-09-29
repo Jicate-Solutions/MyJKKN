@@ -315,8 +315,10 @@ export class PerformanceReviewService {
   }
 
   /**
-   * Refuses to move a round from open to locked while any appraisal in it is
-   * still waiting for its head of department (status self_submitted). Drafts
+   * Refuses to move a round OUT of open (to locked, closed or back to draft)
+   * while any appraisal in it is still waiting for its head of department
+   * (status self_submitted). Every such move ends the head's step, because
+   * the head's rule requires an open round (round-6 review). Drafts
    * do not block: those people never submitted and are left out, which the
    * round page makes the admin confirm first. The database refuses the same
    * move with a trigger; this check gives the reason in plain words first.
@@ -363,7 +365,7 @@ export class PerformanceReviewService {
     id: string,
     patch: HRPerformanceReviewCycleUpdate,
   ): Promise<HRPerformanceReviewCycle> {
-    if (patch.status === 'locked') {
+    if (patch.status !== undefined && patch.status !== 'open') {
       const current = await this.getCycle(supabase, id);
       if (current?.status === 'open') {
         await this.assertCanLock(supabase, id);
