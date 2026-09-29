@@ -38,7 +38,7 @@ import type {
  *
  * PR 3 amendment (2026-05-19): removed `enabled: !!hr_organization_id` gate
  * so super-admin / Director list pages can render "all institutions" scope
- * (per spec specs/t4-3-pr3-payroll-ui-design-lock-2026-05-19.md Q7). RLS
+ * (no written spec; the rule lives in this code). RLS
  * still scopes server-side — Director sees all 11 orgs they have access to,
  * HR Officer sees only their own org. Caller can pass `enabled: false` via
  * the React Query layer if they need to defer a fetch.

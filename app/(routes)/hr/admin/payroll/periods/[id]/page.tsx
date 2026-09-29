@@ -3,7 +3,8 @@
 /**
  * /hr/admin/payroll/periods/[id] — period detail page (T4.3 PR 3).
  *
- * Spec: specs/t4-3-pr3-payroll-ui-design-lock-2026-05-19.md (Q2 + Q3 + Q6 + Q8 + E7 + E10 + E12)
+ * No written spec; the layout lives in this code and the stage rules in the
+ * RPCs of migration 20260629000000_t4_3_pr2_payroll_rpcs.sql.
  *
  * Layout:
  *   1. Header — period label + status pill + backdate badge + action buttons
