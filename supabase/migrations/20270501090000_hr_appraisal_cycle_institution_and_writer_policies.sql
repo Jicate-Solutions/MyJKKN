@@ -226,3 +226,58 @@ COMMENT ON TABLE public.hr_performance_reviews IS
   '-> final_approved. Supervisor = departments.head_of_department_id for the '
   'staff''s department. Write access: the staff member while their row is a '
   'draft, their head of department once it is submitted, admins throughout.';
+
+-- ---------------------------------------------------------------------------
+-- 5) A round cannot be locked while appraisals still wait for their head.
+--
+--    Added: 2026-09-29 (round-5 review). The head of department's policy
+--    above requires an OPEN round, which matches the 20260617 definition of
+--    locked ("SEDC review phase, no edits by staff/supervisor"). But it meant
+--    that locking a round with appraisals still at self_submitted stranded
+--    them: their head could neither pass them on nor send them back, and the
+--    only way out was reopening the round for everybody.
+--
+--    So the lock waits instead. Drafts do NOT block: those people never
+--    submitted and are left out of the round, which the round page makes the
+--    admin confirm first. PerformanceReviewService.updateCycle refuses the
+--    same move with the same words; this trigger is what a direct write
+--    cannot get past.
+--
+--    SECURITY DEFINER so the count sees every appraisal in the round, not
+--    only those the caller's row-level security happens to show.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_hr_perf_cycle_lock_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_pending integer;
+BEGIN
+  IF OLD.status = 'open' AND NEW.status = 'locked' THEN
+    SELECT count(*) INTO v_pending
+    FROM public.hr_performance_reviews
+    WHERE cycle_id = NEW.id AND status = 'self_submitted';
+
+    IF v_pending > 0 THEN
+      RAISE EXCEPTION '% still waiting for their head of department. Lock the round once they are passed on or sent back.',
+        CASE WHEN v_pending = 1 THEN '1 appraisal is' ELSE v_pending || ' appraisals are' END
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_perf_cycle_lock_guard() FROM anon, PUBLIC;
+
+DROP TRIGGER IF EXISTS trg_hr_perf_cycle_lock_guard ON public.hr_performance_review_cycles;
+CREATE TRIGGER trg_hr_perf_cycle_lock_guard
+  BEFORE UPDATE OF status ON public.hr_performance_review_cycles
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_perf_cycle_lock_guard();
+
+COMMENT ON FUNCTION public.fn_hr_perf_cycle_lock_guard() IS
+  'Refuses moving an appraisal round from open to locked while any appraisal '
+  'in it is still self_submitted. Once locked, the head of department can no '
+  'longer act, so those appraisals would be stranded. Drafts do not block.';

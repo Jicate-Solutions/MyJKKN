@@ -170,6 +170,30 @@ function assertTransition(from: ReviewStatus, to: ReviewStatus): void {
 }
 
 // ---------------------------------------------------------------------------
+// Locking a round
+// ---------------------------------------------------------------------------
+
+/**
+ * The refusal shown when a round cannot be locked yet (round-5 review).
+ *
+ * Once a round is locked the head of department can no longer act on it: a
+ * locked round is the committee's phase, with no edits by the person or
+ * their head. So any appraisal still waiting for its head would be stranded
+ * there until someone reopened the round for everybody. The lock waits
+ * instead, and says how many and, where known, in which departments.
+ */
+export function lockBlockedMessage(pending: number, departments: readonly string[] = []): string {
+  const what = pending === 1 ? '1 appraisal is' : `${pending} appraisals are`;
+  const names = [...new Set(departments)].sort();
+  const shown = names.length > 5 ? [...names.slice(0, 5), `${names.length - 5} more`] : names;
+  const where = shown.length > 0 ? ` (${shown.join(', ')})` : '';
+  return (
+    `${what} still waiting for their head of department${where}. ` +
+    'Lock the round once they are passed on or sent back.'
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
 
@@ -290,11 +314,61 @@ export class PerformanceReviewService {
     return data as HRPerformanceReviewCycle;
   }
 
+  /**
+   * Refuses to move a round from open to locked while any appraisal in it is
+   * still waiting for its head of department (status self_submitted). Drafts
+   * do not block: those people never submitted and are left out, which the
+   * round page makes the admin confirm first. The database refuses the same
+   * move with a trigger; this check gives the reason in plain words first.
+   */
+  static async assertCanLock(supabase: SupabaseClient, cycleId: string): Promise<void> {
+    const { data, error } = await supabase
+      .from('hr_performance_reviews')
+      .select('staff_id')
+      .eq('cycle_id', cycleId)
+      .eq('status', 'self_submitted');
+    if (error) throw error;
+    const waiting = (data ?? []) as Array<{ staff_id: string }>;
+    if (waiting.length === 0) return;
+
+    // Department names are a courtesy. If they cannot be read the lock is
+    // still refused, just without the list.
+    let departments: string[] = [];
+    try {
+      const { data: people } = await supabase
+        .from('staff')
+        .select('department_id')
+        .in('id', waiting.map((w) => w.staff_id));
+      const deptIds = [
+        ...new Set(
+          ((people ?? []) as Array<{ department_id: string | null }>)
+            .map((p) => p.department_id)
+            .filter((d): d is string => !!d),
+        ),
+      ];
+      if (deptIds.length > 0) {
+        const { data: depts } = await supabase.from('departments').select('name').in('id', deptIds);
+        departments = ((depts ?? []) as Array<{ name: string | null }>)
+          .map((d) => d.name ?? '')
+          .filter(Boolean);
+      }
+    } catch {
+      departments = [];
+    }
+    throw new Error(lockBlockedMessage(waiting.length, departments));
+  }
+
   static async updateCycle(
     supabase: SupabaseClient,
     id: string,
     patch: HRPerformanceReviewCycleUpdate,
   ): Promise<HRPerformanceReviewCycle> {
+    if (patch.status === 'locked') {
+      const current = await this.getCycle(supabase, id);
+      if (current?.status === 'open') {
+        await this.assertCanLock(supabase, id);
+      }
+    }
     const { data, error } = await supabase
       .from('hr_performance_review_cycles')
       .update(patch)

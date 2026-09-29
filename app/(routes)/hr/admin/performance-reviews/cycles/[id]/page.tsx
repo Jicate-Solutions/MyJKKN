@@ -24,6 +24,7 @@ import { AlertCircle, ArrowLeft, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ReviewDecisionPanel } from '@/features/hr/appraisal/review-decision-panel';
+import { LockRoundControl } from '@/features/hr/appraisal/lock-round-control';
 import { parseRatings, resolveAreas, summariseRatings } from '@/lib/hr/appraisal-ratings';
 import {
   PerformanceReviewService,
@@ -259,15 +260,27 @@ export default function HrPerformanceReviewCycleDetailPage() {
 
               {/* Status transition controls */}
               {NEXT_CYCLE_STATUS[cycle.status] && (
-                <div className="flex items-center gap-2 pt-2 border-t">
-                  <span className="text-sm text-muted-foreground">Next step:</span>
-                  <Button
-                    size="sm"
-                    disabled={transitioning}
-                    onClick={() => transitionStatus(NEXT_CYCLE_STATUS[cycle.status]!)}
-                  >
-                    Move to {cycleStatusLabel(NEXT_CYCLE_STATUS[cycle.status]!)}
-                  </Button>
+                <div className="flex items-start gap-2 pt-2 border-t">
+                  <span className="pt-1 text-sm text-muted-foreground">Next step:</span>
+                  {cycle.status === 'open' ? (
+                    // Locking can strand appraisals, so it has its own control:
+                    // refused while any wait for their head, and confirmed on
+                    // the page when drafts would be left out (round-5 review).
+                    <LockRoundControl
+                      pending={counters.self_submitted}
+                      drafts={counters.draft}
+                      busy={transitioning}
+                      onLock={() => transitionStatus('locked')}
+                    />
+                  ) : (
+                    <Button
+                      size="sm"
+                      disabled={transitioning}
+                      onClick={() => transitionStatus(NEXT_CYCLE_STATUS[cycle.status]!)}
+                    >
+                      Move to {cycleStatusLabel(NEXT_CYCLE_STATUS[cycle.status]!)}
+                    </Button>
+                  )}
                 </div>
               )}
             </CardContent>
