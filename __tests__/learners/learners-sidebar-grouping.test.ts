@@ -7,7 +7,7 @@ const learnersGroup = (pathname = '/') => {
   return group;
 };
 
-const ADMIN_LABELS = ['Analytics Dashboard', 'Admission', 'Learner Profiles', 'Leave / On-Duty Settings', 'Masters'];
+const ADMIN_LABELS = ['Analytics Dashboard', 'Admission', 'Learner Profiles', 'Masters'];
 const adminRows = (pathname = '/') =>
   learnersGroup(pathname).menus.filter((m) => ADMIN_LABELS.includes(m.label));
 
@@ -70,7 +70,6 @@ describe('Learners sidebar grouping', () => {
       '/learners/alumni',
       '/learners/change-requests',
       '/learners/advisor-caseload',
-      '/learners/leave-onduty/settings',
       '/learners/school-master',
       '/learners/postal-codes',
     ];
@@ -91,7 +90,6 @@ describe('Learners sidebar grouping', () => {
       '/learners/change-requests',
       '/learners/school-master',
       '/learners/postal-codes',
-      '/learners/leave-onduty/settings',
     ]) {
       expect(all.has(href), href).toBe(true);
     }
@@ -114,18 +112,28 @@ describe('Learners sidebar grouping', () => {
     }
   });
 
-  it('students do not see the staff leave settings row, and only super admin/staff see it via key', () => {
+  it('leave/on-duty admin (Team Apply, Settings) lives in Academic; Learners keeps only the student Apply + My Applications row', () => {
     const student = GetRoleBasedPages('/', {
       role_key: 'student',
       permissions: { 'learners.my-timetable.view': true, 'learners.leave_onduty.view': true, 'learners.leave_onduty.apply': true },
     } as never).find((g) => g.groupLabel === 'Learners')!;
-    expect(student.menus.some((m) => m.label === 'Leave / On-Duty Settings')).toBe(false);
-    expect(student.menus.some((m) => m.label === 'Leave/OnDuty')).toBe(true);
+    const row = student.menus.find((m) => m.label === 'Leave/OnDuty')!;
+    expect(row.submenus.map((s) => s.href)).toEqual([
+      '/learners/leave-onduty/apply',
+      '/learners/leave-onduty/my-applications',
+    ]);
     const hod = GetRoleBasedPages('/', {
       role_key: 'hod',
-      permissions: { 'learners.leave_types.view': true },
-    } as never).find((g) => g.groupLabel === 'Learners')!;
-    expect(hod.menus.some((m) => m.label === 'Leave / On-Duty Settings')).toBe(true);
+      permissions: { 'learners.leave_types.view': true, 'learners.leave_onduty.apply_bulk': true },
+    } as never);
+    const learners = hod.find((g) => g.groupLabel === 'Learners');
+    expect(learners?.menus.some((m) => m.submenus.some((s) => s.href.includes('leave-onduty/settings')))).toBeFalsy();
+    const academic = hod.find((g) => g.groupLabel === 'Academic')!;
+    const lo = academic.menus.find((m) => m.label === 'Leave/OnDuty')!;
+    expect(lo.submenus.map((s) => s.href).sort()).toEqual([
+      '/academic/leave-onduty/apply-bulk',
+      '/academic/leave-onduty/settings',
+    ]);
   });
 
   it('no admin row lists a student-only page (Apply / My Applications)', () => {

@@ -758,6 +758,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'learners.leave_onduty.view', label: 'View My Applications (Students)' },
       { key: 'learners.leave_onduty.edit', label: 'Edit My Applications (Students)' },
       { key: 'learners.leave_onduty.cancel', label: 'Cancel My Applications (Students)' },
+      { key: 'learners.leave_onduty.apply_bulk', label: 'Apply On-Duty for Learners in Bulk (Facilitator, own institution)' },
 
       // Learner Leave Types + Approval Flows (global settings, 2027-04)
       { key: 'learners.leave_types.view', label: 'View Learner Leave Types & Approval Flows' },
