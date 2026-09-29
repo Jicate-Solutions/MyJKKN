@@ -24,6 +24,8 @@ let heldKeys: string[] = [];
 let superAdmin = false;
 let admin = false;
 const rpcCalls: Array<{ fn: string; args?: Record<string, unknown> }> = [];
+/** Whether the request carries a browser session cookie. */
+let hasSessionCookie = true;
 
 const fakeClient = {
   auth: {
@@ -68,11 +70,11 @@ vi.mock('@/lib/auth/preview-session', () => ({
   writePreviewAudit: async () => {},
   canUseWriteMode: () => false,
 }));
-// A session cookie is present, so withAuth takes the session path (the one a
-// person in a browser takes), not the API-key path.
+// With a session cookie, withAuth takes the session path (the one a person in
+// a browser takes); without one it would take the API-key path.
 vi.mock('next/headers', () => ({
   cookies: async () => ({
-    getAll: () => [{ name: 'sb-project-auth-token', value: 'x' }],
+    getAll: () => (hasSessionCookie ? [{ name: 'sb-project-auth-token', value: 'x' }] : []),
     get: () => undefined,
     set: () => {},
   }),
@@ -98,6 +100,7 @@ beforeEach(() => {
   superAdmin = false;
   admin = false;
   rpcCalls.length = 0;
+  hasSessionCookie = true;
   build.mockReset();
   build.mockResolvedValue({
     asOf: '2026-09-29',
@@ -150,5 +153,23 @@ describe('Annual Increments route: who the permission gate lets through', () => 
 
     expect(res.status).toBe(200);
     expect(build).toHaveBeenCalledTimes(1);
+  });
+
+  it('REFUSES an API key outright: the permission check only runs for a browser session', async () => {
+    // withAuth checks requirePermission on the session path only. If this
+    // route accepted API keys, a key with plain "read" would skip the salary
+    // permission entirely and receive every college's pay.
+    hasSessionCookie = false;
+    heldKeys = [REQUIRED_KEY];
+
+    const res = await GET(
+      new NextRequest('http://localhost/api/hr/payroll/increments', {
+        headers: { authorization: 'Bearer jkkn_some_api_key' },
+      }),
+    );
+
+    expect(res.status).toBe(401);
+    expect(build).not.toHaveBeenCalled();
+    expect(JSON.stringify(await res.json())).toContain('browser session');
   });
 });

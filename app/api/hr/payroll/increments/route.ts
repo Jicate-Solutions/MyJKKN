@@ -51,5 +51,7 @@ export const GET = withAuth(
       );
     }
   },
-  { requirePermission: 'hr.payroll.salary.view', requiredPermission: 'read' },
+  // allowApiKey: false — withAuth runs the permission check only for a browser
+  // session, so an API key would skip it and reach every college's pay.
+  { requirePermission: 'hr.payroll.salary.view', requiredPermission: 'read', allowApiKey: false },
 );

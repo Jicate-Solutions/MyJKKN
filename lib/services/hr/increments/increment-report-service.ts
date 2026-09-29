@@ -12,7 +12,12 @@
 // already filters on `role_has_institution_access(o.institution_id)` — the
 // canonical mechanism, rather than a second access rule invented here. A user
 // who can see no college gets an empty college list and an explicit message,
-// never a silent redirect. Every table read is additionally behind its own RLS.
+// never a silent redirect. The staff, pay, review and disciplinary reads are
+// additionally behind their own RLS. `platform_policies` is NOT: its SELECT
+// policy is `auth.uid() IS NOT NULL`, so any signed-in account can read any
+// college's policy row. For that read the only limits are the route's
+// permission check and the `scope_id IN (<colleges from the scoped list>)`
+// filter below — RLS adds nothing there.
 //
 // WHY THE POLICY IS READ FROM THE TABLE AND NOT VIA fn_get_policy_json.
 // `fn_get_policy` falls back to a global row when no institution row exists

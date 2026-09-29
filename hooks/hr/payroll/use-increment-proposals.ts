@@ -6,7 +6,8 @@
  * Goes through the route handler rather than the browser client, for the reason
  * the salary-register hooks give next door: the report reads four separately
  * gated tables plus a policy row, so the authoritative permission check belongs
- * in a reviewed route handler with RLS as the backstop.
+ * in a reviewed route handler. RLS is a backstop for the tables, but not for
+ * the policy row: any signed-in account can read `platform_policies`.
  *
  * There is no mutation hook here, and there is not meant to be one. The report
  * proposes; nothing applies.
