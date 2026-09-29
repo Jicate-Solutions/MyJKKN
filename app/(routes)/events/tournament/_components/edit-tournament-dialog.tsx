@@ -16,7 +16,7 @@
 // setState-in-effect re-seeding).
 
 import { useState } from 'react';
-import { Loader2, Plus } from 'lucide-react';
+import { Check, Loader2, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -34,13 +34,21 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
 import type { Event, ParticipantOrgType } from '@/types/events';
 import { JKKN_SPORTS, SPORT_LEVELS } from '@/types/health-sports';
-import { TOURNAMENT_FORMATS, DIVISION_GENDERS } from '@/types/tournament';
+import {
+  TOURNAMENT_FORMATS,
+  DIVISION_GENDERS,
+  divisionPlayType,
+  isTeamDivision,
+  supportsDoubles,
+} from '@/types/tournament';
 import type {
   TournamentDivision,
   TournamentScope,
@@ -52,7 +60,9 @@ import {
   useUpdateTournament,
   useUpdateDivision,
   useCreateDivision,
+  useDeleteDivision,
 } from '@/hooks/events/use-tournaments';
+import { useTournamentEntries } from '@/hooks/events/use-tournament-registrations';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { NaacCriteriaField } from '@/components/events/shared/naac-criteria-field';
 
@@ -73,6 +83,29 @@ const divisionKey = (
     (gender || 'open').trim().toLowerCase(),
     (ageBand ?? '').trim().toLowerCase(),
   ].join('|');
+
+/** Categories offered as one-click variant chips for the shown division's sport. */
+const VARIANT_GENDERS = ['male', 'female', 'mixed'] as const;
+
+/**
+ * Category label for a division. School tournaments read "Boys / Girls"
+ * rather than the college "Men's / Women's".
+ */
+const categoryLabel = (gender: string | null | undefined, schoolWording: boolean) => {
+  const g = gender || 'open';
+  if (schoolWording && g === 'male') return 'Boys';
+  if (schoolWording && g === 'female') return 'Girls';
+  return DIVISION_GENDERS.find((x) => x.value === g)?.label ?? g;
+};
+
+/** "Girls", "Mixed Doubles", "Men's Doubles" — the category plus a doubles suffix. */
+const variantLabel = (
+  d: { sport: string; gender: string | null | undefined; config?: Record<string, unknown> | null },
+  schoolWording: boolean
+) => {
+  const base = categoryLabel(d.gender, schoolWording);
+  return supportsDoubles(d.sport) && isTeamDivision(d) ? `${base} Doubles` : base;
+};
 
 /**
  * Editable fields of one division. Changes accumulate in `edits` (an overlay
@@ -96,9 +129,11 @@ function DivisionFields({
     ? JKKN_SPORTS
     : [sport, ...JKKN_SPORTS];
 
-  const currentFee = Number(
-    ((edits.config ?? division.config) as { entry_fee?: number } | undefined)?.entry_fee ?? 0
-  );
+  // Fee and play type both live in config — merge onto the pending edits so
+  // touching one doesn't drop the other.
+  const currentConfig = (edits.config ?? division.config ?? {}) as Record<string, unknown>;
+  const currentFee = Number((currentConfig as { entry_fee?: number }).entry_fee ?? 0);
+  const playType = isTeamDivision({ sport, config: currentConfig }) ? 'doubles' : 'singles';
 
   return (
     <div className="space-y-4">
@@ -177,6 +212,33 @@ function DivisionFields({
         </div>
       </div>
 
+      {supportsDoubles(sport) && (
+        <div className="space-y-1.5">
+          <Label>Play type</Label>
+          <div className="inline-flex rounded-md border p-0.5" role="radiogroup" aria-label="Play type">
+            {(['singles', 'doubles'] as const).map((p) => (
+              <Button
+                key={p}
+                type="button"
+                size="sm"
+                role="radio"
+                aria-checked={playType === p}
+                variant={playType === p ? 'default' : 'ghost'}
+                className="h-7 px-4"
+                onClick={() => onEditConfig({ ...currentConfig, play_type: p })}
+              >
+                {p === 'singles' ? 'Singles' : 'Doubles'}
+              </Button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {playType === 'doubles'
+              ? 'Each entry is a pair — the registration form asks for both players.'
+              : 'Each entry is one player.'}
+          </p>
+        </div>
+      )}
+
       <div className="space-y-1.5">
         <Label htmlFor="t-age-band">Age Band</Label>
         <Input
@@ -197,7 +259,7 @@ function DivisionFields({
           value={currentFee || ''}
           onChange={(e) =>
             onEditConfig({
-              ...(division.config as Record<string, unknown>),
+              ...currentConfig,
               entry_fee: e.target.value ? Number(e.target.value) : 0,
             })
           }
@@ -220,10 +282,14 @@ function EditTournamentForm({
   const update = useUpdateTournament();
   const updateDivision = useUpdateDivision();
   const createDivision = useCreateDivision();
+  const deleteDivision = useDeleteDivision();
   const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
   // Divisions aren't on the list row — fetch the full tournament for them.
   const { data: detail, isLoading: divisionsLoading } = useTournament(tournament.id);
   const divisions = detail?.divisions ?? [];
+  // Entries/fixtures cascade-delete with their division, so a division that
+  // already has entries can't be removed here.
+  const { data: entries, isLoading: entriesLoading } = useTournamentEntries(tournament.id);
 
   // Director decision (2026-09-07): an event's college may still be changed
   // while it is a DRAFT, and is fixed once it leaves draft. Before publication
@@ -295,7 +361,40 @@ function EditTournamentForm({
     setDivisionEdits((prev) => ({ ...prev, config: patch }));
 
   const isPending =
-    update.isPending || updateDivision.isPending || createDivision.isPending;
+    update.isPending ||
+    updateDivision.isPending ||
+    createDivision.isPending ||
+    deleteDivision.isPending;
+
+  // Remove the shown division — two-step inline confirm (no nested AlertDialog
+  // inside this Dialog). Blocked when it is the last one or has entries.
+  // Holds the division id being confirmed, so switching divisions drops it.
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+  const confirmRemove = !!selectedDivision && confirmRemoveId === selectedDivision.id;
+  const selectedEntryCount = selectedDivision
+    ? (entries ?? []).filter((e) => e.division_id === selectedDivision.id).length
+    : 0;
+  const removeBlockedReason =
+    divisions.length <= 1
+      ? 'A tournament needs at least one division.'
+      : entriesLoading
+        ? 'Checking entries…'
+        : selectedEntryCount > 0
+          ? `It has ${selectedEntryCount} ${selectedEntryCount === 1 ? 'entry' : 'entries'}, so it can't be removed.`
+          : null;
+
+  const removeSelectedDivision = async () => {
+    if (!selectedDivision || removeBlockedReason) return;
+    try {
+      await deleteDivision.mutateAsync({ id: selectedDivision.id, eventId: tournament.id });
+      setSelectedDivisionId(null);
+      setDivisionEdits({});
+    } catch {
+      // handled by mutation toast
+    } finally {
+      setConfirmRemoveId(null);
+    }
+  };
 
   // "Add sport" — a further division, created straight away (not on Save).
   // Category defaults to the shown division's; age band, level, format and
@@ -313,33 +412,94 @@ function EditTournamentForm({
   );
   const addSportValue = addableSports.includes(addSport) ? addSport : '';
 
-  const addDivision = async () => {
-    if (!selectedDivision || !addSportValue) return;
+  // Creates a division copying the shown one's age band, level, format and
+  // entry fee. Returns false when the create failed (the mutation toasts).
+  // For a doubles-capable sport, Mixed is created as doubles and Boys/Girls as
+  // singles — the usual carrom/badminton line-up; the Play type toggle changes it.
+  const createFromSelected = async (sport: string, gender: string) => {
+    if (!selectedDivision) return false;
     const templateFee = Number(
       (selectedDivision.config as { entry_fee?: number } | undefined)?.entry_fee ?? 0
     );
+    const config: Record<string, unknown> = templateFee > 0 ? { entry_fee: templateFee } : {};
+    if (supportsDoubles(sport)) config.play_type = gender === 'mixed' ? 'doubles' : 'singles';
     try {
       const created = await createDivision.mutateAsync({
         eventId: tournament.id,
         dto: {
-          sport: addSportValue,
-          gender: addGender,
-          age_band: addAgeBand || undefined,
+          sport,
+          gender,
+          age_band: selectedDivision.age_band?.trim() || undefined,
           format: selectedDivision.format || 'knockout',
           level: selectedDivision.level ?? 'intra_college',
-          config: templateFee > 0 ? { entry_fee: templateFee } : {},
+          config,
           sort_order: Math.max(0, ...divisions.map((d) => d.sort_order ?? 0)) + 1,
         },
       });
-      setAddSport('');
-      setAddGenderOverride(null);
       // Show the new division for tweaking — unless that would throw away
       // unsaved edits to the current one (switching divisions resets them).
       if (Object.keys(divisionEdits).length === 0) setSelectedDivisionId(created.id);
+      return true;
     } catch {
-      // handled by mutation toast
+      return false;
     }
   };
+
+  const addDivision = async () => {
+    if (!addSportValue) return;
+    if (await createFromSelected(addSportValue, addGender)) {
+      setAddSport('');
+      setAddGenderOverride(null);
+    }
+  };
+
+  // Division picker grouped by sport (Carrom → Boys · U18, Girls · U18, …).
+  const schoolWording = form.participant_org_type === 'school';
+  const divisionGroups = divisions.reduce<{ sport: string; items: TournamentDivision[] }[]>(
+    (groups, d) => {
+      const group = groups.find((g) => g.sport === d.sport);
+      if (group) group.items.push(d);
+      else groups.push({ sport: d.sport, items: [d] });
+      return groups;
+    },
+    []
+  );
+  const divisionItemLabel = (d: TournamentDivision) =>
+    [variantLabel(d, schoolWording), d.age_band?.trim()].filter(Boolean).join(' · ');
+  // Chip label for a category that may not exist yet (Mixed → Mixed Doubles).
+  const chipLabel = (gender: string) => {
+    const existing = variantDivision(gender);
+    if (existing) return variantLabel(existing, schoolWording);
+    const base = categoryLabel(gender, schoolWording);
+    return selectedDivision && supportsDoubles(selectedDivision.sport) && gender === 'mixed'
+      ? `${base} Doubles`
+      : base;
+  };
+
+  // Category variants of the shown division's sport + age band: existing ones
+  // switch to that division, missing ones create it in one click.
+  const variantGenders: string[] = selectedDivision && supportsDoubles(selectedDivision.sport)
+    ? Array.from(
+        new Set<string>([
+          ...divisions
+            .filter(
+              (d) =>
+                divisionKey(d.sport, 'open', d.age_band) ===
+                divisionKey(selectedDivision.sport, 'open', selectedDivision.age_band)
+            )
+            .map((d) => d.gender || 'open'),
+          ...VARIANT_GENDERS,
+        ])
+      )
+    : [];
+  const variantDivision = (gender: string) =>
+    selectedDivision
+      ? divisions.find(
+          (d) =>
+            divisionKey(d.sport, d.gender, d.age_band) ===
+            divisionKey(selectedDivision.sport, gender, selectedDivision.age_band)
+        )
+      : undefined;
 
   const submit = async () => {
     if (!form.name.trim() || !form.institution_id) return;
@@ -561,18 +721,68 @@ function EditTournamentForm({
                 }}
               >
                 <SelectTrigger className="h-8 w-auto min-w-40">
-                  <SelectValue />
+                  <SelectValue>
+                    {selectedDivision.sport} — {divisionItemLabel(selectedDivision)}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {divisions.map((d) => (
-                    <SelectItem key={d.id} value={d.id}>
-                      {[d.sport, d.age_band].filter(Boolean).join(' — ')}
-                    </SelectItem>
+                  {divisionGroups.map((g) => (
+                    <SelectGroup key={g.sport}>
+                      <SelectLabel>{g.sport}</SelectLabel>
+                      {g.items.map((d) => (
+                        <SelectItem key={d.id} value={d.id} className="pl-6">
+                          {divisionItemLabel(d)}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
                   ))}
                 </SelectContent>
               </Select>
             )}
           </div>
+
+          {/* Boys / Girls / Mixed Doubles chips — only for doubles sports
+              (Carrom, Badminton, …); Chess and the rest stay a single division. */}
+          {!divisionsLoading && selectedDivision && supportsDoubles(selectedDivision.sport) && (
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground">
+                {selectedDivision.sport}
+                {selectedDivision.age_band?.trim() ? ` ${selectedDivision.age_band.trim()}` : ''}{' '}
+                categories — tap a missing one to add it.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {variantGenders.map((g) => {
+                  const existing = variantDivision(g);
+                  const active = existing?.id === selectedDivision.id;
+                  return (
+                    <Button
+                      key={g}
+                      type="button"
+                      size="sm"
+                      variant={active ? 'default' : existing ? 'secondary' : 'outline'}
+                      className={existing ? 'h-7' : 'h-7 border-dashed'}
+                      disabled={isPending || active}
+                      onClick={() => {
+                        if (existing) {
+                          setSelectedDivisionId(existing.id);
+                          setDivisionEdits({});
+                        } else {
+                          void createFromSelected(selectedDivision.sport, g);
+                        }
+                      }}
+                    >
+                      {existing ? (
+                        <Check className="mr-1 h-3.5 w-3.5" />
+                      ) : (
+                        <Plus className="mr-1 h-3.5 w-3.5" />
+                      )}
+                      {chipLabel(g)}
+                    </Button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {divisionsLoading ? (
             <div className="space-y-3">
               <Skeleton className="h-9 w-full" />
@@ -597,6 +807,52 @@ function EditTournamentForm({
                 onEditConfig={setDivisionConfig}
               />
             </>
+          )}
+
+          {!divisionsLoading && selectedDivision && (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">
+                {removeBlockedReason ??
+                  (confirmRemove
+                    ? `Remove ${selectedDivision.sport} — ${divisionItemLabel(selectedDivision)}?`
+                    : '')}
+              </p>
+              {confirmRemove ? (
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setConfirmRemoveId(null)}
+                    disabled={isPending}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="destructive"
+                    onClick={removeSelectedDivision}
+                    disabled={isPending || !!removeBlockedReason}
+                  >
+                    {deleteDivision.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+                    Yes, remove
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => setConfirmRemoveId(selectedDivision.id)}
+                  disabled={isPending || !!removeBlockedReason}
+                >
+                  <Trash2 className="mr-1 h-3.5 w-3.5" />
+                  Remove division
+                </Button>
+              )}
+            </div>
           )}
 
           {!divisionsLoading && selectedDivision && (
@@ -630,7 +886,7 @@ function EditTournamentForm({
                   <SelectContent>
                     {DIVISION_GENDERS.map((g) => (
                       <SelectItem key={g.value} value={g.value}>
-                        {g.label}
+                        {categoryLabel(g.value, schoolWording)}
                       </SelectItem>
                     ))}
                   </SelectContent>
