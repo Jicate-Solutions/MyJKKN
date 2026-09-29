@@ -39,7 +39,7 @@ type Row = { staff_id: string; status: string };
  */
 const COLUMNS: Record<string, readonly string[]> = {
   hr_performance_reviews: ['id', 'cycle_id', 'staff_id', 'status'],
-  staff: ['id', 'first_name', 'last_name', 'department_id', 'institution_id', 'profile_id'],
+  'staff': ['id', 'first_name', 'last_name', 'department_id', 'institution_id', 'profile_id'],
   departments: ['id', 'institution_id', 'degree_id', 'department_code', 'department_name', 'display_name'],
 };
 

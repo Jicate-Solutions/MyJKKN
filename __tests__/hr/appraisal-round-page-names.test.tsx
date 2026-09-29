@@ -99,7 +99,7 @@ describe('the round page table', () => {
     // A named person has no id shown at all.
     expect(firstCells()[0].textContent).toBe('Anitha RamanPhysics');
     expect(document.body.textContent).not.toContain('aaaa1111');
-    expect(screen.queryByText('Staff (ID)')).not.toBeInTheDocument();
+    expect(document.querySelector('thead th')?.textContent).toBe('Team member');
   });
 
   it('falls back to "Team member" and a short reference when a name cannot be read', async () => {

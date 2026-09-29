@@ -325,7 +325,7 @@ export default function HrPerformanceReviewCycleDetailPage() {
                 <table className="w-full text-sm">
                   <thead className="border-b text-left text-xs uppercase text-muted-foreground">
                     <tr>
-                      <th className="py-2 pr-4">Staff</th>
+                      <th className="py-2 pr-4">Team member</th>
                       <th className="py-2 pr-4">Status</th>
                       <th className="py-2 pr-4">Self-submitted</th>
                       <th className="py-2 pr-4">Supervisor</th>
