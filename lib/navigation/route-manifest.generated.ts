@@ -5051,6 +5051,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "Settings",
         "children": [
           {
+            "path": "/ims/settings/pos-devices",
+            "label": "Pos Devices",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/ims/settings/stores",
             "label": "Stores",
             "iconName": "FileText",

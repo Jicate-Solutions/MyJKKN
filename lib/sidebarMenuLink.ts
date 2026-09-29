@@ -1918,6 +1918,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ims/settings/suppliers': 'ims.settings.suppliers.manage',
   '/ims/settings/units': 'ims.settings.units.manage',
   '/ims/settings/unit-conversions': 'ims.settings.units.manage',
+  '/ims/settings/pos-devices': 'ims.settings.pos_devices.manage',
   // Store Kits (PR-K2, 2026-07-12) — per-group item kits handed over at the
   // central store. Spec: specs/store-kit-entitlements-spec-2026-07-12.md.
   // Keys ship UNGRANTED (dark) until the grn_verify rollout.
@@ -3433,6 +3434,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/ims/settings/suppliers', label: 'Settings · Suppliers', active: pathname === '/ims/settings/suppliers' },
             { href: '/ims/settings/units', label: 'Settings · Units', active: pathname === '/ims/settings/units' },
             { href: '/ims/settings/unit-conversions', label: 'Settings · Unit Conversions', active: pathname === '/ims/settings/unit-conversions' },
+            { href: '/ims/settings/pos-devices', label: 'Settings · Payment Terminals', active: pathname === '/ims/settings/pos-devices' },
             // Store Kits (PR-K2) — visibility gated per-entry via MENU_PERMISSIONS
             { href: '/ims/kits', label: 'Kits · Rules', active: pathname === '/ims/kits' },
             { href: '/ims/kits/counter', label: 'Kits · Counter', active: pathname === '/ims/kits/counter' },

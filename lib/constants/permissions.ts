@@ -2956,6 +2956,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'ims.settings.stores.manage', label: 'Manage IMS Stores' },
       { key: 'ims.settings.suppliers.manage', label: 'Manage Suppliers' },
       { key: 'ims.settings.units.manage', label: 'Manage Units & Unit Conversions' },
+      { key: 'ims.settings.pos_devices.manage', label: 'Manage POS Payment Terminals' },
 
       // Store Kits (PR-K2, 2026-07-12) — per-group item kits at the central
       // store. Spec: specs/store-kit-entitlements-spec-2026-07-12.md.
