@@ -3,7 +3,8 @@
 /**
  * HR Payroll Periods Hooks (T4.3 PR 2)
  *
- * Spec: specs/t4-payroll-design-lock-2026-05-15.md
+ * No written spec; the stage rules live in the RPCs of migration
+ * 20260629000000_t4_3_pr2_payroll_rpcs.sql.
  * Service: lib/services/hr/payroll/periods-service.ts
  *
  * Pattern: combines @tanstack/react-query with direct Supabase browser client
@@ -78,7 +79,7 @@ export function useCreatePayrollPeriod() {
 }
 
 /**
- * Decision #9 stage 1: HR Officer flips draft → prepared.
+ * Stage 1: HR Officer flips draft → prepared (role check in fn_prepare_payroll_period).
  * Server-side snapshots pay_matrix + deduction_rates + working_days.
  */
 export function usePreparePayrollPeriod() {
@@ -150,7 +151,7 @@ export function useRejectPayrollPeriod() {
 }
 
 /**
- * Decision #20 Director-only retroactive backdate. Reason REQUIRED.
+ * Director-only retroactive backdate (role check in fn_backdate_payroll_period). Reason REQUIRED.
  * Does NOT change status — only sets is_backdated=true + audit row.
  */
 export function useBackdatePayrollPeriod() {
