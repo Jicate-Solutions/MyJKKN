@@ -11,6 +11,12 @@
  * Supabase is faked with a tiny in-memory table store that actually applies
  * the filters the service asks for — a filter the service forgets to send is
  * a row that leaks into the result.
+ *
+ * Round 2 (29 Sep): the meeting HEADER (title, who with, date, status, uid)
+ * is attached only when the viewer is in the booking's invited set — a code
+ * copy of the live fn_can_view_meeting_note booking rules (host, attendee by
+ * profile id, attendee by email, co-host). An owner outside that set gets all
+ * five fields as null. The host id and decision text never cross at all.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -113,6 +119,7 @@ import {
   FOLLOW_UP_LIMIT,
   MeetingActionItemService,
   followUpLimitNote,
+  isInInvitedSet,
 } from '@/lib/services/meetings/meeting-action-item-service';
 import {
   markMeetingFollowUpsDoneAction,
@@ -130,11 +137,19 @@ function item(id: string, over: Row): Row {
     owner_profile_id: null,
     due_date: null,
     status: 'open',
-    created_at: '2026-09-20T05:00:00Z',
-    updated_at: '2026-09-20T05:00:00Z',
+    created_at: '2026-09-20T09:30:00Z',
+    updated_at: '2026-09-20T09:30:00Z',
     ...over,
   };
 }
+
+const HEADER_FIELDS = [
+  'booking_uid',
+  'attendee_name',
+  'start_time',
+  'booking_status',
+  'meeting_title',
+] as const;
 
 beforeEach(() => {
   updates = [];
@@ -143,24 +158,43 @@ beforeEach(() => {
   tables = {
     meeting_action_items: [
       item('i-host-own', { owner_profile_id: HOST }),
-      item('i-named-owner', { owner_profile_id: NAMED_OWNER, owner_label: 'Dr. K' }),
+      item('i-named-owner', {
+        owner_profile_id: NAMED_OWNER,
+        owner_label: 'Dr. K',
+        decision_text: 'Candidate not selected',
+        due_date: '2026-10-01',
+      }),
       item('i-unassigned', { owner_label: 'Ravi' }),
       item('i-cancelled', { booking_id: 'b-cancelled', owner_label: 'Mani' }),
       item('i-other-host', { booking_id: 'b-other', host_profile_id: OTHER_HOST }),
       item('i-done', { status: 'done' }),
     ],
     meeting_bookings: [
-      { id: 'b-1', uid: 'uid-1', attendee_name: 'Asha', start_time: '2026-09-20T05:00:00Z', status: 'completed', host_profile_id: HOST, meeting_type_id: 't-1' },
-      { id: 'b-cancelled', uid: 'uid-c', attendee_name: 'Bala', start_time: '2026-09-22T05:00:00Z', status: 'cancelled', host_profile_id: HOST, meeting_type_id: null },
-      { id: 'b-other', uid: 'uid-o', attendee_name: 'Chitra', start_time: '2026-09-21T05:00:00Z', status: 'completed', host_profile_id: OTHER_HOST, meeting_type_id: 't-1' },
+      { id: 'b-1', uid: 'uid-1', attendee_name: 'Asha', attendee_email: 'asha@example.com', attendee_profile_id: null, start_time: '2026-09-20T05:00:00Z', status: 'completed', host_profile_id: HOST, meeting_type_id: 't-1' },
+      { id: 'b-cancelled', uid: 'uid-c', attendee_name: 'Bala', attendee_email: 'bala@example.com', attendee_profile_id: null, start_time: '2026-09-22T05:00:00Z', status: 'cancelled', host_profile_id: HOST, meeting_type_id: null },
+      { id: 'b-other', uid: 'uid-o', attendee_name: 'Chitra', attendee_email: 'chitra@example.com', attendee_profile_id: null, start_time: '2026-09-21T05:00:00Z', status: 'completed', host_profile_id: OTHER_HOST, meeting_type_id: 't-1' },
     ],
-    meeting_types: [{ id: 't-1', title: 'Review' }],
+    meeting_types: [{ id: 't-1', title: 'Review' }, { id: 't-2', title: 'Other type' }],
+    meeting_type_cohosts: [],
     profiles: [
-      { id: HOST, full_name: 'Host Person' },
-      { id: NAMED_OWNER, full_name: 'Owner Person' },
+      { id: HOST, full_name: 'Host Person', email: 'host@jkkn.ac.in' },
+      { id: NAMED_OWNER, full_name: 'Owner Person', email: 'owner@jkkn.ac.in' },
+      { id: SUPER_ADMIN, full_name: 'Super Admin', email: 'admin@jkkn.ac.in' },
     ],
   };
 });
+
+/** The one group NAMED_OWNER gets for b-1. */
+async function ownerGroup() {
+  const res = await MeetingActionItemService.listForProfile(fakeClient() as never, NAMED_OWNER);
+  expect(res.success).toBe(true);
+  expect(res.data).toHaveLength(1);
+  return res.data![0];
+}
+
+function bookingB1(): Row {
+  return tables.meeting_bookings.find((b) => b.id === 'b-1')!;
+}
 
 describe('listForProfile — the explicit host-or-owner filter', () => {
   it('a super admin sees only their own rows, never every host’s', async () => {
@@ -199,10 +233,20 @@ describe('listForProfile — the explicit host-or-owner filter', () => {
   });
 
   it('an owner who is not the host sees only the item resolved to them, with no link rights', async () => {
-    const res = await MeetingActionItemService.listForProfile(fakeClient() as never, NAMED_OWNER);
-    expect(res.data).toHaveLength(1);
-    expect(res.data![0].viewer_is_host).toBe(false);
-    expect(res.data![0].items.map((i) => [i.id, i.band])).toEqual([['i-named-owner', 'yours']]);
+    const group = await ownerGroup();
+    expect(group.viewer_is_host).toBe(false);
+    expect(group.items.map((i) => [i.id, i.band])).toEqual([['i-named-owner', 'yours']]);
+  });
+
+  it('the host id and the decision text never cross to the client', async () => {
+    const res = await MeetingActionItemService.listForProfile(fakeClient() as never, HOST);
+    for (const g of res.data!) {
+      for (const it of g.items) {
+        expect(it).not.toHaveProperty('host_profile_id');
+        expect(it).not.toHaveProperty('decision_text');
+      }
+    }
+    expect(JSON.stringify(res.data)).not.toContain('Candidate not selected');
   });
 
   it('cancelled bookings are still listed', async () => {
@@ -244,6 +288,133 @@ describe('listForProfile — the explicit host-or-owner filter', () => {
   it('refuses a non-uuid profile id instead of interpolating it into the filter', async () => {
     const res = await MeetingActionItemService.listForProfile(fakeClient() as never, 'x,status.eq.open');
     expect(res).toEqual({ success: false, error: 'INVALID' });
+  });
+});
+
+describe('listForProfile — the meeting header only for the booking’s invited set', () => {
+  it('an owner OUTSIDE the invited set gets none of the five header fields, on the server', async () => {
+    const group = await ownerGroup();
+    expect(group.viewer_invited).toBe(false);
+    for (const f of HEADER_FIELDS) expect(group[f]).toBeNull();
+    // Nothing about the booking is anywhere in what crosses to the client.
+    const wire = JSON.stringify(group);
+    for (const leak of ['uid-1', 'Asha', 'asha@example.com', 'Review', 'completed', '2026-09-20T05:00:00Z', HOST, 'Candidate not selected']) {
+      expect(wire).not.toContain(leak);
+    }
+    // Their own follow-up still shows in full.
+    expect(group.items).toHaveLength(1);
+    expect(group.items[0]).toMatchObject({
+      id: 'i-named-owner',
+      action_text: 'do i-named-owner',
+      due_date: '2026-10-01',
+      status: 'open',
+      band: 'yours',
+    });
+  });
+
+  it('a cancelled booking does not tell an outsider it was cancelled', async () => {
+    bookingB1().status = 'cancelled';
+    const group = await ownerGroup();
+    expect(group.booking_status).toBeNull();
+    expect(JSON.stringify(group)).not.toContain('cancelled');
+  });
+
+  it('the invited attendee, matched by profile id, gets the header', async () => {
+    bookingB1().attendee_profile_id = NAMED_OWNER;
+    const group = await ownerGroup();
+    expect(group.viewer_invited).toBe(true);
+    expect(group).toMatchObject({
+      booking_uid: 'uid-1',
+      attendee_name: 'Asha',
+      start_time: '2026-09-20T05:00:00Z',
+      booking_status: 'completed',
+      meeting_title: 'Review',
+      viewer_is_host: false,
+    });
+  });
+
+  it('the invited attendee, matched by email (case and outer spaces ignored), gets the header', async () => {
+    bookingB1().attendee_email = 'Owner@JKKN.ac.in';
+    tables.profiles.find((p) => p.id === NAMED_OWNER)!.email = '  owner@jkkn.ac.in ';
+    const group = await ownerGroup();
+    expect(group.viewer_invited).toBe(true);
+    expect(group.meeting_title).toBe('Review');
+    expect(group.attendee_name).toBe('Asha');
+  });
+
+  it('an empty email matches nobody, even an empty attendee email', async () => {
+    bookingB1().attendee_email = '';
+    tables.profiles.find((p) => p.id === NAMED_OWNER)!.email = '';
+    const group = await ownerGroup();
+    expect(group.viewer_invited).toBe(false);
+    for (const f of HEADER_FIELDS) expect(group[f]).toBeNull();
+  });
+
+  it('a co-host of the booking’s meeting type gets the header', async () => {
+    tables.meeting_type_cohosts = [{ id: 'c-1', meeting_type_id: 't-1', cohost_profile_id: NAMED_OWNER }];
+    const group = await ownerGroup();
+    expect(group.viewer_invited).toBe(true);
+    expect(group.meeting_title).toBe('Review');
+  });
+
+  it('a co-host of a DIFFERENT meeting type does not', async () => {
+    tables.meeting_type_cohosts = [{ id: 'c-2', meeting_type_id: 't-2', cohost_profile_id: NAMED_OWNER }];
+    const group = await ownerGroup();
+    expect(group.viewer_invited).toBe(false);
+    expect(group.meeting_title).toBeNull();
+  });
+
+  it('SOMEONE ELSE being a co-host of that type does not let the viewer in', async () => {
+    tables.meeting_type_cohosts = [{ id: 'c-3', meeting_type_id: 't-1', cohost_profile_id: OTHER_HOST }];
+    const group = await ownerGroup();
+    expect(group.viewer_invited).toBe(false);
+  });
+
+  it('an outsider’s group sorts by its own newest follow-up, not to the bottom', async () => {
+    // NAMED_OWNER also hosts an older meeting of their own.
+    tables.meeting_bookings.push({ id: 'b-own', uid: 'uid-own', attendee_name: 'Deepa', attendee_email: 'deepa@example.com', attendee_profile_id: null, start_time: '2026-09-01T05:00:00Z', status: 'completed', host_profile_id: NAMED_OWNER, meeting_type_id: null });
+    tables.meeting_action_items.push(item('i-own', { booking_id: 'b-own', host_profile_id: NAMED_OWNER, created_at: '2026-09-01T09:00:00Z' }));
+    const res = await MeetingActionItemService.listForProfile(fakeClient() as never, NAMED_OWNER);
+    expect(res.data!.map((g) => [g.booking_id, g.viewer_invited])).toEqual([
+      ['b-1', false],
+      ['b-own', true],
+    ]);
+  });
+
+  it('the host always gets the header and the link rights', async () => {
+    const res = await MeetingActionItemService.listForProfile(fakeClient() as never, HOST);
+    const b1 = res.data!.find((g) => g.booking_id === 'b-1')!;
+    expect(b1.viewer_invited).toBe(true);
+    expect(b1.viewer_is_host).toBe(true);
+    expect(b1.booking_uid).toBe('uid-1');
+  });
+});
+
+describe('isInInvitedSet — the code copy of fn_can_view_meeting_note', () => {
+  const base = {
+    host_profile_id: HOST,
+    attendee_profile_id: null,
+    attendee_email: 'asha@example.com',
+    meeting_type_id: 't-1',
+  };
+  const viewer = (over: Partial<{ email: string | null; cohost: string[] }> = {}) => ({
+    profileId: NAMED_OWNER,
+    email: over.email ?? 'owner@jkkn.ac.in',
+    cohostTypeIds: new Set(over.cohost ?? []),
+  });
+
+  it('being named as an owner is not one of the rules', () => {
+    expect(isInInvitedSet(base, viewer())).toBe(false);
+  });
+  it('a null viewer email never matches', () => {
+    expect(isInInvitedSet({ ...base, attendee_email: '' }, { ...viewer(), email: null })).toBe(false);
+  });
+  it('only SPACES are trimmed, as SQL btrim does', () => {
+    expect(isInInvitedSet({ ...base, attendee_email: 'owner@jkkn.ac.in' }, viewer({ email: ' owner@jkkn.ac.in ' }))).toBe(true);
+    expect(isInInvitedSet({ ...base, attendee_email: 'owner@jkkn.ac.in' }, viewer({ email: '\towner@jkkn.ac.in' }))).toBe(false);
+  });
+  it('a booking with no meeting type has no co-hosts', () => {
+    expect(isInInvitedSet({ ...base, meeting_type_id: null }, viewer({ cohost: ['t-1'] }))).toBe(false);
   });
 });
 

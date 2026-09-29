@@ -78,16 +78,28 @@ export interface ActionItemInput {
 // Read through the SERVICE ROLE with an explicit host-or-owner predicate: that
 // predicate IS the access control. A session-client read would be wrong the
 // other way too — RLS lets a super admin / admin see every host's items.
+//
+// THE MEETING HEADER (title, who it was with, date, status, uid) is a second,
+// separate question. Being an item's OWNER does not make a person one of the
+// meeting's invitees: owners are resolved from the Fireflies participant list,
+// a third-party payload that must never decide what a person may read (live
+// RLS on meeting_bookings / meeting_types is host-or-admin). So the header is
+// attached only when the viewer is in the booking's INVITED SET — see
+// isInInvitedSet — and is nulled on the server for everyone else, who sees a
+// neutral heading. Their own follow-ups still show; they are theirs.
 
 /** Which band of the page an item belongs to, from the viewer's side. */
 export type FollowUpBand = 'yours' | 'others' | 'unassigned';
 
+/**
+ * One follow-up as it crosses to the client component. Only what the page
+ * renders or needs to act on — the host's id and the decision text stay on
+ * the server.
+ */
 export interface FollowUpItem {
   id: string;
   booking_id: string;
-  host_profile_id: string;
   action_text: string;
-  decision_text: string | null;
   owner_label: string | null;
   owner_profile_id: string | null;
   /** full_name of owner_profile_id, when it resolves. */
@@ -100,7 +112,13 @@ export interface FollowUpItem {
 
 export interface FollowUpMeetingGroup {
   booking_id: string;
-  /** null only if the booking row could not be read back. */
+  /**
+   * The viewer is in the booking's invited set (isInInvitedSet). When false,
+   * booking_uid, attendee_name, start_time, booking_status and meeting_title
+   * are ALL null and the page shows a neutral heading.
+   */
+  viewer_invited: boolean;
+  /** null when the viewer is not invited, or the booking row could not be read back. */
   booking_uid: string | null;
   attendee_name: string | null;
   start_time: string | null;
@@ -110,6 +128,50 @@ export interface FollowUpMeetingGroup {
   /** The viewer hosts this booking → may open /meetings/[uid]. */
   viewer_is_host: boolean;
   items: FollowUpItem[];
+}
+
+/** The booking columns the invited-set test reads. */
+export interface InvitedSetBooking {
+  host_profile_id: string | null;
+  attendee_profile_id: string | null;
+  attendee_email: string | null;
+  meeting_type_id: string | null;
+}
+
+/** The viewer's side of the invited-set test. */
+export interface InvitedSetViewer {
+  profileId: string;
+  /** profiles.email of the viewer, as stored. */
+  email: string | null;
+  /** meeting_type_ids the viewer is a co-host of (meeting_type_cohosts). */
+  cohostTypeIds: ReadonlySet<string>;
+}
+
+/** SQL lower(btrim(x)): btrim with no second argument strips SPACES only. */
+function sqlLowerBtrim(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  return value.replace(/^ +| +$/g, '').toLowerCase();
+}
+
+/**
+ * Is the viewer one of the people this booking invited? A code copy of the
+ * booking rules in the LIVE public.fn_can_view_meeting_note(p_booking_id)
+ * (read with pg_get_functiondef on 2026-09-29; the meeting_notes_select policy
+ * calls it) — keep the two in step:
+ *   • b.host_profile_id = viewer
+ *   • b.attendee_profile_id = viewer
+ *   • lower(btrim(b.attendee_email)) = lower(btrim(viewer's profiles.email)),
+ *     only when the viewer's email is not null and not ''
+ *   • the viewer is in meeting_type_cohosts for b.meeting_type_id
+ * Being named as an item's owner is deliberately NOT one of the rules.
+ */
+export function isInInvitedSet(booking: InvitedSetBooking, viewer: InvitedSetViewer): boolean {
+  if (booking.host_profile_id && booking.host_profile_id === viewer.profileId) return true;
+  if (booking.attendee_profile_id && booking.attendee_profile_id === viewer.profileId) return true;
+  const viewerEmail = sqlLowerBtrim(viewer.email);
+  if (viewerEmail && sqlLowerBtrim(booking.attendee_email) === viewerEmail) return true;
+  if (booking.meeting_type_id && viewer.cohostTypeIds.has(booking.meeting_type_id)) return true;
+  return false;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -409,6 +471,9 @@ export class MeetingActionItemService {
    * from, newest meeting first. SERVICE-ROLE client; the explicit host-or-owner
    * filter is the access control (see the block comment above FollowUpBand).
    * Cancelled bookings are NOT filtered out — their items are still owed.
+   * The meeting header is filled in only for bookings whose invited set
+   * includes the viewer (isInInvitedSet); for any other booking it is nulled
+   * here, before anything leaves the server.
    */
   static async listForProfile(
     service: SupabaseClient,
@@ -425,7 +490,7 @@ export class MeetingActionItemService {
     let query = service
       .from('meeting_action_items')
       .select(
-        'id, booking_id, host_profile_id, action_text, decision_text, owner_label, owner_profile_id, due_date, status, created_at',
+        'id, booking_id, host_profile_id, action_text, owner_label, owner_profile_id, due_date, status, created_at',
       )
       .or(hostOrOwner);
     if (!opts.includeDone) query = query.eq('status', 'open');
@@ -442,7 +507,8 @@ export class MeetingActionItemService {
     // Defence in depth: never render a row the predicate should have excluded.
     // Reversed so that, inside one meeting, items read in the order they were
     // written (oldest first); meetings themselves are sorted newest-first below.
-    const items = ((itemRows ?? []) as Array<Omit<FollowUpItem, 'owner_name' | 'band'>>)
+    type ItemRow = Omit<FollowUpItem, 'owner_name' | 'band'> & { host_profile_id: string };
+    const items = ((itemRows ?? []) as ItemRow[])
       .filter((it) => it.host_profile_id === profileId || it.owner_profile_id === profileId)
       .reverse();
     if (items.length === 0) return { success: true, data: [] };
@@ -452,41 +518,76 @@ export class MeetingActionItemService {
       new Set(items.map((it) => it.owner_profile_id).filter((v): v is string => !!v)),
     );
 
-    const [bookingsRes, ownersRes] = await Promise.all([
+    const [bookingsRes, ownersRes, viewerRes] = await Promise.all([
       service
         .from('meeting_bookings')
-        .select('id, uid, attendee_name, start_time, status, host_profile_id, meeting_type_id')
+        .select(
+          'id, uid, attendee_name, attendee_email, attendee_profile_id, start_time, status, host_profile_id, meeting_type_id',
+        )
         .in('id', bookingIds),
       ownerIds.length
         ? service.from('profiles').select('id, full_name').in('id', ownerIds)
         : Promise.resolve({ data: [] as Array<{ id: string; full_name: string | null }>, error: null }),
+      // The viewer's own email, for the attendee_email rule of the invited set.
+      service.from('profiles').select('email').eq('id', profileId).maybeSingle(),
     ]);
     if (bookingsRes.error) {
       console.error(`${LOG_PREFIX} listForProfile bookings error:`, bookingsRes.error.message);
       return { success: false, error: 'DB_ERROR' };
     }
+    // Fail CLOSED: without the email, the email rule simply matches nobody.
+    if (viewerRes.error) {
+      console.error(`${LOG_PREFIX} listForProfile viewer email error:`, viewerRes.error.message);
+    }
+    const viewerEmail =
+      ((viewerRes.data ?? null) as { email: string | null } | null)?.email ?? null;
 
-    const bookings = (bookingsRes.data ?? []) as Array<{
-      id: string;
-      uid: string;
-      attendee_name: string | null;
-      start_time: string | null;
-      status: string | null;
-      host_profile_id: string | null;
-      meeting_type_id: string | null;
-    }>;
+    const bookings = (bookingsRes.data ?? []) as Array<
+      InvitedSetBooking & {
+        id: string;
+        uid: string;
+        attendee_name: string | null;
+        start_time: string | null;
+        status: string | null;
+      }
+    >;
     const bookingById = new Map(bookings.map((b) => [b.id, b]));
 
     const typeIds = Array.from(
       new Set(bookings.map((b) => b.meeting_type_id).filter((v): v is string => !!v)),
     );
-    const typesRes = typeIds.length
-      ? await service.from('meeting_types').select('id, title').in('id', typeIds)
-      : { data: [] as Array<{ id: string; title: string | null }>, error: null };
+    const [typesRes, cohostRes] = typeIds.length
+      ? await Promise.all([
+          service.from('meeting_types').select('id, title').in('id', typeIds),
+          service
+            .from('meeting_type_cohosts')
+            .select('meeting_type_id')
+            .eq('cohost_profile_id', profileId)
+            .in('meeting_type_id', typeIds),
+        ])
+      : [
+          { data: [] as Array<{ id: string; title: string | null }>, error: null },
+          { data: [] as Array<{ meeting_type_id: string }>, error: null },
+        ];
     // A missing title is cosmetic — log it, keep the list.
     if (typesRes.error) {
       console.error(`${LOG_PREFIX} listForProfile types error:`, typesRes.error.message);
     }
+    // Fail CLOSED: a co-host whose row could not be read sees the neutral heading.
+    if (cohostRes.error) {
+      console.error(`${LOG_PREFIX} listForProfile cohosts error:`, cohostRes.error.message);
+    }
+    const viewer: InvitedSetViewer = {
+      profileId,
+      email: viewerEmail,
+      cohostTypeIds: new Set(
+        cohostRes.error
+          ? []
+          : ((cohostRes.data ?? []) as Array<{ meeting_type_id: string }>).map(
+              (c) => c.meeting_type_id,
+            ),
+      ),
+    };
     const titleById = new Map(
       ((typesRes.data ?? []) as Array<{ id: string; title: string | null }>).map((t) => [
         t.id,
@@ -501,34 +602,74 @@ export class MeetingActionItemService {
     );
 
     const groups = new Map<string, FollowUpMeetingGroup>();
+    // Sort key per group. An invited viewer's group sorts by the meeting's
+    // start time; an outsider's group has no meeting time on the page, so it
+    // sorts by its newest follow-up's own created_at (already in its items),
+    // which lands close to where the meeting would.
+    const sortKey = new Map<string, number>();
     for (const it of items) {
       let group = groups.get(it.booking_id);
       if (!group) {
         const b = bookingById.get(it.booking_id);
-        group = {
-          booking_id: it.booking_id,
-          booking_uid: b?.uid ?? null,
-          attendee_name: b?.attendee_name ?? null,
-          start_time: b?.start_time ?? null,
-          booking_status: b?.status ?? null,
-          meeting_title: b?.meeting_type_id ? (titleById.get(b.meeting_type_id) ?? null) : null,
-          viewer_is_host: (b?.host_profile_id ?? it.host_profile_id) === profileId,
-          items: [],
-        };
+        const viewerIsHost = (b?.host_profile_id ?? it.host_profile_id) === profileId;
+        // No booking row read back → there is no header to show either way.
+        const invited = b ? isInInvitedSet(b, viewer) : viewerIsHost;
+        group = invited
+          ? {
+              booking_id: it.booking_id,
+              viewer_invited: true,
+              booking_uid: b?.uid ?? null,
+              attendee_name: b?.attendee_name ?? null,
+              start_time: b?.start_time ?? null,
+              booking_status: b?.status ?? null,
+              meeting_title: b?.meeting_type_id ? (titleById.get(b.meeting_type_id) ?? null) : null,
+              viewer_is_host: viewerIsHost,
+              items: [],
+            }
+          : {
+              // Named on a follow-up, NOT invited to the meeting: nothing about
+              // the booking leaves the server.
+              booking_id: it.booking_id,
+              viewer_invited: false,
+              booking_uid: null,
+              attendee_name: null,
+              start_time: null,
+              booking_status: null,
+              meeting_title: null,
+              viewer_is_host: false,
+              items: [],
+            };
         groups.set(it.booking_id, group);
+        sortKey.set(
+          it.booking_id,
+          invited && group.start_time ? new Date(group.start_time).getTime() : -Infinity,
+        );
       }
+      if (!group.viewer_invited) {
+        const t = new Date(it.created_at).getTime();
+        if (t > (sortKey.get(it.booking_id) ?? -Infinity)) sortKey.set(it.booking_id, t);
+      }
+      // Built field by field: host_profile_id never crosses to the client.
       group.items.push({
-        ...it,
+        id: it.id,
+        booking_id: it.booking_id,
+        action_text: it.action_text,
+        owner_label: it.owner_label,
+        owner_profile_id: it.owner_profile_id,
         owner_name: it.owner_profile_id ? (ownerNameById.get(it.owner_profile_id) ?? null) : null,
+        due_date: it.due_date,
+        status: it.status,
+        created_at: it.created_at,
         band: followUpBand(it, profileId),
       });
     }
 
     const sorted = Array.from(groups.values()).sort((a, b) => {
-      // Newest meeting first; a meeting with no start time sinks to the end.
-      const ta = a.start_time ? new Date(a.start_time).getTime() : -Infinity;
-      const tb = b.start_time ? new Date(b.start_time).getTime() : -Infinity;
-      return tb - ta;
+      // Newest first; a group with no time at all sinks to the end.
+      const ta = sortKey.get(a.booking_id) ?? -Infinity;
+      const tb = sortKey.get(b.booking_id) ?? -Infinity;
+      if (ta === tb) return 0;
+      return tb > ta ? 1 : -1;
     });
     return { success: true, data: sorted };
   }

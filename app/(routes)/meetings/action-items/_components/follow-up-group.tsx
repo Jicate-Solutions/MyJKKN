@@ -6,6 +6,10 @@
 // items split into Yours / Others / Unassigned, each with a Done toggle, and a
 // "Mark all done" that asks first. Every change goes through the server
 // actions in ../actions and then router.refresh() re-reads the list.
+//
+// A person named on a follow-up who was NOT invited to the meeting gets a
+// group whose header fields are all null (listForProfile nulls them on the
+// server). They see NOT_INVITED_HEADING — no title, date, status or link.
 
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
@@ -33,6 +37,9 @@ import type {
 } from '@/lib/services/meetings/meeting-action-item-service';
 
 import { markMeetingFollowUpsDoneAction, setFollowUpStatusAction } from '../actions';
+
+/** Heading for a meeting the viewer is named in but was not invited to. */
+export const NOT_INVITED_HEADING = 'A meeting you were named in';
 
 const BANDS: Array<{ key: FollowUpBand; label: string }> = [
   { key: 'yours', label: 'Yours' },
@@ -118,8 +125,14 @@ export function FollowUpGroup({ group }: { group: FollowUpMeetingGroup }) {
   const [pending, startTransition] = useTransition();
 
   const openCount = group.items.filter((it) => it.status === 'open').length;
+  const invited = group.viewer_invited;
   const title = group.meeting_title || 'Meeting';
   const withWhom = group.attendee_name ? ` with ${group.attendee_name}` : '';
+  const confirmText = !invited
+    ? 'Your open follow-ups from this meeting will be marked done.'
+    : group.viewer_is_host
+      ? `All ${openCount} open follow-up${openCount === 1 ? '' : 's'} from ${title}${withWhom} will be marked done.`
+      : `Your open follow-ups from ${title}${withWhom} will be marked done.`;
 
   function markAllDone() {
     startTransition(async () => {
@@ -136,11 +149,13 @@ export function FollowUpGroup({ group }: { group: FollowUpMeetingGroup }) {
     });
   }
 
-  const heading = (
+  const heading = invited ? (
     <span className="text-sm font-medium">
       {title}
       {withWhom}
     </span>
+  ) : (
+    <span className="text-sm font-medium">{NOT_INVITED_HEADING}</span>
   );
 
   return (
@@ -148,7 +163,7 @@ export function FollowUpGroup({ group }: { group: FollowUpMeetingGroup }) {
       <CardHeader className="space-y-2 p-4 pb-2">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 space-y-1">
-            {group.viewer_is_host && group.booking_uid ? (
+            {invited && group.viewer_is_host && group.booking_uid ? (
               <Link
                 href={`/meetings/${group.booking_uid}`}
                 className="inline-flex items-center gap-1 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -159,17 +174,23 @@ export function FollowUpGroup({ group }: { group: FollowUpMeetingGroup }) {
             ) : (
               heading
             )}
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-              <span className="inline-flex items-center gap-1">
-                <CalendarDays className="h-3 w-3 shrink-0" aria-hidden />
-                {formatMeetingDate(group.start_time)}
-              </span>
-              {group.booking_status === 'cancelled' ? (
-                <Badge variant="outline" className="font-normal">
-                  Meeting cancelled
-                </Badge>
-              ) : null}
-            </div>
+            {invited ? (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1">
+                  <CalendarDays className="h-3 w-3 shrink-0" aria-hidden />
+                  {formatMeetingDate(group.start_time)}
+                </span>
+                {group.booking_status === 'cancelled' ? (
+                  <Badge variant="outline" className="font-normal">
+                    Meeting cancelled
+                  </Badge>
+                ) : null}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Only the people invited to this meeting can see its details.
+              </p>
+            )}
           </div>
           {openCount > 0 ? (
             <Button
@@ -210,10 +231,7 @@ export function FollowUpGroup({ group }: { group: FollowUpMeetingGroup }) {
           <AlertDialogHeader>
             <AlertDialogTitle>Mark all follow-ups from this meeting done?</AlertDialogTitle>
             <AlertDialogDescription>
-              {group.viewer_is_host
-                ? `All ${openCount} open follow-up${openCount === 1 ? '' : 's'} from ${title}${withWhom} will be marked done.`
-                : `Your open follow-ups from ${title}${withWhom} will be marked done.`}{' '}
-              You can open any of them again later.
+              {confirmText} You can open any of them again later.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
