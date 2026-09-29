@@ -18,6 +18,17 @@ import type { LopPreviewResult } from '@/lib/services/hr/payroll/payslip-generat
 
 export type { LopPreviewResult } from '@/lib/services/hr/payroll/payslip-generator';
 
+/** A failed preview request, carrying the HTTP status so a refusal (403) can be told apart from a fault. */
+export class LopPreviewRequestError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'LopPreviewRequestError';
+    this.status = status;
+  }
+}
+
 export function usePayrollLopPreview(periodId: string | undefined) {
   return useQuery<LopPreviewResult>({
     queryKey: ['hr-payroll-lop-preview', periodId],
@@ -25,7 +36,10 @@ export function usePayrollLopPreview(periodId: string | undefined) {
       const res = await fetch(`/api/hr/payroll/periods/${periodId}/lop-preview`);
       const json = await res.json();
       if (!res.ok) {
-        throw new Error(json.error ?? `Could not load the preview: ${res.status}`);
+        throw new LopPreviewRequestError(
+          res.status,
+          json.error ?? `Could not load the preview: ${res.status}`,
+        );
       }
       return json.data as LopPreviewResult;
     },

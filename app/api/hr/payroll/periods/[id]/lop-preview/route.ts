@@ -14,14 +14,31 @@ export const dynamic = 'force-dynamic';
  *
  * Works on a period in any status, so the effect of absence can be inspected
  * while the period is still a draft and before anybody presses generate.
+ *
+ * WHO MAY CALL IT — the same people who can open the page. Every payroll page
+ * under /hr/admin/payroll is SuperAdminOnly, while the payroll period APIs
+ * carry requirePermission 'hr.payroll.view'. That key is the MyJKKN triad
+ * (is_super_admin OR is_admin OR the key), so on its own it would hand every
+ * person's pay and deductions to an admin or an HR role who cannot even open
+ * the screen. The key stays, for consistency with the sibling routes, and the
+ * handler also asks is_super_admin() itself before reading anything — the
+ * same pattern the salary register's DELETE uses. The API is therefore never
+ * wider than the page.
+ *
+ * A refusal for a missing permission is a 403 with the reason in plain words;
+ * 500 is kept for real faults.
  */
 
 import { NextResponse, connection } from 'next/server';
 import { withAuth } from '@/lib/auth/with-auth';
 import {
   PayslipGenerator,
+  PayrollPermissionError,
   type PayrollPeriodRow,
 } from '@/lib/services/hr/payroll/payslip-generator';
+
+const NOT_SUPER_ADMIN =
+  'This preview shows each person’s pay and deductions, so it is open only to platform administrators — the same people who can open the payroll screens. Ask a platform administrator to check this month for you.';
 
 const NO_ACCESS =
   'You do not have access to this institution’s payroll. Ask an administrator to grant you access to it, then reload.';
@@ -30,6 +47,14 @@ export const GET = withAuth(async (_request, auth, context) => {
   await connection();
   try {
     const { id } = await context!.params!;
+
+    // Fails closed: an error from the check is a refusal, not a pass.
+    const { data: isSuperAdmin, error: gateErr } = await (auth.supabase as any).rpc(
+      'is_super_admin',
+    );
+    if (gateErr || isSuperAdmin !== true) {
+      return NextResponse.json({ error: NOT_SUPER_ADMIN }, { status: 403 });
+    }
 
     // The full row, read once and handed to the preview, so the period is not
     // fetched a second time inside previewLop.
@@ -71,6 +96,11 @@ export const GET = withAuth(async (_request, auth, context) => {
 
     return NextResponse.json({ data: preview });
   } catch (err) {
+    // The account lacks a permission the computation needs. That is a refusal
+    // to explain, not a fault to page anybody about.
+    if (err instanceof PayrollPermissionError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error('[hr/payroll/periods/[id]/lop-preview] GET error', err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Unknown error' },

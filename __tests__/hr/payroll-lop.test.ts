@@ -83,7 +83,9 @@ vi.mock('@/lib/services/hr/payroll/deduction-engine', async (importOriginal) => 
 });
 
 // Imported AFTER the mock declaration so the generator picks up the stub loader.
-const { PayslipGenerator } = await import('@/lib/services/hr/payroll/payslip-generator');
+const { PayslipGenerator, PayrollPermissionError } = await import(
+  '@/lib/services/hr/payroll/payslip-generator'
+);
 
 // ============================================================================
 // 1. Day counting
@@ -560,6 +562,24 @@ describe('PayslipGenerator.previewLop — the generator actually reads attendanc
       expect(r.reason).toBe(LOP_SKIP_REASONS.monthNotClosed);
     }
     expect(preview.warnings.join(' ')).toContain('not closed attendance');
+    // The count the page's "lock attendance first" banner depends on.
+    expect(preview.month_not_closed_count).toBe(2);
+  });
+
+  it('counts nobody as held up by an open month when the month is locked', async () => {
+    const preview = await PayslipGenerator.previewLop(stubSupabase(baseFixture()), 'period-1');
+    expect(preview.payable_count).toBe(2);
+    expect(preview.month_not_closed_count).toBe(0);
+  });
+
+  it('does not count people left off for OTHER reasons as held up by an open month', async () => {
+    const fx = baseFixture();
+    fx.tables.hr_attendance_period_summaries = [];
+    fx.rpc = { user_has_permission: true, is_super_admin: false };
+
+    const preview = await PayslipGenerator.previewLop(stubSupabase(fx), 'period-1');
+    expect(preview.skipped_count).toBe(2);
+    expect(preview.month_not_closed_count).toBe(0);
   });
 
   it('REFUSES when the closed month records no working days for a person', async () => {
@@ -609,6 +629,58 @@ describe('PayslipGenerator.previewLop — the generator actually reads attendanc
     await expect(
       PayslipGenerator.previewLop(stubSupabase(fx), 'period-1'),
     ).rejects.toThrow(/missing hr\.attendance\.period\.view/);
+  });
+
+  it('a missing permission is thrown as a typed refusal (so the route can answer 403, not 500)', async () => {
+    const fx = baseFixture();
+    fx.rpc = {
+      user_has_permission: (args?: { permission_name?: string }) =>
+        args?.permission_name !== 'hr.attendance.period.view',
+      is_super_admin: false,
+    };
+
+    const err = await PayslipGenerator.previewLop(stubSupabase(fx), 'period-1').catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(PayrollPermissionError);
+    expect((err as InstanceType<typeof PayrollPermissionError>).status).toBe(403);
+    expect((err as InstanceType<typeof PayrollPermissionError>).missingPermission).toBe(
+      'hr.attendance.period.view',
+    );
+  });
+
+  it('an account that cannot see the payroll roster is refused with a typed refusal too', async () => {
+    const fx = baseFixture();
+    fx.tables.hr_staff_payroll = [];
+    fx.rpc = { user_has_permission: false, is_super_admin: false };
+
+    const err = await PayslipGenerator.previewLop(stubSupabase(fx), 'period-1').catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(PayrollPermissionError);
+    expect((err as InstanceType<typeof PayrollPermissionError>).missingPermission).toBe(
+      'hr.payroll.institution.view',
+    );
+  });
+
+  it('a real fault is NOT dressed up as a permission refusal', async () => {
+    const fx = baseFixture();
+    const client = stubSupabase(fx);
+    const realFrom = client.from;
+    client.from = ((table: string) => {
+      if (table === 'hr_attendance_periods') {
+        const b: Record<string, unknown> = {};
+        for (const m of ['select', 'in', 'eq']) b[m] = () => b;
+        b.then = (ok: (v: unknown) => unknown) =>
+          Promise.resolve({ data: null, error: { message: 'connection reset' } }).then(ok);
+        return b;
+      }
+      return realFrom(table);
+    }) as typeof client.from;
+
+    const err = await PayslipGenerator.previewLop(client, 'period-1').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(PayrollPermissionError);
   });
 
   it('WITH the key, a genuinely missing record still says "No attendance record"', async () => {

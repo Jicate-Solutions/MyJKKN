@@ -18,11 +18,16 @@ import { render, screen, cleanup } from '@testing-library/react';
 
 import type { LopPreviewResult } from '@/lib/services/hr/payroll/payslip-generator';
 
-let preview: LopPreviewResult;
+let preview: LopPreviewResult | undefined;
+let previewError: Error | null = null;
 
-vi.mock('@/hooks/hr/payroll/use-payroll-lop-preview', () => ({
-  usePayrollLopPreview: () => ({ data: preview, isLoading: false, error: null }),
-}));
+vi.mock('@/hooks/hr/payroll/use-payroll-lop-preview', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/hr/payroll/use-payroll-lop-preview')>();
+  return {
+    ...actual,
+    usePayrollLopPreview: () => ({ data: preview, isLoading: false, error: previewError }),
+  };
+});
 vi.mock('@/components/auth/admin-permission-guard', () => ({
   SuperAdminOnly: (p: React.PropsWithChildren) => <>{p.children}</>,
 }));
@@ -32,6 +37,7 @@ vi.mock('@/components/layout/content-layout', () => ({
 vi.mock('@/components/navigation', () => ({ PageBreadcrumb: () => null }));
 
 import PayrollLopPreviewPage from '@/app/(routes)/hr/admin/payroll/periods/[id]/lop-preview/page';
+import { LopPreviewRequestError } from '@/hooks/hr/payroll/use-payroll-lop-preview';
 
 const LEFT_OFF =
   'Their work location has not closed attendance for this month yet — close it, then rerun.';
@@ -69,6 +75,7 @@ function result(rows: LopPreviewResult['rows']): LopPreviewResult {
     rows,
     payable_count: payable.length,
     skipped_count: rows.length - payable.length,
+    month_not_closed_count: rows.filter((r) => !r.payable && r.reason === LEFT_OFF).length,
     total_lop_days: payable.reduce((t, r) => t + r.lop_days, 0),
     totals: {
       full_gross: payable.reduce((t, r) => t + r.full_gross, 0),
@@ -97,7 +104,24 @@ function toneOf(label: string): string | null {
   return card.querySelector('[data-tone]')!.getAttribute('data-tone');
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  previewError = null;
+});
+
+function payableRow(staff_id: string, name: string): LopPreviewResult['rows'][number] {
+  return {
+    ...skipped(staff_id, name),
+    payable: true,
+    reason: null,
+    business_working_days: 22,
+    paid_days: 22,
+    full_gross: 28500,
+    gross_after_lop: 28500,
+    total_deductions: 3620,
+    net_pay: 24880,
+  };
+}
 
 describe('absence preview — a payroll that can pay nobody', () => {
   it('does not announce that "All 0 people were present"', () => {
@@ -136,5 +160,53 @@ describe('absence preview — a payroll that can pay nobody', () => {
 
     expect(screen.getByText('All 1 people were present for every working day')).toBeTruthy();
     expect(toneOf('Days not paid for')).toBe('ok');
+  });
+});
+
+describe('absence preview — the "lock attendance first" advice', () => {
+  it('is NOT shown when every person is payable', () => {
+    preview = result([payableRow('s1', 'Priya D'), payableRow('s2', 'Arun M')]);
+    render(<PayrollLopPreviewPage params={resolvedParams('p1')} />);
+
+    expect(screen.queryByTestId('lock-attendance-banner')).toBeNull();
+    expect(screen.queryByText(/Lock attendance before/)).toBeNull();
+  });
+
+  it('is NOT shown when people are left off for a reason other than an open month', () => {
+    preview = result([
+      payableRow('s1', 'Priya D'),
+      { ...skipped('s2', 'Arun M'), reason: 'No pay scale configured for this designation/cadre' },
+    ]);
+    render(<PayrollLopPreviewPage params={resolvedParams('p1')} />);
+
+    expect(screen.queryByTestId('lock-attendance-banner')).toBeNull();
+  });
+
+  it('IS shown, with the count, when people are left off because the month is still open', () => {
+    preview = result([payableRow('s1', 'Priya D'), skipped('s2', 'Kavitha R'), skipped('s3', 'Senthil K')]);
+    render(<PayrollLopPreviewPage params={resolvedParams('p1')} />);
+
+    const banner = screen.getByTestId('lock-attendance-banner');
+    expect(banner.textContent).toMatch(/Lock attendance before/);
+    expect(banner.textContent).toMatch(/2 person\(s\) are left off/);
+  });
+});
+
+describe('absence preview — a refusal reads as a refusal', () => {
+  it('says "no access" (not "could not work out") on a 403', () => {
+    preview = undefined;
+    previewError = new LopPreviewRequestError(403, 'This preview … open only to platform administrators');
+    render(<PayrollLopPreviewPage params={resolvedParams('p1')} />);
+
+    expect(screen.getByText('You don’t have access to this preview')).toBeTruthy();
+    expect(screen.queryByText(/Could not work out/)).toBeNull();
+  });
+
+  it('still says "could not work out" on a real fault', () => {
+    preview = undefined;
+    previewError = new LopPreviewRequestError(500, 'Failed to load the frozen day counts');
+    render(<PayrollLopPreviewPage params={resolvedParams('p1')} />);
+
+    expect(screen.getByText('Could not work out this month’s absence')).toBeTruthy();
   });
 });

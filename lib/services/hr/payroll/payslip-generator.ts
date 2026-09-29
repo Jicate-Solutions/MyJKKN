@@ -150,6 +150,12 @@ export interface LopPreviewResult {
   rows: LopPreviewRow[];
   payable_count: number;
   skipped_count: number;
+  /**
+   * People left off ONLY because their work location has not locked this
+   * month's attendance. The one number the "lock attendance first" advice
+   * depends on — zero means that advice does not apply to this run.
+   */
+  month_not_closed_count: number;
   total_lop_days: number;
   totals: {
     full_gross: number;
@@ -176,6 +182,22 @@ interface BuiltRun {
   lineItemInserts: Record<string, unknown>[];
   result: GenerationResult;
   previewRows: LopPreviewRow[];
+}
+
+/**
+ * The run was refused because the ACCOUNT lacks a permission — not because
+ * anything is wrong with the payroll. Typed so a route can answer 403 with the
+ * message as written, and keep 500 for real faults, without matching strings.
+ */
+export class PayrollPermissionError extends Error {
+  readonly status = 403;
+  readonly missingPermission: string;
+
+  constructor(missingPermission: string, message: string) {
+    super(message);
+    this.name = 'PayrollPermissionError';
+    this.missingPermission = missingPermission;
+  }
 }
 
 /** A full hr_payroll_periods row, as `select('*')` returns it. */
@@ -301,6 +323,9 @@ export class PayslipGenerator {
       rows: built.previewRows,
       payable_count: payable.length,
       skipped_count: built.previewRows.length - payable.length,
+      month_not_closed_count: built.previewRows.filter(
+        (r) => !r.payable && r.reason === LOP_SKIP_REASONS.monthNotClosed,
+      ).length,
       total_lop_days: round2(payable.reduce((t, r) => t + r.lop_days, 0)),
       totals: {
         full_gross: payable.reduce((t, r) => t + r.full_gross, 0),
@@ -355,7 +380,8 @@ export class PayslipGenerator {
         permission_name: 'hr.payroll.institution.view',
       });
       if (!canSeePayroll) {
-        throw new Error(
+        throw new PayrollPermissionError(
+          'hr.payroll.institution.view',
           'Cannot read payroll organisation assignments: this account is missing hr.payroll.institution.view. Generating here would produce zero payslips and look like an empty organisation. Ask an administrator to grant it.',
         );
       }
@@ -497,7 +523,8 @@ export class PayslipGenerator {
     };
 
     if (lop.summariesUnreadable) {
-      throw new Error(
+      throw new PayrollPermissionError(
+        'hr.attendance.period.view',
         'Cannot read the closed month’s day counts: this account is missing hr.attendance.period.view. Without it the account sees at most its own row, so everybody else would be skipped as "no attendance record", which is indistinguishable from the month having no records — and the difference decides whether anyone gets paid. Ask an administrator to grant it.',
       );
     }

@@ -42,7 +42,10 @@ import {
   TableRow,
 } from '@/components/ui/table';
 
-import { usePayrollLopPreview } from '@/hooks/hr/payroll/use-payroll-lop-preview';
+import {
+  LopPreviewRequestError,
+  usePayrollLopPreview,
+} from '@/hooks/hr/payroll/use-payroll-lop-preview';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -106,12 +109,18 @@ function LopPreviewContent({ id }: { id: string }) {
   const { data, isLoading, error } = usePayrollLopPreview(id);
 
   if (error) {
+    // A refusal is not a fault: say "no access", not "something broke".
+    const refused = error instanceof LopPreviewRequestError && error.status === 403;
     return (
       <div className="space-y-4">
         <BackLink id={id} />
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Could not work out this month&apos;s absence</AlertTitle>
+        <Alert variant={refused ? 'default' : 'destructive'}>
+          {refused ? <ShieldAlert className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
+          <AlertTitle>
+            {refused
+              ? 'You don’t have access to this preview'
+              : 'Could not work out this month’s absence'}
+          </AlertTitle>
           <AlertDescription>{error.message}</AlertDescription>
         </Alert>
       </div>
@@ -189,12 +198,22 @@ function LopPreviewContent({ id }: { id: string }) {
             attendance close screen before approving anything here.
           </div>
 
-          <div className="mt-3 rounded-md border border-amber-700/30 bg-amber-50 p-3 text-sm text-amber-900 shadow-sm dark:border-amber-400/30 dark:bg-amber-950/30 dark:text-amber-100">
-            <span className="font-semibold">Lock attendance before re-running a payroll month already under way.</span>{' '}
-            Payroll now pays only people whose work location has locked that month&apos;s
-            attendance. Re-run a month before it is locked and everyone there is left
-            off, each with the reason shown below.
-          </div>
+          {/*
+            Only when it applies. Shown on every run, including one where
+            everybody is payable, it reads as a problem with a month that has
+            none — and a warning that is always there stops being read.
+          */}
+          {data.month_not_closed_count > 0 && (
+            <div
+              data-testid="lock-attendance-banner"
+              className="mt-3 rounded-md border border-amber-700/30 bg-amber-50 p-3 text-sm text-amber-900 shadow-sm dark:border-amber-400/30 dark:bg-amber-950/30 dark:text-amber-100"
+            >
+              <span className="font-semibold">Lock attendance before re-running this payroll month.</span>{' '}
+              {`${data.month_not_closed_count} person(s) are left off because their work location has not locked this month’s attendance.`}{' '}
+              Payroll pays only people whose work location has locked it; lock it there,
+              then reload this page.
+            </div>
+          )}
         </CardContent>
       </Card>
 
