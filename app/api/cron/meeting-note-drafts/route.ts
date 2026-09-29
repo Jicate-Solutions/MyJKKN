@@ -16,7 +16,9 @@
 //      have no summary, were never drafted, are at least 2 hours old, and are
 //      NOT interviews. At most 10 per run. SKIPPED for this run when step 1's
 //      collect throws: a note whose finished job was not collected must not be
-//      sent to the model a second time.
+//      sent to the model a second time. A Fireflies code about ONE transcript
+//      (object_not_found / forbidden / not_in_team) stamps that note and the
+//      run goes on; an account-wide Fireflies failure stops the run.
 //
 // SWITCHED OFF twice over: the ai_job_types row 'meetings.note_draft' ships
 // enabled=false (the enqueue phase returns before any Fireflies call or DB
@@ -95,11 +97,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     enqueued: q?.enqueued ?? 0,
     inFlight: q?.inFlight ?? 0,
     noTranscript: q?.noTranscript ?? 0,
+    transcriptUnavailable: q?.transcriptUnavailable ?? 0,
     transcriptRetry: q?.transcriptRetry ?? 0,
     skipped: (c?.skipped ?? 0) + (q?.skipped ?? 0),
     errors:
       (c?.errors ?? 0) +
       (w?.errors ?? 0) +
+      (q?.errors ?? 0) +
       (run.collectError ? 1 : 0) +
       (run.sweepError ? 1 : 0) +
       (run.enqueueError ? 1 : 0),

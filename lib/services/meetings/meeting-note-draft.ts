@@ -27,10 +27,21 @@
 //     and `raw` on every 30-minute tick and would wipe a draft stored there.
 //   * Interview bookings are never enqueued.
 //   * A note is stamped 'no_transcript' ONLY when Fireflies returned the
-//     transcript and it holds zero sentences. Every other Fireflies failure
-//     (an answer that is not JSON, a null transcript, a network or auth error)
-//     leaves the note UNSTAMPED so a later run retries it; the 10-per-run cap
-//     bounds what the retries cost.
+//     transcript and it holds zero sentences.
+//   * Fireflies' PER-TRANSCRIPT codes (object_not_found, forbidden,
+//     not_in_team — FIREFLIES_PER_TRANSCRIPT_CODES) are final for that ONE
+//     note: it is stamped 'fireflies_<code>' and the run goes on to the next
+//     candidate. A transcript that came back without a readable sentence list
+//     leaves the note UNSTAMPED and the run also goes on. Everything
+//     ACCOUNT-WIDE — no key, a network error, HTTP 401 / 429, a body that is
+//     not JSON, and any other or unknown GraphQL code — stops the run and
+//     stamps nothing. The 10-per-run cap bounds what retries cost.
+//   * A DB read that FAILS is never read as "nothing there". A failed read of
+//     the note, its participants, their profiles, the booking host or the
+//     booking's existing follow-ups gives outcome 'error' and leaves the note
+//     UNSTAMPED, so a later run retries it. Only a read that succeeded and
+//     found no host stamps 'no_host'; only a count that succeeded and is above
+//     zero stamps 'items_skipped_existing'.
 //   * A transcript does not linger in ai_jobs.payload.prompt: it is removed
 //     from every delivered job (collect), from every job that ended 'error' or
 //     'canceled', and from any job still pending after 7 days — which is also
@@ -45,7 +56,11 @@
 // ============================================================================
 
 import type { createServiceRoleClient } from '@/lib/supabase/server';
-import type { FirefliesResult, FirefliesSentence } from '@/lib/services/meetings/fireflies-client';
+import {
+  isFirefliesPerTranscriptCode,
+  type FirefliesResult,
+  type FirefliesSentence,
+} from '@/lib/services/meetings/fireflies-client';
 import {
   extractJobResultText,
   type CollectedJobsLaneItem,
@@ -147,22 +162,32 @@ export interface HeldPromptJob {
 }
 
 /** Everything the drafter reads or writes. Implemented over Supabase by
- *  supabaseNoteDraftDb(); faked in tests. */
+ *  supabaseNoteDraftDb(); faked in tests.
+ *
+ *  Every read on the collect / record path returns its `error` separately
+ *  from its answer: a failed read must never be mistaken for an empty one
+ *  (no host, no participants, no existing follow-ups), because those empty
+ *  answers lead to FINAL stamps. */
 export interface NoteDraftDb {
-  loadNote(noteId: string): Promise<
-    | {
-        id: string;
-        bookingId: string | null;
-        title: string | null;
-        occurredAt: string | null;
-        aiDraftedAt: string | null;
-        summary: string | null;
-      }
-    | null
-  >;
-  loadParticipants(noteId: string): Promise<DraftParticipant[]>;
-  bookingHost(bookingId: string): Promise<string | null>;
-  countActionItems(bookingId: string): Promise<number>;
+  /** note null with no error = there is no such note. */
+  loadNote(noteId: string): Promise<{
+    note: {
+      id: string;
+      bookingId: string | null;
+      title: string | null;
+      occurredAt: string | null;
+      aiDraftedAt: string | null;
+      summary: string | null;
+    } | null;
+    error: string | null;
+  }>;
+  /** error = the participant list OR the profile lookup failed; the caller
+   *  must not draft on that list. [] with no error = genuinely nobody. */
+  loadParticipants(noteId: string): Promise<{ participants: DraftParticipant[]; error: string | null }>;
+  /** host null with no error = the booking has no host (or no longer exists). */
+  bookingHost(bookingId: string): Promise<{ host: string | null; error: string | null }>;
+  /** error = the count could not be read; count is then meaningless. */
+  countActionItems(bookingId: string): Promise<{ count: number; error: string | null }>;
   insertActionItems(rows: Array<Record<string, unknown>>): Promise<{ error: string | null }>;
   /** Writes ai_draft + ai_drafted_at ONLY while ai_drafted_at is still NULL.
    *  Must never write meeting_notes.summary. */
@@ -322,7 +347,8 @@ export function parseAndValidate(text: string | null, note: DraftNote): Validate
 
 /**
  * Store one validated draft. Outcomes that are FINAL stamp ai_drafted_at so
- * the note is never sent to the model again; a transient DB error does not.
+ * the note is never sent to the model again. A failed read or write does not
+ * stamp: it returns 'error' and a later run retries the note.
  */
 export async function recordDraft(
   db: NoteDraftDb,
@@ -337,7 +363,12 @@ export async function recordDraft(
     return error ? 'error' : 'unreadable';
   }
 
-  const host = await db.bookingHost(note.bookingId);
+  const hostRead = await db.bookingHost(note.bookingId);
+  // A failed read proves nothing about the host. meeting_bookings.host_profile_id
+  // is NOT NULL, so in practice 'no_host' below is reached only when the
+  // booking row is gone — never on a timeout.
+  if (hostRead.error) return 'error'; // not stamped → retried on the next run
+  const host = hostRead.host;
   if (!host) {
     // host_profile_id is NOT NULL on meeting_action_items: there is nobody to
     // hang the follow-ups off. Keep the summary; record why items are absent.
@@ -353,7 +384,10 @@ export async function recordDraft(
   let itemsSkipped = false;
   if (draft.actions.length > 0) {
     const existing = await db.countActionItems(note.bookingId);
-    if (existing > 0) {
+    // A count that could not be read is neither "none" (a second set of
+    // follow-ups) nor "some" (a final skip): not stamped, retried next run.
+    if (existing.error) return 'error';
+    if (existing.count > 0) {
       // Somebody (the host, or Fireflies) already wrote follow-ups for this
       // meeting. A machine draft on top of them is noise at best.
       itemsSkipped = true;
@@ -450,9 +484,26 @@ export async function runCollect(
   for (const item of items) {
     try {
       const noteId = typeof item.context.note_id === 'string' ? item.context.note_id : null;
-      const row = noteId ? await db.loadNote(noteId) : null;
+      if (!noteId) {
+        s.skipped++;
+        continue;
+      }
+      const loaded = await db.loadNote(noteId);
+      if (loaded.error) {
+        // Not "no such note": unstamped, so a later run drafts it again.
+        s.errors++;
+        continue;
+      }
+      const row = loaded.note;
       if (!row || !row.bookingId || row.aiDraftedAt) {
         s.skipped++;
+        continue;
+      }
+      const people = await db.loadParticipants(row.id);
+      if (people.error) {
+        // A failed read is not "no participants": drafting on it would leave
+        // every follow-up without an owner for good. Unstamped; retried.
+        s.errors++;
         continue;
       }
       const note: DraftNote = {
@@ -460,7 +511,7 @@ export async function runCollect(
         bookingId: row.bookingId,
         title: row.title,
         occurredAt: row.occurredAt,
-        participants: await db.loadParticipants(row.id),
+        participants: people.participants,
       };
       const draft = parseAndValidate(readMessageText(item.message), note);
       const outcome = await recordDraft(db, { note, draft, jobId: item.jobId, now });
@@ -556,10 +607,17 @@ export interface EnqueueSummary {
   enqueued: number;
   inFlight: number;
   noTranscript: number;
-  /** Fireflies' answer could not be read (not JSON, null transcript, …). The
-   *  note is NOT stamped; a later run tries it again. */
+  /** Fireflies said this ONE transcript is gone or this key may not read it
+   *  (object_not_found / forbidden / not_in_team): stamped
+   *  'fireflies_<code>' and the run went on. */
+  transcriptUnavailable: number;
+  /** Fireflies answered about this transcript without a readable sentence
+   *  list. The note is NOT stamped; a later run tries it again. */
   transcriptRetry: number;
   skipped: number;
+  /** A stamp that failed to write, or a participant read that failed. The
+   *  note is NOT counted as stamped and stays a candidate. */
+  errors: number;
   stoppedReason: string | null;
 }
 
@@ -583,8 +641,10 @@ export async function runEnqueue(
     enqueued: 0,
     inFlight: 0,
     noTranscript: 0,
+    transcriptUnavailable: 0,
     transcriptRetry: 0,
     skipped: 0,
+    errors: 0,
     stoppedReason: null,
   };
 
@@ -617,38 +677,62 @@ export async function runEnqueue(
   for (const c of picked) {
     const sentences = await deps.fetchSentences(c.providerRef);
     if (!sentences.ok) {
-      // NOTHING is stamped on any failure: none of them proves the transcript
-      // is empty, and a stamp is permanent. The note stays a candidate and a
-      // later run retries it; enqueueCap bounds what that costs.
-      if (sentences.reason === 'unreadable') {
-        // An answer that is not JSON, or no transcript / no sentences list —
-        // possibly this one note (a transcript the key cannot read), so the
+      if (sentences.scope === 'transcript') {
+        if (isFirefliesPerTranscriptCode(sentences.errorCode)) {
+          // FINAL for THIS note only: Fireflies says the transcript is gone
+          // (object_not_found) or this key may not read it (forbidden /
+          // not_in_team). Stamped so it is not fetched again, and the run goes
+          // ON. Candidates come newest first, so stopping here would stop at
+          // this note on every run and no older note would ever be drafted.
+          const { error } = await db.stampDraft(c.id, {
+            label: AI_DRAFT_LABEL,
+            status: `fireflies_${sentences.errorCode}`,
+            detail: sentences.message.slice(0, 300),
+            drafted_at: now.toISOString(),
+          });
+          if (error) s.errors++;
+          else s.transcriptUnavailable++;
+          continue;
+        }
+        // About this transcript, but not final (no sentence list, or lines
+        // with no readable text): UNSTAMPED, a later run retries it, and the
         // rest of the batch still gets its turn.
         s.transcriptRetry++;
         continue;
       }
-      // not_connected / rejected / unreachable are systemic — stop the run.
-      s.stoppedReason = `fireflies ${sentences.reason}`;
+      // ACCOUNT-WIDE (no key, network, HTTP 401 / 429, not JSON, any other or
+      // unknown code): the next candidate would fail the same way. Stop the
+      // run and stamp nothing — none of these proves anything about the note.
+      s.stoppedReason = `fireflies ${sentences.reason}${sentences.errorCode ? ` (${sentences.errorCode})` : ''}`;
       break;
     }
     if (sentences.data.length === 0) {
       // The ONLY 'no_transcript' stamp: Fireflies returned the transcript and
-      // it holds zero sentences — a retry cannot change that.
-      await db.stampDraft(c.id, {
+      // it holds zero sentences — a retry cannot change that. Counted only
+      // when the stamp was written; a failed write leaves it a candidate.
+      const { error } = await db.stampDraft(c.id, {
         label: AI_DRAFT_LABEL,
         status: 'no_transcript',
         drafted_at: now.toISOString(),
       });
-      s.noTranscript++;
+      if (error) s.errors++;
+      else s.noTranscript++;
       continue;
     }
 
+    const people = await db.loadParticipants(c.id);
+    if (people.error) {
+      // Without the participant list the model cannot name an owner by
+      // email, and every follow-up would be owner-less for good. Unstamped.
+      s.errors++;
+      continue;
+    }
     const note: DraftNote = {
       id: c.id,
       bookingId: c.bookingId,
       title: c.title,
       occurredAt: c.occurredAt,
-      participants: await db.loadParticipants(c.id),
+      participants: people.participants,
     };
     const res = await deps.enqueue({
       jobType: NOTE_DRAFT_JOB,
@@ -799,22 +883,27 @@ export function supabaseNoteDraftDb(admin: Admin): NoteDraftDb {
         .select('id, booking_id, title, occurred_at, ai_drafted_at, summary')
         .eq('id', noteId)
         .maybeSingle();
-      if (error || !data) return null;
+      if (error) return { note: null, error: error.message };
+      if (!data) return { note: null, error: null };
       return {
-        id: data.id,
-        bookingId: data.booking_id ?? null,
-        title: data.title ?? null,
-        occurredAt: data.occurred_at ?? null,
-        aiDraftedAt: data.ai_drafted_at ?? null,
-        summary: data.summary ?? null,
+        note: {
+          id: data.id,
+          bookingId: data.booking_id ?? null,
+          title: data.title ?? null,
+          occurredAt: data.occurred_at ?? null,
+          aiDraftedAt: data.ai_drafted_at ?? null,
+          summary: data.summary ?? null,
+        },
+        error: null,
       };
     },
 
     async loadParticipants(noteId) {
-      const { data } = await sb
+      const { data, error } = await sb
         .from('meeting_note_participants')
         .select('email, display_name, profile_id')
         .eq('note_id', noteId);
+      if (error) return { participants: [], error: error.message };
       const rows = (data ?? []) as Array<{ email: string; display_name: string | null; profile_id: string | null }>;
       const out: DraftParticipant[] = rows.map((r) => ({
         email: String(r.email).trim().toLowerCase(),
@@ -824,23 +913,29 @@ export function supabaseNoteDraftDb(admin: Admin): NoteDraftDb {
       // Fill profile ids the ingest left null — by EXACT email only.
       const missing = out.filter((p) => !p.profileId).map((p) => p.email);
       if (missing.length > 0) {
-        const { data: profiles } = await sb.from('profiles').select('id, email').in('email', missing);
+        const { data: profiles, error: profErr } = await sb
+          .from('profiles')
+          .select('id, email')
+          .in('email', missing);
+        // A failed lookup is not "no profile": it would leave owners unset.
+        if (profErr) return { participants: [], error: profErr.message };
         const byEmail = new Map<string, string>();
         for (const p of (profiles ?? []) as Array<{ id: string; email: string | null }>) {
           if (p.email) byEmail.set(p.email.trim().toLowerCase(), p.id);
         }
         for (const p of out) if (!p.profileId) p.profileId = byEmail.get(p.email) ?? null;
       }
-      return out;
+      return { participants: out, error: null };
     },
 
     async bookingHost(bookingId) {
-      const { data } = await sb
+      const { data, error } = await sb
         .from('meeting_bookings')
         .select('host_profile_id')
         .eq('id', bookingId)
         .maybeSingle();
-      return (data?.host_profile_id as string | null | undefined) ?? null;
+      if (error) return { host: null, error: error.message };
+      return { host: (data?.host_profile_id as string | null | undefined) ?? null, error: null };
     },
 
     async countActionItems(bookingId) {
@@ -848,9 +943,11 @@ export function supabaseNoteDraftDb(admin: Admin): NoteDraftDb {
         .from('meeting_action_items')
         .select('id', { count: 'exact', head: true })
         .eq('booking_id', bookingId);
-      // Unknown → treat as "has items": never add a second set on a guess.
-      if (error || count === null || count === undefined) return 1;
-      return count;
+      // Unknown is NOT "has items" (a final skip) nor "none" (a second set):
+      // it is an error, and the note is retried on a later run.
+      if (error) return { count: 0, error: error.message };
+      if (typeof count !== 'number') return { count: 0, error: 'the follow-up count came back empty' };
+      return { count, error: null };
     },
 
     async insertActionItems(rows) {

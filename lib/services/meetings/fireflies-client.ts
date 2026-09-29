@@ -84,8 +84,29 @@ export type FirefliesFailureReason =
  * build is not evidence the types are sound in this repo.
  */
 export type FirefliesResult<T> =
-  | { ok: true; data: T; reason?: undefined; message?: undefined }
-  | { ok: false; data?: undefined; reason: FirefliesFailureReason; message: string };
+  | { ok: true; data: T; reason?: undefined; message?: undefined; scope?: undefined; errorCode?: undefined }
+  | {
+      ok: false;
+      data?: undefined;
+      reason: FirefliesFailureReason;
+      message: string;
+      /**
+       * Set by fetchFirefliesTranscriptSentences only (absent elsewhere):
+       *   'transcript' — the failure is about THIS one transcript: Fireflies
+       *                  said it does not exist or this key may not read it
+       *                  (see FIREFLIES_PER_TRANSCRIPT_CODES), or it came back
+       *                  without a readable sentence list.
+       *   'account'    — nothing Fireflies says right now can be trusted: no
+       *                  key, the network, HTTP 401 / 429, a body that is not
+       *                  JSON, or a GraphQL error whose code is not a
+       *                  per-transcript one (including no code at all).
+       * A caller must treat an absent scope as 'account'.
+       */
+      scope?: 'transcript' | 'account';
+      /** Fireflies' own code from the first GraphQL `errors` entry
+       *  (extensions.code, else code), when it answered with one. */
+      errorCode?: string | null;
+    };
 
 /** True when a key is present. Cheap; safe to call from a route guard. */
 export function isFirefliesConfigured(): boolean {
@@ -313,18 +334,52 @@ export interface FirefliesSentence {
 }
 
 /**
+ * Fireflies error codes that are about ONE transcript rather than the account:
+ * the transcript is gone (object_not_found) or this key may not read it
+ * (forbidden, not_in_team). The codes, and where they sit in a response (both
+ * errors[].code and errors[].extensions.code), are from Fireflies' published
+ * error list (docs.fireflies.ai/miscellaneous/error-codes, read 2026-09-29).
+ *
+ * EVERY other code is treated as account-wide — too_many_requests,
+ * auth_failed, paid_required, account_cancelled, request_timeout,
+ * invalid_arguments, a GraphQL validation error, and any code that is not in
+ * the published list — and so is an error entry with no code at all. Failing
+ * safe: an account-wide failure stops a run and stamps nothing, while a
+ * per-transcript code is FINAL for that note.
+ */
+export const FIREFLIES_PER_TRANSCRIPT_CODES = ['object_not_found', 'forbidden', 'not_in_team'] as const;
+export type FirefliesPerTranscriptCode = (typeof FIREFLIES_PER_TRANSCRIPT_CODES)[number];
+
+export function isFirefliesPerTranscriptCode(code: unknown): code is FirefliesPerTranscriptCode {
+  return typeof code === 'string' && (FIREFLIES_PER_TRANSCRIPT_CODES as readonly string[]).includes(code);
+}
+
+/** errors[].extensions.code, else errors[].code; null when neither is a string. */
+function graphqlErrorCode(entry: unknown): string | null {
+  if (!entry || typeof entry !== 'object') return null;
+  const e = entry as { code?: unknown; extensions?: { code?: unknown } | null };
+  return asString(e.extensions?.code) ?? asString(e.code);
+}
+
+/** One spoken line of a transcript, as the note-drafter reads it. */
+export interface FirefliesSentence {
+  speakerName: string | null;
+  text: string;
+}
+
+/**
  * The spoken lines of ONE transcript — the input the AI note-drafter needs
  * when Fireflies returned no summary (app/api/cron/meeting-note-drafts).
  *
  * A SEPARATE query on purpose. TRANSCRIPTS_QUERY above is untouched: a field
- * Fireflies rejects there fails the whole ingest, while one rejected field here
- * fails only the draft for one note.
+ * Fireflies rejects there fails the whole ingest, while a field rejected here
+ * stops only the drafter's run (a validation error is not a per-transcript
+ * code, so it is account-wide) and never touches the ingest.
  *
- * UNVERIFIED AGAINST THE LIVE API. `transcript(id:)`, `sentences`,
- * `speaker_name` and `text` come from Fireflies' published schema and have not
- * been exercised against a real response. A rejection comes back as
- * `reason: 'rejected'` with Fireflies' own message — that is the signal to fix
- * this string.
+ * `transcript(id:)`, `sentences`, `speaker_name` and `text` match Fireflies'
+ * published schema (docs.fireflies.ai, the transcript query); no live call has
+ * been made. A rejection comes back as `reason: 'rejected'` with Fireflies'
+ * own message and code — that is the signal to fix this string.
  */
 const TRANSCRIPT_SENTENCES_QUERY = `
   query MyJkknTranscriptSentences($id: String!) {
@@ -342,12 +397,13 @@ export async function fetchFirefliesTranscriptSentences(
     return {
       ok: false,
       reason: 'not_connected',
+      scope: 'account',
       message: 'Fireflies is not connected yet. Add a FIREFLIES_API_KEY to read transcripts.',
     };
   }
   const transcriptId = asString(id);
   if (!transcriptId) {
-    return { ok: false, reason: 'unreadable', message: 'No Fireflies transcript id was given.' };
+    return { ok: false, reason: 'unreadable', scope: 'transcript', message: 'No Fireflies transcript id was given.' };
   }
 
   const controller = new AbortController();
@@ -370,6 +426,7 @@ export async function fetchFirefliesTranscriptSentences(
     return {
       ok: false,
       reason: 'unreachable',
+      scope: 'account',
       message: aborted
         ? `Fireflies did not answer within ${REQUEST_TIMEOUT_MS / 1000}s.`
         : `Could not reach Fireflies: ${error instanceof Error ? error.message : String(error)}`,
@@ -378,35 +435,72 @@ export async function fetchFirefliesTranscriptSentences(
     clearTimeout(timer);
   }
 
-  if (!response.ok) {
-    return { ok: false, reason: 'rejected', message: `Fireflies answered ${response.status}.` };
+  // The key (401) and the rate limit (429) are about the whole account,
+  // whatever the body says.
+  if (response.status === 401 || response.status === 429) {
+    return { ok: false, reason: 'rejected', scope: 'account', message: `Fireflies answered ${response.status}.` };
   }
 
+  // The body is read BEFORE judging the HTTP status: Fireflies' published
+  // error list gives object_not_found as 404 and forbidden / not_in_team as
+  // 403, so a per-transcript code may arrive on a non-2xx response.
   let payload: unknown;
   try {
     payload = await response.json();
   } catch {
-    return { ok: false, reason: 'unreadable', message: 'Fireflies returned a body that is not JSON.' };
+    // A gateway or maintenance page, not a GraphQL answer — account-wide.
+    return {
+      ok: false,
+      reason: response.ok ? 'unreadable' : 'rejected',
+      scope: 'account',
+      message: response.ok
+        ? 'Fireflies returned a body that is not JSON.'
+        : `Fireflies answered ${response.status} with a body that is not JSON.`,
+    };
   }
 
-  const body = (payload ?? {}) as { data?: unknown; errors?: unknown };
+  const body = (payload && typeof payload === 'object' ? payload : {}) as { data?: unknown; errors?: unknown };
   if (Array.isArray(body.errors) && body.errors.length > 0) {
+    const codes = body.errors.map(graphqlErrorCode);
+    // Per-transcript ONLY when every entry carries a per-transcript code; one
+    // entry with any other code, or with none, makes the whole answer
+    // account-wide.
+    const perTranscript = codes.every((c) => isFirefliesPerTranscriptCode(c));
     const first = body.errors[0] as { message?: unknown };
     return {
       ok: false,
       reason: 'rejected',
+      scope: perTranscript ? 'transcript' : 'account',
+      errorCode: codes[0],
       message: asString(first?.message) ?? 'Fireflies rejected the sentences query.',
     };
   }
 
-  const transcript = (body.data as { transcript?: unknown } | undefined)?.transcript as
+  if (!response.ok) {
+    return { ok: false, reason: 'rejected', scope: 'account', message: `Fireflies answered ${response.status}.` };
+  }
+
+  if (!body.data || typeof body.data !== 'object') {
+    // JSON, but not a GraphQL answer (no `data` object) — account-wide.
+    return {
+      ok: false,
+      reason: 'unreadable',
+      scope: 'account',
+      message: 'Fireflies answered without a data object.',
+    };
+  }
+
+  const transcript = (body.data as { transcript?: unknown }).transcript as
     | { sentences?: unknown }
     | null
     | undefined;
   if (!transcript || !Array.isArray(transcript.sentences)) {
+    // A real answer about THIS transcript that holds no sentence list: the
+    // note is retried later, and the rest of the batch still gets its turn.
     return {
       ok: false,
       reason: 'unreadable',
+      scope: 'transcript',
       message: 'Fireflies returned no sentences for this transcript.',
     };
   }
@@ -428,6 +522,7 @@ export async function fetchFirefliesTranscriptSentences(
     return {
       ok: false,
       reason: 'unreadable',
+      scope: 'transcript',
       message: 'Fireflies returned sentences for this transcript, but none of them had readable text.',
     };
   }

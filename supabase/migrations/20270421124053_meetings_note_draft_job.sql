@@ -85,7 +85,7 @@ ALTER TABLE public.meeting_notes
   ADD COLUMN IF NOT EXISTS ai_drafted_at timestamptz;
 
 COMMENT ON COLUMN public.meeting_notes.ai_drafted_at IS
-  'When the AI note-drafter (job meetings.note_draft) reached a final outcome for this note — drafted, skipped because follow-ups already existed, unreadable model output, no booking host, or no_transcript (Fireflies returned the transcript with zero sentences). A Fireflies failure never sets it. Set once; the cron never enqueues a note that carries it.';
+  'When the AI note-drafter (job meetings.note_draft) reached a final outcome for this note — drafted, skipped because follow-ups already existed, unreadable model output, no booking host, no_transcript (Fireflies returned the transcript with zero sentences), or fireflies_object_not_found / fireflies_forbidden / fireflies_not_in_team (Fireflies said that one transcript is gone or this key may not read it). An account-wide Fireflies failure or a failed database read never sets it. Set once; the cron never enqueues a note that carries it.';
 
 ALTER TABLE public.meeting_notes
   ADD COLUMN IF NOT EXISTS ai_draft jsonb;

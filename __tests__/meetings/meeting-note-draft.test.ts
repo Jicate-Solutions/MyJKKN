@@ -19,10 +19,14 @@ import {
   validateDueDate,
   type CandidateNote,
   type DraftNote,
+  type DraftParticipant,
   type HeldPromptJob,
   type NoteDraftDb,
 } from '@/lib/services/meetings/meeting-note-draft';
-import { fetchFirefliesTranscriptSentences } from '@/lib/services/meetings/fireflies-client';
+import {
+  fetchFirefliesTranscriptSentences,
+  FIREFLIES_PER_TRANSCRIPT_CODES,
+} from '@/lib/services/meetings/fireflies-client';
 import type { CollectedJobsLaneItem } from '@/lib/services/platform/ai-jobs-lane';
 
 // ── fixtures ────────────────────────────────────────────────────────────────
@@ -69,6 +73,13 @@ interface FakeState {
   jobsReadable: boolean;
   /** ids the drain "claims" between the sweep's read and its write */
   claimedMidway: Set<string>;
+  participants: DraftParticipant[];
+  /** read name → error message: that read FAILS (as opposed to finding nothing) */
+  readErrors: Partial<Record<'loadNote' | 'loadParticipants' | 'bookingHost' | 'countActionItems', string>>;
+  /** stampDraft fails with this message */
+  stampError: string | null;
+  /** every stampDraft call, by note id */
+  stampCalls: string[];
 }
 
 function fakeDb(over: Partial<FakeState> = {}): { db: NoteDraftDb; state: FakeState } {
@@ -94,26 +105,36 @@ function fakeDb(over: Partial<FakeState> = {}): { db: NoteDraftDb; state: FakeSt
     jobs: {},
     jobsReadable: true,
     claimedMidway: new Set(),
+    participants: NOTE.participants,
+    readErrors: {},
+    stampError: null,
+    stampCalls: [],
     ...over,
   };
   const db: NoteDraftDb = {
     async loadNote(id) {
-      return state.notes[id] ?? null;
+      if (state.readErrors.loadNote) return { note: null, error: state.readErrors.loadNote };
+      return { note: state.notes[id] ?? null, error: null };
     },
     async loadParticipants() {
-      return NOTE.participants;
+      if (state.readErrors.loadParticipants) return { participants: [], error: state.readErrors.loadParticipants };
+      return { participants: state.participants, error: null };
     },
     async bookingHost(id) {
-      return state.hosts[id] ?? null;
+      if (state.readErrors.bookingHost) return { host: null, error: state.readErrors.bookingHost };
+      return { host: state.hosts[id] ?? null, error: null };
     },
     async countActionItems(id) {
-      return state.existingItems[id] ?? 0;
+      if (state.readErrors.countActionItems) return { count: 0, error: state.readErrors.countActionItems };
+      return { count: state.existingItems[id] ?? 0, error: null };
     },
     async insertActionItems(rows) {
       state.inserted.push(...rows);
       return { error: null };
     },
     async stampDraft(id, aiDraft) {
+      state.stampCalls.push(id);
+      if (state.stampError) return { error: state.stampError };
       const n = state.notes[id];
       if (n && !n.aiDraftedAt) {
         n.aiDraftedAt = new Date().toISOString();
@@ -150,7 +171,8 @@ function fakeDb(over: Partial<FakeState> = {}): { db: NoteDraftDb; state: FakeSt
       return state.enabled;
     },
     async listCandidates() {
-      return state.candidates;
+      // Like the real query: a stamped note (ai_drafted_at set) is no longer a candidate.
+      return state.candidates.filter((c) => !state.notes[c.id]?.aiDraftedAt);
     },
     async interviewBookingIds() {
       return state.interviews;
@@ -316,10 +338,34 @@ describe('recordDraft', () => {
     expect(state.inserted).toHaveLength(0);
   });
 
-  it('inserts nothing when the booking has no host', async () => {
+  it('inserts nothing when the booking has no host — and stamps no_host (a READ that succeeded)', async () => {
     const { db, state } = fakeDb({ hosts: {} });
     expect(await recordDraft(db, { note: NOTE, draft, jobId: 'job-1' })).toBe('no_host');
     expect(state.inserted).toHaveLength(0);
+    expect(state.notes['note-1'].aiDraft?.status).toBe('no_host');
+  });
+
+  it('a host read that FAILS is not "no host": outcome error, note UNSTAMPED, nothing inserted', async () => {
+    const { db, state } = fakeDb({ readErrors: { bookingHost: 'statement timeout' } });
+    expect(await recordDraft(db, { note: NOTE, draft, jobId: 'job-1' })).toBe('error');
+    expect(state.notes['note-1'].aiDraftedAt).toBeNull();
+    expect(state.stampCalls).toEqual([]);
+    expect(state.inserted).toHaveLength(0);
+  });
+
+  it('a follow-up count that FAILS is neither "none" nor "some": outcome error, UNSTAMPED, nothing inserted', async () => {
+    const { db, state } = fakeDb({ readErrors: { countActionItems: 'statement timeout' } });
+    expect(await recordDraft(db, { note: NOTE, draft, jobId: 'job-1' })).toBe('error');
+    expect(state.notes['note-1'].aiDraftedAt).toBeNull();
+    expect(state.stampCalls).toEqual([]);
+    expect(state.inserted).toHaveLength(0);
+  });
+
+  it('a count of zero that was really read inserts the follow-ups and stamps drafted', async () => {
+    const { db, state } = fakeDb({ existingItems: { 'booking-1': 0 } });
+    expect(await recordDraft(db, { note: NOTE, draft, jobId: 'job-1' })).toBe('recorded');
+    expect(state.inserted).toHaveLength(2);
+    expect(state.notes['note-1'].aiDraft?.status).toBe('drafted');
   });
 });
 
@@ -340,6 +386,57 @@ describe('runCollect', () => {
     expect(s.stripped).toBe(2);
     expect(state.jobPayloads['job-ok']).toEqual({ _ctx: { note_id: 'note-1' }, _dedupe: 'k' });
     expect('prompt' in state.jobPayloads['job-bad']).toBe(false);
+  });
+
+  it('a note read that FAILS counts as an error (not a skip), leaves the note UNSTAMPED, and still strips the prompt', async () => {
+    const { db, state } = fakeDb({ readErrors: { loadNote: 'statement timeout' } });
+    state.jobPayloads = { 'job-1': { prompt: 'TRANSCRIPT…', _ctx: { note_id: 'note-1' } } };
+    const s = await runCollect(db, async () => [
+      collected('job-1', 'note-1', modelText({ summary: 'S', decisions: [], actions: [] })),
+    ]);
+    expect(s.errors).toBe(1);
+    expect(s.skipped).toBe(0);
+    expect(s.recorded).toBe(0);
+    expect(state.notes['note-1'].aiDraftedAt).toBeNull();
+    expect('prompt' in state.jobPayloads['job-1']).toBe(false);
+  });
+
+  it('a participant read that FAILS is not "no participants": error, UNSTAMPED, no owner-less items written', async () => {
+    const { db, state } = fakeDb({ readErrors: { loadParticipants: 'statement timeout' } });
+    const s = await runCollect(db, async () => [
+      collected(
+        'job-1',
+        'note-1',
+        modelText({
+          summary: 'S',
+          decisions: [],
+          actions: [{ text: 'Book the hall', owner_email: 'priya.r@jkkn.ac.in', owner_label: 'Priya', due_date: null }],
+        }),
+      ),
+    ]);
+    expect(s.errors).toBe(1);
+    expect(s.recorded).toBe(0);
+    expect(state.inserted).toHaveLength(0);
+    expect(state.notes['note-1'].aiDraftedAt).toBeNull();
+  });
+
+  it('a participant list that is really EMPTY still records the draft (owner-less), as before', async () => {
+    const { db, state } = fakeDb({ participants: [] });
+    const s = await runCollect(db, async () => [
+      collected(
+        'job-1',
+        'note-1',
+        modelText({
+          summary: 'S',
+          decisions: [],
+          actions: [{ text: 'Book the hall', owner_email: 'priya.r@jkkn.ac.in', owner_label: 'Priya', due_date: null }],
+        }),
+      ),
+    ]);
+    expect(s.recorded).toBe(1);
+    expect(state.inserted).toHaveLength(1);
+    expect(state.inserted[0].owner_profile_id).toBeNull();
+    expect(state.notes['note-1'].aiDraft?.status).toBe('drafted');
   });
 
   it('does not re-record a note that was already drafted', async () => {
@@ -435,12 +532,12 @@ describe('no_transcript is stamped only when Fireflies returned zero sentences',
     expect(enqueue).not.toHaveBeenCalled();
   });
 
-  it('an unreadable answer leaves the note UNSTAMPED and the rest of the batch still runs', async () => {
+  it('a transcript-level unreadable answer leaves the note UNSTAMPED and the rest of the batch still runs', async () => {
     const { db, state } = fakeDb({ candidates: [cand('note-1', 'booking-1'), cand('ok', 'b-ok')] });
     const enqueue = okEnqueue();
     const fetchSentences = vi.fn(async (ref: string) =>
       ref === 'ff-note-1'
-        ? { ok: false as const, reason: 'unreadable' as const, message: 'not JSON' }
+        ? { ok: false as const, reason: 'unreadable' as const, scope: 'transcript' as const, message: 'no sentences' }
         : { ok: true as const, data: [{ speakerName: 'A', text: 'We agreed.' }] },
     );
     const s = await runEnqueue(db, { enqueue, fetchSentences }, NOW);
@@ -474,7 +571,10 @@ describe('no_transcript is stamped only when Fireflies returned zero sentences',
     const enqueue = okEnqueue();
     await runEnqueue(
       db,
-      { enqueue, fetchSentences: async () => ({ ok: false, reason: 'unreadable', message: 'x' }) },
+      {
+        enqueue,
+        fetchSentences: async () => ({ ok: false, reason: 'unreadable', scope: 'transcript', message: 'x' }),
+      },
       NOW,
     );
     expect(state.notes['note-1'].aiDraftedAt).toBeNull();
@@ -503,16 +603,19 @@ describe('fetchFirefliesTranscriptSentences — what counts as "zero sentences"'
     expect(await fetchFirefliesTranscriptSentences('t1')).toEqual({ ok: true, data: [] });
   });
 
-  it('a body that is not JSON is unreadable', async () => {
+  it('a body that is not JSON is unreadable and ACCOUNT-wide', async () => {
     withFetch(async () => new Response('<html>maintenance</html>', { status: 200 }));
     const r = await fetchFirefliesTranscriptSentences('t1');
     expect(r.ok).toBe(false);
     expect(r.reason).toBe('unreadable');
+    expect(r.scope).toBe('account');
   });
 
-  it('a null transcript is unreadable', async () => {
+  it('a null transcript is unreadable and about THIS transcript', async () => {
     withFetch(json({ data: { transcript: null } }));
-    expect((await fetchFirefliesTranscriptSentences('t1')).reason).toBe('unreadable');
+    const r = await fetchFirefliesTranscriptSentences('t1');
+    expect(r.reason).toBe('unreadable');
+    expect(r.scope).toBe('transcript');
   });
 
   it('sentences that are all blank are unreadable, not "zero sentences"', async () => {
@@ -526,7 +629,9 @@ describe('fetchFirefliesTranscriptSentences — what counts as "zero sentences"'
     });
     expect((await fetchFirefliesTranscriptSentences('t1')).reason).toBe('unreachable');
     withFetch(async () => new Response('no', { status: 401 }));
-    expect((await fetchFirefliesTranscriptSentences('t1')).reason).toBe('rejected');
+    const r = await fetchFirefliesTranscriptSentences('t1');
+    expect(r.reason).toBe('rejected');
+    expect(r.scope).toBe('account');
   });
 
   it('end to end: a non-JSON answer never stamps; an empty transcript does', async () => {
@@ -539,6 +644,207 @@ describe('fetchFirefliesTranscriptSentences — what counts as "zero sentences"'
     withFetch(json({ data: { transcript: { sentences: [] } } }));
     await runEnqueue(db, { enqueue, fetchSentences: fetchFirefliesTranscriptSentences }, NOW);
     expect(state.notes['note-1'].aiDraft?.status).toBe('no_transcript');
+  });
+});
+
+// ── Fireflies error codes: one transcript vs the whole account (round 2) ─────
+
+describe('Fireflies error codes — a per-transcript code never stops the run', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  const B_SENTENCES = { data: { transcript: { sentences: [{ speaker_name: 'A', text: 'We agreed.' }] } } };
+
+  /** A Fireflies GraphQL error answer, shaped as docs.fireflies.ai/miscellaneous/error-codes shows it. */
+  function gqlError(code: string | null, status: number, where: 'both' | 'top' = 'both') {
+    const entry: Record<string, unknown> = { message: `Fireflies says ${code ?? 'no code'}` };
+    if (code) {
+      entry.code = code;
+      if (where === 'both') entry.extensions = { code, status };
+    }
+    return { errors: [entry], data: null };
+  }
+
+  /** Stub Fireflies by transcript id → [HTTP status, body]; returns the ids asked for. */
+  function routeFetch(routes: Record<string, [number, unknown]>): string[] {
+    vi.stubEnv('FIREFLIES_API_KEY', 'test-key');
+    const asked: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: { body: string }) => {
+        const id = JSON.parse(init.body).variables.id as string;
+        asked.push(id);
+        const [status, body] = routes[id];
+        return new Response(typeof body === 'string' ? body : JSON.stringify(body), {
+          status,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }),
+    );
+    return asked;
+  }
+
+  /** X is newer than B, and candidates come newest first — the reviewer's repro. */
+  function xThenB() {
+    return fakeDb({
+      notes: {
+        X: { id: 'X', bookingId: 'b-x', title: 'X', occurredAt: '2026-09-25T05:00:00Z', aiDraftedAt: null, summary: null },
+        B: { id: 'B', bookingId: 'b-b', title: 'B', occurredAt: '2026-09-20T05:00:00Z', aiDraftedAt: null, summary: null },
+      },
+      candidates: [cand('X', 'b-x', '2026-09-25T05:00:00Z'), cand('B', 'b-b', '2026-09-20T05:00:00Z')],
+    });
+  }
+  const enqueuedIds = (enqueue: ReturnType<typeof vi.fn>) =>
+    (enqueue.mock.calls as unknown as Array<[{ context: { note_id: string } }]>).map((c) => c[0].context.note_id);
+
+  it('the per-transcript set is exactly object_not_found, forbidden, not_in_team', () => {
+    expect([...FIREFLIES_PER_TRANSCRIPT_CODES].sort()).toEqual(['forbidden', 'not_in_team', 'object_not_found']);
+  });
+
+  it.each([
+    ['HTTP 404, code in both places', 404, 'both'],
+    ['HTTP 200, code in both places', 200, 'both'],
+    ['HTTP 200, top-level code only', 200, 'top'],
+  ] as const)(
+    '(a) [X object_not_found (%s), B older]: X stamped ONCE with its reason, B enqueued in the SAME run',
+    async (_label, status, where) => {
+      const { db, state } = xThenB();
+      const asked = routeFetch({
+        'ff-X': [status, gqlError('object_not_found', 404, where)],
+        'ff-B': [200, B_SENTENCES],
+      });
+      const enqueue = vi.fn(async () => ({ ok: true as const, jobId: 'j' }));
+      const deps = { enqueue, fetchSentences: fetchFirefliesTranscriptSentences };
+
+      const s1 = await runEnqueue(db, deps, NOW);
+      expect(s1.stoppedReason).toBeNull();
+      expect(s1.transcriptUnavailable).toBe(1);
+      expect(s1.errors).toBe(0);
+      expect(state.notes.X.aiDraft?.status).toBe('fireflies_object_not_found');
+      expect(state.notes.X.aiDraft?.detail).toBe('Fireflies says object_not_found');
+      expect(enqueuedIds(enqueue)).toEqual(['B']);
+      expect(state.notes.B.aiDraftedAt).toBeNull();
+
+      // Two more runs — the reviewer's three-run repro. X is never fetched or stamped again.
+      await runEnqueue(db, deps, NOW);
+      await runEnqueue(db, deps, NOW);
+      expect(state.stampCalls.filter((id) => id === 'X')).toHaveLength(1);
+      expect(asked.filter((id) => id === 'ff-X')).toHaveLength(1);
+    },
+  );
+
+  it.each(['forbidden', 'not_in_team'] as const)(
+    '(b) [X %s, B older]: X stamped with its own reason and the run goes on to B',
+    async (code) => {
+      const { db, state } = xThenB();
+      routeFetch({ 'ff-X': [403, gqlError(code, 403)], 'ff-B': [200, B_SENTENCES] });
+      const enqueue = vi.fn(async () => ({ ok: true as const, jobId: 'j' }));
+      const s = await runEnqueue(db, { enqueue, fetchSentences: fetchFirefliesTranscriptSentences }, NOW);
+      expect(s.stoppedReason).toBeNull();
+      expect(s.transcriptUnavailable).toBe(1);
+      expect(state.notes.X.aiDraft?.status).toBe(`fireflies_${code}`);
+      expect(enqueuedIds(enqueue)).toEqual(['B']);
+    },
+  );
+
+  it.each([
+    ['HTTP 429 too_many_requests', 429, gqlError('too_many_requests', 429)],
+    ['too_many_requests inside a 200', 200, gqlError('too_many_requests', 429)],
+    ['HTTP 401 (the key)', 401, 'Unauthorized'],
+    ['auth_failed', 200, gqlError('auth_failed', 401)],
+    ['an unknown code', 200, gqlError('a_code_nobody_documented', 400)],
+    ['an error entry with no code', 200, gqlError(null, 0)],
+    [
+      'a GraphQL validation error',
+      400,
+      { errors: [{ message: 'Cannot query field', extensions: { code: 'GRAPHQL_VALIDATION_FAILED' } }] },
+    ],
+    ['a per-transcript code mixed with another', 200, { errors: [{ code: 'object_not_found' }, { code: 'too_many_requests' }] }],
+    ['a body that is not JSON (a gateway page)', 502, '<html>Bad gateway</html>'],
+    ['a 200 body that is not JSON', 200, 'maintenance'],
+    ['JSON with no data object', 200, { hello: 'world' }],
+  ] as const)('(c) %s is ACCOUNT-wide: the run stops and NOTHING is stamped', async (_label, status, body) => {
+    const { db, state } = xThenB();
+    const asked = routeFetch({ 'ff-X': [status, body], 'ff-B': [200, B_SENTENCES] });
+    const enqueue = vi.fn(async () => ({ ok: true as const, jobId: 'j' }));
+    const s = await runEnqueue(db, { enqueue, fetchSentences: fetchFirefliesTranscriptSentences }, NOW);
+    expect(s.stoppedReason).toMatch(/^fireflies /);
+    expect(s.transcriptUnavailable).toBe(0);
+    expect(state.stampCalls).toEqual([]);
+    expect(state.notes.X.aiDraftedAt).toBeNull();
+    expect(asked).toEqual(['ff-X']);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('a failure that carries no scope is treated as account-wide, even with a per-transcript code', async () => {
+    const { db, state } = xThenB();
+    const enqueue = vi.fn(async () => ({ ok: true as const, jobId: 'j' }));
+    const s = await runEnqueue(
+      db,
+      {
+        enqueue,
+        fetchSentences: async () => ({ ok: false, reason: 'rejected', errorCode: 'object_not_found', message: 'x' }),
+      },
+      NOW,
+    );
+    expect(s.stoppedReason).toBe('fireflies rejected (object_not_found)');
+    expect(state.stampCalls).toEqual([]);
+  });
+});
+
+describe('a stamp is counted only when it was written', () => {
+  it('no_transcript: a failed write is an error, not a stamped note, and it stays a candidate', async () => {
+    const { db, state } = fakeDb({ candidates: [cand('note-1', 'booking-1')], stampError: 'timeout' });
+    const enqueue = vi.fn(async () => ({ ok: true as const, jobId: 'j' }));
+    const s = await runEnqueue(db, { enqueue, fetchSentences: async () => ({ ok: true, data: [] }) }, NOW);
+    expect(state.stampCalls).toEqual(['note-1']);
+    expect(s.noTranscript).toBe(0);
+    expect(s.errors).toBe(1);
+    expect(state.notes['note-1'].aiDraftedAt).toBeNull();
+  });
+
+  it('fireflies_<code>: a failed write is an error, not a stamped note, and the run still goes on', async () => {
+    const { db } = fakeDb({ candidates: [cand('note-1', 'booking-1'), cand('ok', 'b-ok')], stampError: 'timeout' });
+    const enqueue = vi.fn(async () => ({ ok: true as const, jobId: 'j' }));
+    const s = await runEnqueue(
+      db,
+      {
+        enqueue,
+        fetchSentences: async (ref: string) =>
+          ref === 'ff-note-1'
+            ? {
+                ok: false as const,
+                reason: 'rejected' as const,
+                scope: 'transcript' as const,
+                errorCode: 'object_not_found',
+                message: 'gone',
+              }
+            : { ok: true as const, data: [{ speakerName: 'A', text: 'We agreed.' }] },
+      },
+      NOW,
+    );
+    expect(s.transcriptUnavailable).toBe(0);
+    expect(s.errors).toBe(1);
+    expect(s.enqueued).toBe(1);
+  });
+
+  it('a participant read that FAILS during enqueue sends nothing for that note and leaves it UNSTAMPED', async () => {
+    const { db, state } = fakeDb({
+      candidates: [cand('note-1', 'booking-1')],
+      readErrors: { loadParticipants: 'timeout' },
+    });
+    const enqueue = vi.fn(async () => ({ ok: true as const, jobId: 'j' }));
+    const s = await runEnqueue(
+      db,
+      { enqueue, fetchSentences: async () => ({ ok: true, data: [{ speakerName: 'A', text: 'We agreed.' }] }) },
+      NOW,
+    );
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(s.errors).toBe(1);
+    expect(s.enqueued).toBe(0);
+    expect(state.stampCalls).toEqual([]);
   });
 });
 
@@ -721,7 +1027,10 @@ function stubAdmin(
       return chain;
     };
     chain.maybeSingle = () => Promise.resolve(selectResult);
-    chain.then = (res: (v: unknown) => unknown) => Promise.resolve(awaitedResult).then(res);
+    chain.then = (res: (v: unknown) => unknown) =>
+      Promise.resolve(
+        typeof awaitedResult === 'function' ? (awaitedResult as (t: string) => unknown)(table) : awaitedResult,
+      ).then(res);
     return chain;
   };
   return { admin: { from } as never, calls };
@@ -788,5 +1097,63 @@ describe('supabaseNoteDraftDb', () => {
   it('cancelPendingJob reports not-applied when the guarded write matched no row', async () => {
     const { admin } = stubAdmin({ data: { payload: { prompt: 'T' } }, error: null }, { data: [], error: null });
     expect(await supabaseNoteDraftDb(admin).cancelPendingJob('j', 'r')).toEqual({ applied: false, error: null });
+  });
+});
+
+describe('supabaseNoteDraftDb — a failed read is never an empty answer', () => {
+  const dbErr = { data: null, error: { message: 'statement timeout' } };
+
+  it('loadNote: a read error is an error; no row is "no such note"', async () => {
+    expect(await supabaseNoteDraftDb(stubAdmin(dbErr).admin).loadNote('n')).toEqual({
+      note: null,
+      error: 'statement timeout',
+    });
+    expect(await supabaseNoteDraftDb(stubAdmin({ data: null, error: null }).admin).loadNote('n')).toEqual({
+      note: null,
+      error: null,
+    });
+  });
+
+  it('bookingHost: a read error is an error; no row is "no host"; a row gives its host', async () => {
+    expect(await supabaseNoteDraftDb(stubAdmin(dbErr).admin).bookingHost('b')).toEqual({
+      host: null,
+      error: 'statement timeout',
+    });
+    expect(await supabaseNoteDraftDb(stubAdmin({ data: null, error: null }).admin).bookingHost('b')).toEqual({
+      host: null,
+      error: null,
+    });
+    expect(
+      await supabaseNoteDraftDb(stubAdmin({ data: { host_profile_id: 'p-host' }, error: null }).admin).bookingHost('b'),
+    ).toEqual({ host: 'p-host', error: null });
+  });
+
+  it('countActionItems: an error or a missing count is an error; a real count is a count', async () => {
+    const count = async (r: unknown) => supabaseNoteDraftDb(stubAdmin(undefined, r).admin).countActionItems('b');
+    expect((await count({ count: null, error: { message: 'statement timeout' } })).error).toBe('statement timeout');
+    expect((await count({ count: null, error: null })).error).not.toBeNull();
+    expect(await count({ count: 0, error: null })).toEqual({ count: 0, error: null });
+    expect(await count({ count: 2, error: null })).toEqual({ count: 2, error: null });
+  });
+
+  it('loadParticipants: a failed participant read and a failed profile lookup are errors; a real empty list is not', async () => {
+    const participantRow = { data: [{ email: 'Asha@JKKN.ac.in ', display_name: 'Asha', profile_id: null }], error: null };
+    const load = async (byTable: (t: string) => unknown) =>
+      supabaseNoteDraftDb(stubAdmin(undefined, byTable).admin).loadParticipants('n');
+
+    expect(await load(() => dbErr)).toEqual({ participants: [], error: 'statement timeout' });
+    expect(await load((t) => (t === 'meeting_note_participants' ? participantRow : dbErr))).toEqual({
+      participants: [],
+      error: 'statement timeout',
+    });
+    expect(await load(() => ({ data: [], error: null }))).toEqual({ participants: [], error: null });
+    expect(
+      await load((t) =>
+        t === 'meeting_note_participants' ? participantRow : { data: [{ id: 'p-asha', email: 'asha@jkkn.ac.in' }], error: null },
+      ),
+    ).toEqual({
+      participants: [{ email: 'asha@jkkn.ac.in', displayName: 'Asha', profileId: 'p-asha' }],
+      error: null,
+    });
   });
 });
