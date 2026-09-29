@@ -11178,3 +11178,66 @@ GRANT  SELECT ON public.learner_activation_failures TO authenticated;
 DROP POLICY IF EXISTS "adoption_reminders_select_super_admin" ON public.adoption_reminders;
 CREATE POLICY "adoption_reminders_select_super_admin" ON public.adoption_reminders
   FOR SELECT TO authenticated USING ((SELECT is_super_admin()));
+
+-- ============================================================================
+-- Bill cancel request flow — SELECT-only RLS; flows writable by super admin
+-- Migration: 20260928100000_bill_cancel_request_flow.sql
+-- ============================================================================
+-- ---------------------------------------------------------------------------
+-- 3. RLS -- SELECT-only everywhere except flows (super admin writes). Every
+--    request/decision write goes through the RPCs below, so the history cannot
+--    be edited by whoever it incriminates.
+-- ---------------------------------------------------------------------------
+DROP POLICY IF EXISTS billing_bill_cancel_requests_select ON public.billing_bill_cancel_requests;
+CREATE POLICY billing_bill_cancel_requests_select
+  ON public.billing_bill_cancel_requests FOR SELECT TO authenticated
+  USING (
+    (SELECT is_super_admin())
+    OR requested_by = (SELECT auth.uid())
+    OR (
+      ((SELECT user_has_permission('billing.schedule.view'))
+        OR (SELECT user_has_permission('billing.schedule.cancel.request')))
+      AND role_has_institution_access(institution_id)
+    )
+    OR public.fn_is_bill_cancel_approver(institution_id)
+  );
+
+DROP POLICY IF EXISTS billing_bill_cancel_actions_select ON public.billing_bill_cancel_request_actions;
+CREATE POLICY billing_bill_cancel_actions_select
+  ON public.billing_bill_cancel_request_actions FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.billing_bill_cancel_requests r
+      WHERE r.id = billing_bill_cancel_request_actions.request_id
+        AND (
+          (SELECT is_super_admin())
+          OR r.requested_by = (SELECT auth.uid())
+          OR (
+            ((SELECT user_has_permission('billing.schedule.view'))
+              OR (SELECT user_has_permission('billing.schedule.cancel.request')))
+            AND role_has_institution_access(r.institution_id)
+          )
+          OR public.fn_is_bill_cancel_approver(r.institution_id)
+        )
+    )
+  );
+
+DROP POLICY IF EXISTS billing_bill_cancel_flows_select ON public.billing_bill_cancel_approval_flows;
+CREATE POLICY billing_bill_cancel_flows_select
+  ON public.billing_bill_cancel_approval_flows FOR SELECT TO authenticated
+  USING (
+    (SELECT is_super_admin())
+    OR (SELECT user_has_permission('billing.schedule.view'))
+    OR (SELECT user_has_permission('billing.schedule.cancel.request'))
+    OR (SELECT public.fn_is_bill_cancel_approver(NULL))
+  );
+
+DROP POLICY IF EXISTS billing_bill_cancel_flows_write ON public.billing_bill_cancel_approval_flows;
+CREATE POLICY billing_bill_cancel_flows_write
+  ON public.billing_bill_cancel_approval_flows FOR ALL TO authenticated
+  USING ((SELECT is_super_admin()))
+  WITH CHECK ((SELECT is_super_admin()));
+
+GRANT SELECT ON public.billing_bill_cancel_requests TO authenticated;
+GRANT SELECT ON public.billing_bill_cancel_request_actions TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.billing_bill_cancel_approval_flows TO authenticated;

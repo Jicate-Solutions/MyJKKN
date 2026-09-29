@@ -48,7 +48,9 @@ export interface LeaveOndutyApplication {
   semester_id: string | null;
   section_id: string | null;
   category: LeaveOndutyCategory;
-  sub_category: string; // LeaveSubCategory | OndutySubCategory
+  sub_category: string; // learner_leave_types.code for new applications
+  /** learner_leave_types.id — NULL only for rows that predate leave types. */
+  leave_type_id?: string | null;
   application_date: string; // ISO date
   start_date: string; // ISO date
   end_date: string; // ISO date
@@ -104,6 +106,14 @@ export interface LeaveOndutyApplication {
     avatar_url: string | null;
   };
   approvals?: LeaveOndutyApproval[];
+  leave_type?: {
+    id: string;
+    code: string;
+    name: string;
+    color_code: string;
+    residency: string;
+    affects_attendance: boolean;
+  } | null;
 
   /** v2: team OD members (excluding the primary applicant). Populated when applicable_type = 'team'. */
   team_members?: LeaveOndutyTeamMember[];
@@ -209,7 +219,12 @@ export interface LeaveOndutyApproval {
   application_id: string;
   step_order: number;
   approver_id: string | null;
-  approver_role: ApproverRole;
+  /** Legacy pinned steps only; role steps carry role_id instead. */
+  approver_role: ApproverRole | 'super_admin' | null;
+  /** Role step (learner_leave_flow_steps): any holder of this role in `scope` may act. */
+  role_id?: string | null;
+  scope?: 'own_department' | 'own_institution' | 'all_institutions' | 'hostel_block' | null;
+  role?: { id: string; role_name: string } | null;
   status: ApprovalStatus;
   comments: string | null;
   action_taken_at: string | null;
@@ -275,6 +290,9 @@ export interface AttendanceUpdateRecord {
  */
 export interface ApplicationFormData {
   category: LeaveOndutyCategory;
+  /** learner_leave_types.id chosen by the learner. */
+  leave_type_id: string;
+  /** learner_leave_types.code — kept for reports and the attendance RPC. */
   sub_category: string;
   start_date: string;
   end_date: string;
@@ -561,6 +579,9 @@ export interface LeaveReportData {
 export interface ApprovalTimelineStep {
   step_order: number;
   role: ApproverRole;
+  /** Display label for the step — the step's role_name for role-based steps,
+   * or APPROVER_ROLE_LABELS[role] for legacy pinned steps. */
+  role_label?: string;
   description: string;
   approver_name: string | null;
   approver_email: string | null;

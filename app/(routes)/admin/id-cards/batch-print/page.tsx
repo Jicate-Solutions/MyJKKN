@@ -28,32 +28,54 @@ export default function IdCardBatchPrintPage() {
     <PolicyPageShell
       title="Batch ID-Card Printing"
       explainer={
-        <>
-          <h3 className="mb-2 text-sm font-semibold">What this page does</h3>
-          <p>
-            Print ID cards for a whole cohort at once — a freshers batch
-            (admission year) or a class / semester / section. Pick the cohort,
-            then <strong>Preview &amp; print</strong>: every card is rendered
-            learner by learner (front, then back, then the next learner) and
-            checked before anything prints. Learners without an activated
-            account are skipped and reported.
-          </p>
-          <p className="mt-2">
-            Missing or wrong data — a blank photo, roll number or study period,
-            an address the <strong>Address Check</strong> rules flag — is framed
-            in <span className="font-semibold text-red-600">red</span> on the
-            card and listed by learner and field at the top of the preview. Fix
-            the record, regenerate, then <strong>Download PDF</strong> or print
-            on A4. The PDF and the printed sheets are exactly what the preview
-            shows.
-          </p>
-          <p className="mt-2">
-            The Evolis card printer is queued from inside the preview. Every
-            card consumes one ribbon panel and prints in roughly 15 seconds —
-            check ribbon stock before confirming, and watch progress on the{' '}
+        <div className="space-y-4">
+          <ol className="grid gap-3 sm:grid-cols-3">
+            <li className="flex gap-3 rounded-lg border bg-background/70 p-3">
+              <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                1
+              </span>
+              <div>
+                <p className="font-medium text-foreground">Choose the cohort</p>
+                <p className="mt-0.5 text-xs">
+                  A freshers batch (admission year) or one or more classes, with an optional
+                  section.
+                </p>
+              </div>
+            </li>
+            <li className="flex gap-3 rounded-lg border bg-background/70 p-3">
+              <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                2
+              </span>
+              <div>
+                <p className="font-medium text-foreground">Review the learners</p>
+                <p className="mt-0.5 text-xs">
+                  Everyone who matches is listed with photo and roll number, all ticked. Untick
+                  anyone who should not get a card.
+                </p>
+              </div>
+            </li>
+            <li className="flex gap-3 rounded-lg border bg-background/70 p-3">
+              <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                3
+              </span>
+              <div>
+                <p className="font-medium text-foreground">Preview &amp; print</p>
+                <p className="mt-0.5 text-xs">
+                  Every card is rendered and checked first. Download the PDF, print on A4, or queue
+                  the Evolis card printer from inside the preview.
+                </p>
+              </div>
+            </li>
+          </ol>
+          <p className="text-xs">
+            Missing or wrong data — a blank photo, roll number or address the{' '}
+            <strong>Address Check</strong> rules flag — is framed in{' '}
+            <span className="font-semibold text-red-600">red</span> on the card and listed at the
+            top of the preview. Learners without an activated account are skipped and reported.
+            Each card uses one ribbon panel and takes about 15 seconds; follow progress on the{' '}
             <strong>Print Queue</strong> page.
           </p>
-        </>
+        </div>
       }
       permissionKey="id_cards.jobs.manage"
     >

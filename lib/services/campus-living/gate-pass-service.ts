@@ -41,7 +41,7 @@ const CANCELLABLE: GatePassStatus[] = ['requested', 'issued'];
 const LEARNER_EMBED =
   'learner:profiles!hostel_gate_passes_learner_id_fkey(id, full_name, email)';
 const LEAVE_TYPE_EMBED =
-  'leave_type:hostel_leave_types!hostel_gate_passes_leave_type_id_fkey(id, leave_type_name, leave_type_code, color_code, requires_attachment)';
+  'leave_type:learner_leave_types!hostel_gate_passes_leave_type_id_fkey(id, leave_type_name:name, leave_type_code:code, color_code, requires_attachment)';
 
 type EmbeddedLearner = { id: string; full_name: string | null; email: string | null } | null;
 type EmbeddedLeaveType = {

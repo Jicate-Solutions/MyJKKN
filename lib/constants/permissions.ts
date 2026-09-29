@@ -757,7 +757,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'learners.leave_onduty.apply', label: 'Apply for Leave/OnDuty (Students)' },
       { key: 'learners.leave_onduty.view', label: 'View My Applications (Students)' },
       { key: 'learners.leave_onduty.edit', label: 'Edit My Applications (Students)' },
-      { key: 'learners.leave_onduty.cancel', label: 'Cancel My Applications (Students)' }
+      { key: 'learners.leave_onduty.cancel', label: 'Cancel My Applications (Students)' },
+
+      // Learner Leave Types + Approval Flows (global settings, 2027-04)
+      { key: 'learners.leave_types.view', label: 'View Learner Leave Types & Approval Flows' },
+      { key: 'learners.leave_types.manage', label: 'Manage Learner Leave Types & Approval Flows' }
     ]
   },
   {
@@ -791,11 +795,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.schedule.create', label: 'Create Schedule' },
       { key: 'billing.schedule.update', label: 'Update Schedule' },
       { key: 'billing.schedule.delete', label: 'Delete Schedule' },
-      // Cancelling a bill writes off money, so it is deliberately NOT
-      // billing.schedule.update: that key is held by 6 roles and also covers
-      // fixing a typo. fn_cancel_student_bill gates on THIS key, and a trigger
-      // rejects any other route into status='cancelled'.
-      { key: 'billing.schedule.cancel', label: 'Cancel Bills' },
+      // Cancelling a bill writes off money, so it is a REQUEST that an approver
+      // decides (migration 20260928100000). This key only lets a role RAISE the
+      // request (fn_request_bill_cancellation); who DECIDES comes from
+      // billing_bill_cancel_approval_flows, not a key. Held by Chief Accountant
+      // + Accountant Assistant. The old direct billing.schedule.cancel key was
+      // retired with fn_cancel_student_bill.
+      { key: 'billing.schedule.cancel.request', label: 'Request Bill Cancellation' },
       // Bulk bill creation: the "Bulk Create" button on /billing/schedule and
       // the /billing/schedule/bulk-create flow (pick many learners, or upload
       // an Excel of bills). Separate from billing.schedule.create so the bulk

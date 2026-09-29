@@ -54,6 +54,7 @@ const config: ModuleNavConfig = {
         { label: 'Refunds', icon: 'Undo2', href: '/billing/refunds' },
         { label: 'Refund Approvals', icon: 'CheckCheck', href: '/billing/refund-approvals' },
         { label: 'Receipt Cancellations', icon: 'FileX', href: '/billing/receipt-cancellations' },
+        { label: 'Bill Cancellations', icon: 'Ban', href: '/billing/bill-cancellations' },
         { label: 'Apportionment', icon: 'Split', href: '/billing/apportionment' },
         { label: 'Invoices', icon: 'FileText', href: '/billing/invoices' },
         { label: 'Late Charges', icon: 'AlarmClock', href: '/billing/late-charges' },
