@@ -48721,9 +48721,17 @@ COMMENT ON FUNCTION public.hr_trig_leave_enforce_no_overlap() IS
   'Refuses a day-leave request whose dates overlap another live request for the same employee. Not fired on status changes, so pre-existing overlaps stay decidable.';
 
 -- ===========================================================================
--- fn_hr_set_staff_salary (2026-08-21, EPF/ESI added 2026-09-01)
+-- fn_hr_set_staff_salary (2026-08-21, EPF/ESI added 2026-09-01,
+--   no past start dates 2027-05-21)
 -- Source: 20260821201000_fn_hr_set_staff_salary.sql
 --         20260901120000_hr_salary_epf_esi_values.sql
+--         20260902100000_hr_tds_slabs_and_allowance.sql
+--         20270521090000_hr_salary_no_backdating.sql
+--
+-- Updated: 2027-05-21 - Refuses a start before today (Asia/Kolkata); new last
+-- parameter p_allow_past, honoured only for a super admin (the history import).
+-- The 18-argument signature is dropped first so a rebuild never leaves an
+-- overload behind.
 --
 -- The 2026-09-01 revision DROPPED the 13-argument signature before recreating
 -- it at 16. `CREATE OR REPLACE` with a changed parameter list creates an
@@ -48731,7 +48739,18 @@ COMMENT ON FUNCTION public.hr_trig_leave_enforce_no_overlap() IS
 -- call. A rebuild from this file starts clean, so only the final shape is
 -- recorded here — but the drop is why the grants below are restated.
 -- ===========================================================================
-CREATE OR REPLACE FUNCTION public.fn_hr_set_staff_salary(
+DROP FUNCTION IF EXISTS public.fn_hr_set_staff_salary(
+  uuid, uuid, numeric, date, text, text, numeric,
+  boolean, boolean, boolean, boolean, boolean, text,
+  numeric, boolean, numeric, numeric, text
+);
+DROP FUNCTION IF EXISTS public.fn_hr_set_staff_salary(
+  uuid, uuid, numeric, date, text, text, numeric,
+  boolean, boolean, boolean, boolean, boolean, text,
+  numeric, boolean, numeric, numeric, text, boolean
+);
+
+CREATE FUNCTION public.fn_hr_set_staff_salary(
   p_staff_id               uuid,
   p_hr_organization_id     uuid,
   p_monthly_gross          numeric,
@@ -48749,19 +48768,22 @@ CREATE OR REPLACE FUNCTION public.fn_hr_set_staff_salary(
   p_eligible_for_esi       boolean DEFAULT false,
   p_esi_amount             numeric DEFAULT 0,
   p_allowance_amount       numeric DEFAULT 0,
-  p_allowance_label        text    DEFAULT NULL
+  p_allowance_label        text    DEFAULT NULL,
+  p_allow_past             boolean DEFAULT false
 )
 RETURNS uuid
 LANGUAGE plpgsql
 SET search_path TO 'public'
 AS $function$
 DECLARE
-  v_new_id  uuid := gen_random_uuid();
-  v_current record;
+  v_new_id    uuid := gen_random_uuid();
+  v_current   record;
   v_epf       numeric;
   v_esi       numeric;
   v_allowance numeric;
   v_alw_label text;
+  -- 2027-05-21: "today" is India's today, not the server's (UTC) date.
+  v_today     date := (now() AT TIME ZONE 'Asia/Kolkata')::date;
 BEGIN
   IF p_staff_id IS NULL OR p_hr_organization_id IS NULL THEN
     RAISE EXCEPTION 'Staff and payroll organisation are both required'
@@ -48776,14 +48798,23 @@ BEGIN
   IF COALESCE(p_epf_amount, 0) < 0 OR COALESCE(p_esi_amount, 0) < 0 THEN
     RAISE EXCEPTION 'EPF and ESI amounts cannot be negative' USING ERRCODE = '22023';
   END IF;
-
-  -- An amount against a flag that is OFF is zeroed, not rejected. The bulk
-  -- importer feeds this from a spreadsheet where a leftover figure beside a "No"
-  -- is a formatting slip, and a hard failure there would abort a 754-row import.
   IF COALESCE(p_allowance_amount, 0) < 0 THEN
     RAISE EXCEPTION 'Allowance cannot be negative' USING ERRCODE = '22023';
   END IF;
 
+  -- 2027-05-21: the past-history door is the super admin's alone. Anybody else
+  -- who asks for it is refused, whatever the date, so a mistake in a caller
+  -- shows up at once instead of only on the day a past date happens to arrive.
+  -- COALESCE, not a bare test: a NULL flag means "not asked", and
+  -- is_super_admin() is COALESCE'd to false by its own body.
+  IF COALESCE(p_allow_past, false) AND NOT public.is_super_admin() THEN
+    RAISE EXCEPTION 'Only a super admin may record a salary that starts in the past.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- An amount against a flag that is OFF is zeroed, not rejected. The bulk
+  -- importer feeds this from a spreadsheet where a leftover figure beside a "No"
+  -- is a formatting slip, and a hard failure there would abort a 754-row import.
   v_epf := CASE WHEN p_eligible_for_pf  THEN COALESCE(p_epf_amount, 0) ELSE 0 END;
   v_esi := CASE WHEN p_eligible_for_esi THEN COALESCE(p_esi_amount, 0) ELSE 0 END;
 
@@ -48802,14 +48833,14 @@ BEGIN
   -- Re-writing an IDENTICAL record would bury the real history under duplicates,
   -- so the incumbent is returned untouched instead.
   --
-  -- COMPARES THE WHOLE PAYLOAD (widened 2026-09-01). It used to test only
-  -- monthly_gross and effective_from, which meant changing a flag, the overtime
-  -- or the notes saved NOTHING and still reported success. Adding EPF/ESI made
-  -- that the common case: tick ESI, type 165, save, nothing happens.
+  -- COMPARES THE WHOLE PAYLOAD. It once tested only monthly_gross and
+  -- effective_from, which made every other kind of edit a silent no-op that
+  -- still reported success. Every column written below must appear here.
   --
-  -- IS DISTINCT FROM throughout, not <>. p_notes is nullable and `x <> NULL` is
-  -- NULL rather than false — a plain <> chain would evaluate to NULL, be read as
-  -- "not different", and silently restore the exact bug this widening fixes.
+  -- IS DISTINCT FROM throughout, not <>. p_notes and p_allowance_label are
+  -- nullable, and `x <> NULL` is NULL rather than false — a plain <> chain would
+  -- evaluate to NULL, be read as "not different", and restore the very bug this
+  -- comparison exists to prevent.
   IF FOUND
      AND v_current.monthly_gross          IS NOT DISTINCT FROM p_monthly_gross
      AND v_current.effective_from         IS NOT DISTINCT FROM p_effective_from
@@ -48831,10 +48862,33 @@ BEGIN
     RETURN v_current.id;
   END IF;
 
+  -- 2027-05-21: no salary change may start in the past (Director's ruling).
+  -- Placed AFTER the identical-payload return above: a re-upload that changes
+  -- nothing writes nothing, so it is not a change and still succeeds.
+  IF p_effective_from < v_today
+     AND NOT (COALESCE(p_allow_past, false) AND public.is_super_admin()) THEN
+    RAISE EXCEPTION 'A salary change cannot start in the past. % is before today (%).',
+      to_char(p_effective_from, 'DD Mon YYYY'), to_char(v_today, 'DD Mon YYYY')
+      USING ERRCODE = '22023',
+            HINT = 'Pick today or a later date. Only a super admin''s import of old salary history may use a past date.';
+  END IF;
+
   IF FOUND THEN
     UPDATE public.hr_staff_salaries
        SET superseded_by = v_new_id, updated_at = now(), updated_by = auth.uid()
      WHERE id = v_current.id;
+  END IF;
+
+  -- 2027-05-21: the table trigger below applies the same rule to direct writes.
+  -- This transaction-local flag tells it the ONE insert that follows is the
+  -- super admin's history import (the only way to reach here with a past date).
+  -- The condition is restated in full rather than trusting the RAISE above, so
+  -- a later edit that weakens that check cannot also open the table. The
+  -- trigger re-checks is_super_admin() itself, and the flag is cleared
+  -- straight after the insert.
+  IF p_effective_from < v_today
+     AND COALESCE(p_allow_past, false) AND public.is_super_admin() THEN
+    PERFORM set_config('app.hr_salary_allow_past', 'on', true);
   END IF;
 
   INSERT INTO public.hr_staff_salaries (
@@ -48853,20 +48907,92 @@ BEGIN
     p_effective_from, p_notes, auth.uid(), auth.uid()
   );
 
+  PERFORM set_config('app.hr_salary_allow_past', '', true);
+
   RETURN v_new_id;
 END;
 $function$;
 
--- CREATE OR REPLACE keeps existing grants, but a DROP FUNCTION discards them and
--- reverts EXECUTE to PUBLIC — which is exactly what the 2026-09-01 signature
--- change did, and had to be undone. Restated so a rebuild from these files lands
--- in the same place. PUBLIC is revoked as well as anon: a grant to PUBLIC is not
--- removed by revoking from anon.
-REVOKE ALL ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text, numeric, boolean, numeric, numeric, text) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text, numeric, boolean, numeric, numeric, text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_hr_set_staff_salary(
+  uuid, uuid, numeric, date, text, text, numeric,
+  boolean, boolean, boolean, boolean, boolean, text,
+  numeric, boolean, numeric, numeric, text, boolean
+) FROM anon, PUBLIC;
 
-COMMENT ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text, numeric, boolean, numeric, numeric, text) IS
-  'Supersede-and-insert a staff salary in one transaction. SECURITY INVOKER: hr_staff_salaries_write enforces hr.payroll.salary.manage. Returns the incumbent unchanged when the whole payload matches.';
+GRANT EXECUTE ON FUNCTION public.fn_hr_set_staff_salary(
+  uuid, uuid, numeric, date, text, text, numeric,
+  boolean, boolean, boolean, boolean, boolean, text,
+  numeric, boolean, numeric, numeric, text, boolean
+) TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.fn_hr_set_staff_salary(
+  uuid, uuid, numeric, date, text, text, numeric,
+  boolean, boolean, boolean, boolean, boolean, text,
+  numeric, boolean, numeric, numeric, text, boolean
+) IS
+  'Supersede-and-insert a staff salary in one transaction. SECURITY INVOKER: hr_staff_salaries_write enforces hr.payroll.salary.manage. Returns the incumbent unchanged when the whole payload matches. Refuses a start before today (Asia/Kolkata) unless p_allow_past is set by a super admin (the history import); p_allow_past from anybody else is refused. See 20270521090000.';
+
+-- ===========================================================================
+-- hr_staff_salaries_refuse_past_start (2027-05-21)
+-- Source: 20270521090000_hr_salary_no_backdating.sql. Trigger in 04_triggers.sql.
+-- ===========================================================================
+-- SECURITY INVOKER on purpose: it must see the caller's current_user (an API
+-- role) and the caller's auth.uid(). is_super_admin() is SECURITY DEFINER on
+-- its own, so it answers correctly from inside an invoker trigger.
+-- A trigger function needs no EXECUTE grant to fire, so nobody is granted it.
+CREATE OR REPLACE FUNCTION public.hr_staff_salaries_refuse_past_start()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_today     date := (now() AT TIME ZONE 'Asia/Kolkata')::date;
+  v_import_ok boolean;
+BEGIN
+  -- Only API callers. The database owner (migrations, an operator's repair) is
+  -- not a user of the app; the function check covers any caller that goes
+  -- through fn_hr_set_staff_salary.
+  IF current_user NOT IN ('anon', 'authenticated', 'service_role') THEN
+    RETURN NEW;
+  END IF;
+
+  v_import_ok := COALESCE(current_setting('app.hr_salary_allow_past', true), '') = 'on'
+                 AND public.is_super_admin();
+
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.effective_from < v_today AND NOT v_import_ok THEN
+      RAISE EXCEPTION 'A salary change cannot start in the past. % is before today (%).',
+        to_char(NEW.effective_from, 'DD Mon YYYY'), to_char(v_today, 'DD Mon YYYY')
+        USING ERRCODE = '22023';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  -- UPDATE. Superseding (superseded_by, and the two bookkeeping columns that go
+  -- with it) is how every normal pay change works, and is always allowed.
+  -- annual_gross is GENERATED and not settable, so it is left out of the compare.
+  IF (to_jsonb(NEW) - 'superseded_by' - 'updated_at' - 'updated_by' - 'annual_gross')
+     IS DISTINCT FROM
+     (to_jsonb(OLD) - 'superseded_by' - 'updated_at' - 'updated_by' - 'annual_gross')
+  THEN
+    -- Editing a row that has already started (or whose start was never
+    -- recorded) rewrites pay already in force: a backdated change by another
+    -- route. Moving a start into the past is the same thing.
+    IF (OLD.effective_from IS NULL OR OLD.effective_from < v_today
+        OR NEW.effective_from < v_today)
+       AND NOT v_import_ok THEN
+      RAISE EXCEPTION 'A salary that has already started cannot be edited in place. Record a new salary from today or a later date.'
+        USING ERRCODE = '22023';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.hr_staff_salaries_refuse_past_start() FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.hr_staff_salaries_refuse_past_start() IS
+  'BEFORE INSERT/UPDATE guard on hr_staff_salaries: an API caller may not insert a salary starting before today (Asia/Kolkata) or edit one already started, except the super admin history import via fn_hr_set_staff_salary(p_allow_past). See 20270521090000.';
 
 -- ===========================================================================
 -- hr_staff_salary_directory (2026-08-21, EPF/ESI added 2026-09-01)

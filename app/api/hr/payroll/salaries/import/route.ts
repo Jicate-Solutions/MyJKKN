@@ -26,6 +26,15 @@ export const dynamic = 'force-dynamic';
 // fn_hr_set_staff_salary on the SESSION client, so hr_staff_salaries_write
 // enforces hr.payroll.salary.manage per row — a caller who somehow reached this
 // route without the permission writes nothing.
+//
+// PAST START DATES (Director's ruling, 2026-09-29): "the DATABASE must refuse
+// any salary change starting in the past, except the super admin's Excel import
+// of old history." This route is that one exception, and only for a super
+// admin: it passes p_allow_past = true to fn_hr_set_staff_salary when, and only
+// when, is_super_admin() says the caller is one. For everybody else the flag is
+// false and the database refuses each past-dated row on its own; the refusal
+// lands in `failures` against that row's employee code while the other rows
+// still import. See 20270521090000_hr_salary_no_backdating.sql.
 // ============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -47,10 +56,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized', message: 'Sign in to continue.' }, { status: 401 });
     }
 
-    const [{ data: isAdmin }, { data: canManage }] = await Promise.all([
+    const [{ data: isAdmin }, { data: canManage }, { data: isSuperAdmin }] = await Promise.all([
       session.rpc('is_admin'),
       session.rpc('user_has_permission', { permission_name: 'hr.payroll.salary.manage' }),
+      session.rpc('is_super_admin'),
     ]);
+    // Only a strict `true` opens the past-date door. An error or a null answer
+    // leaves it shut, and the database re-checks is_super_admin() regardless.
+    const allowPast = isSuperAdmin === true;
     if (isAdmin !== true && canManage !== true) {
       return NextResponse.json(
         { error: 'Forbidden', message: 'You need Manage Employee Salary to import salaries.' },
@@ -238,6 +251,9 @@ export async function POST(request: NextRequest) {
         p_esi_amount: src.esi_amount ?? 0,
         p_allowance_amount: src.allowance_amount ?? 0,
         p_allowance_label: src.allowance_label,
+        // The super admin's import of old history is the only caller allowed a
+        // past start. Everyone else gets false and the database decides per row.
+        p_allow_past: allowPast,
       });
 
       if (error) {

@@ -209109,6 +209109,7 @@ export type Database = {
       }
       fn_hr_set_staff_salary: {
         Args: {
+          p_allow_past?: boolean
           p_allowance_amount?: number
           p_allowance_label?: string
           p_effective_from: string

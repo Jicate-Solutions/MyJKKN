@@ -2805,3 +2805,16 @@ DROP TRIGGER IF EXISTS trg_log_bill_cancel_activity ON public.billing_bill_cance
 CREATE TRIGGER trg_log_bill_cancel_activity
   AFTER INSERT ON public.billing_bill_cancel_request_actions
   FOR EACH ROW EXECUTE FUNCTION public._fn_log_bill_cancel_activity();
+
+-- ============================================================================
+-- hr_staff_salaries: no salary change may start in the past (2027-05-21)
+-- Migration: 20270521090000_hr_salary_no_backdating.sql
+-- Function: public.hr_staff_salaries_refuse_past_start() in 02_functions.sql.
+-- API callers (anon, authenticated, service_role) may not insert a salary that
+-- starts before today (Asia/Kolkata) or edit one already started; superseding
+-- stays allowed. The super admin history import passes via fn_hr_set_staff_salary.
+-- ============================================================================
+DROP TRIGGER IF EXISTS trg_hr_staff_salaries_refuse_past_start ON public.hr_staff_salaries;
+CREATE TRIGGER trg_hr_staff_salaries_refuse_past_start
+  BEFORE INSERT OR UPDATE ON public.hr_staff_salaries
+  FOR EACH ROW EXECUTE FUNCTION public.hr_staff_salaries_refuse_past_start();
