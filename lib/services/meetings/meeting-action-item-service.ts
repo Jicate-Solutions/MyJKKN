@@ -93,8 +93,10 @@ export type FollowUpBand = 'yours' | 'others' | 'unassigned';
 
 /**
  * One follow-up as it crosses to the client component. Only what the page
- * renders or needs to act on — the host's id and the decision text stay on
- * the server.
+ * renders or needs to act on — the host's id, the decision text and the
+ * item's created_at stay on the server. created_at is used only to sort, on
+ * the server; sent to a viewer outside the invited set it would hint at when
+ * a meeting they may not see took place.
  */
 export interface FollowUpItem {
   id: string;
@@ -106,7 +108,6 @@ export interface FollowUpItem {
   owner_name: string | null;
   due_date: string | null;
   status: 'open' | 'done';
-  created_at: string;
   band: FollowUpBand;
 }
 
@@ -507,7 +508,10 @@ export class MeetingActionItemService {
     // Defence in depth: never render a row the predicate should have excluded.
     // Reversed so that, inside one meeting, items read in the order they were
     // written (oldest first); meetings themselves are sorted newest-first below.
-    type ItemRow = Omit<FollowUpItem, 'owner_name' | 'band'> & { host_profile_id: string };
+    type ItemRow = Omit<FollowUpItem, 'owner_name' | 'band'> & {
+      host_profile_id: string;
+      created_at: string;
+    };
     const items = ((itemRows ?? []) as ItemRow[])
       .filter((it) => it.host_profile_id === profileId || it.owner_profile_id === profileId)
       .reverse();
@@ -604,7 +608,7 @@ export class MeetingActionItemService {
     const groups = new Map<string, FollowUpMeetingGroup>();
     // Sort key per group. An invited viewer's group sorts by the meeting's
     // start time; an outsider's group has no meeting time on the page, so it
-    // sorts by its newest follow-up's own created_at (already in its items),
+    // sorts by its newest follow-up's own created_at (read here, never sent),
     // which lands close to where the meeting would.
     const sortKey = new Map<string, number>();
     for (const it of items) {
@@ -649,7 +653,8 @@ export class MeetingActionItemService {
         const t = new Date(it.created_at).getTime();
         if (t > (sortKey.get(it.booking_id) ?? -Infinity)) sortKey.set(it.booking_id, t);
       }
-      // Built field by field: host_profile_id never crosses to the client.
+      // Built field by field: host_profile_id and created_at never cross to
+      // the client.
       group.items.push({
         id: it.id,
         booking_id: it.booking_id,
@@ -659,7 +664,6 @@ export class MeetingActionItemService {
         owner_name: it.owner_profile_id ? (ownerNameById.get(it.owner_profile_id) ?? null) : null,
         due_date: it.due_date,
         status: it.status,
-        created_at: it.created_at,
         band: followUpBand(it, profileId),
       });
     }
@@ -676,9 +680,11 @@ export class MeetingActionItemService {
 
   /**
    * STATUS-ONLY change (open ↔ done) allowed to the booking's host OR the
-   * item's resolved owner — mirrors online_meeting_action_items_owner_update.
-   * Deliberately separate from setStatus() (host-only), which the booking page
-   * keeps using unchanged. Anyone else → FORBIDDEN.
+   * item's resolved owner. meeting_action_items has no UPDATE policy for
+   * clients (RLS on, one SELECT policy), so this write goes through the
+   * service role and THIS host-or-owner check is the only rule. Deliberately
+   * separate from setStatus() (host-only), which the booking page keeps using
+   * unchanged. Anyone else → FORBIDDEN.
    */
   static async setStatusAsHostOrOwner(
     service: SupabaseClient,

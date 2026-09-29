@@ -38,7 +38,6 @@ function item(id: string, band: 'yours' | 'others' | 'unassigned') {
     owner_name: null,
     due_date: null,
     status: 'open' as const,
-    created_at: '2026-09-20T09:30:00Z',
     band,
   };
 }

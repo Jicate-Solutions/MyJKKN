@@ -14,6 +14,12 @@
 //   ROLE with an explicit host-or-owner filter (MeetingActionItemService.
 //   listForProfile). The filter is required, not a convenience: a super admin's
 //   RLS read would return every host's items.
+//
+//   There is NO permission check on this page or its two actions: any
+//   signed-in person (learners included) can open it by address and sees only
+//   follow-ups they host or own. meetings.view (MENU_PERMISSIONS) only hides the
+//   sidebar entry and the tab chip, and proxy.ts enforces it for custom roles
+//   alone — built-in roles pass (lib/auth/route-matcher.ts hasAccess).
 
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
@@ -33,6 +39,10 @@ import {
 import { FollowUpGroup } from './_components/follow-up-group';
 
 export const dynamic = 'force-dynamic';
+
+// The tab strip and breadcrumb read their label from the generated route
+// manifest; without this the folder name ("Action Items") would show there.
+export const navMeta = { label: 'My Follow-ups', icon: 'ListChecks' };
 
 const PAGE_TITLE = 'My Follow-ups';
 const PAGE_DESCRIPTION =

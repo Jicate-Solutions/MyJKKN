@@ -5876,8 +5876,8 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "children": [
       {
         "path": "/meetings/action-items",
-        "label": "Action Items",
-        "iconName": "FileText",
+        "label": "My Follow-ups",
+        "iconName": "ListChecks",
         "children": []
       },
       {

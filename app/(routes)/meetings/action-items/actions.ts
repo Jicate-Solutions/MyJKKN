@@ -7,7 +7,8 @@
 // write through the SERVICE-ROLE client via
 // MeetingActionItemService.setStatusAsHostOrOwner, which re-checks that the
 // actor is the booking's host OR the item's owner before touching the row.
-// meeting_action_items has no client write grant.
+// meeting_action_items has no UPDATE policy for clients (RLS on, one SELECT
+// policy), so that in-code check is the only rule on this write.
 //
 // Only `status` ever changes here. Editing the text, owner or due date stays
 // on the booking page (/meetings/[uid]) and stays host-only.

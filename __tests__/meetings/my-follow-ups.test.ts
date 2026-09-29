@@ -296,16 +296,23 @@ describe('listForProfile — the meeting header only for the booking’s invited
     const group = await ownerGroup();
     expect(group.viewer_invited).toBe(false);
     for (const f of HEADER_FIELDS) expect(group[f]).toBeNull();
-    // Nothing about the booking is anywhere in what crosses to the client.
+    // Nothing about the booking is anywhere in what crosses to the client —
+    // not even the item's created_at ('2026-09-20T09:30:00Z'), which would
+    // hint at when the meeting took place (round 3).
     const wire = JSON.stringify(group);
-    for (const leak of ['uid-1', 'Asha', 'asha@example.com', 'Review', 'completed', '2026-09-20T05:00:00Z', HOST, 'Candidate not selected']) {
+    for (const leak of ['uid-1', 'Asha', 'asha@example.com', 'Review', 'completed', '2026-09-20T05:00:00Z', '2026-09-20T09:30:00Z', HOST, 'Candidate not selected']) {
       expect(wire).not.toContain(leak);
     }
-    // Their own follow-up still shows in full.
+    // Their own follow-up still shows: ids, text, owner fields, due date, status.
     expect(group.items).toHaveLength(1);
-    expect(group.items[0]).toMatchObject({
+    expect(group.items[0]).not.toHaveProperty('created_at');
+    expect(group.items[0]).toEqual({
       id: 'i-named-owner',
+      booking_id: 'b-1',
       action_text: 'do i-named-owner',
+      owner_label: 'Dr. K',
+      owner_profile_id: NAMED_OWNER,
+      owner_name: 'Owner Person',
       due_date: '2026-10-01',
       status: 'open',
       band: 'yours',
@@ -387,6 +394,8 @@ describe('listForProfile — the meeting header only for the booking’s invited
     expect(b1.viewer_invited).toBe(true);
     expect(b1.viewer_is_host).toBe(true);
     expect(b1.booking_uid).toBe('uid-1');
+    // created_at is only a server-side sort key — it crosses for nobody.
+    for (const it of b1.items) expect(it).not.toHaveProperty('created_at');
   });
 });
 
