@@ -96,8 +96,27 @@ export default function HrSupervisorTeamReviewPage() {
       setLoading(true);
       setError(null);
       try {
+        // The head of department is a staff member too — their own college
+        // decides which round they are reviewing within.
+        const { data: auth } = await supabase.auth.getUser();
+        let hodInstitutionId: string | null = null;
+        if (auth?.user) {
+          const { data: me } = await supabase
+            .from('staff')
+            .select('institution_id')
+            .eq('profile_id', auth.user.id)
+            .maybeSingle();
+          hodInstitutionId = (me?.institution_id as string | null) ?? null;
+        }
+
         const cycles = await PerformanceReviewService.listCycles(supabase);
-        const open = cycles.find((c) => c.status === 'open' || c.status === 'locked') ?? null;
+        // The head of department reviews within their own college's round. RLS
+        // hides other colleges' rounds; pickOpenCycle only has to choose between
+        // a college round and a group-wide one.
+        const open =
+          PerformanceReviewService.pickOpenCycle(cycles, hodInstitutionId) ??
+          cycles.find((c) => c.status === 'locked') ??
+          null;
         if (cancelled) return;
         setOpenCycle(open);
         if (open) {

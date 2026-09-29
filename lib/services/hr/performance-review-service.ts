@@ -51,6 +51,11 @@ export type ReviewStatus =
 
 export interface HRPerformanceReviewCycle {
   id: string;
+  /**
+   * The college this round belongs to. NULL means every college — what a
+   * cycle was before it could belong to one.
+   */
+  institution_id: string | null;
   cycle_year: number;
   start_date: string; // ISO date
   end_date: string; // ISO date
@@ -63,6 +68,8 @@ export interface HRPerformanceReviewCycle {
 }
 
 export interface HRPerformanceReviewCycleInsert {
+  /** Omit or pass null for a round that covers every college. */
+  institution_id?: string | null;
   cycle_year: number;
   start_date: string;
   end_date: string;
@@ -71,6 +78,7 @@ export interface HRPerformanceReviewCycleInsert {
 }
 
 export interface HRPerformanceReviewCycleUpdate {
+  institution_id?: string | null;
   cycle_year?: number;
   start_date?: string;
   end_date?: string;
@@ -172,6 +180,29 @@ export class PerformanceReviewService {
   // -----------------------------------------------------------------------
   // Cycles
   // -----------------------------------------------------------------------
+
+  /**
+   * The one open round that applies to a given person.
+   *
+   * A college's own round wins over a group-wide one. Without that rule a
+   * staff member with both open would get whichever the database happened to
+   * return first, and two people in the same college could end up filling in
+   * different rounds.
+   *
+   * Row-level security already hides rounds belonging to other colleges, so
+   * this only has to choose between what the viewer can legitimately see.
+   */
+  static pickOpenCycle(
+    cycles: readonly HRPerformanceReviewCycle[],
+    institutionId: string | null,
+  ): HRPerformanceReviewCycle | null {
+    const open = cycles.filter((c) => c.status === 'open');
+    if (open.length === 0) return null;
+    const mine = institutionId
+      ? open.find((c) => c.institution_id === institutionId)
+      : undefined;
+    return mine ?? open.find((c) => c.institution_id === null) ?? null;
+  }
 
   static async listCycles(
     supabase: SupabaseClient,

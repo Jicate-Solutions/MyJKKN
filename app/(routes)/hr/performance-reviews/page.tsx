@@ -108,7 +108,7 @@ export default function HrSelfAppraisalPage() {
         if (!auth?.user) throw new Error('You are not signed in.');
         const { data: staff, error: staffErr } = await supabase
           .from('staff')
-          .select('id')
+          .select('id, institution_id')
           .eq('profile_id', auth.user.id)
           .maybeSingle();
         if (staffErr) throw staffErr;
@@ -116,9 +116,14 @@ export default function HrSelfAppraisalPage() {
         if (cancelled) return;
         setStaffId(staff.id);
 
-        // 2. Find the most recent open cycle.
+        // 2. The open round that applies to THIS person. A round now belongs
+        //    to a college; their own college's round wins over a group-wide
+        //    one, and row-level security has already hidden other colleges'.
         const cycles = await PerformanceReviewService.listCycles(supabase);
-        const open = cycles.find((c) => c.status === 'open') ?? null;
+        const open = PerformanceReviewService.pickOpenCycle(
+          cycles,
+          (staff.institution_id as string | null) ?? null,
+        );
         if (cancelled) return;
         setOpenCycle(open);
 
