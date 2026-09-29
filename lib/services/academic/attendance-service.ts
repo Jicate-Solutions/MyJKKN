@@ -124,6 +124,10 @@ export class AttendanceService {
     return AttendanceRosterService.checkExistingAttendanceForPeriods(...args);
   }
 
+  static getAttendanceRecordsForTimetablesOnDate(...args: Parameters<typeof AttendanceRosterService.getAttendanceRecordsForTimetablesOnDate>) {
+    return AttendanceRosterService.getAttendanceRecordsForTimetablesOnDate(...args);
+  }
+
   static getConsolidatedAttendance(...args: Parameters<typeof AttendanceRosterService.getConsolidatedAttendance>) {
     return AttendanceRosterService.getConsolidatedAttendance(...args);
   }

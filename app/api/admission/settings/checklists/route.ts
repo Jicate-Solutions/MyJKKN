@@ -14,6 +14,7 @@ export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { DEFAULT_ADMISSION_CHECKLIST_LIFECYCLE } from '@/lib/constants/admission-checklist-lifecycle';
 
 type ScopeType = 'institution' | 'degree' | 'department' | 'program';
 const VALID_SCOPES: ScopeType[] = ['institution', 'degree', 'department', 'program'];
@@ -146,7 +147,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       scope_id: body.scope_id,
       name: body.name.trim(),
       description: body.description?.trim() || null,
-      applies_to_lifecycle: body.applies_to_lifecycle ?? ['lead', 'admitted', 'enrolled'],
+      applies_to_lifecycle: body.applies_to_lifecycle ?? DEFAULT_ADMISSION_CHECKLIST_LIFECYCLE,
       created_by: user.id,
     })
     .select('id, scope_type, scope_id, name, description, applies_to_lifecycle, is_active, created_at')
