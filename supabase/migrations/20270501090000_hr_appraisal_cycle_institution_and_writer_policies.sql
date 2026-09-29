@@ -43,6 +43,33 @@ CREATE INDEX IF NOT EXISTS idx_hr_perf_cycles_institution
 --    Two partial indexes rather than one expression: NULL is not comparable
 --    in a unique index, so the group-wide case needs its own.
 -- ---------------------------------------------------------------------------
+-- FIRST: the old constraint has to go, or none of this engages.
+--
+-- 20260617 shipped `CONSTRAINT hr_performance_review_cycles_year_unique
+-- UNIQUE (cycle_year)` — one round per YEAR for the entire group. With it in
+-- place the second college to open a 2027 round gets a duplicate-key error
+-- before any partial index below is ever consulted, so per-college rounds
+-- would have been dead on arrival. Caught in review, not by me.
+--
+-- Dropped by name IF EXISTS: production may already differ from the repo
+-- (this codebase has ~1,757 migrations applied without a ledger row), so this
+-- must not fail when the constraint is already absent.
+ALTER TABLE public.hr_performance_review_cycles
+  DROP CONSTRAINT IF EXISTS hr_performance_review_cycles_year_unique;
+
+-- Replacing it: one round per college per year, and one group-wide round per
+-- year. Two partial indexes rather than one UNIQUE (cycle_year,
+-- institution_id), because NULLs do not compare in a unique index — that
+-- version would have allowed unlimited group-wide rounds for the same year.
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_hr_perf_cycle_year_per_institution
+  ON public.hr_performance_review_cycles(cycle_year, institution_id)
+  WHERE institution_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_hr_perf_cycle_year_group_wide
+  ON public.hr_performance_review_cycles(cycle_year)
+  WHERE institution_id IS NULL;
+
+-- And at most one OPEN round at a time per college, independent of the year.
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_hr_perf_cycle_open_per_institution
   ON public.hr_performance_review_cycles(institution_id)
   WHERE status = 'open' AND institution_id IS NOT NULL;
@@ -50,6 +77,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS uniq_hr_perf_cycle_open_per_institution
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_hr_perf_cycle_open_group_wide
   ON public.hr_performance_review_cycles((institution_id IS NULL))
   WHERE status = 'open' AND institution_id IS NULL;
+
+COMMENT ON COLUMN public.hr_performance_review_cycles.cycle_year IS
+  'The year the round ends (2027 = Jul 2026 -> Jun 2027). Unique PER COLLEGE, '
+  'not globally: the original group-wide UNIQUE(cycle_year) is dropped above, '
+  'because it stopped a second college from ever opening a round for the '
+  'same year.';
 
 -- ---------------------------------------------------------------------------
 -- 3) Who can SEE a cycle. Was: any signed-in user sees every cycle.

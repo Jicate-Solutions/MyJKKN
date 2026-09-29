@@ -201,3 +201,99 @@ describe('the runnable rehearsal', () => {
     expect(REHEARSAL).toContain('IF v_failed = v_expected THEN');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Review round 2 — three things the blind reviewer caught that I had missed
+// ---------------------------------------------------------------------------
+
+describe('the old group-wide year constraint is removed', () => {
+  const CYCLE_SQL = readFileSync(
+    join(process.cwd(), 'supabase/migrations/20270501090000_hr_appraisal_cycle_institution_and_writer_policies.sql'),
+    'utf8',
+  );
+
+  it('drops it by name, or per-college rounds never engage at all', () => {
+    // 20260617 shipped UNIQUE (cycle_year) across the whole group. With it in
+    // place the SECOND college to open a 2027 round gets a duplicate-key error
+    // before any partial index is consulted.
+    expect(CYCLE_SQL).toContain(
+      'DROP CONSTRAINT IF EXISTS hr_performance_review_cycles_year_unique',
+    );
+  });
+
+  it('drops it IF EXISTS, because production may already differ from the repo', () => {
+    // Target the DROP statement, not the comment above it that names the
+    // constraint — the first mention in the file is prose.
+    const dropLine = CYCLE_SQL.split('\n').find(
+      (l) => l.includes('DROP CONSTRAINT') && l.includes('hr_performance_review_cycles_year_unique'),
+    );
+    expect(dropLine).toBeDefined();
+    expect(dropLine).toContain('IF EXISTS');
+  });
+
+  it('replaces it with one round per college per year', () => {
+    expect(CYCLE_SQL).toMatch(
+      /uniq_hr_perf_cycle_year_per_institution[\s\S]*?cycle_year, institution_id[\s\S]*?WHERE institution_id IS NOT NULL/,
+    );
+  });
+
+  it('and one group-wide round per year — NULLs do not compare, so it needs its own index', () => {
+    expect(CYCLE_SQL).toMatch(
+      /uniq_hr_perf_cycle_year_group_wide[\s\S]*?\(cycle_year\)[\s\S]*?WHERE institution_id IS NULL/,
+    );
+  });
+
+  it('still allows only one OPEN round per college at a time', () => {
+    expect(CYCLE_SQL).toContain('uniq_hr_perf_cycle_open_per_institution');
+    expect(CYCLE_SQL).toContain('uniq_hr_perf_cycle_open_group_wide');
+  });
+});
+
+describe('the rehearsal can actually reach its checks', () => {
+  const REHEARSAL = readFileSync(
+    join(process.cwd(), '__tests__/hr/fixtures/appraisal-column-guard.rehearsal.sql'),
+    'utf8',
+  );
+
+  it('takes an admin identity BEFORE the setup insert', () => {
+    // The guard fires on the setup insert too. With no claim it sees neither
+    // an admin nor the subject and refuses at line 1, so checks 1-7 never ran.
+    const adminClaim = REHEARSAL.indexOf("set_config('request.jwt.claim.sub', v_admin");
+    const firstInsert = REHEARSAL.indexOf('INSERT INTO public.hr_performance_reviews');
+    expect(adminClaim).toBeGreaterThan(-1);
+    expect(adminClaim).toBeLessThan(firstInsert);
+  });
+
+  it('creates BOTH rounds under the admin claim, before handing over', () => {
+    const staffClaim = REHEARSAL.indexOf("set_config('request.jwt.claim.sub', v_profile");
+    const lastCycleInsert = REHEARSAL.lastIndexOf('INSERT INTO public.hr_performance_review_cycles');
+    expect(lastCycleInsert).toBeLessThan(staffClaim);
+  });
+
+  it('stops with a clear reason when no super admin exists to set up with', () => {
+    expect(REHEARSAL).toContain('No super admin profile found');
+  });
+});
+
+describe('sending back stamps the SENDER, never the tier it returns to', () => {
+  const SERVICE = readFileSync(
+    join(process.cwd(), 'lib/services/hr/performance-review-service.ts'),
+    'utf8',
+  );
+
+  it('never writes self_appraisal_jsonb on a send-back', () => {
+    // A head returning an appraisal from self_submitted wrote into the team
+    // member's own tier, which the guard correctly refuses for a head — so the
+    // send-back failed outright.
+    const fn = SERVICE.slice(SERVICE.indexOf('static async sendBack'));
+    const stamp = fn.slice(fn.indexOf('const stampColumn'), fn.indexOf('const existingPayload'));
+    expect(stamp).not.toContain('self_appraisal_jsonb');
+  });
+
+  it('falls to the supervisor tier, which is who is sending at that point', () => {
+    const fn = SERVICE.slice(SERVICE.indexOf('static async sendBack'));
+    const stamp = fn.slice(fn.indexOf('const stampColumn'), fn.indexOf('const existingPayload'));
+    expect(stamp).toContain("'supervisor_review_jsonb'");
+    expect(stamp).toContain("'sedc_review_jsonb'");
+  });
+});

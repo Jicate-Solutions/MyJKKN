@@ -481,15 +481,19 @@ export class PerformanceReviewService {
       throw new Error('Say why it is going back — the next reviewer has to act on it.');
     }
 
-    // Stamp the reason on the tier that is sending it back, so the record
-    // shows who returned it and why. The returning tier's own ratings are
-    // left intact: it should see what it wrote when it picks this up again.
+    // Stamp the reason on the SENDER's own payload, never on the payload of
+    // the tier it is going back to.
+    //
+    // Caught in review: sending back from `self_submitted` is the head of
+    // department returning it to the person, and stamping
+    // self_appraisal_jsonb there wrote into the team member's own tier —
+    // which the column guard correctly refuses for a head, so the send-back
+    // failed outright. The sender at that point is the head, so the reason
+    // belongs on supervisor_review_jsonb.
     const stampColumn =
       current.status === 'sedc_reviewed'
         ? 'sedc_review_jsonb'
-        : current.status === 'supervisor_reviewed'
-          ? 'supervisor_review_jsonb'
-          : 'self_appraisal_jsonb';
+        : 'supervisor_review_jsonb';
     const existingPayload =
       (current[stampColumn as keyof HRPerformanceReview] as Record<string, unknown> | null) ?? {};
 

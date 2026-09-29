@@ -37,9 +37,19 @@ DECLARE
   v_cycle      uuid;
   v_review     uuid;
   v_other      uuid;
+  v_admin      uuid;
   v_failed     int := 0;
   v_expected   int := 0;
 BEGIN
+  -- The guard trigger fires on the SETUP insert too, and with no JWT claim set
+  -- it sees no admin and no subject, so it refuses at line 1 and checks 1-7
+  -- never run. Caught in review. Take an admin identity for the setup, then
+  -- hand over to each real actor below.
+  SELECT id INTO v_admin FROM public.profiles WHERE is_super_admin = true LIMIT 1;
+  IF v_admin IS NULL THEN
+    RAISE EXCEPTION 'No super admin profile found — cannot set up the rehearsal';
+  END IF;
+  PERFORM set_config('request.jwt.claim.sub', v_admin::text, true);
   SELECT s.id, s.profile_id, d.head_of_department_id
     INTO v_staff, v_profile, v_hod
   FROM public.staff s
@@ -58,10 +68,16 @@ BEGIN
   VALUES (9999, '2099-07-01', '2100-06-30', 'open', 'REHEARSAL — rolled back')
   RETURNING id INTO v_cycle;
 
-  -- Create the row as an admin would, so the tiers below have something to hit.
+  -- Created under the admin claim set at the top, so the guard permits it.
   INSERT INTO public.hr_performance_reviews (cycle_id, staff_id, status)
   VALUES (v_cycle, v_staff, 'draft')
   RETURNING id INTO v_review;
+
+  -- The round that check 5 will try to move the appraisal into.
+  INSERT INTO public.hr_performance_review_cycles
+    (cycle_year, start_date, end_date, status, description)
+  VALUES (9998, '2098-07-01', '2099-06-30', 'draft', 'REHEARSAL — rolled back')
+  RETURNING id INTO v_other;
 
   -- ── Now act AS THE STAFF MEMBER ────────────────────────────────────────
   PERFORM set_config('request.jwt.claim.sub', v_profile::text, true);
@@ -112,12 +128,10 @@ BEGIN
     RAISE NOTICE 'REFUSED (4/7): staff stamping final_approved_*';
   END;
 
-  -- 5. Moving their appraisal into a different round.
+  -- 5. Moving their appraisal into a different round. (The second round was
+  --    created above under the admin claim; creating it here would be done as
+  --    the team member, which the cycles write policy refuses.)
   v_expected := v_expected + 1;
-  INSERT INTO public.hr_performance_review_cycles
-    (cycle_year, start_date, end_date, status, description)
-  VALUES (9998, '2098-07-01', '2099-06-30', 'draft', 'REHEARSAL — rolled back')
-  RETURNING id INTO v_other;
   BEGIN
     UPDATE public.hr_performance_reviews SET cycle_id = v_other WHERE id = v_review;
     RAISE WARNING 'HOLE: a staff member moved their appraisal to another round';
