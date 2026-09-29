@@ -23,7 +23,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertCircle, ArrowLeft, RefreshCw, Send, UsersRound } from 'lucide-react';
+import { AlertCircle, ArrowLeft, RefreshCw, Send, Undo2, UsersRound } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { RatingPicker } from '@/features/hr/appraisal/rating-picker';
@@ -35,6 +35,7 @@ import {
   resolveAreas,
   AREA_LABELS,
   type AppraisalRatingMap,
+  parseSentBackReason,
 } from '@/lib/hr/appraisal-ratings';
 import {
   PerformanceReviewService,
@@ -88,6 +89,7 @@ export default function HrSupervisorTeamReviewPage() {
   const [form, setForm] = useState<SupervisorReviewShape>(EMPTY);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [sendBackReason, setSendBackReason] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -162,6 +164,35 @@ export default function HrSupervisorTeamReviewPage() {
   function closeReview() {
     setSelected(null);
     setForm(EMPTY);
+    setSendBackReason('');
+  }
+
+  // The head's other choice: return the self-appraisal to the person to
+  // redo, instead of reviewing it as it stands. The database and sendBack()
+  // always allowed self_submitted -> draft; no screen offered it (caught in
+  // the round-3 review).
+  async function sendBackToPerson() {
+    if (!selected) return;
+    if (!sendBackReason.trim()) {
+      toast.error('Say what the person should change, so they can act on it.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const updated = await PerformanceReviewService.sendBack(
+        supabase,
+        selected.id,
+        'draft',
+        sendBackReason,
+      );
+      toast.success('Sent back to the person to redo.');
+      setReviews((rs) => rs.map((r) => (r.id === updated.id ? updated : r)));
+      closeReview();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not send back.');
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   async function submitReview() {
@@ -220,6 +251,15 @@ export default function HrSupervisorTeamReviewPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {parseSentBackReason(selected.supervisor_review_jsonb, 'committee') && (
+                <Alert>
+                  <Undo2 className="h-4 w-4" />
+                  <AlertTitle>The committee sent this back to you</AlertTitle>
+                  <AlertDescription>
+                    {parseSentBackReason(selected.supervisor_review_jsonb, 'committee')}
+                  </AlertDescription>
+                </Alert>
+              )}
               <div>
                 <h4 className="text-sm font-semibold mb-2">Self-appraisal (read-only)</h4>
                 <pre className="rounded bg-muted/30 p-3 text-xs whitespace-pre-wrap max-h-64 overflow-auto">
@@ -278,6 +318,28 @@ export default function HrSupervisorTeamReviewPage() {
                   <span className="ml-2">{submitting ? 'Submitting…' : 'Submit to SEDC'}</span>
                 </Button>
               </div>
+
+              {selected.status === 'self_submitted' && (
+                <div className="space-y-2 border-t pt-4">
+                  <h4 className="text-sm font-semibold">Or send it back to the person</h4>
+                  <p className="text-xs text-muted-foreground">
+                    Use this when the self-appraisal is incomplete or needs evidence. It
+                    returns to them as a draft, with your note shown at the top.
+                  </p>
+                  <Label htmlFor="send-back-reason">What should they change?</Label>
+                  <Textarea
+                    id="send-back-reason"
+                    rows={2}
+                    value={sendBackReason}
+                    onChange={(e) => setSendBackReason(e.target.value)}
+                    placeholder="For example: add the two workshops you ran in March, with dates."
+                  />
+                  <Button variant="outline" onClick={sendBackToPerson} disabled={submitting}>
+                    <Undo2 className="h-4 w-4" />
+                    <span className="ml-2">Send back to the person</span>
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

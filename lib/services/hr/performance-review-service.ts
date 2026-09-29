@@ -34,6 +34,7 @@ import {
   resolveAreas,
   resolveRatingPoints,
   type AppraisalRatingPolicySlice,
+  sentBackByFor,
 } from '@/lib/hr/appraisal-ratings';
 
 // ---------------------------------------------------------------------------
@@ -481,15 +482,16 @@ export class PerformanceReviewService {
       throw new Error('Say why it is going back — the next reviewer has to act on it.');
     }
 
-    // Stamp the reason on the SENDER's own payload, never on the payload of
-    // the tier it is going back to.
-    //
-    // Caught in review: sending back from `self_submitted` is the head of
-    // department returning it to the person, and stamping
-    // self_appraisal_jsonb there wrote into the team member's own tier —
-    // which the column guard correctly refuses for a head, so the send-back
-    // failed outright. The sender at that point is the head, so the reason
-    // belongs on supervisor_review_jsonb.
+    // Where the note is stamped, by the status the appraisal is leaving:
+    //   sedc_reviewed       (Director -> committee): committee's payload
+    //   supervisor_reviewed (committee -> head):     head's payload
+    //   self_submitted      (head -> person):        head's payload
+    // The first two land on the tier that acts NEXT. The third cannot: the
+    // next actor is the person, and the column guard (rightly) refuses a head
+    // writing the person's own tier, so it goes on the head's own payload.
+    // Because the head's payload then carries notes from two different
+    // senders, `sent_back_by` records which one, and every screen that shows
+    // a note checks it (parseSentBackReason).
     const stampColumn =
       current.status === 'sedc_reviewed'
         ? 'sedc_review_jsonb'
@@ -504,6 +506,7 @@ export class PerformanceReviewService {
         [stampColumn]: {
           ...existingPayload,
           sent_back_reason: reason,
+          sent_back_by: sentBackByFor(current.status),
           sent_back_at: new Date().toISOString(),
         },
       })

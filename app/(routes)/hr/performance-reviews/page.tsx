@@ -21,7 +21,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertCircle, ClipboardCheck, Save, Send } from 'lucide-react';
+import { AlertCircle, ClipboardCheck, Save, Send, Undo2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { RatingPicker } from '@/features/hr/appraisal/rating-picker';
@@ -30,6 +30,7 @@ import {
   missingAreas,
   parseCollegialityExample,
   parseRatings,
+  parseSentBackReason,
   resolveAreas,
   AREA_LABELS,
   type AppraisalRatingMap,
@@ -241,6 +242,15 @@ export default function HrSelfAppraisalPage() {
             </CardHeader>
 
             <CardContent className="space-y-4">
+              {review?.status === 'draft' && parseSentBackReason(review.supervisor_review_jsonb, 'head') && (
+                <Alert>
+                  <Undo2 className="h-4 w-4" />
+                  <AlertTitle>Your head of department sent this back</AlertTitle>
+                  <AlertDescription>
+                    {parseSentBackReason(review.supervisor_review_jsonb, 'head')}
+                  </AlertDescription>
+                </Alert>
+              )}
               <div>
                 <Label htmlFor="achievements">Key achievements this year</Label>
                 <Textarea

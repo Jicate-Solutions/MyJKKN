@@ -26,6 +26,7 @@ import {
   missingAreas,
   parseCollegialityExample,
   parseRatings,
+  parseSentBackReason,
   resolveAreas,
   resolveRatingPoints,
   summariseRatings,
@@ -150,6 +151,15 @@ export function ReviewDecisionPanel({
       </CardHeader>
 
       <CardContent className="space-y-5">
+        {isCommitteeStep && parseSentBackReason(review.sedc_review_jsonb, 'director') && (
+          <div className="rounded-md border p-3 text-sm">
+            <p className="font-semibold">The Director sent this back to the committee</p>
+            <p className="mt-1 text-muted-foreground">
+              {parseSentBackReason(review.sedc_review_jsonb, 'director')}
+            </p>
+          </div>
+        )}
+
         {/* Every tier, side by side. */}
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

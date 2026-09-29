@@ -122,6 +122,16 @@ CREATE POLICY "hr_performance_reviews_self_insert"
       SELECT id FROM public.staff WHERE profile_id = (SELECT auth.uid())
     )
     AND status IN ('draft', 'self_submitted')
+    -- Only into a round that is OPEN and belongs to the person's own college
+    -- or to the whole group (round-3 review: nothing stopped an insert into
+    -- another college's round, or a locked/closed one).
+    AND cycle_id IN (
+      SELECT c.id
+      FROM public.hr_performance_review_cycles c
+      JOIN public.staff s ON s.id = hr_performance_reviews.staff_id
+      WHERE c.status = 'open'
+        AND (c.institution_id IS NULL OR c.institution_id = s.institution_id)
+    )
   );
 
 -- Staff: edit their own appraisal while it is still a draft, and submit it.
@@ -138,6 +148,16 @@ CREATE POLICY "hr_performance_reviews_self_update"
       SELECT id FROM public.staff WHERE profile_id = (SELECT auth.uid())
     )
     AND status IN ('draft', 'self_submitted')
+    -- Only into a round that is OPEN and belongs to the person's own college
+    -- or to the whole group (round-3 review: nothing stopped an insert into
+    -- another college's round, or a locked/closed one).
+    AND cycle_id IN (
+      SELECT c.id
+      FROM public.hr_performance_review_cycles c
+      JOIN public.staff s ON s.id = hr_performance_reviews.staff_id
+      WHERE c.status = 'open'
+        AND (c.institution_id IS NULL OR c.institution_id = s.institution_id)
+    )
   );
 
 -- Head of department: review an appraisal from their own department once it

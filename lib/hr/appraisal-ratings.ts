@@ -358,3 +358,29 @@ export function incrementBlocked(
   if (policy?.below_blocks_increment !== true) return false;
   return scoredAreas(policy).some((a) => ratings[a] === 'below');
 }
+
+/** Who returned an appraisal one step back. */
+export type SentBackBy = 'head' | 'committee' | 'director';
+
+/** Which reviewer is sending back, from the status the appraisal is leaving. */
+export function sentBackByFor(status: string): SentBackBy | null {
+  if (status === 'self_submitted') return 'head';
+  if (status === 'supervisor_reviewed') return 'committee';
+  if (status === 'sedc_reviewed') return 'director';
+  return null;
+}
+
+/**
+ * The note a reviewer left when they returned an appraisal, but only if the
+ * expected reviewer left it. sendBack() stamps the note on the head's payload
+ * for BOTH the head's and the committee's send-backs, so without checking who
+ * sent it, a head's old note to the person would later show up to the head as
+ * if the committee had written it. A send-back nobody can read is a dead end,
+ * and one shown under the wrong name is worse.
+ */
+export function parseSentBackReason(payload: unknown, from: SentBackBy): string {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return '';
+  const p = payload as Record<string, unknown>;
+  if (p.sent_back_by !== from) return '';
+  return typeof p.sent_back_reason === 'string' ? p.sent_back_reason.trim() : '';
+}
