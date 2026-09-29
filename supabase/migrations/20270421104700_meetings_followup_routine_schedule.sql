@@ -83,16 +83,16 @@ INSERT INTO public.platform_policies
    classification, ui_widget, ui_category, is_system, is_active, publication_state)
 VALUES
   ('meetings.followup_routine.stale_days', 'global', NULL, to_jsonb(7),
-   'Meetings follow-up routine: a meeting follow-up still open after this many days counts as overdue, and the meeting''s host is told about it in the weekly open-follow-ups card. A number of days from 1 to 365; any other value is ignored, the run uses 7 and names this setting in its report.',
+   'Meetings follow-up routine: a meeting follow-up still open after this many days counts as overdue, and the meeting''s host is told about it in the weekly open-follow-ups card. A number of days above 0 and no more than 365; part-days such as 0.5 count, and so does a number stored as text such as "7". Any other value is ignored, the run uses 7 and names this setting in its report.',
    'number', 'operational', 'number', 'Meetings', false, true, 'published'),
   ('meetings.followup_routine.record_ready_lookback_days', 'global', NULL, to_jsonb(7),
-   'Meetings follow-up routine: the "Meeting record ready" card is sent only for recordings whose follow-ups were turned into tasks within this many days. It stops a late switch-on from sending one card for every recording in between, all at once. A number of days from 1 to 365; any other value is ignored, the run uses 7 and names this setting in its report.',
+   'Meetings follow-up routine: the "Meeting record ready" card is sent only for recordings whose follow-ups were turned into tasks within this many days. It stops a late switch-on from sending one card for every recording in between, all at once. A number of days above 0 and no more than 365; part-days such as 0.5 count, and so does a number stored as text such as "7". Any other value is ignored, the run uses 7 and names this setting in its report.',
    'number', 'operational', 'number', 'Meetings', false, true, 'published'),
   ('meetings.followup_routine.record_ready_expiry_days', 'global', NULL, to_jsonb(7),
-   'Meetings follow-up routine: how many days a "Meeting record ready" card stays in the host''s bell before it expires. A number of days from 1 to 365; any other value is ignored, the run uses 7 and names this setting in its report.',
+   'Meetings follow-up routine: how many days a "Meeting record ready" card stays in the host''s bell before it expires. A number of days above 0 and no more than 365; part-days such as 0.5 count, and so does a number stored as text such as "7". Any other value is ignored, the run uses 7 and names this setting in its report.',
    'number', 'operational', 'number', 'Meetings', false, true, 'published'),
   ('meetings.followup_routine.digest_expiry_days', 'global', NULL, to_jsonb(8),
-   'Meetings follow-up routine: how many days the weekly open-follow-ups card stays in the host''s bell before it expires. 8 keeps last week''s card until the next one arrives. A number of days from 1 to 365; any other value is ignored, the run uses 8 and names this setting in its report.',
+   'Meetings follow-up routine: how many days the weekly open-follow-ups card stays in the host''s bell before it expires. 8 keeps last week''s card until the next one arrives. A number of days above 0 and no more than 365; part-days such as 0.5 count, and so does a number stored as text such as "7". Any other value is ignored, the run uses 8 and names this setting in its report.',
    'number', 'operational', 'number', 'Meetings', false, true, 'published')
 ON CONFLICT DO NOTHING;
 

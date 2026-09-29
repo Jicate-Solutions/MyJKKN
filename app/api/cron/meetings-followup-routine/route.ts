@@ -37,8 +37,8 @@
 //
 // PASS B HAS NO FLOOR. It reads every follow-up still open and older than the
 // stale window, however old. The first enabled run therefore sends each host
-// ONE digest card covering every old open follow-up at once (read 28 Sep: 61
-// open follow-ups older than 7 days, all under one host, oldest from 15 Sep).
+// ONE digest card covering every old open follow-up at once (read 29 Sep: 69
+// open follow-ups, 67 of them older than 7 days, all under one host).
 // One card per host, not one per item — a summary, not a flood.
 //
 // TUNABLES ARE CONFIG ROWS. Stale window, record-ready lookback and the two
@@ -313,7 +313,7 @@ export async function GET(request: NextRequest) {
       }
       const oldest = labelById.get(d.oldestBookingIds[0]);
       const res = await fanoutNotification(svc, {
-        title: digestTitle(d),
+        title: digestTitle(d, policies.staleDays),
         body: digestBody(
           d.oldestBookingIds.map((id) => labelById.get(id)?.title).filter((t): t is string => !!t),
         ),

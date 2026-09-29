@@ -16,7 +16,8 @@
 //
 // THE TUNABLES ARE CONFIG ROWS (docs/architecture/config-table-pattern.md).
 // Each knob below is a global platform_policies row seeded by migration
-// 20270421104700 and editable on Platform Policies without a deploy. The route
+// 20270421104700 (the four keys are in POLICY_KEYS). No page edits these rows
+// yet: a value changes only by a database update of its row. The route
 // reads them on every run; DEFAULT_POLICIES are only the values it falls back to
 // when a row is missing, switched off, or holds something unusable — and a row
 // that holds something unusable is named in the run's report, never dropped
@@ -234,10 +235,18 @@ export function buildHostDigests(items: OpenItem[], now: Date, staleDays: number
   return out;
 }
 
-export function digestTitle(d: HostDigest): string {
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/**
+ * "<n> follow-ups open for more than <d> days across <m> meetings, oldest <x>
+ * days". The digest counts ONLY items older than the stale window, so the title
+ * names that window (`staleDays`, the value this run used) — "<n> open
+ * follow-ups" alone would read as every open item.
+ */
+export function digestTitle(d: HostDigest, staleDays: number): string {
   return (
-    `${d.itemCount} open follow-up${d.itemCount === 1 ? '' : 's'} across ` +
-    `${d.meetingCount} meeting${d.meetingCount === 1 ? '' : 's'}, oldest ${d.oldestDays} days`
+    `${plural(d.itemCount, 'follow-up')} open for more than ${plural(staleDays, 'day')} ` +
+    `across ${plural(d.meetingCount, 'meeting')}, oldest ${plural(d.oldestDays, 'day')}`
   );
 }
 

@@ -24,6 +24,7 @@ import {
   selectRecordReadyNotes,
   type AppliedNote,
 } from '@/lib/services/meetings/meeting-followup-routine';
+import { MISC_AI_ROUTINES } from '@/lib/ai-routines/misc-ai';
 
 // ── fakes for the route ─────────────────────────────────────────────────────
 type Row = Record<string, unknown>;
@@ -191,7 +192,16 @@ describe('weekly digest grouping', () => {
       oldestDays: 30,
       oldestBookingIds: ['bB', 'bA'],
     });
-    expect(digestTitle(d[0])).toBe('3 open follow-ups across 2 meetings, oldest 30 days');
+    // The count is only the items past the stale window, so the title names it.
+    expect(digestTitle(d[0], 7)).toBe('3 follow-ups open for more than 7 days across 2 meetings, oldest 30 days');
+  });
+
+  it('title singular and plural are each correct, and it names the stale window in use', () => {
+    const one = { hostId: 'h1', itemCount: 1, meetingCount: 1, oldestDays: 1, oldestBookingIds: ['bA'] };
+    expect(digestTitle(one, 1)).toBe('1 follow-up open for more than 1 day across 1 meeting, oldest 1 day');
+    expect(digestTitle({ ...one, itemCount: 4, meetingCount: 2, oldestDays: 20 }, 14)).toBe(
+      '4 follow-ups open for more than 14 days across 2 meetings, oldest 20 days',
+    );
   });
 });
 
@@ -235,6 +245,30 @@ describe('tunables (platform_policies rows)', () => {
       POLICY_KEYS.recordReadyExpiryDays,
       POLICY_KEYS.digestExpiryDays,
     ]);
+  });
+
+  it('accepts exactly what the policy rows\' descriptions say: above 0 and at most 365, part-days and numbers as text included', () => {
+    const { policies, ignored } = readPolicies([
+      { policy_key: POLICY_KEYS.staleDays, value: 0.5, is_active: true },
+      { policy_key: POLICY_KEYS.recordReadyLookbackDays, value: '7', is_active: true },
+      { policy_key: POLICY_KEYS.recordReadyExpiryDays, value: 365, is_active: true },
+      { policy_key: POLICY_KEYS.digestExpiryDays, value: 365.5, is_active: true },
+    ]);
+    expect(policies).toEqual({
+      staleDays: 0.5,
+      recordReadyLookbackDays: 7,
+      recordReadyExpiryDays: 365,
+      digestExpiryDays: DEFAULT_POLICIES.digestExpiryDays,
+    });
+    expect(ignored).toEqual([POLICY_KEYS.digestExpiryDays]);
+  });
+
+  it('the routine catalog names all four keys and does not point at an editing page that does not exist', () => {
+    const entry = MISC_AI_ROUTINES.find((r) => r.id === 'meetings-followup-routine');
+    const knobs = entry?.configKnobs ?? '';
+    for (const key of Object.values(POLICY_KEYS)) expect(knobs).toContain(key);
+    expect(knobs).not.toMatch(/Platform Policies/i);
+    expect(knobs).toContain('database update');
   });
 
   it('the stale window follows the configured number of days', () => {
@@ -403,7 +437,7 @@ describe('route', () => {
     expect(body.digests).toBe(1);
     const calls = sentCalls();
     expect(calls).toHaveLength(1);
-    expect(calls[0].title).toBe('3 open follow-ups across 2 meetings, oldest 60 days');
+    expect(calls[0].title).toBe('3 follow-ups open for more than 7 days across 2 meetings, oldest 60 days');
     expect(calls[0].body).toBe(
       'Oldest: Kick-off; Meeting with Priya. Open each meeting to review them and mark the finished ones done.',
     );
@@ -446,7 +480,7 @@ describe('route', () => {
       'meetings:record-ready:inside',
       expect.stringMatching(/^meetings:followups:h1:\d{4}-W\d{2}$/),
     ]);
-    expect(calls[1].title).toBe('1 open follow-up across 1 meeting, oldest 25 days');
+    expect(calls[1].title).toBe('1 follow-up open for more than 20 days across 1 meeting, oldest 25 days');
     const expiresIn = (c: Record<string, unknown>) =>
       Date.parse((c.extraColumns as { expires_at: string }).expires_at) - before;
     expect(Math.round(expiresIn(calls[0]) / DAY)).toBe(3);
