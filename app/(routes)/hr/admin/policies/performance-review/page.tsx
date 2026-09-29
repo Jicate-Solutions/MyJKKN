@@ -53,6 +53,14 @@ interface PerfReviewValue {
   facilitator_grading_doc_ref: string | null;
   /** Written example required when Collegiality is rated Below. */
   collegiality_below_requires_example: boolean;
+  /** How each rating converts to points for promotion ordering. */
+  rating_points: { exceeds: number; meets: number; below: number };
+  /** Relative weight per area. 1 means it counts the same as the others. */
+  area_weights: { teaching: number; research: number; service: number; collegiality: number };
+  /** Collegiality is still rated, but stops moving the promotion score. */
+  exclude_collegiality_from_score: boolean;
+  /** A Below in any counted area stops the increment, whatever the score. */
+  below_blocks_increment: boolean;
 }
 
 const MONTHS = [
@@ -81,7 +89,16 @@ const DEFAULT_VALUE: PerfReviewValue = {
   final_approver: 'Director',
   facilitator_grading_doc_ref: null,
   collegiality_below_requires_example: true,
+  rating_points: { exceeds: 2, meets: 1, below: 0 },
+  area_weights: { teaching: 1, research: 1, service: 1, collegiality: 1 },
+  exclude_collegiality_from_score: false,
+  below_blocks_increment: false,
 };
+
+/** A stored value that is missing or not a finite number falls back. */
+function num(v: unknown, fallback: number): number {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : fallback;
+}
 
 function parseValue(raw: unknown): PerfReviewValue {
   const obj = (raw || {}) as Partial<PerfReviewValue>;
@@ -110,6 +127,20 @@ function parseValue(raw: unknown): PerfReviewValue {
     // so no existing policy row has to be edited.
     collegiality_below_requires_example:
       obj.collegiality_below_requires_example !== false,
+    rating_points: {
+      exceeds: num(obj.rating_points?.exceeds, 2),
+      meets: num(obj.rating_points?.meets, 1),
+      below: num(obj.rating_points?.below, 0),
+    },
+    area_weights: {
+      teaching: num(obj.area_weights?.teaching, 1),
+      research: num(obj.area_weights?.research, 1),
+      service: num(obj.area_weights?.service, 1),
+      collegiality: num(obj.area_weights?.collegiality, 1),
+    },
+    // Both default OFF — an absent key must never turn a rule on by itself.
+    exclude_collegiality_from_score: obj.exclude_collegiality_from_score === true,
+    below_blocks_increment: obj.below_blocks_increment === true,
   };
 }
 
@@ -232,6 +263,121 @@ function PerfReviewEditor({
               disabled={disabled}
               aria-label="Require a written example for a Below in Collegiality"
             />
+          </div>
+
+          {/* ---- How ratings turn into promotion points ------------------ */}
+          <div className="rounded-md border border-border p-4 space-y-4">
+            <div>
+              <Label className="text-sm font-semibold">
+                How ratings count towards promotion
+              </Label>
+              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                The appraisal itself is four words, not a score. Promotion still needs a way
+                to order two candidates, and this is it. All Meets comes to 50 out of 100,
+                all Exceeds to 100. Staff are never shown this number.
+              </p>
+            </div>
+
+            <div>
+              <div className="text-xs font-medium mb-2">Points per rating</div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {(['exceeds', 'meets', 'below'] as const).map((band) => (
+                  <div key={band}>
+                    <Label htmlFor={`pts-${band}`} className="text-xs capitalize">
+                      {band}
+                    </Label>
+                    <Input
+                      id={`pts-${band}`}
+                      type="number"
+                      min={0}
+                      step="0.5"
+                      value={value.rating_points[band]}
+                      disabled={disabled}
+                      onChange={(e) =>
+                        onChange({
+                          ...value,
+                          rating_points: {
+                            ...value.rating_points,
+                            [band]: Number(e.target.value),
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs font-medium mb-2">
+                Weight per area — 1 means it counts the same as the others
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {(['teaching', 'research', 'service', 'collegiality'] as const).map((area) => (
+                  <div key={area}>
+                    <Label htmlFor={`w-${area}`} className="text-xs capitalize">
+                      {area}
+                    </Label>
+                    <Input
+                      id={`w-${area}`}
+                      type="number"
+                      min={0}
+                      step="0.5"
+                      value={value.area_weights[area]}
+                      disabled={disabled}
+                      onChange={(e) =>
+                        onChange({
+                          ...value,
+                          area_weights: {
+                            ...value.area_weights,
+                            [area]: Number(e.target.value),
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-start justify-between gap-4 rounded-md bg-muted/40 p-3">
+              <div>
+                <div className="text-sm font-medium">
+                  Leave Collegiality out of the promotion score
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  It is still rated and still discussed at every stage. It just stops moving
+                  anyone up or down.
+                </p>
+              </div>
+              <Switch
+                checked={value.exclude_collegiality_from_score}
+                onCheckedChange={(c) =>
+                  onChange({ ...value, exclude_collegiality_from_score: c })
+                }
+                disabled={disabled}
+                aria-label="Exclude Collegiality from the promotion score"
+              />
+            </div>
+
+            <div className="flex items-start justify-between gap-4 rounded-md bg-muted/40 p-3">
+              <div>
+                <div className="text-sm font-medium">
+                  A &ldquo;Below&rdquo; in any counted area stops the increment
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  When ON, one Below blocks the increment outright, whatever the score comes
+                  to. The reviewer sees this before signing off, and the reason is recorded
+                  separately so a blocked increment is never mistaken for a low score.
+                </p>
+              </div>
+              <Switch
+                checked={value.below_blocks_increment}
+                onCheckedChange={(c) => onChange({ ...value, below_blocks_increment: c })}
+                disabled={disabled}
+                aria-label="A Below in any counted area stops the increment"
+              />
+            </div>
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">

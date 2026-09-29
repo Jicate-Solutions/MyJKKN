@@ -116,6 +116,21 @@ export const DEFAULT_RATING_POINTS: RatingPoints = {
 export interface AppraisalRatingPolicySlice {
   rating_points?: Partial<RatingPoints>;
   /**
+   * Relative weight per area. Absent, or an absent key, means 1 — every area
+   * counts the same, which is the default nobody has to think about.
+   */
+  area_weights?: Partial<Record<AppraisalArea, number>>;
+  /**
+   * Leave Collegiality out of the promotion score. It is still rated and still
+   * discussed at every tier; it just stops moving anyone up or down.
+   */
+  exclude_collegiality_from_score?: boolean;
+  /**
+   * A Below in any counted area stops the increment outright, whatever the
+   * score works out to. Off unless a college turns it on.
+   */
+  below_blocks_increment?: boolean;
+  /**
    * Require a written example when Collegiality is rated Below.
    * Absent means ON: the safeguard applies unless a college turns it off.
    */
@@ -125,6 +140,32 @@ export interface AppraisalRatingPolicySlice {
 /** The areas to rate. One accessor so no screen builds its own list. */
 export function resolveAreas(): AppraisalArea[] {
   return [...APPRAISAL_AREAS];
+}
+
+/** Default weight for an area nobody has weighted. */
+export const DEFAULT_AREA_WEIGHT = 1;
+
+/**
+ * The areas that actually move the promotion score. Every area is still rated
+ * and shown; this only decides what counts. Collegiality drops out when a
+ * college has excluded it.
+ */
+export function scoredAreas(
+  policy: AppraisalRatingPolicySlice | null | undefined,
+): AppraisalArea[] {
+  return policy?.exclude_collegiality_from_score === true
+    ? APPRAISAL_AREAS.filter((a) => a !== 'collegiality')
+    : [...APPRAISAL_AREAS];
+}
+
+/** Weight in force for one area. A missing, non-finite or negative weight is 1. */
+export function areaWeight(
+  area: AppraisalArea,
+  policy: AppraisalRatingPolicySlice | null | undefined,
+): number {
+  const w = policy?.area_weights?.[area];
+  if (typeof w !== 'number' || !Number.isFinite(w) || w < 0) return DEFAULT_AREA_WEIGHT;
+  return w;
 }
 
 /** Points in force, with any partial override applied over the defaults. */
@@ -196,16 +237,32 @@ export function deriveAppraisalScore(
   ratings: AppraisalRatingMap,
   areas: readonly AppraisalArea[],
   points: RatingPoints = DEFAULT_RATING_POINTS,
+  policy?: AppraisalRatingPolicySlice | null,
 ): number | null {
   if (areas.length === 0) return null;
+  // Completeness is judged on every rated area, not just the scored ones: an
+  // appraisal with Collegiality left blank is unfinished even where
+  // Collegiality does not count towards the score.
   if (!isComplete(ratings, areas)) return null;
+
+  const counted = policy ? areas.filter((a) => scoredAreas(policy).includes(a)) : areas;
+  if (counted.length === 0) return null;
 
   const best = Math.max(points.exceeds, points.meets, points.below);
   // A flat scale carries no information; refuse to invent a spread.
   if (!Number.isFinite(best) || best <= 0) return 0;
 
-  const earned = areas.reduce((sum, a) => sum + points[ratings[a] as AppraisalRating], 0);
-  const score = (earned / (areas.length * best)) * 100;
+  let earned = 0;
+  let available = 0;
+  for (const a of counted) {
+    const w = policy ? areaWeight(a, policy) : DEFAULT_AREA_WEIGHT;
+    earned += w * points[ratings[a] as AppraisalRating];
+    available += w * best;
+  }
+  // Every weight zero means nothing counts; refuse rather than divide by zero.
+  if (available <= 0) return 0;
+
+  const score = (earned / available) * 100;
   return Math.round(score * 100) / 100;
 }
 
@@ -276,4 +333,28 @@ export function parseCollegialityExample(
 ): string {
   const v = payload?.[COLLEGIALITY_EXAMPLE_FIELD];
   return typeof v === 'string' ? v : '';
+}
+
+// ---------------------------------------------------------------------------
+// Increment block
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether these ratings stop the increment outright.
+ *
+ * Off unless a college turns it on. When on, a Below in any area that COUNTS
+ * towards the score blocks it — an excluded Collegiality cannot block, because
+ * a college that took it out of the score has already said it should not move
+ * anyone's pay.
+ *
+ * This is a decision, not a score: it is deliberately separate from
+ * deriveAppraisalScore so a blocked increment still carries the real ratings
+ * rather than being flattened to a zero nobody can read back.
+ */
+export function incrementBlocked(
+  ratings: AppraisalRatingMap,
+  policy: AppraisalRatingPolicySlice | null | undefined,
+): boolean {
+  if (policy?.below_blocks_increment !== true) return false;
+  return scoredAreas(policy).some((a) => ratings[a] === 'below');
 }

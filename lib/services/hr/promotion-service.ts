@@ -14,6 +14,12 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  incrementBlocked,
+  parseRatings,
+  resolveAreas,
+  type AppraisalRatingPolicySlice,
+} from '@/lib/hr/appraisal-ratings';
 
 // ----------------------------------------------------------------------------
 // Policy shape (hr.promotion_policy JSONB)
@@ -189,7 +195,17 @@ export async function calculateMeritScore(
   supabase: SupabaseClient,
   staffId: string,
   policy: PromotionPolicy
-): Promise<{ score: number; review_count: number; lookback_years: number }> {
+): Promise<{
+  score: number;
+  review_count: number;
+  lookback_years: number;
+  /**
+   * True when a college has chosen that a Below stops the increment, and one
+   * of these appraisals has one. The score is then 0, but the reason is
+   * reported separately so "blocked" is never mistaken for "scored badly".
+   */
+  increment_blocked: boolean;
+}> {
   const lookbackYears = policy.delay_lookback_years;
   const cutoff = new Date();
   cutoff.setFullYear(cutoff.getFullYear() - lookbackYears);
@@ -197,7 +213,7 @@ export async function calculateMeritScore(
 
   const probe = await (supabase as any)
     .from('hr_performance_reviews')
-    .select('final_score, final_approved_at')
+    .select('final_score, final_approved_at, sedc_review_jsonb')
     .eq('staff_id', staffId)
     .eq('status', 'final_approved')
     .not('final_score', 'is', null)
@@ -210,12 +226,41 @@ export async function calculateMeritScore(
     // than swallowed: a query fault here is indistinguishable from "nobody has
     // been appraised", and that hid a broken read for months.
     console.error('[hr/promotion] merit read failed', probe.error);
-    return { score: 0, review_count: 0, lookback_years: lookbackYears };
+    return { score: 0, review_count: 0, lookback_years: lookbackYears, increment_blocked: false };
   }
 
-  const rows: Array<{ final_score: number | null }> = probe.data ?? [];
+  const rows: Array<{
+    final_score: number | null;
+    sedc_review_jsonb: Record<string, unknown> | null;
+  }> = probe.data ?? [];
   if (rows.length === 0) {
-    return { score: 0, review_count: 0, lookback_years: lookbackYears };
+    return { score: 0, review_count: 0, lookback_years: lookbackYears, increment_blocked: false };
+  }
+
+  // A college can decide that a Below stops the increment outright. That is a
+  // decision about the ratings, not about the number, so it is re-read from the
+  // ratings themselves rather than inferred from a low score.
+  let appraisalPolicy: AppraisalRatingPolicySlice | null = null;
+  try {
+    const { data } = await (supabase as any).rpc('fn_get_policy_json', {
+      p_key: 'hr.performance_review',
+    });
+    appraisalPolicy = (data as AppraisalRatingPolicySlice) ?? null;
+  } catch {
+    // No policy row reachable — the block is off by default, so nothing to do.
+  }
+
+  const areas = resolveAreas();
+  const blocked = rows.some((r) =>
+    incrementBlocked(parseRatings(r.sedc_review_jsonb, areas), appraisalPolicy),
+  );
+  if (blocked) {
+    return {
+      score: 0,
+      review_count: rows.length,
+      lookback_years: lookbackYears,
+      increment_blocked: true,
+    };
   }
 
   // final_score is the 0-100 figure derived from the ratings at sign-off.
@@ -230,6 +275,7 @@ export async function calculateMeritScore(
     score: Math.round(capped * 100) / 100,
     review_count: rows.length,
     lookback_years: lookbackYears,
+    increment_blocked: false,
   };
 }
 

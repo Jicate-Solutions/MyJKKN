@@ -117,6 +117,9 @@ export interface HRPerformanceReviewPolicy {
    * See lib/hr/appraisal-ratings.ts.
    */
   rating_points?: AppraisalRatingPolicySlice['rating_points'];
+  area_weights?: AppraisalRatingPolicySlice['area_weights'];
+  exclude_collegiality_from_score?: boolean;
+  below_blocks_increment?: boolean;
   collegiality_below_requires_example?: boolean;
 }
 
@@ -406,7 +409,7 @@ export class PerformanceReviewService {
     const policy = args.policy ?? (await this.getPolicy(supabase));
     const areas = resolveAreas();
     const ratings = parseRatings(current.sedc_review_jsonb, areas);
-    const derived = deriveAppraisalScore(ratings, areas, resolveRatingPoints(policy));
+    const derived = deriveAppraisalScore(ratings, areas, resolveRatingPoints(policy), policy);
     if (derived === null) {
       throw new Error(
         'The committee has not rated every area. Send this review back to the committee rather than approving it.',

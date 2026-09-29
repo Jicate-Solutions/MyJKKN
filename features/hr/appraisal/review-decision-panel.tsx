@@ -22,6 +22,7 @@ import {
   AREA_LABELS,
   collegialityExampleMissing,
   deriveAppraisalScore,
+  incrementBlocked,
   missingAreas,
   parseCollegialityExample,
   parseRatings,
@@ -71,8 +72,9 @@ export function ReviewDecisionPanel({
 
   const approvedRatings = isDirectorStep ? sedcRatings : ratings;
   const previewScore = deriveAppraisalScore(
-    approvedRatings, areas, resolveRatingPoints(policy),
+    approvedRatings, areas, resolveRatingPoints(policy), policy,
   );
+  const blocked = incrementBlocked(approvedRatings, policy);
 
   async function submitCommittee() {
     const unrated = missingAreas(ratings, areas);
@@ -222,6 +224,13 @@ export function ReviewDecisionPanel({
               : `Promotion reads this as ${previewScore} out of 100. That number exists only to ` +
                 'order candidates; it is not the appraisal result and is not shown to staff.'}
           </p>
+          {blocked && (
+            <p className="mt-2 font-medium text-amber-700 dark:text-amber-300">
+              These ratings stop the increment. This college has chosen that a Below in any
+              counted area blocks it, whatever the score comes to. Approving records that
+              outcome.
+            </p>
+          )}
         </div>
 
         <div className="flex flex-wrap gap-2 border-t pt-4">

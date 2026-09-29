@@ -40,7 +40,10 @@ interface Capture {
 }
 
 /** Minimal stub: records the query it was asked to build, returns fixed rows. */
-function stubClient(result: { data?: unknown[]; error?: unknown }) {
+function stubClient(
+  result: { data?: unknown[]; error?: unknown },
+  policy: Record<string, unknown> | null = null,
+) {
   const cap: Capture = { eq: [], not: [], gte: [] };
   const builder: Record<string, unknown> = {};
   const chain = () => builder;
@@ -51,7 +54,10 @@ function stubClient(result: { data?: unknown[]; error?: unknown }) {
     gte: (k: string, v: unknown) => { cap.gte.push([k, v]); return chain(); },
     limit: () => Promise.resolve(result),
   });
-  const client = { from: () => builder } as unknown as SupabaseClient;
+  const client = {
+    from: () => builder,
+    rpc: async () => ({ data: policy, error: null }),
+  } as unknown as SupabaseClient;
   return { client, cap };
 }
 
@@ -59,7 +65,7 @@ describe('calculateMeritScore', () => {
   it('reads columns that actually exist on the table', async () => {
     const { client, cap } = stubClient({ data: [] });
     await calculateMeritScore(client, 'staff-1', POLICY);
-    expect(cap.columns).toBe('final_score, final_approved_at');
+    expect(cap.columns).toBe('final_score, final_approved_at, sedc_review_jsonb');
     // The two columns that never existed must not come back.
     expect(cap.columns).not.toContain('appraisal_score');
     expect(cap.columns).not.toContain('review_period_end');
@@ -107,7 +113,9 @@ describe('calculateMeritScore', () => {
   it('returns 0 when nobody has been appraised', async () => {
     const { client } = stubClient({ data: [] });
     const r = await calculateMeritScore(client, 'staff-1', POLICY);
-    expect(r).toEqual({ score: 0, review_count: 0, lookback_years: 5 });
+    expect(r).toEqual({
+      score: 0, review_count: 0, lookback_years: 5, increment_blocked: false,
+    });
   });
 
   it('returns 0 when the table is absent, without inventing a score', async () => {
@@ -118,5 +126,69 @@ describe('calculateMeritScore', () => {
   it('treats a null score as zero rather than NaN', async () => {
     const { client } = stubClient({ data: [{ final_score: null }, { final_score: 100 }] });
     expect((await calculateMeritScore(client, 'staff-1', POLICY)).score).toBe(5);
+  });
+});
+
+describe('a Below blocking the increment (configurable per college)', () => {
+  const belowService = {
+    ratings: { teaching: 'meets', research: 'meets', service: 'below', collegiality: 'meets' },
+  };
+  const allMeets = {
+    ratings: { teaching: 'meets', research: 'meets', service: 'meets', collegiality: 'meets' },
+  };
+
+  it('does nothing unless the college turned it on', async () => {
+    const { client } = stubClient(
+      { data: [{ final_score: 50, sedc_review_jsonb: belowService }] }, null,
+    );
+    const r = await calculateMeritScore(client, 'staff-1', POLICY);
+    expect(r.increment_blocked).toBe(false);
+    expect(r.score).toBe(5);
+  });
+
+  it('zeroes the merit and says WHY when the college turned it on', async () => {
+    const { client } = stubClient(
+      { data: [{ final_score: 50, sedc_review_jsonb: belowService }] },
+      { below_blocks_increment: true },
+    );
+    const r = await calculateMeritScore(client, 'staff-1', POLICY);
+    expect(r.increment_blocked).toBe(true);
+    expect(r.score).toBe(0);
+    // "blocked" must be distinguishable from "scored badly".
+    expect(r.review_count).toBe(1);
+  });
+
+  it('leaves a clean record alone even with the rule on', async () => {
+    const { client } = stubClient(
+      { data: [{ final_score: 50, sedc_review_jsonb: allMeets }] },
+      { below_blocks_increment: true },
+    );
+    const r = await calculateMeritScore(client, 'staff-1', POLICY);
+    expect(r.increment_blocked).toBe(false);
+    expect(r.score).toBe(5);
+  });
+
+  it('cannot be triggered by a Collegiality the college excluded from the score', async () => {
+    const belowCollegiality = {
+      ratings: { teaching: 'meets', research: 'meets', service: 'meets', collegiality: 'below' },
+    };
+    const { client } = stubClient(
+      { data: [{ final_score: 50, sedc_review_jsonb: belowCollegiality }] },
+      { below_blocks_increment: true, exclude_collegiality_from_score: true },
+    );
+    expect((await calculateMeritScore(client, 'staff-1', POLICY)).increment_blocked).toBe(false);
+  });
+
+  it('blocks on ANY appraisal in the window, not just the latest', async () => {
+    const { client } = stubClient(
+      {
+        data: [
+          { final_score: 100, sedc_review_jsonb: allMeets },
+          { final_score: 40, sedc_review_jsonb: belowService },
+        ],
+      },
+      { below_blocks_increment: true },
+    );
+    expect((await calculateMeritScore(client, 'staff-1', POLICY)).increment_blocked).toBe(true);
   });
 });

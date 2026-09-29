@@ -16,6 +16,10 @@
 import { describe, it, expect } from 'vitest';
 import {
   APPRAISAL_AREAS,
+  DEFAULT_AREA_WEIGHT,
+  areaWeight,
+  incrementBlocked,
+  scoredAreas,
   DEFAULT_RATING_POINTS,
   collegialityExampleMissing,
   collegialityExampleRequired,
@@ -167,5 +171,105 @@ describe('collegiality safeguard', () => {
     expect(parseCollegialityExample({ collegiality_example: 'text' })).toBe('text');
     expect(parseCollegialityExample(null)).toBe('');
     expect(parseCollegialityExample({ collegiality_example: 5 })).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Configurable promotion rule (Director, 29 Sep) — defaults must not move
+// ---------------------------------------------------------------------------
+
+describe('area weights', () => {
+  it('defaults to equal weight when nothing is configured', () => {
+    for (const a of AREAS) expect(areaWeight(a, null)).toBe(DEFAULT_AREA_WEIGHT);
+    expect(areaWeight('teaching', { area_weights: {} })).toBe(1);
+  });
+
+  it('ignores a nonsense weight rather than scoring on it', () => {
+    expect(areaWeight('teaching', { area_weights: { teaching: -3 } })).toBe(1);
+    expect(areaWeight('teaching', { area_weights: { teaching: NaN } })).toBe(1);
+  });
+
+  it('doubling Teaching moves the score the way you would expect', () => {
+    const onlyTeachingHigh: AppraisalRatingMap = {
+      teaching: 'exceeds', research: 'meets', service: 'meets', collegiality: 'meets',
+    };
+    const equal = deriveAppraisalScore(onlyTeachingHigh, AREAS, DEFAULT_RATING_POINTS, {});
+    const weighted = deriveAppraisalScore(
+      onlyTeachingHigh, AREAS, DEFAULT_RATING_POINTS, { area_weights: { teaching: 2 } },
+    );
+    expect(equal).toBe(62.5);
+    expect(weighted).toBeGreaterThan(equal!);
+    expect(weighted).toBe(70);
+  });
+
+  it('still gives 50 for all Meets and 100 for all Exceeds under any weights', () => {
+    const pol = { area_weights: { teaching: 3, research: 0.5, service: 2, collegiality: 1 } };
+    expect(deriveAppraisalScore(all('meets'), AREAS, DEFAULT_RATING_POINTS, pol)).toBe(50);
+    expect(deriveAppraisalScore(all('exceeds'), AREAS, DEFAULT_RATING_POINTS, pol)).toBe(100);
+    expect(deriveAppraisalScore(all('below'), AREAS, DEFAULT_RATING_POINTS, pol)).toBe(0);
+  });
+
+  it('refuses rather than dividing by zero when every weight is zero', () => {
+    const zero = { area_weights: { teaching: 0, research: 0, service: 0, collegiality: 0 } };
+    expect(deriveAppraisalScore(all('exceeds'), AREAS, DEFAULT_RATING_POINTS, zero)).toBe(0);
+  });
+});
+
+describe('excluding Collegiality from the score', () => {
+  it('counts all four by default', () => {
+    expect(scoredAreas(null)).toEqual(['teaching', 'research', 'service', 'collegiality']);
+  });
+
+  it('drops only Collegiality when excluded', () => {
+    expect(scoredAreas({ exclude_collegiality_from_score: true }))
+      .toEqual(['teaching', 'research', 'service']);
+  });
+
+  it('stops a Below in Collegiality from moving the score', () => {
+    const r: AppraisalRatingMap = {
+      teaching: 'exceeds', research: 'exceeds', service: 'exceeds', collegiality: 'below',
+    };
+    expect(deriveAppraisalScore(r, AREAS, DEFAULT_RATING_POINTS, {})).toBe(75);
+    expect(
+      deriveAppraisalScore(r, AREAS, DEFAULT_RATING_POINTS, { exclude_collegiality_from_score: true }),
+    ).toBe(100);
+  });
+
+  it('still demands Collegiality be rated before the appraisal can be scored', () => {
+    const missing: AppraisalRatingMap = {
+      teaching: 'meets', research: 'meets', service: 'meets',
+    };
+    expect(
+      deriveAppraisalScore(missing, AREAS, DEFAULT_RATING_POINTS, { exclude_collegiality_from_score: true }),
+    ).toBeNull();
+  });
+});
+
+describe('a Below blocking the increment', () => {
+  it('is off unless a college turns it on', () => {
+    expect(incrementBlocked({ ...all('meets'), teaching: 'below' }, null)).toBe(false);
+    expect(incrementBlocked({ ...all('meets'), teaching: 'below' }, {})).toBe(false);
+  });
+
+  it('blocks on a Below in any counted area when on', () => {
+    const pol = { below_blocks_increment: true };
+    expect(incrementBlocked(all('meets'), pol)).toBe(false);
+    expect(incrementBlocked({ ...all('meets'), service: 'below' }, pol)).toBe(true);
+    expect(incrementBlocked({ ...all('exceeds'), research: 'below' }, pol)).toBe(true);
+  });
+
+  it('cannot be triggered by an area the college took out of the score', () => {
+    const pol = { below_blocks_increment: true, exclude_collegiality_from_score: true };
+    expect(incrementBlocked({ ...all('meets'), collegiality: 'below' }, pol)).toBe(false);
+    expect(incrementBlocked({ ...all('meets'), teaching: 'below' }, pol)).toBe(true);
+  });
+
+  it('is separate from the score, so a blocked appraisal keeps its real ratings', () => {
+    const pol = { below_blocks_increment: true };
+    const r: AppraisalRatingMap = {
+      teaching: 'exceeds', research: 'exceeds', service: 'exceeds', collegiality: 'below',
+    };
+    expect(incrementBlocked(r, pol)).toBe(true);
+    expect(deriveAppraisalScore(r, AREAS, DEFAULT_RATING_POINTS, pol)).toBe(75);
   });
 });
