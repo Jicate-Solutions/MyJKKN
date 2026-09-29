@@ -3852,8 +3852,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             pathname.startsWith('/learners/onboarding'),
           icon: ClipboardCheck,
           submenus: [
-            { href: '/learners/enquiries', label: 'All Admitted', active: pathname === '/learners/enquiries' },
-            { href: '/learners/enquiries/new', label: 'New Admitted', active: pathname === '/learners/enquiries/new' },
+            { href: '/learners/enquiries', label: 'All Admissions', active: pathname === '/learners/enquiries' },
+            { href: '/learners/enquiries/new', label: 'New Enquiries', active: pathname === '/learners/enquiries/new' },
             { href: '/learners/onboarding', label: 'Onboarding', active: pathname.startsWith('/learners/onboarding') },
           ]
         },
