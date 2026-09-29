@@ -7251,6 +7251,36 @@ CREATE POLICY platform_policies_social_attr_update ON public.platform_policies
     AND user_has_permission('social.attribution.edit')
   );
 
+-- ── Pay rows readable only with the salary key ──────────────────────────────
+-- Updated: 2026-09-29 - Mirror of 20270506090000_hr_pay_policies_readable_only_with_salary_view.sql
+--   (FILE ONLY, not applied). platform_policies_select is `auth.uid() IS NOT NULL`,
+--   so every signed-in account could read every college's pay matrix. These
+--   RESTRICTIVE policies are ANDed with every permissive SELECT policy: for the two
+--   pay keys a row needs admin or hr.payroll.salary.view; every other key is unchanged.
+DROP POLICY IF EXISTS platform_policies_pay_keys_restricted ON public.platform_policies;
+CREATE POLICY platform_policies_pay_keys_restricted ON public.platform_policies
+  AS RESTRICTIVE
+  FOR SELECT
+  TO authenticated, anon
+  USING (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments')
+    OR (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (SELECT public.user_has_permission('hr.payroll.salary.view'))
+  );
+
+DROP POLICY IF EXISTS hr_policy_audit_log_pay_keys_restricted ON public.hr_policy_audit_log;
+CREATE POLICY hr_policy_audit_log_pay_keys_restricted ON public.hr_policy_audit_log
+  AS RESTRICTIVE
+  FOR SELECT
+  TO authenticated, anon
+  USING (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments')
+    OR (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (SELECT public.user_has_permission('hr.payroll.salary.view'))
+  );
+
 -- =====================================================================
 -- Global Calendar module (Phase 1) — mirror of 20260623100000_calendar_module_tables.sql
 -- =====================================================================

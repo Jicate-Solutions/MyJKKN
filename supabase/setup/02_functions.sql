@@ -10997,12 +10997,35 @@ GRANT EXECUTE ON FUNCTION fn_notification_is_for_user(JSONB, UUID) TO authentica
 -- 20260424_bos_align_institutions_id_and_drop_expert_fk.sql).
 -- ============================================================================
 
--- Resolution priority: user-override > institution-override > role-override > global default
-CREATE OR REPLACE FUNCTION fn_get_policy(p_key TEXT, p_scope_id UUID DEFAULT NULL)
-RETURNS JSONB
-LANGUAGE SQL STABLE SECURITY DEFINER
-SET search_path = public, pg_temp
-AS $$
+-- Resolution priority: user > cohort(scope_id) > institution > role > cohort(default) > global
+-- Updated: 2026-09-29 - Mirror of 20270506090000_hr_pay_policies_readable_only_with_salary_view.sql
+--   (FILE ONLY, not applied). plpgsql so it can RAISE: the pay keys hr.pay_scales and
+--   hr.allowances_and_increments raise 42501 for a signed-in caller without
+--   hr.payroll.salary.view (or admin). The SELECT is the 20260731180000 body, which also
+--   brings this mirror up to date with cohort scope. Callers with no signed-in user
+--   (service role, cron) are unaffected; anon has no EXECUTE.
+CREATE OR REPLACE FUNCTION public.fn_get_policy(p_key text, p_scope_id uuid DEFAULT NULL::uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $function$
+BEGIN
+  IF p_key IN ('hr.pay_scales', 'hr.allowances_and_increments') THEN
+    IF auth.uid() IS NOT NULL
+       AND NOT (
+         public.is_super_admin()
+         OR public.is_admin()
+         OR public.user_has_permission('hr.payroll.salary.view')
+       )
+    THEN
+      RAISE EXCEPTION 'You do not have access to the pay policy % (it needs hr.payroll.salary.view).', p_key
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  RETURN (
   SELECT value FROM platform_policies
   WHERE policy_key = p_key AND is_active = true
     AND (
@@ -11015,16 +11038,25 @@ AS $$
             )
           ))
       OR (scope_type='user' AND scope_id=auth.uid())
+      -- cohort scope: the caller passes the batch's cohorts.id as p_scope_id.
+      OR (scope_type='cohort' AND scope_id=p_scope_id)
+      -- ...falling back to the programme-wide cohort default.
+      OR (scope_type='cohort' AND scope_id IS NULL)
     )
   ORDER BY
-    CASE scope_type
-      WHEN 'user' THEN 1
-      WHEN 'institution' THEN 2
-      WHEN 'role' THEN 3
-      WHEN 'global' THEN 4
+    CASE
+      WHEN scope_type = 'user'                                  THEN 1
+      WHEN scope_type = 'cohort' AND scope_id IS NOT NULL        THEN 2
+      WHEN scope_type = 'institution'                            THEN 3
+      WHEN scope_type = 'role'                                   THEN 4
+      WHEN scope_type = 'cohort' AND scope_id IS NULL            THEN 5
+      WHEN scope_type = 'global'                                 THEN 6
+      ELSE 99
     END
-  LIMIT 1;
-$$;
+  LIMIT 1
+  );
+END;
+$function$;
 
 CREATE OR REPLACE FUNCTION fn_get_policy_int(p_key TEXT, p_default INT, p_scope_id UUID DEFAULT NULL)
 RETURNS INT
