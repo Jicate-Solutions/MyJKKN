@@ -2,6 +2,8 @@
 -- HR appraisals — pin WHICH COLUMNS each tier may write.
 --
 -- Updated: 2026-09-29
+-- Updated: 2026-09-29 (round-4 review) - the Collegiality setting is read for
+--   the appraised person's college, not group-wide only.
 --
 -- WHY THIS IS SEPARATE FROM 20270501090000
 -- Row-level security is exactly that: row level. The policies in the previous
@@ -67,8 +69,18 @@ BEGIN
   -- Absent key means ON, matching lib/hr/appraisal-ratings.ts. If the policy
   -- cannot be read at all we keep the safeguard on: a rule about fairness
   -- should not switch itself off because a lookup failed.
+  --
+  -- Read for the college of the person being appraised, never the writer's
+  -- and never group-wide only. A college may switch the safeguard off (the
+  -- Director's 29 Sep ruling); a college with no row of its own falls back
+  -- to the group value inside fn_get_policy. Before this, no college was
+  -- passed at all, so the group value always won.
   BEGIN
-    v_policy := fn_get_policy_json('hr.performance_review');
+    v_policy := fn_get_policy_json(
+      'hr.performance_review',
+      NULL,
+      (SELECT s.institution_id FROM public.staff s WHERE s.id = NEW.staff_id)
+    );
   EXCEPTION WHEN OTHERS THEN
     v_policy := NULL;
   END;

@@ -22,6 +22,13 @@
 --
 -- Safe to apply: the column is nullable with no backfill, and the new
 -- policies are PERMISSIVE, so they widen who may write and take nothing away.
+--
+-- Updated: 2026-09-29 (round-4 review) - the open-round check now lives in
+-- one function, fn_hr_appraisal_round_is_open, used by all three write
+-- policies. The head of department's policy gained it too: a locked round
+-- means no edits by staff or supervisor, and without it a head could send an
+-- appraisal back after HR locked the round, leaving the person unable to
+-- resubmit.
 -- ===========================================================================
 
 -- ---------------------------------------------------------------------------
@@ -113,6 +120,42 @@ CREATE POLICY "hr_performance_review_cycles_select"
 --    this is the same rule enforced where it cannot be bypassed.
 -- ---------------------------------------------------------------------------
 
+-- ---------------------------------------------------------------------------
+-- 4a) One round check, used by every write policy below.
+--
+--     True when the appraisal's round is OPEN and belongs to the person's own
+--     college or to the whole group. It used to be written out twice, word for
+--     word; a third copy was needed for the head of department, so it is one
+--     function now and the three policies cannot drift apart.
+--
+--     SECURITY INVOKER on purpose: it reads only rows the caller can already
+--     see (their round and their own or their team member's staff row), which
+--     is exactly what the inline subquery did. Row-level security still
+--     applies inside it.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_hr_appraisal_round_is_open(
+  p_cycle_id uuid,
+  p_staff_id uuid
+)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.hr_performance_review_cycles c
+    JOIN public.staff s ON s.id = p_staff_id
+    WHERE c.id = p_cycle_id
+      AND c.status = 'open'
+      AND (c.institution_id IS NULL OR c.institution_id = s.institution_id)
+  );
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_appraisal_round_is_open(uuid, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_appraisal_round_is_open(uuid, uuid) TO authenticated, service_role;
+
 -- Staff: create their own appraisal row.
 DROP POLICY IF EXISTS "hr_performance_reviews_self_insert"
   ON public.hr_performance_reviews;
@@ -125,13 +168,7 @@ CREATE POLICY "hr_performance_reviews_self_insert"
     -- Only into a round that is OPEN and belongs to the person's own college
     -- or to the whole group (round-3 review: nothing stopped an insert into
     -- another college's round, or a locked/closed one).
-    AND cycle_id IN (
-      SELECT c.id
-      FROM public.hr_performance_review_cycles c
-      JOIN public.staff s ON s.id = hr_performance_reviews.staff_id
-      WHERE c.status = 'open'
-        AND (c.institution_id IS NULL OR c.institution_id = s.institution_id)
-    )
+    AND public.fn_hr_appraisal_round_is_open(cycle_id, staff_id)
   );
 
 -- Staff: edit their own appraisal while it is still a draft, and submit it.
@@ -152,17 +189,14 @@ CREATE POLICY "hr_performance_reviews_self_update"
     -- only while the round is OPEN and is their own college's or the group's.
     -- Without it, a draft could be moved into another college's round, or
     -- submitted after HR locked the round.
-    AND cycle_id IN (
-      SELECT c.id
-      FROM public.hr_performance_review_cycles c
-      JOIN public.staff s ON s.id = hr_performance_reviews.staff_id
-      WHERE c.status = 'open'
-        AND (c.institution_id IS NULL OR c.institution_id = s.institution_id)
-    )
+    AND public.fn_hr_appraisal_round_is_open(cycle_id, staff_id)
   );
 
 -- Head of department: review an appraisal from their own department once it
 -- has been submitted. They may pass it on, or send it back to the person.
+-- Only while the round is OPEN (round-4 review). A locked round is the
+-- committee's phase; a head sending an appraisal back then would strand it,
+-- because the person's own update rule refuses a locked round.
 DROP POLICY IF EXISTS "hr_performance_reviews_hod_update"
   ON public.hr_performance_reviews;
 CREATE POLICY "hr_performance_reviews_hod_update"
@@ -174,6 +208,7 @@ CREATE POLICY "hr_performance_reviews_hod_update"
       WHERE d.head_of_department_id = (SELECT auth.uid())
     )
     AND status = 'self_submitted'
+    AND public.fn_hr_appraisal_round_is_open(cycle_id, staff_id)
   ) WITH CHECK (
     staff_id IN (
       SELECT s.id
@@ -182,6 +217,7 @@ CREATE POLICY "hr_performance_reviews_hod_update"
       WHERE d.head_of_department_id = (SELECT auth.uid())
     )
     AND status IN ('self_submitted', 'supervisor_reviewed', 'draft')
+    AND public.fn_hr_appraisal_round_is_open(cycle_id, staff_id)
   );
 
 COMMENT ON TABLE public.hr_performance_reviews IS

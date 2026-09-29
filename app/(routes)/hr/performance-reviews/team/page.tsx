@@ -14,7 +14,7 @@
 
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -91,6 +91,9 @@ export default function HrSupervisorTeamReviewPage() {
   const [submitting, setSubmitting] = useState(false);
   const [sendBackReason, setSendBackReason] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // Which appraisal the policy being loaded belongs to, so a slow reply for
+  // one person cannot land after the head has opened someone else.
+  const policyFor = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -123,8 +126,6 @@ export default function HrSupervisorTeamReviewPage() {
         setOpenCycle(open);
         if (open) {
           const rs = await PerformanceReviewService.listTeamReviews(supabase, open.id);
-          const pol = await PerformanceReviewService.getPolicy(supabase);
-          setPolicy(pol);
           if (cancelled) return;
           setReviews(rs);
         } else {
@@ -159,12 +160,26 @@ export default function HrSupervisorTeamReviewPage() {
   function openReview(r: HRPerformanceReview) {
     setSelected(r);
     setForm(coerceShape(r.supervisor_review_jsonb));
+    // The rules that apply are those of the person's own college, not the
+    // head's and not the group's. Cleared first so a previous person's
+    // settings are never applied to this one while the read is in flight.
+    setPolicy(null);
+    policyFor.current = r.id;
+    PerformanceReviewService.getPolicyForStaff(supabase, r.staff_id)
+      .then((pol) => {
+        if (policyFor.current === r.id) setPolicy(pol);
+      })
+      .catch(() => {
+        // Left null: the example stays required, the stricter default.
+      });
   }
 
   function closeReview() {
     setSelected(null);
     setForm(EMPTY);
     setSendBackReason('');
+    setPolicy(null);
+    policyFor.current = null;
   }
 
   // The head's other choice: return the self-appraisal to the person to
@@ -229,6 +244,10 @@ export default function HrSupervisorTeamReviewPage() {
       setSubmitting(false);
     }
   }
+
+  // A locked round is the committee's phase: the database refuses a head's
+  // changes then, so the buttons say so instead of failing on click.
+  const roundOpen = openCycle?.status === 'open';
 
   const pending = reviews.filter((r) => r.status === 'self_submitted');
   const others = reviews.filter((r) => r.status !== 'self_submitted');
@@ -313,7 +332,13 @@ export default function HrSupervisorTeamReviewPage() {
                   />
                 </div>
 
-                <Button onClick={submitReview} disabled={submitting}>
+                {!roundOpen && (
+                  <p className="text-xs text-muted-foreground">
+                    This round is locked, so reviews can no longer be submitted or sent back.
+                    Ask HR to reopen it if something still needs to change.
+                  </p>
+                )}
+                <Button onClick={submitReview} disabled={submitting || !roundOpen}>
                   <Send className="h-4 w-4" />
                   <span className="ml-2">{submitting ? 'Submitting…' : 'Submit to SEDC'}</span>
                 </Button>
@@ -334,7 +359,11 @@ export default function HrSupervisorTeamReviewPage() {
                     onChange={(e) => setSendBackReason(e.target.value)}
                     placeholder="For example: attach the evidence for March, with dates."
                   />
-                  <Button variant="outline" onClick={sendBackToPerson} disabled={submitting}>
+                  <Button
+                    variant="outline"
+                    onClick={sendBackToPerson}
+                    disabled={submitting || !roundOpen}
+                  >
                     <Undo2 className="h-4 w-4" />
                     <span className="ml-2">Send back to the person</span>
                   </Button>

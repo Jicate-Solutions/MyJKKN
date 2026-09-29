@@ -21,8 +21,12 @@
  *
  *   Policy reader:
  *     getPolicy             — reads hr.performance_review from platform_policies
- *                             via fn_get_policy_json. Single source of truth for
- *                             cycle dates + eligibility (min_service_months).
+ *                             via fn_get_policy_json, for one college (falls
+ *                             back to the group value). Single source of truth
+ *                             for cycle dates + eligibility (min_service_months).
+ *     getPolicyForStaff     — the same, for the college of the person being
+ *                             appraised. Every rule applied TO an appraisal
+ *                             must be read this way.
  *
  * Spec: specs/hr-module-decomposition-2026-05-09.md (T5.1)
  */
@@ -145,6 +149,17 @@ const ALLOWED_TRANSITIONS: Record<ReviewStatus, ReadonlyArray<ReviewStatus>> = {
   final_approved: [], // terminal
 };
 
+/**
+ * The one step a send-back may return to, from each status. A send-back is
+ * only ever one step backward; anything else is a forward move, or a skip,
+ * wearing a send-back's note.
+ */
+const SEND_BACK_TO: Partial<Record<ReviewStatus, ReviewStatus>> = {
+  self_submitted: 'draft',
+  supervisor_reviewed: 'self_submitted',
+  sedc_reviewed: 'supervisor_reviewed',
+};
+
 function assertTransition(from: ReviewStatus, to: ReviewStatus): void {
   if (!ALLOWED_TRANSITIONS[from].includes(to)) {
     throw new Error(
@@ -166,16 +181,49 @@ export class PerformanceReviewService {
   /**
    * Reads `hr.performance_review` from platform_policies via fn_get_policy_json.
    * Returns null when the policy row is not yet seeded (e.g. before M6a #900).
+   *
+   * `institutionId` is the college whose settings apply. The settings page
+   * saves this policy per college, and the resolver returns that college's
+   * row, or the group row when the college has none. Called with no college,
+   * only the group row is ever read, so a college's own setting is ignored:
+   * pass null only where no single college is involved (the round list).
    */
   static async getPolicy(
     supabase: SupabaseClient,
+    institutionId: string | null = null,
   ): Promise<HRPerformanceReviewPolicy | null> {
     const { data, error } = await supabase.rpc('fn_get_policy_json', {
       p_key: 'hr.performance_review',
+      p_scope_id: institutionId,
     });
     if (error) throw error;
     if (!data) return null;
     return data as HRPerformanceReviewPolicy;
+  }
+
+  /**
+   * The settings for the college of the person being appraised. This is the
+   * read every screen that applies a rule TO an appraisal must use: the head,
+   * the committee and the Director may all sit in a different college, or
+   * look at a group-wide round that spans several.
+   *
+   * If the viewer cannot read that person's staff row, this falls back to the
+   * group value. The database guard still applies the person's own college,
+   * so the worst case is a screen that asks for an example the database would
+   * not have required, or the reverse, which the database then refuses.
+   */
+  static async getPolicyForStaff(
+    supabase: SupabaseClient,
+    staffId: string,
+  ): Promise<HRPerformanceReviewPolicy | null> {
+    const { data, error } = await supabase
+      .from('staff')
+      .select('institution_id')
+      .eq('id', staffId)
+      .maybeSingle();
+    if (error) throw error;
+    const institutionId = (data as { institution_id: string | null } | null)?.institution_id ?? null;
+    return this.getPolicy(supabase, institutionId);
   }
 
   // -----------------------------------------------------------------------
@@ -421,6 +469,11 @@ export class PerformanceReviewService {
    *
    * Throws when any area is unrated, so an incomplete appraisal cannot be
    * closed with a number that looks decided.
+   *
+   * The scoring rule (points per rating, area weights) is read here for the
+   * person's own college, every time. It used to accept a policy from the
+   * screen, which had read the group value; the stored score would then have
+   * followed the group's rule even where the college had its own.
    */
   static async finalApprove(
     supabase: SupabaseClient,
@@ -428,8 +481,6 @@ export class PerformanceReviewService {
     args: {
       final_remarks: string;
       approver_profile_id: string;
-      /** Pass the already-loaded policy to avoid a second round trip. */
-      policy?: HRPerformanceReviewPolicy | null;
     },
   ): Promise<HRPerformanceReview> {
     const current = await this.requireReview(supabase, reviewId);
@@ -438,7 +489,7 @@ export class PerformanceReviewService {
     // The approved ratings ARE the committee's normalised ratings. The
     // Director's decision at this step is approve or send back, so nothing is
     // re-rated here and no tier's payload is written over by another.
-    const policy = args.policy ?? (await this.getPolicy(supabase));
+    const policy = await this.getPolicyForStaff(supabase, current.staff_id);
     const areas = resolveAreas();
     const ratings = parseRatings(current.sedc_review_jsonb, areas);
     const derived = deriveAppraisalScore(ratings, areas, resolveRatingPoints(policy), policy);
@@ -469,6 +520,11 @@ export class PerformanceReviewService {
    * it. Without this the Director's single option at sign-off would be to
    * approve, which makes the sign-off meaningless. Uses the same transition
    * table as the forward path, so it can never skip a tier.
+   *
+   * It also refuses anything that is not exactly one step BACKWARD. The
+   * transition table alone would accept a forward move here, and that move
+   * would then carry a send-back note and a `sent_back_by` stamp, so a
+   * screen would show an approval as a rejection (round-4 review).
    */
   static async sendBack(
     supabase: SupabaseClient,
@@ -477,6 +533,12 @@ export class PerformanceReviewService {
     reason: string,
   ): Promise<HRPerformanceReview> {
     const current = await this.requireReview(supabase, reviewId);
+    if (SEND_BACK_TO[current.status] !== to) {
+      throw new Error(
+        `A send-back must go one step back. From ${current.status} that is ` +
+          `${SEND_BACK_TO[current.status] ?? '(nothing: it cannot be sent back)'}, not ${to}.`,
+      );
+    }
     assertTransition(current.status, to);
     if (!reason.trim()) {
       throw new Error('Say why it is going back — the next reviewer has to act on it.');

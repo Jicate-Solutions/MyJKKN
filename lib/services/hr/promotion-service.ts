@@ -194,7 +194,14 @@ export async function getPromotionPolicy(
 export async function calculateMeritScore(
   supabase: SupabaseClient,
   staffId: string,
-  policy: PromotionPolicy
+  policy: PromotionPolicy,
+  /**
+   * The college of the person being scored (their staff row's
+   * institution_id). Required on purpose: whether a Below blocks the
+   * increment is set per college, and a missing college silently reads the
+   * group value instead.
+   */
+  institutionId: string | null
 ): Promise<{
   score: number;
   review_count: number;
@@ -249,6 +256,7 @@ export async function calculateMeritScore(
   try {
     const { data } = await (supabase as any).rpc('fn_get_policy_json', {
       p_key: 'hr.performance_review',
+      p_scope_id: institutionId,
     });
     appraisalPolicy = (data as AppraisalRatingPolicySlice) ?? null;
   } catch {

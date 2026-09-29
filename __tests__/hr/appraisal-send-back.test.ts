@@ -142,26 +142,105 @@ describe('a person can only file into an open round of their own college or the 
   const sql = read(
     'supabase/migrations/20270501090000_hr_appraisal_cycle_institution_and_writer_policies.sql',
   );
+  const fn = sql.slice(
+    sql.indexOf('CREATE OR REPLACE FUNCTION public.fn_hr_appraisal_round_is_open'),
+    sql.indexOf('REVOKE EXECUTE ON FUNCTION public.fn_hr_appraisal_round_is_open'),
+  );
   const insert = sql.slice(
     sql.indexOf('CREATE POLICY "hr_performance_reviews_self_insert"'),
     sql.indexOf('DROP POLICY IF EXISTS "hr_performance_reviews_self_update"'),
   );
+  const update = sql.slice(
+    sql.indexOf('CREATE POLICY "hr_performance_reviews_self_update"'),
+    sql.indexOf('DROP POLICY IF EXISTS "hr_performance_reviews_hod_update"'),
+  );
+  const hod = sql.slice(
+    sql.indexOf('CREATE POLICY "hr_performance_reviews_hod_update"'),
+    sql.indexOf('COMMENT ON TABLE public.hr_performance_reviews'),
+  );
+  const CALL = 'public.fn_hr_appraisal_round_is_open(cycle_id, staff_id)';
 
-  it('checks the round is open', () => {
-    expect(insert).toContain("c.status = 'open'");
+  it('the shared round check requires the round to be open', () => {
+    expect(fn).toContain("c.status = 'open'");
+    expect(fn).toContain('c.id = p_cycle_id');
   });
 
-  it('checks the round belongs to the person’s college, or to every college', () => {
-    expect(insert).toContain('c.institution_id IS NULL OR c.institution_id = s.institution_id');
-    expect(insert).toContain('s.id = hr_performance_reviews.staff_id');
+  it('the shared round check requires the person’s own college, or every college', () => {
+    expect(fn).toContain('c.institution_id IS NULL OR c.institution_id = s.institution_id');
+    expect(fn).toContain('s.id = p_staff_id');
   });
-  it('applies the same round check when a person edits or submits their draft', () => {
-    const update = sql.slice(
-      sql.indexOf('CREATE POLICY "hr_performance_reviews_self_update"'),
-      sql.indexOf('DROP POLICY IF EXISTS "hr_performance_reviews_hod_update"'),
+
+  it('runs with the caller’s rights and is closed to signed-out callers', () => {
+    expect(fn).toContain('SECURITY INVOKER');
+    expect(sql).toContain(
+      'REVOKE EXECUTE ON FUNCTION public.fn_hr_appraisal_round_is_open(uuid, uuid) FROM anon, PUBLIC;',
     );
-    const withCheck = update.slice(update.indexOf('WITH CHECK'));
-    expect(withCheck).toContain("c.status = 'open'");
-    expect(withCheck).toContain('c.institution_id IS NULL OR c.institution_id = s.institution_id');
+  });
+
+  it('is applied when a person creates an appraisal', () => {
+    expect(insert).toContain(CALL);
+  });
+
+  it('applies the same round check when a person edits or submits their draft', () => {
+    expect(update.slice(update.indexOf('WITH CHECK'))).toContain(CALL);
+  });
+
+  it('is no longer written out by hand in any policy, so the copies cannot drift', () => {
+    for (const policy of [insert, update, hod]) {
+      expect(policy).not.toContain('FROM public.hr_performance_review_cycles');
+    }
+  });
+});
+
+describe('a head cannot act on an appraisal once HR locks the round', () => {
+  const sql = read(
+    'supabase/migrations/20270501090000_hr_appraisal_cycle_institution_and_writer_policies.sql',
+  );
+  const hod = sql.slice(
+    sql.indexOf('CREATE POLICY "hr_performance_reviews_hod_update"'),
+    sql.indexOf('COMMENT ON TABLE public.hr_performance_reviews'),
+  );
+  const CALL = 'public.fn_hr_appraisal_round_is_open(cycle_id, staff_id)';
+
+  it('checks the round is open on the row the head starts from', () => {
+    expect(hod.slice(0, hod.indexOf('WITH CHECK'))).toContain(CALL);
+  });
+
+  it('and on the row the head leaves behind', () => {
+    expect(hod.slice(hod.indexOf('WITH CHECK'))).toContain(CALL);
+  });
+
+  it('the head’s screen disables both actions when the round is not open', () => {
+    const team = read('app/(routes)/hr/performance-reviews/team/page.tsx');
+    expect(team).toContain("const roundOpen = openCycle?.status === 'open';");
+    expect(team).toContain('onClick={submitReview} disabled={submitting || !roundOpen}');
+    expect(team).toMatch(/onClick=\{sendBackToPerson\}\s*disabled=\{submitting \|\| !roundOpen\}/);
+  });
+});
+
+describe('a send-back only ever moves one step backward', () => {
+  it.each([
+    ['self_submitted', 'supervisor_reviewed', 'a forward move from the head’s queue'],
+    ['supervisor_reviewed', 'sedc_reviewed', 'a forward move from the committee’s queue'],
+    ['sedc_reviewed', 'final_approved', 'an approval dressed as a send-back'],
+    ['supervisor_reviewed', 'draft', 'a skip of two steps'],
+    ['draft', 'self_submitted', 'a draft, which has nowhere to go back to'],
+    ['final_approved', 'sedc_reviewed', 'a closed appraisal'],
+  ])('refuses %s -> %s (%s) and writes nothing', async (from, to) => {
+    const { client, sent } = fakeClient({ ...base, status: from });
+    await expect(
+      PerformanceReviewService.sendBack(client, 'r1', to as never, 'Some reason.'),
+    ).rejects.toThrow(/one step back/);
+    expect(sent.update).toBeNull();
+  });
+
+  it.each([
+    ['self_submitted', 'draft'],
+    ['supervisor_reviewed', 'self_submitted'],
+    ['sedc_reviewed', 'supervisor_reviewed'],
+  ])('allows %s -> %s', async (from, to) => {
+    const { client, sent } = fakeClient({ ...base, status: from });
+    await PerformanceReviewService.sendBack(client, 'r1', to as never, 'Some reason.');
+    expect(sent.update?.status).toBe(to);
   });
 });

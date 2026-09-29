@@ -79,21 +79,16 @@ export default function HrPerformanceReviewCycleDetailPage() {
   const [selected, setSelected] = useState<HRPerformanceReview | null>(null);
   const [approverProfileId, setApproverProfileId] = useState<string | null>(null);
 
-  // Policy (for the rating rule) and the signed-in profile (stamped on
-  // approval). Both are needed only by the decision panel.
+  // The signed-in profile, stamped on approval. Needed only by the panel.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [pol, auth] = await Promise.all([
-          PerformanceReviewService.getPolicy(supabase),
-          supabase.auth.getUser(),
-        ]);
+        const auth = await supabase.auth.getUser();
         if (cancelled) return;
-        setPolicy(pol);
         setApproverProfileId(auth.data.user?.id ?? null);
       } catch {
-        // Neither is fatal for the read-only list; the panel reports its own
+        // Not fatal for the read-only list; the panel reports its own
         // failure when a sign-off is actually attempted.
       }
     })();
@@ -101,6 +96,27 @@ export default function HrPerformanceReviewCycleDetailPage() {
       cancelled = true;
     };
   }, [supabase]);
+
+  // The rating rule for the OPEN appraisal, read for that person's own
+  // college. A group-wide round spans several colleges, and each may have
+  // switched the Collegiality example off, so one policy for the whole page
+  // would apply the wrong college's setting.
+  const selectedStaffId = selected?.staff_id ?? null;
+  useEffect(() => {
+    setPolicy(null);
+    if (!selectedStaffId) return;
+    let cancelled = false;
+    PerformanceReviewService.getPolicyForStaff(supabase, selectedStaffId)
+      .then((pol) => {
+        if (!cancelled) setPolicy(pol);
+      })
+      .catch(() => {
+        // Left null: the example stays required, the stricter default.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, selectedStaffId]);
 
   // Group reviews by status for the progress counters.
   const counters = useMemo(() => {

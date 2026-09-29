@@ -33,6 +33,7 @@ const POLICY: PromotionPolicy = {
 };
 
 interface Capture {
+  rpcArgs?: Record<string, unknown>;
   columns?: string;
   eq: Array<[string, unknown]>;
   not: Array<[string, string, unknown]>;
@@ -56,7 +57,10 @@ function stubClient(
   });
   const client = {
     from: () => builder,
-    rpc: async () => ({ data: policy, error: null }),
+    rpc: async (_name: string, args: Record<string, unknown>) => {
+      cap.rpcArgs = args;
+      return { data: policy, error: null };
+    },
   } as unknown as SupabaseClient;
   return { client, cap };
 }
@@ -64,7 +68,7 @@ function stubClient(
 describe('calculateMeritScore', () => {
   it('reads columns that actually exist on the table', async () => {
     const { client, cap } = stubClient({ data: [] });
-    await calculateMeritScore(client, 'staff-1', POLICY);
+    await calculateMeritScore(client, 'staff-1', POLICY, null);
     expect(cap.columns).toBe('final_score, final_approved_at, sedc_review_jsonb');
     // The two columns that never existed must not come back.
     expect(cap.columns).not.toContain('appraisal_score');
@@ -73,7 +77,7 @@ describe('calculateMeritScore', () => {
 
   it('counts only approved appraisals with a score', async () => {
     const { client, cap } = stubClient({ data: [] });
-    await calculateMeritScore(client, 'staff-1', POLICY);
+    await calculateMeritScore(client, 'staff-1', POLICY, null);
     expect(cap.eq).toContainEqual(['staff_id', 'staff-1']);
     expect(cap.eq).toContainEqual(['status', 'final_approved']);
     expect(cap.not).toContainEqual(['final_score', 'is', null]);
@@ -82,24 +86,24 @@ describe('calculateMeritScore', () => {
 
   it('turns a straight Meets record (50) into 5 merit points', async () => {
     const { client } = stubClient({ data: [{ final_score: 50 }] });
-    const r = await calculateMeritScore(client, 'staff-1', POLICY);
+    const r = await calculateMeritScore(client, 'staff-1', POLICY, null);
     expect(r.score).toBe(5);
     expect(r.review_count).toBe(1);
   });
 
   it('turns a straight Exceeds record (100) into 10 merit points', async () => {
     const { client } = stubClient({ data: [{ final_score: 100 }] });
-    expect((await calculateMeritScore(client, 'staff-1', POLICY)).score).toBe(10);
+    expect((await calculateMeritScore(client, 'staff-1', POLICY, null)).score).toBe(10);
   });
 
   it('turns a straight Below record (0) into 0 merit points', async () => {
     const { client } = stubClient({ data: [{ final_score: 0 }] });
-    expect((await calculateMeritScore(client, 'staff-1', POLICY)).score).toBe(0);
+    expect((await calculateMeritScore(client, 'staff-1', POLICY, null)).score).toBe(0);
   });
 
   it('averages across the appraisals in the window', async () => {
     const { client } = stubClient({ data: [{ final_score: 100 }, { final_score: 50 }] });
-    const r = await calculateMeritScore(client, 'staff-1', POLICY);
+    const r = await calculateMeritScore(client, 'staff-1', POLICY, null);
     expect(r.score).toBe(7.5);
     expect(r.review_count).toBe(2);
   });
@@ -107,12 +111,12 @@ describe('calculateMeritScore', () => {
   it('caps at the policy ceiling', async () => {
     const { client } = stubClient({ data: [{ final_score: 100 }] });
     const tight = { ...POLICY, max_merit_points: 4 };
-    expect((await calculateMeritScore(client, 'staff-1', tight)).score).toBe(4);
+    expect((await calculateMeritScore(client, 'staff-1', tight, null)).score).toBe(4);
   });
 
   it('returns 0 when nobody has been appraised', async () => {
     const { client } = stubClient({ data: [] });
-    const r = await calculateMeritScore(client, 'staff-1', POLICY);
+    const r = await calculateMeritScore(client, 'staff-1', POLICY, null);
     expect(r).toEqual({
       score: 0, review_count: 0, lookback_years: 5, increment_blocked: false,
     });
@@ -120,12 +124,12 @@ describe('calculateMeritScore', () => {
 
   it('returns 0 when the table is absent, without inventing a score', async () => {
     const { client } = stubClient({ error: { message: 'relation does not exist' } });
-    expect((await calculateMeritScore(client, 'staff-1', POLICY)).score).toBe(0);
+    expect((await calculateMeritScore(client, 'staff-1', POLICY, null)).score).toBe(0);
   });
 
   it('treats a null score as zero rather than NaN', async () => {
     const { client } = stubClient({ data: [{ final_score: null }, { final_score: 100 }] });
-    expect((await calculateMeritScore(client, 'staff-1', POLICY)).score).toBe(5);
+    expect((await calculateMeritScore(client, 'staff-1', POLICY, null)).score).toBe(5);
   });
 });
 
@@ -141,7 +145,7 @@ describe('a Below blocking the increment (configurable per college)', () => {
     const { client } = stubClient(
       { data: [{ final_score: 50, sedc_review_jsonb: belowService }] }, null,
     );
-    const r = await calculateMeritScore(client, 'staff-1', POLICY);
+    const r = await calculateMeritScore(client, 'staff-1', POLICY, null);
     expect(r.increment_blocked).toBe(false);
     expect(r.score).toBe(5);
   });
@@ -151,7 +155,7 @@ describe('a Below blocking the increment (configurable per college)', () => {
       { data: [{ final_score: 50, sedc_review_jsonb: belowService }] },
       { below_blocks_increment: true },
     );
-    const r = await calculateMeritScore(client, 'staff-1', POLICY);
+    const r = await calculateMeritScore(client, 'staff-1', POLICY, null);
     expect(r.increment_blocked).toBe(true);
     // The real score survives. Flattening it to zero would make three
     // Exceeds and one Below indistinguishable from four Belows.
@@ -167,8 +171,8 @@ describe('a Below blocking the increment (configurable per college)', () => {
     const bad = stubClient(
       { data: [{ final_score: 0, sedc_review_jsonb: belowService }] }, pol,
     );
-    const g = await calculateMeritScore(good.client, 'staff-1', POLICY);
-    const b = await calculateMeritScore(bad.client, 'staff-2', POLICY);
+    const g = await calculateMeritScore(good.client, 'staff-1', POLICY, null);
+    const b = await calculateMeritScore(bad.client, 'staff-2', POLICY, null);
     expect(g.increment_blocked).toBe(true);
     expect(b.increment_blocked).toBe(true);
     expect(g.score).toBe(7.5);
@@ -181,7 +185,7 @@ describe('a Below blocking the increment (configurable per college)', () => {
       { data: [{ final_score: 50, sedc_review_jsonb: allMeets }] },
       { below_blocks_increment: true },
     );
-    const r = await calculateMeritScore(client, 'staff-1', POLICY);
+    const r = await calculateMeritScore(client, 'staff-1', POLICY, null);
     expect(r.increment_blocked).toBe(false);
     expect(r.score).toBe(5);
   });
@@ -194,7 +198,7 @@ describe('a Below blocking the increment (configurable per college)', () => {
       { data: [{ final_score: 50, sedc_review_jsonb: belowCollegiality }] },
       { below_blocks_increment: true, exclude_collegiality_from_score: true },
     );
-    expect((await calculateMeritScore(client, 'staff-1', POLICY)).increment_blocked).toBe(false);
+    expect((await calculateMeritScore(client, 'staff-1', POLICY, null)).increment_blocked).toBe(false);
   });
 
   it('blocks on ANY appraisal in the window, not just the latest', async () => {
@@ -207,6 +211,22 @@ describe('a Below blocking the increment (configurable per college)', () => {
       },
       { below_blocks_increment: true },
     );
-    expect((await calculateMeritScore(client, 'staff-1', POLICY)).increment_blocked).toBe(true);
+    expect((await calculateMeritScore(client, 'staff-1', POLICY, null)).increment_blocked).toBe(true);
+  });
+});
+
+describe('the increment rule is read for the person’s own college', () => {
+  const rows = { data: [{ final_score: 50, sedc_review_jsonb: {} }] };
+
+  it('asks for the settings of the college it was given', async () => {
+    const { client, cap } = stubClient(rows, {});
+    await calculateMeritScore(client, 'staff-1', POLICY, 'college-a');
+    expect(cap.rpcArgs).toEqual({ p_key: 'hr.performance_review', p_scope_id: 'college-a' });
+  });
+
+  it('asks for the group value only when the person has no college', async () => {
+    const { client, cap } = stubClient(rows, {});
+    await calculateMeritScore(client, 'staff-1', POLICY, null);
+    expect(cap.rpcArgs).toEqual({ p_key: 'hr.performance_review', p_scope_id: null });
   });
 });

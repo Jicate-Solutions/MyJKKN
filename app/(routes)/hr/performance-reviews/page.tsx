@@ -128,8 +128,12 @@ export default function HrSelfAppraisalPage() {
         if (cancelled) return;
         setOpenCycle(open);
 
-        // 3. Policy summary (advisory only).
-        const p = await PerformanceReviewService.getPolicy(supabase);
+        // 3. Policy for the person's own college (falls back to the group
+        //    value). A college can switch the Collegiality example off.
+        const p = await PerformanceReviewService.getPolicy(
+          supabase,
+          (staff.institution_id as string | null) ?? null,
+        );
         if (cancelled) return;
         setPolicy(p);
 

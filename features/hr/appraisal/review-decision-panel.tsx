@@ -42,6 +42,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 interface Props {
   supabase: SupabaseClient;
   review: HRPerformanceReview;
+  /** hr.performance_review for the college of the person being appraised. */
   policy: HRPerformanceReviewPolicy | null;
   approverProfileId: string | null;
   onDone: (updated: HRPerformanceReview) => void;
@@ -110,10 +111,11 @@ export function ReviewDecisionPanel({
     }
     setBusy(true);
     try {
+      // The service re-reads the person's own college rule for the stored
+      // score, so it never depends on what this screen happened to load.
       const updated = await PerformanceReviewService.finalApprove(supabase, review.id, {
         final_remarks: notes,
         approver_profile_id: approverProfileId,
-        policy,
       });
       toast.success('Appraisal approved and closed.');
       onDone(updated);
