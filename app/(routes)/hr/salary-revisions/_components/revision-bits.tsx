@@ -7,20 +7,11 @@
  * asked one (ruling 13), and the page header and "no access" notice.
  */
 
-import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { AlertTriangle, ShieldAlert } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from '@/components/ui/breadcrumb';
 import { formatRupees } from '@/lib/hr/salary-suggestion';
 import {
   STATUS_LABELS,
@@ -106,38 +97,10 @@ export function SuggestionBeside({ suggestion }: { suggestion: SuggestionNote | 
   return <span className='text-xs text-muted-foreground'>{suggestion.note ?? 'No suggestion'}</span>;
 }
 
-export function RevisionPage({
-  title,
-  crumb,
-  children,
-}: {
-  title: string;
-  crumb?: { href: string; label: string };
-  children: ReactNode;
-}) {
+/** The page frame. The HR layout already draws the breadcrumb and the chips. */
+export function RevisionPage({ title, children }: { title: string; children: ReactNode }) {
   return (
     <ContentLayout title={title}>
-      <Breadcrumb className='mb-4'>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild><Link href='/dashboard'>Home</Link></BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild><Link href='/hr/salary-revisions'>Salary Revisions</Link></BreadcrumbLink>
-          </BreadcrumbItem>
-          {crumb && (
-            <>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbLink asChild><Link href={crumb.href}>{crumb.label}</Link></BreadcrumbLink>
-              </BreadcrumbItem>
-            </>
-          )}
-          <BreadcrumbSeparator />
-          <BreadcrumbItem><BreadcrumbPage>{title}</BreadcrumbPage></BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
       {children}
     </ContentLayout>
   );

@@ -545,9 +545,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/salary-revisions/college-check': 'hr.payroll.salary_revision.college_check',
   '/hr/salary-revisions/approve': 'hr.payroll.salary_revision.approve',
   // The outcome notice a team member reaches from the bell after the
-  // Director's yes (ruling 5). hr.view, the key the whole HR module already
-  // opens on: the table behind it returns only the caller's own rows.
-  '/hr/my-pay-changes': 'hr.view',
+  // Director's yes (ruling 5). EVERY team member must be able to open it, and
+  // most roles hold no HR key (test.faculty's role has no hr.view), so it uses
+  // the universal signed-in sentinel `view_profile` — see the /my-desk note
+  // below. Safe because hr_salary_revision_outcomes' RLS returns only the
+  // caller's own rows; there is no sidebar link (reached from the bell).
+  '/hr/my-pay-changes': 'view_profile',
   // Closing an attendance month. Its own key, NOT the self-service
   // '/hr/attendance' one: 22 roles hold hr.attendance.view_self, and without an
   // entry here longest-prefix resolution would hand all of them the ability to
