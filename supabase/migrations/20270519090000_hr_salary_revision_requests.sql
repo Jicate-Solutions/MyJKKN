@@ -294,8 +294,9 @@ AS $function$
   END
 $function$;
 
--- The caller's own departments (from their active staff rows). Used by the
--- RLS policies, so signed-in users may call it; it returns only the caller's.
+-- The caller's own departments (from their active staff rows). Called only
+-- from the SECURITY DEFINER functions below (never from a policy), so it is not
+-- granted to signed-in users at all.
 CREATE OR REPLACE FUNCTION public.fn_hr_salary_revision_my_department_ids()
 RETURNS uuid[]
 LANGUAGE sql
@@ -312,7 +313,7 @@ $function$;
 
 -- RULING 3: the final yes is the Director's — a super admin, or whoever is
 -- given hr.payroll.salary_revision.approve (nobody, as shipped).
-CREATE OR REPLACE FUNCTION public.fn_hr_salary_revision_is_approver()
+CREATE OR REPLACE FUNCTION public.fn_hr_salary_revision_can_approve()
 RETURNS boolean
 LANGUAGE sql
 STABLE
@@ -330,7 +331,7 @@ $function$;
 --     ask_anyone (HR head): everything
 --     ask_own_college / college_check (principal): their own college
 --     ask_own_department (HOD): their own department
-CREATE OR REPLACE FUNCTION public.fn_hr_salary_revision_visible(
+CREATE OR REPLACE FUNCTION public.fn_hr_salary_revision_can_see(
   p_staff_id uuid, p_institution_id uuid, p_department_id uuid, p_asked_by uuid)
 RETURNS boolean
 LANGUAGE sql
@@ -339,7 +340,7 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $function$
   SELECT auth.uid() IS NOT NULL AND (
-    public.fn_hr_salary_revision_is_approver()
+    public.fn_hr_salary_revision_can_approve()
     OR p_asked_by = auth.uid()
     OR (
       NOT (p_staff_id = ANY (public.fn_my_staff_ids()))
@@ -502,7 +503,10 @@ DECLARE
   v_deps uuid[]  := public.fn_hr_salary_revision_my_department_ids();
   v_mine uuid[]  := public.fn_my_staff_ids();
 BEGIN
-  IF auth.uid() IS NULL OR NOT (v_any OR v_col OR v_dep) THEN
+  IF auth.uid() IS NULL
+     OR NOT (public.user_has_permission('hr.payroll.salary_revision.ask_anyone')
+             OR public.user_has_permission('hr.payroll.salary_revision.ask_own_college')
+             OR public.user_has_permission('hr.payroll.salary_revision.ask_own_department')) THEN
     RAISE EXCEPTION 'Only a principal, a head of department or the HR head can ask for a salary revision.'
       USING ERRCODE = 'insufficient_privilege';
   END IF;
@@ -564,7 +568,7 @@ BEGIN
   IF p_view NOT IN ('mine', 'college', 'director', 'all') THEN
     RAISE EXCEPTION 'Unknown list: %', p_view USING ERRCODE = '22023';
   END IF;
-  IF p_view = 'director' AND NOT public.fn_hr_salary_revision_is_approver() THEN
+  IF p_view = 'director' AND NOT public.fn_hr_salary_revision_can_approve() THEN
     RAISE EXCEPTION 'Only the Director can open the approval list.'
       USING ERRCODE = 'insufficient_privilege';
   END IF;
@@ -590,7 +594,7 @@ BEGIN
     JOIN public.institutions i ON i.id = r.institution_id
     LEFT JOIN public.departments d ON d.id = r.department_id
     LEFT JOIN public.profiles pr ON pr.id = r.asked_by
-   WHERE public.fn_hr_salary_revision_visible(r.staff_id, r.institution_id, r.department_id, r.asked_by)
+   WHERE public.fn_hr_salary_revision_can_see(r.staff_id, r.institution_id, r.department_id, r.asked_by)
      AND (p_view <> 'mine' OR r.asked_by = v_uid)
      AND (p_view <> 'college' OR (
            r.status = 'waiting_principal'
@@ -623,7 +627,7 @@ BEGIN
     FROM public.hr_salary_revision_decision_notes n
     JOIN public.hr_salary_revision_requests r ON r.id = n.request_id
    WHERE n.request_id = p_request_id
-     AND (public.fn_hr_salary_revision_is_approver()
+     AND (public.fn_hr_salary_revision_can_approve()
           OR r.asked_by = auth.uid()
           OR (r.route = 'via_principal'
               AND public.user_has_permission('hr.payroll.salary_revision.college_check')
@@ -735,7 +739,7 @@ BEGIN
   END IF;
 
   -- RULING 1 — who may ask for whom. The broadest lane the caller holds wins.
-  IF public.fn_hr_salary_revision_is_approver() THEN
+  IF public.fn_hr_salary_revision_can_approve() THEN
     v_as := 'director'; v_cap_tier := 4;
   ELSIF public.user_has_permission('hr.payroll.salary_revision.ask_anyone') THEN
     v_as := 'hr_head'; v_cap_tier := 3;
@@ -834,7 +838,7 @@ BEGIN
 
   SELECT * INTO v_r FROM public.hr_salary_revision_requests WHERE id = p_request_id;
   IF NOT FOUND
-     OR NOT public.fn_hr_salary_revision_visible(v_r.staff_id, v_r.institution_id, v_r.department_id, v_r.asked_by) THEN
+     OR NOT public.fn_hr_salary_revision_can_see(v_r.staff_id, v_r.institution_id, v_r.department_id, v_r.asked_by) THEN
     RAISE EXCEPTION 'No such request, or you cannot see it.' USING ERRCODE = 'insufficient_privilege';
   END IF;
   IF v_r.status NOT IN ('waiting_principal', 'waiting_director') THEN
@@ -1023,7 +1027,7 @@ DECLARE
   v_r    record;
   v_name text;
 BEGIN
-  IF v_uid IS NULL OR NOT public.fn_hr_salary_revision_is_approver() THEN
+  IF v_uid IS NULL OR NOT public.fn_hr_salary_revision_can_approve() THEN
     RAISE EXCEPTION 'Only the Director can give the final yes or no.'
       USING ERRCODE = 'insufficient_privilege';
   END IF;
@@ -1084,7 +1088,7 @@ DECLARE
   v_ready integer;
   v_id    uuid;
 BEGIN
-  IF auth.uid() IS NULL OR NOT public.fn_hr_salary_revision_is_approver() THEN
+  IF auth.uid() IS NULL OR NOT public.fn_hr_salary_revision_can_approve() THEN
     RAISE EXCEPTION 'Only the Director can give the final yes or no.'
       USING ERRCODE = 'insufficient_privilege';
   END IF;
@@ -1196,7 +1200,7 @@ SET search_path TO 'public'
 AS $function$
 BEGIN
   IF auth.uid() IS NOT NULL
-     AND NOT public.fn_hr_salary_revision_is_approver()
+     AND NOT public.fn_hr_salary_revision_can_approve()
      AND NOT public.user_has_permission('hr.payroll.salary.manage') THEN
     RAISE EXCEPTION 'Only the Director or the HR head can run this.'
       USING ERRCODE = 'insufficient_privilege';
@@ -1283,7 +1287,7 @@ ALTER TABLE public.hr_salary_revision_outcomes       ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS hr_salary_revision_requests_select ON public.hr_salary_revision_requests;
 CREATE POLICY hr_salary_revision_requests_select ON public.hr_salary_revision_requests
   FOR SELECT TO authenticated
-  USING (public.fn_hr_salary_revision_visible(staff_id, institution_id, department_id, asked_by));
+  USING (public.fn_hr_salary_revision_can_see(staff_id, institution_id, department_id, asked_by));
 
 DROP POLICY IF EXISTS hr_salary_revision_comments_select ON public.hr_salary_revision_comments;
 CREATE POLICY hr_salary_revision_comments_select ON public.hr_salary_revision_comments
@@ -1295,7 +1299,7 @@ DROP POLICY IF EXISTS hr_salary_revision_decision_notes_select ON public.hr_sala
 CREATE POLICY hr_salary_revision_decision_notes_select ON public.hr_salary_revision_decision_notes
   FOR SELECT TO authenticated
   USING (
-    (SELECT public.fn_hr_salary_revision_is_approver())
+    (SELECT public.fn_hr_salary_revision_can_approve())
     OR EXISTS (
       SELECT 1 FROM public.hr_salary_revision_requests r
        WHERE r.id = request_id
@@ -1312,7 +1316,7 @@ CREATE POLICY hr_salary_revision_outcomes_select ON public.hr_salary_revision_ou
   FOR SELECT TO authenticated
   USING (
     staff_id = ANY (public.fn_my_staff_ids())
-    OR (SELECT public.fn_hr_salary_revision_is_approver())
+    OR (SELECT public.fn_hr_salary_revision_can_approve())
   );
 
 DROP POLICY IF EXISTS hr_salary_revision_requests_service_role ON public.hr_salary_revision_requests;
@@ -1355,9 +1359,9 @@ REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_approve_one(uuid, numeric, 
 REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_apply_due_on(date) FROM anon, PUBLIC, authenticated;
 REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_suggestion_inputs(uuid[]) FROM anon, PUBLIC, authenticated;
 REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_weekly_digest() FROM anon, PUBLIC, authenticated;
-REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_my_department_ids() FROM anon, PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_is_approver() FROM anon, PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_visible(uuid, uuid, uuid, uuid) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_my_department_ids() FROM anon, PUBLIC, authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_can_approve() FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_can_see(uuid, uuid, uuid, uuid) FROM anon, PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.hr_staff_salaries_in_force(uuid[], date) FROM anon, PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_people() FROM anon, PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_list(text) FROM anon, PUBLIC;
@@ -1371,9 +1375,8 @@ REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_apply_due() FROM anon, P
 
 GRANT EXECUTE ON FUNCTION public.hr_salary_revision_ist_today() TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.hr_salary_revision_rupees(numeric) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.fn_hr_salary_revision_my_department_ids() TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.fn_hr_salary_revision_is_approver() TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.fn_hr_salary_revision_visible(uuid, uuid, uuid, uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_hr_salary_revision_can_approve() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_hr_salary_revision_can_see(uuid, uuid, uuid, uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.hr_staff_salaries_in_force(uuid[], date) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.fn_hr_salary_revision_people() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_hr_salary_revision_list(text) TO authenticated;

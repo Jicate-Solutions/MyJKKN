@@ -11259,7 +11259,7 @@ ALTER TABLE public.hr_salary_revision_outcomes       ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS hr_salary_revision_requests_select ON public.hr_salary_revision_requests;
 CREATE POLICY hr_salary_revision_requests_select ON public.hr_salary_revision_requests
   FOR SELECT TO authenticated
-  USING (public.fn_hr_salary_revision_visible(staff_id, institution_id, department_id, asked_by));
+  USING (public.fn_hr_salary_revision_can_see(staff_id, institution_id, department_id, asked_by));
 
 DROP POLICY IF EXISTS hr_salary_revision_comments_select ON public.hr_salary_revision_comments;
 CREATE POLICY hr_salary_revision_comments_select ON public.hr_salary_revision_comments
@@ -11271,7 +11271,7 @@ DROP POLICY IF EXISTS hr_salary_revision_decision_notes_select ON public.hr_sala
 CREATE POLICY hr_salary_revision_decision_notes_select ON public.hr_salary_revision_decision_notes
   FOR SELECT TO authenticated
   USING (
-    (SELECT public.fn_hr_salary_revision_is_approver())
+    (SELECT public.fn_hr_salary_revision_can_approve())
     OR EXISTS (
       SELECT 1 FROM public.hr_salary_revision_requests r
        WHERE r.id = request_id
@@ -11288,7 +11288,7 @@ CREATE POLICY hr_salary_revision_outcomes_select ON public.hr_salary_revision_ou
   FOR SELECT TO authenticated
   USING (
     staff_id = ANY (public.fn_my_staff_ids())
-    OR (SELECT public.fn_hr_salary_revision_is_approver())
+    OR (SELECT public.fn_hr_salary_revision_can_approve())
   );
 
 DROP POLICY IF EXISTS hr_salary_revision_requests_service_role ON public.hr_salary_revision_requests;

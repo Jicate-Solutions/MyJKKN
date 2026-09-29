@@ -59,11 +59,11 @@ const fakeClient = {
     if (fn === 'is_super_admin') return { data: superAdmin, error: null };
     if (fn === 'is_admin') return { data: false, error: null };
     if (fn === 'user_has_permission') return { data: heldKeys.includes(String(args?.permission_name)), error: null };
-    if (rpcError && fn.startsWith('fn_hr_salary_revision_') && fn !== 'fn_hr_salary_revision_is_approver') {
+    if (rpcError && fn.startsWith('fn_hr_salary_revision_') && fn !== 'fn_hr_salary_revision_can_approve') {
       return { data: null, error: rpcError };
     }
     switch (fn) {
-      case 'fn_hr_salary_revision_is_approver': return { data: approver, error: null };
+      case 'fn_hr_salary_revision_can_approve': return { data: approver, error: null };
       case 'fn_hr_salary_revision_list': return { data: [ROW()], error: null };
       case 'fn_hr_salary_revision_apply_due': return { data: 0, error: null };
       case 'fn_hr_salary_revision_people':

@@ -22,6 +22,6 @@ export function errorResponse(err: unknown, label: string): NextResponse {
 
 /** Is the caller the Director (super admin, or the approve key)? Asked of the database. */
 export async function callerIsApprover(supabase: { rpc: (fn: string) => PromiseLike<{ data: unknown }> }) {
-  const { data } = await supabase.rpc('fn_hr_salary_revision_is_approver');
+  const { data } = await supabase.rpc('fn_hr_salary_revision_can_approve');
   return data === true;
 }

@@ -50,7 +50,7 @@ SELECT t.check('anon holds EXECUTE on none of the new functions',
                AND has_function_privilege('anon', p.oid, 'EXECUTE')));
 SELECT t.check('signed-in users cannot call the internal functions',
   NOT EXISTS (SELECT 1 FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace
-               AND p.proname IN ('hr_salary_revision_user_holds', 'hr_salary_revision_user_tier', 'hr_salary_revision_notify',
+               AND p.proname IN ('fn_hr_salary_revision_my_department_ids', 'hr_salary_revision_user_holds', 'hr_salary_revision_user_tier', 'hr_salary_revision_notify',
                                  'hr_salary_revision_start_date', 'hr_salary_revision_approve_one', 'hr_salary_revision_apply_due_on',
                                  'hr_salary_revision_suggestion_inputs', 'fn_hr_salary_revision_weekly_digest')
                AND has_function_privilege('authenticated', p.oid, 'EXECUTE')));

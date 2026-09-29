@@ -31,7 +31,7 @@ describe('the migration', () => {
   });
 
   it('keeps the internal functions away from signed-in users', () => {
-    for (const fn of ['hr_salary_revision_user_holds', 'hr_salary_revision_user_tier', 'hr_salary_revision_notify',
+    for (const fn of ['fn_hr_salary_revision_my_department_ids', 'hr_salary_revision_user_holds', 'hr_salary_revision_user_tier', 'hr_salary_revision_notify',
       'hr_salary_revision_start_date', 'hr_salary_revision_approve_one', 'hr_salary_revision_apply_due_on',
       'hr_salary_revision_suggestion_inputs', 'fn_hr_salary_revision_weekly_digest']) {
       expect(SQL).toMatch(new RegExp(`REVOKE EXECUTE ON FUNCTION public\\.${fn}\\([^)]*\\) FROM anon, PUBLIC, authenticated;`));

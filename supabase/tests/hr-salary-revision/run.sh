@@ -103,7 +103,7 @@ mutate "M3 one open request (index AND check removed)" \
   's/^CREATE UNIQUE INDEX IF NOT EXISTS hr_salary_revision_requests_one_open/CREATE INDEX IF NOT EXISTS hr_salary_revision_requests_one_open/; s/^  IF v_open IS NOT NULL THEN/  IF false THEN/' \
   'a second request for a person is refused while one is open'
 mutate "M4 only the Director approves" \
-  's/^  IF v_uid IS NULL OR NOT public.fn_hr_salary_revision_is_approver\(\) THEN/  IF v_uid IS NULL THEN/' \
+  's/^  IF v_uid IS NULL OR NOT public.fn_hr_salary_revision_can_approve\(\) THEN/  IF v_uid IS NULL THEN/' \
   'principal cannot approve'
 mutate "M5 principal's check is own college only" \
   's/^     OR NOT \(v_r.institution_id = ANY \(public.fn_my_staff_institution_ids\(\)\)\) THEN/     THEN/' \
