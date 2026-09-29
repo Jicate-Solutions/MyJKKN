@@ -35,11 +35,11 @@ import { RFQ_STATUS_CONFIG } from '@/types/procurement';
 import type { ComparisonRow } from '@/types/procurement';
 import {
   ArrowLeft,
+  ArrowRight,
   Trash2,
   FileText,
   ExternalLink,
   Sparkles,
-  Send,
   Check,
   Undo2,
   Upload,
@@ -455,12 +455,43 @@ export default function RfqQuotationsPage() {
                         })}
                         <th className="min-w-[170px] border-l border-green-200 bg-green-50/70 px-3 py-3 font-normal dark:border-green-900 dark:bg-green-950/20">
                           <span className="block text-sm font-semibold text-green-800 dark:text-green-300">Your choice</span>
-                          <span className="mt-1 block text-lg font-bold tabular-nums">{rupees(awardSummary.grandTotal)}</span>
+                          <span className="mt-1 block text-lg font-bold tabular-nums">
+                            {rupees(awardSummary.grandTotal)}
+                            {awardSummary.vendors.length > 0 && (
+                              <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                                · {awardSummary.vendors.length} vendor{awardSummary.vendors.length === 1 ? '' : 's'}
+                              </span>
+                            )}
+                          </span>
                           {savingVsSingle > 0 && (
                             <span className="block text-xs text-green-700 dark:text-green-400">
                               {rupees(savingVsSingle)} less than buying all from one vendor
                             </span>
                           )}
+                          {/* The decision is made in this column, so it is sent from here too. */}
+                          {canManage ? (
+                            <div className="mt-2 space-y-1">
+                              {unchosenCount > 0 && (
+                                <span className="block text-xs font-medium text-amber-700 dark:text-amber-400">
+                                  {chosenCount} of {comparison.length} items chosen
+                                </span>
+                              )}
+                              <Button
+                                size="sm"
+                                className="h-7 px-2.5 text-xs"
+                                title="One purchase order per vendor is created when the Super Admin approves"
+                                disabled={chosenCount === 0 || submitAward.isPending}
+                                onClick={() => run(() => submitAward.mutateAsync(rfqId), 'Sent to Super Admin for approval')}
+                              >
+                                {submitAward.isPending ? 'Sending…' : 'Send for approval'}
+                                <ArrowRight className="ml-1 h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          ) : awaitingApproval ? (
+                            <span className="mt-2 block text-xs font-medium text-amber-700 dark:text-amber-400">
+                              Sent · waiting for Super Admin
+                            </span>
+                          ) : null}
                         </th>
                       </tr>
                     </thead>
@@ -570,9 +601,9 @@ export default function RfqQuotationsPage() {
           </CardContent>
         </Card>
 
-        {/* ── Send for approval — always in reach at the bottom ──────────── */}
+        {/* ── Phones only: the table scrolls sideways there, so keep the action in reach ── */}
         {canManage && quotations.length > 0 && (
-          <div className="sticky bottom-3 z-20 rounded-lg border bg-background/95 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/85">
+          <div className="sticky bottom-3 z-20 rounded-lg border bg-background/95 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/85 md:hidden">
             <div className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-sm">
                 <p>
@@ -603,8 +634,8 @@ export default function RfqQuotationsPage() {
                 disabled={chosenCount === 0 || submitAward.isPending}
                 onClick={() => run(() => submitAward.mutateAsync(rfqId), 'Sent to Super Admin for approval')}
               >
-                <Send className="mr-2 h-4 w-4" />
                 {submitAward.isPending ? 'Sending…' : 'Send for approval'}
+                <ArrowRight className="ml-1.5 h-4 w-4" />
               </Button>
             </div>
           </div>

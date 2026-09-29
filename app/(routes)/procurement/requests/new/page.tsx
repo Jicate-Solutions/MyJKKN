@@ -6,6 +6,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { useCreatePurchaseRequest } from '@/hooks/procurement/use-purchase-requests';
 import { CatalogItemPicker } from '@/components/procurement/catalog-item-picker';
+import { RequestFileImport } from '@/components/procurement/request-file-import';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import { registeredDomainOptions } from '@/lib/services/procurement/domain-adapters/registry';
 import type { DomainCtx, ProcurementDomain } from '@/lib/services/procurement/domain-adapters/types';
@@ -311,10 +312,18 @@ export default function NewPurchaseRequestPage() {
                 })}
               </div>
 
-              <Button variant="ghost" size="sm" className="mt-1 text-primary" onClick={addRow}>
-                <Plus className="mr-1 h-4 w-4" />
-                Add another item
-              </Button>
+              <div className="flex flex-wrap items-center gap-1">
+                <Button variant="ghost" size="sm" className="mt-1 text-primary" onClick={addRow}>
+                  <Plus className="mr-1 h-4 w-4" />
+                  Add another item
+                </Button>
+                <RequestFileImport
+                  domain={domain}
+                  ctx={ctx}
+                  // Imported lines replace the blank starter row(s) and follow any already filled in.
+                  onAdd={(rows) => setItems((cur) => [...cur.filter((r) => r.item_name.trim()), ...rows])}
+                />
+              </div>
             </div>
           </CardContent>
         </Card>

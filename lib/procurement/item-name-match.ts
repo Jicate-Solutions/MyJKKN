@@ -26,3 +26,17 @@ export function namesShareAWord(requested: string, quoted: string): boolean {
   if (!a.length || !b.length) return false;
   return a.some((x) => b.some((y) => y.startsWith(x) || x.startsWith(y)));
 }
+
+/**
+ * How well a catalog name covers a name read from a file, 0..1: the share of the
+ * catalog name's meaningful words found in the file's name (prefixes count, so
+ * "glove" matches "gloves"). "Nitrile Gloves" vs "Gloves nitrile medium" → 1.
+ */
+export function nameMatchScore(catalogName: string, fileName: string): number {
+  const a = words(catalogName);
+  const b = words(fileName);
+  if (!a.length || !b.length) return 0;
+  const hit = a.filter((x) => b.some((y) => y.startsWith(x) || x.startsWith(y))).length;
+  // Penalise a catalog name that only covers a small part of a long file name.
+  return (hit / a.length) * Math.min(1, (hit + 1) / b.length);
+}
