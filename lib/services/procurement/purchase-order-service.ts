@@ -76,7 +76,7 @@ export class ProcurementPurchaseOrderService {
         .from('procurement_purchase_orders')
         .select(
           `*,
-           supplier:ims_suppliers(id,name,code,email,gstin),
+           supplier:ims_suppliers(id,name,code,email,gstin,address,phone),
            created_by_profile:profiles!created_by(full_name),
            approved_by_profile:profiles!approved_by(full_name),
            po_format:procurement_po_formats(*)`
@@ -87,12 +87,22 @@ export class ProcurementPurchaseOrderService {
 
       const { data: items, error: itemsErr } = await this.supabase
         .from('procurement_purchase_order_items')
-        .select('*')
+        .select(
+          `*,
+           source_quote:procurement_quotation_items(
+             quotation:procurement_quotations(vendor_quote_number, quote_date, delivery_time_days, payment_terms)
+           )`
+        )
         .eq('po_id', id)
         .order('created_at', { ascending: true });
       if (itemsErr) throw itemsErr;
 
-      return { ...header, items: items || [] } as PoWithItems;
+      // Every line of a PO comes from the same vendor quotation; take the first one found.
+      const source_quotation =
+        (items || []).map((it: any) => it.source_quote?.quotation).find(Boolean) ?? null;
+      const plainItems = (items || []).map(({ source_quote: _sq, ...it }: any) => it);
+
+      return { ...header, items: plainItems, source_quotation } as PoWithItems;
     } catch (error) {
       console.error('[ProcurementPurchaseOrderService] getPurchaseOrder:', error);
       throw error;

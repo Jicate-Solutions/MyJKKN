@@ -28,6 +28,7 @@ import {
   type DocPrimaryAction,
 } from '@/components/procurement/document-header';
 import { formatDateDMY } from '@/lib/utils/date-format';
+import { STANDARD_PO_FORMAT } from '@/lib/procurement/po-document-model';
 import { AlertBox } from '@/components/ui/alert-box';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -108,8 +109,10 @@ export default function PurchaseOrderDetailPage() {
     Object.keys(po?.footer_field_values || {}).length > 0 ||
     !!po?.terms_and_conditions;
   const activeFormat = po?.po_format ?? null;
-  const { header: headerFieldDefs, footer: footerFieldDefs } = freeEntryFields(activeFormat);
-  const itemExtraColumns = (activeFormat?.item_columns ?? []).filter((c) => c.source.startsWith('item_extra.'));
+  // No custom format = the standard paper-PO layout, whose fill-in fields are editable too.
+  const docFormat = activeFormat ?? STANDARD_PO_FORMAT;
+  const { header: headerFieldDefs, footer: footerFieldDefs } = freeEntryFields(docFormat);
+  const itemExtraColumns = docFormat.item_columns.filter((c) => c.source.startsWith('item_extra.'));
 
   const [headerValues, setHeaderValues] = useState<Record<string, string>>({});
   const [footerValues, setFooterValues] = useState<Record<string, string>>({});
@@ -389,16 +392,16 @@ export default function PurchaseOrderDetailPage() {
           </Card>
         )}
 
-        {(canCreate && activeFormat && (headerFieldDefs.length > 0 || footerFieldDefs.length > 0)) || hasSavedDocDetails ? (
+        {(canCreate && (headerFieldDefs.length > 0 || footerFieldDefs.length > 0)) || hasSavedDocDetails ? (
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Format fields</CardTitle>
+              <CardTitle className="text-base">Details printed on the PO</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {canCreate ? (
                 <>
                   {headerFieldDefs.length > 0 && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                       {headerFieldDefs.map((f) => {
                         const key = f.source.slice('header_values.'.length);
                         return (
