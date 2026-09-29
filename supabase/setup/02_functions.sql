@@ -73028,3 +73028,123 @@ AS $$
 $$;
 REVOKE ALL ON FUNCTION public.fn_learner_bill_year_visible(uuid, date) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_learner_bill_year_visible(uuid, date) TO authenticated, service_role;
+
+-- ============================================================================
+-- Updated: 2026-09-30 - fn_is_the_director() + fn_guard_the_director_list()
+-- Migration: 20270520090000_the_director_list.sql
+-- 'The Director' is ONE named list (platform_policies key
+-- 'platform.the_director_profile_ids'), NOT is_super_admin() (15 accounts).
+-- ============================================================================
+-- ----------------------------------------------------------------------------
+-- 1. The check everyone else calls
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_is_the_director()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT auth.uid() IS NOT NULL
+     AND COALESCE((
+           SELECT jsonb_typeof(pp.value) = 'array'
+              AND pp.value ? (auth.uid())::text
+             FROM public.platform_policies pp
+            WHERE pp.policy_key = 'platform.the_director_profile_ids'
+              AND pp.scope_type = 'global'
+              AND pp.scope_id IS NULL
+              AND pp.is_active = true
+            LIMIT 1
+         ), false);
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_is_the_director() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_is_the_director() TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.fn_is_the_director() IS
+  'True only when the signed-in caller is on platform_policies '
+  '''platform.the_director_profile_ids'' (global, active, a JSON array of '
+  'profile ids). NOT the same as is_super_admin(): 15 accounts are super '
+  'admins. Use this for the Director-only decisions (salary revision final '
+  'yes, appraisal rating override). Migration 20270520090000.';
+
+-- ----------------------------------------------------------------------------
+-- 2. Guard: only a listed person (or service_role / a no-user DB session) may
+--    insert, update or delete the list row, whatever RLS would allow.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_guard_the_director_list()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+DECLARE
+  c_key CONSTANT text := 'platform.the_director_profile_ids';
+  v_touches boolean;
+  v_role text := auth.role();
+  v_bad text;
+BEGIN
+  v_touches := (TG_OP IN ('INSERT', 'UPDATE') AND NEW.policy_key = c_key)
+            OR (TG_OP IN ('UPDATE', 'DELETE') AND OLD.policy_key = c_key);
+
+  IF NOT v_touches THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+
+  -- A request from an app user (signed in or anonymous) carries a JWT role.
+  -- Such a caller must already be on the list. A NULL role means a direct
+  -- database session (migration, SQL console, cron): the owner, allowed.
+  -- Two separate statements on purpose: anon has no EXECUTE on
+  -- fn_is_the_director(), and PostgreSQL checks that when the expression is
+  -- first prepared, so anon must be refused before that line is reached.
+  IF v_role IS NOT NULL AND v_role IS DISTINCT FROM 'service_role' THEN
+    IF v_role IS DISTINCT FROM 'authenticated' THEN
+      RAISE EXCEPTION 'Only the Director can change who counts as the Director.'
+        USING ERRCODE = '42501';
+    END IF;
+    IF NOT public.fn_is_the_director() THEN
+      RAISE EXCEPTION 'Only the Director can change who counts as the Director.'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+
+  -- The value must be a JSON array of profile ids. Store it cleaned:
+  -- lower-case, no duplicates, sorted.
+  IF NEW.policy_key = c_key THEN
+    IF jsonb_typeof(NEW.value) IS DISTINCT FROM 'array' THEN
+      RAISE EXCEPTION 'platform.the_director_profile_ids must be a JSON array of profile ids.'
+        USING ERRCODE = '22023';
+    END IF;
+
+    SELECT e::text INTO v_bad
+      FROM jsonb_array_elements(NEW.value) AS t(e)
+     WHERE jsonb_typeof(e) <> 'string'
+        OR (e #>> '{}') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+     LIMIT 1;
+    IF FOUND THEN
+      RAISE EXCEPTION 'Not a profile id: %', v_bad
+        USING ERRCODE = '22023';
+    END IF;
+
+    NEW.value := COALESCE(
+      (SELECT jsonb_agg(DISTINCT lower(e) ORDER BY lower(e))
+         FROM jsonb_array_elements_text(NEW.value) AS t(e)),
+      '[]'::jsonb);
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_guard_the_director_list() FROM anon, PUBLIC;
+
+COMMENT ON FUNCTION public.fn_guard_the_director_list() IS
+  'BEFORE trigger on platform_policies. Refuses any insert/update/delete that '
+  'touches ''platform.the_director_profile_ids'' unless the caller is already '
+  'on that list, is service_role, or is a direct DB session with no JWT. '
+  'Also cleans the value to a sorted, de-duplicated array of lower-case ids. '
+  'Migration 20270520090000.';
