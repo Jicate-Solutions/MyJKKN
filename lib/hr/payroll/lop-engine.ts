@@ -18,11 +18,9 @@
  * pays by — `computeRegisterLine` in lib/services/hr/payroll/salary-register-service.ts,
  * pinned to a hand-kept spreadsheet to the paisa in
  * __tests__/hr/salary-register-line.test.ts ("16000 / 22 x 6 = 4363.64").
- * The named spec file that nine payroll files cite,
- * specs/t4-payroll-design-lock-2026-05-15.md, has never existed in this
- * repository (verified across every branch and the full history), so the
- * register's arithmetic — reconciled against a real month by HR — is the only
- * surviving authority for it. The divisor is NOT invented here.
+ * No written spec; the rule lives in `computeRegisterLine` and its test above.
+ * That arithmetic, reconciled against a real month by HR, is the authority
+ * this engine follows. The divisor is NOT invented here.
  *
  *   basis        = business working days for THIS person in THIS month
  *   paid days    = min(payable days credited by the attendance close, basis)

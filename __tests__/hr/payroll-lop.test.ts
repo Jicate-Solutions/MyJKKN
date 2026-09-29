@@ -2,10 +2,10 @@
  * Payroll loss-of-pay — the arithmetic that decides how much of a month a
  * person is actually paid for.
  *
- * WHERE THE EXPECTED FIGURES COME FROM. The spec nine payroll files cite,
- * specs/t4-payroll-design-lock-2026-05-15.md, has never existed in this
- * repository, so there is no document to pin against. What does exist is the
- * shipped salary register, whose own figures are pinned to a hand-kept
+ * WHERE THE EXPECTED FIGURES COME FROM. No written spec; the rule lives in
+ * `computeRegisterLine` (lib/services/hr/payroll/salary-register-service.ts),
+ * so there is no document to pin against. What does exist is that shipped
+ * salary register, whose own figures are pinned to a hand-kept
  * spreadsheet to the paisa in __tests__/hr/salary-register-line.test.ts. The
  * "agrees with the shipped salary register" block below takes its six rows
  * straight from that file and requires this engine to reach the same rupee by a
