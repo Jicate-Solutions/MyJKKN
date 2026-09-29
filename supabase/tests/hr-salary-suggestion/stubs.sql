@@ -47,6 +47,17 @@ ALTER TABLE public.platform_policies ENABLE ROW LEVEL SECURITY;
 CREATE POLICY platform_policies_select ON public.platform_policies
   FOR SELECT USING (auth.uid() IS NOT NULL);
 
+-- hr_policy_audit_log with the columns #4111's restrictive policy reads, and
+-- RLS on, as in production. is_admin() is a stand-in (nobody seeded here is an
+-- admin); #4111's policies call it, fn_hr_salary_rule_lock_present() does not.
+CREATE TABLE public.hr_policy_audit_log (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  policy_key text, scope_type text, scope_id uuid, new_value jsonb);
+ALTER TABLE public.hr_policy_audit_log ENABLE ROW LEVEL SECURITY;
+CREATE POLICY hr_policy_audit_log_select ON public.hr_policy_audit_log
+  FOR SELECT USING (auth.uid() IS NOT NULL);
+CREATE OR REPLACE FUNCTION public.is_admin() RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
+
 -- The roster view the salary screen reads (production: staff JOIN
 -- employment_categories JOIN hr_organizations WHERE both included_in_hr). The
 -- stand-in keeps the columns the function reads and an `in_hr` flag for the gate.

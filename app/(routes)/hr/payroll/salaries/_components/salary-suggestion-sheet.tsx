@@ -7,8 +7,16 @@
  * A SUGGESTION ONLY. Under his ruling of 18 September 2026 the band is
  * reference material and a raise is his separate decision, so nothing on this
  * panel saves anything. "Use this figure" only opens the existing Edit Salary
- * dialog with the monthly gross filled in; the HR head still reviews it and
- * presses Save there, exactly as today.
+ * dialog with the monthly gross filled in and Effective from set to the 1st of
+ * next month (India time) — an approved raise starts on the 1st of the month
+ * after approval (29 Sep 2026) and is never backdated (18 Sep 2026); the
+ * dialog refuses a past date in that flow. The HR head still reviews it and
+ * presses Save there.
+ *
+ * NEVER A STALE FIGURE. While the panel re-asks the server (every re-opening
+ * does, see useSalarySuggestion), the previous answer is hidden and "Use this
+ * figure" is disabled, so a figure worked out under an older rule cannot be
+ * carried into the dialog.
  *
  * The figure is worked out on the server (GET /api/hr/payroll/salary-suggestions)
  * from the college's pay band and the Director's rule. Every step is a line
@@ -33,20 +41,10 @@ import {
 } from '@/components/ui/sheet';
 import { useSalarySuggestion } from '@/hooks/hr/use-salary-suggestion';
 import { formatRupees, type SalarySuggestion } from '@/lib/hr/salary-suggestion';
+import { firstOfNextMonthIST, formatLongDate } from '@/lib/hr/raise-effective-date';
 import type { StaffSalaryDirectoryRow } from '@/lib/services/hr/payroll/staff-salary-service';
 
 export const SALARY_SUGGESTION_RULE_EDITOR = '/hr/admin/policies/salary-suggestion';
-
-/** First of the current month in IST, yyyy-MM-dd — the date the Edit dialog would not treat as backdated. */
-function firstOfThisMonthIST(): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Kolkata',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
-  return `${parts.slice(0, 7)}-01`;
-}
 
 function bandText(s: SalarySuggestion): string {
   if (s.bandMin === null || s.bandMax === null) return 'No band';
@@ -76,15 +74,16 @@ interface Props {
 }
 
 export function SalarySuggestionSheet({ row, onOpenChange, canManage, canEditRule, onUseFigure }: Props) {
-  const { data, isLoading, error } = useSalarySuggestion(row?.staff_uuid ?? null, {
+  const { data, isLoading, isFetching, error } = useSalarySuggestion(row?.staff_uuid ?? null, {
     enabled: Boolean(row),
   });
-  const s = data?.suggestion ?? null;
-
-  const wouldBackdate =
-    row?.effective_from !== null &&
-    row?.effective_from !== undefined &&
-    row.effective_from < firstOfThisMonthIST();
+  // While the server is being asked again, the previous answer is NOT shown:
+  // it may have been worked out under a rule that has since changed.
+  const working = isLoading || isFetching;
+  const s = working ? null : (data?.suggestion ?? null);
+  // Whether the last answer offered a figure — keeps the footer in place, with
+  // its button disabled, while a re-fetch is running.
+  const offered = data?.suggestion.verdict === 'suggested' && data.suggestion.suggested !== null;
 
   return (
     <Sheet open={Boolean(row)} onOpenChange={onOpenChange}>
@@ -111,14 +110,14 @@ export function SalarySuggestionSheet({ row, onOpenChange, canManage, canEditRul
         </p>
 
         <div className='mt-4 space-y-4'>
-          {isLoading && (
-            <div className='flex items-center gap-2 text-sm text-muted-foreground'>
+          {working && (
+            <div className='flex items-center gap-2 text-sm text-muted-foreground' data-testid='suggestion-working'>
               <Loader2 className='h-4 w-4 animate-spin' />
               Working it out…
             </div>
           )}
 
-          {error && (
+          {error && !working && (
             <Alert variant='destructive'>
               <AlertTriangle className='h-4 w-4' />
               <AlertDescription>{error.message}</AlertDescription>
@@ -144,7 +143,7 @@ export function SalarySuggestionSheet({ row, onOpenChange, canManage, canEditRul
                         Set the rule
                       </Link>
                     ) : (
-                      <p className='mt-1'>Only the Director can set it.</p>
+                      <p className='mt-1'>Only a super admin can set it.</p>
                     )}
                   </AlertDescription>
                 </Alert>
@@ -267,18 +266,24 @@ export function SalarySuggestionSheet({ row, onOpenChange, canManage, canEditRul
           )}
         </div>
 
-        {s?.verdict === 'suggested' && s.suggested !== null && row && (
+        {offered && row && (
           <SheetFooter className='mt-6 flex-col gap-2 sm:flex-col sm:space-x-0'>
             {canManage ? (
               <>
-                <Button onClick={() => onUseFigure(row, s.suggested as number)}>
+                <Button
+                  disabled={s === null}
+                  onClick={() => {
+                    if (s?.verdict === 'suggested' && s.suggested !== null) onUseFigure(row, s.suggested);
+                  }}
+                >
                   Use this figure
                 </Button>
                 <p className='text-xs text-muted-foreground'>
-                  Opens Update salary with {formatRupees(s.suggested)} filled in. Nothing is saved
-                  until you press Save there.
-                  {wouldBackdate &&
-                    ' That form starts on the date the current salary took effect — change it before saving, because backdating is not allowed.'}
+                  {s?.suggested != null
+                    ? `Opens Update salary with ${formatRupees(s.suggested)} filled in, starting on ${formatLongDate(firstOfNextMonthIST())}. `
+                    : 'Opens Update salary with the suggested figure filled in, starting on the 1st of next month. '}
+                  A raise starts on the 1st of the month after it is approved; a date in the past
+                  is refused there. Nothing is saved until you press Save.
                 </p>
               </>
             ) : (

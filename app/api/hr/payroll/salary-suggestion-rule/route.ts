@@ -16,6 +16,12 @@ export const dynamic = 'force-dynamic';
  *
  * Saving the rule changes NOBODY's pay. It only changes what the Suggest panel
  * on Employee Salaries works out.
+ *
+ * NOT BEFORE #4111. Until PR #4111's restrictive read policies are live, every
+ * signed-in account can read platform_policies rows — this rule's amounts
+ * included, and a draft's too (draft_value sits in the same row). So POST asks
+ * fn_hr_salary_rule_lock_present() first and answers 409, saving nothing,
+ * while it is false. A failed check is a refusal too (500), never a pass.
  */
 
 import { NextResponse, connection } from 'next/server';
@@ -71,6 +77,28 @@ export const POST = withAuth(
     }
     if (typeof body?.rule !== 'object' || body.rule === null || Array.isArray(body.rule)) {
       return NextResponse.json({ error: 'The rule is missing.' }, { status: 400 });
+    }
+
+    let locked: boolean;
+    try {
+      locked = await SalarySuggestionRuleService.lockPresent(auth.supabase);
+    } catch (err: unknown) {
+      console.error('[HR Salary Suggestion Rule] lock check error:', err);
+      return NextResponse.json(
+        { error: 'Could not confirm that pay-policy protection is live, so nothing was saved.' },
+        { status: 500 },
+      );
+    }
+    if (!locked) {
+      return NextResponse.json(
+        {
+          error:
+            action === 'publish'
+              ? 'The salary rule cannot be published until pay-policy protection is live. Nothing was saved.'
+              : 'The salary rule cannot be saved, even as a draft, until pay-policy protection is live. Nothing was saved.',
+        },
+        { status: 409 },
+      );
     }
 
     try {

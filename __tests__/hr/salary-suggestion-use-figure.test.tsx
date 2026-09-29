@@ -4,10 +4,16 @@
  * saved until the HR head presses Save there, exactly as today.
  *
  *   - the panel hands the suggested figure to its caller and writes nothing;
- *   - the dialog opens with that figure in Monthly gross, every other field
- *     (the effective date included) seeded exactly as it always is, and no save
- *     call is made;
- *   - opened again without a figure, it starts from the pay in force.
+ *   - the dialog opens with that figure in Monthly gross and Effective from on
+ *     the 1st of NEXT month in India (the Director: an approved raise starts on
+ *     the 1st of the month after approval, 29 Sep 2026; nothing is backdated,
+ *     18 Sep 2026), refuses a past date with Save disabled, and makes no save
+ *     call;
+ *   - opened again without a figure, it starts from the pay in force and the
+ *     current salary's date, and accepts any date — unchanged from main;
+ *   - while the panel re-asks the server, the old figure is hidden and "Use
+ *     this figure" is disabled;
+ *   - a non-super-admin is told a super admin (not "the Director") sets the rule.
  *
  * Run: npx vitest run __tests__/hr/salary-suggestion-use-figure.test.tsx
  */
@@ -24,8 +30,9 @@ vi.mock('@/hooks/hr/use-staff-salaries', () => ({
 vi.mock('@/hooks/hr/use-tds-slabs', () => ({ useTdsSlabs: () => ({ data: [] }) }));
 
 let suggestion: SalarySuggestionPayload | undefined;
+let fetching = false;
 vi.mock('@/hooks/hr/use-salary-suggestion', () => ({
-  useSalarySuggestion: () => ({ data: suggestion, isLoading: false, error: null }),
+  useSalarySuggestion: () => ({ data: suggestion, isLoading: false, isFetching: fetching, error: null }),
 }));
 vi.mock('next/link', () => ({
   // A plain anchor: every prop (href and the link text) is passed straight through.
@@ -89,11 +96,36 @@ beforeEach(() => {
   fetchSpy.mockReset();
   vi.stubGlobal('fetch', fetchSpy);
   suggestion = undefined;
+  fetching = false;
+  // 29 Sep 2026, midday in India. Only Date is faked.
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-09-29T06:30:00Z'));
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
+
+function ruleNotSet(): SalarySuggestionPayload {
+  return {
+    ruleSource: null,
+    ruleUpdatedAt: null,
+    suggestion: {
+      verdict: 'rule_not_set',
+      lines: [],
+      suggested: null,
+      computed: null,
+      bandMin: 20000,
+      bandMax: 30000,
+      currentMonthlyPay: 21000,
+      extrasEligible: [],
+      reasons: [{ code: 'rule_not_set', text: 'not set' }],
+    },
+  };
+}
+
+const save = () => screen.getByRole('button', { name: 'Update salary' });
 
 describe('the Suggest panel', () => {
   it('"Use this figure" hands the figure over and saves nothing', () => {
@@ -117,22 +149,44 @@ describe('the Suggest panel', () => {
     expect(screen.queryByRole('button', { name: 'Use this figure' })).toBeNull();
   });
 
+  it('says the figure starts on the 1st of next month and that a past date is refused — what the dialog does', () => {
+    suggestion = suggested(24500);
+    render(
+      <SalarySuggestionSheet row={ROW} onOpenChange={() => {}} canManage canEditRule={false} onUseFigure={vi.fn()} />
+    );
+    expect(
+      screen.getByText(/Opens Update salary with ₹24,500 filled in, starting on 1 October 2026\./)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/a date in the past\s+is refused there/)).toBeInTheDocument();
+    expect(screen.queryByText(/change it before saving/)).toBeNull();
+  });
+
+  it('while re-asking the server: the old figure is hidden and "Use this figure" is disabled', () => {
+    suggestion = suggested(24500);
+    fetching = true;
+    const onUseFigure = vi.fn();
+    render(
+      <SalarySuggestionSheet row={ROW} onOpenChange={() => {}} canManage canEditRule={false} onUseFigure={onUseFigure} />
+    );
+    expect(screen.getByTestId('suggestion-working')).toHaveTextContent('Working it out');
+    expect(screen.queryByTestId('suggested-figure')).toBeNull();
+    expect(screen.queryByText(/24,500/)).toBeNull();
+    const button = screen.getByRole('button', { name: 'Use this figure' });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(onUseFigure).not.toHaveBeenCalled();
+  });
+
+  it('tells someone who is not a super admin that a super admin sets the rule', () => {
+    suggestion = ruleNotSet();
+    render(<SalarySuggestionSheet row={ROW} onOpenChange={() => {}} canManage canEditRule={false} onUseFigure={vi.fn()} />);
+    expect(screen.getByText('Only a super admin can set it.')).toBeInTheDocument();
+    expect(screen.queryByText(/Only the Director can set it/)).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Set the rule' })).toBeNull();
+  });
+
   it('offers no figure at all when the rule is not set, and links a super admin to the rule', () => {
-    suggestion = {
-      ruleSource: null,
-      ruleUpdatedAt: null,
-      suggestion: {
-        verdict: 'rule_not_set',
-        lines: [],
-        suggested: null,
-        computed: null,
-        bandMin: 20000,
-        bandMax: 30000,
-        currentMonthlyPay: 21000,
-        extrasEligible: [],
-        reasons: [{ code: 'rule_not_set', text: 'not set' }],
-      },
-    };
+    suggestion = ruleNotSet();
     render(<SalarySuggestionSheet row={ROW} onOpenChange={() => {}} canManage canEditRule onUseFigure={vi.fn()} />);
     expect(screen.getByTestId('rule-not-set')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Set the rule' })).toHaveAttribute(
@@ -145,19 +199,53 @@ describe('the Suggest panel', () => {
 });
 
 describe('the Edit Salary dialog, pre-filled', () => {
-  it('opens with the suggested monthly gross, the usual effective date, and makes no save call', () => {
+  it('opens with the suggested monthly gross, Effective from on the 1st of NEXT month, and makes no save call', () => {
     render(<EditSalaryDialog row={ROW} onOpenChange={() => {}} prefillMonthlyGross={24500} />);
     expect(screen.getByLabelText('Monthly gross')).toHaveValue('24500');
-    expect(screen.getByLabelText('Effective from')).toHaveValue('2026-04-01');
-    expect(screen.getByTestId('prefill-note')).toBeInTheDocument();
+    // Not the current salary's date (1 April 2026, in the past).
+    expect(screen.getByLabelText('Effective from')).toHaveValue('2026-10-01');
+    expect(screen.getByTestId('prefill-note')).toHaveTextContent('starting on 1 October 2026');
+    expect(screen.queryByTestId('backdated-raise')).toBeNull();
+    expect(save()).toBeEnabled();
     expect(mutateAsync).not.toHaveBeenCalled();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('without a figure, starts from the pay in force and shows no note', () => {
+  it('REFUSES a date in the past in the suggested-raise flow: a plain message, Save disabled, nothing saved', () => {
+    render(<EditSalaryDialog row={ROW} onOpenChange={() => {}} prefillMonthlyGross={24500} />);
+    fireEvent.change(screen.getByLabelText('Effective from'), { target: { value: '2026-04-01' } });
+    expect(screen.getByTestId('backdated-raise')).toHaveTextContent('A raise cannot start in the past.');
+    expect(save()).toBeDisabled();
+    fireEvent.click(save());
+    expect(mutateAsync).not.toHaveBeenCalled();
+
+    // Yesterday is the past too; today is allowed.
+    fireEvent.change(screen.getByLabelText('Effective from'), { target: { value: '2026-09-28' } });
+    expect(save()).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Effective from'), { target: { value: '2026-09-29' } });
+    expect(screen.queryByTestId('backdated-raise')).toBeNull();
+    expect(save()).toBeEnabled();
+  });
+
+  it('rolls into January from December, and uses the date in INDIA, not the browser', () => {
+    vi.setSystemTime(new Date('2026-12-15T06:30:00Z'));
+    const { unmount } = render(<EditSalaryDialog row={ROW} onOpenChange={() => {}} prefillMonthlyGross={24500} />);
+    expect(screen.getByLabelText('Effective from')).toHaveValue('2027-01-01');
+    unmount();
+    // 30 Sep 19:00 UTC is already 1 October 00:30 in India.
+    vi.setSystemTime(new Date('2026-09-30T19:00:00Z'));
+    render(<EditSalaryDialog row={ROW} onOpenChange={() => {}} prefillMonthlyGross={24500} />);
+    expect(screen.getByLabelText('Effective from')).toHaveValue('2026-11-01');
+  });
+
+  it('without a figure, is UNCHANGED from main: pay in force, the current salary date, and a past date accepted', () => {
     render(<EditSalaryDialog row={ROW} onOpenChange={() => {}} />);
     expect(screen.getByLabelText('Monthly gross')).toHaveValue('21000');
+    expect(screen.getByLabelText('Effective from')).toHaveValue('2026-04-01');
     expect(screen.queryByTestId('prefill-note')).toBeNull();
+    fireEvent.change(screen.getByLabelText('Monthly gross'), { target: { value: '22000' } });
+    expect(screen.queryByTestId('backdated-raise')).toBeNull();
+    expect(save()).toBeEnabled();
   });
 
   it('re-seeds when the same person is reopened with a figure', () => {

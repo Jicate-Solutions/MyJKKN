@@ -33,6 +33,8 @@ import { ruleForStorage } from '@/lib/hr/salary-suggestion-rule-form';
 export const SALARY_SUGGESTION_RULE_KEY = 'hr.salary_suggestion_rule' as const;
 export const POLICIES_TABLE = 'platform_policies' as const;
 export const AUDIT_LOG_TABLE = 'hr_policy_audit_log' as const;
+/** Is PR #4111's protection of this key live? See 20270512090000, section 3. */
+export const RULE_LOCK_RPC = 'fn_hr_salary_rule_lock_present' as const;
 
 export interface RuleInstitution {
   id: string;
@@ -127,6 +129,17 @@ async function listRows(supabase: SupabaseClient): Promise<RuleRow[]> {
 }
 
 export const SalarySuggestionRuleService = {
+  /**
+   * True only when #4111's restrictive read policies cover this key, so a saved
+   * rule (or draft) is not readable by every signed-in account. Throws when
+   * the check itself fails: the caller must refuse, never assume.
+   */
+  async lockPresent(supabase: SupabaseClient): Promise<boolean> {
+    const { data, error } = await supabase.rpc(RULE_LOCK_RPC);
+    if (error) throw new Error(`Could not check pay-policy protection: ${error.message}`);
+    return data === true;
+  },
+
   async list(supabase: SupabaseClient): Promise<RuleListResponse> {
     const [institutions, rows] = await Promise.all([listInstitutions(supabase), listRows(supabase)]);
     return { institutions, rows };

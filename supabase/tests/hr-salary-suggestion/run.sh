@@ -54,15 +54,73 @@ probe | grep "all-scope holder .*person B"
 
 echo "== MUTATION CONTROL 3: the has-an-amount test removed; C must now read its amount-less row as its college rule"
 "${PSQL[@]}" -f "$MIG" >/dev/null || exit 1
-python3 - "$MIG" > "$WORK/m3.sql" <<'PY'
-import re, sys
-s = open(sys.argv[1]).read()
-s, n = re.subn(r"\n +AND \(jsonb_typeof\(rc\.value.*?\"number\"\)'\)\)", "", s, flags=re.S)
-assert n == 1, n
-print(s)
-PY
+grep -c "AND public.hr_salary_rule_has_amount(rc.value)" "$MIG" | sed 's/^/   lines removed: /'
+sed '/AND public.hr_salary_rule_has_amount(rc.value)/d' "$MIG" > "$WORK/m3.sql"
 "${PSQL[@]}" -f "$WORK/m3.sql" || exit 1
 probe | grep "all-scope holder .*person C"
+
+PARITY_CASES="$HERE/rule-parity-cases.json"
+parity() { "${PSQL[@]}" -tA -v cases="$(cat "$PARITY_CASES")" -f "$HERE/parity-probe.sql" 2>&1 | sed 's/^/   /'; }
+"${PSQL[@]}" -f "$MIG" >/dev/null || exit 1
+echo "== PARITY: hr_salary_rule_has_amount() vs the cases the TypeScript parser test reads (all must be ok)"
+parity
+
+echo "== MUTATION CONTROL 5: numeric strings accepted again (the old test); the string cases must now MISMATCH"
+sed 's/strict \$.per_year_at_jkkn ? (@.type() == "number" \&\& @ >= 0)/$.per_year_at_jkkn ? (@.type() == "number" || @.type() == "string")/' "$MIG" > "$WORK/m5.sql"
+grep -c '@.type() == "string"' "$WORK/m5.sql" | sed 's/^/   lines changed: /'
+"${PSQL[@]}" -f "$WORK/m5.sql" >/dev/null || exit 1
+parity | grep -E "MISMATCH|total"
+"${PSQL[@]}" -f "$MIG" >/dev/null || exit 1
+
+lock() { "${PSQL[@]}" -f "$HERE/lock-probe.sql" 2>&1 | grep -E "LOCK|ERROR|HOLE|REFUSED" | sed 's/^.*NOTICE: *//; s/^ *//; s/^/   /'; }
+PR4111="$(ls "$SRC"/supabase/migrations/20270506090000_*.sql 2>/dev/null | head -1)"
+if [ -n "$PR4111" ]; then
+  awk '/^-- 1\. platform_policies/{on=1} /^-- 3\. fn_get_policy/{on=0} on' "$PR4111" > "$WORK/pr4111.sql"
+  echo "== #4111's policies taken from the real migration: $PR4111"
+else
+  cp "$HERE/pr4111-policies.sql" "$WORK/pr4111.sql"
+  echo "== #4111's policies taken from pr4111-policies.sql (verbatim copy; #4111 is not in this tree)"
+fi
+echo "== LOCK 1: without #4111 (expected false)"
+lock
+echo "== LOCK 2: #4111's two policies applied (expected true)"
+"${PSQL[@]}" -f "$WORK/pr4111.sql" || exit 1
+lock
+echo "== LOCK 3: only the audit-log policy dropped (expected false)"
+"${PSQL[@]}" -c "DROP POLICY hr_policy_audit_log_pay_keys_restricted ON public.hr_policy_audit_log" || exit 1
+lock
+echo "== LOCK 4: both back, but row level security switched off on platform_policies (expected false)"
+"${PSQL[@]}" -f "$WORK/pr4111.sql" || exit 1
+"${PSQL[@]}" -c "ALTER TABLE public.platform_policies DISABLE ROW LEVEL SECURITY" || exit 1
+lock
+echo "== LOCK 5: RLS back on, but the platform_policies policy re-created PERMISSIVE (expected false)"
+"${PSQL[@]}" -c "ALTER TABLE public.platform_policies ENABLE ROW LEVEL SECURITY" || exit 1
+sed 's/AS RESTRICTIVE/AS PERMISSIVE/' "$WORK/pr4111.sql" > "$WORK/pr4111-permissive.sql"
+"${PSQL[@]}" -f "$WORK/pr4111-permissive.sql" || exit 1
+lock
+echo "== LOCK 6: #4111 exactly as written again (expected true)"
+"${PSQL[@]}" -f "$WORK/pr4111.sql" || exit 1
+lock
+echo "== LOCK 7: #4111 with the salary rule key left out of its list (expected false)"
+sed "s/, 'hr.salary_suggestion_rule')/)/" "$WORK/pr4111.sql" > "$WORK/pr4111-nokey.sql"
+"${PSQL[@]}" -f "$WORK/pr4111-nokey.sql" || exit 1
+lock
+echo "== MUTATION CONTROL 6: the RLS test removed from the function; LOCK 4's state must now read true"
+"${PSQL[@]}" -f "$WORK/pr4111.sql" || exit 1
+"${PSQL[@]}" -c "ALTER TABLE public.platform_policies DISABLE ROW LEVEL SECURITY" || exit 1
+sed '/AND c.relrowsecurity/d' "$MIG" > "$WORK/m6.sql"
+"${PSQL[@]}" -f "$WORK/m6.sql" >/dev/null || exit 1
+lock
+"${PSQL[@]}" -c "ALTER TABLE public.platform_policies ENABLE ROW LEVEL SECURITY" || exit 1
+"${PSQL[@]}" -f "$MIG" >/dev/null || exit 1
+echo "== MUTATION CONTROL 7: the super-admin check removed; the non-super-admin must now get an answer (HOLE)"
+sed "s/IF auth.uid() IS NOT NULL AND NOT public.is_super_admin() THEN/IF false THEN/" "$MIG" > "$WORK/m7.sql"
+grep -c "IF false THEN" "$WORK/m7.sql" | sed 's/^/   lines changed: /'
+"${PSQL[@]}" -f "$WORK/m7.sql" >/dev/null || exit 1
+lock | grep -E "HOLE|REFUSED"
+"${PSQL[@]}" -f "$MIG" >/dev/null || exit 1
+echo "== grants on the two new functions"
+"${PSQL[@]}" -tAc "SELECT format('GRANTS   lock anon=%s authenticated=%s  has_amount anon=%s', has_function_privilege('anon','public.fn_hr_salary_rule_lock_present()','EXECUTE'), has_function_privilege('authenticated','public.fn_hr_salary_rule_lock_present()','EXECUTE'), has_function_privilege('anon','public.hr_salary_rule_has_amount(jsonb)','EXECUTE'))" | sed 's/^/   /'
 
 echo "== MUTATION CONTROL 4: the REVOKE removed (fresh function); anon must now get through"
 "${PSQL[@]}" -c "DROP FUNCTION public.hr_salary_suggestion_inputs(uuid)" || exit 1

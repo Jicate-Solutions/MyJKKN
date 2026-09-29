@@ -47,6 +47,12 @@ import { getErrorMessage } from '@/lib/utils';
 import { useSetStaffSalary } from '@/hooks/hr/use-staff-salaries';
 import { useTdsSlabs } from '@/hooks/hr/use-tds-slabs';
 import { describeSlab, resolveTds } from '@/lib/hr/payroll/tds-slabs';
+import {
+  firstOfNextMonthIST,
+  formatLongDate,
+  isBeforeTodayIST,
+  todayIST,
+} from '@/lib/hr/raise-effective-date';
 import type { StaffSalaryDirectoryRow } from '@/lib/services/hr/payroll/staff-salary-service';
 
 const INR = new Intl.NumberFormat('en-IN', {
@@ -110,9 +116,19 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   /**
    * A monthly gross to start the form with instead of the one in force — set
-   * by "Use this figure" on the suggested-salary panel. It only fills the box:
-   * every other field, the effective date included, seeds exactly as it
-   * always does, and nothing is saved until Save is pressed.
+   * by "Use this figure" on the suggested-salary panel. Nothing is saved until
+   * Save is pressed.
+   *
+   * In this flow the form is a RAISE, so two of the Director's rulings apply:
+   * nothing is backdated (18 Sep 2026) and an approved raise starts on the 1st
+   * of the month after approval (29 Sep 2026). Effective from therefore starts
+   * on the 1st of next month (India time) instead of the current salary's
+   * date, and a date in the past is refused with Save disabled.
+   *
+   * Opened WITHOUT a figure (the row's Update salary action), the dialog is
+   * unchanged: it starts from the current salary's date and accepts any date,
+   * as it does on main — that path also records corrections and first
+   * salaries, which this change does not decide.
    */
   prefillMonthlyGross?: number | null;
 }
@@ -175,7 +191,11 @@ export function EditSalaryDialog({ row, onOpenChange, prefillMonthlyGross = null
           ? ''
           : String(row.monthly_gross)
     );
-    setEffectiveFrom(row.effective_from ?? firstOfThisMonthIST());
+    setEffectiveFrom(
+      prefillMonthlyGross !== null
+        ? firstOfNextMonthIST()
+        : (row.effective_from ?? firstOfThisMonthIST())
+    );
     setStructure(row.salary_structure ?? 'Monthly');
     setOvertimeLevel(row.overtime_level ?? 'No overtime');
     setOvertimeAmount(String(row.overtime_amount ?? 0));
@@ -202,6 +222,9 @@ export function EditSalaryDialog({ row, onOpenChange, prefillMonthlyGross = null
   const amountValid = Number.isFinite(amount) && amount > 0;
   const hasPayer = Boolean(row?.payer_org_id);
   const dateValid = /^\d{4}-\d{2}-\d{2}$/.test(effectiveFrom);
+  // Only in the suggested-raise flow: a raise may not start in the past.
+  const backdatedRaise =
+    prefillMonthlyGross !== null && dateValid && isBeforeTodayIST(effectiveFrom);
 
   /**
    * A contribution counts only while its flag is on, so unticking a box
@@ -243,6 +266,7 @@ export function EditSalaryDialog({ row, onOpenChange, prefillMonthlyGross = null
     hasPayer &&
     amountValid &&
     dateValid &&
+    !backdatedRaise &&
     allowanceValid &&
     contributionErrors.length === 0 &&
     !setSalary.isPending;
@@ -344,8 +368,10 @@ export function EditSalaryDialog({ row, onOpenChange, prefillMonthlyGross = null
         {prefillMonthlyGross !== null && (
           <Alert data-testid='prefill-note'>
             <AlertDescription>
-              Monthly gross filled in from the suggested salary. Check every field, including
-              the effective date — nothing is saved until you press Save.
+              Monthly gross filled in from the suggested salary, starting on{' '}
+              {formatLongDate(firstOfNextMonthIST())}: a raise starts on the 1st of the month
+              after it is approved, and cannot be backdated. Check every field — nothing is
+              saved until you press Save.
             </AlertDescription>
           </Alert>
         )}
@@ -384,12 +410,21 @@ export function EditSalaryDialog({ row, onOpenChange, prefillMonthlyGross = null
                 id='salary-effective'
                 type='date'
                 value={effectiveFrom}
+                min={prefillMonthlyGross !== null ? todayIST() : undefined}
+                aria-invalid={backdatedRaise || undefined}
                 disabled={!hasPayer}
                 onChange={(e) => setEffectiveFrom(e.target.value)}
               />
-              <p className='text-xs text-muted-foreground'>
-                Payslips before this date keep the previous figure.
-              </p>
+              {backdatedRaise ? (
+                <p className='text-xs text-destructive' role='alert' data-testid='backdated-raise'>
+                  A raise cannot start in the past. Choose today or later — normally the 1st of
+                  the month after it is approved.
+                </p>
+              ) : (
+                <p className='text-xs text-muted-foreground'>
+                  Payslips before this date keep the previous figure.
+                </p>
+              )}
             </div>
           </div>
 

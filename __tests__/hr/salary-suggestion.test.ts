@@ -349,12 +349,17 @@ describe('cannot suggest', () => {
 });
 
 describe('reading the stored rule', () => {
-  it('unwraps { value: {...} }, accepts numeric strings, drops negatives and a zero step', () => {
+  it('reads plain numbers only — a numeric string, a negative and a zero step are all dropped', () => {
     expect(
-      parseSalarySuggestionRule({
-        value: { per_year_at_jkkn: '500', per_year_prior: -1, round_to: 0, prior_counts: 'yes' },
-      })
+      parseSalarySuggestionRule({ per_year_at_jkkn: 500, per_year_prior: -1, round_to: 0, prior_counts: 'yes' })
     ).toEqual({ per_year_at_jkkn: 500 });
+    expect(parseSalarySuggestionRule({ per_year_at_jkkn: '500' })).toEqual({});
+  });
+
+  it('does not unwrap { value: {...} }: a wrapped rule is "not set", as the database reads it', () => {
+    const rule = parseSalarySuggestionRule({ value: { per_year_at_jkkn: 500 } });
+    expect(rule).toEqual({});
+    expect(isSalarySuggestionRuleEmpty(rule)).toBe(true);
   });
 
   it('keeps a deliberate 0 as a set amount', () => {

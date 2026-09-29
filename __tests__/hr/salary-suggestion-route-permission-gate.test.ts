@@ -21,6 +21,8 @@ const A = 'inst-a';
 const B = 'inst-b';
 const PERSON_A = '11111111-1111-4111-8111-111111111111';
 const PERSON_B = '22222222-2222-4222-8222-222222222222';
+const C = 'inst-c';
+const PERSON_C = '33333333-3333-4333-8333-333333333333';
 
 let heldKeys: string[] = [];
 let superAdmin = false;
@@ -30,9 +32,11 @@ let hasSessionCookie = true;
 const rpcCalls: Array<{ fn: string; args?: Record<string, unknown> }> = [];
 const tablesRead: string[] = [];
 
-const PEOPLE: Record<string, { institution_id: string; rule: unknown }> = {
+const PEOPLE: Record<string, { institution_id: string; rule: unknown; rule_source?: 'college' | 'group' }> = {
   [PERSON_A]: { institution_id: A, rule: { per_year_at_jkkn: 500 } },
   [PERSON_B]: { institution_id: B, rule: { per_year_at_jkkn: 900 } },
+  // College C has no rule of its own: the migration hands back the group-wide one.
+  [PERSON_C]: { institution_id: C, rule: { per_year_at_jkkn: 700 }, rule_source: 'group' },
 };
 
 function inputsRpc(args?: Record<string, unknown>) {
@@ -60,7 +64,7 @@ function inputsRpc(args?: Record<string, unknown>) {
         monthly_gross: '21000.00',
         band: { pay_matrix: [{ designation: 'Office Assistant', basic_pay: 20000 }, { designation: 'Office Assistant', basic_pay: 30000 }] },
         rule: p.rule,
-        rule_source: 'college',
+        rule_source: p.rule_source ?? 'college',
         rule_updated_at: '2026-09-29T00:00:00Z',
       },
     ],
@@ -175,6 +179,35 @@ describe('Salary suggestion route: what each caller gets', () => {
     scope = [];
 
     expect((await call(PERSON_B)).status).toBe(200);
+  });
+});
+
+describe('Salary suggestion route: a college with no rule of its own', () => {
+  it('INTENDED: a holder scoped to that one college sees the group-wide amounts in the lines — it is the effective rule there', async () => {
+    heldKeys = [REQUIRED_KEY];
+    scope = [C];
+
+    const res = await call(PERSON_C);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ruleSource).toBe('group');
+    const years = body.suggestion.lines.find((l: { label: string }) => l.label === 'Years at JKKN');
+    expect(years.note).toContain('₹700 a year');
+    expect(years.amount % 700).toBe(0);
+    expect(years.amount).toBeGreaterThan(0);
+    // The group-wide row itself is still never sent.
+    expect(body.rule).toBeUndefined();
+  });
+
+  it('but not for a college outside their scope', async () => {
+    heldKeys = [REQUIRED_KEY];
+    scope = [A];
+
+    const res = await call(PERSON_C);
+
+    expect(res.status).toBe(404);
+    expect(JSON.stringify(await res.json())).not.toMatch(/700/);
   });
 });
 

@@ -90,30 +90,31 @@ export interface SalarySuggestionRule {
   round_to?: number;
 }
 
-/** A rupee figure from hand-edited JSON: finite and not negative, or undefined. */
+/**
+ * A rupee figure: a JSON NUMBER, 0 or more — or undefined. A numeric string
+ * ("500") is NOT a figure. The editor only ever writes plain numbers, and
+ * hr_salary_suggestion_inputs() (hr_salary_rule_has_amount) counts a row as a
+ * rule by exactly this test, so the two can never disagree about whether a
+ * college has a rule of its own.
+ */
 function ruleAmount(value: unknown): number | undefined {
-  const n =
-    typeof value === 'number'
-      ? value
-      : typeof value === 'string' && value.trim() !== ''
-        ? Number(value)
-        : NaN;
-  if (!Number.isFinite(n) || n < 0) return undefined;
-  return n;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return undefined;
+  return value;
 }
 
 /**
- * Read a stored rule. Unwraps the `{ value: {...} }` shape some seeded policies
- * carry, exactly as the pay band parser does. Returns null when there is no
+ * Read a stored rule. EXACTLY AS STRICT AS THE DATABASE: the rule is the stored
+ * object itself (no `{ value: {...} }` wrapper is unwrapped), amounts are JSON
+ * numbers 0 or more, and an extra counts only when it is an object in an
+ * `extras` ARRAY with a non-blank label. hr_salary_rule_has_amount() applies
+ * the same tests, and __tests__/hr/salary-suggestion-rule-parity.test.ts runs
+ * the same cases (supabase/tests/hr-salary-suggestion/rule-parity-cases.json)
+ * that the Postgres rehearsal runs against it. Returns null when there is no
  * object at all. Fields that cannot be read are left out — i.e. "not set".
  */
 export function parseSalarySuggestionRule(raw: unknown): SalarySuggestionRule | null {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
-  const outer = raw as Record<string, unknown>;
-  const body =
-    typeof outer.value === 'object' && outer.value !== null && !Array.isArray(outer.value)
-      ? (outer.value as Record<string, unknown>)
-      : outer;
+  const body = raw as Record<string, unknown>;
 
   const rule: SalarySuggestionRule = {};
   const perYear = ruleAmount(body.per_year_at_jkkn);
@@ -128,7 +129,7 @@ export function parseSalarySuggestionRule(raw: unknown): SalarySuggestionRule | 
   if (Array.isArray(body.extras)) {
     const extras: SuggestionExtra[] = [];
     for (const entry of body.extras) {
-      if (typeof entry !== 'object' || entry === null) continue;
+      if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue;
       const e = entry as Record<string, unknown>;
       const label = typeof e.label === 'string' ? e.label.trim() : '';
       if (label === '') continue;

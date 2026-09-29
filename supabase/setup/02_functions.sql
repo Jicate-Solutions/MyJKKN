@@ -49015,15 +49015,49 @@ COMMENT ON FUNCTION public.hr_pay_band_policies() IS
   'Pay bands (hr.pay_scales) for the colleges the caller can access. Gated on hr.payroll.salary.view and scoped by role_has_institution_access, as hr_staff_salary_directory() is; raises rather than returning [] when the key is missing.';
 
 -- ===========================================================================
--- hr_salary_suggestion_inputs(p_staff_id) (2026-09-29)
+-- hr_salary_rule_has_amount, hr_salary_suggestion_inputs(p_staff_id),
+-- fn_hr_salary_rule_lock_present() (2026-09-29)
 -- Source: 20270512090000_hr_salary_suggestion_inputs_rpc.sql (salary suggestion, stacked on #4103)
+-- MUST NOT BE APPLIED BEFORE #4103 AND #4111.
 -- ===========================================================================
 -- Updated: 2026-09-29 - What the salary suggestion needs about ONE person: the
 -- roster fields (v_hr_staff), the pay in force, the college's pay band and the
 -- suggestion rule in force (the college's hr.salary_suggestion_rule row, else
 -- the group-wide one; published value only; a never-published college row, or
--- one with no rupee amount in it, does not hide the group-wide rule). Same two checks as
--- hr_pay_band_policies() above. Read only.
+-- one with no rupee amount in it by hr_salary_rule_has_amount(), does not hide
+-- the group-wide rule). Same two checks as hr_pay_band_policies() above. Read
+-- only. fn_hr_salary_rule_lock_present() tells the rule editor whether #4111's
+-- restrictive policies are live; the editor refuses to save until they are.
+-- ----------------------------------------------------------------------------
+-- 1. hr_salary_rule_has_amount(value) — does a stored rule hold a rupee amount?
+-- ----------------------------------------------------------------------------
+-- Pure. strict-mode jsonpath with silent => true: a value of the wrong shape
+-- (a list, a number, `extras` that is not a list, an extra with no label)
+-- simply does not match, instead of raising.
+CREATE OR REPLACE FUNCTION public.hr_salary_rule_has_amount(p_value jsonb)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+SET search_path TO 'public'
+AS $function$
+  SELECT COALESCE(
+       jsonb_path_exists(p_value, 'strict $.per_year_at_jkkn ? (@.type() == "number" && @ >= 0)', '{}', true)
+    OR jsonb_path_exists(p_value, 'strict $.per_year_prior ? (@.type() == "number" && @ >= 0)', '{}', true)
+    OR jsonb_path_exists(p_value,
+         'strict $.extras[*] ? (@.type() == "object" && @.label.type() == "string" && @.label like_regex "\\S" && @.amount.type() == "number" && @.amount >= 0)',
+         '{}', true),
+    false)
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.hr_salary_rule_has_amount(jsonb) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.hr_salary_rule_has_amount(jsonb) TO authenticated;
+
+COMMENT ON FUNCTION public.hr_salary_rule_has_amount(jsonb) IS
+  'True when a stored hr.salary_suggestion_rule value holds a rupee amount: per_year_at_jkkn, per_year_prior or an extra''s amount, each a JSON number 0 or more; an extra needs a non-blank string label and must sit in an extras array. Exactly the TypeScript parser''s test (parseSalarySuggestionRule). Pure.';
+
+-- ----------------------------------------------------------------------------
+-- 2. hr_salary_suggestion_inputs(p_staff_id)
+-- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.hr_salary_suggestion_inputs(p_staff_id uuid)
 RETURNS TABLE(
   staff_uuid           uuid,
@@ -49078,18 +49112,14 @@ BEGIN
           AND rc.scope_id = s.institution_id
           AND rc.is_active IS NOT FALSE
           AND rc.publication_state <> 'draft_only'
-          AND (jsonb_typeof(rc.value -> 'per_year_at_jkkn') = 'number'
-               OR jsonb_typeof(rc.value -> 'per_year_prior') = 'number'
-               OR jsonb_path_exists(rc.value, '$.extras[*].amount ? (@.type() == "number")'))
+          AND public.hr_salary_rule_has_amount(rc.value)
     LEFT JOIN public.platform_policies rg
            ON rg.policy_key = 'hr.salary_suggestion_rule'
           AND rg.scope_type = 'global'
           AND rg.scope_id IS NULL
           AND rg.is_active IS NOT FALSE
           AND rg.publication_state <> 'draft_only'
-          AND (jsonb_typeof(rg.value -> 'per_year_at_jkkn') = 'number'
-               OR jsonb_typeof(rg.value -> 'per_year_prior') = 'number'
-               OR jsonb_path_exists(rg.value, '$.extras[*].amount ? (@.type() == "number")'))
+          AND public.hr_salary_rule_has_amount(rg.value)
    WHERE s.id = p_staff_id
      AND s.institution_id IS NOT NULL
      AND public.role_has_institution_access(s.institution_id);
@@ -49101,6 +49131,65 @@ GRANT  EXECUTE ON FUNCTION public.hr_salary_suggestion_inputs(uuid) TO authentic
 
 COMMENT ON FUNCTION public.hr_salary_suggestion_inputs(uuid) IS
   'Inputs for the salary suggestion for one person: roster fields, pay in force, the college pay band and the suggestion rule in force (college row, else group-wide; published value only). Gated on hr.payroll.salary.view and scoped by role_has_institution_access, as hr_staff_salary_directory() is. Read only.';
+
+-- ----------------------------------------------------------------------------
+-- 3. fn_hr_salary_rule_lock_present() — is #4111's protection live?
+-- ----------------------------------------------------------------------------
+-- The rule editor's save route (POST /api/hr/payroll/salary-suggestion-rule)
+-- calls this first and refuses to publish or save a draft (409) while it is
+-- false. A draft sits in the same row (draft_value), so it would be just as
+-- readable.
+--
+-- True only when BOTH restrictive SELECT policies #4111 (20270506090000)
+-- creates are present, name them hr.salary_suggestion_rule in their
+-- expression, apply to role authenticated, and row level security is on for
+-- their tables:
+--   platform_policies_pay_keys_restricted    ON public.platform_policies
+--   hr_policy_audit_log_pay_keys_restricted  ON public.hr_policy_audit_log
+-- If #4111 is ever re-done under other policy names, this must change with it;
+-- until then it fails CLOSED (false), which only stops the editor saving.
+--
+-- Read only. It reveals whether two policies exist, nothing else. SECURITY
+-- DEFINER so the answer does not depend on the caller's catalog visibility.
+-- SUPER ADMINS ONLY, like the route that calls it: a signed-in caller who is
+-- not one gets 42501. No signed-in user (postgres, service role) = allowed.
+CREATE OR REPLACE FUNCTION public.fn_hr_salary_rule_lock_present()
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'pg_catalog', 'public'
+AS $function$
+BEGIN
+  IF auth.uid() IS NOT NULL AND NOT public.is_super_admin() THEN
+    RAISE EXCEPTION 'Only a super administrator can check pay-policy protection.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  RETURN (
+  SELECT count(*) = 2
+    FROM pg_catalog.pg_policies p
+    JOIN pg_catalog.pg_class c
+      ON c.relname = p.tablename
+     AND c.relnamespace = 'public'::regnamespace
+   WHERE p.schemaname = 'public'
+     AND (p.tablename, p.policyname) IN (
+           ('platform_policies',   'platform_policies_pay_keys_restricted'),
+           ('hr_policy_audit_log', 'hr_policy_audit_log_pay_keys_restricted'))
+     AND p.permissive = 'RESTRICTIVE'
+     AND p.cmd = 'SELECT'
+     AND 'authenticated' = ANY (p.roles)
+     AND strpos(p.qual, 'hr.salary_suggestion_rule') > 0
+     AND c.relrowsecurity
+  );
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_rule_lock_present() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_salary_rule_lock_present() TO authenticated;
+
+COMMENT ON FUNCTION public.fn_hr_salary_rule_lock_present() IS
+  'True when #4111''s restrictive SELECT policies (platform_policies_pay_keys_restricted, hr_policy_audit_log_pay_keys_restricted) are live and cover hr.salary_suggestion_rule. The salary rule editor refuses to save until it is true. Read only.';
 
 -- ===========================================================================
 -- bank account RPCs (2026-08-21)

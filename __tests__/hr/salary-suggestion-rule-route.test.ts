@@ -24,6 +24,8 @@ let admin = false;
 let heldKeys: string[] = [];
 let hasSessionCookie = true;
 let auditFails = false;
+/** What fn_hr_salary_rule_lock_present() answers: true once #4111's policies are live. */
+let lockPresent: boolean | 'error' = true;
 
 interface PolicyRow {
   id: string;
@@ -122,6 +124,11 @@ const fakeClient = {
     if (fn === 'is_super_admin') return { data: superAdmin, error: null };
     if (fn === 'is_admin') return { data: admin, error: null };
     if (fn === 'user_has_permission') return { data: heldKeys.includes(String(args?.permission_name)), error: null };
+    if (fn === 'fn_hr_salary_rule_lock_present') {
+      return lockPresent === 'error'
+        ? { data: null, error: { message: 'function does not exist' } }
+        : { data: lockPresent, error: null };
+    }
     return { data: null, error: null };
   },
 };
@@ -164,6 +171,7 @@ beforeEach(() => {
   heldKeys = [];
   hasSessionCookie = true;
   auditFails = false;
+  lockPresent = true;
   policies = [];
   audit = [];
   writes.length = 0;
@@ -285,5 +293,57 @@ describe('saving', () => {
     const res = await post({ scope: 'group', action: 'publish', rule: { per_year_at_jkkn: 1 }, reason: 'because' });
     expect(res.status).toBe(200);
     expect((await res.json()).auditError).toBe('audit insert refused');
+  });
+});
+
+describe('not before #4111: the rule cannot be saved while pay-policy protection is absent', () => {
+  beforeEach(() => {
+    superAdmin = true;
+  });
+
+  it('PUBLISH answers 409 with a plain reason and writes nothing', async () => {
+    lockPresent = false;
+    const res = await post({ scope: 'group', action: 'publish', rule: { per_year_at_jkkn: 400 }, reason: 'agreed today' });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe(
+      'The salary rule cannot be published until pay-policy protection is live. Nothing was saved.'
+    );
+    expect(writes).toEqual([]);
+    expect(policies).toEqual([]);
+    expect(audit).toEqual([]);
+  });
+
+  it('a DRAFT is refused too — draft_value sits in the same readable row', async () => {
+    lockPresent = false;
+    const res = await post({ scope: COLLEGE_A, action: 'save_draft', rule: { per_year_at_jkkn: 400 }, reason: 'thinking' });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain('cannot be saved, even as a draft');
+    expect(writes).toEqual([]);
+  });
+
+  it('a failed check is a refusal, never a pass', async () => {
+    lockPresent = 'error';
+    const res = await post({ scope: 'group', action: 'publish', rule: { per_year_at_jkkn: 400 }, reason: 'agreed today' });
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toContain('nothing was saved');
+    expect(writes).toEqual([]);
+  });
+
+  it('once the protection is live, the same publish goes through', async () => {
+    lockPresent = true;
+    const res = await post({ scope: 'group', action: 'publish', rule: { per_year_at_jkkn: 400 }, reason: 'agreed today' });
+    expect(res.status).toBe(200);
+    expect(policies[0].value).toEqual({ per_year_at_jkkn: 400 });
+  });
+
+  it('reading the rule for the editor still works without it (a super admin reads, nothing is stored)', async () => {
+    lockPresent = false;
+    expect((await get()).status).toBe(200);
+  });
+
+  it('a refused caller is refused before the check is even asked', async () => {
+    superAdmin = false;
+    lockPresent = false;
+    expect((await post({ scope: 'group', action: 'publish', rule: {}, reason: 'because' })).status).toBe(403);
   });
 });
