@@ -55,9 +55,10 @@ describe('Billing & Accounts sidebar split', () => {
     expect(missing).toEqual([]);
   });
 
-  it('splits the routes 17 / 0 / 5 across the three menus', () => {
+  it('splits the routes 18 / 0 / 5 across the three menus', () => {
     const [colleges, transport, schools] = billingGroup('/billing').menus;
-    expect(colleges.submenus).toHaveLength(17);
+    // 17 at the split + Bill Cancellations (dc2495ff05, 2026-09-28).
+    expect(colleges.submenus).toHaveLength(18);
     // A direct link: an empty submenus[] is what makes the filter gate this
     // menu on its own billing.transport.view mapping.
     expect(transport.submenus).toHaveLength(0);

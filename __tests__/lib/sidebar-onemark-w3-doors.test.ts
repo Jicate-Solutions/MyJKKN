@@ -214,8 +214,18 @@ describe('Wave 3 — the hub door Lane N did NOT open', () => {
     expect(academic!.menus.length).toBe(14);
   });
 
-  it('keeps the whole sidebar free of blocking structural issues', () => {
-    const errors = validateSidebar(GetPages('/')).filter((i) => i.severity === 'error');
+  // Validates what people actually see, the way check:sidebar does
+  // (scripts/check-sidebar-health.ts runs the super-admin view). The raw
+  // GetPages('/') union stopped being a real view on 2026-09-29 (7070d4df06):
+  // the Learners group now holds 11 learner-only rows (shown to role_key
+  // 'student' only) plus 5 staff rows, 16 in the union, but no viewer gets
+  // both halves. Super admin sees every staff row and the learner sees every
+  // learner-only row, so each row is still checked by at least one view.
+  it.each([
+    ['super admin (the check:sidebar view)', { role_key: 'super_admin', permissions: {} } as RolePermissionData],
+    ['learner', LEARNER],
+  ])('keeps the whole sidebar free of blocking structural issues for the %s', (_who, role) => {
+    const errors = validateSidebar(GetRoleBasedPages('/', role)).filter((i) => i.severity === 'error');
     expect(errors.map((e) => `${e.groupLabel}: ${e.count}`)).toEqual([]);
   });
 });

@@ -11,11 +11,13 @@ afterEach(() => cleanup());
 
 const EXPECTED_LABELS = [
   'Event / division',
-  'Team name / Your name',
+  // Pair name and the Players row came with doubles divisions (#4106).
+  'Team name / Pair name / Your name',
   'External (non-JKKN)',
   'School / club or College',
   'Gender, Age',
   'Roster (name + jersey no)',
+  'Players (Player 1, Player 2)',
   'Phone, Email',
 ];
 
