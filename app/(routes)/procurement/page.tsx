@@ -143,11 +143,11 @@ export default function ProcurementHome() {
         });
       }
     };
-    push(prQ.data?.data as Record<string, unknown>[], 'request_number', 0);
-    push(approvedQ.data?.data as Record<string, unknown>[], 'request_number', 1);
-    push(rfqQ.data?.data as Record<string, unknown>[], 'rfq_number', 2);
-    push(poQ.data?.data as Record<string, unknown>[], 'po_number', 3);
-    push(grnQ.data?.data as Record<string, unknown>[], 'grn_number', 4);
+    push(prQ.data?.data as unknown as Record<string, unknown>[], 'request_number', 0);
+    push(approvedQ.data?.data as unknown as Record<string, unknown>[], 'request_number', 1);
+    push(rfqQ.data?.data as unknown as Record<string, unknown>[], 'rfq_number', 2);
+    push(poQ.data?.data as unknown as Record<string, unknown>[], 'po_number', 3);
+    push(grnQ.data?.data as unknown as Record<string, unknown>[], 'grn_number', 4);
     return rows.sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''));
   }, [prQ.data, approvedQ.data, rfqQ.data, poQ.data, grnQ.data, gates]);
 

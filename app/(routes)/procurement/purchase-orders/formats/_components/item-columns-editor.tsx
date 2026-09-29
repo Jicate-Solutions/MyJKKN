@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Plus, Trash2, ChevronUp, ChevronDown } from 'lucide-react';
-import type { PoItemColumnDef, PoFieldAlign, PoFieldFormat } from '@/types/procurement';
+import type { PoItemColumnDef, PoFieldAlign, PoFieldFormat, PoFieldSource } from '@/types/procurement';
 import { generateFieldKey } from './slug';
 
 interface ItemColumnsEditorProps {
@@ -120,7 +120,7 @@ export function ItemColumnsEditor({ columns, onChange }: ItemColumnsEditorProps)
                           const key = col.key || generateFieldKey(col.label) || 'field';
                           updateColumn(index, { source: `item_extra.${key}`, key });
                         } else {
-                          updateColumn(index, { source: v, key: v });
+                          updateColumn(index, { source: v as PoFieldSource, key: v });
                         }
                       }}
                     >

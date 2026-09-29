@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Plus, Trash2, ChevronUp, ChevronDown } from 'lucide-react';
-import type { PoHeaderFieldDef, PoFieldFormat } from '@/types/procurement';
+import type { PoHeaderFieldDef, PoFieldFormat, PoFieldSource } from '@/types/procurement';
 import { generateFieldKey } from './slug';
 
 interface HeaderFieldsEditorProps {
@@ -117,7 +117,7 @@ export function HeaderFieldsEditor({ fields, onChange }: HeaderFieldsEditorProps
                           updateField(index, { source: `header_values.${key}`, key, format: undefined });
                         } else {
                           const known = KNOWN_HEADER_SOURCES.find((s) => s.value === v);
-                          updateField(index, { source: v, key: v, format: known?.format });
+                          updateField(index, { source: v as PoFieldSource, key: v, format: known?.format });
                         }
                       }}
                     >

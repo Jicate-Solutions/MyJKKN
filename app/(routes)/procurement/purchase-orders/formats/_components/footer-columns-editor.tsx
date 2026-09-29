@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Plus, Trash2 } from 'lucide-react';
-import type { PoFooterColumnDef } from '@/types/procurement';
+import type { PoFooterColumnDef, PoFieldSource } from '@/types/procurement';
 import { generateFieldKey } from './slug';
 
 interface FooterColumnsEditorProps {
@@ -55,7 +55,7 @@ export function FooterColumnsEditor({ columns, onChange }: FooterColumnsEditorPr
 
   const addFieldToGroup = (groupIndex: number) => {
     const group = groups[groupIndex];
-    const fields = [...(group.fields || []), { key: '', label: '', source: 'footer_values.' }];
+    const fields = [...(group.fields || []), { key: '', label: '', source: 'footer_values.' as PoFieldSource }];
     updateGroup(groupIndex, { fields });
   };
 
