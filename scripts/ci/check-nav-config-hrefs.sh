@@ -39,6 +39,11 @@ while IFS= read -r nav; do
     # Strip the `href:` prefix + surrounding quotes
     path=$(echo "$raw_href" | sed -E "s/href:[[:space:]]*['\"]//; s/['\"]$//")
 
+    # Query strings and fragments don't select a route (?tab=flows is served by
+    # the same page.tsx), so drop them before looking the file up.
+    path="${path%%\?*}"
+    path="${path%%#*}"
+
     # Skip dynamic-segment hrefs (template strings with ${...}, or unresolved [id])
     if echo "$path" | grep -qE '\$\{|\[[a-zA-Z_]+\]'; then
       continue

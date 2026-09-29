@@ -15,7 +15,10 @@ export default function ImsLayout({ children }: { children: React.ReactNode }) {
   const { canAccess, isLoading: permissionsLoading } = usePermissions();
 
   // Allow the stores settings page through always — that's where stores are created
-  const isStoreManagementPage = pathname?.startsWith('/ims/settings/stores');
+  // — and the payment-terminals page, which spans every counter the admin can reach.
+  const isStoreManagementPage =
+    pathname?.startsWith('/ims/settings/stores') ||
+    pathname?.startsWith('/ims/settings/pos-devices');
 
   // Admin-like users: super_admin OR store_admin
   // store_admin manages their institution's IMS store — they need the picker if no store resolves,
