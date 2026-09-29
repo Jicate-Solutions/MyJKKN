@@ -312,6 +312,28 @@ export class AttendanceRosterService {
     return attendanceMap;
   }
 
+  /**
+   * Every attendance row of the given timetables on one date. Practical
+   * periods need the whole day, not one section's row: a batch save can land
+   * in a row keyed to a section the batch doesn't list (BUG-004733).
+   */
+  static async getAttendanceRecordsForTimetablesOnDate(
+    timetableIds: string[],
+    attendanceDate: string
+  ): Promise<Array<{ id: string; timetable_id: string; attendance_data: any }>> {
+    const ids = Array.from(new Set(timetableIds.filter(Boolean)));
+    if (ids.length === 0 || !attendanceDate) return [];
+
+    const { data, error } = await this.supabase
+      .from('student_attendance')
+      .select('id, timetable_id, attendance_data')
+      .in('timetable_id', ids)
+      .eq('attendance_date', attendanceDate);
+
+    if (error) throw error;
+    return (data || []) as Array<{ id: string; timetable_id: string; attendance_data: any }>;
+  }
+
   static async getConsolidatedAttendance(
     timetable_id: string,
     section_id: string,

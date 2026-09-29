@@ -257,10 +257,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/academic/leave-onduty/reports'],
         },
         {
+          // Retired to a redirect (2027-04) — points straight at the global
+          // Learner Leave Types + Approval Flows settings page.
           label: 'On-Duty Settings',
           icon: 'Settings2',
-          href: '/academic/leave-onduty/settings',
-          matchPaths: ['/academic/leave-onduty/settings'],
+          href: '/learners/leave-onduty/settings?tab=flows',
+          matchPaths: ['/academic/leave-onduty/settings', '/learners/leave-onduty/settings'],
         },
         {
           label: 'Leave Settings',

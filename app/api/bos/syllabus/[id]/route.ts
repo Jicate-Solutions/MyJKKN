@@ -9,6 +9,7 @@ import {
   isBosReadAllObserver,
 } from '@/lib/utils/bos/bos-access';
 import { BosCourseSyllabus, UpdateBosSyllabusDto } from '@/types/bos';
+import { normalizeStreamInput } from '@/lib/utils/bos/stream-filter';
 
 /**
  * GET /api/bos/syllabus/[id]
@@ -164,7 +165,10 @@ export async function PUT(
 
     // Step 3: Fetch existing syllabus â€” need board_id + created_by for the
     // creator/chairman edit gate, plus institutions_id for the institution backstop.
-    const { data: existingSyllabus, error: fetchError } = await supabase
+    // Service-role read: the user-scoped SELECT RLS hides rows from creators/
+    // chairmen whose grants drift, turning a permitted edit into a false 404.
+    // Authorization is enforced by the guards below, not by this read.
+    const { data: existingSyllabus, error: fetchError } = await createServiceRoleClient()
       .from('bos_course_syllabi')
       .select('id, institutions_id, board_id, created_by')
       .eq('id', id)
@@ -218,7 +222,7 @@ export async function PUT(
       .update({
         course_name: body.course_name,
         course_credits: body.course_credits,
-        stream: body.stream,
+        stream: normalizeStreamInput(body.stream),
         // NAAC-2024 coverage tags (metrics 1.4 / 1.6). undefined keys are
         // dropped by supabase-js, so requests that omit them leave the row as-is.
         is_skill_based: body.is_skill_based,

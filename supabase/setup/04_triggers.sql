@@ -2796,3 +2796,12 @@ CREATE TRIGGER trg_activate_learner_on_first_present
 AFTER INSERT OR UPDATE OF attendance_data ON public.student_attendance
 FOR EACH ROW
 EXECUTE FUNCTION public.fn_activate_learner_on_first_present();
+
+-- ============================================================================
+-- Bill cancel request history -> user_activity_logs
+-- Migration: 20260928100000_bill_cancel_request_flow.sql
+-- ============================================================================
+DROP TRIGGER IF EXISTS trg_log_bill_cancel_activity ON public.billing_bill_cancel_request_actions;
+CREATE TRIGGER trg_log_bill_cancel_activity
+  AFTER INSERT ON public.billing_bill_cancel_request_actions
+  FOR EACH ROW EXECUTE FUNCTION public._fn_log_bill_cancel_activity();

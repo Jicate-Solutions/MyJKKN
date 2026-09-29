@@ -345,6 +345,61 @@ export async function uploadRoomConditionPhoto(
   };
 }
 
+export interface EventBudgetAttachmentUploadOptions {
+  eventId: string;
+  eventName: string;
+  file: File;
+}
+
+export interface EventBudgetAttachmentUploadResult {
+  name: string;
+  driveFileId: string;
+  url: string;
+}
+
+/**
+ * Upload a budget line's bill / quotation / receipt (BUG-004627) to
+ *   <ROOT> / Event Budgets / <Event name> [<id8>] / file
+ * and grant anyone-with-link read, as procurement invoices do — budget bills
+ * are business documents, not personal data. Returns the metadata the caller
+ * stores on event_budget_items (receipt_url / receipt_drive_file_id / receipt_name).
+ */
+export async function uploadEventBudgetAttachment(
+  opts: EventBudgetAttachmentUploadOptions
+): Promise<EventBudgetAttachmentUploadResult> {
+  if (!isDriveConfigured()) throw new Error('Google Drive is not configured.');
+  const drive = createDriveClient();
+
+  const eventFolder = `${(opts.eventName || 'Event').slice(0, 80).trim()} [${opts.eventId.slice(0, 8)}]`;
+  const folderId = await ensureFolderPath(drive, ['Event Budgets', eventFolder]);
+
+  const buffer = Buffer.from(await opts.file.arrayBuffer());
+  const safeName = (opts.file.name || 'attachment').replace(/[\r\n]/g, ' ').slice(0, 200);
+  const storedName = `${Date.now()}-${safeName}`;
+
+  const created = await drive.files.create({
+    requestBody: { name: storedName, parents: [folderId] },
+    media: { mimeType: opts.file.type || 'application/octet-stream', body: Readable.from(buffer) },
+    fields: 'id, webViewLink',
+    supportsAllDrives: true,
+  });
+
+  const fileId = created.data.id;
+  if (!fileId) throw new Error('Drive upload returned no file id.');
+
+  await drive.permissions.create({
+    fileId,
+    requestBody: { role: 'reader', type: 'anyone' },
+    supportsAllDrives: true,
+  });
+
+  return {
+    name: safeName,
+    driveFileId: fileId,
+    url: created.data.webViewLink ?? `https://drive.google.com/file/d/${fileId}/view`,
+  };
+}
+
 export interface ProcurementInvoiceUploadOptions {
   institutionName: string;
   poNumber: string;
