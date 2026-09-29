@@ -26,6 +26,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ReviewDecisionPanel } from '@/features/hr/appraisal/review-decision-panel';
 import { LockRoundControl } from '@/features/hr/appraisal/lock-round-control';
 import { parseRatings, resolveAreas, summariseRatings } from '@/lib/hr/appraisal-ratings';
+import { personName, type TeamPerson } from '@/lib/hr/appraisal-team-board';
 import {
   PerformanceReviewService,
   type CycleStatus,
@@ -72,6 +73,9 @@ export default function HrPerformanceReviewCycleDetailPage() {
 
   const [cycle, setCycle] = useState<HRPerformanceReviewCycle | null>(null);
   const [reviews, setReviews] = useState<HRPerformanceReview[]>([]);
+  // Names for the people in the table, so the admin sees who each row is
+  // instead of an 8-character id. listPeople never throws.
+  const [people, setPeople] = useState<Record<string, TeamPerson>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [transitioning, setTransitioning] = useState(false);
@@ -146,6 +150,9 @@ export default function HrPerformanceReviewCycleDetailPage() {
         if (cancelled) return;
         setCycle(c);
         setReviews(rs);
+        const ppl = await PerformanceReviewService.listPeople(supabase, rs.map((r) => r.staff_id));
+        if (cancelled) return;
+        setPeople(ppl);
       } catch (e) {
         if (cancelled) return;
         setError(e instanceof Error ? e.message : 'Failed to load cycle.');
@@ -169,6 +176,7 @@ export default function HrPerformanceReviewCycleDetailPage() {
       ]);
       setCycle(c);
       setReviews(rs);
+      setPeople(await PerformanceReviewService.listPeople(supabase, rs.map((r) => r.staff_id)));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Refresh failed.');
     } finally {
@@ -317,7 +325,7 @@ export default function HrPerformanceReviewCycleDetailPage() {
                 <table className="w-full text-sm">
                   <thead className="border-b text-left text-xs uppercase text-muted-foreground">
                     <tr>
-                      <th className="py-2 pr-4">Staff (ID)</th>
+                      <th className="py-2 pr-4">Staff</th>
                       <th className="py-2 pr-4">Status</th>
                       <th className="py-2 pr-4">Self-submitted</th>
                       <th className="py-2 pr-4">Supervisor</th>
@@ -330,7 +338,20 @@ export default function HrPerformanceReviewCycleDetailPage() {
                   <tbody>
                     {reviews.map((r) => (
                       <tr key={r.id} className="border-b last:border-b-0">
-                        <td className="py-2 pr-4 font-mono text-xs">{r.staff_id.slice(0, 8)}…</td>
+                        <td className="py-2 pr-4">
+                          <div className="font-medium">{personName(people, r.staff_id)}</div>
+                          {people[r.staff_id]?.department && (
+                            <div className="text-xs text-muted-foreground">
+                              {people[r.staff_id]?.department}
+                            </div>
+                          )}
+                          {!people[r.staff_id]?.name && (
+                            // Two unnamed rows would otherwise look identical.
+                            <div className="text-xs text-muted-foreground">
+                              ref {r.staff_id.slice(0, 8)}
+                            </div>
+                          )}
+                        </td>
                         <td className="py-2 pr-4">{REVIEW_STATUS_LABEL[r.status]}</td>
                         <td className="py-2 pr-4 text-xs text-muted-foreground">
                           {r.self_submitted_at ? new Date(r.self_submitted_at).toLocaleDateString() : '—'}

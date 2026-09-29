@@ -350,9 +350,14 @@ export class PerformanceReviewService {
         ),
       ];
       if (deptIds.length > 0) {
-        const { data: depts } = await supabase.from('departments').select('name').in('id', deptIds);
-        departments = ((depts ?? []) as Array<{ name: string | null }>)
-          .map((d) => d.name ?? '')
+        // The column is department_name; departments has no `name` column,
+        // so reading `name` failed quietly and the list never showed.
+        const { data: depts } = await supabase
+          .from('departments')
+          .select('department_name')
+          .in('id', deptIds);
+        departments = ((depts ?? []) as Array<{ department_name: string | null }>)
+          .map((d) => d.department_name ?? '')
           .filter(Boolean);
       }
     } catch {

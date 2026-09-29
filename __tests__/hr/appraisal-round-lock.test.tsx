@@ -30,6 +30,19 @@ const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
 
 type Row = { staff_id: string; status: string };
 
+/**
+ * The real columns of the tables the lock check reads. The stand-in refuses
+ * any other column the way PostgREST does (an error, no rows), so a query
+ * that names a column the table does not have fails here as it would live.
+ * An earlier stand-in answered any column, which hid a read of
+ * departments.name (the column is department_name).
+ */
+const COLUMNS: Record<string, readonly string[]> = {
+  hr_performance_reviews: ['id', 'cycle_id', 'staff_id', 'status'],
+  staff: ['id', 'first_name', 'last_name', 'department_id', 'institution_id', 'profile_id'],
+  departments: ['id', 'institution_id', 'degree_id', 'department_code', 'department_name', 'display_name'],
+};
+
 /** Stand-in database: one round, its appraisals, people and departments. */
 function fakeDb(opts: {
   roundStatus: string;
@@ -39,30 +52,45 @@ function fakeDb(opts: {
   deptLookupFails?: boolean;
 }) {
   const updates: Array<Record<string, unknown>> = [];
+  const selects: Array<{ table: string; cols: string }> = [];
   const round = { id: 'cyc-1', status: opts.roundStatus, cycle_year: 2027 };
   const from = (table: string) => {
     const eqs: Array<[string, unknown]> = [];
     let ids: string[] = [];
+    let cols = '*';
     let patch: Record<string, unknown> | null = null;
+    const project = (rows: Array<Record<string, unknown>>) => {
+      if (cols === '*') return { data: rows, error: null };
+      const wanted = cols.split(',').map((c) => c.trim());
+      const known = COLUMNS[table];
+      const unknown = known ? wanted.filter((c) => !known.includes(c)) : [];
+      if (unknown.length > 0) {
+        return {
+          data: null,
+          error: { code: '42703', message: `column ${table}.${unknown[0]} does not exist` },
+        };
+      }
+      return {
+        data: rows.map((r) => Object.fromEntries(wanted.map((c) => [c, r[c] ?? null]))),
+        error: null,
+      };
+    };
     const result = () => {
       if (table === 'hr_performance_reviews') {
         const status = eqs.find(([k]) => k === 'status')?.[1];
-        return { data: (opts.reviews ?? []).filter((r) => r.status === status), error: null };
+        return project((opts.reviews ?? []).filter((r) => r.status === status));
       }
       if (table === 'staff') {
         if (opts.deptLookupFails) throw new Error('no access');
-        return {
-          data: ids.map((id) => ({ department_id: opts.personDept?.[id] ?? null })),
-          error: null,
-        };
+        return project(ids.map((id) => ({ id, department_id: opts.personDept?.[id] ?? null })));
       }
       if (table === 'departments') {
-        return { data: ids.map((id) => ({ name: opts.deptNames?.[id] ?? null })), error: null };
+        return project(ids.map((id) => ({ id, department_name: opts.deptNames?.[id] ?? null })));
       }
       return { data: null, error: null };
     };
     const b: Record<string, unknown> = {
-      select: () => b,
+      select: (c?: string) => { cols = c ?? '*'; selects.push({ table, cols }); return b; },
       eq: (k: string, v: unknown) => { eqs.push([k, v]); return b; },
       in: (_k: string, v: string[]) => { ids = v; return b; },
       update: (p: Record<string, unknown>) => { patch = p; updates.push(p); return b; },
@@ -73,7 +101,7 @@ function fakeDb(opts: {
     };
     return b;
   };
-  return { client: { from } as never, updates };
+  return { client: { from } as never, updates, selects };
 }
 
 const PEOPLE = {
@@ -101,6 +129,36 @@ describe('the service refuses to lock a round while appraisals wait for their he
         'Lock the round once they are passed on or sent back.',
     );
     expect(updates).toEqual([]);
+  });
+
+  it('reads the department name from department_name, the column departments has', async () => {
+    const { client, selects } = fakeDb({
+      roundStatus: 'open',
+      reviews: [{ staff_id: 'p1', status: 'self_submitted' }],
+      personDept: PEOPLE,
+      deptNames: DEPTS,
+    });
+    await expect(
+      PerformanceReviewService.updateCycle(client, 'cyc-1', { status: 'locked' }),
+    ).rejects.toThrow('(Physics)');
+    expect(selects.find((q) => q.table === 'departments')).toEqual({
+      table: 'departments',
+      cols: 'department_name',
+    });
+  });
+
+  it('the stand-in refuses a column the table does not have, as the database does', async () => {
+    const { client } = fakeDb({ roundStatus: 'open' });
+    const res = await (client as unknown as {
+      from: (t: string) => { select: (c: string) => { in: (k: string, v: string[]) => PromiseLike<unknown> } };
+    })
+      .from('departments')
+      .select('name')
+      .in('id', ['d-phy']);
+    expect(res).toEqual({
+      data: null,
+      error: { code: '42703', message: 'column departments.name does not exist' },
+    });
   });
 
   it('says "1 appraisal is" for one', async () => {

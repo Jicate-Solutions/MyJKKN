@@ -267,6 +267,92 @@ describe('the board, as the head of department sees it', () => {
   });
 });
 
+describe('when Submit to SEDC finds the appraisal has moved on', () => {
+  it('says so in plain words, never the raw refusal, and reloads the board', async () => {
+    setup('open', [WAITING]);
+    await openRow('Anitha Raman');
+    fireEvent.change(screen.getByLabelText('Validation notes'), {
+      target: { value: 'Evidence checked.' },
+    });
+    for (const area of ['Teaching', 'Research', 'Service', 'Collegiality']) {
+      fireEvent.click(
+        within(screen.getByRole('radiogroup', { name: area })).getByLabelText('Meets expectations'),
+      );
+    }
+    svc.submitSupervisorReview.mockRejectedValueOnce(
+      new Error('Invalid review status transition: supervisor_reviewed → supervisor_reviewed.'),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Submit to SEDC/ }));
+
+    await waitFor(() => expect(toastFns.error).toHaveBeenCalledWith(MOVED_ON_MESSAGE));
+    expect(svc.submitSupervisorReview).toHaveBeenCalledTimes(1);
+    for (const [msg] of toastFns.error.mock.calls) {
+      expect(String(msg)).not.toMatch(/Invalid review status transition/);
+    }
+    expect(toastFns.success).not.toHaveBeenCalled();
+    // The board is reloaded and shown again, not the form.
+    await waitFor(() => expect(svc.listTeamReviews).toHaveBeenCalledTimes(2));
+    expect(svc.listPeople).toHaveBeenCalledTimes(2);
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /Submit to SEDC/ })).not.toBeInTheDocument(),
+    );
+    expect(await screen.findByText('Anitha Raman')).toBeInTheDocument();
+  });
+
+  it('any other failure keeps its own message and the form stays open', async () => {
+    setup('open', [WAITING]);
+    await openRow('Anitha Raman');
+    fireEvent.change(screen.getByLabelText('Validation notes'), {
+      target: { value: 'Evidence checked.' },
+    });
+    for (const area of ['Teaching', 'Research', 'Service', 'Collegiality']) {
+      fireEvent.click(
+        within(screen.getByRole('radiogroup', { name: area })).getByLabelText('Meets expectations'),
+      );
+    }
+    svc.submitSupervisorReview.mockRejectedValueOnce(new Error('permission denied'));
+    fireEvent.click(screen.getByRole('button', { name: /Submit to SEDC/ }));
+    await waitFor(() => expect(toastFns.error).toHaveBeenCalledWith('permission denied'));
+    expect(svc.listTeamReviews).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: /Submit to SEDC/ })).toBeInTheDocument();
+  });
+});
+
+describe("the committee's send-back note", () => {
+  // The committee sends an appraisal back to the head, which returns it to
+  // self_submitted with sent_back_by = committee. The note is shown only
+  // while it is waiting for the head again. Once the head has passed it on
+  // (or it has moved further), the note is out of date and is not shown.
+  const note = { sent_back_reason: 'Check the research evidence again.', sent_back_by: 'committee' };
+
+  it('shows for a self_submitted appraisal the committee sent back', async () => {
+    setup('open', [appraisal('a', 'self_submitted', { supervisor_review_jsonb: note })]);
+    await openRow('Anitha Raman');
+    expect(screen.getByText('The committee sent this back to you')).toBeInTheDocument();
+    expect(screen.getByText('Check the research evidence again.')).toBeInTheDocument();
+  });
+
+  it('does not show for a self_submitted appraisal the head sent back', async () => {
+    setup('open', [
+      appraisal('a', 'self_submitted', {
+        supervisor_review_jsonb: { sent_back_reason: 'Add dates.', sent_back_by: 'head' },
+      }),
+    ]);
+    await openRow('Anitha Raman');
+    expect(screen.queryByText('The committee sent this back to you')).not.toBeInTheDocument();
+  });
+
+  it.each(['draft', 'supervisor_reviewed', 'sedc_reviewed', 'final_approved'] as const)(
+    'does not show once the appraisal is %s',
+    async (status) => {
+      setup('open', [appraisal('a', status, { supervisor_review_jsonb: note })]);
+      await openRow('Anitha Raman');
+      expect(screen.queryByText('The committee sent this back to you')).not.toBeInTheDocument();
+      expect(screen.queryByText('Check the research evidence again.')).not.toBeInTheDocument();
+    },
+  );
+});
+
 describe('reading names', () => {
   function fakeClient(opts: { staffError?: boolean; deptThrows?: boolean }) {
     const calls: Array<{ table: string; cols: string; ids: string[] }> = [];
