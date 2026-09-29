@@ -151,8 +151,8 @@ export interface LopPreviewResult {
   payable_count: number;
   skipped_count: number;
   /**
-   * People left off ONLY because their work location has not locked this
-   * month's attendance. The one number the "lock attendance first" advice
+   * People left off ONLY because their work location has not closed
+   * attendance for this month. The one number the "close attendance first" advice
    * depends on — zero means that advice does not apply to this run.
    */
   month_not_closed_count: number;
@@ -770,7 +770,7 @@ export class PayslipGenerator {
     ).length;
     if (monthNotClosedCount > 0) {
       result.warnings.push(
-        `${monthNotClosedCount} person(s) are not on this payroll because their work location has not closed attendance for this month. HR: lock attendance for this month at each of those work locations before re-running this payroll.`,
+        `${monthNotClosedCount} person(s) are not on this payroll because their work location has not closed attendance for this month. HR: close attendance for this month at each of those work locations before re-running this payroll.`,
       );
     }
 

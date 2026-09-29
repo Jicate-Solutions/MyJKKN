@@ -562,7 +562,12 @@ describe('PayslipGenerator.previewLop — the generator actually reads attendanc
       expect(r.reason).toBe(LOP_SKIP_REASONS.monthNotClosed);
     }
     expect(preview.warnings.join(' ')).toContain('not closed attendance');
-    // The count the page's "lock attendance first" banner depends on.
+    // One verb for one state: the attendance module calls this "close"
+    // (Month Close, "Closed"), and so does the skip reason above.
+    expect(preview.warnings.join(' ')).toContain('HR: close attendance for this month');
+    expect(preview.warnings.join(' ')).not.toMatch(/lock/i);
+    expect(LOP_SKIP_REASONS.monthNotClosed).not.toMatch(/lock/i);
+    // The count the page's "close attendance first" banner depends on.
     expect(preview.month_not_closed_count).toBe(2);
   });
 

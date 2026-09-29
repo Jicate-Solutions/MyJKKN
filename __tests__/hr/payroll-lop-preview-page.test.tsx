@@ -4,7 +4,7 @@
  * What the absence preview SAYS when nobody on the payroll can be paid.
  *
  * Found driving the page in a browser on 2026-09-29: with every person left
- * off (their work location had not locked the month), the payable table's
+ * off (their work location had not closed the month), the payable table's
  * heading read "All 0 people were present for every working day" and the
  * "days not paid for" / "held back" figures were coloured green — a payroll
  * that can pay nobody, presented as a clean month.
@@ -163,13 +163,13 @@ describe('absence preview — a payroll that can pay nobody', () => {
   });
 });
 
-describe('absence preview — the "lock attendance first" advice', () => {
+describe('absence preview — the "close attendance first" advice', () => {
   it('is NOT shown when every person is payable', () => {
     preview = result([payableRow('s1', 'Priya D'), payableRow('s2', 'Arun M')]);
     render(<PayrollLopPreviewPage params={resolvedParams('p1')} />);
 
-    expect(screen.queryByTestId('lock-attendance-banner')).toBeNull();
-    expect(screen.queryByText(/Lock attendance before/)).toBeNull();
+    expect(screen.queryByTestId('close-attendance-banner')).toBeNull();
+    expect(screen.queryByText(/Close attendance before/)).toBeNull();
   });
 
   it('is NOT shown when people are left off for a reason other than an open month', () => {
@@ -179,16 +179,29 @@ describe('absence preview — the "lock attendance first" advice', () => {
     ]);
     render(<PayrollLopPreviewPage params={resolvedParams('p1')} />);
 
-    expect(screen.queryByTestId('lock-attendance-banner')).toBeNull();
+    expect(screen.queryByTestId('close-attendance-banner')).toBeNull();
   });
 
   it('IS shown, with the count, when people are left off because the month is still open', () => {
     preview = result([payableRow('s1', 'Priya D'), skipped('s2', 'Kavitha R'), skipped('s3', 'Senthil K')]);
     render(<PayrollLopPreviewPage params={resolvedParams('p1')} />);
 
-    const banner = screen.getByTestId('lock-attendance-banner');
-    expect(banner.textContent).toMatch(/Lock attendance before/);
+    const banner = screen.getByTestId('close-attendance-banner');
+    expect(banner.textContent).toMatch(/Close attendance before/);
     expect(banner.textContent).toMatch(/2 person\(s\) are left off/);
+  });
+
+  it('uses the verb the attendance module uses ("close"), the same one as the skip reason beside it', () => {
+    // The attendance screen is "Month Close" with a "Closed" badge, and the
+    // skip reason on this page says "has not closed attendance". A banner
+    // saying "locked" for the same state reads as a second, separate step.
+    preview = result([payableRow('s1', 'Priya D'), skipped('s2', 'Kavitha R')]);
+    render(<PayrollLopPreviewPage params={resolvedParams('p1')} />);
+
+    const banner = screen.getByTestId('close-attendance-banner').textContent ?? '';
+    expect(banner).toMatch(/has not closed attendance for this month/);
+    expect(banner).not.toMatch(/lock/i);
+    expect(LEFT_OFF).toMatch(/has not closed attendance for this month/);
   });
 });
 

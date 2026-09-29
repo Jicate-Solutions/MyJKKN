@@ -205,12 +205,12 @@ function LopPreviewContent({ id }: { id: string }) {
           */}
           {data.month_not_closed_count > 0 && (
             <div
-              data-testid="lock-attendance-banner"
+              data-testid="close-attendance-banner"
               className="mt-3 rounded-md border border-amber-700/30 bg-amber-50 p-3 text-sm text-amber-900 shadow-sm dark:border-amber-400/30 dark:bg-amber-950/30 dark:text-amber-100"
             >
-              <span className="font-semibold">Lock attendance before re-running this payroll month.</span>{' '}
-              {`${data.month_not_closed_count} person(s) are left off because their work location has not locked this month’s attendance.`}{' '}
-              Payroll pays only people whose work location has locked it; lock it there,
+              <span className="font-semibold">Close attendance before re-running this payroll month.</span>{' '}
+              {`${data.month_not_closed_count} person(s) are left off because their work location has not closed attendance for this month.`}{' '}
+              Payroll pays only people whose work location has closed it; close it there,
               then reload this page.
             </div>
           )}

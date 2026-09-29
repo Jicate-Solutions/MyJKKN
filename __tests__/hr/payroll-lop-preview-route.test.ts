@@ -126,12 +126,16 @@ describe('lop-preview route — the same people as the page', () => {
   });
 
   it('fails closed when the super-admin check itself errors', async () => {
-    const { client } = clientWith(period, true, { data: null, error: { message: 'boom' } });
+    // data:true WITH the error: the error alone must refuse. With data:null
+    // the `!== true` check refused on its own, so dropping the error check
+    // went unnoticed.
+    const { client, from } = clientWith(period, true, { data: true, error: { message: 'boom' } });
     currentAuth = { supabase: client };
 
     const res = await call();
 
     expect(res.status).toBe(403);
+    expect(from).not.toHaveBeenCalled();
     expect(previewLop).not.toHaveBeenCalled();
   });
 });
