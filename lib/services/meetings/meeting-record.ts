@@ -126,7 +126,8 @@ export async function loadMeetingRecord(
     client.from('profiles').select('full_name, email').eq('id', b.host_profile_id as string).maybeSingle(),
     // Read here rather than through MeetingActionItemService.listForBooking,
     // which answers [] on a failed read — that would print "None recorded".
-    // Same order as that service: open before done, then by due date.
+    // Same order as that service: status sorts as text, so done comes before
+    // open (the page shows them the same way), then by due date.
     client
       .from('meeting_action_items')
       .select('action_text, decision_text, owner_label, due_date, status')
