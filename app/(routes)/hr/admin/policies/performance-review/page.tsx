@@ -27,6 +27,7 @@ import { PermissionGuard } from '@/components/auth/permission-guard';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -335,6 +336,8 @@ function PerfReviewEditor({
         </div>
       </section>
 
+      <AppraisalChecksEditor value={value} onChange={onChange} disabled={disabled} />
+
       {/* Eligibility */}
       <section className="space-y-3 border-t pt-6">
         <div>
@@ -455,5 +458,203 @@ function PerfReviewEditor({
         </span>
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Checks on the appraisal itself (2026-09-29)
+// ---------------------------------------------------------------------------
+
+const CHECK_AREAS = ['teaching', 'research', 'service', 'collegiality'] as const;
+const CHECK_BANDS = ['exceeds', 'meets', 'below'] as const;
+const BAND_WORD: Record<(typeof CHECK_BANDS)[number], string> = {
+  exceeds: 'Exceeds',
+  meets: 'Meets',
+  below: 'Below',
+};
+
+function NumberField({
+  id, label, help, value, min, max, disabled, onChange,
+}: {
+  id: string;
+  label: string;
+  help: string;
+  value: number;
+  min: number;
+  max?: number;
+  disabled: boolean;
+  onChange: (n: number) => void;
+}) {
+  return (
+    <div>
+      <Label htmlFor={id} className="text-xs">
+        {label}
+      </Label>
+      <Input
+        id={id}
+        type="number"
+        min={min}
+        max={max}
+        value={value}
+        disabled={disabled}
+        className="mt-1 max-w-[8rem]"
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
+      <p className="text-xs text-muted-foreground mt-1">{help}</p>
+    </div>
+  );
+}
+
+/**
+ * Settings for the checks that tell HR whether the appraisal measures
+ * anything. None of them rates a person or touches pay.
+ */
+function AppraisalChecksEditor({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: PerfReviewValue;
+  onChange: (next: PerfReviewValue) => void;
+  disabled: boolean;
+}) {
+  return (
+    <section className="space-y-4 border-t pt-6">
+      <div>
+        <Label className="text-sm font-semibold">Checks on the appraisal itself</Label>
+        <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+          An appraisal only earns its cost if it measures something. These settings decide
+          when the round page warns that it is not. None of them rates anyone or changes pay.
+        </p>
+      </div>
+
+      <div className="flex items-start justify-between gap-4 rounded-md bg-muted/40 p-3">
+        <div>
+          <div className="text-sm font-medium">
+            A &ldquo;Below&rdquo; first asks what the college did not provide
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            When ON, a head (or second rater) who rates any area Below must first pick what
+            was missing — time, training, equipment or materials, clarity of role, workload,
+            other — and add a short note. The round page counts what was named most, so HR
+            sees what JKKN failed to provide.
+          </p>
+        </div>
+        <Switch
+          checked={value.conditions_first_on_below}
+          onCheckedChange={(c) => onChange({ ...value, conditions_first_on_below: c })}
+          disabled={disabled}
+          aria-label="A Below first asks what the college did not provide"
+        />
+      </div>
+
+      <div className="rounded-md border border-border p-4 space-y-4">
+        <div>
+          <div className="text-sm font-medium">Do two heads agree?</div>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            HR can ask a second head to rate an appraisal blind, from the same evidence.
+            Below this share of agreement in any area, the round page says the ratings
+            should not be used for promotion.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <NumberField
+            id="agree-min-pct"
+            label="Agreement needed (%)"
+            help="Default 70."
+            value={value.rater_agreement_min_pct}
+            min={0}
+            max={100}
+            disabled={disabled}
+            onChange={(n) => onChange({ ...value, rater_agreement_min_pct: n })}
+          />
+          <NumberField
+            id="agree-min-pairs"
+            label="Pairs needed before judging"
+            help="Default 5. Fewer, and the page says there are not enough pairs yet."
+            value={value.rater_agreement_min_pairs}
+            min={1}
+            disabled={disabled}
+            onChange={(n) => onChange({ ...value, rater_agreement_min_pairs: n })}
+          />
+        </div>
+      </div>
+
+      <div className="rounded-md border border-border p-4 space-y-4">
+        <div>
+          <div className="text-sm font-medium">Has an area stopped telling people apart?</div>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Warn when one band holds at least this share of an area, once enough people are
+            rated in it.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <NumberField
+            id="sat-pct"
+            label="Warn at (%)"
+            help="Default 80."
+            value={value.saturation_warn_pct}
+            min={0}
+            max={100}
+            disabled={disabled}
+            onChange={(n) => onChange({ ...value, saturation_warn_pct: n })}
+          />
+          <NumberField
+            id="sat-min"
+            label="Only once this many are rated"
+            help="Default 10."
+            value={value.saturation_min_count}
+            min={1}
+            disabled={disabled}
+            onChange={(n) => onChange({ ...value, saturation_min_count: n })}
+          />
+        </div>
+      </div>
+
+      <div className="rounded-md border border-border p-4 space-y-4">
+        <div>
+          <div className="text-sm font-medium">Statements under each band</div>
+          <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+            Short statements a second person could check, one per line — for example
+            &ldquo;Took a session for a colleague at least once a term&rdquo;. They are shown
+            beside each band on every appraisal form, and reviewers tick the ones the evidence
+            supports. Leave them empty and the forms stay as they are.
+          </p>
+        </div>
+        {CHECK_AREAS.map((area) => (
+          <div key={area} className="space-y-2">
+            <div className="text-xs font-semibold capitalize">{area}</div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {CHECK_BANDS.map((band) => (
+                <div key={band}>
+                  <Label htmlFor={`st-${area}-${band}`} className="text-xs">
+                    {BAND_WORD[band]}
+                  </Label>
+                  <Textarea
+                    id={`st-${area}-${band}`}
+                    rows={3}
+                    className="mt-1 text-xs"
+                    disabled={disabled}
+                    value={value.band_statements[area][band].join('\n')}
+                    onChange={(e) =>
+                      onChange({
+                        ...value,
+                        band_statements: {
+                          ...value.band_statements,
+                          [area]: {
+                            ...value.band_statements[area],
+                            [band]: e.target.value.split('\n'),
+                          },
+                        },
+                      })
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

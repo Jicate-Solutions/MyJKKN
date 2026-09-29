@@ -8,6 +8,8 @@
  * on.
  */
 
+import type { AppraisalArea, AppraisalRating } from '@/lib/hr/appraisal-ratings';
+
 export interface PerfReviewValue {
   appraisal_form_distribution_month: string;
   distribution_on_term_completion: boolean;
@@ -28,6 +30,61 @@ export interface PerfReviewValue {
   exclude_collegiality_from_score: boolean;
   /** A Below in any counted area stops the increment, whatever the score. */
   below_blocks_increment: boolean;
+  /**
+   * Checks on the appraisal itself (2026-09-29). None of these rates a person
+   * or touches pay; they tell HR whether the appraisal is measuring anything.
+   */
+  /** Per area, per band: short statements a second person could check. */
+  band_statements: Record<AppraisalArea, Record<AppraisalRating, string[]>>;
+  /** A Below must first say what the college did not provide. */
+  conditions_first_on_below: boolean;
+  /** Below this share of agreement, ratings should not be used for promotion. */
+  rater_agreement_min_pct: number;
+  /** Fewer pairs than this and no agreement verdict is given. */
+  rater_agreement_min_pairs: number;
+  /** One band holding this share of an area raises the "stopped telling apart" warning. */
+  saturation_warn_pct: number;
+  /** ...once at least this many people are rated in that area. */
+  saturation_min_count: number;
+}
+
+const AREAS: readonly AppraisalArea[] = ['teaching', 'research', 'service', 'collegiality'];
+const BANDS: readonly AppraisalRating[] = ['exceeds', 'meets', 'below'];
+
+function emptyStatements(): Record<AppraisalArea, Record<AppraisalRating, string[]>> {
+  const out = {} as Record<AppraisalArea, Record<AppraisalRating, string[]>>;
+  for (const a of AREAS) out[a] = { exceeds: [], meets: [], below: [] };
+  return out;
+}
+
+/** Keep only real, non-blank strings; anything else in a stored row is dropped. */
+function parseStatements(raw: unknown): Record<AppraisalArea, Record<AppraisalRating, string[]>> {
+  const out = emptyStatements();
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  const src = raw as Record<string, unknown>;
+  for (const a of AREAS) {
+    const perBand = src[a];
+    if (!perBand || typeof perBand !== 'object' || Array.isArray(perBand)) continue;
+    for (const b of BANDS) {
+      const list = (perBand as Record<string, unknown>)[b];
+      if (!Array.isArray(list)) continue;
+      out[a][b] = list
+        .filter((s): s is string => typeof s === 'string')
+        .map((s) => s.trim())
+        .filter((s) => s !== '');
+    }
+  }
+  return out;
+}
+
+/** A share: a finite number from 0 to 100, else the fallback. */
+function share(v: unknown, fallback: number): number {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 100 ? v : fallback;
+}
+
+/** A count: a finite number of at least 1, else the fallback. */
+function atLeastOne(v: unknown, fallback: number): number {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 1 ? Math.floor(v) : fallback;
 }
 
 export const DEFAULT_VALUE: PerfReviewValue = {
@@ -45,6 +102,12 @@ export const DEFAULT_VALUE: PerfReviewValue = {
   area_weights: { teaching: 1, research: 1, service: 1, collegiality: 1 },
   exclude_collegiality_from_score: false,
   below_blocks_increment: false,
+  band_statements: emptyStatements(),
+  conditions_first_on_below: true,
+  rater_agreement_min_pct: 70,
+  rater_agreement_min_pairs: 5,
+  saturation_warn_pct: 80,
+  saturation_min_count: 10,
 };
 
 /** A stored value that is missing or not a finite number falls back. */
@@ -97,6 +160,15 @@ export function parseValue(raw: unknown): PerfReviewValue {
     // Both default OFF — an absent key must never turn a rule on by itself.
     exclude_collegiality_from_score: obj.exclude_collegiality_from_score === true,
     below_blocks_increment: obj.below_blocks_increment === true,
+    // No statements unless a college writes some — the form is unchanged.
+    band_statements: parseStatements(obj.band_statements),
+    // Absent means ON, the same direction as the Collegiality safeguard: the
+    // question about the college is asked unless a college turns it off.
+    conditions_first_on_below: obj.conditions_first_on_below !== false,
+    rater_agreement_min_pct: share(obj.rater_agreement_min_pct, 70),
+    rater_agreement_min_pairs: atLeastOne(obj.rater_agreement_min_pairs, 5),
+    saturation_warn_pct: share(obj.saturation_warn_pct, 80),
+    saturation_min_count: atLeastOne(obj.saturation_min_count, 10),
   };
 }
 

@@ -10395,3 +10395,44 @@ REVOKE ALL ON TABLE public.adoption_reminders FROM anon, PUBLIC;
 REVOKE ALL ON TABLE public.adoption_reminders FROM authenticated;
 GRANT SELECT ON TABLE public.adoption_reminders TO authenticated;
 GRANT ALL    ON TABLE public.adoption_reminders TO service_role;
+
+
+-- ===========================================================================
+-- HR appraisal checks on the appraisal itself — the blind second-rating table
+-- Updated: 2026-09-29 - Added by 20270505090000_hr_appraisal_checks_on_the_appraisal.sql
+-- (stacked on PR #4081). FILE ONLY until that migration is applied.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS public.hr_performance_review_second_ratings (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  review_id      uuid NOT NULL REFERENCES public.hr_performance_reviews(id) ON DELETE CASCADE,
+  -- Any profile HR picks, typically another head of department.
+  rater_id       uuid NOT NULL REFERENCES public.profiles(id),
+  -- Same shape as supervisor_review_jsonb: { ratings, statements, conditions,
+  -- collegiality_example, notes }. NULL until the rater starts.
+  rating_jsonb   jsonb,
+  submitted_at   timestamptz,
+  -- Copied from the person's own staff row by the trigger, for HR scoping.
+  institution_id uuid REFERENCES public.institutions(id),
+  assigned_by    uuid REFERENCES public.profiles(id),
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now(),
+  -- One second rater per appraisal: the report compares pairs.
+  CONSTRAINT hr_perf_second_rating_one_per_review UNIQUE (review_id)
+);
+
+COMMENT ON TABLE public.hr_performance_review_second_ratings IS
+  'A blind second rating of a submitted appraisal, used ONLY for the agreement '
+  'report that tells HR whether two heads reading the same evidence land on the '
+  'same band. Never read by final approval, the promotion rule or the increment '
+  'block. The rater sees the self-appraisal but not the first head''s ratings '
+  'until both are in; the first head never sees this row.';
+
+CREATE INDEX IF NOT EXISTS idx_hr_perf_second_ratings_rater
+  ON public.hr_performance_review_second_ratings(rater_id, submitted_at);
+CREATE INDEX IF NOT EXISTS idx_hr_perf_second_ratings_institution
+  ON public.hr_performance_review_second_ratings(institution_id);
+
+ALTER TABLE public.hr_performance_review_second_ratings ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE public.hr_performance_review_second_ratings FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.hr_performance_review_second_ratings TO authenticated;

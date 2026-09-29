@@ -17,6 +17,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
+import { AppraisalHrGate } from '@/features/hr/appraisal/appraisal-hr-gate';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -165,8 +166,10 @@ export default function HrPerformanceReviewCyclesPage() {
     }
   }
 
+  // Opens for a super admin or the appraisal-manage key (HR). Creating a
+  // round stays super-admin only, below.
   return (
-    <SuperAdminOnly>
+    <AppraisalHrGate>
     <ContentLayout title="Performance Review Cycles">
       <div className="space-y-4">
         {/* Policy summary banner — load-bearing context for the Director. */}
@@ -209,10 +212,12 @@ export default function HrPerformanceReviewCyclesPage() {
                 <RefreshCw className={loading ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
                 <span className="ml-2">Refresh</span>
               </Button>
+              <SuperAdminOnly>
               <Button size="sm" onClick={() => setShowForm((s) => !s)}>
                 <Plus className="h-4 w-4" />
                 <span className="ml-2">{showForm ? 'Hide form' : 'New cycle'}</span>
               </Button>
+              </SuperAdminOnly>
             </div>
           </CardHeader>
 
@@ -354,6 +359,6 @@ export default function HrPerformanceReviewCyclesPage() {
         </Card>
       </div>
     </ContentLayout>
-    </SuperAdminOnly>
+    </AppraisalHrGate>
   );
 }

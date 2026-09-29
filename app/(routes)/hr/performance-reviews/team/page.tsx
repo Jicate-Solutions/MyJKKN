@@ -49,6 +49,14 @@ import {
   parseSentBackReason,
 } from '@/lib/hr/appraisal-ratings';
 import {
+  conditionsMissing,
+  parseConditions,
+  parseTickedStatements,
+  type ConditionAnswers,
+  type TickedStatements,
+} from '@/lib/hr/appraisal-harness';
+import { SecondRatingInbox } from '@/features/hr/appraisal/second-rating-inbox';
+import {
   PerformanceReviewService,
   type HRPerformanceReview,
   type HRPerformanceReviewCycle,
@@ -70,6 +78,10 @@ interface SupervisorReviewShape {
   ratings: AppraisalRatingMap;
   collegiality_example: string;
   recommendations: string;
+  /** Statements ticked under each band, when the college wrote some. */
+  statements: TickedStatements;
+  /** Per area rated Below: what the college did not provide. */
+  conditions: ConditionAnswers;
 }
 
 const EMPTY: SupervisorReviewShape = {
@@ -77,6 +89,8 @@ const EMPTY: SupervisorReviewShape = {
   ratings: {},
   collegiality_example: '',
   recommendations: '',
+  statements: {},
+  conditions: {},
 };
 
 /** A pre-model row holds `supervisor_rating`; it is not converted to a band. */
@@ -87,6 +101,8 @@ function coerceShape(raw: Record<string, unknown> | null): SupervisorReviewShape
     ratings: parseRatings(raw, resolveAreas()),
     collegiality_example: parseCollegialityExample(raw),
     recommendations: typeof raw.recommendations === 'string' ? raw.recommendations : '',
+    statements: parseTickedStatements(raw),
+    conditions: parseConditions(raw),
   };
 }
 
@@ -251,12 +267,22 @@ export default function HrSupervisorTeamReviewPage() {
       toast.error('A Below in Collegiality needs a written example.');
       return;
     }
+    const owed = conditionsMissing(form.ratings, form.conditions, policy);
+    if (owed.length > 0) {
+      toast.error(
+        `Before rating Below, say what the college did not provide for: ${owed
+          .map((a) => AREA_LABELS[a])
+          .join(', ')}.`,
+      );
+      return;
+    }
     setSubmitting(true);
     try {
       const updated = await PerformanceReviewService.submitSupervisorReview(
         supabase,
         selected.id,
         form as unknown as Record<string, unknown>,
+        policy,
       );
       toast.success('Review submitted to SEDC.');
       setReviews((rs) => rs.map((r) => (r.id === updated.id ? updated : r)));
@@ -378,6 +404,12 @@ export default function HrSupervisorTeamReviewPage() {
                       policy={policy}
                       prior={parseRatings(selected.self_appraisal_jsonb, resolveAreas())}
                       priorLabel="Self"
+                      tickedStatements={form.statements}
+                      onTickedStatementsChange={(statements) =>
+                        setForm((f) => ({ ...f, statements }))
+                      }
+                      conditions={form.conditions}
+                      onConditionsChange={(conditions) => setForm((f) => ({ ...f, conditions }))}
                     />
                   </div>
 
@@ -453,6 +485,11 @@ export default function HrSupervisorTeamReviewPage() {
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
+
+        {/* Second ratings HR asked this person for, on other departments'
+            appraisals. Loads on its own: it does not depend on this
+            person's own round. */}
+        <SecondRatingInbox supabase={supabase} />
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">

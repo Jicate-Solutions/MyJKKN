@@ -2796,3 +2796,25 @@ CREATE TRIGGER trg_activate_learner_on_first_present
 AFTER INSERT OR UPDATE OF attendance_data ON public.student_attendance
 FOR EACH ROW
 EXECUTE FUNCTION public.fn_activate_learner_on_first_present();
+
+
+-- ===========================================================================
+-- HR appraisal checks on the appraisal itself — triggers
+-- Updated: 2026-09-29 - Added by 20270505090000_hr_appraisal_checks_on_the_appraisal.sql
+-- (stacked on PR #4081). FILE ONLY until that migration is applied.
+-- ===========================================================================
+DROP TRIGGER IF EXISTS trg_hr_performance_review_guard ON public.hr_performance_reviews;
+CREATE TRIGGER trg_hr_performance_review_guard
+  BEFORE INSERT OR UPDATE ON public.hr_performance_reviews
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_performance_review_guard();
+
+DROP TRIGGER IF EXISTS hr_perf_second_ratings_updated_at
+  ON public.hr_performance_review_second_ratings;
+CREATE TRIGGER hr_perf_second_ratings_updated_at
+  BEFORE UPDATE ON public.hr_performance_review_second_ratings
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_hr_second_rating_guard ON public.hr_performance_review_second_ratings;
+CREATE TRIGGER trg_hr_second_rating_guard
+  BEFORE INSERT OR UPDATE ON public.hr_performance_review_second_ratings
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_second_rating_guard();

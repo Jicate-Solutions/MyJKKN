@@ -11178,3 +11178,95 @@ GRANT  SELECT ON public.learner_activation_failures TO authenticated;
 DROP POLICY IF EXISTS "adoption_reminders_select_super_admin" ON public.adoption_reminders;
 CREATE POLICY "adoption_reminders_select_super_admin" ON public.adoption_reminders
   FOR SELECT TO authenticated USING ((SELECT is_super_admin()));
+
+
+-- ===========================================================================
+-- HR appraisal checks on the appraisal itself — row-level security on hr_performance_review_second_ratings, and HR read on hr_performance_reviews
+-- Updated: 2026-09-29 - Added by 20270505090000_hr_appraisal_checks_on_the_appraisal.sql
+-- (stacked on PR #4081). FILE ONLY until that migration is applied.
+-- ===========================================================================
+-- Read: HR and the rater their own row. Nobody else — not the person
+-- appraised, not the first head.
+--
+-- "HR" here is a super admin, or an admin or holder of the appraisal-manage
+-- permission WITHIN THEIR COLLEGE SCOPE (role_has_institution_access). Plain
+-- is_admin() is deliberately not enough on its own: in this module it crosses
+-- colleges, and a second rating carries another college's self-appraisal.
+DROP POLICY IF EXISTS "hr_perf_second_ratings_select" ON public.hr_performance_review_second_ratings;
+CREATE POLICY "hr_perf_second_ratings_select"
+  ON public.hr_performance_review_second_ratings FOR SELECT USING (
+    (SELECT is_super_admin())
+    OR (((SELECT is_admin()) OR user_has_permission('hr.performance_reviews.manage'))
+        AND role_has_institution_access(institution_id))
+    OR rater_id = (SELECT auth.uid())
+  );
+
+-- Ask someone: HR only.
+DROP POLICY IF EXISTS "hr_perf_second_ratings_insert" ON public.hr_performance_review_second_ratings;
+CREATE POLICY "hr_perf_second_ratings_insert"
+  ON public.hr_performance_review_second_ratings FOR INSERT WITH CHECK (
+    (SELECT is_super_admin())
+    OR (((SELECT is_admin()) OR user_has_permission('hr.performance_reviews.manage'))
+        AND role_has_institution_access(institution_id))
+  );
+
+-- Write: the rater, on their own row, until they submit. HR may change who
+-- was asked while it is unsubmitted. Which COLUMNS each may change is pinned
+-- by fn_hr_second_rating_guard below, because RLS cannot say.
+DROP POLICY IF EXISTS "hr_perf_second_ratings_update" ON public.hr_performance_review_second_ratings;
+CREATE POLICY "hr_perf_second_ratings_update"
+  ON public.hr_performance_review_second_ratings FOR UPDATE USING (
+    submitted_at IS NULL
+    AND (
+      rater_id = (SELECT auth.uid())
+      OR (SELECT is_super_admin())
+      OR (((SELECT is_admin()) OR user_has_permission('hr.performance_reviews.manage'))
+          AND role_has_institution_access(institution_id))
+    )
+  ) WITH CHECK (
+    rater_id = (SELECT auth.uid())
+    OR (SELECT is_super_admin())
+    OR (((SELECT is_admin()) OR user_has_permission('hr.performance_reviews.manage'))
+        AND role_has_institution_access(institution_id))
+  );
+
+-- Withdraw a request: HR only, and only while unsubmitted. A submitted second
+-- rating stays, so a disagreement cannot be deleted to improve the report.
+-- Deleting the whole appraisal still removes it, by ON DELETE CASCADE, and on
+-- purpose: a second rating of an appraisal that no longer exists compares
+-- nothing, and #4081 promises a trial round deletes cleanly. Deleting an
+-- appraisal is already an admin-only act under #4081's policies, so this is
+-- not a new way to erase a disagreement.
+DROP POLICY IF EXISTS "hr_perf_second_ratings_delete" ON public.hr_performance_review_second_ratings;
+CREATE POLICY "hr_perf_second_ratings_delete"
+  ON public.hr_performance_review_second_ratings FOR DELETE USING (
+    submitted_at IS NULL
+    AND (
+      (SELECT is_super_admin())
+      OR (((SELECT is_admin()) OR user_has_permission('hr.performance_reviews.manage'))
+          AND role_has_institution_access(institution_id))
+    )
+  );
+
+-- ---------------------------------------------------------------------------
+-- 4) HR holding the appraisal-manage key can READ the appraisals of their
+--    own college(s).
+--
+--    Without this the new key opened an empty page: the round page lists
+--    hr_performance_reviews, whose only readers were admins, the person and
+--    their head. This is READ ONLY and college-scoped through the person's
+--    staff row. It grants no write — the committee review, the Director's
+--    sign-off and moving a round on stay with admins, as in #4081. PERMISSIVE,
+--    so it ORs with #4081's policies and takes nothing away.
+-- ---------------------------------------------------------------------------
+DROP POLICY IF EXISTS "hr_performance_reviews_select_appraisal_hr" ON public.hr_performance_reviews;
+CREATE POLICY "hr_performance_reviews_select_appraisal_hr"
+  ON public.hr_performance_reviews FOR SELECT USING (
+    user_has_permission('hr.performance_reviews.manage')
+    AND EXISTS (
+      SELECT 1 FROM public.staff s
+      WHERE s.id = hr_performance_reviews.staff_id
+        AND s.institution_id IS NOT NULL
+        AND role_has_institution_access(s.institution_id)
+    )
+  );

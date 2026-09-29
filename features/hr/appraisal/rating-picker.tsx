@@ -23,6 +23,21 @@ import {
   type AppraisalRatingMap,
   type AppraisalRatingPolicySlice,
 } from '@/lib/hr/appraisal-ratings';
+import {
+  CONDITION_LABELS,
+  CONDITION_REASONS,
+  CONDITIONS_NOTE_MIN,
+  conditionAnswered,
+  conditionsFirstRequired,
+  resolveBandStatements,
+  type AppraisalHarnessPolicySlice,
+  type ConditionAnswer,
+  type ConditionAnswers,
+  type ConditionReason,
+  type TickedStatements,
+} from '@/lib/hr/appraisal-harness';
+
+type PickerPolicy = (AppraisalRatingPolicySlice & AppraisalHarnessPolicySlice) | null | undefined;
 
 /** Badge colours by band. Semantic, and readable in both themes. */
 const BAND_CLASS: Record<AppraisalRating, string> = {
@@ -58,12 +73,26 @@ interface AreaRowProps {
   prior?: AppraisalRating;
   disabled?: boolean;
   idPrefix: string;
+  policy: PickerPolicy;
+  /** Statements ticked for this area, when the college has written some. */
+  ticked?: string[];
+  onTickedChange?: (next: string[]) => void;
+  /** Answer to "what did the college not provide", when this tier owes one. */
+  condition?: ConditionAnswer;
+  onConditionChange?: (next: ConditionAnswer) => void;
 }
 
 function AreaRow({
   area, value, onChange, priorLabel, prior, disabled, idPrefix,
+  policy, ticked, onTickedChange, condition, onConditionChange,
 }: AreaRowProps) {
   const group = `${idPrefix}-${area}`;
+  const statementBands = RATING_ORDER.map((band) => ({
+    band,
+    list: resolveBandStatements(policy, area, band),
+  })).filter((x) => x.list.length > 0);
+  const askConditions =
+    value === 'below' && !!onConditionChange && conditionsFirstRequired(policy);
   return (
     <fieldset className="border-t border-border py-4 first:border-t-0 first:pt-0">
       <legend className="sr-only">{AREA_LABELS[area]}</legend>
@@ -114,7 +143,137 @@ function AreaRow({
           );
         })}
       </div>
+
+      {askConditions && (
+        <ConditionsBox
+          id={`${group}-conditions`}
+          areaLabel={AREA_LABELS[area]}
+          value={condition ?? { missing: [], note: '' }}
+          onChange={(next) => onConditionChange?.(next)}
+          disabled={disabled}
+        />
+      )}
+
+      {statementBands.length > 0 && (
+        <div className="mt-3 space-y-2 rounded-md border border-border bg-muted/30 p-3">
+          <p className="text-xs text-muted-foreground">
+            {onTickedChange
+              ? 'Tick what the evidence supports. These are statements a second person could check.'
+              : 'What each band means here, in statements a second person could check.'}
+          </p>
+          {statementBands.map(({ band, list }) => (
+            <div key={band}>
+              <div className="text-xs font-medium">{RATING_SHORT[band]}</div>
+              <ul className="mt-1 space-y-1">
+                {list.map((text, i) => {
+                  const id = `${group}-st-${band}-${i}`;
+                  const checked = (ticked ?? []).includes(text);
+                  return (
+                    <li key={id} className="flex items-start gap-2 text-xs">
+                      {onTickedChange ? (
+                        <input
+                          id={id}
+                          type="checkbox"
+                          className="mt-0.5 h-3.5 w-3.5 accent-primary"
+                          checked={checked}
+                          disabled={disabled}
+                          onChange={(e) => {
+                            if (disabled) return;
+                            const cur = ticked ?? [];
+                            onTickedChange(
+                              e.target.checked
+                                ? [...cur.filter((t) => t !== text), text]
+                                : cur.filter((t) => t !== text),
+                            );
+                          }}
+                        />
+                      ) : (
+                        <span aria-hidden className="mt-0.5 text-muted-foreground">·</span>
+                      )}
+                      <label htmlFor={onTickedChange ? id : undefined} className="leading-relaxed">
+                        {text}
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
     </fieldset>
+  );
+}
+
+/**
+ * Asked before a Below counts: what did the college not provide? The finding
+ * may be about JKKN, not about the person, and this is where that is recorded.
+ */
+function ConditionsBox({
+  id, areaLabel, value, onChange, disabled,
+}: {
+  id: string;
+  areaLabel: string;
+  value: ConditionAnswer;
+  onChange: (next: ConditionAnswer) => void;
+  disabled?: boolean;
+}) {
+  const done = conditionAnswered(value);
+  const toggle = (r: ConditionReason, on: boolean) => {
+    if (disabled) return;
+    const rest = value.missing.filter((x) => x !== r);
+    onChange({ ...value, missing: on ? [...rest, r] : rest });
+  };
+  return (
+    <div
+      className="mt-3 rounded-md border border-amber-600/40 bg-amber-600/5 p-3"
+      role="group"
+      aria-labelledby={`${id}-title`}
+    >
+      <p id={`${id}-title`} className="text-sm font-semibold">
+        First: what did the college not provide? ({areaLabel})
+      </p>
+      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+        A Below can be about the conditions as much as the person. Pick everything that
+        applies, then say what happened.
+      </p>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2">
+        {CONDITION_REASONS.map((r) => {
+          const cid = `${id}-${r}`;
+          return (
+            <label key={r} htmlFor={cid} className="flex items-center gap-1.5 text-xs">
+              <input
+                id={cid}
+                type="checkbox"
+                className="h-3.5 w-3.5 accent-primary"
+                checked={value.missing.includes(r)}
+                disabled={disabled}
+                onChange={(e) => toggle(r, e.target.checked)}
+              />
+              {CONDITION_LABELS[r]}
+            </label>
+          );
+        })}
+      </div>
+      <Label htmlFor={`${id}-note`} className="mt-3 block text-xs">
+        What was missing, briefly
+      </Label>
+      <Textarea
+        id={`${id}-note`}
+        className="mt-1"
+        rows={2}
+        disabled={disabled}
+        value={value.note}
+        placeholder="e.g. The projector in the learning studio was broken for most of the second term."
+        onChange={(e) => onChange({ ...value, note: e.target.value })}
+      />
+      {!done && (
+        <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-300">
+          Pick at least one and write at least {CONDITIONS_NOTE_MIN} characters before this
+          can be submitted.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -125,7 +284,21 @@ export interface RatingPickerProps {
   /** Collegiality justification for THIS tier. */
   collegialityExample: string;
   onCollegialityExampleChange: (next: string) => void;
-  policy: AppraisalRatingPolicySlice | null | undefined;
+  policy: PickerPolicy;
+  /**
+   * Statements ticked per area. Pass the change handler to let this tier tick
+   * them; without it the statements are shown for reference only. Nothing is
+   * shown at all unless the college has written statements.
+   */
+  tickedStatements?: TickedStatements;
+  onTickedStatementsChange?: (next: TickedStatements) => void;
+  /**
+   * "What did the college not provide" answers per area. Pass the change
+   * handler on the tiers that owe one (the head and the second rater); a Below
+   * then asks the question before it can be submitted.
+   */
+  conditions?: ConditionAnswers;
+  onConditionsChange?: (next: ConditionAnswers) => void;
   /** Optional earlier tier to show alongside (e.g. the staff's self-rating). */
   prior?: AppraisalRatingMap;
   priorLabel?: string;
@@ -137,6 +310,7 @@ export interface RatingPickerProps {
 export function RatingPicker({
   areas, value, onChange, collegialityExample, onCollegialityExampleChange,
   policy, prior, priorLabel, disabled, idPrefix,
+  tickedStatements, onTickedStatementsChange, conditions, onConditionsChange,
 }: RatingPickerProps) {
   const needExample = collegialityExampleMissing(value, collegialityExample, policy);
   const showExampleBox =
@@ -154,6 +328,19 @@ export function RatingPicker({
           disabled={disabled}
           idPrefix={idPrefix}
           onChange={(r) => onChange({ ...value, [area]: r })}
+          policy={policy}
+          ticked={tickedStatements?.[area]}
+          onTickedChange={
+            onTickedStatementsChange
+              ? (next) => onTickedStatementsChange({ ...(tickedStatements ?? {}), [area]: next })
+              : undefined
+          }
+          condition={conditions?.[area]}
+          onConditionChange={
+            onConditionsChange
+              ? (next) => onConditionsChange({ ...(conditions ?? {}), [area]: next })
+              : undefined
+          }
         />
       ))}
 

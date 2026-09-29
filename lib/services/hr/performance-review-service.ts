@@ -34,6 +34,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { TeamPerson } from '@/lib/hr/appraisal-team-board';
 import {
+  AREA_LABELS,
   deriveAppraisalScore,
   parseRatings,
   resolveAreas,
@@ -41,6 +42,12 @@ import {
   type AppraisalRatingPolicySlice,
   sentBackByFor,
 } from '@/lib/hr/appraisal-ratings';
+import {
+  CONDITIONS_NOTE_MIN,
+  conditionsMissing,
+  parseConditions,
+  type AppraisalHarnessPolicySlice,
+} from '@/lib/hr/appraisal-harness';
 
 // ---------------------------------------------------------------------------
 // Types — kept local to the module. (No /types/hr-performance file yet; if
@@ -135,6 +142,38 @@ export interface HRPerformanceReviewPolicy {
   exclude_collegiality_from_score?: boolean;
   below_blocks_increment?: boolean;
   collegiality_below_requires_example?: boolean;
+  /**
+   * Checks on the appraisal itself (2026-09-29). All optional; absent means
+   * the default in lib/hr/appraisal-harness.ts. None of them grades a person
+   * or touches pay.
+   */
+  band_statements?: AppraisalHarnessPolicySlice['band_statements'];
+  conditions_first_on_below?: boolean;
+  rater_agreement_min_pct?: number;
+  rater_agreement_min_pairs?: number;
+  saturation_warn_pct?: number;
+  saturation_min_count?: number;
+}
+
+/**
+ * Refuse a rating that marks someone Below without first saying what the
+ * college did not provide. Shared by the head's review and the second
+ * rating, and mirrored by the database guard so a direct write cannot skip
+ * it. Throws a message a reviewer can act on.
+ */
+export function assertConditionsAnswered(
+  payload: Record<string, unknown>,
+  policy: AppraisalHarnessPolicySlice | null | undefined,
+): void {
+  const ratings = parseRatings(payload, resolveAreas());
+  const open = conditionsMissing(ratings, parseConditions(payload), policy);
+  if (open.length > 0) {
+    throw new Error(
+      `Before rating someone Below, say what the college did not provide: pick at least one ` +
+        `reason and write a note of ${CONDITIONS_NOTE_MIN} characters or more. Still to answer: ` +
+        `${open.map((a) => AREA_LABELS[a]).join(', ')}.`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -550,13 +589,27 @@ export class PerformanceReviewService {
     return data as HRPerformanceReview;
   }
 
-  /** Supervisor (dept HoD) path. self_submitted → supervisor_reviewed. */
+  /**
+   * Supervisor (dept HoD) path. self_submitted → supervisor_reviewed.
+   *
+   * A Below must first say what the college did not provide (policy
+   * conditions_first_on_below, on unless a college turns it off). Checked
+   * here before anything is written; the database guard checks it again.
+   */
   static async submitSupervisorReview(
     supabase: SupabaseClient,
     reviewId: string,
     payload: Record<string, unknown>,
+    /** Pass the already-loaded policy to avoid a second round trip. */
+    policy?: HRPerformanceReviewPolicy | null,
   ): Promise<HRPerformanceReview> {
+    // Checked before anything is written. When the caller did not pass the
+    // policy, it is read for the appraised person's college, like the guard.
+    if (policy !== undefined) assertConditionsAnswered(payload, policy);
     const current = await this.requireReview(supabase, reviewId);
+    if (policy === undefined) {
+      assertConditionsAnswered(payload, await this.getPolicyForStaff(supabase, current.staff_id));
+    }
     assertTransition(current.status, 'supervisor_reviewed');
 
     const { data, error } = await supabase

@@ -16,6 +16,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
+import { AppraisalHrGate } from '@/features/hr/appraisal/appraisal-hr-gate';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -25,6 +26,12 @@ import toast from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ReviewDecisionPanel } from '@/features/hr/appraisal/review-decision-panel';
 import { LockRoundControl } from '@/features/hr/appraisal/lock-round-control';
+import { InstrumentCheckPanel } from '@/features/hr/appraisal/instrument-check-panel';
+import { SecondRaterCell } from '@/features/hr/appraisal/second-rater-cell';
+import {
+  AppraisalSecondRatingService,
+  type HRSecondRating,
+} from '@/lib/services/hr/appraisal-second-rating-service';
 import { parseRatings, resolveAreas, summariseRatings } from '@/lib/hr/appraisal-ratings';
 import { personName, type TeamPerson } from '@/lib/hr/appraisal-team-board';
 import {
@@ -83,6 +90,62 @@ export default function HrPerformanceReviewCycleDetailPage() {
   const [policy, setPolicy] = useState<HRPerformanceReviewPolicy | null>(null);
   const [selected, setSelected] = useState<HRPerformanceReview | null>(null);
   const [approverProfileId, setApproverProfileId] = useState<string | null>(null);
+
+  // Blind second ratings on this round's appraisals, and the names of the
+  // people asked. They feed only the agreement report below.
+  const [secondRatings, setSecondRatings] = useState<HRSecondRating[]>([]);
+  const [raterNames, setRaterNames] = useState<Record<string, string>>({});
+  const [secondError, setSecondError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await AppraisalSecondRatingService.listForReviews(
+          supabase,
+          reviews.map((r) => r.id),
+        );
+        const ids = Array.from(new Set(rows.map((r) => r.rater_id)));
+        const names: Record<string, string> = {};
+        if (ids.length > 0) {
+          const { data } = await supabase.from('profiles').select('id, full_name').in('id', ids);
+          for (const p of (data ?? []) as Array<{ id: string; full_name: string | null }>) {
+            if (p.full_name) names[p.id] = p.full_name;
+          }
+        }
+        if (cancelled) return;
+        setSecondRatings(rows);
+        setRaterNames(names);
+        setSecondError(null);
+      } catch (e) {
+        if (!cancelled) {
+          setSecondError(e instanceof Error ? e.message : 'Second ratings could not be loaded.');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [reviews, supabase]);
+
+  // Thresholds for the checks on the appraisal itself (agreement floor,
+  // spread warning), read for this round's college. A group-wide round has
+  // no college, so it reads the group value.
+  const [roundPolicy, setRoundPolicy] = useState<HRPerformanceReviewPolicy | null>(null);
+  const roundCollege = cycle?.institution_id ?? null;
+  useEffect(() => {
+    let cancelled = false;
+    PerformanceReviewService.getPolicy(supabase, roundCollege)
+      .then((pol) => {
+        if (!cancelled) setRoundPolicy(pol);
+      })
+      .catch(() => {
+        // Left null: the checks fall back to their documented defaults.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, roundCollege]);
 
   // The signed-in profile, stamped on approval. Needed only by the panel.
   useEffect(() => {
@@ -208,8 +271,11 @@ export default function HrPerformanceReviewCycleDetailPage() {
     );
   }
 
+  // Opens for a super admin or the appraisal-manage key (HR). Moving the
+  // round on, the committee review and the Director's sign-off stay
+  // super-admin only, wrapped below, exactly as in #4081.
   return (
-    <SuperAdminOnly>
+    <AppraisalHrGate>
     <ContentLayout title={cycle ? `Cycle ${cycle.cycle_year}` : 'Loading cycle…'}>
       <div className="space-y-4">
         <div>
@@ -267,6 +333,7 @@ export default function HrPerformanceReviewCycleDetailPage() {
               </div>
 
               {/* Status transition controls */}
+              <SuperAdminOnly>
               {NEXT_CYCLE_STATUS[cycle.status] && (
                 <div className="flex items-start gap-2 pt-2 border-t">
                   <span className="pt-1 text-sm text-muted-foreground">Next step:</span>
@@ -291,10 +358,12 @@ export default function HrPerformanceReviewCycleDetailPage() {
                   )}
                 </div>
               )}
+              </SuperAdminOnly>
             </CardContent>
           </Card>
         )}
 
+        <SuperAdminOnly>
         {selected && (
           <ReviewDecisionPanel
             supabase={supabase}
@@ -307,6 +376,17 @@ export default function HrPerformanceReviewCycleDetailPage() {
               setSelected(null);
             }}
           />
+        )}
+        </SuperAdminOnly>
+
+        {secondError ? (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Second ratings could not be loaded</AlertTitle>
+            <AlertDescription>{secondError}</AlertDescription>
+          </Alert>
+        ) : (
+          <InstrumentCheckPanel reviews={reviews} secondRatings={secondRatings} policy={roundPolicy} />
         )}
 
         <Card>
@@ -332,6 +412,7 @@ export default function HrPerformanceReviewCycleDetailPage() {
                       <th className="py-2 pr-4">SEDC</th>
                       <th className="py-2 pr-4">Ratings</th>
                       <th className="py-2 pr-4">Final score</th>
+                      <th className="py-2 pr-4">Blind second rating</th>
                       <th className="py-2 pr-4"></th>
                     </tr>
                   </thead>
@@ -376,12 +457,34 @@ export default function HrPerformanceReviewCycleDetailPage() {
                         <td className="py-2 pr-4 font-medium">
                           {r.final_score !== null ? r.final_score.toFixed(2) : '—'}
                         </td>
+                        <td className="py-2 pr-4 align-top">
+                          <SecondRaterCell
+                            supabase={supabase}
+                            review={r}
+                            secondRating={secondRatings.find((s) => s.review_id === r.id)}
+                            raterName={(() => {
+                              const s = secondRatings.find((x) => x.review_id === r.id);
+                              return s ? raterNames[s.rater_id] : undefined;
+                            })()}
+                            onChanged={(next, name) => {
+                              setSecondRatings((all) => [
+                                ...all.filter((x) => x.review_id !== r.id),
+                                ...(next ? [next] : []),
+                              ]);
+                              if (next && name) {
+                                setRaterNames((m) => ({ ...m, [next.rater_id]: name }));
+                              }
+                            }}
+                          />
+                        </td>
                         <td className="py-2 pr-4">
+                          <SuperAdminOnly>
                           {(r.status === 'supervisor_reviewed' || r.status === 'sedc_reviewed') && (
                             <Button variant="outline" size="sm" onClick={() => setSelected(r)}>
                               {r.status === 'sedc_reviewed' ? 'Sign off' : 'Committee review'}
                             </Button>
                           )}
+                          </SuperAdminOnly>
                         </td>
                       </tr>
                     ))}
@@ -393,6 +496,6 @@ export default function HrPerformanceReviewCycleDetailPage() {
         </Card>
       </div>
     </ContentLayout>
-    </SuperAdminOnly>
+    </AppraisalHrGate>
   );
 }

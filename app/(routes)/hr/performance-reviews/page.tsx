@@ -35,6 +35,7 @@ import {
   AREA_LABELS,
   type AppraisalRatingMap,
 } from '@/lib/hr/appraisal-ratings';
+import { parseTickedStatements, type TickedStatements } from '@/lib/hr/appraisal-harness';
 import {
   PerformanceReviewService,
   type HRPerformanceReview,
@@ -58,6 +59,8 @@ interface SelfAppraisalShape {
   /** Exceeds / Meets / Below per area — replaces the old 1-10 self_rating. */
   ratings: AppraisalRatingMap;
   collegiality_example: string;
+  /** Statements the person ticked under each band, when the college wrote some. */
+  statements: TickedStatements;
 }
 
 const EMPTY: SelfAppraisalShape = {
@@ -66,6 +69,7 @@ const EMPTY: SelfAppraisalShape = {
   challenges: '',
   ratings: {},
   collegiality_example: '',
+  statements: {},
 };
 
 /**
@@ -82,6 +86,7 @@ function coerceShape(raw: Record<string, unknown> | null): SelfAppraisalShape {
     challenges: typeof raw.challenges === 'string' ? raw.challenges : '',
     ratings: parseRatings(raw, resolveAreas()),
     collegiality_example: parseCollegialityExample(raw),
+    statements: parseTickedStatements(raw),
   };
 }
 
@@ -308,6 +313,10 @@ export default function HrSelfAppraisalPage() {
                   }
                   policy={policy}
                   disabled={readonly}
+                  tickedStatements={form.statements}
+                  onTickedStatementsChange={(statements) =>
+                    setForm((f) => ({ ...f, statements }))
+                  }
                 />
               </div>
 
