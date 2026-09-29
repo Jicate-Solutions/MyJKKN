@@ -118,7 +118,9 @@ export function describeBiometric(
     case 'not_uploaded':
       return {
         label: 'Biometric not uploaded',
-        detail: 'Attendance for this day has not been imported yet. Import it from HR › Attendance › Import, then approve.',
+        // Names WHO unblocks it: only HR can upload the attendance file, so an
+        // approver told to "import it" read the hold as "you cannot approve".
+        detail: 'Attendance for this day has not been imported yet. HR uploads it from HR Setup › Admin Dashboard › Import Biometric Punches; you can approve once it is in.',
         tone: 'warn',
       };
     case 'no_device':

@@ -33,7 +33,7 @@ describe('splitBulkApprove', () => {
     expect(s.eligible.map((r) => r.id)).toEqual(['ok', 'escalated', 'gap-review']);
     expect(s.skipped).toEqual({ decided: 2, notYours: 1, biometric: 1 });
     expect(describeApprovalSkipped(s.skipped)).toBe(
-      '2 already decided, 1 you cannot decide, 1 missing biometric'
+      '2 already decided, 1 you cannot decide, 1 waiting for HR to upload biometric attendance'
     );
   });
 });

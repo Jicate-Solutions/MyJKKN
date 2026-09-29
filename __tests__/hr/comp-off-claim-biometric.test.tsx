@@ -52,6 +52,14 @@ describe('describeBiometric / biometricBlocksApproval', () => {
     expect(describeBiometric(check({ status: 'not_recorded' }))).toBeNull();
   });
 
+  it('not_uploaded names HR as the one who uploads the month, not the approver', () => {
+    const d = describeBiometric(check({ status: 'not_uploaded' }));
+    expect(d?.detail).toContain(
+      'HR uploads it from HR Setup › Admin Dashboard › Import Biometric Punches'
+    );
+    expect(d?.detail).not.toMatch(/Import it from HR › Attendance › Import/);
+  });
+
   it('blocks approval only for no_punch and not_uploaded', () => {
     expect(biometricBlocksApproval('no_punch')).toBe(true);
     expect(biometricBlocksApproval('not_uploaded')).toBe(true);
@@ -90,11 +98,11 @@ describe('Comp-off claim sidebar — location and punch check', () => {
     expect(screen.getByRole('button', { name: /reject/i })).toBeEnabled();
   });
 
-  it('inside campus, biometric not uploaded: disables Approve and says to import', () => {
+  it('inside campus, biometric not uploaded: disables Approve and says HR uploads it', () => {
     renderSheet(base, check({ status: 'not_uploaded' }));
     expect(screen.getByText('Biometric not uploaded')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled();
-    expect(screen.getAllByText(/Import it from HR/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/HR uploads it from HR Setup/i).length).toBeGreaterThan(0);
   });
 
   it('inside campus, no device: allows Approve and asks to verify the proof', () => {
