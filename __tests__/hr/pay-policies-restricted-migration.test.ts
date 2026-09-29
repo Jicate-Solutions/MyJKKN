@@ -98,9 +98,58 @@ describe('restrictive select policies', () => {
     });
   }
 
-  it('touches no INSERT, UPDATE or DELETE policy', () => {
-    expect(code).not.toMatch(/CREATE POLICY[^;]*FOR (INSERT|UPDATE|DELETE|ALL)/);
+  it('adds no permissive write policy and alters no existing policy', () => {
+    const writePolicies = code.match(/CREATE POLICY[^;]*FOR (INSERT|UPDATE|DELETE|ALL)[^;]*;/g) ?? [];
+    expect(writePolicies).toHaveLength(3);
+    for (const p of writePolicies) expect(p).toMatch(/AS RESTRICTIVE/);
     expect(code).not.toMatch(/ALTER POLICY/);
+    // The generic write policies and the role-name one stay as they are.
+    expect(code).not.toMatch(/DROP POLICY IF EXISTS (platform_policies_(insert|update|delete)|"Admins can update platform_policies") /);
+  });
+});
+
+describe('writes: compensation keys are super-admin only', () => {
+  /** Every compensation key. Pinned: adding or dropping one is a decision. */
+  const WRITE_KEY_LIST =
+    "('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule', 'hr.motivation_fund')";
+  const ARM = `policy_key NOT IN ${WRITE_KEY_LIST} OR (SELECT public.is_super_admin())`;
+
+  for (const [cmd, clauses] of [
+    ['INSERT', ['WITH CHECK']],
+    ['UPDATE', ['USING', 'WITH CHECK']],
+    ['DELETE', ['USING']],
+  ] as const) {
+    const name = `platform_policies_pay_keys_${cmd.toLowerCase()}_super_admin_only`;
+
+    it(`${name}: RESTRICTIVE ${cmd} for authenticated and anon, super admin only`, () => {
+      const block = norm(policyBlock(code, name));
+      expect(block).toContain(`ON public.platform_policies AS RESTRICTIVE FOR ${cmd} TO authenticated, anon`);
+      // Every clause the command takes carries the same arm (UPDATE: USING and WITH CHECK,
+      // so no row can be renamed into a pay key) and nothing else.
+      for (const c of clauses) expect(block).toContain(`${c} ( ${ARM} )`);
+      expect(block.split(ARM)).toHaveLength(clauses.length + 1);
+      expect(block).not.toMatch(/is_admin|user_has_permission|service_role|role\s*(=|IN)/i);
+      expect(code).toContain(`DROP POLICY IF EXISTS ${name} ON public.platform_policies;`);
+    });
+
+    it(`${name} is mirrored verbatim in setup/03_policies.sql`, () => {
+      expect(policyBlock(setupPolicies, name)).toBe(policyBlock(migration, name));
+    });
+  }
+
+  it('the write key list is the read list plus hr.motivation_fund, and the same everywhere', () => {
+    expect(WRITE_KEY_LIST).toBe(`(${[...PAY_KEYS, 'hr.motivation_fund'].map((k) => `'${k}'`).join(', ')})`);
+    // 1 (INSERT) + 2 (UPDATE) + 1 (DELETE) in the migration and in the setup mirror.
+    expect(code.split(`policy_key NOT IN ${WRITE_KEY_LIST}`)).toHaveLength(5);
+    expect(setupPolicies.split(`policy_key NOT IN ${WRITE_KEY_LIST}`)).toHaveLength(5);
+    // Every key the editors' route serves is write-locked.
+    for (const k of COMPENSATION_POLICY_READ_KEYS) expect(WRITE_KEY_LIST).toContain(`'${k}'`);
+  });
+
+  it('an apply-time check fails the migration unless all three are RESTRICTIVE', () => {
+    const n = norm(code);
+    expect(n).toContain("AND permissive = 'RESTRICTIVE'");
+    expect(n).toContain('IF v_n <> 3 THEN RAISE EXCEPTION');
   });
 });
 

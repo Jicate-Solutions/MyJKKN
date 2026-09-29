@@ -7297,6 +7297,48 @@ CREATE POLICY hr_policy_audit_log_pay_keys_restricted ON public.hr_policy_audit_
     )
   );
 
+-- ── Compensation keys writable only by a super admin ────────────────────────
+-- Updated: 2026-09-29 - Mirror of 20270506090000 section 6 (FILE ONLY, not applied).
+--   platform_policies_insert / _update / _delete are `is_super_admin() OR is_admin()`,
+--   so an admin could change the pay matrix straight through PostgREST, skipping the
+--   super-admin-only editors and the hr_policy_audit_log row. These RESTRICTIVE
+--   policies let hr.pay_scales, hr.allowances_and_increments, hr.salary_suggestion_rule
+--   and hr.motivation_fund rows be written only by is_super_admin(). Every other key is
+--   unchanged. TO authenticated, anon: the service role (BYPASSRLS) is unaffected.
+DROP POLICY IF EXISTS platform_policies_pay_keys_insert_super_admin_only ON public.platform_policies;
+CREATE POLICY platform_policies_pay_keys_insert_super_admin_only ON public.platform_policies
+  AS RESTRICTIVE
+  FOR INSERT
+  TO authenticated, anon
+  WITH CHECK (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule', 'hr.motivation_fund')
+    OR (SELECT public.is_super_admin())
+  );
+
+DROP POLICY IF EXISTS platform_policies_pay_keys_update_super_admin_only ON public.platform_policies;
+CREATE POLICY platform_policies_pay_keys_update_super_admin_only ON public.platform_policies
+  AS RESTRICTIVE
+  FOR UPDATE
+  TO authenticated, anon
+  USING (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule', 'hr.motivation_fund')
+    OR (SELECT public.is_super_admin())
+  )
+  WITH CHECK (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule', 'hr.motivation_fund')
+    OR (SELECT public.is_super_admin())
+  );
+
+DROP POLICY IF EXISTS platform_policies_pay_keys_delete_super_admin_only ON public.platform_policies;
+CREATE POLICY platform_policies_pay_keys_delete_super_admin_only ON public.platform_policies
+  AS RESTRICTIVE
+  FOR DELETE
+  TO authenticated, anon
+  USING (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule', 'hr.motivation_fund')
+    OR (SELECT public.is_super_admin())
+  );
+
 -- =====================================================================
 -- Global Calendar module (Phase 1) — mirror of 20260623100000_calendar_module_tables.sql
 -- =====================================================================

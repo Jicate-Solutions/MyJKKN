@@ -1,7 +1,7 @@
 -- ============================================================================
 -- Migration: 20270506090000_hr_pay_policies_readable_only_with_salary_view
 -- Created:   2026-09-29 (round 2 after the W12 blind review, same day)
--- TIER:      POLICY TIGHTENING + two CREATE OR REPLACE + one new read RPC
+-- TIER:      POLICY TIGHTENING (reads and writes) + two CREATE OR REPLACE + one new read RPC
 -- STATUS:    FILE ONLY. Draft PR #4111. Rehearsed on a throwaway PostgreSQL 16;
 --            never applied anywhere else. Waits for the Director's number.
 -- ============================================================================
@@ -88,15 +88,41 @@
 --      One row per college the caller can access (THE RULE's scoping), with
 --      that college's row or NULLs. The route never takes the college list from
 --      the request; it only picks one college out of what this returns.
+--   6. platform_policies WRITES (added 2026-09-29, round 3 after the W12 blind
+--      review): three RESTRICTIVE policies, one each for INSERT, UPDATE and
+--      DELETE, let a row whose policy_key is one of the four compensation keys
+--      (hr.pay_scales, hr.allowances_and_increments, hr.salary_suggestion_rule,
+--      hr.motivation_fund) be written ONLY by is_super_admin(). Before this,
+--      platform_policies_insert / _update / _delete were `is_super_admin() OR
+--      is_admin()` and "Admins can update platform_policies" (20260525200000)
+--      admits role 'principal' or 'admin', so an admin, administrator or
+--      principal could change the pay matrix straight through PostgREST with
+--      their own session. That skipped the super-admin-only editor pages and
+--      the hr_policy_audit_log row, which the app writes, not a trigger. A
+--      DELETE was worse: hr_policy_audit_log.policy_id is ON DELETE CASCADE, so
+--      deleting a pay row also erased its audit history.
+--      Same shape as 20260727060000 (exam eligibility): the key test sits in
+--      BOTH USING and WITH CHECK, so an admin can neither edit a pay row nor
+--      rename another row INTO a pay key. It is RESTRICTIVE rather than a
+--      rewrite of platform_policies_update because four permissive write
+--      policies exist (the generic three, the role-name one above, and the
+--      per-key social / School of Influence ones); a restrictive policy is
+--      ANDed with all of them, so none can reopen the pay rows.
+--      TO authenticated, anon only: the service role is not named, and it has
+--      BYPASSRLS on Supabase anyway, so server-side jobs and migrations write as
+--      before.
 --
 -- WHAT DOES NOT CHANGE
 --   * Every other policy_key: the restrictive policy's first arm is
 --     `policy_key NOT IN (...)`, so for them it is always true and today's
 --     permissive policies decide exactly as before. fn_get_policy checks the key
 --     first and never calls the permission helpers for any other key.
---   * Writes. INSERT / UPDATE / DELETE policies are untouched. The editors
---     still save from the browser under the existing admin policies (super
---     admin / admin pass the new rule).
+--   * Writes to every other key. The write policies' first arm is
+--     `policy_key NOT IN (...)`, so for any other key they are always true and
+--     the existing permissive write policies decide exactly as before. No
+--     existing policy is dropped, renamed or altered. The Pay Scales,
+--     Allowances and Motivation Fund editors are super-admin-only pages
+--     (SuperAdminOnly) and keep saving from the browser.
 --   * Grants: restated below so re-applying this file cannot widen them.
 --   * hr.motivation_fund, hr.payroll.tds_slabs / pf_rate / esi_rate /
 --     professional_tax / standard_deduction / formula / component_definitions:
@@ -111,6 +137,10 @@
 --     platform_policies" (role-name policy, 20260525200000) would no longer see
 --     them unless holding the key. The same holds for the salary suggestion rule's
 --     rows once that PR adds them. The editors are super-admin-only pages.
+--   * An admin, administrator or principal who is not a super admin can no
+--     longer INSERT, UPDATE or DELETE a compensation-key row. A refused UPDATE
+--     or DELETE through PostgREST affects 0 rows with no error; a refused
+--     INSERT (or an UPDATE that renames a row into a pay key) fails with 42501.
 --
 -- BEFORE APPLYING: diff the live bodies,
 --   SELECT pg_get_functiondef('public.fn_get_policy(text,uuid)'::regprocedure);
@@ -467,5 +497,74 @@ COMMENT ON FUNCTION public.hr_compensation_policies(text) IS
   'hr.pay_scales / hr.allowances_and_increments / hr.motivation_fund row or NULLs. '
   'Gated on admin or hr.payroll.salary.view; scoped by role_has_institution_access '
   'for non-admins. Read by GET /api/hr/compensation-policies. Migration 20270506090000.';
+
+-- ----------------------------------------------------------------------------
+-- 6. platform_policies writes — the compensation keys are super-admin only
+-- ----------------------------------------------------------------------------
+-- Added 2026-09-29 (round 3, W12 blind review). RESTRICTIVE: ANDed with every
+-- permissive write policy. Every other key passes the first arm unchanged.
+DROP POLICY IF EXISTS platform_policies_pay_keys_insert_super_admin_only ON public.platform_policies;
+CREATE POLICY platform_policies_pay_keys_insert_super_admin_only ON public.platform_policies
+  AS RESTRICTIVE
+  FOR INSERT
+  TO authenticated, anon
+  WITH CHECK (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule', 'hr.motivation_fund')
+    OR (SELECT public.is_super_admin())
+  );
+
+DROP POLICY IF EXISTS platform_policies_pay_keys_update_super_admin_only ON public.platform_policies;
+CREATE POLICY platform_policies_pay_keys_update_super_admin_only ON public.platform_policies
+  AS RESTRICTIVE
+  FOR UPDATE
+  TO authenticated, anon
+  USING (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule', 'hr.motivation_fund')
+    OR (SELECT public.is_super_admin())
+  )
+  WITH CHECK (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule', 'hr.motivation_fund')
+    OR (SELECT public.is_super_admin())
+  );
+
+DROP POLICY IF EXISTS platform_policies_pay_keys_delete_super_admin_only ON public.platform_policies;
+CREATE POLICY platform_policies_pay_keys_delete_super_admin_only ON public.platform_policies
+  AS RESTRICTIVE
+  FOR DELETE
+  TO authenticated, anon
+  USING (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule', 'hr.motivation_fund')
+    OR (SELECT public.is_super_admin())
+  );
+
+COMMENT ON POLICY platform_policies_pay_keys_insert_super_admin_only ON public.platform_policies IS
+  'Compensation keys (hr.pay_scales, hr.allowances_and_increments, hr.salary_suggestion_rule, '
+  'hr.motivation_fund) are inserted by a super admin only. RESTRICTIVE. Migration 20270506090000.';
+COMMENT ON POLICY platform_policies_pay_keys_update_super_admin_only ON public.platform_policies IS
+  'Compensation keys are updated by a super admin only; USING and WITH CHECK both carry the key '
+  'test so no row can be renamed into a pay key. RESTRICTIVE. Migration 20270506090000.';
+COMMENT ON POLICY platform_policies_pay_keys_delete_super_admin_only ON public.platform_policies IS
+  'Compensation keys are deleted by a super admin only (a delete cascades to hr_policy_audit_log). '
+  'RESTRICTIVE. Migration 20270506090000.';
+
+-- Apply-time check: all three write locks exist, are RESTRICTIVE, and name the
+-- super-admin check. Fails the migration instead of leaving a silent gap.
+DO $$
+DECLARE
+  v_n int;
+BEGIN
+  SELECT count(*) INTO v_n
+  FROM pg_policies
+  WHERE schemaname = 'public' AND tablename = 'platform_policies'
+    AND policyname IN ('platform_policies_pay_keys_insert_super_admin_only',
+                       'platform_policies_pay_keys_update_super_admin_only',
+                       'platform_policies_pay_keys_delete_super_admin_only')
+    AND permissive = 'RESTRICTIVE'
+    AND coalesce(qual, '') || coalesce(with_check, '') LIKE '%is_super_admin()%'
+    AND coalesce(qual, '') || coalesce(with_check, '') LIKE '%hr.motivation_fund%';
+  IF v_n <> 3 THEN
+    RAISE EXCEPTION 'ABORT: expected 3 restrictive pay-key write policies on platform_policies, found %', v_n;
+  END IF;
+END $$;
 
 NOTIFY pgrst, 'reload schema';
