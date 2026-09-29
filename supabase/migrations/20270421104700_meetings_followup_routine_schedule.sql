@@ -61,9 +61,11 @@
 -- uniqueness is the EXPRESSION index uq_platform_policies_key_scope
 -- (policy_key, scope_type, COALESCE(scope_id, …)), which a bare
 -- ON CONFLICT DO NOTHING honours (no conflict target is needed or possible
--- without naming the expression). Neither live trigger on platform_policies
--- touches these keys: trg_guard_gate_mode_super_admin_only only guards two
--- session_feedback.* keys, trg_guard_soi_policy_thresholds only soi.* keys.
+-- without naming the expression). None of the three live triggers on
+-- platform_policies (re-read 2026-09-29) touches these keys:
+-- trg_guard_gate_mode_super_admin_only only guards two session_feedback.*
+-- keys, trg_guard_soi_policy_thresholds only soi.* keys, and
+-- trg_zero_byow_counter_on_reenable is AFTER UPDATE on wa_byow.is_enabled only.
 --
 -- ON CONFLICT DO NOTHING (both inserts) → a re-run never clobbers a
 -- Director-retuned row. No function is created here, so there is no
