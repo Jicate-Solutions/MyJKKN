@@ -214,6 +214,11 @@ RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
    WHERE ur.user_id = p_user ORDER BY ur.is_primary DESC NULLS LAST LIMIT 1;
 $$;
 
+-- ci:allow-secdef-authenticated fn_my_commission_payment_capabilities answers only
+-- "may I, the caller, initiate?" — it returns two booleans about auth.uid() and
+-- reads no other person's data, so every signed-in user may ask (it decides
+-- whether the Initiate Payment button shows). Every other broadly granted
+-- function in this file authorizes the caller in its own body.
 CREATE OR REPLACE FUNCTION public.fn_my_commission_payment_capabilities()
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
 DECLARE v_cfg public.commission_payment_flow_configs;

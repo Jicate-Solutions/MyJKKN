@@ -359,6 +359,7 @@
     "admission.applications.edit",
     "admission.applications.view",
     "admission.consultants.analytics.view",
+    "admission.consultants.commissions.configure",
     "admission.consultants.commissions.manage",
     "admission.consultants.commissions.view",
     "admission.consultants.create",
