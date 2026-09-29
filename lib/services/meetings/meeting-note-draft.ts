@@ -26,16 +26,33 @@
 //     meeting_notes.ai_draft, because the Fireflies ingest rewrites `summary`
 //     and `raw` on every 30-minute tick and would wipe a draft stored there.
 //   * Interview bookings are never enqueued.
+//   * THE SWITCH IS REAL. The run reads ai_job_types.enabled for
+//     'meetings.note_draft' FIRST. Switched off, it collects nothing (no
+//     fn_ai_collect_claim call, no 'AI draft:' tasks, no stamps), calls
+//     Fireflies for nothing, enqueues nothing, and CANCELS every job of this
+//     type still 'pending', removing its prompt. A job the drain has already
+//     claimed or is running cannot be stopped from here; its result waits in
+//     ai_jobs and is collected only if the switch is turned back on. If the
+//     switch cannot be read, the run collects and enqueues nothing and
+//     cancels nothing beyond the ordinary 7-day rule.
 //   * A note is stamped 'no_transcript' ONLY when Fireflies returned the
 //     transcript and it holds zero sentences.
 //   * Fireflies' PER-TRANSCRIPT codes (object_not_found, forbidden,
 //     not_in_team — FIREFLIES_PER_TRANSCRIPT_CODES) are final for that ONE
 //     note: it is stamped 'fireflies_<code>' and the run goes on to the next
 //     candidate. A transcript that came back without a readable sentence list
-//     leaves the note UNSTAMPED and the run also goes on. Everything
-//     ACCOUNT-WIDE — no key, a network error, HTTP 401 / 429, a body that is
-//     not JSON, and any other or unknown GraphQL code — stops the run and
-//     stamps nothing. The 10-per-run cap bounds what retries cost.
+//     leaves the note UNSTAMPED and the run also goes on.
+//   * ONLY the key / account failures STOP the run, stamping nothing: no key
+//     (not_connected), HTTP 401 / 429, and the codes in
+//     FIREFLIES_ACCOUNT_STOP_CODES (auth_failed, too_many_requests,
+//     account_cancelled, paid_required). Every other failure — the 20 s
+//     timeout, a network error, a 5xx, a body that is not JSON, and any other
+//     or unknown GraphQL code — SKIPS that note for this run, UNSTAMPED, and
+//     the run goes on (counted as skippedTransient). One note that always
+//     fails cannot hold the backlog; the 10-per-run cap bounds the cost.
+//   * If Fireflies' own summary has arrived by the time a finished draft is
+//     collected, the draft is NOT written as tasks: the note is stamped
+//     'summary_arrived' and the model's answer is dropped.
 //   * A DB read that FAILS is never read as "nothing there". A failed read of
 //     the note, its participants, their profiles, the booking host or the
 //     booking's existing follow-ups gives outcome 'error' and leaves the note
@@ -201,7 +218,8 @@ export interface NoteDraftDb {
    *  still 'pending'. applied=false means the drain claimed it in between, so
    *  it runs with its prompt intact and is left alone. */
   cancelPendingJob(jobId: string, reason: string): Promise<{ applied: boolean; error: string | null }>;
-  isJobTypeEnabled(jobType: string): Promise<boolean>;
+  /** error = the switch could not be read; enabled is then meaningless. */
+  isJobTypeEnabled(jobType: string): Promise<{ enabled: boolean; error: string | null }>;
   listCandidates(olderThanIso: string, limit: number): Promise<CandidateNote[] | null>;
   /** Booking ids that are interviews — hr_recruitment_interviews.booking_id,
    *  plus bookings whose meeting type is named as an interview. null = could
@@ -455,6 +473,9 @@ function readMessageText(msg: unknown): string | null {
 export interface CollectSummary {
   collected: number;
   recorded: number;
+  /** Fireflies' own summary had arrived by collect time: stamped
+   *  'summary_arrived', no tasks written from the model's answer. */
+  summaryArrived: number;
   itemsSkipped: number;
   unreadable: number;
   noHost: number;
@@ -471,6 +492,7 @@ export async function runCollect(
   const s: CollectSummary = {
     collected: 0,
     recorded: 0,
+    summaryArrived: 0,
     itemsSkipped: 0,
     unreadable: 0,
     noHost: 0,
@@ -497,6 +519,21 @@ export async function runCollect(
       const row = loaded.note;
       if (!row || !row.bookingId || row.aiDraftedAt) {
         s.skipped++;
+        continue;
+      }
+      if (row.summary !== null) {
+        // Fireflies' own summary landed after this job was enqueued. The
+        // meeting now has a real record, so the model's answer is dropped —
+        // no 'AI draft:' tasks — and the note is stamped so it is not drafted
+        // again. (listCandidates would not pick it anyway: summary IS NULL.)
+        const { error } = await db.stampDraft(row.id, {
+          label: AI_DRAFT_LABEL,
+          job_id: item.jobId,
+          status: 'summary_arrived',
+          drafted_at: now.toISOString(),
+        });
+        if (error) s.errors++;
+        else s.summaryArrived++;
         continue;
       }
       const people = await db.loadParticipants(row.id);
@@ -547,10 +584,17 @@ export async function runCollect(
  * Kept: claimed / running (in use), 'done' not yet delivered (the collect loop
  * strips it when it claims it), pending younger than the limit, and a pending
  * job with no readable request time (never cancelled on a guess).
+ *
+ * switchedOff: the job type is disabled, so EVERY pending job is cancelled,
+ * whatever its age — nothing of this type should reach the Max seat any
+ * more. Claimed / running / undelivered 'done' jobs are still kept: they
+ * cannot be stopped from here, and a 'done' one is collected only if the
+ * switch is turned back on.
  */
 export function selectPromptsToRetire(
   jobs: HeldPromptJob[],
   now: Date,
+  opts: { switchedOff?: boolean } = {},
 ): { strip: string[]; cancel: string[] } {
   const cutoff = now.getTime() - LIMITS.pendingPromptMaxDays * 86_400_000;
   const strip: string[] = [];
@@ -559,6 +603,10 @@ export function selectPromptsToRetire(
     if ((TERMINAL_UNDELIVERED_STATUSES as readonly string[]).includes(j.status)) strip.push(j.id);
     else if (j.status === 'done' && j.deliveredAt) strip.push(j.id);
     else if (j.status === 'pending') {
+      if (opts.switchedOff) {
+        cancel.push(j.id);
+        continue;
+      }
       const t = j.requestedAt ? Date.parse(j.requestedAt) : NaN;
       if (Number.isFinite(t) && t <= cutoff) cancel.push(j.id);
     }
@@ -569,6 +617,9 @@ export function selectPromptsToRetire(
 export const STALE_PENDING_REASON =
   'canceled by meeting-note-drafts: still pending after 7 days, so its prompt (a meeting transcript) was removed';
 
+export const SWITCHED_OFF_REASON =
+  'canceled by meeting-note-drafts: the meetings.note_draft job type is switched off, so its prompt (a meeting transcript) was removed';
+
 export interface PromptSweepSummary {
   listed: number;
   stripped: number;
@@ -577,8 +628,13 @@ export interface PromptSweepSummary {
 }
 
 /** Part of the collect pass. Runs even when collecting itself failed — how
- *  long a transcript is kept must not depend on the drain being healthy. */
-export async function runPromptSweep(db: NoteDraftDb, now: Date = new Date()): Promise<PromptSweepSummary> {
+ *  long a transcript is kept must not depend on the drain being healthy.
+ *  switchedOff: cancel every pending job (see selectPromptsToRetire). */
+export async function runPromptSweep(
+  db: NoteDraftDb,
+  now: Date = new Date(),
+  opts: { switchedOff?: boolean } = {},
+): Promise<PromptSweepSummary> {
   const s: PromptSweepSummary = { listed: 0, stripped: 0, canceled: 0, errors: 0 };
   const jobs = await db.listJobsHoldingPrompt(NOTE_DRAFT_JOB, LIMITS.promptSweepBatch);
   if (!jobs) {
@@ -586,14 +642,17 @@ export async function runPromptSweep(db: NoteDraftDb, now: Date = new Date()): P
     return s;
   }
   s.listed = jobs.length;
-  const { strip, cancel } = selectPromptsToRetire(jobs, now);
+  const { strip, cancel } = selectPromptsToRetire(jobs, now, opts);
   for (const id of strip) {
     const { error } = await db.stripJobPrompt(id);
     if (error) s.errors++;
     else s.stripped++;
   }
   for (const id of cancel) {
-    const { applied, error } = await db.cancelPendingJob(id, STALE_PENDING_REASON);
+    const { applied, error } = await db.cancelPendingJob(
+      id,
+      opts.switchedOff ? SWITCHED_OFF_REASON : STALE_PENDING_REASON,
+    );
     if (error) s.errors++;
     else if (applied) s.canceled++;
   }
@@ -614,6 +673,9 @@ export interface EnqueueSummary {
   /** Fireflies answered about this transcript without a readable sentence
    *  list. The note is NOT stamped; a later run tries it again. */
   transcriptRetry: number;
+  /** THIS request failed (timeout, network, 5xx, not JSON, another or
+   *  unknown code). The note is NOT stamped and the run went on. */
+  skippedTransient: number;
   skipped: number;
   /** A stamp that failed to write, or a participant read that failed. The
    *  note is NOT counted as stamped and stays a candidate. */
@@ -643,14 +705,21 @@ export async function runEnqueue(
     noTranscript: 0,
     transcriptUnavailable: 0,
     transcriptRetry: 0,
+    skippedTransient: 0,
     skipped: 0,
     errors: 0,
     stoppedReason: null,
   };
 
-  // DARK means DARK: no Fireflies call and no DB write while the job type is
-  // switched off — not merely a refused enqueue at the end.
-  if (!(await db.isJobTypeEnabled(NOTE_DRAFT_JOB))) {
+  // Read again here even though runNoteDraftCron already checked: the switch
+  // may have been turned off while collect ran, and this is the phase that
+  // calls Fireflies and sends transcripts.
+  const sw = await db.isJobTypeEnabled(NOTE_DRAFT_JOB);
+  if (sw.error) {
+    s.stoppedReason = 'could not read whether the job type is switched on';
+    return s;
+  }
+  if (!sw.enabled) {
     s.dark = true;
     return s;
   }
@@ -700,9 +769,19 @@ export async function runEnqueue(
         s.transcriptRetry++;
         continue;
       }
-      // ACCOUNT-WIDE (no key, network, HTTP 401 / 429, not JSON, any other or
-      // unknown code): the next candidate would fail the same way. Stop the
-      // run and stamp nothing — none of these proves anything about the note.
+      if (sentences.scope === 'request') {
+        // THIS request failed — the 20 s timeout on a very long meeting, a
+        // network error, a 5xx, a body that is not JSON, another or unknown
+        // code. It proves nothing about the note or the account: UNSTAMPED,
+        // retried next run, and the run goes ON so one note that always fails
+        // cannot hold every older note back.
+        s.skippedTransient++;
+        continue;
+      }
+      // ACCOUNT-WIDE, and ONLY these (no key, HTTP 401 / 429, auth_failed,
+      // too_many_requests, account_cancelled, paid_required — or a failure
+      // with no scope at all): the next candidate would fail the same way.
+      // Stop the run and stamp nothing.
       s.stoppedReason = `fireflies ${sentences.reason}${sentences.errorCode ? ` (${sentences.errorCode})` : ''}`;
       break;
     }
@@ -794,13 +873,19 @@ export async function collectNoteDraftJobs(admin: Admin, limit: number): Promise
 // ── One cron run ────────────────────────────────────────────────────────────
 
 export interface NoteDraftCronResult {
+  /** true = the job type is switched off: nothing was collected or enqueued,
+   *  and `sweep` is the switched-off sweep (every pending job cancelled). */
+  disabled: boolean;
+  /** The switch could not be read: nothing collected, enqueued or cancelled. */
+  switchError: string | null;
   collect: CollectSummary | null;
   collectError: string | null;
   sweep: PromptSweepSummary | null;
   sweepError: string | null;
   enqueue: EnqueueSummary | null;
   enqueueError: string | null;
-  /** true when the enqueue pass was NOT run because collecting threw. */
+  /** true when the enqueue pass was NOT run because collecting threw or the
+   *  switch could not be read. */
   enqueueSkipped: boolean;
 }
 
@@ -809,11 +894,23 @@ function errText(e: unknown): string {
 }
 
 /**
- * COLLECT → PROMPT SWEEP → ENQUEUE. If collecting throws, the sweep still runs
- * (retention does not wait on the drain) but ENQUEUE does not: a note whose
- * finished job was not collected is still unstamped, and the lane's duplicate
- * guard only covers pending/claimed/running jobs, so enqueueing now would pay
- * for a second model call on the same transcript.
+ * SWITCH → COLLECT → PROMPT SWEEP → ENQUEUE.
+ *
+ * The switch (ai_job_types.enabled) is read FIRST, because nothing downstream
+ * reads it: fn_ai_collect_claim and the drain's fn_ai_claim never look at
+ * `enabled` (live catalog, read 2026-09-29), only fn_ai_enqueue_system does.
+ *   off     → no collect, no Fireflies call, no enqueue; the sweep runs in
+ *             switched-off mode and cancels EVERY pending job of this type,
+ *             removing its prompt. Claimed / running jobs cannot be stopped
+ *             here; their results are collected only if it is switched on.
+ *   unknown → (the read failed) no collect, no enqueue, no cancel-all; only
+ *             the ordinary retention sweep, which is the same either way.
+ *   on      → as below.
+ * If collecting throws, the sweep still runs (retention does not wait on the
+ * drain) but ENQUEUE does not: a note whose finished job was not collected is
+ * still unstamped, and the lane's duplicate guard only covers
+ * pending/claimed/running jobs, so enqueueing now would pay for a second
+ * model call on the same transcript.
  */
 export async function runNoteDraftCron(
   db: NoteDraftDb,
@@ -830,6 +927,8 @@ export async function runNoteDraftCron(
   now: Date = new Date(),
 ): Promise<NoteDraftCronResult> {
   const r: NoteDraftCronResult = {
+    disabled: false,
+    switchError: null,
     collect: null,
     collectError: null,
     sweep: null,
@@ -838,6 +937,27 @@ export async function runNoteDraftCron(
     enqueueError: null,
     enqueueSkipped: false,
   };
+
+  let sw: { enabled: boolean; error: string | null };
+  try {
+    sw = await db.isJobTypeEnabled(NOTE_DRAFT_JOB);
+  } catch (e) {
+    sw = { enabled: false, error: errText(e) };
+  }
+  if (sw.error || !sw.enabled) {
+    if (sw.error) {
+      r.switchError = sw.error;
+      r.enqueueSkipped = true;
+    } else {
+      r.disabled = true;
+    }
+    try {
+      r.sweep = await runPromptSweep(db, now, { switchedOff: r.disabled });
+    } catch (e) {
+      r.sweepError = errText(e);
+    }
+    return r;
+  }
 
   try {
     r.collect = await runCollect(db, deps.collect, now);
@@ -862,6 +982,80 @@ export async function runNoteDraftCron(
     r.enqueueError = errText(e);
   }
   return r;
+}
+
+/**
+ * The route's JSON body for one run. The dispatcher's summarizeRoutineResult
+ * writes ai_routine_schedules.last_status from it: top-level numbers, OR —
+ * when ok is false and `error` is a string — that sentence instead. So every
+ * run that STOPPED EARLY answers ok:false with the reason (collect failed,
+ * the switch could not be read, enqueue threw, or enqueue stopped: Fireflies
+ * not connected / 401 / 429 / an account code, could not list candidates,
+ * could not check interviews, the lane refused the job type or has no seat).
+ * A switched-off run is not a failure: ok:true, disabled:true and the counts
+ * of cancelled pending jobs and stripped prompts.
+ */
+export function noteDraftRouteBody(run: NoteDraftCronResult): Record<string, unknown> {
+  const c = run.collect;
+  const w = run.sweep;
+  const q = run.enqueue;
+  const sweepErrors = (w?.errors ?? 0) + (run.sweepError ? 1 : 0);
+
+  if (run.disabled) {
+    return {
+      ok: true,
+      disabled: true,
+      pendingCanceled: w?.canceled ?? 0,
+      promptsStripped: w?.stripped ?? 0,
+      errors: sweepErrors,
+      sweepError: run.sweepError,
+    };
+  }
+
+  const counters = {
+    disabled: q?.dark === true,
+    collected: c?.collected ?? 0,
+    recorded: c?.recorded ?? 0,
+    summaryArrived: c?.summaryArrived ?? 0,
+    itemsSkipped: c?.itemsSkipped ?? 0,
+    unreadable: c?.unreadable ?? 0,
+    noHost: c?.noHost ?? 0,
+    promptsStripped: c?.stripped ?? 0,
+    promptsRetired: w?.stripped ?? 0,
+    stalePendingCanceled: w?.canceled ?? 0,
+    considered: q?.considered ?? 0,
+    excludedInterviews: q?.excludedInterviews ?? 0,
+    enqueued: q?.enqueued ?? 0,
+    inFlight: q?.inFlight ?? 0,
+    noTranscript: q?.noTranscript ?? 0,
+    transcriptUnavailable: q?.transcriptUnavailable ?? 0,
+    transcriptRetry: q?.transcriptRetry ?? 0,
+    skipped_transient: q?.skippedTransient ?? 0,
+    skipped: (c?.skipped ?? 0) + (q?.skipped ?? 0),
+    errors:
+      (c?.errors ?? 0) +
+      sweepErrors +
+      (q?.errors ?? 0) +
+      (run.collectError ? 1 : 0) +
+      (run.enqueueError ? 1 : 0) +
+      (run.switchError ? 1 : 0),
+    enqueueSkipped: run.enqueueSkipped,
+    stoppedReason: run.enqueueError ?? q?.stoppedReason ?? null,
+    collectError: run.collectError,
+    sweepError: run.sweepError,
+    switchError: run.switchError,
+  };
+
+  const stop = run.switchError
+    ? `could not read the switch, nothing collected or enqueued this run: ${run.switchError}`
+    : run.collectError
+      ? `collect failed, enqueue skipped this run: ${run.collectError}`
+      : run.enqueueError
+        ? `enqueue failed: ${run.enqueueError}`
+        : q?.stoppedReason
+          ? `enqueue stopped: ${q.stoppedReason}`
+          : null;
+  return stop ? { ok: false, error: stop, ...counters } : { ok: true, ...counters };
 }
 
 // ── Supabase adapter ────────────────────────────────────────────────────────
@@ -1022,7 +1216,10 @@ export function supabaseNoteDraftDb(admin: Admin): NoteDraftDb {
         .select('enabled')
         .eq('job_type', jobType)
         .maybeSingle();
-      return !error && data?.enabled === true;
+      // A failed read is not "off": off cancels every pending job.
+      if (error) return { enabled: false, error: error.message };
+      // No row = the migration is not applied: nothing may run, so it is off.
+      return { enabled: data?.enabled === true, error: null };
     },
 
     async listCandidates(olderThanIso, limit) {

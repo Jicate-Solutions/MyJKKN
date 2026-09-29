@@ -7,6 +7,10 @@
 --
 -- Updated: 2026-09-26 - AI draft of a meeting's summary, decisions and
 -- follow-ups when Fireflies returns none. SHIPS SWITCHED OFF.
+-- Updated: 2026-09-29 - #4053 round 3, text only: §1 now says what the
+-- switch really stops, and the COMMENT ON COLUMN for ai_drafted_at lists
+-- summary_arrived and how to re-open a note. No table, column, row, policy
+-- or grant changed.
 --
 -- ── THE GAP ─────────────────────────────────────────────────────────────────
 -- Measured live 2026-09-26: Fireflies returned summary = NULL for 115 of the
@@ -17,11 +21,23 @@
 -- LINKED notes only (booking_id IS NOT NULL), never for interviews.
 --
 -- ── WHAT THIS ADDS ──────────────────────────────────────────────────────────
---   1. ai_job_types row 'meetings.note_draft' — enabled = FALSE. While it is
---      false, fn_ai_enqueue_system refuses every enqueue, so no meeting text
---      can reach the Max seat. The Director flips it (no deploy).
+--   1. ai_job_types row 'meetings.note_draft' — enabled = FALSE. The
+--      Director flips it (no deploy). While it is false:
+--        * fn_ai_enqueue_system refuses every enqueue of this type;
+--        * the cron reads it BEFORE doing anything else and then collects
+--          nothing (no fn_ai_collect_claim call, no 'AI draft:' tasks, no
+--          stamps), calls Fireflies for nothing, enqueues nothing, and
+--          cancels EVERY still-pending job of this type, removing its prompt.
+--      Not covered: fn_ai_claim (the drain) and fn_ai_collect_claim never
+--      read `enabled` (live catalog, read 2026-09-29), so a job that was
+--      pending when the switch went off can still be claimed until the next
+--      cron run cancels it, and a job already claimed or running finishes;
+--      its result is collected only if the switch is turned back on.
 --   2. meeting_notes.ai_drafted_at  — set once per note when a draft attempt
---      reached a final outcome, so a note is never sent twice.
+--      reached a final outcome, so a stamped note is not sent again. (A
+--      race can still enqueue a second job for a note before it is stamped;
+--      the ai_drafted_at check at collect time keeps the second answer
+--      from being written.)
 --   3. meeting_notes.ai_draft       — the AI summary + decisions, kept APART
 --      from meeting_notes.summary. Not a matter of taste: the Fireflies ingest
 --      re-upserts `summary` AND `raw` on every 30-minute tick
@@ -85,7 +101,7 @@ ALTER TABLE public.meeting_notes
   ADD COLUMN IF NOT EXISTS ai_drafted_at timestamptz;
 
 COMMENT ON COLUMN public.meeting_notes.ai_drafted_at IS
-  'When the AI note-drafter (job meetings.note_draft) reached a final outcome for this note — drafted, skipped because follow-ups already existed, unreadable model output, no booking host, no_transcript (Fireflies returned the transcript with zero sentences), or fireflies_object_not_found / fireflies_forbidden / fireflies_not_in_team (Fireflies said that one transcript is gone or this key may not read it). An account-wide Fireflies failure or a failed database read never sets it. Set once; the cron never enqueues a note that carries it.';
+  'When the AI note-drafter (job meetings.note_draft) reached a final outcome for this note — drafted, skipped because follow-ups already existed, unreadable model output, no booking host, summary_arrived (the Fireflies summary landed before the draft was collected; no tasks written), no_transcript (Fireflies returned the transcript with zero sentences), or fireflies_object_not_found / fireflies_forbidden / fireflies_not_in_team (Fireflies said that one transcript is gone or this key may not read it). Any other Fireflies failure and any failed database read or write never sets it. Set once; the cron never enqueues a note that carries it. To re-open a note, set ai_drafted_at and ai_draft back to NULL.';
 
 ALTER TABLE public.meeting_notes
   ADD COLUMN IF NOT EXISTS ai_draft jsonb;

@@ -8,6 +8,8 @@
 //   1. COLLECT finished drafts, validate every field, record them, then STRIP
 //      payload.prompt off the ai_jobs row (a prompt here is a meeting
 //      transcript, and it has no further use once the job is delivered).
+//      If Fireflies' own summary has arrived by then, the draft is dropped
+//      (no tasks) and the note stamped 'summary_arrived'.
 //      Then SWEEP this job type's other prompts: jobs that ended 'error' or
 //      'canceled' lose theirs, and a job still pending after 7 days is
 //      cancelled and loses its prompt too. The sweep runs even if collecting
@@ -18,11 +20,21 @@
 //      collect throws: a note whose finished job was not collected must not be
 //      sent to the model a second time. A Fireflies code about ONE transcript
 //      (object_not_found / forbidden / not_in_team) stamps that note and the
-//      run goes on; an account-wide Fireflies failure stops the run.
+//      run goes on. ONLY a key / account failure (no key, 401, 429,
+//      auth_failed, too_many_requests, account_cancelled, paid_required)
+//      stops the run; any other Fireflies failure (timeout, network, 5xx,
+//      unknown code) skips that one note, unstamped, and the run goes on.
 //
-// SWITCHED OFF twice over: the ai_job_types row 'meetings.note_draft' ships
-// enabled=false (the enqueue phase returns before any Fireflies call or DB
-// write while it is), and the ai_routine_schedules row ships enabled=false.
+// THE SWITCH (ai_job_types 'meetings.note_draft', ships enabled=false) is read
+// BEFORE step 1. While it is off the run collects nothing, calls Fireflies for
+// nothing and enqueues nothing; it CANCELS every still-pending job of this
+// type and removes its prompt, and answers disabled:true with those counts.
+// Jobs the drain already claimed or is running cannot be stopped from here;
+// their results are collected only if the switch is turned back on. The
+// ai_routine_schedules row also ships enabled=false.
+//
+// A run that stops early answers ok:false with the reason, so the
+// dispatcher's last_status shows WHY (see noteDraftRouteBody).
 //
 // Sends NOTHING to anyone: no notification, email or invite. Writes only
 // meeting_notes.ai_draft / ai_drafted_at, meeting_action_items rows with
@@ -45,6 +57,7 @@ import { enqueueJobsLane } from '@/lib/services/platform/ai-jobs-lane';
 import { fetchFirefliesTranscriptSentences } from '@/lib/services/meetings/fireflies-client';
 import {
   collectNoteDraftJobs,
+  noteDraftRouteBody,
   runNoteDraftCron,
   supabaseNoteDraftDb,
 } from '@/lib/services/meetings/meeting-note-draft';
@@ -75,54 +88,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     enqueue: (args) => enqueueJobsLane(admin, args),
   });
 
+  if (run.switchError) console.error('[meeting-note-drafts] could not read the switch:', run.switchError);
   if (run.collectError) console.error('[meeting-note-drafts] collect phase failed:', run.collectError);
   if (run.sweepError) console.error('[meeting-note-drafts] prompt sweep failed:', run.sweepError);
   if (run.enqueueError) console.error('[meeting-note-drafts] enqueue phase failed:', run.enqueueError);
 
-  const c = run.collect;
-  const w = run.sweep;
-  const q = run.enqueue;
-  const counters = {
-    dark: q?.dark ?? null,
-    collected: c?.collected ?? 0,
-    recorded: c?.recorded ?? 0,
-    itemsSkipped: c?.itemsSkipped ?? 0,
-    unreadable: c?.unreadable ?? 0,
-    noHost: c?.noHost ?? 0,
-    promptsStripped: c?.stripped ?? 0,
-    promptsRetired: w?.stripped ?? 0,
-    stalePendingCanceled: w?.canceled ?? 0,
-    considered: q?.considered ?? 0,
-    excludedInterviews: q?.excludedInterviews ?? 0,
-    enqueued: q?.enqueued ?? 0,
-    inFlight: q?.inFlight ?? 0,
-    noTranscript: q?.noTranscript ?? 0,
-    transcriptUnavailable: q?.transcriptUnavailable ?? 0,
-    transcriptRetry: q?.transcriptRetry ?? 0,
-    skipped: (c?.skipped ?? 0) + (q?.skipped ?? 0),
-    errors:
-      (c?.errors ?? 0) +
-      (w?.errors ?? 0) +
-      (q?.errors ?? 0) +
-      (run.collectError ? 1 : 0) +
-      (run.sweepError ? 1 : 0) +
-      (run.enqueueError ? 1 : 0),
-    enqueueSkipped: run.enqueueSkipped,
-    stoppedReason: run.enqueueError ?? q?.stoppedReason ?? null,
-    collectError: run.collectError,
-    sweepError: run.sweepError,
-  };
-
-  // Flat numeric counters: the dispatcher's summarizeRoutineResult reads
-  // top-level numbers into ai_routine_schedules.last_status — and, when
-  // ok=false with an `error` string, prints that sentence instead, which is
-  // how a skipped enqueue reaches the status line.
-  if (run.enqueueSkipped) {
-    return NextResponse.json({
-      ok: false,
-      error: `collect failed, enqueue skipped this run: ${run.collectError}`,
-      ...counters,
-    });
-  }
-  return NextResponse.json({ ok: true, ...counters });
+  // Flat counters, and ok:false + `error` for any run that stopped early —
+  // the dispatcher's summarizeRoutineResult prints that sentence into
+  // ai_routine_schedules.last_status instead of the numbers.
+  return NextResponse.json(noteDraftRouteBody(run));
 }

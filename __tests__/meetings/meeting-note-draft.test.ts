@@ -8,6 +8,7 @@ import {
   recordDraft,
   resolveOwner,
   collectNoteDraftJobs,
+  noteDraftRouteBody,
   runCollect,
   runEnqueue,
   runNoteDraftCron,
@@ -15,6 +16,7 @@ import {
   selectEnqueueCandidates,
   selectPromptsToRetire,
   STALE_PENDING_REASON,
+  SWITCHED_OFF_REASON,
   supabaseNoteDraftDb,
   validateDueDate,
   type CandidateNote,
@@ -25,9 +27,11 @@ import {
 } from '@/lib/services/meetings/meeting-note-draft';
 import {
   fetchFirefliesTranscriptSentences,
+  FIREFLIES_ACCOUNT_STOP_CODES,
   FIREFLIES_PER_TRANSCRIPT_CODES,
 } from '@/lib/services/meetings/fireflies-client';
 import type { CollectedJobsLaneItem } from '@/lib/services/platform/ai-jobs-lane';
+import { summarizeRoutineResult } from '@/lib/ai-routines/summarize-routine-result';
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 
@@ -64,6 +68,8 @@ interface FakeState {
   inserted: Array<Record<string, unknown>>;
   jobPayloads: Record<string, Record<string, unknown>>;
   enabled: boolean;
+  /** the switch read FAILS with this message */
+  switchError: string | null;
   candidates: CandidateNote[];
   interviews: Set<string> | null;
   summaryWrites: number;
@@ -99,6 +105,7 @@ function fakeDb(over: Partial<FakeState> = {}): { db: NoteDraftDb; state: FakeSt
     inserted: [],
     jobPayloads: {},
     enabled: true,
+    switchError: null,
     candidates: [],
     interviews: new Set(),
     summaryWrites: 0,
@@ -168,7 +175,8 @@ function fakeDb(over: Partial<FakeState> = {}): { db: NoteDraftDb; state: FakeSt
       return { applied: true, error: null };
     },
     async isJobTypeEnabled() {
-      return state.enabled;
+      if (state.switchError) return { enabled: false, error: state.switchError };
+      return { enabled: state.enabled, error: null };
     },
     async listCandidates() {
       // Like the real query: a stamped note (ai_drafted_at set) is no longer a candidate.
@@ -603,12 +611,12 @@ describe('fetchFirefliesTranscriptSentences — what counts as "zero sentences"'
     expect(await fetchFirefliesTranscriptSentences('t1')).toEqual({ ok: true, data: [] });
   });
 
-  it('a body that is not JSON is unreadable and ACCOUNT-wide', async () => {
+  it('a body that is not JSON is unreadable and about THIS request only (round 3)', async () => {
     withFetch(async () => new Response('<html>maintenance</html>', { status: 200 }));
     const r = await fetchFirefliesTranscriptSentences('t1');
     expect(r.ok).toBe(false);
     expect(r.reason).toBe('unreadable');
-    expect(r.scope).toBe('account');
+    expect(r.scope).toBe('request');
   });
 
   it('a null transcript is unreadable and about THIS transcript', async () => {
@@ -627,7 +635,9 @@ describe('fetchFirefliesTranscriptSentences — what counts as "zero sentences"'
     withFetch(async () => {
       throw new Error('ECONNRESET');
     });
-    expect((await fetchFirefliesTranscriptSentences('t1')).reason).toBe('unreachable');
+    const net = await fetchFirefliesTranscriptSentences('t1');
+    expect(net.reason).toBe('unreachable');
+    expect(net.scope).toBe('request');
     withFetch(async () => new Response('no', { status: 401 }));
     const r = await fetchFirefliesTranscriptSentences('t1');
     expect(r.reason).toBe('rejected');
@@ -754,17 +764,9 @@ describe('Fireflies error codes — a per-transcript code never stops the run', 
     ['too_many_requests inside a 200', 200, gqlError('too_many_requests', 429)],
     ['HTTP 401 (the key)', 401, 'Unauthorized'],
     ['auth_failed', 200, gqlError('auth_failed', 401)],
-    ['an unknown code', 200, gqlError('a_code_nobody_documented', 400)],
-    ['an error entry with no code', 200, gqlError(null, 0)],
-    [
-      'a GraphQL validation error',
-      400,
-      { errors: [{ message: 'Cannot query field', extensions: { code: 'GRAPHQL_VALIDATION_FAILED' } }] },
-    ],
-    ['a per-transcript code mixed with another', 200, { errors: [{ code: 'object_not_found' }, { code: 'too_many_requests' }] }],
-    ['a body that is not JSON (a gateway page)', 502, '<html>Bad gateway</html>'],
-    ['a 200 body that is not JSON', 200, 'maintenance'],
-    ['JSON with no data object', 200, { hello: 'world' }],
+    ['account_cancelled', 403, gqlError('account_cancelled', 403)],
+    ['paid_required', 403, gqlError('paid_required', 403)],
+    ['a per-transcript code mixed with too_many_requests', 200, { errors: [{ code: 'object_not_found' }, { code: 'too_many_requests' }] }],
   ] as const)('(c) %s is ACCOUNT-wide: the run stops and NOTHING is stamped', async (_label, status, body) => {
     const { db, state } = xThenB();
     const asked = routeFetch({ 'ff-X': [status, body], 'ff-B': [200, B_SENTENCES] });
@@ -772,10 +774,154 @@ describe('Fireflies error codes — a per-transcript code never stops the run', 
     const s = await runEnqueue(db, { enqueue, fetchSentences: fetchFirefliesTranscriptSentences }, NOW);
     expect(s.stoppedReason).toMatch(/^fireflies /);
     expect(s.transcriptUnavailable).toBe(0);
+    expect(s.skippedTransient).toBe(0);
     expect(state.stampCalls).toEqual([]);
     expect(state.notes.X.aiDraftedAt).toBeNull();
     expect(asked).toEqual(['ff-X']);
     expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('(c) no FIREFLIES_API_KEY (not_connected) stops the run before any request', async () => {
+    const { db, state } = xThenB();
+    vi.stubEnv('FIREFLIES_API_KEY', '');
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const enqueue = vi.fn(async () => ({ ok: true as const, jobId: 'j' }));
+    const s = await runEnqueue(db, { enqueue, fetchSentences: fetchFirefliesTranscriptSentences }, NOW);
+    expect(s.stoppedReason).toBe('fireflies not_connected');
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(state.stampCalls).toEqual([]);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('the account stop set is exactly auth_failed, too_many_requests, account_cancelled, paid_required', () => {
+    expect([...FIREFLIES_ACCOUNT_STOP_CODES].sort()).toEqual([
+      'account_cancelled',
+      'auth_failed',
+      'paid_required',
+      'too_many_requests',
+    ]);
+  });
+
+  // Round 3: everything that is not a key / account failure SKIPS that one
+  // note for this run, unstamped, and the run goes on to the older note.
+  it.each([
+    ['an unknown code', 200, gqlError('a_code_nobody_documented', 400)],
+    ['an error entry with no code', 200, gqlError(null, 0)],
+    ['request_timeout (408)', 408, gqlError('request_timeout', 408)],
+    ['invariant_violation (500)', 500, gqlError('invariant_violation', 500)],
+    [
+      'a GraphQL validation error',
+      400,
+      { errors: [{ message: 'Cannot query field', extensions: { code: 'GRAPHQL_VALIDATION_FAILED' } }] },
+    ],
+    ['a per-transcript code mixed with an unknown one', 200, { errors: [{ code: 'object_not_found' }, { code: 'mystery' }] }],
+    ['a body that is not JSON (a gateway page)', 502, '<html>Bad gateway</html>'],
+    ['a 503 with JSON and no errors', 503, { data: null }],
+    ['a 200 body that is not JSON', 200, 'maintenance'],
+    ['JSON with no data object', 200, { hello: 'world' }],
+  ] as const)('(d) [X: %s, B older]: X skipped UNSTAMPED, B enqueued in the SAME run', async (_label, status, body) => {
+    const { db, state } = xThenB();
+    const asked = routeFetch({ 'ff-X': [status, body], 'ff-B': [200, B_SENTENCES] });
+    const enqueue = vi.fn(async () => ({ ok: true as const, jobId: 'j' }));
+    const s = await runEnqueue(db, { enqueue, fetchSentences: fetchFirefliesTranscriptSentences }, NOW);
+    expect(s.stoppedReason).toBeNull();
+    expect(s.skippedTransient).toBe(1);
+    expect(s.transcriptUnavailable).toBe(0);
+    expect(state.stampCalls).toEqual([]);
+    expect(state.notes.X.aiDraftedAt).toBeNull();
+    expect(asked).toEqual(['ff-X', 'ff-B']);
+    expect(enqueuedIds(enqueue)).toEqual(['B']);
+  });
+
+  it('(d) a network error on X skips X, unstamped, and B is still enqueued', async () => {
+    const { db, state } = xThenB();
+    vi.stubEnv('FIREFLIES_API_KEY', 'test-key');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: { body: string }) => {
+        if (JSON.parse(init.body).variables.id === 'ff-X') throw new Error('ECONNRESET');
+        return new Response(JSON.stringify(B_SENTENCES), { status: 200 });
+      }),
+    );
+    const enqueue = vi.fn(async () => ({ ok: true as const, jobId: 'j' }));
+    const s = await runEnqueue(db, { enqueue, fetchSentences: fetchFirefliesTranscriptSentences }, NOW);
+    expect(s.stoppedReason).toBeNull();
+    expect(s.skippedTransient).toBe(1);
+    expect(state.stampCalls).toEqual([]);
+    expect(enqueuedIds(enqueue)).toEqual(['B']);
+  });
+
+  it('(d) [X times out after 20 s, B older]: X UNSTAMPED, B enqueued in the SAME run; X is tried again next run', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const { db, state } = xThenB();
+      vi.stubEnv('FIREFLIES_API_KEY', 'test-key');
+      const asked: string[] = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((_url: string, init: { body: string; signal: AbortSignal }) => {
+          const id = JSON.parse(init.body).variables.id as string;
+          asked.push(id);
+          if (id === 'ff-B') return Promise.resolve(new Response(JSON.stringify(B_SENTENCES), { status: 200 }));
+          // X never answers; only the client's own 20 s abort ends it.
+          return new Promise((_resolve, reject) => {
+            init.signal.addEventListener('abort', () => {
+              const e = new Error('The operation was aborted.');
+              e.name = 'AbortError';
+              reject(e);
+            });
+          });
+        }),
+      );
+      const enqueue = vi.fn(async () => ({ ok: true as const, jobId: 'j' }));
+      const deps = { enqueue, fetchSentences: fetchFirefliesTranscriptSentences };
+
+      const run1 = runEnqueue(db, deps, NOW);
+      await vi.advanceTimersByTimeAsync(20_000);
+      const s1 = await run1;
+      expect(s1.stoppedReason).toBeNull();
+      expect(s1.skippedTransient).toBe(1);
+      expect(state.stampCalls).toEqual([]);
+      expect(state.notes.X.aiDraftedAt).toBeNull();
+      expect(enqueuedIds(enqueue)).toEqual(['B']);
+
+      // Next run: X is still a candidate and is fetched again.
+      const run2 = runEnqueue(db, deps, NOW);
+      await vi.advanceTimersByTimeAsync(20_000);
+      await run2;
+      expect(asked.filter((id) => id === 'ff-X')).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the 20 s timeout itself is reported as unreachable, request-scoped', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      vi.stubEnv('FIREFLIES_API_KEY', 'test-key');
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          (_url: string, init: { signal: AbortSignal }) =>
+            new Promise((_resolve, reject) => {
+              init.signal.addEventListener('abort', () => {
+                const e = new Error('aborted');
+                e.name = 'AbortError';
+                reject(e);
+              });
+            }),
+        ),
+      );
+      const p = fetchFirefliesTranscriptSentences('t1');
+      await vi.advanceTimersByTimeAsync(20_000);
+      const r = await p;
+      expect(r.reason).toBe('unreachable');
+      expect(r.scope).toBe('request');
+      expect(r.message).toMatch(/within 20s/);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a failure that carries no scope is treated as account-wide, even with a per-transcript code', async () => {
@@ -1155,5 +1301,252 @@ describe('supabaseNoteDraftDb — a failed read is never an empty answer', () =>
       participants: [{ email: 'asha@jkkn.ac.in', displayName: 'Asha', profileId: 'p-asha' }],
       error: null,
     });
+  });
+});
+
+// ── round 3: Fireflies' own summary arrived before collect ──────────────────
+
+describe('collect — a Fireflies summary that arrived after enqueue wins (round 3)', () => {
+  const draftText = modelText({
+    summary: 'S',
+    decisions: ['D'],
+    actions: [{ text: 'Book the hall', owner_email: 'priya.r@jkkn.ac.in', owner_label: 'Priya', due_date: null }],
+  });
+
+  it('writes NO tasks, stamps summary_arrived, keeps the model answer out, and still strips the prompt', async () => {
+    const { db, state } = fakeDb();
+    state.notes['note-1'].summary = 'The real Fireflies overview.';
+    state.jobPayloads = { 'job-1': { prompt: 'TRANSCRIPT…', _ctx: { note_id: 'note-1' } } };
+    const s = await runCollect(db, async () => [collected('job-1', 'note-1', draftText)], NOW);
+    expect(s.summaryArrived).toBe(1);
+    expect(s.recorded).toBe(0);
+    expect(state.inserted).toHaveLength(0);
+    expect(state.notes['note-1'].aiDraft?.status).toBe('summary_arrived');
+    expect(state.notes['note-1'].aiDraft?.job_id).toBe('job-1');
+    expect(state.notes['note-1'].aiDraft).not.toHaveProperty('summary');
+    expect(state.notes['note-1'].aiDraft).not.toHaveProperty('decisions');
+    expect(state.notes['note-1'].summary).toBe('The real Fireflies overview.');
+    expect('prompt' in state.jobPayloads['job-1']).toBe(false);
+  });
+
+  it('a summary_arrived stamp that fails to write is an error and leaves the note UNSTAMPED', async () => {
+    const { db, state } = fakeDb({ stampError: 'timeout' });
+    state.notes['note-1'].summary = 'The real Fireflies overview.';
+    const s = await runCollect(db, async () => [collected('job-1', 'note-1', draftText)], NOW);
+    expect(s.summaryArrived).toBe(0);
+    expect(s.errors).toBe(1);
+    expect(state.inserted).toHaveLength(0);
+    expect(state.notes['note-1'].aiDraftedAt).toBeNull();
+  });
+
+  it('with the summary still NULL, the same answer is recorded as tasks (unchanged)', async () => {
+    const { db, state } = fakeDb();
+    const s = await runCollect(db, async () => [collected('job-1', 'note-1', draftText)], NOW);
+    expect(s.summaryArrived).toBe(0);
+    expect(s.recorded).toBe(1);
+    expect(state.inserted).toHaveLength(1);
+  });
+});
+
+// ── round 3: the switch is real ─────────────────────────────────────────────
+
+describe('runNoteDraftCron — switched off means nothing moves (round 3)', () => {
+  function mixedJobs() {
+    return {
+      fresh: job('fresh', 'pending', ago(1)),
+      stale: job('stale', 'pending', ago(9)),
+      undated: job('undated', 'pending', null),
+      claimed: job('claimed', 'claimed', ago(1)),
+      running: job('running', 'running', ago(1)),
+      doneUndelivered: job('doneUndelivered', 'done', ago(1)),
+      err: job('err', 'error', ago(2)),
+    };
+  }
+  function deps() {
+    return {
+      collect: vi.fn(async () => [
+        collected('job-done', 'note-1', modelText({ summary: 'S', decisions: [], actions: [{ text: 'x' }] })),
+      ]),
+      fetchSentences: vi.fn(async () => ({ ok: true as const, data: [{ speakerName: 'A', text: 'We agreed.' }] })),
+      enqueue: vi.fn(async () => ({ ok: true as const, jobId: 'j' })),
+    };
+  }
+
+  it('disabled: no collect claim, no tasks, no stamps, no Fireflies call, no enqueue; EVERY pending job cancelled and stripped', async () => {
+    const { db, state } = fakeDb({
+      enabled: false,
+      candidates: [cand('note-1', 'booking-1')],
+      jobs: mixedJobs(),
+    });
+    const d = deps();
+    const r = await runNoteDraftCron(db, d, NOW);
+
+    expect(r.disabled).toBe(true);
+    expect(d.collect).not.toHaveBeenCalled();
+    expect(d.fetchSentences).not.toHaveBeenCalled();
+    expect(d.enqueue).not.toHaveBeenCalled();
+    expect(state.inserted).toHaveLength(0);
+    expect(state.stampCalls).toEqual([]);
+    expect(r.collect).toBeNull();
+    expect(r.enqueue).toBeNull();
+
+    for (const id of ['fresh', 'stale', 'undated'] as const) {
+      expect(state.jobs[id].status).toBe('canceled');
+      expect('prompt' in state.jobs[id].payload).toBe(false);
+      expect(state.jobs[id].payload.__reason).toBe(SWITCHED_OFF_REASON);
+    }
+    // In use or not yet collected: cannot be stopped from here, left alone.
+    expect(state.jobs.claimed.status).toBe('claimed');
+    expect(state.jobs.claimed.payload.prompt).toBe('TRANSCRIPT');
+    expect(state.jobs.running.payload.prompt).toBe('TRANSCRIPT');
+    expect(state.jobs.doneUndelivered.payload.prompt).toBe('TRANSCRIPT');
+    // Retention still applies to a job that ended in error.
+    expect('prompt' in state.jobs.err.payload).toBe(false);
+
+    expect(noteDraftRouteBody(r)).toEqual({
+      ok: true,
+      disabled: true,
+      pendingCanceled: 3,
+      promptsStripped: 1,
+      errors: 0,
+      sweepError: null,
+    });
+  });
+
+  it('disabled: a pending job the drain claims in between is left running with its prompt', async () => {
+    const { db, state } = fakeDb({
+      enabled: false,
+      jobs: { fresh: job('fresh', 'pending', ago(1)) },
+      claimedMidway: new Set(['fresh']),
+    });
+    const r = await runNoteDraftCron(db, deps(), NOW);
+    expect(r.sweep?.canceled).toBe(0);
+    expect(state.jobs.fresh.status).toBe('claimed');
+    expect(state.jobs.fresh.payload.prompt).toBe('TRANSCRIPT');
+  });
+
+  it('enabled: collects, enqueues, and cancels only a pending job older than 7 days (unchanged)', async () => {
+    const { db, state } = fakeDb({
+      candidates: [cand('note-1', 'booking-1')],
+      jobs: { fresh: job('fresh', 'pending', ago(1)), stale: job('stale', 'pending', ago(9)) },
+    });
+    const d = deps();
+    const r = await runNoteDraftCron(db, { ...d, collect: vi.fn(async () => []) }, NOW);
+    expect(r.disabled).toBe(false);
+    expect(r.enqueue?.enqueued).toBe(1);
+    expect(state.jobs.fresh.status).toBe('pending');
+    expect(state.jobs.fresh.payload.prompt).toBe('TRANSCRIPT');
+    expect(state.jobs.stale.status).toBe('canceled');
+    expect(state.jobs.stale.payload.__reason).toBe(STALE_PENDING_REASON);
+  });
+
+  it('enabled: the collect claim IS called', async () => {
+    const { db } = fakeDb();
+    const d = deps();
+    await runNoteDraftCron(db, d, NOW);
+    expect(d.collect).toHaveBeenCalledTimes(1);
+  });
+
+  it('the switch cannot be read: nothing collected, enqueued or cancelled beyond the ordinary 7-day rule; ok:false', async () => {
+    const { db, state } = fakeDb({
+      switchError: 'statement timeout',
+      candidates: [cand('note-1', 'booking-1')],
+      jobs: { fresh: job('fresh', 'pending', ago(1)) },
+    });
+    const d = deps();
+    const r = await runNoteDraftCron(db, d, NOW);
+    expect(r.switchError).toBe('statement timeout');
+    expect(r.disabled).toBe(false);
+    expect(d.collect).not.toHaveBeenCalled();
+    expect(d.fetchSentences).not.toHaveBeenCalled();
+    expect(d.enqueue).not.toHaveBeenCalled();
+    expect(state.jobs.fresh.status).toBe('pending');
+    const body = noteDraftRouteBody(r);
+    expect(body.ok).toBe(false);
+    expect(summarizeRoutineResult(200, body)).toMatch(/error: could not read the switch/);
+  });
+});
+
+// ── round 3: a stopped run is visible in last_status ────────────────────────
+
+describe('noteDraftRouteBody — a run that stopped early says why in last_status (round 3)', () => {
+  async function runWith(over: Partial<FakeState>, fetchSentences: Parameters<typeof runEnqueue>[1]['fetchSentences']) {
+    const { db } = fakeDb({ candidates: [cand('note-1', 'booking-1')], ...over });
+    const enqueue = vi.fn(async () => ({ ok: true as const, jobId: 'j' }));
+    const r = await runNoteDraftCron(db, { collect: async () => [], fetchSentences, enqueue }, NOW);
+    const body = noteDraftRouteBody(r);
+    return { body, status: summarizeRoutineResult(200, body) };
+  }
+
+  it.each([
+    ['Fireflies 429', { ok: false, reason: 'rejected', scope: 'account', errorCode: 'too_many_requests', message: 'x' }, 'enqueue stopped: fireflies rejected (too_many_requests)'],
+    ['Fireflies auth', { ok: false, reason: 'rejected', scope: 'account', errorCode: 'auth_failed', message: 'x' }, 'enqueue stopped: fireflies rejected (auth_failed)'],
+    ['no key', { ok: false, reason: 'not_connected', scope: 'account', message: 'x' }, 'enqueue stopped: fireflies not_connected'],
+  ] as const)('%s → ok:false and the reason is the status line', async (_l, answer, expected) => {
+    const { body, status } = await runWith({}, async () => answer);
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe(expected);
+    expect(status).toBe(`HTTP 200 · error: ${expected}`);
+  });
+
+  it('could not list candidates → ok:false with that reason', async () => {
+    const { db } = fakeDb();
+    const broken: NoteDraftDb = { ...db, listCandidates: async () => null };
+    const r = await runNoteDraftCron(
+      broken,
+      { collect: async () => [], fetchSentences: vi.fn(), enqueue: vi.fn() },
+      NOW,
+    );
+    expect(summarizeRoutineResult(200, noteDraftRouteBody(r))).toBe(
+      'HTTP 200 · error: enqueue stopped: could not list candidate notes',
+    );
+  });
+
+  it('could not check interview bookings → ok:false with that reason', async () => {
+    const { status } = await runWith({ interviews: null }, vi.fn());
+    expect(status).toBe('HTTP 200 · error: enqueue stopped: could not check interview bookings');
+  });
+
+  it('collect failed → ok:false, enqueue skipped', async () => {
+    const { db } = fakeDb();
+    const r = await runNoteDraftCron(
+      db,
+      {
+        collect: async () => {
+          throw new Error('collect claim failed: boom');
+        },
+        fetchSentences: vi.fn(),
+        enqueue: vi.fn(),
+      },
+      NOW,
+    );
+    expect(summarizeRoutineResult(200, noteDraftRouteBody(r))).toMatch(/error: collect failed, enqueue skipped/);
+  });
+
+  it('a normal run is ok:true and prints its counters, including skipped_transient when non-zero', async () => {
+    const { body, status } = await runWith({}, async () => ({
+      ok: false,
+      reason: 'unreachable',
+      scope: 'request',
+      message: 'timeout',
+    }));
+    expect(body.ok).toBe(true);
+    expect(body.skipped_transient).toBe(1);
+    expect(status).toMatch(/^HTTP 200 · /);
+    expect(status).toMatch(/skipped_transient 1/);
+    expect(status).not.toMatch(/error/);
+  });
+});
+
+describe('supabaseNoteDraftDb.isJobTypeEnabled — a failed read is not "off" (round 3)', () => {
+  it('error → error; enabled row → on; disabled or missing row → off', async () => {
+    const read = async (r: unknown) => supabaseNoteDraftDb(stubAdmin(r).admin).isJobTypeEnabled(NOTE_DRAFT_JOB);
+    expect(await read({ data: null, error: { message: 'statement timeout' } })).toEqual({
+      enabled: false,
+      error: 'statement timeout',
+    });
+    expect(await read({ data: { enabled: true }, error: null })).toEqual({ enabled: true, error: null });
+    expect(await read({ data: { enabled: false }, error: null })).toEqual({ enabled: false, error: null });
+    expect(await read({ data: null, error: null })).toEqual({ enabled: false, error: null });
   });
 });
