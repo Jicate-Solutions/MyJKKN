@@ -15,8 +15,10 @@
  *
  * NEVER A STALE FIGURE. While the panel re-asks the server (every re-opening
  * does, see useSalarySuggestion), the previous answer is hidden and "Use this
- * figure" is disabled, so a figure worked out under an older rule cannot be
- * carried into the dialog.
+ * figure" is disabled. If that re-ask FAILS, React Query keeps the previous
+ * answer in `data`; the panel shows only the error and no "Use this figure" at
+ * all. Either way a figure worked out under an older rule cannot be carried
+ * into the dialog.
  *
  * The figure is worked out on the server (GET /api/hr/payroll/salary-suggestions)
  * from the college's pay band and the Director's rule. Every step is a line
@@ -77,13 +79,18 @@ export function SalarySuggestionSheet({ row, onOpenChange, canManage, canEditRul
   const { data, isLoading, isFetching, error } = useSalarySuggestion(row?.staff_uuid ?? null, {
     enabled: Boolean(row),
   });
-  // While the server is being asked again, the previous answer is NOT shown:
-  // it may have been worked out under a rule that has since changed.
+  // While the server is being asked again, or when the last ask failed, the
+  // previous answer is NOT shown: it may have been worked out under a rule that
+  // has since changed. (After a failed re-fetch React Query still holds the old
+  // `data`, with `error` set and `isFetching` false.)
   const working = isLoading || isFetching;
-  const s = working ? null : (data?.suggestion ?? null);
+  const failed = Boolean(error) && !working;
+  const s = working || failed ? null : (data?.suggestion ?? null);
   // Whether the last answer offered a figure — keeps the footer in place, with
-  // its button disabled, while a re-fetch is running.
-  const offered = data?.suggestion.verdict === 'suggested' && data.suggestion.suggested !== null;
+  // its button disabled, while a re-fetch is running. After a failed ask there
+  // is no footer at all: only the error.
+  const offered =
+    !failed && data?.suggestion.verdict === 'suggested' && data.suggestion.suggested !== null;
 
   return (
     <Sheet open={Boolean(row)} onOpenChange={onOpenChange}>
@@ -117,7 +124,7 @@ export function SalarySuggestionSheet({ row, onOpenChange, canManage, canEditRul
             </div>
           )}
 
-          {error && !working && (
+          {failed && error && (
             <Alert variant='destructive'>
               <AlertTriangle className='h-4 w-4' />
               <AlertDescription>{error.message}</AlertDescription>

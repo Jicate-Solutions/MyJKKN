@@ -1,6 +1,7 @@
 -- #4111's two restrictive SELECT policies, VERBATIM from
 -- supabase/migrations/20270506090000_hr_pay_policies_readable_only_with_salary_view.sql
--- (branch fix/hr-pay-policies-not-readable-by-everyone, commit b9bb1480d8), lines 122-171:
+-- (branch fix/hr-pay-policies-not-readable-by-everyone, head 5d4fe44318 on 29 Sep 2026 — unchanged
+-- since b9bb1480d8 apart from separator lines), lines 153-202:
 -- sections 1 and 2 only. run.sh uses the real file instead once it is in the repo.
 -- Rehearsal input for fn_hr_salary_rule_lock_present(); never applied anywhere else.
 -- ----------------------------------------------------------------------------

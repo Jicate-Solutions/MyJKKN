@@ -12,7 +12,10 @@
  *   - opened again without a figure, it starts from the pay in force and the
  *     current salary's date, and accepts any date — unchanged from main;
  *   - while the panel re-asks the server, the old figure is hidden and "Use
- *     this figure" is disabled;
+ *     this figure" is disabled; when that re-ask FAILS (React Query keeps the
+ *     old data), only the error shows and there is no "Use this figure";
+ *   - the plain dialog puts no lower limit on the date picker (only the
+ *     suggested-raise flow sets `min` to today in India);
  *   - a non-super-admin is told a super admin (not "the Director") sets the rule.
  *
  * Run: npx vitest run __tests__/hr/salary-suggestion-use-figure.test.tsx
@@ -31,8 +34,9 @@ vi.mock('@/hooks/hr/use-tds-slabs', () => ({ useTdsSlabs: () => ({ data: [] }) }
 
 let suggestion: SalarySuggestionPayload | undefined;
 let fetching = false;
+let queryError: Error | null = null;
 vi.mock('@/hooks/hr/use-salary-suggestion', () => ({
-  useSalarySuggestion: () => ({ data: suggestion, isLoading: false, isFetching: fetching, error: null }),
+  useSalarySuggestion: () => ({ data: suggestion, isLoading: false, isFetching: fetching, error: queryError }),
 }));
 vi.mock('next/link', () => ({
   // A plain anchor: every prop (href and the link text) is passed straight through.
@@ -97,6 +101,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchSpy);
   suggestion = undefined;
   fetching = false;
+  queryError = null;
   // 29 Sep 2026, midday in India. Only Date is faked.
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-09-29T06:30:00Z'));
@@ -177,6 +182,20 @@ describe('the Suggest panel', () => {
     expect(onUseFigure).not.toHaveBeenCalled();
   });
 
+  it('after a FAILED re-ask (old data still held), shows only the error: no old figure, no "Use this figure"', () => {
+    suggestion = suggested(24500);
+    queryError = new Error('Could not work out the suggestion.');
+    const onUseFigure = vi.fn();
+    render(
+      <SalarySuggestionSheet row={ROW} onOpenChange={() => {}} canManage canEditRule={false} onUseFigure={onUseFigure} />
+    );
+    expect(screen.getByText('Could not work out the suggestion.')).toBeInTheDocument();
+    expect(screen.queryByTestId('suggested-figure')).toBeNull();
+    expect(screen.queryByText(/24,500/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Use this figure' })).toBeNull();
+    expect(onUseFigure).not.toHaveBeenCalled();
+  });
+
   it('tells someone who is not a super admin that a super admin sets the rule', () => {
     suggestion = ruleNotSet();
     render(<SalarySuggestionSheet row={ROW} onOpenChange={() => {}} canManage canEditRule={false} onUseFigure={vi.fn()} />);
@@ -204,6 +223,8 @@ describe('the Edit Salary dialog, pre-filled', () => {
     expect(screen.getByLabelText('Monthly gross')).toHaveValue('24500');
     // Not the current salary's date (1 April 2026, in the past).
     expect(screen.getByLabelText('Effective from')).toHaveValue('2026-10-01');
+    // The picker itself starts at today in India in this flow.
+    expect(screen.getByLabelText('Effective from')).toHaveAttribute('min', '2026-09-29');
     expect(screen.getByTestId('prefill-note')).toHaveTextContent('starting on 1 October 2026');
     expect(screen.queryByTestId('backdated-raise')).toBeNull();
     expect(save()).toBeEnabled();
@@ -243,6 +264,8 @@ describe('the Edit Salary dialog, pre-filled', () => {
     expect(screen.getByLabelText('Monthly gross')).toHaveValue('21000');
     expect(screen.getByLabelText('Effective from')).toHaveValue('2026-04-01');
     expect(screen.queryByTestId('prefill-note')).toBeNull();
+    // No lower limit on the native date picker: corrections may be dated in the past.
+    expect(screen.getByLabelText('Effective from')).not.toHaveAttribute('min');
     fireEvent.change(screen.getByLabelText('Monthly gross'), { target: { value: '22000' } });
     expect(screen.queryByTestId('backdated-raise')).toBeNull();
     expect(save()).toBeEnabled();

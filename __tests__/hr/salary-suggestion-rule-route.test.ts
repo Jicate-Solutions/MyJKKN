@@ -24,8 +24,11 @@ let admin = false;
 let heldKeys: string[] = [];
 let hasSessionCookie = true;
 let auditFails = false;
-/** What fn_hr_salary_rule_lock_present() answers: true once #4111's policies are live. */
-let lockPresent: boolean | 'error' = true;
+/**
+ * What fn_hr_salary_rule_lock_present() answers: true once #4111's policies are
+ * live. 'error' makes the RPC fail; any other value is returned as `data` as-is.
+ */
+let lockPresent: unknown = true;
 
 interface PolicyRow {
   id: string;
@@ -328,6 +331,17 @@ describe('not before #4111: the rule cannot be saved while pay-policy protection
     expect((await res.json()).error).toContain('nothing was saved');
     expect(writes).toEqual([]);
   });
+
+  it.each([['the string "false"', 'false'], ['the string "true"', 'true'], ['1', 1], ['an object', {}], ['null', null]])(
+    'only a boolean true counts as live: %s is a refusal',
+    async (_label, answer) => {
+      lockPresent = answer;
+      const res = await post({ scope: 'group', action: 'publish', rule: { per_year_at_jkkn: 400 }, reason: 'agreed today' });
+      expect(res.status).toBe(409);
+      expect(writes).toEqual([]);
+      expect(policies).toEqual([]);
+    }
+  );
 
   it('once the protection is live, the same publish goes through', async () => {
     lockPresent = true;
