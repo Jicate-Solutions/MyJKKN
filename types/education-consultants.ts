@@ -968,7 +968,10 @@ export interface RateCardPayment {
   reference: string | null;
   notes: string | null;
   created_at: string;
+  /** Set when the entry was written by disbursing an approved commission payment request. */
+  payment_request_id?: string | null;
   group?: { id: string; name: string };
+  payment_request?: { id: string; request_number: string } | null;
 }
 
 export interface RateCardPaymentInput {
