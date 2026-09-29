@@ -73123,7 +73123,7 @@ BEGIN
   IF NOT (
     public.is_super_admin()
     OR public.is_admin()
-    OR v_caller_role IN ('hr_officer','hr_admin','hr_manager','director')
+    OR (v_caller_role IS NOT NULL AND v_caller_role IN ('hr_officer','hr_admin','hr_manager','director'))
   ) THEN
     RAISE EXCEPTION 'Caller role % not authorized to prepare a payroll period (need hr_officer/hr_admin/hr_manager/director/admin)',
       COALESCE(v_caller_role, '<none>')
@@ -73132,8 +73132,8 @@ BEGIN
 
   -- Snapshot pay matrix from platform_policies (global scope; per-institution
   -- override resolves via fn_get_policy's resolution priority)
-  -- Updated 2026-09-29 (20270506090000): read directly as the function's owner,
-  -- not through fn_get_policy, whose pay-key gate would refuse the role-name
+  -- Updated 2026-09-29: read directly as the function's owner, not through
+  -- fn_get_policy, whose pay-key gate (PR #4111) would refuse the role-name
   -- preparers. Same SELECT as fn_get_policy, key and scope substituted.
   v_pay_matrix := (
   SELECT value FROM platform_policies

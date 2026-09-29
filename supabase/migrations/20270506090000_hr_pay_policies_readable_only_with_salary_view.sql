@@ -60,14 +60,20 @@
 --      refuse every non-admin preparer. The direct read is fn_get_policy's own
 --      SELECT with p_key = 'hr.pay_scales' and p_scope_id =
 --      v_period.institution_id substituted, so the snapshot is exactly what it
---      is today. Everything else in the body is byte-identical (pinned by a
---      test). Director's decision, option (a), W12 review 2026-09-29.
---      PRE-EXISTING HOLE, deliberately NOT fixed here (body kept identical):
---      its role guard is `IF NOT (is_super_admin() OR is_admin() OR
---      v_caller_role IN (...))`. For a caller with no staff row v_caller_role
---      is NULL, the IN is NULL, NOT NULL is NULL, and the RAISE is skipped —
---      the rehearsal had a learner prepare a draft period and receive the
---      pay_matrix_snapshot in the returned row. Needs its own decision.
+--      is today. Everything else in the body is byte-identical except the
+--      role-check line below (both pinned by a test). Director's decision,
+--      option (a), W12 review 2026-09-29.
+--      SECOND CHANGED LINE — the role check. The guard was `IF NOT
+--      (is_super_admin() OR is_admin() OR v_caller_role IN (...))`. For a
+--      caller with no staff row v_caller_role is NULL, the IN is NULL, NOT NULL
+--      is NULL, and the RAISE was skipped: the rehearsal had a learner prepare a
+--      draft period and receive the pay_matrix_snapshot. The check is now
+--      `(v_caller_role IS NOT NULL AND v_caller_role IN (...))`, the form
+--      fn_advance_payroll_period and fn_reject_payroll_period already use, so
+--      NULL means refused. The hole exists on main
+--      today and is closed on its own by fix/hr-payroll-prepare-refuses-non-staff;
+--      the SAME line is carried here so whichever PR is applied second does not
+--      revert the other.
 --      Every other SECURITY DEFINER function in supabase/migrations was
 --      searched for these two keys: fn_prepare_payroll_period is the ONLY one
 --      that reads them (the deduction keys it also reads are not pay keys and
@@ -241,7 +247,7 @@ GRANT  EXECUTE ON FUNCTION public.fn_get_policy(text, uuid) TO authenticated, se
 -- ----------------------------------------------------------------------------
 -- 4. fn_prepare_payroll_period — read the pay matrix as the owner, not through
 --    the gated fn_get_policy. Body is 20260629000000's, byte for byte, except
---    the one assignment of v_pay_matrix.
+--    the assignment of v_pay_matrix and the role-check line (NULL = refused).
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_prepare_payroll_period(
   p_period_id uuid,
@@ -285,7 +291,7 @@ BEGIN
   IF NOT (
     public.is_super_admin()
     OR public.is_admin()
-    OR v_caller_role IN ('hr_officer','hr_admin','hr_manager','director')
+    OR (v_caller_role IS NOT NULL AND v_caller_role IN ('hr_officer','hr_admin','hr_manager','director'))
   ) THEN
     RAISE EXCEPTION 'Caller role % not authorized to prepare a payroll period (need hr_officer/hr_admin/hr_manager/director/admin)',
       COALESCE(v_caller_role, '<none>')
@@ -294,8 +300,8 @@ BEGIN
 
   -- Snapshot pay matrix from platform_policies (global scope; per-institution
   -- override resolves via fn_get_policy's resolution priority)
-  -- Updated 2026-09-29 (20270506090000): read directly as the function's owner,
-  -- not through fn_get_policy, whose pay-key gate would refuse the role-name
+  -- Updated 2026-09-29: read directly as the function's owner, not through
+  -- fn_get_policy, whose pay-key gate (PR #4111) would refuse the role-name
   -- preparers. Same SELECT as fn_get_policy, key and scope substituted.
   v_pay_matrix := (
   SELECT value FROM platform_policies

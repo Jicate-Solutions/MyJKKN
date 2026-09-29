@@ -10,7 +10,8 @@
  *   - the policies, fn_get_policy and the setup mirrors name the SAME pay keys;
  *   - fn_get_policy's main SELECT is byte-identical to 20260731180000;
  *   - fn_prepare_payroll_period is 20260629000000's body byte for byte except
- *     the one v_pay_matrix assignment, which is fn_get_policy's SELECT with the
+ *     the role check (NULL = refused) and the one v_pay_matrix assignment,
+ *     which is fn_get_policy's SELECT with the
  *     key and scope substituted (so the snapshot is unchanged) and no longer
  *     calls the gated fn_get_policy;
  *   - hr_compensation_policies gates on the triad and scopes by college;
@@ -62,6 +63,10 @@ function resolverSelect(fnBody: string): string {
 }
 
 const OLD_READ = "  v_pay_matrix := public.fn_get_policy('hr.pay_scales', v_period.institution_id);";
+/** The role check: NULL (a caller with no team-member role) used to skip the RAISE. */
+const OLD_GUARD = "    OR v_caller_role IN ('hr_officer','hr_admin','hr_manager','director')\n";
+const NEW_GUARD =
+  "    OR (v_caller_role IS NOT NULL AND v_caller_role IN ('hr_officer','hr_admin','hr_manager','director'))\n";
 
 describe('restrictive select policies', () => {
   for (const [table, name] of [
@@ -140,8 +145,17 @@ describe('fn_get_policy guard', () => {
 });
 
 describe('fn_prepare_payroll_period reads the matrix as its owner', () => {
-  const prev = prepareFn(read(join(MIG_DIR, PREPARE_FILE)));
+  const original = prepareFn(read(join(MIG_DIR, PREPARE_FILE)));
+  // The one other allowed change: the role check, shared with
+  // fix/hr-payroll-prepare-refuses-non-staff so neither PR reverts the other.
+  const prev = original.replace(OLD_GUARD, NEW_GUARD);
   const next = prepareFn(migration);
+
+  it('changes the role check to refuse a caller with no team-member role, and nothing else in it', () => {
+    expect(original.split(OLD_GUARD)).toHaveLength(2);
+    expect(next.split(NEW_GUARD)).toHaveLength(2);
+    expect(next).not.toContain(OLD_GUARD);
+  });
 
   it('20260629000000 is the only other definition in supabase/migrations', () => {
     const definers = readdirSync(MIG_DIR).filter(
@@ -155,7 +169,7 @@ describe('fn_prepare_payroll_period reads the matrix as its owner', () => {
     expect(definers).toEqual([PREPARE_FILE]);
   });
 
-  it('the body is byte-identical except the one v_pay_matrix assignment', () => {
+  it('the body is byte-identical except the role check and the one v_pay_matrix assignment', () => {
     expect(prev.split(OLD_READ)).toHaveLength(2);
     const [before, after] = prev.split(OLD_READ);
     expect(next.startsWith(before)).toBe(true);
