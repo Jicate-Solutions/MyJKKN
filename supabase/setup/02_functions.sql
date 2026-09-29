@@ -74517,6 +74517,11 @@ GRANT EXECUTE ON FUNCTION public.fn_learner_bill_year_visible(uuid, date) TO aut
 --   pay matrix read directly as the owner instead of through the gated fn_get_policy (it
 --   was missing from this file before). hr_compensation_policies is new: the Pay Scales /
 --   Allowances / Motivation Fund editors' read, scoped per college.
+-- Payroll: prepare + backdate stage RPCs
+-- Updated: 2026-09-29 - Mirror of 20270507090000_hr_payroll_prepare_and_backdate_refuse_non_staff.sql
+--   (FILE ONLY, not applied; both were missing from this file). Role checks refuse a
+--   caller with no staff role (NULL used to skip the RAISE). The prepare body is shared
+--   byte for byte with PR #4111 (owner read of the pay matrix).
 -- ============================================================================
 CREATE OR REPLACE FUNCTION public.fn_prepare_payroll_period(
   p_period_id uuid,
@@ -76229,3 +76234,62 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.trg_hr_leave_type_default_entitlement_sync() FROM PUBLIC, anon, authenticated;
 
+
+CREATE OR REPLACE FUNCTION public.fn_backdate_payroll_period(
+  p_period_id uuid,
+  p_reason text
+)
+RETURNS public.hr_payroll_periods
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, extensions
+AS $$
+DECLARE
+  v_period public.hr_payroll_periods;
+  v_caller_role text;
+BEGIN
+  IF p_reason IS NULL OR length(trim(p_reason)) = 0 THEN
+    RAISE EXCEPTION 'fn_backdate_payroll_period requires a non-empty reason (Decision #20)'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  SELECT * INTO v_period
+  FROM public.hr_payroll_periods
+  WHERE id = p_period_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Payroll period not found: %', p_period_id
+      USING ERRCODE = 'P0002';
+  END IF;
+
+  -- Role guard: Director only (or admin override per spec RLS posture row 5)
+  v_caller_role := public.fn_get_caller_role_key();
+
+  IF NOT (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (v_caller_role IS NOT NULL AND v_caller_role = 'director')
+  ) THEN
+    RAISE EXCEPTION 'Only Director (or admin/super_admin) can backdate a payroll period (Decision #20). Caller role: %',
+      COALESCE(v_caller_role, '<none>')
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Flip the flag + capture reason
+  UPDATE public.hr_payroll_periods
+  SET is_backdated = true,
+      backdate_reason = trim(p_reason)
+  WHERE id = p_period_id
+  RETURNING * INTO v_period;
+
+  -- Audit row — dedicated stage value for Director sign-off, separate from
+  -- the normal chain so the trail is unambiguous on Form 16 reconciliation.
+  INSERT INTO public.hr_payroll_period_approvals (period_id, stage, approver_id, comment)
+  VALUES (p_period_id, 'backdated_approval', auth.uid(), p_reason);
+
+  RETURN v_period;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_backdate_payroll_period(uuid, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_backdate_payroll_period(uuid, text) TO authenticated;
