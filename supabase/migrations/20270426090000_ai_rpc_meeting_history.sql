@@ -1,8 +1,15 @@
 -- ============================================================================
--- 20270402090000_ai_rpc_meeting_history.sql
+-- 20270426090000_ai_rpc_meeting_history.sql
 -- ----------------------------------------------------------------------------
 -- FILE ONLY — NOT APPLIED. The orchestrator applies it after the Director
 -- approves the PR. No BEGIN/COMMIT in the file.
+--
+-- VERSION: renumbered from 20270402090000 on 2026-09-28, re-checked
+-- 2026-09-29. The live ledger max both days was 20270414090000 (read-only
+-- Management API), so the old number sat below applied migrations;
+-- 20270426090000 is above it, above every file on jicate/main (max
+-- 20270415090100 on 2026-09-29), absent from the live ledger, and used by no
+-- open PR.
 --
 -- WHAT THIS ADDS
 --   1. public.ai_rpc_meeting_history — lets the AI assistant answer "what did I
@@ -20,32 +27,57 @@
 -- WHY SECURITY INVOKER — THE ONE DESIGN CHOICE THAT MATTERS
 --   Every other ai_rpc_* is SECURITY DEFINER and re-implements its own access
 --   check. This one runs with the CALLER's rights, so the row level security
---   already on the three tables it reads applies to every row it touches:
---     meeting_notes          meeting_notes_select   (20261213090000)
+--   already on the four tables it reads applies to every row it touches:
+--     meeting_notes             meeting_notes_select   (20261213090000)
 --       super admin OR admin OR (unmatched AND meetings.series.manage)
 --       OR fn_can_view_meeting_note(booking_id)
---     meeting_action_items   meeting_action_items_select (20260714000000)
+--     meeting_note_participants meeting_note_participants_select (20261213090000)
+--       exactly its note's rule
+--     meeting_action_items      meeting_action_items_select (20260714000000)
 --       super admin OR admin OR host_profile_id = auth.uid()
---     meeting_bookings       mb_host_select        (20260611190000)
+--     meeting_bookings          mb_host_select        (20260611190000)
 --       super admin OR admin OR host_profile_id = auth.uid()
 --   On top of that it applies an OWN rule (below). The result can therefore
 --   only be NARROWER than what the person may already read on the site; no
---   bug in this function can widen it. Policies were read from the migration
---   files on jicate/main; the live pg_policies could NOT be read from this
---   lane (no production credentials) — see the PR body.
+--   bug in this function can widen it. The four policies above and the body of
+--   fn_can_view_meeting_note were READ LIVE on 2026-09-28 (pg_policies and
+--   pg_get_functiondef, read-only Management API): they match the migration
+--   files on jicate/main (see the PR body).
+--
+-- WHO CAN REACH WHAT — stated plainly
+--   The live meeting_notes_select admits an UNLINKED note only to super
+--   admins, admins and holders of meetings.series.manage (no role held that
+--   key on 2026-09-28). On that day 1,658 of 1,726 notes were unlinked. So an
+--   ordinary team member reaches, at most, the 68 linked notes whose booking
+--   they were invited to, and for most of them this tool answers "no
+--   meetings". Widening that is a policy decision, not this function's.
 --
 -- THE OWN RULE (on top of RLS)
 --   A note is "mine" when
 --     * it is linked to a booking and fn_can_view_meeting_note says I am on
 --       that booking's invited set (host, attendee, collective co-host); or
---     * it is unlinked and my profile email is in the note's own Fireflies
---       attendee list (raw->'meeting_attendees').
+--     * it is unlinked and my profile email is one of the note's rows in
+--       meeting_note_participants — the lower-cased, trimmed, de-duplicated
+--       list the ingest writes for this purpose. The provider payload
+--       (raw->'meeting_attendees') is no longer read at all.
 --   Consequence, stated plainly: super admins and admins are narrowed to
---   meetings they attended too. An unlinked note with an EMPTY attendee list
---   is reachable by nobody through this tool, the Director included.
+--   meetings they attended too. An unlinked note with NO participant rows
+--   (234 on 2026-09-28) is reachable by nobody through this tool, the
+--   Director included.
 --   An action item is "mine" when I am its host or its owner — but RLS on
 --   meeting_action_items admits only admins and the host, so an owner who is
 --   neither sees nothing of it here (RLS narrows; this tool cannot widen).
+--
+-- HOW THE FILTERS APPLY TO ACTION ITEMS
+--   * p_date_from / p_date_to: the item's booking start_time, read as an IST
+--     calendar day. With a date set, an item outside the window is never
+--     returned, whatever else matches.
+--   * p_person: the item's owner_label, or its booking's attendee_name /
+--     attendee_email (the person the host met).
+--   * p_search: the item's action_text, decision_text or owner_label.
+--   * Person AND search, when both are set — the same rule as for notes.
+--   * An item on the booking of a note that matched every filter is always
+--     included ("the items from these meetings").
 --
 -- NEVER RETURNED: raw, recording_url, audio_url, video_url.
 --
@@ -150,7 +182,6 @@ BEGIN
            n.transcript_url,
            n.booking_id,
            n.raw -> 'summary' ->> 'action_items' AS ff_action_items,
-           a.att,
            -- meeting_bookings is itself under RLS (host or admin): a booking
            -- the person cannot read joins as NULL, so its uid and its
            -- attendee fields are never exposed or searched.
@@ -158,28 +189,28 @@ BEGIN
            b.attendee_name  AS booking_attendee_name,
            b.attendee_email AS booking_attendee_email
       FROM meeting_notes n
-      CROSS JOIN LATERAL (
-        SELECT CASE WHEN jsonb_typeof(n.raw -> 'meeting_attendees') = 'array'
-                    THEN n.raw -> 'meeting_attendees'
-                    ELSE '[]'::jsonb END AS att
-      ) a
       LEFT JOIN meeting_bookings b ON b.id = n.booking_id
      WHERE (
              (n.booking_id IS NOT NULL AND fn_can_view_meeting_note(n.booking_id))
+             -- Unlinked: my email among the note's participant rows. The
+             -- ingest stores them lower-cased and trimmed, and
+             -- (note_id, email) is unique, so this is one index probe.
              OR (n.booking_id IS NULL
                  AND v_email <> ''
                  AND EXISTS (SELECT 1
-                               FROM jsonb_array_elements(a.att) e
-                              WHERE lower(btrim(e ->> 'email')) = v_email))
+                               FROM meeting_note_participants mp
+                              WHERE mp.note_id = n.id
+                                AND mp.email = v_email))
            )
        AND (v_person_pat IS NULL
             OR n.title ILIKE v_person_pat ESCAPE '\'
             OR b.attendee_name  ILIKE v_person_pat ESCAPE '\'
             OR b.attendee_email ILIKE v_person_pat ESCAPE '\'
             OR EXISTS (SELECT 1
-                         FROM jsonb_array_elements(a.att) e
-                        WHERE (e ->> 'displayName') ILIKE v_person_pat ESCAPE '\'
-                           OR (e ->> 'email')       ILIKE v_person_pat ESCAPE '\'))
+                         FROM meeting_note_participants mp
+                        WHERE mp.note_id = n.id
+                          AND (mp.display_name ILIKE v_person_pat ESCAPE '\'
+                               OR mp.email     ILIKE v_person_pat ESCAPE '\')))
        AND (v_search_pat IS NULL
             OR n.title   ILIKE v_search_pat ESCAPE '\'
             OR n.summary ILIKE v_search_pat ESCAPE '\'
@@ -203,14 +234,16 @@ BEGIN
                  'duration_minutes',       p.duration_minutes,
                  'summary',                left(p.summary, 800),
                  'fireflies_action_items', left(p.ff_action_items, 600),
+                 -- Who was on the call, from meeting_note_participants (the
+                 -- same list the own rule reads), at most 15, by email.
                  'attendees', COALESCE((
-                    SELECT jsonb_agg(jsonb_build_object('name', s.e ->> 'displayName',
-                                                        'email', s.e ->> 'email')
-                                     ORDER BY s.ord)
-                      FROM (SELECT x.e, x.ord
-                              FROM jsonb_array_elements(p.att) WITH ORDINALITY AS x(e, ord)
-                             WHERE jsonb_typeof(x.e) = 'object'
-                             ORDER BY x.ord
+                    SELECT jsonb_agg(jsonb_build_object('name', s.display_name,
+                                                        'email', s.email)
+                                     ORDER BY s.email)
+                      FROM (SELECT mp.display_name, mp.email
+                              FROM meeting_note_participants mp
+                             WHERE mp.note_id = p.id
+                             ORDER BY mp.email
                              LIMIT 15) s
                  ), '[]'::jsonb),
                  'booking_uid',            p.booking_uid,
@@ -230,19 +263,29 @@ BEGIN
       SELECT ai.id, ai.action_text, ai.decision_text, ai.owner_label, ai.status,
              ai.due_date, ai.created_at, b.uid AS booking_uid
         FROM meeting_action_items ai
+        -- Under RLS too (host or admin). An item is itself readable only by
+        -- admins and its host, so its booking is readable whenever it is.
         LEFT JOIN meeting_bookings b ON b.id = ai.booking_id
        WHERE (ai.host_profile_id = v_uid OR ai.owner_profile_id = v_uid)
+         -- Dates bind every item: its meeting's start, as an IST day.
+         AND (v_from IS NULL OR (b.start_time AT TIME ZONE 'Asia/Kolkata')::date >= v_from)
+         AND (v_to   IS NULL OR (b.start_time AT TIME ZONE 'Asia/Kolkata')::date <= v_to)
          AND (
+               -- An item from a meeting whose note matched every filter.
                ai.booking_id = ANY (COALESCE(v_booking_ids, ARRAY[]::uuid[]))
-               OR (v_search_pat IS NOT NULL
-                   AND (ai.action_text   ILIKE v_search_pat ESCAPE '\'
-                        OR ai.decision_text ILIKE v_search_pat ESCAPE '\'
-                        OR ai.owner_label   ILIKE v_search_pat ESCAPE '\'))
-               OR (v_person_pat IS NOT NULL
-                   AND ai.owner_label ILIKE v_person_pat ESCAPE '\')
-               -- No filter at all: "what have I got to do" — every item of mine.
-               OR (v_search_pat IS NULL AND v_person_pat IS NULL
-                   AND v_from IS NULL AND v_to IS NULL)
+               -- Or the item matches every text filter on its own. With no
+               -- text filter this is "every item of mine" (in the window).
+               OR (
+                    (v_person_pat IS NULL
+                     OR ai.owner_label    ILIKE v_person_pat ESCAPE '\'
+                     OR b.attendee_name   ILIKE v_person_pat ESCAPE '\'
+                     OR b.attendee_email  ILIKE v_person_pat ESCAPE '\')
+                    AND
+                    (v_search_pat IS NULL
+                     OR ai.action_text    ILIKE v_search_pat ESCAPE '\'
+                     OR ai.decision_text  ILIKE v_search_pat ESCAPE '\'
+                     OR ai.owner_label    ILIKE v_search_pat ESCAPE '\')
+                  )
              )
     )
     SELECT COALESCE((
@@ -317,7 +360,7 @@ COMMENT ON TABLE public.ai_tool_catalog IS 'One list of AI tools read by the ass
 INSERT INTO public.ai_tool_catalog (name, kind, target, description, params, is_write, audience, requires_permission) VALUES
   ('meeting_history', 'rpc', 'ai_rpc_meeting_history',
    'This person''s OWN past meetings: the notes and summaries of meetings they attended or hosted, who was there, and the action items they host or own. Use for "what did I discuss with X", "which of my meetings mentioned Y", "what did we agree in the meeting about Z", "what do I still have to do from my meetings". It never shows other people''s meetings and never returns recordings.',
-   '{"type":"object","properties":{"p_person":{"type":"string","description":"A name or email of someone in the meeting (matched against the attendee list, the meeting title and the booked attendee). At least 2 characters."},"p_search":{"type":"string","description":"Words to look for in the meeting title, summary and action items. At least 2 characters."},"p_date_from":{"type":"string","description":"Earliest meeting date, YYYY-MM-DD, Indian time."},"p_date_to":{"type":"string","description":"Latest meeting date, YYYY-MM-DD, Indian time."},"p_include_action_items":{"type":"boolean","description":"Also list this person''s action items from these meetings.","default":true},"p_limit":{"type":"integer","description":"Most meetings to return (at most 50).","default":20},"p_offset":{"type":"integer","description":"Meetings to skip, for paging.","default":0}},"additionalProperties":false,"x-self-arg":"p_user_id"}'::jsonb,
+   '{"type":"object","properties":{"p_person":{"type":"string","description":"A name or email of someone in the meeting (matched against the attendee list, the meeting title and the booked attendee; for action items, the item owner and the booked attendee). At least 2 characters."},"p_search":{"type":"string","description":"Words to look for in the meeting title, summary and action items. At least 2 characters."},"p_date_from":{"type":"string","description":"Earliest meeting date, YYYY-MM-DD, Indian time. Also limits action items to meetings from this day on."},"p_date_to":{"type":"string","description":"Latest meeting date, YYYY-MM-DD, Indian time. Also limits action items to meetings up to this day."},"p_include_action_items":{"type":"boolean","description":"Also list this person''s action items from these meetings.","default":true},"p_limit":{"type":"integer","description":"Most meetings to return (at most 50).","default":20},"p_offset":{"type":"integer","description":"Meetings to skip, for paging.","default":0}},"additionalProperties":false,"x-self-arg":"p_user_id"}'::jsonb,
    false, ARRAY['assistant']::text[], NULL)
 ON CONFLICT (name) DO UPDATE SET kind = EXCLUDED.kind, target = EXCLUDED.target, description = EXCLUDED.description, params = EXCLUDED.params, is_write = EXCLUDED.is_write, audience = EXCLUDED.audience, requires_permission = EXCLUDED.requires_permission, updated_at = now();
 

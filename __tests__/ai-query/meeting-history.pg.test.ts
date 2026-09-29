@@ -1,13 +1,13 @@
 /**
  * The assistant's meeting-history lookup — behavioural proof for
- * supabase/migrations/20270402090000_ai_rpc_meeting_history.sql
+ * supabase/migrations/20270426090000_ai_rpc_meeting_history.sql
  *
  * WHAT MAKES THIS A PROOF AND NOT A RESTATEMENT
  * ---------------------------------------------
  * The REAL access rules are applied verbatim, not re-typed:
  *   20260714000000_meeting_action_items_pr2.sql   (meeting_action_items + its policy)
  *   20261213090000_meeting_notes_fireflies.sql     (meeting_notes, fn_can_view_meeting_note, policy)
- *   20270402090000_ai_rpc_meeting_history.sql      (the function under test + catalog row)
+ *   20270426090000_ai_rpc_meeting_history.sql      (the function under test + catalog row)
  * Only the tables those files assume already exist (profiles, meeting_bookings
  * with mb_host_select, meeting_type_cohosts) and the authority helpers are
  * fixtures. Every call runs as the `authenticated` role with a real
@@ -23,10 +23,20 @@
  *   owner       owns action item AI2 on B1 but is not its host — RLS on
  *               meeting_action_items admits only admins and the host
  *   N4          unmatched note with an EMPTY attendee list — nobody reaches it
+ *   B2          the host's booking with Ravi (no note at all), 14 Sep 20:00 UTC
+ *               = 15 Sep 01:30 IST, carrying action item AI3
+ *   secondAdmin admin whose email is in N5's provider payload only and in N6's
+ *               meeting_note_participants rows only — proves the own rule and
+ *               the attendee list read the participants table, not raw
  *
- * REQUIRES a local PostgreSQL 16 with pgcrypto. It is NOT run by CI — every
- * `vitest run` in this repo names explicit paths — and it is loud rather than
- * skipped when no server is reachable.
+ * Participant rows are written the way the ingest writes them
+ * (lib/services/meetings/fireflies-client.ts): trimmed, lower-cased, blanks
+ * dropped, one row per address.
+ *
+ * REQUIRES a PostgreSQL 16 with pgcrypto, and it is loud rather than skipped
+ * when no server is reachable. CI RUNS IT: .github/workflows/test-suite.yml
+ * starts a postgres:16 service and sets MEETING_HISTORY_TEST_PGUSER=postgres,
+ * the same way its siblings get WAITLIST_TEST_PGUSER and friends.
  *
  *   ./node_modules/.bin/vitest run __tests__/ai-query/meeting-history.pg.test.ts
  *
@@ -45,7 +55,7 @@ const REPO = path.resolve(__dirname, '..', '..');
 const MIGRATIONS = [
   'supabase/migrations/20260714000000_meeting_action_items_pr2.sql',
   'supabase/migrations/20261213090000_meeting_notes_fireflies.sql',
-  'supabase/migrations/20270402090000_ai_rpc_meeting_history.sql',
+  'supabase/migrations/20270426090000_ai_rpc_meeting_history.sql',
 ].map((m) => path.join(REPO, m));
 
 const PGHOST = process.env.MEETING_HISTORY_TEST_PGHOST ?? 'localhost';
@@ -138,9 +148,11 @@ const who = {
   attendee: '',
   owner: '',
   stranger: '',
+  secondAdmin: '',
 };
-const note = { n1: '', n2: '', n3: '', n4: '' };
+const note = { n1: '', n2: '', n3: '', n4: '', n5: '', n6: '' };
 const BOOKING_UID = 'bk_quarterly_review_0001';
+const RAVI_BOOKING_UID = 'bk_fee_talk_ravi_0002';
 
 async function q<T = any>(sql: string, params: unknown[] = []): Promise<T[]> {
   const r = await client.query(sql, params);
@@ -224,12 +236,14 @@ beforeAll(async () => {
     attendee: 'Booked.Attendee@jkkn.ac.in', // mixed case on purpose
     owner: 'item.owner@jkkn.ac.in',
     stranger: 'stranger@jkkn.ac.in',
+    secondAdmin: 'second.admin@jkkn.ac.in',
   };
   for (const k of Object.keys(who) as (keyof typeof who)[]) {
     who[k] = (await q(`INSERT INTO public.profiles (email) VALUES ($1) RETURNING id`, [email[k]]))[0].id;
   }
   await q(`INSERT INTO public.test_authority (uid, is_super) VALUES ($1, true)`, [who.superAdmin]);
   await q(`INSERT INTO public.test_authority (uid, is_adm) VALUES ($1, true)`, [who.admin]);
+  await q(`INSERT INTO public.test_authority (uid, is_adm) VALUES ($1, true)`, [who.secondAdmin]);
 
   const b1 = (
     await q(
@@ -239,16 +253,30 @@ beforeAll(async () => {
     )
   )[0].id;
 
+  // A meeting with Ravi that has no note at all. 20:00 UTC on 14 Sep is
+  // 01:30 IST on 15 Sep, so the date filters are proved to read IST days.
+  const b2 = (
+    await q(
+      `INSERT INTO public.meeting_bookings (uid, host_profile_id, attendee_name, attendee_email, start_time)
+       VALUES ($1, $2, 'Ravi Kumar', 'ravi@outside.org', '2026-09-14T20:00:00Z') RETURNING id`,
+      [RAVI_BOOKING_UID, who.host]
+    )
+  )[0].id;
+
+  type Attendee = { email?: string; displayName?: string };
   const mkNote = async (
     ref: string,
     bookingId: string | null,
     title: string,
     summary: string | null,
     occurred: string,
-    attendees: unknown[],
-    actionItems: string | null
-  ) =>
-    (
+    attendees: Attendee[],
+    actionItems: string | null,
+    // Defaults to what the ingest would write from `attendees`; pass a list
+    // to make the table and the provider payload disagree on purpose.
+    participants?: Attendee[]
+  ) => {
+    const id = (
       await q(
         `INSERT INTO public.meeting_notes
            (booking_id, provider_ref, title, summary, transcript_url, recording_url, occurred_at, duration_minutes, raw)
@@ -270,6 +298,18 @@ beforeAll(async () => {
         ]
       )
     )[0].id;
+    const seen = new Set<string>();
+    for (const a of participants ?? attendees) {
+      const email = a.email?.trim().toLowerCase();
+      if (!email || seen.has(email)) continue;
+      seen.add(email);
+      await q(
+        `INSERT INTO public.meeting_note_participants (note_id, email, display_name) VALUES ($1, $2, $3)`,
+        [id, email, a.displayName?.trim() || null]
+      );
+    }
+    return id;
+  };
 
   note.n1 = await mkNote(
     'ff-n1',
@@ -305,6 +345,34 @@ beforeAll(async () => {
     'Host to send the attendance plan'
   );
   note.n4 = await mkNote('ff-n4', null, 'Nobody listed', null, '2026-09-03T06:00:00Z', [], null);
+  // N5: the provider payload names secondAdmin, the participants table does not.
+  note.n5 = await mkNote(
+    'ff-n5',
+    null,
+    'Payload only',
+    'Only the raw payload lists anyone.',
+    '2026-08-20T06:00:00Z',
+    [
+      { email: 'second.admin@jkkn.ac.in', displayName: 'Second Admin' },
+      { email: 'rawonly@outside.org', displayName: 'Raw Only Guest' },
+    ],
+    null,
+    []
+  );
+  // N6: the reverse — an empty payload, and participant rows naming secondAdmin.
+  note.n6 = await mkNote(
+    'ff-n6',
+    null,
+    'Table only',
+    'Only the participants table lists anyone.',
+    '2026-08-21T06:00:00Z',
+    [],
+    null,
+    [
+      { email: 'table.guest@outside.org', displayName: 'Table Guest' },
+      { email: 'Second.Admin@jkkn.ac.in', displayName: 'Second Admin' },
+    ]
+  );
 
   await q(
     `INSERT INTO public.meeting_action_items (booking_id, host_profile_id, action_text, owner_label)
@@ -315,6 +383,11 @@ beforeAll(async () => {
     `INSERT INTO public.meeting_action_items (booking_id, host_profile_id, owner_profile_id, action_text, owner_label)
      VALUES ($1, $2, $3, 'Draft the parent letter', 'Item Owner')`,
     [b1, who.host, who.owner]
+  );
+  await q(
+    `INSERT INTO public.meeting_action_items (booking_id, host_profile_id, action_text, owner_label)
+     VALUES ($1, $2, 'Share the fee schedule', 'Host Person')`,
+    [b2, who.host]
   );
 }, 120_000);
 
@@ -333,8 +406,9 @@ describe('each person sees exactly their own meetings', () => {
     const out = await ask(who.superAdmin);
     expect(out.success).toBe(true);
     expect(noteIds(out)).toEqual([note.n1]);
+    // From meeting_note_participants: trimmed, lower-cased, ordered by email.
     expect(out.data[0].attendees).toEqual([
-      { name: 'The Director', email: ' Director@JKKN.ac.in ' },
+      { name: 'The Director', email: 'director@jkkn.ac.in' },
       { name: 'Outside Guest', email: 'guest@outside.org' },
     ]);
     expect(out.data[0].fireflies_action_items).toBe('Director to call the principal');
@@ -356,14 +430,19 @@ describe('each person sees exactly their own meetings', () => {
     expect(out.data).toEqual([]);
   });
 
-  it('booking host: the linked note, the booking reference, and both items they host', async () => {
+  it('booking host: the linked note, the booking reference, and every item they host', async () => {
     const out = await ask(who.host);
     expect(noteIds(out)).toEqual([note.n3]);
     expect(out.data[0].booking_uid).toBe(BOOKING_UID);
     expect(out.data[0].summary).toBe('Discussed the 100% attendance target.');
     expect(out.data[0].transcript_url).toBe('https://app.fireflies.ai/view/ff-n3');
-    expect(itemTexts(out)).toEqual(['Draft the parent letter', 'Send the attendance plan']);
-    expect(out.action_items.every((i: any) => i.booking_uid === BOOKING_UID)).toBe(true);
+    expect(itemTexts(out)).toEqual(['Draft the parent letter', 'Send the attendance plan', 'Share the fee schedule']);
+    const byText = Object.fromEntries(out.action_items.map((i: any) => [i.action_text, i.booking_uid]));
+    expect(byText).toEqual({
+      'Draft the parent letter': BOOKING_UID,
+      'Send the attendance plan': BOOKING_UID,
+      'Share the fee schedule': RAVI_BOOKING_UID,
+    });
     expectNoSecrets(out);
   });
 
@@ -386,6 +465,31 @@ describe('each person sees exactly their own meetings', () => {
       const out = await ask(uid);
       expect(noteIds(out)).not.toContain(note.n4);
     }
+  });
+});
+
+describe('"mine" for an unlinked note is read from meeting_note_participants, never the provider payload', () => {
+  it('a note whose participant rows name me is mine, even with an empty payload', async () => {
+    const out = await ask(who.secondAdmin);
+    expect(noteIds(out)).toEqual([note.n6]);
+    // The attendee list comes from the same table: trimmed, lower-cased, by email.
+    expect(out.data[0].attendees).toEqual([
+      { name: 'Second Admin', email: 'second.admin@jkkn.ac.in' },
+      { name: 'Table Guest', email: 'table.guest@outside.org' },
+    ]);
+    expectNoSecrets(out);
+  });
+
+  it('a note whose payload names me but whose participant rows do not reaches nobody', async () => {
+    for (const uid of Object.values(who)) {
+      expect(noteIds(await ask(uid))).not.toContain(note.n5);
+    }
+  });
+
+  it('the person filter reads participant names and emails, not the payload', async () => {
+    expect(noteIds(await ask(who.secondAdmin, { p_person: 'table guest' }))).toEqual([note.n6]);
+    expect(noteIds(await ask(who.secondAdmin, { p_person: 'table.guest@outside' }))).toEqual([note.n6]);
+    expect((await ask(who.secondAdmin, { p_person: 'raw only' })).data).toEqual([]);
   });
 });
 
@@ -463,6 +567,50 @@ describe('filters', () => {
     const bad = await ask(who.host, { p_date_from: '2026-13-45' });
     expect(noteIds(bad)).toEqual([note.n3]);
     expect(bad.metadata.filters_applied).toEqual({});
+  });
+
+  it('dates bind action items too: an item from outside the window is never returned', async () => {
+    // "attendance" matches N3 and the item "Send the attendance plan", both on
+    // 10 Sep. In a 1-2 Aug window neither may appear — no "no meetings that
+    // week, but here is what you agreed".
+    const out = await ask(who.host, { p_search: 'attendance', p_date_from: '2026-08-01', p_date_to: '2026-08-02' });
+    expect(out.data).toEqual([]);
+    expect(out.action_items).toEqual([]);
+    expect(out.metadata.action_items_count).toBe(0);
+
+    const inWindow = await ask(who.host, { p_search: 'attendance', p_date_from: '2026-09-10', p_date_to: '2026-09-10' });
+    expect(noteIds(inWindow)).toEqual([note.n3]);
+    expect(itemTexts(inWindow)).toEqual(['Draft the parent letter', 'Send the attendance plan']);
+  });
+
+  it('a date-only question finds items on my bookings that have no note, by IST day', async () => {
+    // B2 starts 14 Sep 20:00 UTC = 15 Sep 01:30 IST.
+    const day15 = await ask(who.host, { p_date_from: '2026-09-15', p_date_to: '2026-09-15' });
+    expect(day15.data).toEqual([]);
+    expect(itemTexts(day15)).toEqual(['Share the fee schedule']);
+    // Up to 14 Sep (IST) excludes it — a UTC reading would have let it in.
+    const to14 = await ask(who.host, { p_date_to: '2026-09-14' });
+    expect(noteIds(to14)).toEqual([note.n3]);
+    expect(itemTexts(to14)).toEqual(['Draft the parent letter', 'Send the attendance plan']);
+  });
+
+  it('person matches the booked attendee of an item whose meeting has no note', async () => {
+    for (const person of ['Ravi', 'ravi@outside.org', 'KUMAR']) {
+      const out = await ask(who.host, { p_person: person });
+      expect(out.data).toEqual([]);
+      expect(itemTexts(out)).toEqual(['Share the fee schedule']);
+      expect(out.action_items[0].booking_uid).toBe(RAVI_BOOKING_UID);
+    }
+    // Someone who cannot read that booking or its items gets nothing back.
+    expect((await ask(who.attendee, { p_person: 'Ravi' })).action_items).toEqual([]);
+    expect((await ask(who.stranger, { p_person: 'Ravi' })).action_items).toEqual([]);
+  });
+
+  it('person and search together must both match an item, as they must a note', async () => {
+    const out = await ask(who.host, { p_person: 'Ravi', p_search: 'attendance' });
+    expect(out.data).toEqual([]);
+    expect(out.action_items).toEqual([]);
+    expect(itemTexts(await ask(who.host, { p_person: 'Ravi', p_search: 'fee' }))).toEqual(['Share the fee schedule']);
   });
 
   it('p_include_action_items = false leaves items out', async () => {
