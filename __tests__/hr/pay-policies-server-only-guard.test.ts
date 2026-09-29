@@ -2,10 +2,12 @@
  * GUARD: the pay policy rows never reach the browser except through a gated route.
  *
  * `hr.pay_scales` and `hr.allowances_and_increments` are every college's pay
- * matrix and allowance amounts. Migration 20270506090000 restricts them at the
+ * matrix and allowance amounts; `hr.salary_suggestion_rule` is each college's
+ * rupee amount per year of experience. Migration 20270506090000 restricts them at the
  * database to admins and holders of `hr.payroll.salary.view`, and the screens
  * that show them read through GET /api/hr/compensation-policies (or, for the
- * Pay Band Check and Annual Increments screens, their own gated routes).
+ * Pay Band Check, Annual Increments and salary suggestion screens, their own
+ * gated routes).
  *
  * A browser read of those rows would either leak again (if the database rule is
  * ever loosened) or show an empty screen to a person the route would have
@@ -72,7 +74,7 @@ for (const d of SCAN_DIRS) {
 }
 const clientFiles = files.filter((f) => isClientFile(f.code));
 
-const PAY_KEY = /['"`]hr\.(pay_scales|allowances_and_increments)['"`]/;
+const PAY_KEY = /['"`]hr\.(pay_scales|allowances_and_increments|salary_suggestion_rule)['"`]/;
 /** A read chain on either table, by literal name or by a *_TABLE constant. */
 const TABLE_READ =
   /\.from\(\s*(['"`](platform_policies|hr_policy_audit_log)['"`]|[A-Z_]*POLICIES_TABLE|[A-Z_]*AUDIT_LOG_TABLE)\s*\)\s*\.select\(/;

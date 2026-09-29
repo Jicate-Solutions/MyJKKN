@@ -10999,8 +10999,8 @@ GRANT EXECUTE ON FUNCTION fn_notification_is_for_user(JSONB, UUID) TO authentica
 
 -- Resolution priority: user > cohort(scope_id) > institution > role > cohort(default) > global
 -- Updated: 2026-09-29 - Mirror of 20270506090000_hr_pay_policies_readable_only_with_salary_view.sql
---   (FILE ONLY, not applied). plpgsql so it can RAISE: for the pay keys hr.pay_scales and
---   hr.allowances_and_increments a signed-in non-admin needs hr.payroll.salary.view AND
+--   (FILE ONLY, not applied). plpgsql so it can RAISE: for the pay keys hr.pay_scales,
+--   hr.allowances_and_increments and hr.salary_suggestion_rule a signed-in non-admin needs hr.payroll.salary.view AND
 --   access to the college passed as p_scope_id, and gets that college's row only;
 --   otherwise 42501. (Round 2, 2026-09-29: college scoping added.) The SELECT is the 20260731180000 body, which also
 --   brings this mirror up to date with cohort scope. Callers with no signed-in user
@@ -11015,7 +11015,7 @@ AS $function$
 BEGIN
   -- Added 2026-09-29 (20270506090000): pay keys follow the pay-row rule.
   -- The key is tested first so no other key pays for the permission lookup.
-  IF p_key IN ('hr.pay_scales', 'hr.allowances_and_increments') THEN
+  IF p_key IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule') THEN
     IF auth.uid() IS NOT NULL
        AND NOT (public.is_super_admin() OR public.is_admin())
     THEN

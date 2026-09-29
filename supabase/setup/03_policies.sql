@@ -7255,19 +7255,21 @@ CREATE POLICY platform_policies_social_attr_update ON public.platform_policies
 -- Updated: 2026-09-29 - Mirror of 20270506090000_hr_pay_policies_readable_only_with_salary_view.sql
 --   (FILE ONLY, not applied). platform_policies_select is `auth.uid() IS NOT NULL`,
 --   so every signed-in account could read every college's pay matrix. These
---   RESTRICTIVE policies are ANDed with every permissive SELECT policy: for the two
---   pay keys a row needs admin, or hr.payroll.salary.view AND a college row
+--   RESTRICTIVE policies are ANDed with every permissive SELECT policy: for the three
+--   pay keys (hr.pay_scales, hr.allowances_and_increments, hr.salary_suggestion_rule)
+--   a row needs admin, or hr.payroll.salary.view AND a college row
 --   (scope_type 'institution') of a college the caller can access
 --   (role_has_institution_access). Group-wide (NULL scope) pay rows are admin-only.
 --   Every other key is unchanged.
 -- Updated: 2026-09-29 - round 2 (W12 review): college scoping added.
+-- Updated: 2026-09-29 - hr.salary_suggestion_rule added to the locked keys.
 DROP POLICY IF EXISTS platform_policies_pay_keys_restricted ON public.platform_policies;
 CREATE POLICY platform_policies_pay_keys_restricted ON public.platform_policies
   AS RESTRICTIVE
   FOR SELECT
   TO authenticated, anon
   USING (
-    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments')
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule')
     OR (SELECT public.is_super_admin())
     OR (SELECT public.is_admin())
     OR (
@@ -7284,7 +7286,7 @@ CREATE POLICY hr_policy_audit_log_pay_keys_restricted ON public.hr_policy_audit_
   FOR SELECT
   TO authenticated, anon
   USING (
-    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments')
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule')
     OR (SELECT public.is_super_admin())
     OR (SELECT public.is_admin())
     OR (

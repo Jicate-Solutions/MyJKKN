@@ -7,7 +7,9 @@
  *   - both restrictive policies exist, are RESTRICTIVE + FOR SELECT, use the
  *     canonical admin/permission triad with no role names, and scope the key
  *     holder's arm to college rows they can access (NULL-scope rows admin-only);
- *   - the policies, fn_get_policy and the setup mirrors name the SAME pay keys;
+ *   - the policies, fn_get_policy and the setup mirrors name the SAME pay keys,
+ *     pinned below (hr.salary_suggestion_rule included; it is locked here but
+ *     served by the salary suggestion feature's own route, not the editors' route);
  *   - fn_get_policy's main SELECT is byte-identical to 20260731180000;
  *   - fn_prepare_payroll_period is 20260629000000's body byte for byte except
  *     the role check (NULL = refused) and the one v_pay_matrix assignment,
@@ -39,8 +41,12 @@ const code = stripSqlComments(migration);
 const setupPolicies = read(join(ROOT, 'supabase', 'setup', '03_policies.sql'));
 const setupFunctions = read(join(ROOT, 'supabase', 'setup', '02_functions.sql'));
 
-const PAY_KEYS = ['hr.pay_scales', 'hr.allowances_and_increments'];
-const KEY_LIST = `('hr.pay_scales', 'hr.allowances_and_increments')`;
+/** Every key whose rows carry pay figures. Pinned: adding or dropping one is a decision. */
+const PAY_KEYS = ['hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule'];
+const KEY_LIST = `('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule')`;
+/** Pay keys the editors' compensation route serves. The suggestion rule is read by its own route. */
+const ROUTE_SERVED_PAY_KEYS = ['hr.pay_scales', 'hr.allowances_and_increments'];
+const PAY_KEY_ALT = 'pay_scales|allowances_and_increments|salary_suggestion_rule';
 
 function slice(sql: string, start: string, end: string): string {
   const s = sql.indexOf(start);
@@ -191,7 +197,7 @@ describe('fn_prepare_payroll_period reads the matrix as its owner', () => {
 
   it('no longer reads a pay key through the gated fn_get_policy (the deduction keys still do)', () => {
     const n = stripSqlComments(next);
-    expect(n).not.toMatch(/fn_get_policy\(\s*'hr\.(pay_scales|allowances_and_increments)'/);
+    expect(n).not.toMatch(new RegExp(`fn_get_policy\\(\\s*'hr\\.(${PAY_KEY_ALT})'`));
     expect(n).toContain("public.fn_get_policy('hr.payroll.tds_slabs',");
   });
 
@@ -209,7 +215,7 @@ describe('fn_prepare_payroll_period reads the matrix as its owner', () => {
     const readers = readdirSync(MIG_DIR)
       .filter((f) => f !== FILE && f !== PREPARE_FILE && f.endsWith('.sql'))
       .filter((f) =>
-        /fn_get_policy(_json|_text|_int|_bool)?\(\s*'hr\.(pay_scales|allowances_and_increments)'/.test(
+        new RegExp(`fn_get_policy(_json|_text|_int|_bool)?\\(\\s*'hr\\.(${PAY_KEY_ALT})'`).test(
           stripSqlComments(read(join(MIG_DIR, f))),
         ),
       );
@@ -247,13 +253,23 @@ describe('hr_compensation_policies', () => {
 
 describe('the pay key list is one list', () => {
   it('the two policies and fn_get_policy name exactly the same pay keys', () => {
-    const twoKeyLists = code.match(/\('hr\.pay_scales', 'hr\.[a-z_]+'\)/g) ?? [];
-    expect(twoKeyLists).toHaveLength(3);
-    for (const l of twoKeyLists) expect(l).toBe(KEY_LIST);
+    const keyLists = code.match(/IN \('hr\.pay_scales'(, 'hr\.[a-z_]+')*\)/g) ?? [];
+    // two policies + fn_get_policy + hr_compensation_policies (its own list, checked below)
+    const payLists = keyLists.filter((l) => !l.includes('hr.motivation_fund'));
+    expect(payLists).toHaveLength(3);
+    for (const l of payLists) expect(l).toBe(`IN ${KEY_LIST}`);
+    expect(KEY_LIST).toBe(`(${PAY_KEYS.map((k) => `'${k}'`).join(', ')})`);
   });
 
-  it('every pay key is one the gated route serves', () => {
-    for (const k of PAY_KEYS) expect(COMPENSATION_POLICY_READ_KEYS as readonly string[]).toContain(k);
+  it('the same key list is in the setup mirrors', () => {
+    expect(setupPolicies.split(`policy_key NOT IN ${KEY_LIST}`)).toHaveLength(3);
+    expect(setupFunctions.split(`IF p_key IN ${KEY_LIST} THEN`)).toHaveLength(2);
+  });
+
+  it('the editors\' route serves the pay scales and allowances, and NOT the salary suggestion rule', () => {
+    for (const k of ROUTE_SERVED_PAY_KEYS) expect(COMPENSATION_POLICY_READ_KEYS as readonly string[]).toContain(k);
+    expect(COMPENSATION_POLICY_READ_KEYS as readonly string[]).not.toContain('hr.salary_suggestion_rule');
+    expect(norm(compRpc(migration))).not.toContain('hr.salary_suggestion_rule');
   });
 });
 

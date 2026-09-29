@@ -21,6 +21,10 @@
 --       its SELECT policy shows every global-scope row and every own-college row
 --       to any signed-in account.
 --   Raised by the reviews of PR #4080 and PR #4103.
+--   A third pay key is locked the same way: `hr.salary_suggestion_rule`, the
+--   per-college rupee amount per year of experience that the salary suggestion
+--   feature (a sibling PR) adds. It is not served by /api/hr/compensation-policies;
+--   the suggestion feature reads it through its own gated route.
 --
 -- THE RULE (one rule, applied in every place below)
 --   A pay row is readable by
@@ -36,12 +40,13 @@
 --   #4080's Arts & Science row are all scope_type 'institution').
 --
 -- WHAT CHANGES
---   1. platform_policies: a RESTRICTIVE select policy with THE RULE for the two
---      pay keys. Restrictive policies are ANDed with every permissive one, so no
+--   1. platform_policies: a RESTRICTIVE select policy with THE RULE for the three
+--      pay keys (hr.pay_scales, hr.allowances_and_increments,
+--      hr.salary_suggestion_rule). Restrictive policies are ANDed with every permissive one, so no
 --      existing permissive policy can reopen these rows.
 --   2. hr_policy_audit_log: the same restrictive policy on its own
 --      policy_key / scope_type / scope_id columns.
---   3. fn_get_policy: for the two pay keys, a SIGNED-IN caller who is not an
+--   3. fn_get_policy: for the three pay keys, a SIGNED-IN caller who is not an
 --      admin must hold the key AND pass a college they can access as
 --      p_scope_id; they then get that college's own row only (no fallback to a
 --      group-wide row). Anyone else signed in gets SQLSTATE 42501 and a plain
@@ -75,7 +80,7 @@
 --      the SAME line is carried here so whichever PR is applied second does not
 --      revert the other.
 --      Every other SECURITY DEFINER function in supabase/migrations was
---      searched for these two keys: fn_prepare_payroll_period is the ONLY one
+--      searched for these keys: fn_prepare_payroll_period is the ONLY one
 --      that reads them (the deduction keys it also reads are not pay keys and
 --      still go through fn_get_policy, unchanged).
 --   5. hr_compensation_policies(p_key): the read the Pay Scales, Allowances and
@@ -98,13 +103,14 @@
 --     statutory rates and structure, no one's pay. Left readable as today.
 --
 -- WHO NOTICES
---   * A signed-in account without the key (and not admin): the two pay rows
+--   * A signed-in account without the key (and not admin): the pay rows
 --     disappear from table reads; fn_get_policy on those keys raises 42501.
 --   * A key holder scoped to their own college: other colleges' pay rows
 --     disappear; fn_get_policy on another college raises 42501.
 --   * A principal editing these two rows under "Admins can update
 --     platform_policies" (role-name policy, 20260525200000) would no longer see
---     them unless holding the key. The editors are super-admin-only pages.
+--     them unless holding the key. The same holds for the salary suggestion rule's
+--     rows once that PR adds them. The editors are super-admin-only pages.
 --
 -- BEFORE APPLYING: diff the live bodies,
 --   SELECT pg_get_functiondef('public.fn_get_policy(text,uuid)'::regprocedure);
@@ -122,7 +128,7 @@ CREATE POLICY platform_policies_pay_keys_restricted ON public.platform_policies
   FOR SELECT
   TO authenticated, anon
   USING (
-    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments')
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule')
     OR (SELECT public.is_super_admin())
     OR (SELECT public.is_admin())
     OR (
@@ -134,7 +140,7 @@ CREATE POLICY platform_policies_pay_keys_restricted ON public.platform_policies
   );
 
 COMMENT ON POLICY platform_policies_pay_keys_restricted ON public.platform_policies IS
-  'Pay rows (hr.pay_scales, hr.allowances_and_increments): admins any row; '
+  'Pay rows (hr.pay_scales, hr.allowances_and_increments, hr.salary_suggestion_rule): admins any row; '
   'hr.payroll.salary.view holders only college rows of colleges they can access; '
   'group-wide (NULL scope) rows admin-only. RESTRICTIVE: ANDed with every '
   'permissive SELECT policy. Other keys unaffected. Migration 20270506090000.';
@@ -148,7 +154,7 @@ CREATE POLICY hr_policy_audit_log_pay_keys_restricted ON public.hr_policy_audit_
   FOR SELECT
   TO authenticated, anon
   USING (
-    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments')
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule')
     OR (SELECT public.is_super_admin())
     OR (SELECT public.is_admin())
     OR (
@@ -176,7 +182,7 @@ AS $function$
 BEGIN
   -- Added 2026-09-29 (20270506090000): pay keys follow the pay-row rule.
   -- The key is tested first so no other key pays for the permission lookup.
-  IF p_key IN ('hr.pay_scales', 'hr.allowances_and_increments') THEN
+  IF p_key IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule') THEN
     IF auth.uid() IS NOT NULL
        AND NOT (public.is_super_admin() OR public.is_admin())
     THEN
@@ -237,7 +243,7 @@ COMMENT ON FUNCTION public.fn_get_policy(text, uuid) IS
   'this path (2026-07-30 and 2026-07-31). The two unauthenticated webhook routes '
   'that read policy values use service-role clients and are unaffected. Do not '
   're-grant anon without re-reading migration 20260731200000. '
-  'Pay keys (hr.pay_scales, hr.allowances_and_increments): a signed-in non-admin '
+  'Pay keys (hr.pay_scales, hr.allowances_and_increments, hr.salary_suggestion_rule): a signed-in non-admin '
   'needs hr.payroll.salary.view and access to the college passed as p_scope_id, '
   'and gets that college''s row only; otherwise 42501 — migration 20270506090000.';
 
