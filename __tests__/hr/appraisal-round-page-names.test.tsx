@@ -20,8 +20,12 @@ const svc = vi.hoisted(() => ({
   listReviews: vi.fn(),
   listPeople: vi.fn(),
   getPolicyForStaff: vi.fn(),
+  getPolicy: vi.fn(),
   updateCycle: vi.fn(),
 }));
+// The round page also carries the blind-second-rating report (#4109); it
+// has no second ratings here, so nothing but the names is under test.
+const secondSvc = vi.hoisted(() => ({ listForReviews: vi.fn() }));
 
 vi.mock('@/lib/services/hr/performance-review-service', async () => {
   const actual = await vi.importActual<typeof import('@/lib/services/hr/performance-review-service')>(
@@ -29,6 +33,15 @@ vi.mock('@/lib/services/hr/performance-review-service', async () => {
   );
   return { ...actual, PerformanceReviewService: svc };
 });
+vi.mock('@/lib/services/hr/appraisal-second-rating-service', async () => {
+  const actual = await vi.importActual<
+    typeof import('@/lib/services/hr/appraisal-second-rating-service')
+  >('@/lib/services/hr/appraisal-second-rating-service');
+  return { ...actual, AppraisalSecondRatingService: secondSvc };
+});
+vi.mock('@/features/hr/appraisal/appraisal-hr-gate', () => ({
+  AppraisalHrGate: (props: { children: React.ReactNode }) => props.children,
+}));
 vi.mock('react-hot-toast', () => ({ default: { error: vi.fn(), success: vi.fn() } }));
 vi.mock('next/navigation', () => ({ useParams: () => ({ id: 'cyc-1' }) }));
 vi.mock('@/components/layout/content-layout', () => ({
@@ -84,10 +97,22 @@ beforeEach(() => {
     [NAMED.staff_id]: { name: 'Anitha Raman', department: 'Physics' },
   });
   svc.getPolicyForStaff.mockResolvedValue(null);
+  svc.getPolicy.mockResolvedValue(null);
+  secondSvc.listForReviews.mockResolvedValue([]);
 });
 
+// The staff table: the page also draws the agreement report's own table
+// (#4109), so the rows are read from the table headed "Team member".
+function staffTable() {
+  return [...document.querySelectorAll('table')].find(
+    (t) => t.querySelector('thead th')?.textContent === 'Team member',
+  ) as HTMLTableElement | undefined;
+}
+
 function firstCells() {
-  return [...document.querySelectorAll('tbody tr')].map((tr) => tr.querySelector('td') as HTMLElement);
+  return [...(staffTable()?.querySelectorAll('tbody tr') ?? [])].map(
+    (tr) => tr.querySelector('td') as HTMLElement,
+  );
 }
 
 describe('the round page table', () => {
@@ -99,7 +124,10 @@ describe('the round page table', () => {
     // A named person has no id shown at all.
     expect(firstCells()[0].textContent).toBe('Anitha RamanPhysics');
     expect(document.body.textContent).not.toContain('aaaa1111');
-    expect(document.querySelector('thead th')?.textContent).toBe('Team member');
+    expect(staffTable()).toBeDefined();
+    // The old id-column heading is gone from every table on the page.
+    const headings = [...document.querySelectorAll('th')].map((th) => th.textContent ?? '');
+    expect(headings.some((h) => h.includes('(ID)'))).toBe(false);
   });
 
   it('falls back to "Team member" and a short reference when a name cannot be read', async () => {
