@@ -50,7 +50,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { FileDown, FileText, Send, Check, X, PackageCheck, Ban } from 'lucide-react';
+import { FileDown, FileText, Send, Check, X, PackageCheck, Ban, Plus } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
@@ -209,20 +209,6 @@ export default function PurchaseOrderDetailPage() {
     );
   }
 
-  // The badge names the state; this says what it means and who moves it on.
-  // 'rejected' is omitted — it already has its own card carrying the reason.
-  const STATUS_HINT: Record<string, string> = {
-    draft: 'Not yet sent for approval. Submitting sends it to a Super Admin.',
-    pending_approval: 'Waiting for a Super Admin to approve before it can go to the vendor.',
-    approved: 'Approved by the Super Admin. Download the PDF for the vendor, then record deliveries.',
-    sent: 'With the vendor. Record each delivery against this purchase order.',
-    partially_received: 'Some goods have arrived. The purchase order stays open until every line is received.',
-    completed: 'Everything ordered has been received and verified.',
-    closed: 'Closed. No further deliveries are expected.',
-    cancelled: 'Cancelled. This purchase order will not be fulfilled.',
-  };
-  const statusHint = STATUS_HINT[po.status];
-
   // One workflow action at a time — a second click while the first is in
   // flight would try the same transition from a state the PO has already left.
   const transitionBusy =
@@ -290,17 +276,20 @@ export default function PurchaseOrderDetailPage() {
 
   return (
     <ContentLayout title={po.po_number}>
-      <div className="space-y-4 sm:space-y-6 max-w-5xl">
+      <div className="space-y-3">
         <DocumentHeader
+          compact
           onBack={() => router.push('/procurement/purchase-orders')}
           backLabel="Back to purchase orders"
           title={po.po_number}
           status={<StatusBadge status={po.status} config={PO_STATUS_CONFIG} />}
           next={
             <>
-              {statusHint && <span className="font-medium text-foreground">{statusHint} </span>}
-              {po.supplier?.name ?? po.supplier_id} · ₹{Number(po.total_amount).toLocaleString()}
-              {po.created_at ? ` · raised ${formatDateDMY(po.created_at)}` : ''}
+              {po.supplier?.name ?? po.supplier_id} ·{' '}
+              <span className="font-semibold text-foreground tabular-nums">
+                ₹{Number(po.total_amount).toLocaleString()}
+              </span>
+              {po.created_at ? ` · ${formatDateDMY(po.created_at)}` : ''}
             </>
           }
           primary={primary}
@@ -308,94 +297,82 @@ export default function PurchaseOrderDetailPage() {
           actions={actions}
         />
 
+        {/* Document toolbar — print format, library tag and downloads in one slim row. */}
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Document</CardTitle>
-            <p className="hidden text-sm text-muted-foreground sm:block">
-              Choose the layout this order prints with, then download it to send to the vendor.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
             {canCreate ? (
-              <div className="space-y-2">
-                <Label className="text-xs">Print format</Label>
-                <Select value={po.po_format_id ?? 'none'} onValueChange={handleFormatChange}>
-                  <SelectTrigger className="w-full sm:w-[260px]">
-                    <SelectValue placeholder="Document format" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Standard (default)</SelectItem>
-                    {(formats ?? []).map((f) => (
-                      <SelectItem key={f.id} value={f.id}>
-                        {f.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <>
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs font-normal text-muted-foreground">Print as</Label>
+                  <Select value={po.po_format_id ?? 'none'} onValueChange={handleFormatChange}>
+                    <SelectTrigger className="h-8 w-[170px] text-xs">
+                      <SelectValue placeholder="Standard" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Standard</SelectItem>
+                      {(formats ?? []).map((f) => (
+                        <SelectItem key={f.id} value={f.id}>
+                          {f.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 {(formats ?? []).length === 0 ? (
                   <button
                     type="button"
                     onClick={() => router.push('/procurement/purchase-orders/formats/new')}
-                    className="block text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+                    className="flex items-center gap-0.5 text-xs text-primary hover:underline"
                   >
-                    No custom formats for this institution — create one
+                    <Plus className="h-3 w-3" />
+                    New format
                   </button>
                 ) : (
-                  <div className="flex items-center gap-1.5">
+                  <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
                     <Checkbox
-                      id="set-as-vendor-default"
                       checked={setAsVendorDefault}
                       onCheckedChange={(c) => handleToggleSetAsDefault(!!c)}
                     />
-                    <Label htmlFor="set-as-vendor-default" className="text-xs text-muted-foreground cursor-pointer">
-                      Also use for {po.supplier?.name ?? 'this vendor'} going forward
-                    </Label>
-                  </div>
+                    Use for {po.supplier?.name ?? 'this vendor'} always
+                  </label>
                 )}
-              </div>
+                <span className="hidden h-5 w-px bg-border sm:block" />
+                {/* Accreditation classification — tagged POs auto-emit NAAC library
+                    purchase-bill evidence once approved (DB trigger, Wave 2D). */}
+                <label
+                  className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground"
+                  title="Counts as NAAC accreditation evidence once approved"
+                >
+                  <Checkbox
+                    checked={!!po.is_library_resource}
+                    onCheckedChange={(c) =>
+                      run(
+                        () => updateDocFields.mutateAsync({ id, patch: { is_library_resource: !!c } }),
+                        c
+                          ? 'Tagged as library purchase — counts as accreditation evidence once approved'
+                          : 'Library purchase tag removed'
+                      )
+                    }
+                  />
+                  Library purchase
+                </label>
+              </>
             ) : (
-              <p className="text-sm text-muted-foreground">
-                Prints with the{' '}
-                <span className="font-medium text-foreground">{activeFormat?.name ?? 'Standard'}</span>{' '}
-                format.
-              </p>
+              <>
+                <span className="text-xs text-muted-foreground">
+                  Prints as <span className="font-medium text-foreground">{activeFormat?.name ?? 'Standard'}</span>
+                </span>
+                {po.is_library_resource && <Badge variant="secondary">Library purchase</Badge>}
+              </>
             )}
-
-            {/* Accreditation classification — tagged POs auto-emit NAAC library
-                purchase-bill evidence once approved (DB trigger, Wave 2D). */}
-            {canCreate ? (
-              <div className="flex items-center gap-2 border-t pt-4">
-                <Checkbox
-                  id="is-library-resource"
-                  checked={!!po.is_library_resource}
-                  onCheckedChange={(c) =>
-                    run(
-                      () => updateDocFields.mutateAsync({ id, patch: { is_library_resource: !!c } }),
-                      c
-                        ? 'Tagged as library resource — counts as accreditation evidence once approved'
-                        : 'Library-resource tag removed'
-                    )
-                  }
-                />
-                <Label htmlFor="is-library-resource" className="text-sm cursor-pointer">
-                  Library resource purchase{' '}
-                  <span className="text-muted-foreground">
-                    (counts as accreditation evidence once approved)
-                  </span>
-                </Label>
-              </div>
-            ) : po.is_library_resource ? (
-              <Badge variant="secondary">Library resource</Badge>
-            ) : null}
-
-            <div className="flex flex-wrap gap-2 sm:gap-3 border-t pt-4">
-              <Button variant="outline" onClick={() => downloadPurchaseOrderPdf(po)}>
-                <FileDown className="mr-2 h-4 w-4" />
-                Download PDF
+            <div className="ml-auto flex gap-1.5">
+              <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" onClick={() => downloadPurchaseOrderPdf(po)}>
+                <FileDown className="mr-1 h-3.5 w-3.5" />
+                PDF
               </Button>
-              <Button variant="outline" onClick={() => downloadPurchaseOrderDocx(po)}>
-                <FileText className="mr-2 h-4 w-4" />
-                Download Word
+              <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" onClick={() => downloadPurchaseOrderDocx(po)}>
+                <FileText className="mr-1 h-3.5 w-3.5" />
+                Word
               </Button>
             </div>
           </CardContent>
@@ -479,10 +456,7 @@ export default function PurchaseOrderDetailPage() {
           </Card>
         ) : null}
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Items</CardTitle>
-          </CardHeader>
+        <Card className="overflow-hidden">
           <CardContent className="p-0">
             <ResponsiveList
               rows={po.items}
@@ -496,7 +470,7 @@ export default function PurchaseOrderDetailPage() {
                     <>
                       {it.item_name}
                       {it.item_spec && (
-                        <span className="block text-xs font-normal text-muted-foreground">{it.item_spec}</span>
+                        <span className="text-xs font-normal text-muted-foreground"> · {it.item_spec}</span>
                       )}
                     </>
                   ),
@@ -515,7 +489,7 @@ export default function PurchaseOrderDetailPage() {
                 },
                 {
                   key: 'price',
-                  header: 'Unit Price',
+                  header: 'Price',
                   className: 'text-right',
                   cell: (it) =>
                     po.status === 'draft' && canCreate ? (
@@ -532,7 +506,7 @@ export default function PurchaseOrderDetailPage() {
                 },
                 {
                   key: 'total',
-                  header: 'Line Total',
+                  header: 'Amount',
                   className: 'text-right',
                   cell: (it) => `₹${Number(it.line_total).toLocaleString()}`,
                 },
@@ -556,18 +530,12 @@ export default function PurchaseOrderDetailPage() {
                 }),
               ]}
             />
-            <div className="flex justify-end border-t p-4">
-              <div className="text-right space-y-1">
-                <p className="text-sm text-muted-foreground">
-                  Subtotal: ₹{Number(po.subtotal).toLocaleString()}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Tax: ₹{Number(po.tax_amount).toLocaleString()}
-                </p>
-                <p className="text-base font-semibold">
-                  Total: ₹{Number(po.total_amount).toLocaleString()}
-                </p>
-              </div>
+            <div className="flex flex-wrap justify-end gap-x-6 gap-y-1 border-t bg-muted/30 px-4 py-2 text-xs text-muted-foreground tabular-nums">
+              <span>Subtotal ₹{Number(po.subtotal).toLocaleString()}</span>
+              <span>Tax ₹{Number(po.tax_amount).toLocaleString()}</span>
+              <span className="text-sm text-foreground">
+                Total <b>₹{Number(po.total_amount).toLocaleString()}</b>
+              </span>
             </div>
           </CardContent>
         </Card>
