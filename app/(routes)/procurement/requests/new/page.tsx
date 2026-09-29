@@ -403,11 +403,11 @@ export default function NewPurchaseRequestPage() {
           <p className="hidden text-sm text-muted-foreground sm:block">
             It goes for approval first; then the store collects vendor quotations.
           </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPreviewOpen(false)}>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setPreviewOpen(false)}>
               Back to edit
             </Button>
-            <Button onClick={handleConfirmCreate} disabled={createPR.isPending}>
+            <Button className="w-full sm:w-auto" onClick={handleConfirmCreate} disabled={createPR.isPending}>
               {createPR.isPending ? 'Submitting…' : 'Submit request'}
             </Button>
           </DialogFooter>

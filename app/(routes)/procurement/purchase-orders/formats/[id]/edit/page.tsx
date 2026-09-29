@@ -52,6 +52,7 @@ export default function EditPoFormatPage() {
           <Button
             variant="ghost"
             size="sm"
+            className="h-10 sm:h-8"
             aria-label="Back to order formats"
             onClick={() => router.push('/procurement/purchase-orders/formats')}
           >

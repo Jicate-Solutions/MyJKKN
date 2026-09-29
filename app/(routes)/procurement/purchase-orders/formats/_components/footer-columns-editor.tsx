@@ -124,7 +124,7 @@ export function FooterColumnsEditor({ columns, onChange }: FooterColumnsEditorPr
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 shrink-0"
+                        className="h-10 w-10 shrink-0 sm:h-8 sm:w-8"
                         aria-label="Remove field"
                         onClick={() => removeGroupField(gi, fi)}
                       >
@@ -137,7 +137,7 @@ export function FooterColumnsEditor({ columns, onChange }: FooterColumnsEditorPr
                     variant="outline"
                     size="sm"
                     onClick={() => addFieldToGroup(gi)}
-                    className="w-full h-8 text-xs gap-1"
+                    className="h-10 w-full gap-1 text-xs sm:h-8"
                   >
                     <Plus className="h-3 w-3" />
                     Add Field

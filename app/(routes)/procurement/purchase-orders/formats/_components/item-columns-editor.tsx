@@ -74,7 +74,7 @@ export function ItemColumnsEditor({ columns, onChange }: ItemColumnsEditorProps)
             The line-item table on the order document. Order here is the print order.
           </p>
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={addColumn} className="gap-1">
+        <Button type="button" variant="outline" size="sm" onClick={addColumn} className="h-10 gap-1 sm:h-8">
           <Plus className="h-4 w-4" />
           Add Column
         </Button>
@@ -93,10 +93,10 @@ export function ItemColumnsEditor({ columns, onChange }: ItemColumnsEditorProps)
             <CardContent className="p-4">
               <div className="flex items-start gap-2">
                 <div className="flex flex-col gap-1 pt-1">
-                  <Button type="button" variant="ghost" size="icon" className="h-6 w-6" aria-label="Move column up" onClick={() => moveColumn(index, 'up')} disabled={index === 0}>
+                  <Button type="button" variant="ghost" size="icon" className="h-10 w-10 sm:h-6 sm:w-6" aria-label="Move column up" onClick={() => moveColumn(index, 'up')} disabled={index === 0}>
                     <ChevronUp className="h-3 w-3" />
                   </Button>
-                  <Button type="button" variant="ghost" size="icon" className="h-6 w-6" aria-label="Move column down" onClick={() => moveColumn(index, 'down')} disabled={index === columns.length - 1}>
+                  <Button type="button" variant="ghost" size="icon" className="h-10 w-10 sm:h-6 sm:w-6" aria-label="Move column down" onClick={() => moveColumn(index, 'down')} disabled={index === columns.length - 1}>
                     <ChevronDown className="h-3 w-3" />
                   </Button>
                 </div>
@@ -180,7 +180,7 @@ export function ItemColumnsEditor({ columns, onChange }: ItemColumnsEditorProps)
                   </div>
 
                   <div className="lg:col-span-1 flex items-end justify-end">
-                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700" aria-label="Remove column" onClick={() => removeColumn(index)}>
+                    <Button type="button" variant="ghost" size="icon" className="h-10 w-10 text-red-500 hover:text-red-700 sm:h-8 sm:w-8" aria-label="Remove column" onClick={() => removeColumn(index)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>

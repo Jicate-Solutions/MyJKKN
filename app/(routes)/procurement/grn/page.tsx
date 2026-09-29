@@ -8,6 +8,8 @@ import { useGrns } from '@/hooks/procurement/use-grns';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import { StatusBadge } from '@/components/procurement/status-badge';
+import { ResponsiveList } from '@/components/procurement/responsive-list';
+import { PageHeader, FilterBar } from '@/components/procurement/page-header';
 import { EmptyState } from '@/components/empty-state';
 import { AlertBox } from '@/components/ui/alert-box';
 import { formatDateDMY } from '@/lib/utils/date-format';
@@ -23,14 +25,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Eye, Search } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 
@@ -57,17 +51,16 @@ export default function GrnListPage() {
     <ContentLayout title="Receive">
       <div className="space-y-4 sm:space-y-6">
         <div className="space-y-2">
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Receive</h2>
+          <PageHeader
+            title="Receive"
+            description="Receive deliveries against an order, check they match the order and invoice, and add accepted stock to inventory once verified."
+          />
           <ReceiveSwitcher active="receipts" />
-          <p className="hidden text-muted-foreground sm:block">
-            Receive deliveries against an order, check they match the order and invoice, and
-            add accepted stock to inventory once verified.
-          </p>
         </div>
 
         <Card>
-          <CardContent className="pt-6">
-            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+          <CardContent className="p-4 sm:p-6">
+            <FilterBar>
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -96,7 +89,7 @@ export default function GrnListPage() {
                 label={null}
                 className="w-full sm:w-[200px]"
               />
-            </div>
+            </FilterBar>
           </CardContent>
         </Card>
 
@@ -116,45 +109,51 @@ export default function GrnListPage() {
                 description="Open an approved order to record a delivery."
               />
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Delivery #</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Order #</TableHead>
-                    <TableHead>Vendor</TableHead>
-                    <TableHead>Invoice</TableHead>
-                    <TableHead>Items</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {grns.map((grn) => (
-                    <TableRow key={grn.id}>
-                      <TableCell className="font-medium">{grn.grn_number}</TableCell>
-                      <TableCell>{formatDateDMY(grn.created_at)}</TableCell>
-                      <TableCell>{grn.purchase_order?.po_number || '-'}</TableCell>
-                      <TableCell>{grn.supplier?.name || '-'}</TableCell>
-                      <TableCell>{grn.invoice_number || '-'}</TableCell>
-                      <TableCell>{grn.item_count ?? '-'}</TableCell>
-                      <TableCell>
-                        <StatusBadge status={grn.status} config={GRN_STATUS_CONFIG} />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          aria-label={`View ${grn.grn_number}`}
-                          onClick={() => router.push(`/procurement/grn/${grn.id}`)}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <ResponsiveList
+                rows={grns}
+                getRowKey={(grn) => grn.id}
+                onRowClick={(grn) => router.push(`/procurement/grn/${grn.id}`)}
+                rowLabel={(grn) => `View ${grn.grn_number}`}
+                columns={[
+                  {
+                    key: 'grn',
+                    header: 'Delivery #',
+                    mobile: 'title',
+                    className: 'font-medium',
+                    cell: (grn) => grn.grn_number,
+                  },
+                  { key: 'date', header: 'Date', cell: (grn) => formatDateDMY(grn.created_at) },
+                  { key: 'po', header: 'Order #', cell: (grn) => grn.purchase_order?.po_number || '-' },
+                  { key: 'vendor', header: 'Vendor', cell: (grn) => grn.supplier?.name || '-' },
+                  { key: 'invoice', header: 'Invoice', cell: (grn) => grn.invoice_number || '-' },
+                  { key: 'items', header: 'Items', cell: (grn) => grn.item_count ?? '-' },
+                  {
+                    key: 'status',
+                    header: 'Status',
+                    mobile: 'badge',
+                    cell: (grn) => <StatusBadge status={grn.status} config={GRN_STATUS_CONFIG} />,
+                  },
+                  {
+                    key: 'actions',
+                    header: 'Actions',
+                    mobile: 'hidden',
+                    className: 'text-right',
+                    cell: (grn) => (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label={`View ${grn.grn_number}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          router.push(`/procurement/grn/${grn.id}`);
+                        }}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    ),
+                  },
+                ]}
+              />
             )}
           </CardContent>
         </Card>
