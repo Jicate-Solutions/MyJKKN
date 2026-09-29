@@ -166,3 +166,5 @@ tsconfig.pr-scoped.json
 
 /proposals
 .screenshots/
+# local rollback snapshots from tmp-* apply scripts
+.backups/

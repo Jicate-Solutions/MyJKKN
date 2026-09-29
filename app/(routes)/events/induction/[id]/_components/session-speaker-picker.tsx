@@ -12,6 +12,7 @@
 // saved by the same call; the RPC routes each id to its identity space, and the
 // link row enforces exactly one of the two.
 // Spec: specs/pre-onboarding-induction-access-2026-06-29.md
+import { formatIstTime, istLocalInputToIso } from '@/lib/utils/date-format';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -51,16 +52,13 @@ function guestHistoryLine(g: GuestSpeakerRow): string {
   return bits.join(' · ');
 }
 
-// '<input type=datetime-local>' string (local) -> ISO; '' if missing/invalid.
+// '<input type=datetime-local>' string, read as IST -> ISO; '' if missing/invalid.
 function toIso(local?: string): string {
-  if (!local) return '';
-  const d = new Date(local);
-  return isNaN(d.getTime()) ? '' : d.toISOString();
+  return istLocalInputToIso(local) ?? '';
 }
 function fmtRange(c: PersonConflict): string {
   if (!c.starts_at || !c.ends_at) return '';
-  const t = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  return `${t(c.starts_at)}–${t(c.ends_at)}`;
+  return `${formatIstTime(c.starts_at)}–${formatIstTime(c.ends_at)}`;
 }
 
 function FilterSelect({ label, value, onChange, options, placeholder, disabled }: {

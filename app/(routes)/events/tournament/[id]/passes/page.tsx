@@ -4,9 +4,9 @@
 //
 // Printable QR entry-pass board for a sports tournament — the tournament port of
 // the marathon QR-codes ops page (app/(routes)/events/marathon/[id]/ops/qr-codes).
-// A NEW route, reachable directly at /events/tournament/[id]/passes. It does NOT
-// touch the shared tournament detail page; a "Passes" button on that page is left
-// as follow-up wiring for the orchestrator.
+// Reached from the tournament's Event Logistics "QR" tab (TournamentQrLinks in
+// components/events/shared/qr-board.tsx, 2026-09-18) — before that nothing linked
+// here and organizers reported QR passes as impossible to generate.
 //
 // Access: organizer / in-charge only (canManage). The passes API itself gates on
 // canManageTournament, so committee/view-only roles get an explicit access-denied

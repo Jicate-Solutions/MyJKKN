@@ -114,10 +114,19 @@ interface Props {
   onVerify: (fingerprint: string | null) => void;
   /** Super admin or HR Head. The RPC enforces it again server-side. */
   canRegularize: boolean;
+  /**
+   * How much of the month is imported, from the console row.
+   *
+   * Passed in rather than recomputed: previewForClose deliberately reads the
+   * projection, which only ever sees the days that WERE imported and so cannot
+   * tell a finished month from a half-finished one. The console row is the only
+   * thing here that knows the month's real length.
+   */
+  coverage?: { days_covered: number; days_in_month: number } | null;
 }
 
 export function CloseSalaryPreview({
-  preview, isLoading, error, verifiedFingerprint, onVerify, canRegularize,
+  preview, isLoading, error, verifiedFingerprint, onVerify, canRegularize, coverage,
 }: Props) {
   const [openStaff, setOpenStaff] = useState<string | null>(null);
   if (isLoading) {
@@ -155,6 +164,22 @@ export function CloseSalaryPreview({
         <Figure label='Total net pay' value={inr.format(preview.total_net_pay)} />
         <Figure label='Month standard' value={`${days(preview.period_basis)} days`} />
       </div>
+
+      {/* A half-imported month is the single largest way these figures go
+          wrong, and it is invisible in them: every line simply reads fewer paid
+          days. The register divides by the WHOLE month's basis, so the missing
+          days are charged to the employee. */}
+      {coverage && coverage.days_covered > 0 && coverage.days_covered < coverage.days_in_month && (
+        <Alert variant='destructive'>
+          <AlertCircle className='h-4 w-4' />
+          <AlertDescription className='text-xs'>
+            Only <strong>{coverage.days_covered} of {coverage.days_in_month} days</strong> of this
+            month are imported. Unpaid days are worked out against the whole month, so every line
+            below is short by roughly the {coverage.days_in_month - coverage.days_covered} missing
+            day(s). Import the rest of the month before closing.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Days the evaluator could not judge feed straight into pay. Naming them
           here is the difference between catching it now and finding it in a

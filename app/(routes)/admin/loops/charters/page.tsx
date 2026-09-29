@@ -29,6 +29,7 @@ import {
   CharterProposalsPanel,
   type CharterProposalRow,
 } from './_components/charter-proposals-panel';
+import { readRecentReadings } from '@/lib/services/loops/loop-recent-readings';
 
 type ProposalRead = {
   id: string;
@@ -36,10 +37,58 @@ type ProposalRead = {
   proposed: Record<string, unknown> | null;
   rationale: string | null;
   status: 'proposed' | 'approved' | 'rejected' | 'insufficient';
+  kind?: 'charter' | 'bar' | 'bar-review' | null;
   decided_at: string | null;
   decision_note: string | null;
   created_at: string;
 };
+
+const PROPOSAL_COLS =
+  'id,loop_key,proposed,rationale,status,decided_at,decision_note,created_at';
+
+/**
+ * Proposals, with `kind` when the bar migration (20261225070000) is applied and
+ * without it when it is not — a column that does not exist yet must not blank
+ * the whole page. Rows read before the apply are all charters by definition.
+ */
+async function readProposals(
+  admin: ReturnType<typeof createServiceRoleClient>
+): Promise<ProposalRead[]> {
+  try {
+    // Two reads with their own limits, so bar rows (one per loop, plus reviews)
+    // can never push a still-waiting CHARTER proposal out of the page
+    // (reviewer B, 2026-09-18: compounding eviction under one shared limit).
+    const withKind = await admin
+      .from('loop_charter_proposals')
+      .select(`${PROPOSAL_COLS},kind`)
+      .eq('kind', 'charter')
+      .order('created_at', { ascending: false })
+      .limit(200);
+    if (!withKind.error) {
+      const bars = await admin
+        .from('loop_charter_proposals')
+        .select(`${PROPOSAL_COLS},kind`)
+        .in('kind', ['bar', 'bar-review'])
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (bars.error) {
+        // Not a silent empty Bars section: say so in the server log (the
+        // charter read above succeeded, so the page still renders).
+        console.warn('[loops/charters] bar proposals read failed:', bars.error.message);
+      }
+      return [...((withKind.data ?? []) as ProposalRead[]), ...((bars.data ?? []) as ProposalRead[])];
+    }
+
+    const withoutKind = await admin
+      .from('loop_charter_proposals')
+      .select(PROPOSAL_COLS)
+      .order('created_at', { ascending: false })
+      .limit(200);
+    return (withoutKind.data ?? []) as ProposalRead[];
+  } catch {
+    return [];
+  }
+}
 
 export default async function LoopChartersPage() {
   const { profile } = await getEnhancedUserProfile();
@@ -65,15 +114,7 @@ export default async function LoopChartersPage() {
   // migration, and this page must render its explicit empty state (never 500)
   // while that migration is pending apply. Same contract as /admin/loops.
   const [proposals, registry] = await Promise.all([
-    admin
-      .from('loop_charter_proposals')
-      .select('id,loop_key,proposed,rationale,status,decided_at,decision_note,created_at')
-      .order('created_at', { ascending: false })
-      .limit(200)
-      .then(
-        (r) => (r.data ?? []) as ProposalRead[],
-        () => [] as ProposalRead[]
-      ),
+    readProposals(admin),
     admin
       .from('loop_registry')
       .select('loop_key,name')
@@ -84,6 +125,19 @@ export default async function LoopChartersPage() {
   ]);
 
   const nameByKey = new Map(registry.map((r) => [r.loop_key, r.name]));
+  // The bar cards ask the Director for a number; show him the scale it lives
+  // on — the loop's last few recorded headline numbers (loop_measurements,
+  // written by every run whether or not a bar exists). One read PER LOOP so a
+  // busy loop cannot starve a slow one. Empty until the migration is applied
+  // and that loop has run; the card says so.
+  const barLoopKeys = Array.from(
+    new Set(
+      proposals
+        .filter((p) => (p.kind === 'bar' || p.kind === 'bar-review') && p.status === 'proposed')
+        .map((p) => p.loop_key)
+    )
+  );
+  const recentByKey = await readRecentReadings(admin, barLoopKeys);
   // Undecided first (the work queue), then decided history — both newest-first
   // (the select is already created_at DESC; the sort is stable).
   const rows: CharterProposalRow[] = [...proposals]
@@ -97,9 +151,12 @@ export default async function LoopChartersPage() {
       proposed: p.proposed ?? {},
       rationale: p.rationale,
       status: p.status,
+      // Pre-apply rows carry no kind; they are charters by definition.
+      kind: p.kind ?? 'charter',
       decided_at: p.decided_at,
       decision_note: p.decision_note,
       created_at: p.created_at,
+      recent_values: p.kind === 'bar' || p.kind === 'bar-review' ? (recentByKey.get(p.loop_key) ?? []) : undefined,
     }));
 
   return (
@@ -113,6 +170,14 @@ export default async function LoopChartersPage() {
         Rejecting keeps the registry untouched. When the machine judges the
         evidence too thin to charter honestly, it says so below — with the
         reason a human must act on first.
+      </p>
+      <p className="mb-4 max-w-3xl text-sm text-muted-foreground">
+        The same page carries <strong>Bars</strong>: every loop is judged
+        against one concrete bar, the machine proposes it, and you set it by
+        approving. A loop that misses its bar four runs in a row raises a
+        &ldquo;bar may be wrong&rdquo; card here rather than going quietly red
+        — approving it clears the bar so a fresh one is proposed, rejecting it
+        says the bar is right and starts the count again.
       </p>
       <CharterProposalsPanel rows={rows} />
     </ContentLayout>

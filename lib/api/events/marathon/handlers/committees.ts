@@ -1,9 +1,36 @@
 // POST /api/events/marathon/[eventId]/committees — Create committee
 // PATCH /api/events/marathon/[eventId]/committees — Update committee (id in body)
-// Uses service role client to bypass RLS for event coordinators
+// Uses service role client to bypass RLS for event coordinators — so the
+// caller's authority is checked here, before any write (2026-09-18). The old
+// check was `const user = await getAuthUser(); if (!user)`: getAuthUser()
+// returns {user, error}, never null, so it passed everyone, signed out included.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceRoleClient, getAuthUser } from '@/lib/supabase/server';
+import {
+  createServerSupabaseClient,
+  createServiceRoleClient,
+  getAuthUser,
+} from '@/lib/supabase/server';
+import { canManageEventOps } from '@/lib/services/events/shared/event-manage-access';
+
+/** 401/403 response when the caller may not manage this event's committees, else null. */
+async function denyUnlessManager(eventId: string): Promise<NextResponse | null> {
+  const { user } = await getAuthUser();
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const allowed = await canManageEventOps(
+    { auth: (await createServerSupabaseClient()) as any, svc: createServiceRoleClient(), userId: user.id },
+    eventId
+  );
+  if (!allowed) {
+    return NextResponse.json(
+      { error: "You don't have permission to manage this event's committees" },
+      { status: 403 }
+    );
+  }
+  return null;
+}
 
 export async function POST(
   req: NextRequest,
@@ -13,11 +40,8 @@ export async function POST(
     const { eventId } = await params;
     const body = await req.json();
 
-    // Verify the caller is authenticated
-    const user = await getAuthUser();
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const denied = await denyUnlessManager(eventId);
+    if (denied) return denied;
 
     const supabase = createServiceRoleClient();
 
@@ -72,11 +96,8 @@ export async function PUT(
       return NextResponse.json({ error: 'Committee ID required' }, { status: 400 });
     }
 
-    // Verify the caller is authenticated
-    const user = await getAuthUser();
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const denied = await denyUnlessManager(eventId);
+    if (denied) return denied;
 
     const supabase = createServiceRoleClient();
 

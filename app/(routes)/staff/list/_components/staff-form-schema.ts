@@ -1,4 +1,58 @@
 import { z } from 'zod';
+import { validatePhone } from '@/lib/utils/staff-field-validators';
+import { validateBankAccount } from '@/lib/hr/payroll/bank-account-validation';
+import { isBankEntered, isSalaryEntered } from '@/lib/hr/payroll/staff-office';
+
+// "Office" tab (2026-09-26): payer + salary + bank account. Never written to
+// `staff` — saved afterwards through the HR payroll services. Amounts are kept
+// as strings while typing; the rules below check them.
+const officeSchema = z
+  .object({
+    payer_org_id: z.string().default(''),
+    salary: z.object({
+      monthly_gross: z.string().default(''),
+      salary_structure: z.string().default('Monthly'),
+      effective_from: z.string().default(''),
+      overtime_level: z.string().default('No overtime'),
+      overtime_amount: z.string().default(''),
+      eligible_for_pf: z.boolean().default(false),
+      exempt_edli: z.boolean().default(false),
+      eligible_for_insurance: z.boolean().default(false),
+      eligible_for_gratuity: z.boolean().default(false),
+      eligible_for_etf: z.boolean().default(false),
+      eligible_for_esi: z.boolean().default(false),
+      epf_amount: z.string().default(''),
+      esi_amount: z.string().default(''),
+      allowance_amount: z.string().default(''),
+      allowance_label: z.string().default(''),
+      notes: z.string().default('')
+    }),
+    bank: z.object({
+      account_holder_name: z.string().default(''),
+      account_number: z.string().default(''),
+      ifsc_code: z.string().default(''),
+      bank_name: z.string().default(''),
+      branch_name: z.string().default(''),
+      account_type: z.string().default('savings'),
+      effective_from: z.string().default(''),
+      notes: z.string().default('')
+    })
+  })
+  .optional();
+
+/** Relationship choices for the staff emergency contact; 'Other' reveals a text box. */
+export const EMERGENCY_RELATIONSHIPS = [
+  'Father',
+  'Mother',
+  'Spouse',
+  'Brother',
+  'Sister',
+  'Son',
+  'Daughter',
+  'Guardian',
+  'Friend',
+  'Other'
+] as const;
 
 // ─── Basic schema (always required — verbatim from former inline staffSchema) ──
 //
@@ -47,6 +101,14 @@ export const basicStaffSchema = z.object({
   state: z.string().min(1, 'State is required'),
   district: z.string().min(1, 'District is required'),
   pincode: z.string().optional(),
+  // Emergency contact (2026-09-25). Optional as a whole, but a half-filled
+  // contact is rejected in applyStaffRules. For relationship "Other", the
+  // typed text lives in emergency_contact_relationship_other and replaces
+  // 'Other' on submit.
+  emergency_contact_name: z.string().optional().nullable(),
+  emergency_contact_relationship: z.string().optional().nullable(),
+  emergency_contact_relationship_other: z.string().optional().nullable(),
+  emergency_contact_phone: z.string().optional().nullable(),
   date_of_joining: z.date({
     required_error: 'Date of joining is required'
   }),
@@ -64,7 +126,8 @@ export const basicStaffSchema = z.object({
   login_enabled: z.boolean().default(true),
   // Optional free-form labels for fetching staff subsets via the external API.
   // Normalized (trim/lowercase/dedupe) by the TagsInput component before submit.
-  tags: z.array(z.string()).default([])
+  tags: z.array(z.string()).default([]),
+  office: officeSchema
 });
 
 // ─── Repeater item schemas (used inside extendedStaffSchema) ──────────────────
@@ -175,6 +238,52 @@ export const extendedStaffSchema = z.object({
 
 // Cross-field rules shared by the strict combined schema and the form resolver.
 // Typed loosely because both object shapes carry every field these rules read.
+function applyOfficeRules(
+  office: z.infer<typeof officeSchema> | undefined,
+  ctx: z.RefinementCtx
+) {
+  if (!office) return;
+  const issue = (path: (string | number)[], message: string) =>
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['office', ...path], message });
+  const nonNegative = (v: string) => v.trim() === '' || (Number.isFinite(Number(v)) && Number(v) >= 0);
+
+  const s = office.salary;
+  if (isSalaryEntered(s)) {
+    if (!office.payer_org_id) {
+      issue(['payer_org_id'], 'Choose the payroll organisation — a salary needs a payer');
+    }
+    const gross = Number(s.monthly_gross);
+    if (s.monthly_gross.trim() === '' || !Number.isFinite(gross) || gross <= 0) {
+      issue(['salary', 'monthly_gross'], 'Monthly gross must be more than 0');
+    }
+    if (!s.effective_from) {
+      issue(['salary', 'effective_from'], 'Effective from date is required');
+    }
+    for (const f of ['overtime_amount', 'epf_amount', 'esi_amount', 'allowance_amount'] as const) {
+      if (!nonNegative(s[f])) issue(['salary', f], 'Enter 0 or a positive amount');
+    }
+  }
+
+  if (isBankEntered(office.bank)) {
+    const b = office.bank;
+    const errors = validateBankAccount({
+      accountHolderName: b.account_holder_name,
+      accountNumber: b.account_number,
+      ifscCode: b.ifsc_code,
+      accountType: b.account_type
+    });
+    const pathFor: Record<string, string> = {
+      accountHolderName: 'account_holder_name',
+      accountNumber: 'account_number',
+      ifscCode: 'ifsc_code',
+      accountType: 'account_type'
+    };
+    for (const e of errors) {
+      if (pathFor[e.field]) issue(['bank', pathFor[e.field]], e.message);
+    }
+  }
+}
+
 function applyStaffRules(
   data: {
     login_enabled?: boolean;
@@ -182,9 +291,52 @@ function applyStaffRules(
     institution_email?: string;
     biometric_id?: string | null;
     biometric_institution_id?: string | null;
+    emergency_contact_name?: string | null;
+    emergency_contact_relationship?: string | null;
+    emergency_contact_relationship_other?: string | null;
+    emergency_contact_phone?: string | null;
+    office?: z.infer<typeof officeSchema>;
   },
   ctx: z.RefinementCtx
 ) {
+    applyOfficeRules(data.office, ctx);
+
+    // Emergency contact: all-or-nothing on name + phone, so a record never
+    // carries a number with no one to ask for, or a name with no number.
+    const ecName = data.emergency_contact_name?.trim() ?? '';
+    const ecPhone = data.emergency_contact_phone?.trim() ?? '';
+    const ecRelation = data.emergency_contact_relationship?.trim() ?? '';
+    if (ecName || ecPhone || ecRelation) {
+      if (!ecName) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['emergency_contact_name'],
+          message: 'Emergency contact name is required when a contact is entered'
+        });
+      }
+      if (!ecPhone) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['emergency_contact_phone'],
+          message: 'Emergency contact phone is required when a contact is entered'
+        });
+      }
+    }
+    if (ecPhone && !validatePhone(ecPhone)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['emergency_contact_phone'],
+        message: 'Enter a valid phone number (at least 10 digits)'
+      });
+    }
+    if (ecRelation === 'Other' && !data.emergency_contact_relationship_other?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['emergency_contact_relationship_other'],
+        message: 'Specify the relationship'
+      });
+    }
+
     // Email is required ONLY for login-enabled staff. For view-only staff
     // (login_enabled=false) the service auto-generates synthetic emails.
     if (data.login_enabled !== false && (!data.email || data.email.trim() === '')) {

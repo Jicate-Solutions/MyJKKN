@@ -646,6 +646,28 @@ const config: ModuleNavConfig = {
       ],
     },
     {
+      // Hostel-learner bill coverage + fee-band audit (2026-09-22). Both pages
+      // are gated on campus_living.billing_audit.view via MENU_PERMISSIONS.
+      label: 'Billing Audit',
+      icon: 'FileSearch',
+      href: '/campus-living/billing-audit',
+      matchPaths: ['/campus-living/billing-audit'],
+      children: [
+        {
+          label: 'Analytics',
+          icon: 'BarChart3',
+          href: '/campus-living/billing-audit',
+          exact: true,
+        },
+        {
+          label: 'Learner Audit',
+          icon: 'ListChecks',
+          href: '/campus-living/billing-audit/learners',
+          matchPaths: ['/campus-living/billing-audit/learners'],
+        },
+      ],
+    },
+    {
       label: 'Settings',
       icon: 'Settings',
       href: '/campus-living/settings',

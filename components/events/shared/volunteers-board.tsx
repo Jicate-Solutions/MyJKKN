@@ -20,6 +20,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -247,6 +248,7 @@ function AddVolunteerDialog({
       <DialogContent className="flex max-h-[92dvh] w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-lg p-4 sm:max-h-[85dvh] sm:w-full sm:max-w-xl sm:p-6">
         <DialogHeader className="shrink-0">
           <DialogTitle className="pr-6 text-base sm:text-lg">Check In Volunteer</DialogTitle>
+          <DialogDescription className="sr-only">Record a volunteer check-in for this event.</DialogDescription>
         </DialogHeader>
         {open && <AddVolunteerForm eventId={eventId} onClose={onClose} onDutyNames={onDutyNames} />}
       </DialogContent>

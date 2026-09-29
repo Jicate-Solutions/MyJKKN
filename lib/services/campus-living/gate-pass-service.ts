@@ -1,5 +1,6 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
 import { getErrorMessage } from '@/lib/utils';
 import type {
   CreateHostelGatePassDTO,
@@ -40,7 +41,7 @@ const CANCELLABLE: GatePassStatus[] = ['requested', 'issued'];
 const LEARNER_EMBED =
   'learner:profiles!hostel_gate_passes_learner_id_fkey(id, full_name, email)';
 const LEAVE_TYPE_EMBED =
-  'leave_type:hostel_leave_types!hostel_gate_passes_leave_type_id_fkey(id, leave_type_name, leave_type_code, color_code, requires_attachment)';
+  'leave_type:learner_leave_types!hostel_gate_passes_leave_type_id_fkey(id, leave_type_name:name, leave_type_code:code, color_code, requires_attachment)';
 
 type EmbeddedLearner = { id: string; full_name: string | null; email: string | null } | null;
 type EmbeddedLeaveType = {
@@ -532,6 +533,10 @@ export class GatePassService {
         logger.error(LOG, 'Failed to request gate pass', error);
         throw new Error(getErrorMessage(error));
       }
+
+      // Adoption loop: a learner asked for a gate pass.
+      await recordFeatureUse(supabase, FEATURE_KEYS.CAMPUS_LIVING_GATE_PASS_REQUEST);
+
       return data as unknown as HostelGatePass;
     } catch (error) {
       logger.error(LOG, 'Unexpected error in requestGatePass', error);

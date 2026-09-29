@@ -738,15 +738,21 @@ unblock_lanes() {  # $1 = run dir (plan.json already written by sweep)
         "The ship wave FROZE and stopped merging. Its own account of why is: ${fz#*$'\t'}"
     fi
   fi
-  REQ="$REQUIRED_CHECKS" QUIET="$QUIET_MIN" python3 - "$run/plan.json" <<'PY' > "$run/lanes.tsv"
+  REQ="$REQUIRED_CHECKS" QUIET="$QUIET_MIN" REVIEW_BYPASS="${REVIEW_BYPASS:-}" python3 - "$run/plan.json" <<'PY' > "$run/lanes.tsv"
 import json, sys, os, re
 p = json.load(open(sys.argv[1])); req = set(os.environ["REQ"].split("|")); quiet = int(os.environ.get("QUIET", "30"))
 ADVISORY = re.compile(r"review|advisory", re.I)   # a review verdict is a person's call — no tab can "fix" it
+BYPASS_REVIEW = bool(os.environ.get("REVIEW_BYPASS"))   # Director 2026-09-17, R11 — see review_bypass_read() in ship-wave.sh
 for r in p["blocked"]:
     if r["age_min"] < quiet: continue               # same quiet rule as the merge stage: its author may still be typing
     failing = set(r["ci_names"]) if r["ci"] == "FAIL" else set()
     real = {c for c in failing if not ADVISORY.search(c or "")}
-    if r["state"] == "BLOCKED" and not (failing & req):
+    # 2026-09-17: lane A told the Director "required checks never ran on this head" about PRs whose required checks
+    # were all green — GitHub said BLOCKED only because main asks for a review the merging login may bypass. Lane A
+    # cannot fix that by merging main, and it is not a missing check: say so and leave the PR to the sweep.
+    if r["state"] == "BLOCKED" and not (failing & req) and BYPASS_REVIEW and r.get("review") == "REVIEW_REQUIRED":
+        print(f"N\t{r['number']}\t{r['branch']}\treview-required, bypass applies — the sweep owns this one")
+    elif r["state"] == "BLOCKED" and not (failing & req):
         print(f"A\t{r['number']}\t{r['branch']}\trequired checks never ran on this head")
     elif r["state"] in ("UNSTABLE", "BLOCKED") and real:
         print(f"B\t{r['number']}\t{r['branch']}\t{', '.join(sorted(real))[:80]}")
@@ -760,6 +766,7 @@ PY
     stage=$(_lane_stage "$n"); age=$(_lane_age_h "$UNBLOCK_DIR/$n")
     case "$lane" in
       R) say "  R  #$n  red only on a review check ('$why') — a reviewer's call, not a tab's; left for a human";;
+      N) say "  N  #$n  $why";;
       A)
         if [ "$age" -lt "$LANE_TTL_H" ]; then say "  A  #$n  $why — refreshed ${age}h ago, waiting for CI"; continue; fi
         if [ "$MODE" != "go" ]; then say "  A  #$n  would merge main into $br ($why)"; continue; fi

@@ -69,9 +69,11 @@ function Content() {
           })),
         }),
       });
-      const j = await res.json();
-      if (!res.ok) { setError(j.error || 'Failed to create'); return; }
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) { setError(j.error || `Failed to create (${res.status}).`); return; }
       router.push(`/cdc/requirements/${j.id}`);
+    } catch {
+      setError('Could not reach the server. Your requirement was not saved — please try again.');
     } finally { setSaving(false); }
   }
 
@@ -167,9 +169,14 @@ function Content() {
           </Button>
         )}
         {error && <div className="flex items-center gap-2 rounded-lg bg-red-50 text-red-700 px-4 py-3 text-sm"><AlertCircle className="h-4 w-4" /> {error}</div>}
-        <Button type="submit" disabled={saving} size="lg">
-          {saving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving…</> : 'Create requirement'}
-        </Button>
+        <div className="flex items-center gap-3">
+          <Button type="submit" disabled={saving} size="lg">
+            {saving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving…</> : 'Create requirement'}
+          </Button>
+          <Button type="button" variant="outline" size="lg" disabled={saving} onClick={() => router.push('/cdc/requirements')}>
+            Cancel
+          </Button>
+        </div>
       </form>
     </ContentLayout>
   );

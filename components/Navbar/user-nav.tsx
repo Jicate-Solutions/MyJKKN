@@ -8,6 +8,7 @@ import { AuthService } from '@/lib/auth/auth-service';
 import { usePWA } from '@/components/pwa/pwa-provider';
 import { Button } from '@/components/ui/button';
 import { RoleService } from '@/lib/services/roles/role-service';
+import { dedupeTrailingInitials } from '@/lib/utils/display-name';
 import { useUserRoles } from '@/hooks/use-user-roles';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -110,9 +111,12 @@ export function UserNav() {
 
   if (!profile) return null;
 
-  // Generate initials for avatar
-  const initials = profile.full_name
-    ? profile.full_name
+  // Generate initials for avatar. The same doubled full_name that made the
+  // dashboard greeting read "... PRIYA M M" also made this avatar repeat the
+  // final letter (BUG-002481, BUG-002482), so repair the name first.
+  const displayName = dedupeTrailingInitials(profile.full_name);
+  const initials = displayName
+    ? displayName
         .split(' ')
         .map((n) => n[0])
         .join('')
@@ -127,7 +131,7 @@ export function UserNav() {
           <Avatar className='h-10 w-10'>
             <AvatarImage
               src={profile.avatar_url || undefined}
-              alt={profile.full_name || 'User'}
+              alt={displayName || 'User'}
             />
             <AvatarFallback className='bg-primary/10'>
               {initials}
@@ -141,7 +145,7 @@ export function UserNav() {
           <div className='flex items-start gap-2'>
           <div className='flex min-w-0 flex-1 flex-col space-y-2'>
             <p className='text-sm font-medium leading-none'>
-              {profile.full_name || 'User'}
+              {displayName || 'User'}
             </p>
             <p className='text-xs leading-none text-muted-foreground break-all'>
               {profile.email}

@@ -31,6 +31,13 @@
 // ---------------------------------------------------------------------------
 
 import { BaseService } from '../base-service';
+import type {
+  AddParticipantsOutcome,
+  CommunityClusterTotals,
+  CommunityCollegeEngagementRow,
+  CommunityEngagementParticipant,
+  ParticipantConfirmationStatus,
+} from '@/types/community-collaboration';
 
 // ============================================
 // THE VALUE LIST
@@ -432,6 +439,248 @@ function mapRow(row: JoinedEngagementRow): CommunityEngagement {
 }
 
 // ============================================
+// JOINT DEPARTMENTS — the participants half
+// ============================================
+
+/**
+ * Thrown when `sh_community_engagement_participants` is not present in the
+ * environment the browser is talking to — i.e. 20261226113000 has not been
+ * applied there, although the register itself has.
+ *
+ * A SEPARATE error from `EngagementRegisterMissingError` because it is a
+ * separate fact and has a separate remedy. The two migrations ship apart, so
+ * "the register exists but cannot yet record joint work" is a real state of a
+ * real environment, and reporting it as "the register does not exist" would
+ * send an administrator to apply a migration that is already applied.
+ */
+export class EngagementParticipantsMissingError extends Error {
+  constructor() {
+    super(
+      'Joint departments have not been set up in this environment yet — the ' +
+        'community engagement register is here, but the table that records which ' +
+        'departments took part is not.'
+    );
+    this.name = 'EngagementParticipantsMissingError';
+  }
+}
+
+/** A row already exists for this (engagement, department) pair. */
+const UNIQUE_VIOLATION = '23505';
+
+type ParticipantAction = 'name' | 'confirm' | 'decline' | 'link';
+
+/**
+ * Rule 27 again, for the participant writes. The same reasoning as
+ * `describeWriteFailure`: Postgres answers an RLS denial with 42501 and a
+ * sentence naming a policy, which tells a head of department nothing they can
+ * act on.
+ */
+function describeParticipantFailure(
+  error: PostgrestLikeError,
+  action: ParticipantAction
+): Error {
+  if (isRelationMissing(error)) {
+    // `link` writes to the parent register, so a missing relation there means
+    // the register itself is absent; the other three write to the participants
+    // table. Getting this backwards would name the wrong migration.
+    return action === 'link'
+      ? new EngagementRegisterMissingError()
+      : new EngagementParticipantsMissingError();
+  }
+
+  if (error.code === RAISED_BY_TRIGGER && error.message) return new Error(error.message);
+
+  if (error.code === UNIQUE_VIOLATION) {
+    return new Error(
+      'That department is already named on this initiative. Reload the list to ' +
+        'see where its confirmation has got to.'
+    );
+  }
+
+  if (error.code === RLS_DENIED) {
+    switch (action) {
+      case 'name':
+        return new Error(
+          'No departments were added — the database refused it. Naming another ' +
+            'department on an initiative needs the same standing as editing the ' +
+            'initiative itself: approving for this institution, or being the ' +
+            'person who recorded it while it is still waiting for approval.'
+        );
+      case 'confirm':
+      case 'decline':
+        return new Error(
+          'That answer was not saved — the database refused it. Only your own ' +
+            "department's approver can answer for your department, and it needs the " +
+            'Confirm Community Participation permission. Show this to your ' +
+            'Solutions Hub administrator: the key is solutions.societal.confirm.'
+        );
+      case 'link':
+        return new Error(
+          'The link was not saved — the database refused it. Linking an ' +
+            'initiative to an event changes the initiative, so it needs the same ' +
+            'standing as editing it.'
+        );
+    }
+  }
+
+  if (error.code === FK_VIOLATION) {
+    return new Error(
+      action === 'link'
+        ? 'That event no longer exists — it was most likely removed while this ' +
+          'page was open. Reload and pick again.'
+        : 'This points at a record that no longer exists — most likely the ' +
+          'department or the initiative was removed while this page was open. ' +
+          'Reload the page and try again.'
+    );
+  }
+
+  if (error.code === CHECK_VIOLATION) {
+    return new Error(
+      'The database rejected these values. Hours cannot be negative, and a ' +
+        'department can only be pending, confirmed or declined.'
+    );
+  }
+
+  return new Error(error.message || 'The change could not be saved.');
+}
+
+/**
+ * The silent half, again — and it bites harder here than anywhere else in this
+ * file. The UPDATE policy on the participants table is what decision D3 is made
+ * of, and an RLS USING clause does not raise, it filters: an answer the policy
+ * refuses comes back as HTTP 200 and an empty array. Without this, a department
+ * head would press Confirm, see no error, and their department would still be
+ * counted nowhere.
+ */
+function participantRefusedSilently(action: ParticipantAction): Error {
+  switch (action) {
+    case 'name':
+      return new Error(
+        'No departments were added. The database accepted the request and then ' +
+          'returned no rows, which means nothing was written — show this to your ' +
+          "Solutions Hub administrator, who can check the register's rules for " +
+          'your role on this institution.'
+      );
+    case 'confirm':
+    case 'decline':
+      return new Error(
+        'Nothing was changed. Your department does not appear to be named on ' +
+          'this initiative — whoever recorded it has to name your department ' +
+          'before you can answer for it. If you believe it was named, reload the ' +
+          'page to see the current list.'
+      );
+    case 'link':
+      return new Error(
+        'The link was not saved. Either the initiative has been changed by ' +
+          'someone else, or your role cannot edit it. Reload to see its current ' +
+          'state.'
+      );
+  }
+}
+
+/**
+ * PostgREST/Postgres codes that mean "this function does not exist".
+ *
+ * Distinct from `RELATION_MISSING_CODES`: a missing FUNCTION and a missing
+ * TABLE arrive with different codes, and the read functions are the only thing
+ * in this feature that can be missing while the table is present — that is
+ * exactly what a half-applied migration looks like.
+ */
+const FUNCTION_MISSING_CODES = new Set(['42883', 'PGRST202']);
+
+/**
+ * Both read functions RAISE EXCEPTION rather than returning an empty result
+ * when the caller lacks `solutions.societal.view`, and the sentence they raise
+ * is already written for a human. Pass it through instead of replacing it with
+ * a worse paraphrase — and never let it become an empty totals object, which
+ * would render as "the cluster has done no community work".
+ */
+function describeTotalsFailure(error: PostgrestLikeError): Error {
+  if (FUNCTION_MISSING_CODES.has(error.code ?? '') || isRelationMissing(error)) {
+    return new EngagementParticipantsMissingError();
+  }
+  if (error.code === RAISED_BY_TRIGGER && error.message) return new Error(error.message);
+  return new Error(error.message || 'The community engagement totals could not be read.');
+}
+
+const PARTICIPANT_SELECT = `
+  id, engagement_id, department_id, institution_id, hours_contributed, is_lead,
+  confirmation_status, confirmed_by, confirmed_at, decline_note,
+  created_at, updated_at,
+  department:departments!department_id(department_name, display_name),
+  institution:institutions!institution_id(name, display_name),
+  confirmer:profiles!confirmed_by(full_name)
+`;
+
+interface JoinedParticipantRow {
+  id: string;
+  engagement_id: string;
+  department_id: string;
+  institution_id: string | null;
+  hours_contributed: number | string | null;
+  is_lead: boolean | null;
+  confirmation_status: string;
+  confirmed_by: string | null;
+  confirmed_at: string | null;
+  decline_note: string | null;
+  created_at: string;
+  updated_at: string;
+  department: { department_name: string | null; display_name: string | null } | null;
+  institution: { name: string | null; display_name: string | null } | null;
+  confirmer: { full_name: string | null } | null;
+}
+
+/**
+ * Like `toNumber`, but NULL survives.
+ *
+ * `hours_contributed` is nullable on purpose — "confirmed without stating
+ * hours" is a different fact from "confirmed zero hours" — so the 0 that
+ * `toNumber` returns for an absent value would invent a claim the department
+ * never made.
+ */
+function toNullableNumber(value: number | string | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isParticipantStatus(value: string): value is ParticipantConfirmationStatus {
+  return value === 'pending' || value === 'confirmed' || value === 'declined';
+}
+
+function mapParticipantRow(row: JoinedParticipantRow): CommunityEngagementParticipant {
+  return {
+    id: row.id,
+    engagement_id: row.engagement_id,
+    department_id: row.department_id,
+    institution_id: row.institution_id,
+    hours_contributed: toNullableNumber(row.hours_contributed),
+    is_lead: row.is_lead === true,
+    // The CHECK constraint makes anything else unreachable. If it were reached,
+    // reporting it as 'confirmed' would add a department to the shared-credit
+    // totals on the strength of a value nobody understands, so an unknown state
+    // reads as the one that counts nowhere.
+    confirmation_status: isParticipantStatus(row.confirmation_status)
+      ? row.confirmation_status
+      : 'pending',
+    confirmed_by: row.confirmed_by,
+    confirmed_at: row.confirmed_at,
+    decline_note: row.decline_note,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    // `display_name` first, then the formal name — the same order
+    // fn_community_college_totals() uses for a college, so a department reads
+    // the same on this list as its college does on the totals. Null when the
+    // join returned nothing, which under RLS means "not readable from here" and
+    // is a different fact from "unnamed": no placeholder is invented for it.
+    department_name: row.department?.display_name || row.department?.department_name || null,
+    institution_name: row.institution?.display_name || row.institution?.name || null,
+    confirmed_by_name: row.confirmer?.full_name ?? null,
+  };
+}
+
+// ============================================
 // SERVICE
 // ============================================
 
@@ -645,5 +894,353 @@ export class SocietalService extends BaseService {
       status: row.status,
       last_activity_at: row.last_activity_at ?? null,
     };
+  }
+
+  // ==========================================
+  // JOINT DEPARTMENTS
+  // ==========================================
+
+  /**
+   * Every department named on one initiative, with where its confirmation has
+   * got to. Lead first, then in the order they were named.
+   *
+   * An empty array is ambiguous in exactly the way `listByDepartment`'s is: the
+   * SELECT policy filters rather than raising, so "nobody has been named" and
+   * "you cannot read this initiative" both arrive as `[]`. The caller should
+   * say so rather than claim the initiative was run by nobody.
+   */
+  static async listParticipants(engagementId: string): Promise<CommunityEngagementParticipant[]> {
+    const { data, error } = await this.supabase
+      .from('sh_community_engagement_participants')
+      .select(PARTICIPANT_SELECT)
+      .eq('engagement_id', engagementId)
+      .order('is_lead', { ascending: false })
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      if (isRelationMissing(error)) throw new EngagementParticipantsMissingError();
+      throw new Error(
+        error.message
+          ? `The list of participating departments could not be read: ${error.message}`
+          : 'The list of participating departments could not be read.'
+      );
+    }
+
+    return ((data ?? []) as unknown as JoinedParticipantRow[]).map(mapParticipantRow);
+  }
+
+  /**
+   * Name departments as having taken part. They land `pending` — naming a
+   * department is a CLAIM, and only that department can turn it into a fact.
+   *
+   * This never writes `confirmed`, and could not if it tried: the BEFORE INSERT
+   * trigger demotes a client-supplied `confirmed` back to `pending`. It decides
+   * that from `current_setting('role')` — the role PostgREST sets per request —
+   * together with the lead trigger's own transaction-local stamp, NOT from
+   * `current_user`, which inside a SECURITY DEFINER body is the function owner
+   * on every path and made the first version of that guard dead code.
+   * `institution_id` is not sent either — the same trigger sets it from the
+   * department's own college, so sending it would be a claim the database
+   * overwrites.
+   *
+   * Departments already on the initiative are LEFT EXACTLY AS THEY ARE and
+   * reported back separately. Re-inserting them would either fail the unique
+   * constraint or, with an upsert, reset a confirmation somebody already gave —
+   * and their existing row is the truth.
+   */
+  static async addParticipants(
+    engagementId: string,
+    departmentIds: string[]
+  ): Promise<AddParticipantsOutcome> {
+    const wanted = Array.from(
+      new Set(departmentIds.map((id) => id.trim()).filter((id) => id.length > 0))
+    );
+    if (wanted.length === 0) throw new Error('Pick at least one department.');
+
+    // Read first, so "already named" can be reported as itself instead of
+    // arriving as a unique-constraint failure that reads like a system fault.
+    const existing = await this.listParticipants(engagementId);
+    const existingIds = new Set(existing.map((p) => p.department_id));
+    const alreadyNamed = wanted.filter((id) => existingIds.has(id));
+    const fresh = wanted.filter((id) => !existingIds.has(id));
+
+    if (fresh.length === 0) return { added: [], alreadyNamed };
+
+    const { data, error } = await this.supabase
+      .from('sh_community_engagement_participants')
+      .insert(
+        fresh.map((department_id) => ({
+          engagement_id: engagementId,
+          department_id,
+          confirmation_status: 'pending',
+        }))
+      )
+      .select(PARTICIPANT_SELECT);
+
+    if (error) throw describeParticipantFailure(error as PostgrestLikeError, 'name');
+
+    const rows = (data ?? []) as unknown as JoinedParticipantRow[];
+    if (rows.length === 0) throw participantRefusedSilently('name');
+    if (rows.length !== fresh.length) {
+      // A multi-row insert is one statement, so this should be unreachable. It
+      // is checked anyway because the alternative to checking is returning a
+      // shorter list than was asked for and letting the caller announce every
+      // department as added.
+      throw new Error(
+        `Only ${rows.length} of ${fresh.length} departments were added. Reload the ` +
+          'list to see which ones are actually on this initiative.'
+      );
+    }
+
+    return { added: rows.map(mapParticipantRow), alreadyNamed };
+  }
+
+  /**
+   * The caller's OWN department, derived from the session by the database.
+   *
+   * WHY THIS EXISTS AT ALL, and why neither answer method takes a
+   * `departmentId`. Deriving WHO from `auth.uid()` while accepting WHAT as an
+   * argument is still forgeable — PostgREST exposes every function and table
+   * granted to `authenticated`, so this service is never the only caller.
+   * Beyond that, the UPDATE policy's first two branches are
+   * `is_super_admin() OR is_admin()`, which pass for EVERY row on the
+   * initiative: an administrator running an update filtered only by
+   * `engagement_id` would confirm every named department in one statement, on
+   * behalf of departments that never agreed. That is precisely the thing the
+   * confirmation column exists to prevent, so the department is pinned here and
+   * the policy is treated as the second lock, not the first.
+   *
+   * `sh_user_department_id()` is the policy's own derivation, so it cannot
+   * disagree with it. The fallback runs that function's exact body — the
+   * signed-in user's own `profiles.department_id` — for environments where the
+   * helper is not exposed over PostgREST; both paths read the department from
+   * the session and neither accepts one from the caller.
+   */
+  private static async callerDepartmentId(): Promise<string> {
+    const { data, error } = await this.supabase.rpc('sh_user_department_id');
+    if (!error && typeof data === 'string' && data.length > 0) return data;
+
+    const { data: authData } = await this.supabase.auth.getUser();
+    const userId: string | null = authData?.user?.id ?? null;
+    if (!userId) {
+      throw new Error('Your session has expired. Sign in again to answer for your department.');
+    }
+
+    const { data: profile, error: profileError } = await this.supabase
+      .from('profiles')
+      .select('department_id')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (profileError) {
+      throw new Error(
+        'Your department could not be worked out from your account, so nothing ' +
+          'was changed. Reload the page and try again.'
+      );
+    }
+
+    const departmentId = (profile as { department_id?: string | null } | null)?.department_id;
+    if (!departmentId) {
+      throw new Error(
+        'Your account is not attached to a department, so there is no department ' +
+          'for you to answer for. Ask your administrator to set your department.'
+      );
+    }
+    return departmentId;
+  }
+
+  /**
+   * The one write both answers share. Filtered by the caller's own derived
+   * department, never by one supplied to it.
+   *
+   * `confirmed_by` and `confirmed_at` are not sent: the BEFORE UPDATE trigger
+   * sets them from `auth.uid()` and pins `engagement_id`, `department_id` and
+   * `is_lead` to their old values, so sending them would be a claim the
+   * database overwrites. `updated_at` likewise.
+   */
+  private static async answerAsOwnDepartment(
+    engagementId: string,
+    action: 'confirm' | 'decline',
+    patch: Record<string, unknown>
+  ): Promise<CommunityEngagementParticipant> {
+    const departmentId = await this.callerDepartmentId();
+
+    const { data, error } = await this.supabase
+      .from('sh_community_engagement_participants')
+      .update(patch)
+      .eq('engagement_id', engagementId)
+      .eq('department_id', departmentId)
+      .select(PARTICIPANT_SELECT);
+
+    if (error) throw describeParticipantFailure(error as PostgrestLikeError, action);
+
+    const rows = (data ?? []) as unknown as JoinedParticipantRow[];
+    if (rows.length === 0) throw participantRefusedSilently(action);
+
+    return mapParticipantRow(rows[0]);
+  }
+
+  /**
+   * The caller's own department confirms that it took part, and says for how
+   * many hours.
+   *
+   * Hours are THIS department's, not the initiative's total — the per-college
+   * read sums them, while reach stays shared and undivided. `null` is allowed
+   * and means "confirmed without stating hours", which is a different fact from
+   * zero and is stored as a different value.
+   */
+  static async confirmParticipation(
+    engagementId: string,
+    hoursContributed: number | null
+  ): Promise<CommunityEngagementParticipant> {
+    if (hoursContributed !== null) {
+      if (!Number.isFinite(hoursContributed) || hoursContributed < 0) {
+        throw new Error('Hours contributed cannot be negative.');
+      }
+    }
+
+    return this.answerAsOwnDepartment(engagementId, 'confirm', {
+      confirmation_status: 'confirmed',
+      hours_contributed: hoursContributed,
+    });
+  }
+
+  /**
+   * The caller's own department says it did not take part.
+   *
+   * A note is required, mirroring the rejection half of `decide()`: a bare
+   * "no" leaves whoever recorded the initiative unable to tell a mistaken name
+   * from a genuine non-participation, and the row is deliberately kept rather
+   * than deleted precisely so that distinction survives.
+   */
+  static async declineParticipation(
+    engagementId: string,
+    note: string
+  ): Promise<CommunityEngagementParticipant> {
+    const trimmed = note?.trim() ?? '';
+    if (!trimmed) {
+      throw new Error(
+        'Say why your department did not take part, so whoever recorded this can ' +
+          'correct it.'
+      );
+    }
+
+    return this.answerAsOwnDepartment(engagementId, 'decline', {
+      confirmation_status: 'declined',
+      decline_note: trimmed,
+    });
+  }
+
+  /**
+   * Point an initiative at the event it was run as, or clear that link.
+   *
+   * The returning clause names `id, event_id` explicitly rather than reusing
+   * `ENGAGEMENT_SELECT`. `event_id` does not exist until 20261226113000 is
+   * applied, and adding it to the shared select would make every EXISTING read
+   * in this file fail on any environment that is behind — a link nobody has
+   * used yet is not worth breaking the register that is already live.
+   */
+  private static async setEngagementEvent(
+    engagementId: string,
+    eventId: string | null
+  ): Promise<{ engagement_id: string; event_id: string | null }> {
+    const { data, error } = await this.supabase
+      .from('sh_community_engagements')
+      .update({ event_id: eventId })
+      .eq('id', engagementId)
+      .select('id, event_id');
+
+    if (error) throw describeParticipantFailure(error as PostgrestLikeError, 'link');
+
+    const rows = (data ?? []) as unknown as Array<{ id: string; event_id: string | null }>;
+    if (rows.length === 0) throw participantRefusedSilently('link');
+
+    return { engagement_id: rows[0].id, event_id: rows[0].event_id ?? null };
+  }
+
+  /** Record that this initiative and this event are the same piece of work. */
+  static async linkEngagementToEvent(
+    engagementId: string,
+    eventId: string
+  ): Promise<{ engagement_id: string; event_id: string | null }> {
+    if (!eventId?.trim()) throw new Error('Pick an event to link this initiative to.');
+    return this.setEngagementEvent(engagementId, eventId.trim());
+  }
+
+  /**
+   * Break the link. The initiative itself is untouched — unlinking says the
+   * calendar entry was the wrong one, never that the work did not happen.
+   */
+  static async unlinkEngagementFromEvent(
+    engagementId: string
+  ): Promise<{ engagement_id: string; event_id: string | null }> {
+    return this.setEngagementEvent(engagementId, null);
+  }
+
+  /**
+   * The cluster's own totals: every approved initiative counted exactly once,
+   * however many colleges ran it.
+   *
+   * Reports FEWER beneficiaries than `getCollegeTotals()` summed over every
+   * college, by exactly the joint initiatives. That gap is the decision, not a
+   * bug — see the file header on `types/community-collaboration.ts`.
+   */
+  static async getClusterTotals(): Promise<CommunityClusterTotals> {
+    const { data, error } = await this.supabase.rpc('fn_community_cluster_totals');
+
+    if (error) throw describeTotalsFailure(error as PostgrestLikeError);
+
+    const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null | undefined;
+    // The function aggregates, so it returns exactly one row even over an empty
+    // register — zeros and NULL averages. No row at all is therefore not "the
+    // cluster has done nothing"; it is a read that did not work, and rendering
+    // it as a page full of zeros would put a false number in front of a reader.
+    if (!row) {
+      throw new Error(
+        'The cluster community totals could not be read — the database answered ' +
+          'with no figures at all. Nothing on this page is safe to read as a total.'
+      );
+    }
+
+    return {
+      initiatives: toNumber(row.initiatives as number | string | null),
+      total_beneficiaries: toNumber(row.total_beneficiaries as number | string | null),
+      total_hours: toNumber(row.total_hours as number | string | null),
+      joint_initiatives: toNumber(row.joint_initiatives as number | string | null),
+      solo_initiatives: toNumber(row.solo_initiatives as number | string | null),
+      // NULL survives on purpose: "nothing recorded yet" must not become a 0
+      // that reads as "joint initiatives reach nobody".
+      avg_reach_joint: toNullableNumber(row.avg_reach_joint as number | string | null),
+      avg_reach_solo: toNullableNumber(row.avg_reach_solo as number | string | null),
+    };
+  }
+
+  /**
+   * One row per (college, approved initiative) where that college has at least
+   * one CONFIRMED participating department — NOT one row per college, despite
+   * the name this method is called by elsewhere.
+   *
+   * An empty array here is genuinely "nothing confirmed yet", not an RLS
+   * silence: the function is SECURITY DEFINER and RAISES when the caller may
+   * not read the register, so a refusal arrives as an error rather than as an
+   * empty list.
+   */
+  static async getCollegeTotals(): Promise<CommunityCollegeEngagementRow[]> {
+    const { data, error } = await this.supabase.rpc('fn_community_college_totals');
+
+    if (error) throw describeTotalsFailure(error as PostgrestLikeError);
+
+    const rows = (data ?? []) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      institution_id: String(row.institution_id ?? ''),
+      institution_name: (row.institution_name as string | null) ?? '',
+      engagement_id: String(row.engagement_id ?? ''),
+      title: (row.title as string | null) ?? '',
+      engagement_date: (row.engagement_date as string | null) ?? '',
+      beneficiaries_count: toNumber(row.beneficiaries_count as number | string | null),
+      hours_contributed: toNumber(row.hours_contributed as number | string | null),
+      is_shared: row.is_shared === true,
+      shared_with: toNumber(row.shared_with as number | string | null),
+    }));
   }
 }

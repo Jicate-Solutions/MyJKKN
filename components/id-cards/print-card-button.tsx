@@ -35,6 +35,7 @@ import {
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   enqueuePrintJob,
+  requeuePrintJob,
   fetchIdCardTemplates,
   getLastTemplateId,
   resolveProfileIdByEmail,
@@ -50,6 +51,7 @@ import {
 import { resolveLearnerInstitutions } from '@/lib/services/id-cards/card-preview-client';
 import { pickTemplateForInstitution } from '@/lib/services/id-cards/institution-template';
 import { distinctPurposes, type TemplateAudience } from '@/lib/id-cards/template-purpose';
+import { toastReplacementFee } from './replacement-fee-toast';
 
 // TWO empty states, two remedies. "No template exists" and "templates exist but
 // none is switched on" used to share one message, and the shared one pointed at
@@ -310,8 +312,48 @@ export function PrintCardButton({
           ? `ID card for ${personName} queued (fallback template — no active template for their institution)`
           : `ID card for ${personName} queued on “${choice.template.name}”`
       );
+    } else if (outcome.status === 'replacement_fee') {
+      // Not a queue collision: the free card has been used. Say the price and
+      // let the in-charge accept it; the acknowledged POST records the charge.
+      toastReplacementFee(personName, outcome, async () => {
+        setSubmitting(true);
+        const paid = await enqueuePrintJob(resolvedProfileId, choice.template.id, {
+          acknowledgeReplacementFee: true
+        });
+        setSubmitting(false);
+        if (paid.status === 'queued') {
+          toast.success(paid.chargeMessage ?? `Replacement ID card for ${personName} queued`);
+        } else if (paid.status === 'already_queued') {
+          toast('Already in the print queue');
+        } else {
+          toast.error(paid.message);
+        }
+      });
     } else if (outcome.status === 'already_queued') {
-      toast(`Already in the print queue`);
+      // Offer to replace the waiting job instead of a dead end.
+      toast(
+        (t) => (
+          <span className="flex items-center gap-3">
+            <span>Already in the print queue.</span>
+            <button
+              type="button"
+              className="rounded-md border px-2 py-1 text-xs font-medium hover:bg-muted"
+              onClick={async () => {
+                toast.dismiss(t.id);
+                setSubmitting(true);
+                const again = await requeuePrintJob(resolvedProfileId, choice.template.id);
+                setSubmitting(false);
+                if (again.status === 'queued') toast.success(`Re-queued ID card for ${personName}`);
+                else if (again.status === 'already_queued') toast.error('Could not re-queue');
+                else toast.error(again.message);
+              }}
+            >
+              Cancel &amp; re-queue
+            </button>
+          </span>
+        ),
+        { duration: 8000 }
+      );
     } else {
       toast.error(outcome.message);
     }

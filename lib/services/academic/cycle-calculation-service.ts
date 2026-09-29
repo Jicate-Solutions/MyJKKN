@@ -12,8 +12,14 @@
 //   4. If target date is Sunday or holiday → return null (no classes)
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { describeCycleAnchorPhase } from '@/lib/utils/academic/cycle-anchor-phase';
-import type { CycleAnchorPhaseWarning } from '@/lib/utils/academic/cycle-anchor-phase';
+import {
+  alignedStartCycle,
+  describeCycleAnchorPhase
+} from '@/lib/utils/academic/cycle-anchor-phase';
+import type {
+  CycleAnchorPeer,
+  CycleAnchorPhaseWarning
+} from '@/lib/utils/academic/cycle-anchor-phase';
 
 /** A JSONB key in timetable_data for cycle format: "cycle-1", "cycle-2", etc. */
 export type CycleKey = `cycle-${number}`;
@@ -107,15 +113,67 @@ export class CycleCalculationService {
 
     if (!institutionId || !startDate || !numCycles || numCycles < 2) return null;
 
+    const peers = await CycleCalculationService.fetchAnchorPeers({
+      institutionId,
+      startDate,
+      excludeTimetableId
+    });
+    if (!peers) return null;
+
+    return describeCycleAnchorPhase({
+      candidateStartDate: startDate,
+      numCycles,
+      peers
+    });
+  }
+
+  /**
+   * The day order this start date carries under the institution's own rotation
+   * — the value to put in `start_cycle`.
+   *
+   * Added: 2026-09-10 (BUG-006085). Unlike getAnchorPhaseWarning this answers
+   * even when the timetable is already in phase (it returns 1 then), so a
+   * "match the college day order" control can be offered unconditionally rather
+   * than only while something is wrong.
+   *
+   * Returns null when there is nothing to align against, including on error:
+   * the caller offers a suggestion, it must never block a save.
+   */
+  static async getAlignedStartCycle(params: {
+    institutionId: string;
+    startDate: string; // ISO: "YYYY-MM-DD"
+    numCycles: number;
+    excludeTimetableId?: string | null;
+  }): Promise<number | null> {
+    const { institutionId, startDate, numCycles, excludeTimetableId } = params;
+
+    if (!institutionId || !startDate || !numCycles || numCycles < 1) return null;
+
+    const peers = await CycleCalculationService.fetchAnchorPeers({
+      institutionId,
+      startDate,
+      excludeTimetableId
+    });
+    if (!peers) return null;
+
+    return alignedStartCycle({ candidateStartDate: startDate, numCycles, peers });
+  }
+
+  /** Shared reader for `fn_cycle_anchor_peers`. Null on any failure. */
+  private static async fetchAnchorPeers(params: {
+    institutionId: string;
+    startDate: string;
+    excludeTimetableId?: string | null;
+  }): Promise<CycleAnchorPeer[] | null> {
     const supabase = createClientSupabaseClient();
     // `fn_cycle_anchor_peers` was added 2026-08-17 and is not yet in the
     // generated types/supabase.ts, which enumerates RPC names as a union. Cast
     // the call rather than hand-editing a generated file; it types correctly on
     // the next `generate_typescript_types` run, and this line can drop the cast.
     const { data, error } = await (supabase.rpc as any)('fn_cycle_anchor_peers', {
-      p_institution_id: institutionId,
-      p_start_date: startDate,
-      p_exclude_timetable_id: excludeTimetableId ?? null
+      p_institution_id: params.institutionId,
+      p_start_date: params.startDate,
+      p_exclude_timetable_id: params.excludeTimetableId ?? null
     });
 
     if (error) {
@@ -123,15 +181,11 @@ export class CycleCalculationService {
       return null;
     }
 
-    return describeCycleAnchorPhase({
-      candidateStartDate: startDate,
-      numCycles,
-      peers: (data ?? []).map((row: any) => ({
-        anchorDate: row.anchor_date,
-        timetableCount: row.timetable_count,
-        workingDayGap: row.working_day_gap
-      }))
-    });
+    return (data ?? []).map((row: any) => ({
+      anchorDate: row.anchor_date,
+      timetableCount: row.timetable_count,
+      workingDayGap: row.working_day_gap
+    }));
   }
 
   /**

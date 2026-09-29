@@ -102,6 +102,49 @@ export const STAY_TOLERANCE_MINUTES = 5;
  * Pass `endThresholdHHMM` as null when no end time is available — the
  * heartbeat branch is then skipped and only the quiz-live proxy can satisfy
  * presence.
+ *
+ * ── BOTH BRANCHES ARE PROXIES. NEITHER MEASURES PRESENCE AT THE END. ──
+ *
+ * This gate is what replaced `ai_pulse_live_attendance.left_at`, a column that
+ * was never once written — 0 of 3,631 production rows — and therefore handed
+ * every caller a confident `null` that read as "never left" rather than "never
+ * recorded". That column is gone from application code (PR #3164). The point
+ * of this block is that the REPLACEMENT is weaker than it looks, so nobody
+ * trades one false certainty for another:
+ *
+ *   Branch 1 (heartbeat) is a RENDERING, not an observation of leaving.
+ *     `stayed_until` and `last_heartbeat_at` co-occur on exactly the same
+ *     2,568 rows — 0 rows carry one without the other — and `stayed_until =
+ *     to_char(last_heartbeat_at AT TIME ZONE 'Asia/Kolkata', 'HH24:MI')` on
+ *     2,568 of 2,568. "Stayed to the end" strictly means "a final heartbeat
+ *     arrived". An abandoned open tab satisfies it; a learner who watched the
+ *     whole session on their phone does not.
+ *
+ *   Branch 2 exists BECAUSE branch 1 under-reads, and the margin is large.
+ *     646 learners sat the end-of-session quiz with no `stayed_until` at all,
+ *     and 547 of them PASSED it. They were provably present at the end, and
+ *     the heartbeat alone scored every one of them absent. That cohort is why
+ *     the quiz-live branch is not an optimisation: remove it and this gate
+ *     goes back to reading ~0% platform-wide (see 868683f7cd).
+ *
+ * So, for anyone reading this verdict:
+ *   - TRUE  means "we observed something consistent with presence" — never
+ *     "we measured them present".
+ *   - FALSE means "we measured nothing" — never "they left". Do not render it
+ *     as an absence, a drop-off, or a duration. An empty answer is not proof
+ *     of absence.
+ *   - There is still NO true leave-time sensor anywhere in this system. The
+ *     real fix is the Meet webhook (`app/api/ai-pulse/meet/webhook`), which is
+ *     written and correct but has no caller; wiring it up needs Google
+ *     Workspace configuration that does not exist yet.
+ *   - `app/api/cron/ai-pulse-anomaly-scan` deliberately reads the RAW
+ *     `signals.stayed_until` rather than calling this helper, because the
+ *     quiz-live branch would defeat its quiz-passed-without-attending
+ *     detector. That divergence is intentional — do not "centralise" it here.
+ *
+ * Figures above come from the production measurement dated 2026-08-21 that is
+ * recorded in `supabase/SQL_FILE_INDEX.md`; they are cited here, not
+ * re-measured by this change.
  */
 export function isPresentAtEnd(
   signals: Pick<

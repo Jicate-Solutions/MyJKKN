@@ -17,9 +17,16 @@
  *
  * Both of those are assertions here rather than prose, because both are one
  * careless tidy-up away from coming back.
+ *
+ * THE STRIP IS FOLDED ON LOAD (Director, 2026-09-16), so the card assertions
+ * below open it first. That is not a workaround for the test — it is the
+ * behaviour: ten write-ups cost him two and a half phone screens before he
+ * reached the plain list he came for, so the cards are behind one tap now. The
+ * fold is asserted in its own case, both halves of it: nothing from a card on
+ * load, and everything from the cards after the header is tapped.
  */
 import '@testing-library/jest-dom';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, afterEach, beforeEach } from 'vitest';
 
 import { HighlightsStrip } from '@/components/changelog/highlights-strip';
@@ -73,9 +80,40 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/** Tap the header row open and hand back the button, so a case can assert on it. */
+async function expandStrip(): Promise<HTMLElement> {
+  const header = await screen.findByRole('button', { name: /Worth knowing/ });
+  fireEvent.click(header);
+  return header;
+}
+
 describe("What's New strip — the age of a card", () => {
+  it('is folded on load, and opens on a tap of the header row', async () => {
+    render(<HighlightsStrip modules={MODULES} />);
+
+    // Folded: the header row is there, saying what is behind it and how much,
+    // and not one word of a card is.
+    const header = await screen.findByRole('button', { name: /Worth knowing/ });
+    expect(header).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText(/2 recent changes explained in plain English/)).toBeInTheDocument();
+    expect(screen.queryByText('Split an invoice without raising a new one.')).toBeNull();
+    expect(screen.queryByText('Receipt totals add up again.')).toBeNull();
+
+    // One tap on the row — not on a chevron — and the write-ups are there.
+    fireEvent.click(header);
+    expect(header).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Split an invoice without raising a new one.')).toBeInTheDocument();
+    expect(screen.getByText('Receipt totals add up again.')).toBeInTheDocument();
+
+    // And shuts again, because he has to be able to put it back.
+    fireEvent.click(header);
+    expect(header).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('Split an invoice without raising a new one.')).toBeNull();
+  });
+
   it('renders the day each change landed, on every card', async () => {
     render(<HighlightsStrip modules={MODULES} />);
+    await expandStrip();
     // Both dates, in the reader's own words rather than a raw ISO string. The
     // older one is the point: without it that card is indistinguishable from
     // the one above it, which shipped five weeks later.
@@ -93,7 +131,11 @@ describe("What's New strip — the age of a card", () => {
     // have no write-up at all, so "the 2 most recent changes" would be a small
     // lie in a place a reader has no way to check.
     render(<HighlightsStrip modules={MODULES} />);
+    // Folded, so this reads the sub-heading on the closed row — which is where
+    // the claim would be made, and the only text a reader sees on load.
     await waitFor(() => expect(screen.getByText('Worth knowing')).toBeInTheDocument());
+    expect(screen.queryByText(/most recent changes/i)).toBeNull();
+    await expandStrip();
     expect(screen.queryByText(/most recent changes/i)).toBeNull();
   });
 

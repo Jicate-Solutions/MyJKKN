@@ -37,7 +37,7 @@ import {
   ExternalLink,
   Sparkles,
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { formatIstDate, formatIstTime } from '@/lib/utils/date-format';
 
 // ============================================================================
 // Stats Cards
@@ -280,7 +280,7 @@ export default function MarathonCertificatesPage() {
           try {
             return (
               <span className="text-sm text-muted-foreground">
-                {format(new Date(d), 'dd MMM yyyy, HH:mm')}
+                {formatIstDate(d, { day: '2-digit', month: 'short', year: 'numeric' })}, {formatIstTime(d, { hour: '2-digit', minute: '2-digit', hour12: false })}
               </span>
             );
           } catch {

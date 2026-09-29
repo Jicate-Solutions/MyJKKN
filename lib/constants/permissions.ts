@@ -538,6 +538,9 @@ export const PERMISSION_CATEGORIES = [
       { key: 'staff.edit', label: 'Edit Employees' },
       { key: 'staff.delete', label: 'Delete Employees' },
       { key: 'staff.status_update', label: 'Update Employee Status' },
+      // 2026-09-25 — lets a non-super-admin (HR Head) change staff.role_key,
+      // never onto an is_privileged role (trg_staff_guard_role_key).
+      { key: 'staff.role.change', label: 'Change Employee Role' },
       { key: 'staff.class_incharges.view', label: 'View Class Incharges' },
       { key: 'staff.class_incharges.create', label: 'Assign Class Incharges' },
       { key: 'staff.class_incharges.delete', label: 'Remove Class Incharges' },
@@ -754,7 +757,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'learners.leave_onduty.apply', label: 'Apply for Leave/OnDuty (Students)' },
       { key: 'learners.leave_onduty.view', label: 'View My Applications (Students)' },
       { key: 'learners.leave_onduty.edit', label: 'Edit My Applications (Students)' },
-      { key: 'learners.leave_onduty.cancel', label: 'Cancel My Applications (Students)' }
+      { key: 'learners.leave_onduty.cancel', label: 'Cancel My Applications (Students)' },
+
+      // Learner Leave Types + Approval Flows (global settings, 2027-04)
+      { key: 'learners.leave_types.view', label: 'View Learner Leave Types & Approval Flows' },
+      { key: 'learners.leave_types.manage', label: 'Manage Learner Leave Types & Approval Flows' }
     ]
   },
   {
@@ -788,11 +795,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.schedule.create', label: 'Create Schedule' },
       { key: 'billing.schedule.update', label: 'Update Schedule' },
       { key: 'billing.schedule.delete', label: 'Delete Schedule' },
-      // Cancelling a bill writes off money, so it is deliberately NOT
-      // billing.schedule.update: that key is held by 6 roles and also covers
-      // fixing a typo. fn_cancel_student_bill gates on THIS key, and a trigger
-      // rejects any other route into status='cancelled'.
-      { key: 'billing.schedule.cancel', label: 'Cancel Bills' },
+      // Cancelling a bill writes off money, so it is a REQUEST that an approver
+      // decides (migration 20260928100000). This key only lets a role RAISE the
+      // request (fn_request_bill_cancellation); who DECIDES comes from
+      // billing_bill_cancel_approval_flows, not a key. Held by Chief Accountant
+      // + Accountant Assistant. The old direct billing.schedule.cancel key was
+      // retired with fn_cancel_student_bill.
+      { key: 'billing.schedule.cancel.request', label: 'Request Bill Cancellation' },
       // Bulk bill creation: the "Bulk Create" button on /billing/schedule and
       // the /billing/schedule/bulk-create flow (pick many learners, or upload
       // an Excel of bills). Separate from billing.schedule.create so the bulk
@@ -1078,6 +1087,19 @@ export const PERMISSION_CATEGORIES = [
       // overriding a record outright and exporting the tamper log are six
       // different amounts of trust.
       { key: 'hr.attendance.mark_self', label: 'Mark Own Attendance Punch' },
+
+      // ── Staff photograph — the reviewer side (2026-09-16) ────────────────
+      // ONE key, not two. Submitting your own photograph is deliberately
+      // ungated: fn_submit_my_staff_photo() resolves the staff row from
+      // auth.uid() itself, so a caller can only ever submit for themselves and
+      // a permission key would add nothing but a rollout blocker — nobody could
+      // photograph themselves until 22 roles were re-granted.
+      //
+      // Reviewing is the institutional act (Director ruling 2026-09-03: a
+      // self-supplied photograph is not evidence the institution photographed
+      // anyone), so THAT is what is gated, and the RLS + the review function
+      // both demand this key.
+      { key: 'hr.staff_photo.review', label: 'Approve Team Member Photographs' },
       { key: 'hr.attendance.view_all', label: 'View Attendance for Everyone' },
       { key: 'hr.attendance.approve_team', label: 'Approve Attendance for Own Team' },
       { key: 'hr.attendance.regularize_approve', label: 'Approve Attendance Regularization Requests' },
@@ -1225,6 +1247,10 @@ export const PERMISSION_CATEGORIES = [
         label: 'Approve Resource Requests'
       },
       { key: 'resources.approvals.reject', label: 'Reject Resource Requests' },
+      {
+        key: 'resources.reservations.communicate',
+        label: 'Message Reservation Users'
+      },
       { key: 'resources.analytics.view', label: 'View Resource Analytics' },
       { key: 'resources.reports.view', label: 'View Resource Reports' },
       { key: 'resources.maintenance.view', label: 'View Resource Maintenance' },
@@ -2073,6 +2099,17 @@ export const PERMISSION_CATEGORIES = [
       // button that always fails. Renaming or removing either of these two
       // closes the department status review queue on /solutions/departments.
       { key: 'solutions.societal.approve', label: 'Approve Community Engagements' },
+      // Joint initiatives (2026-09-18). One community initiative can be run by
+      // several departments across colleges; each named department confirms its
+      // OWN part, with hours. This key gates the UPDATE policy on
+      // `sh_community_engagement_participants`
+      // (20261226113000_community_engagement_joint_departments.sql), paired
+      // there with `department_id = sh_user_department_id()` so the key alone
+      // never lets one department confirm on another's behalf. Leaving it
+      // unregistered would make confirmation permanently admin-only, and the
+      // shared-credit rule it protects would count every department a lead
+      // chose to name.
+      { key: 'solutions.societal.confirm', label: 'Confirm Community Engagement Participation' },
 
       // Settings (tier-2 chip-leak sweep 2026-04-27)
       { key: 'solutions.settings.view', label: 'View Solutions Settings' }
@@ -2245,6 +2282,14 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.fees.config', label: 'Configure Fee Structure' },
       { key: 'campus_living.fees.waive', label: 'Waive Fee' },
       { key: 'campus_living.fees.refund', label: 'Refund Fee' },
+
+      // Billing Audit — hostel-learner bill coverage, fee-band and upgrade
+      // audit (/campus-living/billing-audit). Granted by migration
+      // 20260922120000 to hostel_office, chief_warden, executive_admin_officer,
+      // ceo, managing_director and accounts. Wardens deliberately excluded —
+      // this reads every hostel learner's band fee and outstanding balance.
+      { key: 'campus_living.billing_audit.view', label: 'View Hostel Billing Audit' },
+      { key: 'campus_living.billing_audit.export', label: 'Export Hostel Billing Audit' },
 
       // Deposits
       { key: 'campus_living.deposits.view', label: 'View Deposits' },
@@ -2766,6 +2811,11 @@ export const PERMISSION_CATEGORIES = [
       // tables (registrations, payment transactions, tournament matches …), so
       // it is deliberately not bundled into any existing events key.
       { key: 'events.delete', label: 'Delete Events (permanent — cascades registrations & payments)' },
+      // Edit any event in your institution (2026-09-28). Before this key, edit
+      // was ownership-only (creator / super admin), so Role Management had
+      // nothing to grant. DB authority: events_edit_permission_update, scoped by
+      // role_has_institution_access. Mirrored client-side in canEditEvent().
+      { key: 'events.edit', label: 'Edit Any Event in Your Institution (details, status, visibility)' },
       // Target sections (2026-09-07). Grants writing event_target_classes — the
       // sections an event is aimed at. Reading them rides events.view, so a
       // coordinator who can see an event can see who it is for; only changing
@@ -3733,6 +3783,17 @@ export const PERMISSION_CATEGORIES = [
       },
     ],
   },
+  {
+    // Added 2026-09-16 — Adoption loop (specs/2026-09-16-adoption-loop.md).
+    // Who may open /adoption: the principal of an institution sees which of
+    // their people use each shipped feature (names for their own institution
+    // only — ruling 7). Super admins bypass; granted to 'principal' by migration.
+    name: 'Feature Adoption',
+    key: 'adoption',
+    permissions: [
+      { key: 'adoption.view', label: 'View Feature Adoption For Own Institution' }
+    ]
+  }
 ];
 
 export const PERMISSIONS = {

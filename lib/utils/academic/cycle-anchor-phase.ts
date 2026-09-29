@@ -48,6 +48,52 @@ export interface CycleAnchorPhaseWarning {
   peerCount: number;
   /** Working days between the two anchors, for the explanatory line. */
   workingDayGap: number;
+  /**
+   * The day order this start date would carry if it rotated with the rest of
+   * the college — i.e. the value to put in `start_cycle` (BUG-006085).
+   *
+   * This is the remedy that does not require lying about when term begins.
+   */
+  suggestedStartCycle: number;
+}
+
+/**
+ * Which cycle the candidate's first working day carries under the institution's
+ * own rotation.
+ *
+ * Added: 2026-09-10 (BUG-006085). Before `start_cycle` existed a cycle
+ * timetable could only ever begin on Cycle 1, so a programme starting mid-term
+ * was out of phase with its college unless its start date happened to land a
+ * multiple of `num_cycles` working days from everyone else's anchor. The only
+ * remedy on offer was to move `start_date`, which misstates the term start —
+ * the same field, still doing two jobs.
+ *
+ * Returns null on incomplete input. The form calls this while the author is
+ * still typing, and defaulting to 1 there would silently overwrite a deliberate
+ * choice with a wrong one.
+ */
+export function alignedStartCycle(params: {
+  candidateStartDate: string | null | undefined;
+  numCycles: number | null | undefined;
+  peers: CycleAnchorPeer[] | null | undefined;
+}): number | null {
+  const { candidateStartDate, numCycles, peers } = params;
+
+  if (!candidateStartDate) return null;
+  if (!numCycles || numCycles < 1) return null;
+
+  const dominant = dominantCycleAnchor(peers);
+  if (!dominant) return null;
+
+  // fn_cycle_anchor_peers reports the gap sign-independently, so the direction
+  // has to come from the dates. An anchor EARLIER than this start date has
+  // already advanced `gap` working days by the time this timetable begins; a
+  // LATER anchor has yet to run them, so this start date sits `gap` days behind
+  // Cycle 1 and must count backwards through the rotation.
+  const gap = Math.abs(dominant.workingDayGap);
+  const signed = dominant.anchorDate <= candidateStartDate ? gap : -gap;
+
+  return (((signed % numCycles) + numCycles) % numCycles) + 1;
 }
 
 /**
@@ -101,11 +147,15 @@ export function describeCycleAnchorPhase(params: {
   const offset = Math.abs(dominant.workingDayGap) % numCycles;
   if (offset === 0) return null;
 
+  const suggestedStartCycle = alignedStartCycle({ candidateStartDate, numCycles, peers });
+  if (suggestedStartCycle === null) return null;
+
   return {
     offset,
     suggestedStartDate: dominant.anchorDate,
     peerCount: dominant.timetableCount,
-    workingDayGap: Math.abs(dominant.workingDayGap)
+    workingDayGap: Math.abs(dominant.workingDayGap),
+    suggestedStartCycle
   };
 }
 
@@ -119,6 +169,7 @@ export function formatCycleAnchorWarning(warning: CycleAnchorPhaseWarning): stri
     `${warning.peerCount} other active cycle ${tables} (anchored ${warning.suggestedStartDate}, ` +
     `${warning.workingDayGap} working days apart). Sessions shared with those cohorts — ` +
     `combined, allied and non-major electives — will show at a different hour here than ` +
-    `they do for everyone else.`
+    `they do for everyone else. Keep this start date and set "Day order on start date" to ` +
+    `Cycle ${warning.suggestedStartCycle} to rotate in step with them.`
   );
 }

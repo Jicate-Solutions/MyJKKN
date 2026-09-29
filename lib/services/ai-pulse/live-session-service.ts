@@ -42,10 +42,20 @@
  *     last_heartbeat_at — ISO, the last moment the learner was observed
  *     stayed_until      — the same instant rendered IST "HH:MM" (e.g. "19:28")
  *   Both are written together by `recordHeartbeat` and by the Meet webhook.
- *   The 4-AND gate consumes `stayed_until` (see `isPresentAtEnd`); the trend
- *   and participation surfaces test it for PRESENCE. Do NOT reintroduce a
- *   `left_at` read anywhere — it returns a confident null that reads as a real
- *   "0 minutes / never left" in any report that trusts it.
+ *   The 4-AND gate reaches "stayed" through `isPresentAtEnd`, which accepts
+ *   EITHER the `stayed_until` heartbeat OR a quiz taken in the live window;
+ *   the trend and participation surfaces test `stayed_until` for PRESENCE. Do
+ *   NOT reintroduce a `left_at` read anywhere — it returns a confident null
+ *   that reads as a real "0 minutes / never left" in any report that trusts it.
+ *
+ *   AND DO NOT TRUST THE REPLACEMENT EITHER. `stayed_until` is merely
+ *   `last_heartbeat_at` rendered as IST "HH:MM" (they co-occur on exactly the
+ *   same 2,568 rows, no exceptions), so it records that a final heartbeat
+ *   arrived, not that anyone was present. The full caveat — including the 646
+ *   learners who sat the live quiz with no `stayed_until` at all, 547 of whom
+ *   passed it — is documented once, on `isPresentAtEnd` in
+ *   `lib/services/live-engine/engagement-gates.ts`. Read it before you report
+ *   a leave time, a duration, or a drop-off from any of these signals.
  *
  * Permission gate:
  *   Page-level uses `aiPulse:view.self` (in PR #716). The service itself

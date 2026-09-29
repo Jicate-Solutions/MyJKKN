@@ -9,6 +9,7 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
 import { StudentValidationService, INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES } from '@/lib/services/auth/student-validation-service';
 import { SessionTrackingService } from '@/lib/services/analytics/session-tracking-service';
+import { scheduleFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
 
 /**
  * Path W ignition — fire-and-forget. Auto-provisions an invisible Cal.com backing
@@ -449,6 +450,8 @@ export async function GET(request: NextRequest) {
         // Path W: auto-provision invisible Cal.com identity (fire-and-forget, never blocks).
         // New-learner profile has no full_name yet → name falls back to email local-part.
         await scheduleCalProvision(user.id, newProfile.email ?? user.email);
+        // Adoption loop (ruling 1c): the app-wide daily sign-in line. Fire-and-forget.
+        await scheduleFeatureUse(supabase, FEATURE_KEYS.APP_LOGIN);
 
         // Create session tracking record
         try {
@@ -497,6 +500,8 @@ export async function GET(request: NextRequest) {
       // Path W: auto-provision invisible Cal.com identity (fire-and-forget, never blocks).
       // user.email is the authenticated email (always present); full_name from the profile.
       await scheduleCalProvision(user.id, user.email, actualProfile?.full_name);
+      // Adoption loop (ruling 1c): the app-wide daily sign-in line. Fire-and-forget.
+      await scheduleFeatureUse(supabase, FEATURE_KEYS.APP_LOGIN);
 
       // Create session tracking record for engagement analytics
       console.log('[Auth Callback] 🎯 Attempting to create analytics session...');

@@ -161,6 +161,123 @@ describe('WhatsNewView — filters', () => {
   });
 });
 
+/**
+ * The credits are a filter.
+ *
+ * Boobalan shipped two of the three fixture entries (one `fixed` in billing,
+ * one `new` in platform) and Janani the third (`new` in hr) — so one name
+ * narrows the list, and a name crossed with a kind narrows it further, without
+ * the fixture needing to grow.
+ *
+ * The chip's accessible name is "<name> <count> changes": the initials circle
+ * and the bare number are aria-hidden and the sr-only count spells it out.
+ */
+describe('WhatsNewView — picking a contributor', () => {
+  beforeEach(() => {
+    permissionsMock.current = { permissions: {}, isSuperAdmin: true, isLoading: false };
+  });
+
+  // `\s` not `\b`: the separator between the name and its count is the point of
+  // the assertion. A button's accessible name is its contents joined, and
+  // inline spans join with nothing between, so without the deliberate space in
+  // the sr-only count this resolves to "Boobalan2 changes" — announced as one
+  // word. The <span> these chips used to be had no computed name at all, so
+  // nothing caught it until they became buttons.
+  const chip = (name: string) => screen.getByRole('button', { name: new RegExp(`^${name}\\s`) });
+
+  it('narrows the list to that person and reports itself pressed', async () => {
+    render(<WhatsNewView />);
+    await waitFor(() =>
+      expect(screen.getByText('A receipt total ignored the discount')).toBeInTheDocument()
+    );
+
+    const boobalan = chip('Boobalan');
+    expect(boobalan).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(boobalan);
+
+    expect(boobalan).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('A receipt total ignored the discount')).toBeInTheDocument();
+    expect(screen.getByText('Sign-in remembers your last screen')).toBeInTheDocument();
+    expect(screen.queryByText('Bulk import for employee records')).not.toBeInTheDocument();
+  });
+
+  it('clears the filter when the same name is tapped again', async () => {
+    render(<WhatsNewView />);
+    await waitFor(() =>
+      expect(screen.getByText('A receipt total ignored the discount')).toBeInTheDocument()
+    );
+
+    fireEvent.click(chip('Boobalan'));
+    expect(screen.queryByText('Bulk import for employee records')).not.toBeInTheDocument();
+
+    fireEvent.click(chip('Boobalan'));
+    expect(chip('Boobalan')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByText('Bulk import for employee records')).toBeInTheDocument();
+  });
+
+  it('switches rather than adds when a different name is tapped', async () => {
+    render(<WhatsNewView />);
+    await waitFor(() =>
+      expect(screen.getByText('A receipt total ignored the discount')).toBeInTheDocument()
+    );
+
+    fireEvent.click(chip('Boobalan'));
+    fireEvent.click(chip('Janani'));
+
+    expect(chip('Boobalan')).toHaveAttribute('aria-pressed', 'false');
+    expect(chip('Janani')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Bulk import for employee records')).toBeInTheDocument();
+    expect(screen.queryByText('A receipt total ignored the discount')).not.toBeInTheDocument();
+    expect(screen.queryByText('Sign-in remembers your last screen')).not.toBeInTheDocument();
+  });
+
+  it('composes with the kind filter instead of replacing it', async () => {
+    render(<WhatsNewView />);
+    await waitFor(() =>
+      expect(screen.getByText('A receipt total ignored the discount')).toBeInTheDocument()
+    );
+
+    fireEvent.click(chip('Boobalan'));
+    fireEvent.click(screen.getByRole('button', { name: 'New' }));
+
+    // Boobalan's `new` one survives; his `fixed` one and Janani's `new` one do not.
+    expect(screen.getByText('Sign-in remembers your last screen')).toBeInTheDocument();
+    expect(screen.queryByText('A receipt total ignored the discount')).not.toBeInTheDocument();
+    expect(screen.queryByText('Bulk import for employee records')).not.toBeInTheDocument();
+  });
+
+  it('counts the whole visible set, so a chip promises what picking it shows', async () => {
+    render(<WhatsNewView />);
+    await waitFor(() =>
+      expect(screen.getByText('A receipt total ignored the discount')).toBeInTheDocument()
+    );
+
+    // Boobalan's chip says 2 before the filter, and must still say 2 after it —
+    // a count that moved with the filter would advertise a number the list
+    // below then contradicts.
+    expect(chip('Boobalan')).toHaveAccessibleName('Boobalan 2 changes');
+    fireEvent.click(chip('Boobalan'));
+    expect(chip('Boobalan')).toHaveAccessibleName('Boobalan 2 changes');
+    expect(chip('Janani')).toHaveAccessibleName('Janani 1 change');
+  });
+
+  it('names the person when the other filters leave them with nothing', async () => {
+    render(<WhatsNewView />);
+    await waitFor(() =>
+      expect(screen.getByText('A receipt total ignored the discount')).toBeInTheDocument()
+    );
+
+    // Janani shipped nothing that was a fix, so this pair is genuinely empty.
+    fireEvent.click(chip('Janani'));
+    fireEvent.click(screen.getByRole('button', { name: 'Fixed' }));
+
+    expect(screen.getByText('No changes match that')).toBeInTheDocument();
+    expect(
+      screen.getByText(/Janani has changes, but none that also match the other filters/)
+    ).toBeInTheDocument();
+  });
+});
+
 describe('WhatsNewView — a failed request', () => {
   it('shows the error card instead of crashing on a non-2xx', async () => {
     // The regression this guards: the hook used to call .json() without checking

@@ -25,8 +25,56 @@ import type {
   LeaveApprovalFlow,
   LeaveApprovalFlowStep,
   LeaveApproverEntry,
+  LeaveStaffGroup,
   LeaveStepQuorum,
 } from '@/types/hr-leave-types';
+
+/**
+ * Which flow governs a leave type for one staff group.
+ *
+ * PARITY: this is a line-for-line mirror of SQL
+ * `fn_hr_leave_pick_flow_for_group` (migration 20261225090000). Change one and
+ * you must change the other — the SQL is what decides a real request at apply
+ * time and on re-route, and this is what the editor shows the administrator.
+ * A disagreement would show one chain and run another.
+ *
+ * Precedence, most specific first:
+ *   1. this leave type + this group
+ *   2. this leave type + all staff
+ *   3. institution catch-all + this group
+ *   4. institution catch-all + all staff
+ *
+ * `group = null` means the group is unknown, and only ever matches an
+ * all-staff flow — never a group one.
+ */
+export function pickLeaveFlow<T extends Pick<LeaveApprovalFlow, 'conditions'>>(
+  flows: readonly T[],
+  leaveTypeId: string,
+  group: LeaveStaffGroup | null,
+): T | null {
+  const eligible = flows.filter((f) => {
+    const typeId = f.conditions?.leave_type_id ?? null;
+    const flowGroup = f.conditions?.staff_group ?? null;
+    if (typeId !== null && typeId !== leaveTypeId) return false;
+    if (flowGroup !== null && flowGroup !== group) return false;
+    return true;
+  });
+
+  // Rank rather than sort: the SQL orders by has-type DESC, has-group DESC, and
+  // these two booleans reproduce that in one pass without needing created_at,
+  // because the unique index allows only one active flow per slot.
+  let best: T | null = null;
+  let bestRank = -1;
+  for (const f of eligible) {
+    const rank =
+      (f.conditions?.leave_type_id ? 2 : 0) + (f.conditions?.staff_group ? 1 : 0);
+    if (rank > bestRank) {
+      best = f;
+      bestRank = rank;
+    }
+  }
+  return best;
+}
 
 /** Neither a role nor a person — "any permitted approver", the seeded-flow case. */
 const EMPTY_ENTRY: LeaveApproverEntry = {

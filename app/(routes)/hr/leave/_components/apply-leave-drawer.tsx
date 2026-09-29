@@ -27,7 +27,11 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { useApplyLeave } from '@/hooks/hr/use-leave';
-import { useLeavePeriodUsage, useLeaveAccruedAsOfMany } from '@/hooks/hr/use-hr-leave-types';
+import {
+  useEligibilityGatedTypeIds,
+  useLeavePeriodUsage,
+  useLeaveAccruedAsOfMany,
+} from '@/hooks/hr/use-hr-leave-types';
 import { useDayOccupancy } from '@/hooks/hr/use-day-occupancy';
 import { Progress } from '@/components/ui/progress';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
@@ -36,6 +40,11 @@ import { closedMonthsInRange, describeClosedMonths } from '@/types/hr-attendance
 import { getErrorMessage } from '@/lib/utils';
 import { formatDays } from './format';
 import { LeaveDocumentUpload } from './leave-document-upload';
+import { RequestEligibilityDialog } from './request-eligibility-dialog';
+import {
+  useRequestableGatedTypes,
+  type RequestableGatedType,
+} from '@/hooks/hr/use-leave-eligibility';
 import { leaveDocumentRequirement } from '@/lib/hr/leave-document-rule';
 import { LIMIT_PERIOD_LABELS } from '@/types/hr-leave-types';
 import type { HRLeaveBalanceWithType, LeaveDocument, LeaveDurationType } from '@/types/hr';
@@ -206,6 +215,12 @@ export function ApplyLeaveDrawer({
   // refused. Keyed on startDate, not today: trg_hla_leave_period_cap resolves the
   // window from the request's start_date, and a readout for a different month
   // would show a figure that is not the one enforced.
+  const { data: gatedTypeIds } = useEligibilityGatedTypeIds();
+
+  // Gated types this person cannot pick yet, and where they stand on each.
+  const { data: gatedTypes } = useRequestableGatedTypes(ctx.hrOrgId, ctx.employeeId);
+  const [eligibilityFor, setEligibilityFor] = useState<RequestableGatedType | null>(null);
+
   const { data: periodUsage } = useLeavePeriodUsage(
     ctx.employeeId || undefined,
     leaveTypeId || undefined,
@@ -253,6 +268,9 @@ export function ApplyLeaveDrawer({
         }
       : null,
     requestedDays,
+    // The certificate for an eligibility-gated type was given once, with the
+    // eligibility request, and approved before this type ever appeared here.
+    Boolean(selected && gatedTypeIds?.has(selected.leave_type_id)),
   );
 
   const reset = () => {
@@ -480,6 +498,57 @@ export function ApplyLeaveDrawer({
                     })}
                   </SelectContent>
                 </Select>
+
+                {/* TYPES THIS PERSON CANNOT PICK YET, and the way in.
+                    A gated type is absent from `options` by design — the
+                    balance view hides it until eligibility is approved — so
+                    without this the person has no way to discover that PH.D
+                    exists, let alone ask for it. Listed under the picker rather
+                    than inside it: they are not selectable, and a disabled
+                    SelectItem cannot say why or offer the next step. */}
+                {(gatedTypes ?? []).length > 0 && (
+                  <div className="mt-2 space-y-1.5">
+                    {(gatedTypes ?? []).map((g) => (
+                      <div
+                        key={g.leave_type_id}
+                        className="flex flex-wrap items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm"
+                      >
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: g.color_code }}
+                          aria-hidden
+                        />
+                        <span className="font-medium">{g.leave_type_name}</span>
+                        {g.status === 'pending' ? (
+                          <span className="text-xs text-muted-foreground">
+                            Eligibility awaiting approval
+                          </span>
+                        ) : g.status === 'rejected' ? (
+                          <span className="text-xs text-destructive">
+                            Eligibility rejected
+                            {g.decision_note ? ` — ${g.decision_note}` : ''}
+                          </span>
+                        ) : g.status === 'revoked' ? (
+                          <span className="text-xs text-destructive">Eligibility withdrawn</span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Eligibility required</span>
+                        )}
+                        {g.status !== 'pending' && (
+                          <Button
+                            type="button"
+                            variant="link"
+                            size="sm"
+                            className="ml-auto h-auto p-0 text-xs"
+                            onClick={() => setEligibilityFor(g)}
+                          >
+                            {g.status ? 'Request again' : 'Request eligibility'} →
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {/* The entitlement used to be one muted line here and was easy
                     to miss. It decides whether the request can be submitted at
                     all, so it gets a card — matching the short-time-off drawer. */}
@@ -717,6 +786,17 @@ export function ApplyLeaveDrawer({
           </Button>
         </SheetFooter>
       </SheetContent>
+
+      {eligibilityFor && (
+        <RequestEligibilityDialog
+          open
+          onOpenChange={(v) => { if (!v) setEligibilityFor(null); }}
+          leaveTypeId={eligibilityFor.leave_type_id}
+          leaveTypeName={eligibilityFor.leave_type_name}
+          employeeId={ctx.employeeId}
+          hrOrgId={ctx.hrOrgId}
+        />
+      )}
     </Sheet>
   );
 }

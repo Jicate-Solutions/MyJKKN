@@ -412,6 +412,11 @@ export function ApplyShortTimeOffDrawer({
         }
       : null,
     1,
+    // Short time off is never eligibility-gated: the balance view hides a gated
+    // type from anyone without an approved grant, so a type reaching this
+    // drawer at all is one this person may already use — and STO types carry
+    // no eligibility today. False keeps the existing document rule exactly.
+    false,
   );
 
   const reset = () => {

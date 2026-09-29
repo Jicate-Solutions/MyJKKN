@@ -92,6 +92,16 @@ export function resolvedAtBounds(
   };
 }
 
+// A "Is this still happening?" prompt answered "No, it works now" resolves the
+// bug with resolved_by = its reporter and stamps metadata.resolved_by with this
+// marker (migration 20261227090000). Those are not fixes by a person, so the
+// resolver breakdown pools them under one "Others" entry instead of a name.
+export const REPORTER_CONFIRMED_MARKER = 'reporter_still_open_prompt';
+
+/** The `resolved_by` filter value for that pool — never a profile id. */
+export const OTHERS_RESOLVER_KEY = 'others';
+export const OTHERS_RESOLVER_LABEL = 'Others';
+
 /** First and last day of a month, as YYYY-MM-DD. `month` is 1-12. */
 export function monthRange(year: number, month: number): { from: string; to: string } {
   const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();

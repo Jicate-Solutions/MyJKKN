@@ -46,24 +46,25 @@ export function useStaff(
   filters: StaffFilters = {}
 ): UseQueryResult<StaffListResponse, Error> {
   const { profile, isLoading: authLoading } = useAuth();
+  const { userRoles, isLoading: permissionsLoading } = usePermissions();
+  // Any of the user's roles, not just profile.role (the primary one): a
+  // faculty member who is also a digital coordinator lists their institution.
+  const isDigitalCoordinator = userRoles.some(
+    (r) => r.role_key === 'digital_coordinator'
+  );
 
   // Create stable query key by serializing only the values that matter
   const queryKey = useMemo(() => {
     const stableFilters = {
       search: filters.search || '',
-      search_case_sensitive: filters.search_case_sensitive ?? false,
-      search_exact_match: filters.search_exact_match ?? false,
-      search_fields: (filters.search_fields || []).join(','),
       category_id: filters.category_id || '',
       institution_id: filters.institution_id || '',
       department_id: filters.department_id || '',
       // Added: 2026-04-15 - include role_key + is_teaching so cache invalidates
       // when these filters change (previously stale results persisted).
-      role_key: (filters as any).role_key || '',
+      role_key: filters.role_key || '',
       is_teaching:
-        typeof (filters as any).is_teaching === 'boolean'
-          ? (filters as any).is_teaching
-          : null,
+        typeof filters.is_teaching === 'boolean' ? filters.is_teaching : null,
       isActive: filters.isActive,
       page: filters.page || 1,
       limit: filters.limit || 10
@@ -73,23 +74,22 @@ export function useStaff(
       'staff',
       stableFilters,
       profile?.role || '',
-      profile?.institution_id || ''
+      profile?.institution_id || '',
+      isDigitalCoordinator
     ];
   }, [
     filters.search,
-    filters.search_case_sensitive,
-    filters.search_exact_match,
-    filters.search_fields,
     filters.category_id,
     filters.institution_id,
     filters.department_id,
-    (filters as any).role_key,
-    (filters as any).is_teaching,
+    filters.role_key,
+    filters.is_teaching,
     filters.isActive,
     filters.page,
     filters.limit,
     profile?.role,
-    profile?.institution_id
+    profile?.institution_id,
+    isDigitalCoordinator
   ]);
 
   const queryFn = useCallback(async () => {
@@ -101,7 +101,8 @@ export function useStaff(
         role: profile?.role || '',
         department_id: profile?.department_id || undefined,
         institution_id: profile?.institution_id || undefined,
-        is_super_admin: profile?.is_super_admin || false
+        is_super_admin: profile?.is_super_admin || false,
+        is_digital_coordinator: isDigitalCoordinator
       });
     } catch (error) {
       // Surface the real cause. Re-throwing a generic Error here used to
@@ -111,13 +112,13 @@ export function useStaff(
       console.error('[useStaff] Fetch Error:', detail, error);
       throw new Error(`Failed to fetch staff: ${detail}`);
     }
-  }, [filters, profile]);
+  }, [filters, profile, isDigitalCoordinator]);
 
   return useQuery({
     queryKey,
     queryFn,
-    // Simple enabled logic like student module
-    enabled: !authLoading && !!profile,
+    // Wait for roles so a coordinator's first fetch is not the self-only one
+    enabled: !authLoading && !!profile && !permissionsLoading,
     // Keep previous data while fetching new data
     placeholderData: (previousData) => previousData,
     // Reduce refetch frequency

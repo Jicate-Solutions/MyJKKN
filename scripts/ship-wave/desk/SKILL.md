@@ -29,6 +29,22 @@ options, no "shall I…" in chat — the question goes through AskUserQuestion, 
    No output from `nudges` → say nothing and go on. This step never asks the Director anything: a closed tab
    simply means the wave asks him at 7 days.
 
+0b. **Shipped notes.** Run: `~/.config/obsidian/v5-w12-desk.sh shipped`
+   Director 2026-09-16 06:14: "why don't the W12 update itself to inform the peer tab that it has merged or deployed
+   a PR it shipped, so that tab is aware before moving to the next PR." The wave writes one note per PR a deploy
+   carried (`$STATE/shipped/<pr>.json`, written when the last-deployed marker moves); this step relays it. Same line
+   shape as the reminders: `<pr>|<tab name>|live|dead|unknown|<message>`. For each line:
+   - `live` → **SendMessage** to `<tab name>` with `<message>`, word-for-word (it already starts with `[note]`). Then
+     `~/.config/obsidian/v5-w12-desk.sh shipped-mark <pr> delivered "" "<tab name>"`.
+     A refused name (no such agent / needs a ref) → `shipped-mark <pr> tab-closed "<its error, verbatim>"` — never
+     guess another tab. Two agents sharing the name → the one on this machine, by its ref.
+   - `dead` or `unknown` → `~/.config/obsidian/v5-w12-desk.sh shipped-mark <pr> tab-closed <dead|unknown>`.
+   Print one receipt line each: `shipped #<pr> → told <tab name>` or `shipped #<pr> → tab closed`.
+   No output → say nothing and go on. A note is not a question and never goes to the Director. It does not replace
+   the Bugs-desk protocol (`[note] PR #<n> is live (deploy verified)` still goes to the Bugs desk for PRs it opened;
+   if the resolver names the Bugs desk, this one line IS that message — do not send it twice). Peer cap stands:
+   at most 6 messages per hour per tab; beyond that, leave the note pending for the next tick.
+
 1. Run: `~/.config/obsidian/v5-w12-desk.sh pending`
    It prints a JSON array of open questions (unanswered, unexpired), oldest first. Anything on stderr
    starting `desk: invalid question` or `desk: skipped question` is a file the wave (or a hand) wrote badly —
@@ -71,7 +87,7 @@ options, no "shall I…" in chat — the question goes through AskUserQuestion, 
 - **Never runs the wave.** No `ship-wave.sh go`, no `--goal`, no deploy hook. The wave's own launchd tick
   reads the knobs you appended on its next run.
 - **Never merges** a PR, closes one, comments on one, or touches git.
-- **Never messages a tab** except with the reminder line `nudges` printed, to the one tab it named, once — and never
+- **Never messages a tab** except with the line `nudges` or `shipped` printed, to the one tab it named, once — and never
   on its own idea. A reminder is not a question: it does not go to the Director.
 - **Never invents an option.** If a question seems to be missing the right choice, the Director picks
   "Other" and types it; you store it. You do not add an option and you do not act on the free text.
@@ -81,7 +97,7 @@ options, no "shall I…" in chat — the question goes through AskUserQuestion, 
 - **Never asks twice in one pass** and never re-asks a question the script has already moved to
   `questions/answered/`. Answering an already-answered id again is harmless: the script finds no open file
   and exits 2 without applying anything.
-- Reads and writes nothing outside `$STATE/questions/` and `$STATE/nudges/` except through `v5-w12-desk.sh`.
+- Reads and writes nothing outside `$STATE/questions/`, `$STATE/nudges/` and `$STATE/shipped/` except through `v5-w12-desk.sh`.
 
 ## INSTALL
 

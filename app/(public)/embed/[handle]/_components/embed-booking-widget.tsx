@@ -23,6 +23,11 @@
 import { useMemo, useState } from 'react';
 import { groupPurposes, purposeDurationLabel } from '@/lib/services/meetings/group-purposes';
 import {
+  contextQuestionsFor,
+  checkBookingContext,
+  isLongMeeting,
+} from '@/lib/services/meetings/booking-context';
+import {
   CalendarDays,
   CheckCircle2,
   ChevronLeft,
@@ -133,7 +138,9 @@ export function EmbedBookingWidget(props: EmbedBookingWidgetProps) {
   const [selectedType, setSelectedType] = useState<MeetingTypeOption | null>(null);
   const [slots, setSlots] = useState<SlotsResponse | null>(null);
   const [selectedStart, setSelectedStart] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: '', email: '', phone: '', note: '' });
+  const [form, setForm] = useState({ name: '', email: '', phone: '' });
+  /** Keyed by question: which questions exist depends on the length booked. */
+  const [answers, setAnswers] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<
@@ -196,9 +203,12 @@ export function EmbedBookingWidget(props: EmbedBookingWidgetProps) {
       setError('Please fill in your name and email.');
       return;
     }
-    // PR1: a prep note is required so the host can prepare for the meeting.
-    if (!form.note.trim()) {
-      setError('Please add a short note on what you’d like to cover.');
+    // PR1: context is required so the host can prepare, and since 16 Sep the
+    // amount asked for scales with the length booked. The same check runs on
+    // the server — the embed cannot be a way around the booking page's rules.
+    const context = checkBookingContext(selectedType.durationMin, answers);
+    if (!context.ok) {
+      setError(context.error);
       return;
     }
     setError(null);
@@ -212,7 +222,8 @@ export function EmbedBookingWidget(props: EmbedBookingWidgetProps) {
           name: form.name,
           email: form.email,
           phone: form.phone,
-          note: form.note,
+          note: answers.note ?? '',
+          answers,
           honeypot: '',
         }),
       });
@@ -481,21 +492,37 @@ export function EmbedBookingWidget(props: EmbedBookingWidgetProps) {
                 autoComplete="tel"
               />
             </label>
-            <label className="text-sm">
-              <span className="mb-1 block font-medium">
-                Anything to share beforehand? <span className="text-[var(--meet-accent)]">*</span>
-              </span>
-              <textarea
-                value={form.note}
-                onChange={(e) => setForm({ ...form, note: e.target.value })}
-                rows={2}
-                maxLength={500}
-                required
-                aria-required="true"
-                placeholder="A line on what you'd like to cover helps the host prepare."
-                className="w-full rounded-md border border-[#1C2B24]/25 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--meet-accent)] focus:ring-1 focus:ring-[var(--meet-accent)]"
-              />
-            </label>
+            {selectedType && isLongMeeting(selectedType.durationMin) ? (
+              <p className="rounded-md border border-[#1C2B24]/15 bg-[#1C2B24]/5 px-3 py-2.5 text-xs text-[#1C2B24]/80">
+                You are asking for {selectedType.durationMin} minutes. Three short answers
+                below, so the time is spent on the matter rather than on catching up.
+              </p>
+            ) : null}
+
+            {contextQuestionsFor(selectedType?.durationMin).map((q) => {
+              const value = answers[q.key] ?? '';
+              const short = value.trim().length > 0 && value.trim().length < q.minChars;
+              return (
+                <label key={q.key} className="text-sm">
+                  <span className="mb-1 block font-medium">
+                    {q.label} <span className="text-[var(--meet-accent)]">*</span>
+                  </span>
+                  <textarea
+                    value={value}
+                    onChange={(e) => setAnswers({ ...answers, [q.key]: e.target.value })}
+                    rows={q.minChars > 1 ? 3 : 2}
+                    maxLength={2000}
+                    required
+                    aria-required="true"
+                    placeholder={q.placeholder}
+                    className="w-full rounded-md border border-[#1C2B24]/25 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--meet-accent)] focus:ring-1 focus:ring-[var(--meet-accent)]"
+                  />
+                  <span className="mt-1 block text-xs text-[#1C2B24]/60">
+                    {short ? `${q.help} A little more, please.` : q.help}
+                  </span>
+                </label>
+              );
+            })}
 
             <button
               type="button"

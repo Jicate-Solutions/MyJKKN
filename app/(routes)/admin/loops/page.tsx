@@ -51,6 +51,7 @@ import {
   CounselorBriefingPanel,
   loadCounselorBriefingSummary,
 } from './_components/counselor-briefing-panel';
+import { TopNumbersStrip, loadTopNumbers } from './_components/top-numbers-strip';
 import {
   classifyLoopOwnerProfiles,
   escapeLikePattern,
@@ -449,6 +450,10 @@ export default async function LoopControlTowerPage({
   // HERE (2026-09-13). Tower view only; a failed read is rendered as such.
   const counselorBriefing =
     view === 'tower' ? await loadCounselorBriefingSummary(admin) : null;
+
+  // The two top numbers every loop on this page is supposed to move (Director
+  // 2026-09-18 06:27). Read on EVERY view — they head the page, not one tab.
+  const topNumbers = await loadTopNumbers(admin);
 
   // ── Live config, read from the SAME tables /admin/ai-routines edits, so the
   // two pages can't drift. Best-effort: any read failure falls back to each
@@ -1708,6 +1713,9 @@ export default async function LoopControlTowerPage({
 
   return (
     <ContentLayout title="Loop Control Tower — every loop in MyJKKN, and whether it’s working">
+      {/* The two top numbers come before anything else: every loop below is
+          supposed to move one of them (Director ruling 2026-09-18 06:27). */}
+      <TopNumbersStrip data={topNumbers} />
       <div className="mb-4 flex gap-1.5">
         <Link href="/admin/loops" className={pillCls(view === 'tower')}>
           Tower

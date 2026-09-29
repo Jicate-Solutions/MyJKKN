@@ -42,6 +42,7 @@ import type {
 import { RecruiterQuickAdd } from '../new/_components/recruiter-quick-add';
 import { InstitutionSemesterPicker, describeTargeting } from './institution-semester-picker';
 import { CircularAttachment } from './circular-attachment';
+import { DriveClashWarning } from './drive-clash-warning';
 
 export interface DriveFormValues {
   title: string;
@@ -431,6 +432,18 @@ export function DriveForm({ mode, drive, eligibility, submitting, submitError, o
                 </div>
               )}
             </div>
+            {/*
+              Allow-and-warn: the room may already be booked, or learners may
+              already have said yes elsewhere that day. Never blocks the save.
+            */}
+            <DriveClashWarning
+              driveId={drive?.id ?? null}
+              driveDate={driveDate}
+              driveStartTime={driveStartTime}
+              driveEndTime={driveEndTime}
+              venueLabel={venueLabel}
+              dateChanged={mode === 'edit' && driveDate !== (drive?.drive_date ?? '')}
+            />
           </CardContent>
         </Card>
 

@@ -16,6 +16,9 @@ import type {
   StaffInstitutionStats,
   StaffDepartmentStats,
   StaffCategoryStats,
+  StaffRoleStats,
+  StaffRoleStat,
+  StaffRoleMember,
   StaffGeographicStats,
   StaffDemographicStats,
   StaffTenureAnalytics,
@@ -28,7 +31,7 @@ import {
   resolveStaffFiltersForUser
 } from '@/lib/utils/staff-search';
 import { RESERVED_STAFF_ROLE_KEYS } from '@/types/staff';
-import { generateSyntheticEmail } from './synthetic-email';
+import { generateSyntheticEmail, describeStaffEmailConflict } from './synthetic-email';
 
 interface CreateStaffDto {
   first_name: string;
@@ -47,6 +50,9 @@ interface CreateStaffDto {
   state?: string;
   district?: string;
   pincode?: string;
+  emergency_contact_name?: string | null;
+  emergency_contact_relationship?: string | null;
+  emergency_contact_phone?: string | null;
   date_of_joining: string;
   designation: string;
   // Optional for view-only staff (same generation rule as email).
@@ -309,18 +315,32 @@ export class StaffService {
         }
       }
 
-      // Check if a staff member with this institution_email already exists
+      // Check if a staff member with this institution_email already exists.
+      // The message names the Staff ID when the address was generated from it —
+      // otherwise it points at a field the operator left blank.
       if (data.institution_email) {
         const { data: existingStaff } = await this.supabase
           .from('staff')
-          .select('id, first_name, last_name, institution_email')
+          .select('id, first_name, last_name, staff_id, institution_email')
           .eq('institution_email', data.institution_email)
-          .single();
+          .maybeSingle();
 
         if (existingStaff) {
-          throw new Error(
-            `Staff member with email ${data.institution_email} already exists`
-          );
+          const holderRow = existingStaff as any;
+          const { toast: conflictText } = describeStaffEmailConflict({
+            kind: 'institution',
+            address: data.institution_email,
+            staffId: data.staff_id,
+            phone: data.phone,
+            holder: {
+              name: `${holderRow.first_name ?? ''} ${holderRow.last_name ?? ''}`.trim() ||
+                'another team member',
+              staff_id: holderRow.staff_id ?? null
+            }
+          });
+          // Keep the constraint name in the message: the form's error ladder
+          // and the API route both discriminate on it.
+          throw new Error(`staff_institution_email_key — ${conflictText}`);
         }
       }
 
@@ -828,6 +848,9 @@ export class StaffService {
       department_id?: string;
       institution_id?: string;
       is_super_admin?: boolean;
+      // Holds the digital_coordinator role as ANY of their roles (primary or
+      // secondary) — profiles.role only carries the primary one.
+      is_digital_coordinator?: boolean;
     }
   ): Promise<StaffListResponse> {
     try {
@@ -839,6 +862,18 @@ export class StaffService {
       // Super admins see all staff
       if (userProfile?.is_super_admin) {
         return await this.getStaff(effectiveFilters);
+      }
+
+      // Digital coordinators manage their own institution's staff. Checked
+      // before the faculty branch: most coordinators are faculty by primary
+      // role and would otherwise see only their own record. Filtered to the
+      // institution explicitly because RLS alone is wider for coordinators
+      // who also hold an all-institutions role such as admission_counselor.
+      if (userProfile?.is_digital_coordinator && userProfile.institution_id) {
+        return await this.getStaffOptimizedForHOD(
+          effectiveFilters,
+          userProfile.institution_id
+        );
       }
 
       // Faculty users can only view their own staff record
@@ -1292,7 +1327,9 @@ export class StaffService {
   // the payload. Measured: `select *` is 872 KB across 856 rows; this list is ~90 KB.
   private static readonly DASHBOARD_STAFF_COLUMNS = [
     // grouping / filter dimensions
+    'id',
     'is_active',
+    'role_key',
     'institution_id',
     'department_id',
     'category_id',
@@ -1355,9 +1392,10 @@ export class StaffService {
       // and re-applying each section's filters in memory reproduces all nine result sets
       // exactly, at the cost of a single scan. Filtering 856 objects in JS is
       // sub-millisecond; another RLS scan is not.
-      const [allStaff, profileActiveByEmail] = await Promise.all([
+      const [allStaff, profileActiveByEmail, roleNames] = await Promise.all([
         this.fetchDashboardStaff(supabase),
-        this.fetchProfileActiveByEmail(supabase)
+        this.fetchProfileActiveByEmail(supabase),
+        this.fetchRoleNames(supabase)
       ]);
 
       return {
@@ -1369,7 +1407,8 @@ export class StaffService {
         geographicStats: this.getGeographicStats(filters, allStaff),
         demographicStats: this.getDemographicStats(filters, allStaff),
         tenureAnalytics: this.getTenureAnalytics(filters, allStaff),
-        profileAnalytics: this.getProfileAnalytics(filters, allStaff)
+        profileAnalytics: this.getProfileAnalytics(filters, allStaff),
+        roleStats: this.getRoleStats(filters, allStaff, roleNames)
       };
     } catch (error) {
       console.error('Error fetching dashboard stats:', error);
@@ -1400,6 +1439,15 @@ export class StaffService {
     const { data, error } = await supabase.from('profiles').select('email, is_active');
     if (error) throw error;
     return new Map((data || []).map((p: any) => [p.email, p.is_active]));
+  }
+
+  /** custom_roles.role_name keyed by role_key — labels for the Roles tab. */
+  private static async fetchRoleNames(
+    supabase: ReturnType<typeof createClientSupabaseClient>
+  ): Promise<Map<string, string>> {
+    const { data, error } = await supabase.from('custom_roles').select('role_key, role_name');
+    if (error) throw error;
+    return new Map((data || []).map((r: any) => [r.role_key, r.role_name]));
   }
 
   /**
@@ -1693,6 +1741,62 @@ export class StaffService {
           categoryStaff.length > 0 ? totalTenure / categoryStaff.length : 0
       };
     });
+  }
+
+  private static getRoleStats(
+    filters: StaffDashboardFilters,
+    allStaff: any[],
+    roleNames: Map<string, string>
+  ): StaffRoleStats {
+    const staff = this.filterDashboardStaff(allStaff, filters, {
+      institution: true,
+      department: true,
+      category: true,
+      status: true
+    });
+
+    const members: StaffRoleMember[] = staff.map((s: any) => {
+      const roleKey = s.role_key || 'unassigned';
+      return {
+        id: s.id,
+        name: [s.first_name, s.last_name]
+          .filter((part: string | null) => part && part.trim() && part.trim() !== '.')
+          .join(' '),
+        staffId: s.staff_id || null,
+        institutionEmail: s.institution_email || null,
+        roleKey,
+        roleName: s.role_key ? roleNames.get(s.role_key) || s.role_key : 'Unassigned',
+        designation: s.designation || null,
+        institutionName: s.institution?.name || null,
+        departmentName: s.department?.department_name || null,
+        isActive: !!s.is_active
+      };
+    });
+
+    const byRole = new Map<string, StaffRoleStat>();
+    for (const m of members) {
+      const stat = byRole.get(m.roleKey) || {
+        roleKey: m.roleKey,
+        roleName: m.roleName,
+        count: 0,
+        activeCount: 0,
+        percentage: 0
+      };
+      stat.count += 1;
+      if (m.isActive) stat.activeCount += 1;
+      byRole.set(m.roleKey, stat);
+    }
+
+    const roles = Array.from(byRole.values())
+      .map((r) => ({
+        ...r,
+        percentage: members.length > 0 ? Math.round((r.count / members.length) * 1000) / 10 : 0
+      }))
+      .sort((a, b) => b.count - a.count || a.roleName.localeCompare(b.roleName));
+
+    members.sort((a, b) => a.name.localeCompare(b.name));
+
+    return { total: members.length, roles, members };
   }
 
   private static getGeographicStats(

@@ -28,9 +28,16 @@ import {
   compareThreads,
   groupIntoThreads,
   threadSelectColumns,
+  toTagPeopleResult,
   toThreadComment,
+  toThreadMentions,
 } from '@/lib/services/shared/comment-threads';
-import type { RawThreadRow, ThreadComment } from '@/lib/services/shared/comment-threads';
+import type {
+  RawThreadMention,
+  RawThreadRow,
+  TagPeopleResult,
+  ThreadComment,
+} from '@/lib/services/shared/comment-threads';
 
 const MOD = 'events/review-comments';
 const TABLE = 'event_review_comments';
@@ -40,6 +47,7 @@ const TABLE = 'event_review_comments';
 const SELECT_COLUMNS = `${threadSelectColumns(TABLE)},
     mentions:event_review_comment_mentions (
       mentioned_user_id,
+      notified_at,
       person:profiles!event_review_comment_mentions_mentioned_user_id_fkey (full_name)
     )`;
 
@@ -58,7 +66,7 @@ export interface CreateReviewCommentDto {
 
 interface RawRow extends RawThreadRow {
   event_id: string;
-  mentions?: { mentioned_user_id: string; person?: { full_name: string | null } | null }[] | null;
+  mentions?: RawThreadMention[] | null;
 }
 
 const toComment = (row: RawRow): EventReviewComment => {
@@ -66,22 +74,11 @@ const toComment = (row: RawRow): EventReviewComment => {
   // Via unknown: the raw `mentions` shape is stripped above and the resolved
   // one assigned below, which TS cannot follow through toThreadComment's generic.
   const comment = toThreadComment(rest) as unknown as EventReviewComment;
-  comment.mentions = (mentions ?? []).map((m) => ({
-    id: m.mentioned_user_id,
-    name: m.person?.full_name?.trim() || 'Unknown',
-  }));
+  comment.mentions = toThreadMentions(mentions);
   return comment;
 };
 
-export interface TagPeopleResult {
-  /** Names newly tagged (and notified) by this call. */
-  tagged: string[];
-  /** Names refused because they are not staff. */
-  skipped: string[];
-  notified: number;
-  /** Set when the tags saved but the notification could not be sent. */
-  notifyError: string | null;
-}
+export type { TagPeopleResult };
 
 export class EventReviewCommentService {
   private static supabase = createClientSupabaseClient();
@@ -152,7 +149,9 @@ export class EventReviewCommentService {
   }
 
   /**
-   * Tag staff on a comment you wrote, and notify them.
+   * Tag team members on a comment you wrote, and notify them. Also the
+   * author's Resend: re-tagging someone finishes an alert that failed, or
+   * sends a reminder.
    *
    * Goes through /api/events/[eventId]/review-mentions rather than a direct
    * insert, but only because the NOTIFICATION needs a service-role client. The
@@ -182,12 +181,7 @@ export class EventReviewCommentService {
       });
       throw new Error(reason);
     }
-    return {
-      tagged: json.tagged ?? [],
-      skipped: json.skipped ?? [],
-      notified: json.notified ?? 0,
-      notifyError: json.notify_error ?? null,
-    };
+    return toTagPeopleResult(json);
   }
 
   /** Edit your own words. The trigger refuses anyone else, admin or not. */
@@ -247,6 +241,40 @@ export class EventReviewCommentService {
       return toComment(data as RawRow);
     } catch (error) {
       logger.error(MOD, 'Unexpected error in setResolved', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Remove one tag from your comment. Deleting the row IS the revocation — the
+   * thread's read gate asks whether a tag row exists — and the comment stays.
+   * The DELETE policy (comment author or super admin) is the authority, and
+   * `.select('id')` is here for the same reason as in deleteComment below.
+   */
+  static async untag(commentId: string, userId: string): Promise<void> {
+    try {
+      const { data, error } = await (this.supabase as any)
+        .from('event_review_comment_mentions')
+        .delete()
+        .eq('comment_id', commentId)
+        .eq('mentioned_user_id', userId)
+        .select('id');
+
+      if (error) {
+        logger.error(MOD, 'Failed to untag', {
+          commentId,
+          userId,
+          code: error.code,
+          message: error.message,
+        });
+        throw new Error(commentWriteMessage(error, 'untag people on this comment'));
+      }
+      if (!((data as unknown[]) ?? []).length) {
+        logger.error(MOD, 'Untag removed no rows (RLS or already removed)', { commentId, userId });
+        throw new Error(commentWriteMessage({ code: 'PGRST116' }, 'untag people on this comment'));
+      }
+    } catch (error) {
+      logger.error(MOD, 'Unexpected error in untag', { message: (error as Error)?.message });
       throw error;
     }
   }

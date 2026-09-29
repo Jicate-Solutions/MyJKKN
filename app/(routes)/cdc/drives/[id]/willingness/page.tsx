@@ -19,6 +19,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { LearnerWillingnessView } from './_components/learner-willingness-view';
 import { AssignedWillingnessView } from './_components/assigned-willingness-view';
+import { useCdcCoordinatingDrives } from '@/hooks/cdc/use-cdc-drive-day';
 
 export const navMeta = { icon: 'Users' };
 
@@ -26,8 +27,12 @@ export default function CdcDriveWillingnessPage({ params }: { params: Promise<{ 
   const { id } = use(params);
   const { profile, isLoading } = useAuth();
   const isLearner = !!profile?.learner_id && profile.role === 'student';
+  // Assigned coordinators (2026-09-23) see the tracker for THEIR drives so they
+  // can mark willing learners by hand; the API re-checks the assignment.
+  const { data: coordinating, isLoading: coordLoading } = useCdcCoordinatingDrives();
+  const isCoordinator = (coordinating ?? []).some((d) => d.id === id);
 
-  if (isLoading) {
+  if (isLoading || (!isLearner && coordLoading)) {
     return (
       <ContentLayout title="Willingness">
         <p className="text-sm text-muted-foreground p-6">Loading…</p>
@@ -35,6 +40,7 @@ export default function CdcDriveWillingnessPage({ params }: { params: Promise<{ 
     );
   }
   if (isLearner) return <LearnerWillingnessView id={id} />;
+  if (isCoordinator) return <AssignedWillingnessView id={id} />;
   return (
     <PermissionGuard module="cdc.drives" action="willingness.view">
       <AssignedWillingnessView id={id} />

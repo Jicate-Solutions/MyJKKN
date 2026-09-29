@@ -23,6 +23,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useUpdateRegistrationForm } from '@/hooks/events/use-tournament-registration-form';
+import { isoToIstLocalInput, istLocalInputToIso } from '@/lib/utils/date-format';
 import {
   formRegistrationState,
   FORM_STATE_LABELS,
@@ -30,26 +31,12 @@ import {
   type FormRegistrationState,
 } from '@/types/tournament';
 
-/** timestamptz → value for <input type="datetime-local"> (local wall time). */
-function toLocalInput(iso: string | null): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-/**
- * datetime-local → ISO. `new Date('2026-01-05T09:00')` is parsed as LOCAL time,
- * which is what the organizer typed, and toISOString converts to UTC for
- * storage. Writing the raw string would hand Postgres a naive timestamp and
- * shift it by the timezone offset — a 5:30h drift in this deployment.
- */
-function toIso(local: string): string | null {
-  if (!local.trim()) return null;
-  const d = new Date(local);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
-}
+// Both directions are pinned to IST (lib/utils/date-format.ts): the window the
+// organizer types is India time whatever their browser's clock says, and the
+// value shown back is the same wall-clock time — so a saved 2:00 PM never
+// re-renders as 8:30 AM on a UTC-configured machine.
+const toLocalInput = (iso: string | null) => isoToIstLocalInput(iso);
+const toIso = (local: string) => istLocalInputToIso(local);
 
 const STATE_STYLES: Record<FormRegistrationState, string> = {
   active: 'border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-400',
@@ -86,10 +73,14 @@ export function RegistrationScheduleCard({
   // Mirrors the DB CHECK; catching it here gives a sentence instead of a 23514.
   const invalidRange = !!startIso && !!endIso && new Date(endIso) < new Date(startIso);
 
+  // Compare instants, not strings: Postgres spells the stored value
+  // '2026-09-21T08:30:00+00:00' while toISOString gives '…08:30:00.000Z'.
+  const sameInstant = (a: string | null, b: string | null | undefined) =>
+    (a ? new Date(a).getTime() : null) === (b ? new Date(b).getTime() : null);
   const dirty =
     enabled !== !!form.is_enabled ||
-    startIso !== (form.starts_at ?? null) ||
-    endIso !== (form.ends_at ?? null);
+    !sameInstant(startIso, form.starts_at) ||
+    !sameInstant(endIso, form.ends_at);
 
   // What the form WILL be once saved, so the organizer sees the consequence of
   // the dates they just typed rather than the state it is in now.
@@ -117,7 +108,7 @@ export function RegistrationScheduleCard({
         <p className="mt-1 text-sm text-muted-foreground">
           Leave the dates blank for a form you open and close by hand. Set an end
           date and it closes itself the moment that time passes — no need to
-          remember.
+          remember. Times are Indian Standard Time (IST).
         </p>
       </CardHeader>
 

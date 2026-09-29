@@ -30,14 +30,12 @@ import {
   Users,
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
-import { StaffProfileAnalytics, StaffDashboardFilters } from '@/types/staff';
+import { StaffProfileAnalytics } from '@/types/staff';
 import { STAFF_FIELD_LABELS } from '@/lib/utils/staff/incomplete-profile-fields';
-import { IncompleteStaffTable } from './incomplete-staff-table';
 
 interface ProfileAnalyticsProps {
   data?: StaffProfileAnalytics;
   isLoading: boolean;
-  filters?: StaffDashboardFilters;
 }
 
 const COLORS = [
@@ -98,7 +96,7 @@ const CustomTooltip = ({ active, payload }: any) => {
   return null;
 };
 
-export function ProfileAnalytics({ data, isLoading, filters }: ProfileAnalyticsProps) {
+export function ProfileAnalytics({ data, isLoading }: ProfileAnalyticsProps) {
   const completionData = useMemo(() => {
     if (!data?.profileCompletionBreakdown) return [];
 
@@ -458,8 +456,6 @@ export function ProfileAnalytics({ data, isLoading, filters }: ProfileAnalyticsP
                 ))}
               </div>
 
-              {/* Incomplete Staff Detail Table */}
-              <IncompleteStaffTable filters={filters} />
             </div>
           </TabsContent>
         </Tabs>

@@ -41,6 +41,14 @@ const ALWAYS_VISIBLE = new Set([
   // entry, so flagging them was a false alarm.
   '/guide',                         // explicit `return true` in GetRoleBasedPages
   '/my-induction-sessions',         // explicit `return true` (resource-person self-service)
+  // 2026-09-16: both of these have an explicit `return true` in
+  // GetRoleBasedPages and no MENU_PERMISSIONS entry, so the runtime shows them
+  // and this checker was flagging them anyway.
+  //   /my-event-feedback drifted out of sync when it shipped — it is live on
+  //   main today and this list never learned about it, so the gate has been
+  //   red for a reason unrelated to whoever next touches this file.
+  '/my-event-feedback',             // explicit `return true` (event attendee self-service)
+  '/my-photo',                      // explicit `return true` (staff photograph self-service)
   '/my-induction-feedback',         // isStudentPortalRoute (senior peer mentor lane)
   '/learners/class-feedback',       // isStudentPortalRoute
   '/learners/my-bills',             // isStudentPortalRoute (/learners/my- prefix)

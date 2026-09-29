@@ -18,8 +18,8 @@
 import { truncateAddressForCard, truncateForCard } from './render-data';
 
 /** Average advance per character, in em, for the bundled sans-serif. */
-export const CHAR_RATIO_MIXED = 0.56;
-export const CHAR_RATIO_UPPER = 0.68;
+export const CHAR_RATIO_MIXED = 0.6;
+export const CHAR_RATIO_UPPER = 0.76;
 /** Bold glyphs are a touch wider. */
 export const BOLD_RATIO_BONUS = 0.03;
 /** Wide tracking (letterSpacing) is added on top by the caller via `extraPerChar`. */
@@ -92,7 +92,9 @@ export function charsPerLine(
  */
 export function countWrappedLines(text: string, perLine: number): number {
   if (perLine <= 0) return Number.POSITIVE_INFINITY;
-  const words = text.split(/\s+/).filter((w) => w.length > 0);
+  // U+00A0 is glue, not a break opportunity — keep it inside its "word" so the
+  // estimate matches what the renderer really does with a glued address tail.
+  const words = text.split(/[^\S ]+/).filter((w) => w.length > 0);
   if (words.length === 0) return 1;
   let lines = 1;
   let used = 0;

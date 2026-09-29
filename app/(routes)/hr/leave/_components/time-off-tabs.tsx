@@ -31,6 +31,15 @@ const TOP_TABS = [
 ] as const;
 
 const APPROVALS_TAB = { label: 'Approvals', href: '/hr/leave/approvals' } as const;
+/**
+ * Shown to EVERYONE (2026-09-21): it is where a member of staff sees which of
+ * their institution's leave types need eligibility and asks for it, so it
+ * belongs beside Apply Leave rather than behind an approver gate. An
+ * institution with no gated type gets a one-line message there. The approver
+ * queue and the HR list on that page gate themselves — on
+ * hr_can_decide_eligibility() and hr.leave.types.manage respectively.
+ */
+const ELIGIBILITY_TAB = { label: 'Eligibility', href: '/hr/leave/eligibility' } as const;
 
 export function TimeOffTabs({ subTabs }: { subTabs?: TimeOffSubTab[] }) {
   const pathname = usePathname();
@@ -39,7 +48,7 @@ export function TimeOffTabs({ subTabs }: { subTabs?: TimeOffSubTab[] }) {
   const search = useSearchParams();
   const { data: canApprove } = useCanApproveLeave();
 
-  const tabs = canApprove ? [...TOP_TABS, APPROVALS_TAB] : TOP_TABS;
+  const tabs = [...TOP_TABS, ...(canApprove ? [APPROVALS_TAB] : []), ELIGIBILITY_TAB];
 
   return (
     <div className="border-b">

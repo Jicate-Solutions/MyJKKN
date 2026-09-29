@@ -22,7 +22,7 @@
  * and only look fixed on a phone. Either of those is one tidy-up away.
  */
 import '@testing-library/jest-dom';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, afterEach, beforeEach } from 'vitest';
 
 const permissionsMock = vi.hoisted(() => ({
@@ -129,13 +129,23 @@ describe("What's New — text stays clear of the floating column on a phone", ()
 
   it('reserves the same lane for the highlights strip, heading included', async () => {
     render(<HighlightsStrip modules={META.modules as any} />);
+    // The strip is folded on load (Director, 2026-09-16), so open it: the card
+    // whose headline the floating buttons covered has to be on screen before
+    // this file can say anything about the lane it sits in.
+    fireEvent.click(await screen.findByRole('button', { name: /Worth knowing/ }));
     await waitFor(() =>
       expect(screen.getByText('Foundation tests can now include images in questions, show up in your own language, and wrap up automatically.')).toBeInTheDocument()
     );
 
+    // The landmark keeps its name through the fold. The heading text moved
+    // inside the toggle button, so the id that names this region moved onto the
+    // span holding the two words rather than onto the <h2> — an <h2> wrapping
+    // the button would name the landmark with the sub-heading as well.
     const section = screen.getByRole('region', { name: 'Worth knowing' });
     expect(section).toHaveClass(CLEARANCE);
-    // The sub-heading the lightning button covered sits inside the lane too.
+    // The sub-heading the lightning button covered sits inside the lane too —
+    // and it is now on the folded header, which is the one thing every reader
+    // sees on load, so the clearance matters more than it did before.
     expect(section.contains(screen.getByText(/explained in plain English/))).toBe(true);
   });
 });

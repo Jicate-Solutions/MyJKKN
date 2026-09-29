@@ -37,6 +37,7 @@ import { DayFeedbackCard } from './_components/day-feedback-card';
 import { ProgramFeedbackCard } from './_components/program-feedback-card';
 import { MentorMonthFeedbackCard } from './_components/mentor-month-feedback-card';
 import { MyMentorCard } from './_components/my-mentor-card';
+import { UnlockNotice } from '@/components/learners/unlock-notice';
 
 const BRAND = '#0b6d41';
 
@@ -129,6 +130,10 @@ export default function MyInductionPage() {
             Your batch&apos;s day-by-day schedule. Rate each session so we can make induction better.
           </p>
         </div>
+
+        {/* Why the rest of the menu is missing — shows only for pre-onboarding
+            learners, who reach this page and three others and nothing else. */}
+        <UnlockNotice />
 
         {/* Presenter credit — shows only if you led any session */}
         <SessionsLedCard />

@@ -26,6 +26,8 @@ import {
   InductionSharingService,
   type SessionShareRow,
 } from '@/lib/services/induction/induction-sharing-service';
+import { SessionQuestionService } from '@/lib/services/session-questions/session-question-service';
+import { istLocalInputToIso, isoToIstLocalInput, IST_TIME_ZONE } from '@/lib/utils/date-format';
 import { VenueRoomPicker } from '@/app/(routes)/meetings/manage/_components/venue-room-picker';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -39,20 +41,17 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger,
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Pencil, Trash2, MapPin, User, Users, Target, LinkIcon, X, Star, CalendarDays, CalendarClock, Settings2, Share2, ClipboardList } from 'lucide-react';
+import { Plus, Pencil, Trash2, MapPin, User, Users, Target, LinkIcon, X, Star, CalendarDays, CalendarClock, Settings2, Share2, ClipboardList, MessagesSquare } from 'lucide-react';
 
 interface Batch { id: string; label: string; }
 const COMBINED = '__combined__';
 
-// ISO <-> <input type="datetime-local"> ('YYYY-MM-DDTHH:mm', local time)
+// ISO <-> <input type="datetime-local"> ('YYYY-MM-DDTHH:mm'), pinned to IST.
 function isoToLocal(iso: string): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return isoToIstLocalInput(iso);
 }
 function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: IST_TIME_ZONE });
 }
 
 export function SessionsSection({
@@ -83,6 +82,8 @@ export function SessionsSection({
   // session id → OTHER colleges this session is co-conducted with (Director D2).
   // Labelling only — sharing carries no attendance/completion meaning yet.
   const [sessionShares, setSessionShares] = useState<Record<string, SessionShareRow[]>>({});
+  // session id -> questions still waiting for an answer on that session's board.
+  const [questionCounts, setQuestionCounts] = useState<Record<string, number>>({});
   const [feedback, setFeedback] = useState<Record<string, { avg: number; count: number }>>({});
   const [dayFeedback, setDayFeedback] = useState<Record<number, { avg: number; count: number }>>({});
   // per-day past-vs-marked attendance coverage (drives the back-mark nudge; empty for non-managers)
@@ -193,6 +194,30 @@ export function SessionsSection({
   }, [eventId, loadShares]);
   useEffect(() => { load(); }, [load]);
 
+  // Waiting-question counts for EVERY session on the page, in ONE call — the number the
+  // question icon wears. Kept out of load() deliberately: it is keyed on `sessions`, so
+  // it re-runs on its own after any reload, and a failure here must never be able to
+  // fail the schedule (same reasoning as speakers and shares above — a failure costs the
+  // badges, never the list).
+  //
+  // Only fetched while the induction is Live, because the question trigger itself is
+  // Live-only; asking on a Draft would be a call whose answer nothing renders.
+  const loadQuestionCounts = useCallback(() => {
+    const ids = sessions.map((s) => s.id);
+    if (!isLive || ids.length === 0) { setQuestionCounts({}); return; }
+    SessionQuestionService.unansweredCounts('induction', ids)
+      .then(setQuestionCounts)
+      .catch(() => setQuestionCounts({}));
+  }, [sessions, isLive]);
+  useEffect(() => { loadQuestionCounts(); }, [loadQuestionCounts]);
+
+  // What the whole schedule is sitting on. The per-row badge says WHICH session; this
+  // says THAT there is something, above the fold — the biggest live induction runs 42
+  // sessions grouped across 14 day bands, so a badge on a Day 11 row is several screens
+  // down and a host who is not looking still never sees it.
+  const totalWaiting = sessions.reduce((n, s) => n + (questionCounts[s.id] ?? 0), 0);
+  const sessionsWaiting = sessions.filter((s) => (questionCounts[s.id] ?? 0) > 0).length;
+
   // Access model: admins / induction.manage holders / per-event coordinators manage
   // everything; a resource person views all sessions but operates (attendance,
   // feedback kiosk, polls) ONLY on sessions they're assigned to. The DEFINER RPCs
@@ -259,8 +284,9 @@ export function SessionsSection({
       try {
         const rows = await PersonAvailabilityService.getPeopleConflicts(
           speakers.map((s) => s.id),
-          new Date(start).toISOString(),
-          new Date(end).toISOString(),
+          // Pinned to IST: same wall-clock the save below sends.
+          istLocalInputToIso(start) ?? '',
+          istLocalInputToIso(end) ?? '',
           // the session being saved is never a clash with itself — same id the
           // upsert below reuses, so a retry after a failed speaker-write is
           // excluded too.
@@ -308,8 +334,9 @@ export function SessionsSection({
         sessionId,
         dayNumber: Number(day) || null,
         batchId: batchId === COMBINED ? null : batchId,
-        startAt: new Date(start).toISOString(),
-        endAt: new Date(end).toISOString(),
+        // Pinned to IST: the datetime-local values are read as IST wall-clock.
+        startAt: istLocalInputToIso(start) ?? start,
+        endAt: istLocalInputToIso(end) ?? end,
         title: title.trim(),
         speakerText: speaker.trim() || null,
         // STRICT: send only the chosen room id — the RPC derives venue_text from
@@ -590,6 +617,24 @@ export function SessionsSection({
         {canManage && isLive && !loading && (
           <AttendanceCoverageBanner coverage={coverage} unavailable={coverageFailed} />
         )}
+        {/* Learners are waiting. Sits with the other "read this before you scroll" bands
+            because the per-row badge alone is not enough on a long schedule: production
+            2026-09-17 had one induction carrying 58 unanswered questions across 2 of its
+            42 sessions, on Day 1 and Day 11. Rendered only when something is actually
+            waiting, so a host with a clear board sees no change from today. */}
+        {totalWaiting > 0 && !loading && (
+          <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-sm dark:border-amber-500/30 dark:bg-amber-950/30">
+            <MessagesSquare className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+            <p className="text-amber-900 dark:text-amber-200">
+              <strong className="tabular-nums">{totalWaiting}</strong>{' '}
+              learner question{totalWaiting === 1 ? ' is' : 's are'} waiting for an answer
+              {' '}across <strong className="tabular-nums">{sessionsWaiting}</strong>{' '}
+              session{sessionsWaiting === 1 ? '' : 's'}. Open the{' '}
+              <MessagesSquare className="inline h-3.5 w-3.5 align-text-bottom" aria-hidden />{' '}
+              icon on a session below to read and answer them.
+            </p>
+          </div>
+        )}
         {loading ? (
           <div className="space-y-2" aria-busy="true">
             {[0, 1, 2].map((i) => (
@@ -730,8 +775,16 @@ export function SessionsSection({
                                 <>
                                   <FeedbackKioskDialog sessionId={s.id} sessionTitle={s.title} />
                                   <SessionPollDialog sessionId={s.id} sessionTitle={s.title} />
-                                  {/* Learners ask + upvote; opening this switches the board on. */}
-                                  <SessionQuestionDialog sessionId={s.id} sessionTitle={s.title} />
+                                  {/* Learners ask + upvote; opening this switches the board on.
+                                      The count is what makes a waiting question visible at
+                                      all — the trigger used to look identical whether 0 or 32
+                                      were waiting, which is why 77 went unanswered. */}
+                                  <SessionQuestionDialog
+                                    sessionId={s.id}
+                                    sessionTitle={s.title}
+                                    unansweredCount={questionCounts[s.id] ?? 0}
+                                    onChanged={loadQuestionCounts}
+                                  />
                                 </>
                               )}
                             </>

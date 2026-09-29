@@ -38,7 +38,7 @@ type StatusFilter = 'all' | 'checked_in' | 'not_checked_in';
 
 function formatTime(dateStr: string | null) {
   if (!dateStr) return '-';
-  return new Date(dateStr).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  return new Date(dateStr).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' });
 }
 
 export function CheckinBoard({ eventId, canManage = true }: { eventId: string; canManage?: boolean }) {

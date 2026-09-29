@@ -312,6 +312,28 @@ export class AttendanceRosterService {
     return attendanceMap;
   }
 
+  /**
+   * Every attendance row of the given timetables on one date. Practical
+   * periods need the whole day, not one section's row: a batch save can land
+   * in a row keyed to a section the batch doesn't list (BUG-004733).
+   */
+  static async getAttendanceRecordsForTimetablesOnDate(
+    timetableIds: string[],
+    attendanceDate: string
+  ): Promise<Array<{ id: string; timetable_id: string; attendance_data: any }>> {
+    const ids = Array.from(new Set(timetableIds.filter(Boolean)));
+    if (ids.length === 0 || !attendanceDate) return [];
+
+    const { data, error } = await this.supabase
+      .from('student_attendance')
+      .select('id, timetable_id, attendance_data')
+      .in('timetable_id', ids)
+      .eq('attendance_date', attendanceDate);
+
+    if (error) throw error;
+    return (data || []) as Array<{ id: string; timetable_id: string; attendance_data: any }>;
+  }
+
   static async getConsolidatedAttendance(
     timetable_id: string,
     section_id: string,
@@ -563,31 +585,13 @@ export class AttendanceRosterService {
         .eq('institution_id', studentFilters.institution_id)
         .eq('section_id', section_id);
 
-      // Apply other filters if provided
-      if (studentFilters.degree_id) {
-        studentsQuery = studentsQuery.eq('degree_id', studentFilters.degree_id);
-      }
-
-      if (studentFilters.program_id) {
-        studentsQuery = studentsQuery.eq(
-          'program_id',
-          studentFilters.program_id
-        );
-      }
-
-      if (studentFilters.department_id) {
-        studentsQuery = studentsQuery.eq(
-          'department_id',
-          studentFilters.department_id
-        );
-      }
-
-      if (studentFilters.semester_id) {
-        studentsQuery = studentsQuery.eq(
-          'semester_id',
-          studentFilters.semester_id
-        );
-      }
+      // section_id (always supplied here) is AUTHORITATIVE — degree_id/program_id/
+      // department_id/semester_id are redundant denormalized copies from the
+      // timetable/search context and, if any has drifted from a learner's own
+      // learners_profiles value, ANDing them in would silently drop matching-section
+      // learners from the roster. Same root cause and fix as fn_attendance_roster's
+      // section-authoritative CASE (BUG-003249/003250) — this query path was missed
+      // by that fix.
 
       studentsQuery = studentsQuery.order('roll_number', { ascending: true });
 

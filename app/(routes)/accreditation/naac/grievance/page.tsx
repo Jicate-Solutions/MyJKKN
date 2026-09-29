@@ -76,9 +76,9 @@ export const navMeta = {
 } as const;
 
 export default function GrievanceListPage() {
-  const { isSuperAdmin } = usePermissions();
+  const { hasAllInstitutionsScope } = usePermissions();
   const { profile } = useAuth();
-  const institutionId = isSuperAdmin ? undefined : profile?.institution_id ?? undefined;
+  const institutionId = hasAllInstitutionsScope ? undefined : profile?.institution_id ?? undefined;
 
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
@@ -97,7 +97,7 @@ export default function GrievanceListPage() {
         page,
         limit,
       }),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: hasAllInstitutionsScope || !!institutionId,
   });
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil((data?.total ?? 0) / limit)), [data?.total]);

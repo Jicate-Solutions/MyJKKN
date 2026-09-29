@@ -27,6 +27,7 @@ import {
   FileText,
   ExternalLink,
   UserSearch,
+  Mic,
 } from 'lucide-react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -39,12 +40,14 @@ import { createClient } from '@/lib/supabase/server';
 import { MeetingAgendaService } from '@/lib/services/meetings/meeting-agenda-service';
 import { MeetingActionItemService } from '@/lib/services/meetings/meeting-action-item-service';
 import { MeetingPersonHistoryService } from '@/lib/services/meetings/meeting-person-history-service';
+import { contextLabelFor } from '@/lib/services/meetings/booking-context';
 import {
   effectiveLocationMode,
   switchBackState,
   switchRequestState,
   switchSourceMode,
 } from '@/lib/services/meetings/meeting-mode-switch';
+import { EndRecordingButton } from './_components/end-recording-button';
 import { CancelBookingButton } from './_components/cancel-booking-button';
 import { RescheduleBookingButton } from './_components/reschedule-booking-button';
 import { SwitchToOnlineButton } from './_components/switch-to-online-button';
@@ -61,6 +64,9 @@ import {
   type JobOption,
   type LinkedInterview,
 } from './_components/interview-link-section';
+import { InterviewFlagsCard } from './_components/interview-flags-card';
+import { MeetingNoteText } from './_components/meeting-note-text';
+import { loadInterviewFlags } from './interview-flags-data';
 
 const BREADCRUMB_ITEMS = [
   { label: 'Home', href: '/' },
@@ -157,7 +163,7 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
   const { data: linkedRow } = await supabase
     .from('hr_recruitment_interviews')
     .select(
-      'id, round_name, outcome_summary, candidate:hr_recruitment_candidates(name, role_title)',
+      'id, job_id, round_name, outcome_summary, candidate:hr_recruitment_candidates(id, name, role_title, email, phone, status, cvviz_url, role_specific_details)',
     )
     .eq('booking_id', booking.id)
     .maybeSingle();
@@ -208,14 +214,66 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
         const candidate = Array.isArray(row.candidate)
           ? (row.candidate[0] as Record<string, unknown> | undefined)
           : (row.candidate as Record<string, unknown> | undefined);
+        const details = (candidate?.role_specific_details ?? null) as Record<string, unknown> | null;
+        const text = (v: unknown) => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
+        const summary = (row.outcome_summary as string | null) ?? null;
         return {
+          candidateId: (candidate?.id as string | null) ?? null,
           candidateName: (candidate?.name as string | null) ?? null,
           roleTitle: (candidate?.role_title as string | null) ?? null,
           roundName: (row.round_name as string | null) ?? null,
-          outcomeSummary: (row.outcome_summary as string | null) ?? null,
+          // The ingest copies the recording's summary here too. When it is the
+          // same text as the Meeting notes card above, showing it twice is noise.
+          outcomeSummary:
+            summary && meetingNote?.summary && summary.trim() === meetingNote.summary.trim() ? null : summary,
+          outcomeSameAsNotes: !!(summary && meetingNote?.summary && summary.trim() === meetingNote.summary.trim()),
+          // Everything the interviewer needs without leaving the meeting
+          // (Director, 24 Sep 2026). Read through the viewer's own session:
+          // RLS decides, so someone who may not see the candidate sees none of it.
+          profile: candidate
+            ? {
+                email: text(candidate.email),
+                phone: text(candidate.phone),
+                status: text(candidate.status),
+                cvUrl: text(candidate.cvviz_url),
+                currentJob: text(details?.current_job),
+                payExpectation: text(details?.pay_expectation),
+                whyThisRole: text(details?.why_this_role),
+                qualification: text(details?.qualification),
+                experienceMonths:
+                  typeof details?.experience_months === 'number' ? (details.experience_months as number) : null,
+              }
+            : null,
+          application: null,
         };
       })()
     : null;
+
+  // The application behind this post, if the candidate applied (#15). A second
+  // read, not an embed: interviews.job_id has no foreign key. RLS on
+  // hr_job_applications admits HR for that institution; anyone else gets none.
+  if (linkedInterview?.profile?.email && (linkedRow as Record<string, unknown>)?.job_id) {
+    const { data: app } = await supabase
+      .from('hr_job_applications')
+      .select('current_job_title, current_company, experience_months, qualification, resume_url, submitted_at')
+      .eq('job_id', (linkedRow as Record<string, unknown>).job_id as string)
+      .eq('email', linkedInterview.profile.email.toLowerCase())
+      .order('submitted_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (app) {
+      linkedInterview.application = {
+        currentJobTitle: (app.current_job_title as string | null) ?? null,
+        currentCompany: (app.current_company as string | null) ?? null,
+        experienceMonths: (app.experience_months as number | null) ?? null,
+        qualification: (app.qualification as string | null) ?? null,
+        resumeUrl: (app.resume_url as string | null) ?? null,
+      };
+    }
+  }
+  // Round, prior outcome, earlier no-shows, missing application (#5 #6 #10 #15).
+  // null — not an interview, not visible to this viewer, or failed (logged).
+  const interviewFlags = await loadInterviewFlags(supabase, booking.id);
 
   // host display info (native bookings store the profile id only)
   const { data: host } = await supabase
@@ -320,6 +378,35 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
   const isOnline =
     effectiveLocationMode(meetingType?.location_mode, booking.location_mode_override) ===
     'online';
+
+  // Record this meeting (16 Sep 2026, Director: the recorder must be reachable
+  // from the meeting it is for, not only from its own page). Shown for a
+  // meeting that happens in a room — online ones record themselves through
+  // Meet, and a phone call is not a room. Gated by the same allow-list the
+  // record page uses: fn_may_record_meetings() runs as the caller and RLS keeps
+  // the answer to their own row, so asking here reveals nothing about anyone
+  // else. A recording already made is shown whether or not the viewer may make
+  // another.
+  const happensInARoom =
+    effectiveLocationMode(meetingType?.location_mode, booking.location_mode_override) ===
+    'in_person';
+  const { data: mayRecord } = happensInARoom
+    ? await supabase.rpc('fn_may_record_meetings')
+    : { data: false };
+  // NOT gated on isPast (Director, 23 Sep: "unable to see record button for past
+  // meetings"). A meeting is "past" the moment its end time passes, which is
+  // exactly when a room is still full and running over — the case the recorder
+  // was built for. It also covers recording a conversation that happened
+  // without a booking being moved, and adding audio to a meeting after the
+  // fact. Cancelled still hides it: a meeting called off is not one to record.
+  const canRecordHere = happensInARoom && !isCancelled && mayRecord === true;
+
+  const { data: recordingRows } = await supabase
+    .from('meeting_recordings')
+    .select('id, title, status, chunk_count, duration_seconds, started_at, error')
+    .eq('booking_id', booking.id)
+    .order('started_at', { ascending: false });
+  const recordings = (recordingRows ?? []) as Array<Record<string, unknown>>;
   const canSwitchToOnline =
     !isCancelled &&
     !isPast &&
@@ -444,7 +531,7 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               {meetingNote.summary ? (
-                <div className="whitespace-pre-wrap leading-relaxed">{meetingNote.summary}</div>
+                <MeetingNoteText text={meetingNote.summary} />
               ) : (
                 <p className="text-muted-foreground">
                   This meeting was recorded, but no summary came across with it.
@@ -488,6 +575,10 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
           </Card>
         ) : null}
 
+        {interviewFlags ? (
+          <InterviewFlagsCard {...interviewFlags} meetingEnded={isPast} />
+        ) : null}
+
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Attendee</CardTitle>
@@ -517,12 +608,18 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
                 </a>
               </div>
             ) : null}
+            {/* What the visitor said when booking. Rendered as readable
+                question-and-answer rather than the raw key: since 16 Sep a long
+                booking must answer three real questions, and three paragraphs
+                squeezed into a grey strip is the same as not showing them. */}
             {Object.keys(answers).length > 0 ? (
-              <div className="rounded-md bg-muted/50 p-2 text-xs space-y-1">
+              <div className="space-y-2 rounded-md bg-muted/50 p-3 text-sm">
                 {Object.entries(answers).map(([q, a]) => (
-                  <div key={q}>
-                    <span className="text-muted-foreground">{q}:</span>{' '}
-                    <span className="font-medium">{a}</span>
+                  <div key={q} className="space-y-0.5">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {contextLabelFor(q)}
+                    </p>
+                    <p className="whitespace-pre-wrap leading-relaxed">{a}</p>
                   </div>
                 ))}
               </div>
@@ -681,6 +778,44 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
           </Card>
         ) : null}
 
+        {recordings.length > 0 ? (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Mic className="h-4 w-4" aria-hidden />
+                Recording
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {recordings.map((r) => {
+                const secs = (r.duration_seconds as number | null) ?? null;
+                const mins = secs === null ? null : Math.max(1, Math.round(secs / 60));
+                const pieces = (r.chunk_count as number | null) ?? 0;
+                const problem = (r.error as string | null) ?? null;
+                return (
+                  <div key={r.id as string} className="space-y-1">
+                    <p className="font-medium">{(r.title as string) ?? 'Recording'}</p>
+                    <p className="text-muted-foreground">
+                      {mins === null ? 'Length not recorded' : `${mins} min`}
+                      {pieces > 0 ? ` · ${pieces} pieces of audio` : ''}
+                      {r.status === 'recording' ? ' · still recording' : ''}
+                    </p>
+                    {problem ? <p className="text-amber-600 dark:text-amber-500">{problem}</p> : null}
+                    {/* A recording whose Stop button went away with the tab that
+                        started it can only be ended from here. */}
+                    {r.status === 'recording' ? (
+                      <EndRecordingButton recordingId={r.id as string} />
+                    ) : null}
+                  </div>
+                );
+              })}
+              <p className="text-xs text-muted-foreground">
+                The audio is kept privately for 90 days. Written notes are kept.
+              </p>
+            </CardContent>
+          </Card>
+        ) : null}
+
         {/* The Actions card is no longer hidden once a meeting has ended: a host
             must be able to move a meeting that was missed (Director ruling
             2026-08-21). Each control decides for itself —
@@ -697,6 +832,14 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
           </CardHeader>
           <CardContent className="space-y-3">
             <RescheduleBookingButton uid={booking.uid} hasEnded={isPast || isCancelled} />
+            {canRecordHere ? (
+              <Link href={`/meetings/record?booking=${booking.uid}`} className="block">
+                <Button variant="outline" className="w-full justify-start">
+                  <Mic className="mr-2 h-4 w-4" aria-hidden />
+                  Record this meeting
+                </Button>
+              </Link>
+            ) : null}
             {canSwitchToOnline ? <SwitchToOnlineButton uid={booking.uid} /> : null}
             {canSwitchBack ? (
               <SwitchBackButton uid={booking.uid} backTo={switchBackTo} />

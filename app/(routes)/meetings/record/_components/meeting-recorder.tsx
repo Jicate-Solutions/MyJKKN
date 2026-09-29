@@ -57,9 +57,26 @@ function hhmmss(totalSeconds: number): string {
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
 
-export function MeetingRecorder({ canRecord }: { canRecord: boolean }) {
+/** The meeting this recording belongs to, when the page was opened from one. */
+export interface AttachedMeeting {
+  /** meeting_bookings.id — the server re-checks that it is the caller's. */
+  id: string;
+  label: string;
+  whenText: string;
+}
+
+export function MeetingRecorder({
+  canRecord,
+  attachedTo = null,
+}: {
+  canRecord: boolean;
+  attachedTo?: AttachedMeeting | null;
+}) {
   const [phase, setPhase] = useState<Phase>('idle');
-  const [title, setTitle] = useState('');
+  // Prefilled from the meeting, and still editable: the booking is called
+  // "One to One Meeting with X" and the person in the room may want to say what
+  // it was actually about.
+  const [title, setTitle] = useState(attachedTo?.label ?? '');
   const [announced, setAnnounced] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [uploaded, setUploaded] = useState(0);
@@ -182,7 +199,12 @@ export function MeetingRecorder({ canRecord }: { canRecord: boolean }) {
       const res = await fetch('/api/meetings/recordings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: trimmed, announced, mime_type: baseMime(mime) }),
+        body: JSON.stringify({
+          title: trimmed,
+          announced,
+          mime_type: baseMime(mime),
+          booking_id: attachedTo?.id ?? null,
+        }),
       });
       if (!res.ok) {
         const payload = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -221,7 +243,7 @@ export function MeetingRecorder({ canRecord }: { canRecord: boolean }) {
       );
       setPhase('idle');
     }
-  }, [announced, takeWakeLock, title, uploadChunk]);
+  }, [announced, attachedTo, takeWakeLock, title, uploadChunk]);
 
   const finish = useCallback(async () => {
     setPhase('finishing');
@@ -340,6 +362,17 @@ export function MeetingRecorder({ canRecord }: { canRecord: boolean }) {
     <div className="space-y-4">
       {(phase === 'idle' || phase === 'done' || phase === 'starting') && (
         <div className="space-y-3">
+          {attachedTo ? (
+            <div className="rounded-md border bg-muted/30 p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                Saving to this meeting
+              </p>
+              <p className="font-medium">{attachedTo.label}</p>
+              {attachedTo.whenText ? (
+                <p className="text-muted-foreground">{attachedTo.whenText}</p>
+              ) : null}
+            </div>
+          ) : null}
           <div className="space-y-1.5">
             <label htmlFor="mr-title" className="text-sm font-medium">
               What is this meeting?

@@ -14,17 +14,18 @@
  * It is left alone rather than rewritten: it belongs to a five-signature
  * approval chain with PF/ESI/TDS deductions that this register does not use.
  *
- * THE ROSTER IS THE WORK LOCATION (revised 2026-08-30, see migration
- * 20260830160000). staff.institution_id groups the register, which is also what
- * the attendance month close is keyed on — so a register maps 1:1 onto the month
- * that feeds it and waits on exactly one close.
+ * THE ROSTER IS THE PAYING INSTITUTION (restored 2026-09-23, see migration
+ * 20260923120000). hr_staff_payroll groups the register, because that is how
+ * HR pays: Pharmacy pays 73 people, 10 of them working at Main Office and 5 at
+ * Jicate. Where each person works is snapshotted per line ("Works At"), and a
+ * register waits on the attendance month close of every work location its
+ * staff come from.
  *
- * Payer scoping came first and did not survive contact: Main Office is a real
- * workplace that pays NOBODY, so it could never have a register, and 105 active
- * staff have no payer recorded and so landed on no register at all. WHO PAYS is
- * still carried — per line, plus per-payer subtotals in the export — so one Main
- * Office register still answers "what does each institution owe for the people
- * working here".
+ * History: payer scoping was replaced by work location on 2026-08-30 (Main
+ * Office pays nobody; 105 staff had no payer). By 2026-09-23 only 1 active
+ * person had no payer, and HR could not reconcile a work-scoped register with
+ * what it pays. Main Office simply has no register now, and anyone with no payer
+ * is named in a warning on their work institution's generate screen.
  *
  * THE ROSTER READS v_hr_staff, NOT staff. `employment_categories.included_in_hr`
  * gates the whole HR module, and payroll is no exception: Ayaah, Driver,
@@ -41,6 +42,7 @@ import { getErrorMessage } from '@/lib/utils';
 import { resolveTds } from '@/lib/hr/payroll/tds-slabs';
 import { TdsSlabService } from '@/lib/services/hr/payroll/tds-slab-service';
 import type {
+  HRSalaryRegisterDeletedRun,
   HRSalaryRegisterLine,
   HRSalaryRegisterRun,
   SalaryClosePreview,
@@ -66,7 +68,40 @@ import type {
  */
 const ON_DUTY_LEAVE_CODES = new Set(['OD', 'CD']);
 
+/**
+ * Leave-type codes that are CASUAL LEAVE, the one type the register names.
+ *
+ * Matched on hr_leave_types.leave_type_code, which is 'CL' at all 14
+ * institutions (one Casual Leave type each, verified 2026-09-22 — CL is 163 of
+ * the 219 leave days ever recorded on a summary). A second casual type under
+ * another code would land in Other paid leave: visible and still inside the
+ * total, never lost, and this set is one line to extend.
+ *
+ * Presentation only, like ON_DUTY_LEAVE_CODES: it decides which of three PAID
+ * columns a day prints in and cannot move a rupee.
+ */
+const CASUAL_LEAVE_CODES = new Set(['CL']);
+
 /** PostgREST returns numeric as a string. Every figure is coerced through this. */
+/**
+ * The most common value, smallest on a tie — the answer Postgres' mode() gives,
+ * which is what the close writes. Empty input yields 0 so a month with no
+ * projection rows divides by nothing rather than by NaN.
+ */
+function modeOf(values: number[]): number {
+  const counts = new Map<number, number>();
+  for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
+  let best = 0;
+  let bestCount = 0;
+  for (const [v, c] of counts) {
+    if (c > bestCount || (c === bestCount && v < best)) {
+      best = v;
+      bestCount = c;
+    }
+  }
+  return best;
+}
+
 function num(v: unknown): number {
   if (v === null || v === undefined) return 0;
   return typeof v === 'number' ? v : Number(v) || 0;
@@ -151,6 +186,7 @@ interface RosterMember {
   department_name: string | null;
   date_of_joining: string | null;
   work_institution_id: string;
+  work_institution_name: string | null;
 }
 
 /** Everything a preflight or a generate needs, loaded once. */
@@ -180,6 +216,8 @@ interface RegisterContext {
   bankUnreadable: boolean;
   /** hr.payroll.institution.view is missing, so every payer reads as unrecorded. */
   payerUnreadable: boolean;
+  /** Active HR staff working at this institution with NO paying institution recorded — on no register. */
+  unpaidHere: string[];
 }
 
 /** Exported so computeRegisterLine's signature is nameable by its tests. */
@@ -195,36 +233,41 @@ export interface AttendanceSummaryRow {
   leave_by_type: Record<string, number>;
   unprocessed_days: number;
   /**
-   * Days the resolver expected this person to work in the month, pattern-aware
-   * (2026-09-04). NULL on months closed before the column existed.
+   * Days the resolver expected this person to work in the month: calendar
+   * days minus week-offs minus holidays, pattern/role/person aware, NOT
+   * clamped to joining. The register's Business Working Days and this line's
+   * divisor (2026-09-22). NULL only on rows frozen before 2026-09-04 that the
+   * backfill could not resolve.
    */
   scheduled_days: number | null;
-  /**
-   * The work pattern held on any day of the month. When set, the day rate
-   * divides by scheduled_days — the person's own week — instead of the
-   * institution standard. See registerBasisFor.
-   */
+  /** The work pattern held on any day of the month. Informational since 2026-09-22. */
   work_pattern_id: string | null;
 }
 
 /**
  * The divisor for one register line.
  *
- * A person on a work pattern (a 3-day or 5-day week at an institution that
- * otherwise runs six) is paid on THEIR scheduled days, not the institution's
- * month standard — dividing a Tue/Wed/Thu person's salary by 26 would charge
- * them ~13 unpaid days every month. Everyone else keeps the period basis.
+ * scheduled_days is the resolver's FULL-MONTH expectation for this person —
+ * calendar days minus week-offs minus holidays, pattern-aware — frozen at
+ * close. It is NOT the person's recorded working days: a mid-month joiner is
+ * unpaid for the days before they joined, not paid a full month for half of
+ * one. A 3-day-week pattern member gets their own 13, not the institution's
+ * 23; everyone else's scheduled_days IS the institution's 23.
  *
- * scheduled_days is the resolver's full-month expectation, NOT the person's
- * recorded working days, for the same reason the institution basis is used for
- * everyone else: a mid-month joiner is unpaid for the days before they joined,
- * not paid a full month for half of one.
+ * WHY NOT THE PERIOD'S working_days_count. Until 2026-09-22 that column was
+ * MAX(working_days) over every summary in the month, and working_days was
+ * counted from RECORDS. One person whose 23-day leave had been stamped over
+ * three Sundays and three holidays counted 29 working days, and all 50 people
+ * on the Pharmacy August register were divided by 29 while being credited at
+ * most 23 — six unpaid days each, on a month nobody missed. The period figure
+ * is now the MODE of scheduled_days and is only the fallback for months
+ * closed before the column existed.
  */
 export function registerBasisFor(
-  summary: Pick<AttendanceSummaryRow, 'scheduled_days' | 'work_pattern_id'>,
+  summary: Pick<AttendanceSummaryRow, 'scheduled_days'>,
   periodBasis: number,
 ): number {
-  if (summary.work_pattern_id && (summary.scheduled_days ?? 0) > 0) {
+  if ((summary.scheduled_days ?? 0) > 0) {
     return summary.scheduled_days as number;
   }
   return periodBasis;
@@ -233,7 +276,12 @@ export function registerBasisFor(
 /** The computed half of a register row — everything that is not identity. */
 export interface RegisterLineFigures {
   business_working_days: number;
+  /** The paid-leave TOTAL. The three columns below partition it exactly. */
   paid_leave_days: number;
+  casual_leave_days: number;
+  comp_off_days: number;
+  /** Clinical, PH.D, WFH — every paid type that is neither of the two above. */
+  other_paid_leave_days: number;
   unpaid_leave_days: number;
   on_duty_days: number;
   worked_days: number;
@@ -269,6 +317,9 @@ export interface RegisterLineFigures {
 export const ZERO_FIGURES: RegisterLineFigures = {
   business_working_days: 0,
   paid_leave_days: 0,
+  casual_leave_days: 0,
+  comp_off_days: 0,
+  other_paid_leave_days: 0,
   unpaid_leave_days: 0,
   on_duty_days: 0,
   worked_days: 0,
@@ -296,6 +347,15 @@ export const ZERO_FIGURES: RegisterLineFigures = {
  *   Paid Days   = Business Working Days - Unpaid
  *   Paid Days   = Worked + Paid Leave + On Duty
  *   Worked      = Business Working Days - Paid Leave - Unpaid - On Duty
+ *
+ * and, since the detail table prints the paid-leave columns separately
+ * (2026-09-22), a fourth that makes that row close:
+ *   Paid Leave  = Casual + Comp Off + Other Paid Leave
+ *
+ * HOLIDAYS ARE OUTSIDE THE BUSINESS WORKING DAYS AND ARE NOT PAID DAYS (HR,
+ * 2026-09-22): the basis is calendar minus week-offs minus holidays, and the
+ * attendance page's cards print the same unit, so the two screens agree on
+ * every figure for the same person.
  */
 export function computeRegisterLine(input: {
   monthlyGross: number;
@@ -335,11 +395,26 @@ export function computeRegisterLine(input: {
   // them across so the On Duty column means on duty. Both are paid, so this
   // cannot change net pay — it decides which column a day is printed in.
   let odLeaveDays = 0;
+  let casualLeaveDays = 0;
   for (const [code, days] of Object.entries(s.leave_by_type ?? {})) {
     if (ON_DUTY_LEAVE_CODES.has(code)) odLeaveDays += num(days);
+    else if (CASUAL_LEAVE_CODES.has(code)) casualLeaveDays += num(days);
   }
 
   const paidLeaveDays = Math.max(0, s.leave_days - odLeaveDays) + s.comp_off_days;
+
+  /**
+   * The paid-leave total, taken apart for the detail table's columns.
+   *
+   * DERIVED BY SUBTRACTION, not by summing the named types. leave_by_type is
+   * keyed per leave-type code and paid_leave_days is computed from leave_days,
+   * so adding up the codes the app happens to know would drop any type it does
+   * not — silently, on the register that decides pay. Taking the remainder
+   * makes the partition exact by construction: whatever is neither casual nor
+   * comp-off is Other, including a type created tomorrow.
+   */
+  const compOffDays = Math.max(0, s.comp_off_days);
+  const otherPaidLeaveDays = Math.max(0, paidLeaveDays - casualLeaveDays - compOffDays);
   const onDutyDays = s.on_duty_days + odLeaveDays;
   const workedDays = s.present_days;
 
@@ -406,6 +481,9 @@ export function computeRegisterLine(input: {
   return {
     business_working_days: basis,
     paid_leave_days: paidLeaveDays,
+    casual_leave_days: casualLeaveDays,
+    comp_off_days: compOffDays,
+    other_paid_leave_days: otherPaidLeaveDays,
     unpaid_leave_days: unpaidLeaveDays,
     on_duty_days: onDutyDays,
     worked_days: workedDays,
@@ -463,43 +541,68 @@ export class SalaryRegisterService {
     if (orgErr) throw new Error(`Failed to load the paying institution: ${getErrorMessage(orgErr)}`);
     if (!org) throw new Error('That paying institution does not exist, or is not visible to this account.');
 
-    // 2. The roster — everyone in an HR CATEGORY who WORKS here.
+    // 2. The roster — everyone in an HR CATEGORY whom THIS INSTITUTION PAYS.
     //
+    // hr_staff_payroll, NOT staff.institution_id (restored 2026-09-23, see
+    // 20260923120000). HR pays per paying institution: Pharmacy pays 73 people,
+    // 10 of whom work at Main Office and 5 at Jicate, and a register grouped by
+    // work location could not be reconciled against what HR actually pays. Where
+    // each person works rides on the line instead.
+    //
+    // hr_staff_payroll is gated on hr.payroll.institution.view and returns ZERO
+    // ROWS AND NO ERROR without it — which would read as "this institution pays
+    // nobody". Ask directly rather than infer, and refuse.
+    const roster: RosterMember[] = [];
+    const paidStaffIds: string[] = [];
+    {
+      const { data: payRows, error: payErr } = await (supabase as any)
+        .from('hr_staff_payroll')
+        .select('staff_id')
+        .eq('hr_organization_id', org.id)
+        .limit(5000);
+
+      if (payErr) throw new Error(`Failed to load who ${org.name} pays: ${getErrorMessage(payErr)}`);
+      for (const r of ((payRows ?? []) as any[])) if (r.staff_id) paidStaffIds.push(r.staff_id);
+
+      if (paidStaffIds.length === 0) {
+        const { data: canSeePayroll } = await (supabase as any).rpc('user_has_permission', {
+          permission_name: 'hr.payroll.institution.view',
+        });
+        const { data: isSuperAdmin } = await (supabase as any).rpc('is_super_admin');
+        if (!canSeePayroll && !isSuperAdmin) {
+          throw new Error(
+            'Cannot read who each institution pays: this account is missing hr.payroll.institution.view. The register would be empty, which is indistinguishable from the institution paying nobody. Ask an administrator to grant it.',
+          );
+        }
+      }
+    }
+
     // v_hr_staff, NOT the staff table. The view is `staff JOIN
-    // employment_categories WHERE included_in_hr`, and it is the gate the whole
-    // HR module already runs on — so payroll must respect it too. Reading staff
-    // directly put 161 people on registers who are deliberately outside HR:
-    // Ayaah (105), Driver (31), Security (15), Warden (5), Hostel (4), Cooking
-    // Master (1). At Main Office that alone was 88 of the 121 rows.
-    //
-    // The attendance side already agrees: not one of those 161 appears in a
-    // frozen period summary, so they were being listed only to be excluded as
-    // "No attendance" — noise that buried the real gaps.
-    //
-    // staff.institution_id, NOT hr_staff_payroll: the register is grouped by
-    // work location because that is what the attendance close is keyed on, so a
-    // register maps 1:1 onto the month feeding it. Who PAYS rides on the line.
+    // employment_categories WHERE included_in_hr`, the gate the whole HR module
+    // runs on — Ayaah, Driver, Security, Warden, Hostel and Cooking Master stay
+    // off every register. Inactive people drop out here too: hr_staff_payroll
+    // keeps a row for everyone who was ever paid.
     //
     // The view is security_invoker, so RLS on staff still applies through it.
-    const roster: RosterMember[] = [];
-    const { data: staffRows, error: staffErr } = await (supabase as any)
-      .from('v_hr_staff')
-      .select('id, staff_id, first_name, last_name, designation, date_of_joining, institution_id, department_id')
-      .eq('institution_id', org.institution_id)
-      .eq('is_active', true)
-      .limit(2000);
+    const staffRows: any[] = [];
+    for (const ids of chunk(paidStaffIds)) {
+      const { data, error: staffErr } = await (supabase as any)
+        .from('v_hr_staff')
+        .select('id, staff_id, first_name, last_name, designation, date_of_joining, institution_id, department_id')
+        .in('id', ids)
+        .eq('is_active', true);
 
-    // Abort rather than continue. A partial roster produces a register that
-    // reports success while omitting people — not obvious until somebody is
-    // not paid.
-    if (staffErr) throw new Error(`Failed to load team members: ${getErrorMessage(staffErr)}`);
+      // Abort rather than continue. A partial roster produces a register that
+      // reports success while omitting people — not obvious until somebody is
+      // not paid.
+      if (staffErr) throw new Error(`Failed to load team members: ${getErrorMessage(staffErr)}`);
+      staffRows.push(...((data ?? []) as any[]));
+    }
 
     // Departments in a SEPARATE query, not a PostgREST embed: v_hr_staff is a
     // view, and embedding relies on foreign keys the view does not carry.
-    // Fetching them by id also keeps the null case honest — a person with no
-    // department still belongs on their own payroll.
     const departmentIds = Array.from(
-      new Set(((staffRows ?? []) as any[]).map((r) => r.department_id).filter(Boolean)),
+      new Set(staffRows.map((r) => r.department_id).filter(Boolean)),
     ) as string[];
 
     const departmentNameById = new Map<string, string>();
@@ -513,7 +616,23 @@ export class SalaryRegisterService {
       for (const d of ((deptRows ?? []) as any[])) departmentNameById.set(d.id, d.department_name);
     }
 
-    for (const st of ((staffRows ?? []) as any[])) {
+    // Work-location names, for the dependency list and the "Works At" column.
+    // hr_organizations is 1:1 with institutions and already readable here.
+    const workInstitutionIds = Array.from(
+      new Set(staffRows.map((r) => r.institution_id).filter(Boolean)),
+    ) as string[];
+    const workNameByInstitution = new Map<string, string>();
+    if (workInstitutionIds.length > 0) {
+      const { data: orgRows, error: orgNameErr } = await (supabase as any)
+        .from('hr_organizations')
+        .select('institution_id, name')
+        .in('institution_id', workInstitutionIds);
+
+      if (orgNameErr) throw new Error(`Failed to load work locations: ${getErrorMessage(orgNameErr)}`);
+      for (const o of ((orgRows ?? []) as any[])) workNameByInstitution.set(o.institution_id, o.name);
+    }
+
+    for (const st of staffRows) {
       roster.push({
         staff_id: st.id,
         employee_code: st.staff_id ?? null,
@@ -522,12 +641,44 @@ export class SalaryRegisterService {
         department_name: st.department_id ? departmentNameById.get(st.department_id) ?? null : null,
         date_of_joining: st.date_of_joining ?? null,
         work_institution_id: st.institution_id,
+        work_institution_name: workNameByInstitution.get(st.institution_id) ?? null,
       });
     }
 
     roster.sort((a, b) => (a.employee_code ?? '￿').localeCompare(b.employee_code ?? '￿'));
 
     const staffIds = roster.map((r) => r.staff_id);
+
+    // 3. People who WORK here but have NO paying institution recorded. Under
+    //    payer scoping they are on no register at all, so they are named in a
+    //    warning here — the one screen HR opens for this workplace — rather than
+    //    vanishing silently.
+    const unpaidHere: string[] = [];
+    {
+      const { data: hereRows, error: hereErr } = await (supabase as any)
+        .from('v_hr_staff')
+        .select('id, staff_id, first_name, last_name')
+        .eq('institution_id', org.institution_id)
+        .eq('is_active', true)
+        .limit(2000);
+
+      if (hereErr) throw new Error(`Failed to load staff working here: ${getErrorMessage(hereErr)}`);
+      const here = (hereRows ?? []) as any[];
+      const withPayer = new Set<string>();
+      for (const ids of chunk(here.map((h) => h.id))) {
+        const { data, error } = await (supabase as any)
+          .from('hr_staff_payroll')
+          .select('staff_id')
+          .in('staff_id', ids);
+        if (error) throw new Error(`Failed to load the payer directory: ${getErrorMessage(error)}`);
+        for (const r of (data ?? []) as any[]) withPayer.add(r.staff_id);
+      }
+      for (const h of here) {
+        if (!withPayer.has(h.id)) {
+          unpaidHere.push(`${`${h.first_name ?? ''} ${h.last_name ?? ''}`.trim()}${h.staff_id ? ` (${h.staff_id})` : ''}`);
+        }
+      }
+    }
 
     if (staffIds.length === 0) {
       return {
@@ -544,73 +695,58 @@ export class SalaryRegisterService {
         summaryByStaff: new Map(),
         bankUnreadable: false,
         payerUnreadable: false,
+        unpaidHere,
       };
     }
 
-    // 3. WHO PAYS each of them. No longer the grouping key — an attribute of the
-    //    row, and the basis of the per-payer subtotals in the export. A person
-    //    with no row here is NOT excluded: 105 active staff have no payer
-    //    recorded, and omitting them would be the silent gap this module exists
-    //    to prevent. They appear with the payer reported as unrecorded.
+    // Everyone on the roster is paid by this organisation, by construction.
     const payerByStaff = new Map<string, { id: string; name: string }>();
-    for (const ids of chunk(staffIds)) {
-      const { data: payRows, error: payErr } = await (supabase as any)
-        .from('hr_staff_payroll')
-        .select('staff_id, hr_organization_id, hr_organizations:hr_organization_id(name)')
-        .in('staff_id', ids);
+    for (const id of staffIds) payerByStaff.set(id, { id: org.id, name: org.name });
+    const payerUnreadable = false;
 
-      if (payErr) throw new Error(`Failed to load the payer directory: ${getErrorMessage(payErr)}`);
-
-      for (const r of ((payRows ?? []) as any[])) {
-        if (!r.hr_organization_id) continue;
-        payerByStaff.set(r.staff_id, {
-          id: r.hr_organization_id,
-          name: r.hr_organizations?.name ?? 'Unknown institution',
-        });
-      }
-    }
-
-    // hr_staff_payroll is gated on hr.payroll.institution.view. Without it the
-    // read returns zero rows and no error — indistinguishable from "no payers
-    // recorded". That no longer blocks a register (the roster does not come from
-    // here any more), so it is a WARNING rather than a throw; the preflight says
-    // so instead of printing a whole column of "not recorded".
-    let payerUnreadable = false;
-    if (payerByStaff.size === 0) {
-      const { data: canSeePayroll } = await (supabase as any).rpc('user_has_permission', {
-        permission_name: 'hr.payroll.institution.view',
-      });
-      const { data: isSuperAdmin } = await (supabase as any).rpc('is_super_admin');
-      payerUnreadable = !canSeePayroll && !isSuperAdmin;
-    }
-
-    // 4. The attendance month. Exactly one now — this institution's own.
+    // 4. The attendance months — one per work location among the people paid
+    //    here. Each must be closed before the register can be generated.
     const { data: periodRows, error: periodErr } = await (supabase as any)
       .from('hr_attendance_periods')
       .select('id, institution_id, status, working_days_count, locked_at')
-      .eq('institution_id', org.institution_id)
+      .in('institution_id', workInstitutionIds)
       .eq('period_year', year)
-      .eq('period_month', month)
-      .maybeSingle();
+      .eq('period_month', month);
 
-    if (periodErr) throw new Error(`Failed to load the attendance month: ${getErrorMessage(periodErr)}`);
+    if (periodErr) throw new Error(`Failed to load the attendance months: ${getErrorMessage(periodErr)}`);
 
-    const dependencies: SalaryRegisterPeriodDependency[] = [{
-      institution_id: org.institution_id,
-      institution_name: org.name,
-      staff_count: roster.length,
-      period_id: periodRows?.id ?? null,
-      status: !periodRows ? 'not_created' : periodRows.status === 'locked' ? 'locked' : 'open',
-      working_days_count: periodRows?.working_days_count ?? null,
-      locked_at: periodRows?.locked_at ?? null,
-    }];
+    const periodByInstitution = new Map<string, any>();
+    for (const p of (periodRows ?? []) as any[]) periodByInstitution.set(p.institution_id, p);
+
+    const staffCountByInstitution = new Map<string, number>();
+    for (const m of roster) {
+      staffCountByInstitution.set(m.work_institution_id, (staffCountByInstitution.get(m.work_institution_id) ?? 0) + 1);
+    }
+
+    // Own institution first, then the rest by head count — the order the
+    // preflight reads best in.
+    const dependencies: SalaryRegisterPeriodDependency[] = workInstitutionIds
+      .map((instId) => {
+        const p = periodByInstitution.get(instId);
+        return {
+          institution_id: instId,
+          institution_name: workNameByInstitution.get(instId) ?? 'Unknown institution',
+          staff_count: staffCountByInstitution.get(instId) ?? 0,
+          period_id: p?.id ?? null,
+          status: (!p ? 'not_created' : p.status === 'locked' ? 'locked' : 'open') as SalaryRegisterPeriodDependency['status'],
+          working_days_count: p?.working_days_count ?? null,
+          locked_at: p?.locked_at ?? null,
+        };
+      })
+      .sort((a, b) =>
+        (a.institution_id === org.institution_id ? -1 : 0) - (b.institution_id === org.institution_id ? -1 : 0)
+        || b.staff_count - a.staff_count);
 
     const lockedPeriodByInstitution = new Map<string, { id: string; workingDays: number }>();
-    if (periodRows?.status === 'locked' && periodRows.id) {
-      lockedPeriodByInstitution.set(org.institution_id, {
-        id: periodRows.id,
-        workingDays: num(periodRows.working_days_count),
-      });
+    for (const p of periodByInstitution.values()) {
+      if (p.status === 'locked' && p.id) {
+        lockedPeriodByInstitution.set(p.institution_id, { id: p.id, workingDays: num(p.working_days_count) });
+      }
     }
 
     // 5. Salaries. superseded_by IS NULL = the currently effective row.
@@ -754,6 +890,7 @@ export class SalaryRegisterService {
       bankByStaff,
       payerByStaff,
       summaryByStaff,
+      unpaidHere,
       bankUnreadable,
       payerUnreadable,
     };
@@ -819,12 +956,12 @@ export class SalaryRegisterService {
       });
     }
 
-    // The month standard, derived exactly as the close derives it: the largest
-    // working_days across the projection is what it writes into
-    // hr_attendance_periods.working_days_count.
-    const periodBasis = rows.reduce(
-      (max, r) => Math.max(max, Number(r.working_days ?? 0)),
-      0,
+    // The month standard, derived exactly as the close derives it: the MODE of
+    // scheduled_days across the projection is what it writes into
+    // hr_attendance_periods.working_days_count. A display figure and the
+    // fallback divisor only — each line divides by its own scheduled_days.
+    const periodBasis = modeOf(
+      rows.map((r) => Number(r.scheduled_days ?? 0)).filter((n) => n > 0),
     );
 
     const payable: SalaryClosePreviewRow[] = [];
@@ -903,12 +1040,14 @@ export class SalaryRegisterService {
     const blockers: string[] = [];
     const warnings: string[] = [];
 
-    // An empty roster now means exactly one thing — nobody works here. Under the
-    // old payer scoping it meant "no payer recorded", which sent operators to
-    // Payroll Organisation to record payers on an institution that pays nobody.
+    // An empty roster means nobody active in an HR category is recorded as paid
+    // by this institution. For a non-payroll institution (Main Office) that is
+    // by design; otherwise Payroll Organisation is where it gets fixed.
     if (ctx.roster.length === 0) {
       blockers.push(
-        `No active staff in an HR employment category are posted to ${ctx.organisationName}, so there is nobody to pay. Either their work location is wrong on the staff records, or their employment category is not marked "included in HR".`,
+        !ctx.isPayrollEntity
+          ? `${ctx.organisationName} does not pay salaries itself, so it has no salary register. The people working here appear on the register of the institution that pays them.`
+          : `No active staff in an HR employment category are recorded as paid by ${ctx.organisationName}. Record who pays each person in Payroll Organisation, or check that their employment category is marked "included in HR".`,
       );
     }
 
@@ -932,7 +1071,6 @@ export class SalaryRegisterService {
 
     let missingSalary = 0;
     let missingBank = 0;
-    let missingPayer = 0;
     let payable = 0;
     let unprocessedDays = 0;
     let halfDayCount = 0;
@@ -943,7 +1081,6 @@ export class SalaryRegisterService {
 
       if (salary === undefined || salary <= 0) missingSalary++;
       if (!ctx.bankByStaff.has(member.staff_id)) missingBank++;
-      if (!ctx.payerByStaff.has(member.staff_id)) missingPayer++;
       if (salary !== undefined && salary > 0 && summary) payable++;
 
       if (summary) {
@@ -976,24 +1113,13 @@ export class SalaryRegisterService {
       );
     }
 
-    if (ctx.payerUnreadable) {
+    // Not on THIS register, and on no other one either: payer scoping leaves
+    // anyone without a paying institution unpaid. Named, so HR can fix them.
+    if (ctx.unpaidHere.length > 0) {
+      const shown = ctx.unpaidHere.slice(0, 10).join(', ');
+      const more = ctx.unpaidHere.length > 10 ? ` and ${ctx.unpaidHere.length - 10} more` : '';
       warnings.push(
-        'Who pays each person is not visible to this account (missing hr.payroll.institution.view), so the Paid By column and the per-payer subtotals will be blank. The amounts are unaffected.',
-      );
-    } else if (missingPayer > 0) {
-      warnings.push(
-        missingPayer === ctx.roster.length
-          ? `No paying institution is recorded for anyone here. They are still on the register and still paid; the Paid By column and the per-payer subtotals will be blank until Payroll Organisation is filled in.`
-          : `${missingPayer} of ${ctx.roster.length} staff have no paying institution recorded. They stay on the register and are still paid — only the per-payer subtotals are short by their amounts.`,
-      );
-    }
-
-    // Not a warning about a fault: it is the fact that makes the Paid By column
-    // worth reading. Main Office is the whole reason this register is grouped by
-    // work location rather than by payer.
-    if (!ctx.isPayrollEntity && ctx.roster.length > 0) {
-      warnings.push(
-        `${ctx.organisationName} does not pay salaries itself — everyone here is paid by another institution. The register lists them all; use the Paid By column and the per-payer totals to see what each institution owes.`,
+        `${ctx.unpaidHere.length} staff working at ${ctx.organisationName} have no paying institution recorded, so they are on NO salary register: ${shown}${more}. Record who pays them in Payroll Organisation.`,
       );
     }
 
@@ -1049,7 +1175,7 @@ export class SalaryRegisterService {
       payable_count: payable,
       missing_salary_count: missingSalary,
       missing_bank_count: missingBank,
-      missing_payer_count: missingPayer,
+      missing_payer_count: ctx.unpaidHere.length,
       unprocessed_days: unprocessedDays,
       half_day_count: halfDayCount,
       dependencies: ctx.dependencies,
@@ -1147,12 +1273,13 @@ export class SalaryRegisterService {
         date_of_joining: member.date_of_joining,
         bank_account_number: ctx.bankByStaff.get(member.staff_id) ?? null,
         attendance_period_id: summary?.period_id ?? null,
-        // WHO BEARS THIS SALARY. Snapshotted with the rest of the identity so a
-        // payer reassignment cannot rewrite an issued register. Null is a real
-        // answer, not a gap in the code — 105 active staff have no payer
-        // recorded, and they are still paid and still listed.
+        // WHO BEARS THIS SALARY — the run's own institution, since the roster is
+        // read from hr_staff_payroll. Snapshotted with WHERE THEY WORK so a payer
+        // reassignment or a transfer cannot rewrite an issued register.
         paid_by_organization_id: ctx.payerByStaff.get(member.staff_id)?.id ?? null,
         paid_by_name: ctx.payerByStaff.get(member.staff_id)?.name ?? null,
+        work_institution_id: member.work_institution_id,
+        work_institution_name: member.work_institution_name,
       };
 
       // Exclusion order matters: report the FIRST thing HR has to fix, not all
@@ -1281,6 +1408,105 @@ export class SalaryRegisterService {
     }
 
     return { run_id: runId, included, excluded };
+  }
+
+  /**
+   * Remove one register and every line on it. SUPER ADMIN ONLY, and
+   * irreversible — a frozen register is payroll history, and this is the one
+   * path that rewrites it.
+   *
+   * The route checks is_super_admin() before calling; the DELETE policies on
+   * both tables (migration 20260922072528) refuse everyone else at the
+   * database, so a forged request cannot get past a missing check here.
+   *
+   * ZERO ROWS BACK IS A REFUSAL, NOT A SUCCESS. An RLS-denied DELETE returns
+   * no error and no rows — the same shape as "already gone". The snapshot is
+   * loaded first so the two can be told apart (P0002 vs 42501) and so the
+   * receipt can name the register after the row no longer exists.
+   *
+   * A predecessor this run superseded STAYS superseded (its superseded_by
+   * FK is SET NULL by the cascade; superseded_at is left alone): the month
+   * then has no live register until someone generates again. Nothing ever
+   * silently becomes "in force" because something else was deleted.
+   */
+  static async deleteRun(
+    supabase: SupabaseClient,
+    runId: string,
+    actorId: string,
+  ): Promise<HRSalaryRegisterDeletedRun> {
+    const { data: run, error: loadErr } = await (supabase as any)
+      .from('hr_salary_register_runs')
+      .select(
+        'id, hr_organization_id, institution_id, period_year, period_month, staff_total, included_count, total_net, generated_at, superseded_at, hr_organizations:hr_organization_id(name)'
+      )
+      .eq('id', runId)
+      .maybeSingle();
+
+    if (loadErr) throw new Error(`Failed to load the register: ${getErrorMessage(loadErr)}`);
+    if (!run) {
+      throw Object.assign(new Error('This register no longer exists.'), { code: 'P0002' });
+    }
+
+    const receipt: HRSalaryRegisterDeletedRun = {
+      id: run.id,
+      hr_organization_id: run.hr_organization_id,
+      organisation_name: run.hr_organizations?.name ?? 'Unknown institution',
+      institution_id: run.institution_id,
+      period_year: run.period_year,
+      period_month: run.period_month,
+      staff_total: num(run.staff_total),
+      included_count: num(run.included_count),
+      total_net: num(run.total_net),
+      generated_at: run.generated_at,
+      was_superseded: run.superseded_at != null,
+    };
+
+    const { data: deleted, error: delErr } = await (supabase as any)
+      .from('hr_salary_register_runs')
+      .delete()
+      .eq('id', runId)
+      .select('id');
+
+    if (delErr) throw new Error(`Failed to delete the register: ${getErrorMessage(delErr)}`);
+    if (!deleted || deleted.length === 0) {
+      throw Object.assign(
+        new Error('Only a super admin can delete a salary register.'),
+        { code: '42501' },
+      );
+    }
+
+    // After the delete, never before: a log line for a delete that then failed
+    // would be the worse lie. logActivity swallows its own errors, so a logging
+    // fault cannot undo or mask a delete that has already happened.
+    //
+    // IMPORTED HERE, NOT AT THE TOP. activity-logger reaches ActivityService ->
+    // BaseService -> the browser Supabase client, which is constructed at import
+    // time and throws without env — and this module's pure pay arithmetic is
+    // unit-tested with no env at all. A top-level import broke every register
+    // test at load.
+    const { logActivity } = await import('@/lib/utils/activity-logger');
+    await logActivity({
+      userId: actorId,
+      actionType: 'delete',
+      resourceType: 'hr_salary_register_run',
+      resourceId: receipt.id,
+      resourceName: `${receipt.organisation_name} · ${monthLabel(receipt.period_year, receipt.period_month)}`,
+      description: `Deleted the salary register for ${receipt.organisation_name}, ${monthLabel(receipt.period_year, receipt.period_month)} (${receipt.included_count} payable lines, net ${receipt.total_net.toFixed(2)})`,
+      metadata: {
+        institution_id: receipt.institution_id,
+        hr_organization_id: receipt.hr_organization_id,
+        period_year: receipt.period_year,
+        period_month: receipt.period_month,
+        staff_total: receipt.staff_total,
+        included_count: receipt.included_count,
+        total_net: receipt.total_net,
+        generated_at: receipt.generated_at,
+        was_superseded: receipt.was_superseded,
+      },
+      institutionId: receipt.institution_id,
+    });
+
+    return receipt;
   }
 
   // ───────────────────────────────────────────────────────────────────────
@@ -1467,6 +1693,9 @@ export class SalaryRegisterService {
       serial_no: num(l.serial_no),
       business_working_days: num(l.business_working_days),
       paid_leave_days: num(l.paid_leave_days),
+      casual_leave_days: num(l.casual_leave_days),
+      comp_off_days: num(l.comp_off_days),
+      other_paid_leave_days: num(l.other_paid_leave_days),
       unpaid_leave_days: num(l.unpaid_leave_days),
       on_duty_days: num(l.on_duty_days),
       worked_days: num(l.worked_days),

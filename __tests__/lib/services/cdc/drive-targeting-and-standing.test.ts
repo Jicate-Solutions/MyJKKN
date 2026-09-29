@@ -25,6 +25,7 @@ describe('normalizeInstitutionSemesters', () => {
       ],
       [A, B]
     );
+    // program_ids joined the targeting entry with program targeting (2026-09-16).
     expect(out).toEqual([
       { institution_id: A, semester_orders: [5, 6], program_ids: [] },
       { institution_id: B, semester_orders: [], program_ids: [] },

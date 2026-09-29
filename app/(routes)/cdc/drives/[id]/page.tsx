@@ -45,11 +45,13 @@ import {
 import { useCdcDriveEligibility } from '@/hooks/cdc/use-cdc-drive-eligibility';
 import { DriveEligibilityCard } from './_components/eligibility-card';
 import type { CdcDriveStatus } from '@/types/cdc';
-import { CDC_DRIVE_STATE_GRAPH, CDC_DRIVE_STATUS_LABELS } from '@/types/cdc';
+import { CDC_DRIVE_STATE_GRAPH, CDC_DRIVE_STATUS_LABELS, previousDriveStatus } from '@/types/cdc';
 import { driveCircularOf } from '@/lib/services/cdc/drive-service';
 import { DriveStatusBadge, STATUS_BADGE_VARIANT } from '../_components/drive-status-badge';
 import { describeTargeting } from '../_components/institution-semester-picker';
 import { CircularAttachment } from '../_components/circular-attachment';
+import { DriveDayCard } from '../_components/drive-day-card';
+import { MoveBackButton } from '../_components/move-back-dialog';
 
 const TRANSITION_HINT: Partial<Record<CdcDriveStatus, string>> = {
   announced: 'Coordinators and heads are informed. Learners are not notified yet.',
@@ -360,7 +362,9 @@ function CdcDriveDetailContent({ params }: { params: Promise<{ id: string }> }) 
 
           {/* Eligibility criteria — the record the notification and the learner
               willingness page both read. */}
-          <DriveEligibilityCard driveId={id} canEdit />
+          <PermissionGuard module="cdc.drives" action="edit" fallback={<DriveEligibilityCard driveId={id} canEdit={false} />}>
+            <DriveEligibilityCard driveId={id} canEdit />
+          </PermissionGuard>
 
           {/* Circular */}
           <Card>
@@ -429,8 +433,11 @@ function CdcDriveDetailContent({ params }: { params: Promise<{ id: string }> }) 
           </Card>
         </div>
 
-        {/* Right: willingness + state machine */}
+        {/* Right: drive day + willingness + state machine */}
         <div className="space-y-4">
+          <PermissionGuard module="cdc.drives" action="edit" fallback={<DriveDayCard drive={drive} canEdit={false} />}>
+            <DriveDayCard drive={drive} canEdit />
+          </PermissionGuard>
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Willingness</CardTitle>
@@ -496,92 +503,13 @@ function CdcDriveDetailContent({ params }: { params: Promise<{ id: string }> }) 
                     .filter(Boolean)
                     .join(' · ')}
                 </p>
-              ) : pendingStatus ? (
-                <div className="space-y-3">
-                  <p className="text-sm">
-                    Move from <strong>{CDC_DRIVE_STATUS_LABELS[drive.status]}</strong> to{' '}
-                    <strong>{CDC_DRIVE_STATUS_LABELS[pendingStatus]}</strong>?
-                  </p>
-                  <div>
-                    <Label htmlFor="transition-reason">
-                      Reason {pendingStatus === 'cancelled' ? '(required)' : '(optional)'}
-                    </Label>
-                    <Textarea
-                      id="transition-reason"
-                      value={transitionReason}
-                      onChange={(e) => setTransitionReason(e.target.value)}
-                      rows={3}
-                      placeholder={
-                        pendingStatus === 'cancelled'
-                          ? 'Why is this drive being cancelled?'
-                          : 'Optional context for the audit trail'
-                      }
-                    />
-                  </div>
-                  {transitionError ? (
-                    <p className="text-xs text-destructive">{transitionError}</p>
-                  ) : null}
-                  <div className="flex items-center gap-2">
-                    <Button
-                      onClick={() => handleTransition(pendingStatus)}
-                      disabled={
-                        transition.isPending ||
-                        (pendingStatus === 'cancelled' && !transitionReason.trim())
-                      }
-                      variant={pendingStatus === 'cancelled' ? 'destructive' : 'default'}
-                      size="sm"
-                    >
-                      {transition.isPending ? 'Working…' : 'Confirm'}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setPendingStatus(null);
-                        setTransitionReason('');
-                        setTransitionError(null);
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {Array.from(allowedNext).map((nextStatus) => {
-                    const blocked = nextStatus === 'willingness_open' && !hasEligibility;
-                    return (
-                      <div key={nextStatus} className="space-y-1">
-                        <Button
-                          onClick={() => setPendingStatus(nextStatus)}
-                          variant={nextStatus === 'cancelled' ? 'destructive' : 'default'}
-                          size="sm"
-                          className="w-full justify-start"
-                          disabled={blocked}
-                        >
-                          {nextStatus === 'cancelled' ? (
-                            <XCircle className="h-4 w-4 mr-2" />
-                          ) : (
-                            <ArrowRight className="h-4 w-4 mr-2" />
-                          )}
-                          {CDC_DRIVE_STATUS_LABELS[nextStatus]}
-                        </Button>
-                        {blocked ? (
-                          <p className="text-xs text-muted-foreground">
-                            Set the eligibility criteria first — without them no learner is
-                            notified and none can declare interest.
-                          </p>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-                  <Button asChild variant="outline" size="sm" className="w-full justify-start">
-                    <Link href={`/cdc/drives/${id}/notifications`}>
-                      <Bell className="h-4 w-4 mr-2" /> Notification log & diagnosis
-                    </Link>
-                  </Button>
-                </div>
-              )}
+              ) : null}
+              {/* Always reachable — a delivery problem is exactly when the log is needed. */}
+              <Button asChild variant="outline" size="sm" className="w-full justify-start">
+                <Link href={`/cdc/drives/${id}/notifications`}>
+                  <Bell className="h-4 w-4 mr-2" /> Notification log & diagnosis
+                </Link>
+              </Button>
             </CardContent>
           </Card>
 
@@ -592,9 +520,14 @@ function CdcDriveDetailContent({ params }: { params: Promise<{ id: string }> }) 
               </CardHeader>
               <CardContent className="space-y-3">
                 {allowedNext.size === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    This drive is in a terminal state. No further transitions are possible.
-                  </p>
+                  <div className="space-y-3">
+                    <p className="text-sm text-muted-foreground">
+                      {drive.status === 'closed'
+                        ? 'This drive is closed. It can be reopened one stage back if something needs correcting.'
+                        : 'This drive is in a terminal state. No further transitions are possible.'}
+                    </p>
+                    <MoveBackButton driveId={id} status={drive.status} className="w-full justify-start" />
+                  </div>
                 ) : pendingStatus ? (
                   <div className="space-y-3">
                     <p className="text-sm">
@@ -678,6 +611,14 @@ function CdcDriveDetailContent({ params }: { params: Promise<{ id: string }> }) 
                         {CDC_DRIVE_STATUS_LABELS[nextStatus]}
                       </Button>
                     ))}
+                    {previousDriveStatus(drive.status) ? (
+                      <div className="pt-2 border-t">
+                        <MoveBackButton driveId={id} status={drive.status} className="w-full justify-start" />
+                        <p className="mt-1.5 text-xs text-muted-foreground">
+                          Steps back one stage. Nothing already recorded is deleted; a reason is required.
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
                 )}
               </CardContent>

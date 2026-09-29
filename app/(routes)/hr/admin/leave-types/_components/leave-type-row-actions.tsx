@@ -12,7 +12,7 @@
 
 import { useState } from 'react';
 import {
-  MoreHorizontal, Pencil, Archive, Users, Eye, GitBranch,
+  MoreHorizontal, Pencil, Archive, Users, Eye, GitBranch, GraduationCap,
   ArchiveRestore, Trash2, Loader2, AlertTriangle,
 } from 'lucide-react';
 
@@ -35,6 +35,11 @@ interface LeaveTypeRowActionsProps {
   onEdit: (t: HRLeaveType) => void;
   /** Opens the approval-chain editor for this type. */
   onApprovalFlow: (t: HRLeaveType) => void;
+  /**
+   * Opens the ELIGIBILITY approver editor. Shown only on a type that requires
+   * eligibility — on any other the setting would govern nothing.
+   */
+  onEligibilityFlow: (t: HRLeaveType) => void;
   /** ASKS THE PAGE to open its archive confirmation. Does not archive. */
   onArchive: (t: HRLeaveType) => void;
   /** Un-archive. Shown only on an archived row. */
@@ -49,6 +54,7 @@ export function LeaveTypeRowActions({
   onAssign,
   onEdit,
   onApprovalFlow,
+  onEligibilityFlow,
   onArchive,
   onActivate,
   onDelete,
@@ -88,6 +94,12 @@ export function LeaveTypeRowActions({
             <GitBranch className="mr-2 h-4 w-4" />
             Who approves this
           </DropdownMenuItem>
+          {leaveType.requires_eligibility && (
+            <DropdownMenuItem onClick={() => onEligibilityFlow(leaveType)}>
+              <GraduationCap className="mr-2 h-4 w-4" />
+              Who approves eligibility
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem onClick={() => onEdit(leaveType)}>
             <Pencil className="mr-2 h-4 w-4" />
             Edit

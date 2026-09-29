@@ -31,6 +31,39 @@ export const PHONE_KEYS: readonly string[] = ['phone', 'mobile'];
  *  a form asking for an email under any other key silently loses it. */
 export const EMAIL_KEYS: readonly string[] = ['email'];
 
+/**
+ * The institutional email domain. An address here belongs to somebody who
+ * already works or studies at JKKN.
+ *
+ * The leading '@' is load-bearing: matching on '.jkkn.ac.in' or on a bare
+ * 'jkkn.ac.in' substring would also claim `somebody@notjkkn.ac.in` and any
+ * future subdomain. Checked against the live data before it was chosen —
+ * jkkn.ac.in covers 9,519 addresses and no subdomain of it is in use — so an
+ * exact suffix is both sufficient and unambiguous. It also excludes the 217
+ * synthetic '@nolog.jkkn.local' placeholders, which stand in for people who
+ * have no address at all and must never read as internal.
+ */
+export const INTERNAL_EMAIL_SUFFIX = '@jkkn.ac.in';
+
+export type ApplicantOrigin = 'internal' | 'external';
+
+/**
+ * Where an applicant came from, judged PURELY from their email domain.
+ *
+ * Deliberately not a record lookup. fn_course_resolve_applicant already matches
+ * an address against real staff and learner rows and is strictly more accurate,
+ * but this answer has to be explainable from the address alone — what the list
+ * says is exactly what the applicant typed. The two consequences are known and
+ * accepted: a team member applying from a personal Gmail reads external, and a
+ * new hire with an institutional address but no staff row yet reads internal.
+ *
+ * No address at all is external: an unknown person is not one of ours.
+ */
+export function classifyApplicantOrigin(email: string | null | undefined): ApplicantOrigin {
+  const normalised = String(email ?? '').trim().toLowerCase();
+  return normalised.endsWith(INTERNAL_EMAIL_SUFFIX) ? 'internal' : 'external';
+}
+
 export interface IdentityGaps {
   /** No field carries a key from NAME_KEYS. */
   name: boolean;

@@ -202,5 +202,22 @@ export const AI_PULSE_ROUTINES: AIRoutine[] = [
     "sideEffects": "Writes ai_pulse_prompt_builds.duplicate_of; enqueues ai_jobs. Idempotent — judged builds stay out of the enqueue set.",
     "safeToManualTrigger": true,
     "notes": "Auth: Bearer or ?secret=. IST math: 01:50 UTC = 07:20 IST → slot 07:15 (minute_of_day 440)."
+  },
+  {
+    "id": "ai-pulse-quiz-missing-warn",
+    "name": "AI Pulse — warn when a cycle has no quiz",
+    "category": "ai-pulse",
+    "type": "cron",
+    "schedule": "Daily · 09:07 IST (editable via dispatcher)",
+    "cronExpr": "",
+    "triggerPath": "/api/cron/ai-pulse-quiz-missing-warn",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based JSONB presence check over startup_events.config; the route resolves no model and enqueues no job, so no ai_job_types row applies.",
+    "whatItDoes": "Each morning it looks at every AI Pulse cycle whose session day is within the next few days and checks whether a quiz has actually been authored for it. When one is missing — or was saved with no questions in it — it raises a bell notification plus a phone push to the people who hold the quiz-authoring permission, deep-linked straight to that cycle's quiz editor. It exists because the 2026-09-17 session ran with 437 people attending and zero quiz answers, purely because nobody had authored one and nothing said so.",
+    "configKnobs": "quiz_missing_warning_enabled (default TRUE — deliberately not dark), quiz_missing_warning_days (default 3, capped at 30), both read from ai_pulse_policies with those code defaults; CYCLE_WINDOW=12 cycles read per run.",
+    "sideEffects": "DB writes: one notifications row + one user_notifications link row per flagged cycle per day, and a best-effort web push to the same recipients. No outbound SMS/email/WhatsApp. It never edits a cycle, and it never authors quiz content.",
+    "safeToManualTrigger": true,
+    "notes": "Auth: CRON_SECRET via ?secret= or Authorization: Bearer. Not in vercel.json (100-cron cap) — fired by ai-routine-dispatcher from ai_routine_schedules, seeded daily at minute_of_day 547 (09:07 IST → 09:00 slot). Idempotency_key = ai_pulse_quiz_missing_warn:<cycleId>:<IST date>, so it nudges at most once per cycle per day and stops the moment the quiz is authored. Recipients resolve from the aiPulse:quiz.author permission on custom_roles (not a hardcoded role key), falling back to super admins; with neither it returns 500 rather than a quiet 200. expires_at is derived from the cycle via lib/services/ai-pulse/cycle-window. Returns top-level processed/flagged/sent/skipped so the dispatcher's status line shows real numbers. Does not call Claude."
   }
 ];

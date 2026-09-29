@@ -62,6 +62,24 @@ export const POST = withAuth(async (request, auth) => {
 
   const mime = body.mime_type && ALLOWED_MIME.includes(body.mime_type) ? body.mime_type : 'audio/webm';
 
+  // Attaching to a meeting is checked, not trusted. booking_id arrives from a
+  // page the caller controls, and being allowed to record is not the same as
+  // being allowed to hang a recording on somebody else's meeting. The read goes
+  // through the SESSION client, so RLS (mb_host_select) answers for us: a
+  // booking the caller does not host simply is not there.
+  const bookingId = (body.booking_id ?? '').trim() || null;
+  if (bookingId) {
+    const { data: theirs, error: bookingErr } = await supabase
+      .from('meeting_bookings')
+      .select('id')
+      .eq('id', bookingId)
+      .maybeSingle();
+    if (bookingErr) return handleSupabaseError(bookingErr);
+    if (!theirs) {
+      return forbiddenResponse('That meeting is not yours, or it no longer exists.');
+    }
+  }
+
   const { data, error } = await supabase
     .from('meeting_recordings')
     .insert({
@@ -69,7 +87,7 @@ export const POST = withAuth(async (request, auth) => {
       institution_id: auth.user.institution_id ?? null,
       title,
       mime_type: mime,
-      booking_id: body.booking_id ?? null,
+      booking_id: bookingId,
       announced_at: body.announced === true ? new Date().toISOString() : null,
       status: 'recording',
     })

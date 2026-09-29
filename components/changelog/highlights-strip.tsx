@@ -47,7 +47,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Sparkles, Wrench, ShieldCheck, Flag } from 'lucide-react';
+import { Sparkles, Wrench, ShieldCheck, Flag, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ChangelogModule } from '@/lib/changelog/types';
 
@@ -121,6 +121,23 @@ interface HighlightsStripProps {
 export function HighlightsStrip({ modules }: HighlightsStripProps) {
   const [items, setItems] = useState<StripItem[] | null>(null);
   const [reports, setReports] = useState<Record<string, ReportState>>({});
+  /**
+   * FOLDED ON EVERY LOAD — Director, 2026-09-16, reading this page on a phone.
+   *
+   * MEASURED, not guessed. On the branch server at 375 x 812 with the ten
+   * write-ups production was serving on 2026-09-16, this section was 3,968px
+   * tall open and is 68px tall shut: 3,900px, very nearly five phone screens,
+   * between the credits card and the plain list — and the plain list is what he
+   * came for. Shut, the search box and the first day of changes are on the
+   * first screen. One tap on the header row brings the write-ups back.
+   *
+   * DELIBERATELY NOT REMEMBERED. No localStorage, no cookie, no query param:
+   * "folded in as default" is the ask, and a strip that reopens itself because
+   * of something the reader did last Tuesday is not folded by default. It also
+   * keeps this component free of per-reader storage it would otherwise have to
+   * degrade gracefully around.
+   */
+  const [open, setOpen] = useState(false);
 
   /**
    * Ruling 7 — the review layer, one tap.
@@ -185,26 +202,64 @@ export function HighlightsStrip({ modules }: HighlightsStripProps) {
       the list so the heading line is cleared too.
     */
     <section aria-labelledby="whats-new-highlights" className="space-y-3 max-lg:pr-14">
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <h2 id="whats-new-highlights" className="text-base font-semibold text-foreground">
-          Worth knowing
-        </h2>
-        <p className="text-xs text-muted-foreground">
-          {/* NOT "the most recent changes". These are the most recently
-              WRITTEN-UP ones, which is a different set: the writer works
-              through a backlog, so a change from last week can appear here
-              before one from yesterday, and dozens of newer changes may have no
-              write-up at all. Claiming recency the strip does not have is the
-              kind of small lie that makes a reader distrust the rest of the
-              card. */}
-          {items.length === 1
-            ? 'One recent change explained in plain English'
-            : `${items.length} recent changes explained in plain English`}{' '}
-          — everything else is in the list below.
-        </p>
-      </div>
+      {/*
+        THE WHOLE HEADER ROW IS THE TAP TARGET, not the chevron. This is read on
+        a phone with a thumb; a 16px arrow is a miss waiting to happen. w-full
+        plus min-h-[44px] gives the row the 44px the list-row guard asks of
+        every tappable thing, at every width — never gated behind max-md:, or
+        the pointer gets a box the thumb never gets.
 
-      <ul className="grid gap-3 sm:grid-cols-2">
+        THE SUB-HEADING STAYS VISIBLE WHILE FOLDED, rather than being revealed
+        on expand. Closed, the row has to answer "what is behind this, and am I
+        losing anything by leaving it shut" — and that sentence already answers
+        both: it carries the count of write-ups, and it ends with "everything
+        else is in the list below", which is exactly the reassurance a closed
+        drawer owes the reader. A bare "Worth knowing ›" answers neither.
+
+        THE HEADING KEEPS ITS OWN id AND THE SECTION KEEPS aria-labelledby. The
+        id moved onto the span rather than onto the <h2> on purpose: the h2 now
+        wraps the button, so its text content is the heading AND the sub-heading,
+        and naming the region from it would rename the landmark to a paragraph.
+        The span holds the two words the landmark is called.
+      */}
+      <h2>
+        <button
+          type="button"
+          onClick={() => setOpen((wasOpen) => !wasOpen)}
+          aria-expanded={open}
+          aria-controls="whats-new-highlights-cards"
+          className="-mx-2 flex min-h-[44px] w-full flex-wrap items-baseline gap-x-2 gap-y-1 rounded-lg px-2 py-1 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <span className="inline-flex items-center gap-1.5 text-base font-semibold text-foreground">
+            {/* Rotation only — a transform, so nothing below it moves while the
+                thumb is still on the row. */}
+            <ChevronDown
+              className={cn(
+                'h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200',
+                !open && '-rotate-90'
+              )}
+              aria-hidden="true"
+            />
+            <span id="whats-new-highlights">Worth knowing</span>
+          </span>
+          <span className="text-xs font-normal text-muted-foreground">
+            {/* NOT "the most recent changes". These are the most recently
+                WRITTEN-UP ones, which is a different set: the writer works
+                through a backlog, so a change from last week can appear here
+                before one from yesterday, and dozens of newer changes may have no
+                write-up at all. Claiming recency the strip does not have is the
+                kind of small lie that makes a reader distrust the rest of the
+                card. */}
+            {items.length === 1
+              ? 'One recent change explained in plain English'
+              : `${items.length} recent changes explained in plain English`}{' '}
+            — everything else is in the list below.
+          </span>
+        </button>
+      </h2>
+
+      {open && (
+      <ul id="whats-new-highlights-cards" className="grid gap-3 sm:grid-cols-2">
         {items.map((h) => {
           const style = KIND_STYLE[h.kind] ?? KIND_STYLE.new;
           const Icon = style.icon;
@@ -321,6 +376,7 @@ export function HighlightsStrip({ modules }: HighlightsStripProps) {
           );
         })}
       </ul>
+      )}
     </section>
   );
 }

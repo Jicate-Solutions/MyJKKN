@@ -21,11 +21,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 let currentUser: { id: string } | null = { id: 'user-1' };
 let unacknowledgedRows: Array<Record<string, unknown>> = [];
 let pendingRows: Array<Record<string, unknown>> = [];
-let ackRpcError: { message: string } | null = null;
+let ackRpcError: { message: string; code?: string } | null = null;
+let fallbackRows: Array<Record<string, unknown>> = [];
 
 const userRpc = vi.fn((fn: string) => {
-  if (fn === 'get_unacknowledged_notifications') {
+  // 2026-09-16: the gate's queue is get_blocking_items (ack + must-answer +
+  // due bug-feedback rows, tagged by kind); ack rows keep their field names.
+  if (fn === 'get_blocking_items') {
     return Promise.resolve({ data: unacknowledgedRows, error: ackRpcError });
+  }
+  // 2026-09-18: the pre-2026-09-16 queue the route degrades to when this
+  // database has not had the migrations applied yet.
+  if (fn === 'get_unacknowledged_notifications') {
+    return Promise.resolve({ data: fallbackRows, error: null });
   }
   return Promise.resolve({ data: null, error: null });
 });
@@ -109,11 +117,47 @@ beforeEach(() => {
   unacknowledgedRows = [];
   pendingRows = [];
   ackRpcError = null;
+  fallbackRows = [];
   userRpc.mockClear();
   serviceRpc.mockClear();
 });
 
 describe('GET /api/notifications/pulse', () => {
+  it('passes the item kind through and maps a bug-feedback row for the gate', async () => {
+    unacknowledgedRows = [
+      ackRow(),
+      {
+        kind: 'bug_feedback',
+        id: 'req-9',
+        notification_id: 'req-9',
+        title: 'You reported BUG-9 — is it fixed for you?',
+        body: 'Broken',
+        priority: 'normal',
+        category: 'bug_reports:fix_feedback',
+        sent_at: SENT_AT,
+        created_at: SENT_AT,
+        expires_at: '2026-12-31T00:00:00.000Z',
+        request_id: 'req-9',
+        bug_id: 'bug-9',
+        display_id: 'BUG-9',
+        snooze_count: 3
+      }
+    ];
+    const res = await GET(pulseRequest({}, false));
+    const body = await res.json();
+    expect(body.unacknowledged).toHaveLength(2);
+    expect(body.unacknowledged[0].kind).toBe('ack');
+    expect(body.unacknowledged[1]).toMatchObject({
+      kind: 'bug_feedback',
+      request_id: 'req-9',
+      display_id: 'BUG-9',
+      deadline_at: '2026-12-31T00:00:00.000Z',
+      is_overdue: false,
+      snooze_count: 3,
+      can_snooze: false
+    });
+  });
+
   it('answers 401 without a signed-in user and calls no RPC', async () => {
     currentUser = null;
     const res = await GET(pulseRequest());
@@ -128,7 +172,7 @@ describe('GET /api/notifications/pulse', () => {
 
     const res = await GET(pulseRequest({}, false));
     expect(res.status).toBe(200);
-    expect(userRpc).toHaveBeenCalledWith('get_unacknowledged_notifications', { p_user_id: 'user-1' });
+    expect(userRpc).toHaveBeenCalledWith('get_blocking_items', { p_user_id: 'user-1' });
     expect(serviceRpc).not.toHaveBeenCalled();
 
     const body = await res.json();
@@ -149,7 +193,7 @@ describe('GET /api/notifications/pulse', () => {
     expect(res.status).toBe(200);
 
     // Both RPCs ran, each against the client the original routes used.
-    expect(userRpc).toHaveBeenCalledWith('get_unacknowledged_notifications', { p_user_id: 'user-1' });
+    expect(userRpc).toHaveBeenCalledWith('get_blocking_items', { p_user_id: 'user-1' });
     expect(serviceRpc).toHaveBeenCalledWith('get_pending_actions', { p_user_id: 'user-1' });
 
     const body = await res.json();
@@ -247,5 +291,38 @@ describe('GET /api/notifications/pulse', () => {
     const res = await GET(pulseRequest({ 'if-none-match': 'W/"anything"' }));
     expect(res.status).toBe(500);
     spy.mockRestore();
+  });
+
+  // Blind-critic gap 4, 2026-09-18. This route is polled by the gate on every
+  // signed-in page every 60 s; the ship wave applies migrations in a round
+  // AFTER the code merges, so it WILL run against a database with no
+  // get_blocking_items. That must not 500 the whole app.
+  it('degrades to the old queue, not a 500, when get_blocking_items is missing', async () => {
+    ackRpcError = { code: '42883', message: 'function public.get_blocking_items(uuid) does not exist' };
+    fallbackRows = [ackRow()];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const res = await GET(pulseRequest({}, false));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // Mandatory acknowledgments still block; the new kinds simply do not appear.
+    expect(body.unacknowledged).toHaveLength(1);
+    expect(body.unacknowledged[0]).toMatchObject({ kind: 'ack', id: 'un-1' });
+    expect(userRpc).toHaveBeenCalledWith('get_unacknowledged_notifications', { p_user_id: 'user-1' });
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('serves an empty queue with a warning when a migration-era column is missing', async () => {
+    ackRpcError = { code: '42703', message: 'column r.ask_after does not exist' };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const res = await GET(pulseRequest({}, false));
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).unacknowledged).toEqual([]);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

@@ -301,6 +301,16 @@ export function NotificationAnalytics({ notificationId }: NotificationAnalyticsP
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0 ml-2">
+                        {reader.answer && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] border-blue-300 text-blue-700"
+                            title="The option this person picked on the blocking screen"
+                            data-testid="reader-answer"
+                          >
+                            {reader.answer}
+                          </Badge>
+                        )}
                         {reader.acknowledged_at && (
                           <Badge variant="outline" className="text-[10px] border-green-300 text-green-600">
                             Ack

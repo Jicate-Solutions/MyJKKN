@@ -75,6 +75,19 @@ export interface HostBoard {
   questions: HostQuestion[];
 }
 
+/**
+ * One board's waiting-question count, as fn_session_question_unanswered_counts returns
+ * it. COUNTS ONLY — no body, no nickname, no learner identity — so a list view can show
+ * "3 waiting" without the room's anonymity leaking into it. Who asked stays behind
+ * hostList(), inside the host dialog.
+ */
+export interface UnansweredCountRow {
+  host_id: string;
+  board_id: string;
+  status: SessionQuestionBoardStatus;
+  unanswered_count: number;
+}
+
 // Every write returns a result object rather than throwing, so a refusal is always
 // something the UI can render — never a silent failure and never a silent redirect.
 export interface AskResult {
@@ -157,6 +170,38 @@ export class SessionQuestionService {
     const result = data as ActionResult;
     if (!result) return ACTION_FAILED('Could not update that question.');
     return result;
+  }
+
+  /**
+   * How many questions are STILL WAITING on each of these sessions' boards, in ONE call.
+   *
+   * "Waiting" = state 'visible' AND answered_at IS NULL. answered_at is sticky (see
+   * fn_session_question_set_state), so a question the host answered and then dismissed —
+   * or put back on the board for the room to read — never returns to this count. A host
+   * is nagged about what they have not answered, never about what they have.
+   *
+   * ONE call for the whole page on purpose: the induction session list renders up to 42
+   * rows, and a per-row count would be 42 round trips to paint a badge. The ids travel in
+   * the RPC's POST body rather than a PostgREST `.in()` query string, so the number of
+   * sessions can never push the request past the URL length the gateway rejects.
+   *
+   * Returns a host_id -> count map. A session with no board, or one the caller may not
+   * host, is simply absent — read it with `?? 0`.
+   */
+  static async unansweredCounts(
+    hostType: SessionQuestionHostType,
+    hostIds: string[],
+  ): Promise<Record<string, number>> {
+    const ids = Array.from(new Set((hostIds ?? []).filter(Boolean)));
+    if (ids.length === 0) return {};
+    const { data, error } = await getSupabase().rpc('fn_session_question_unanswered_counts', {
+      p_host_type: hostType, p_host_ids: ids,
+    });
+    if (error) throw error;
+    const rows = (data as UnansweredCountRow[]) ?? [];
+    const byHost: Record<string, number> = {};
+    for (const row of rows) byHost[row.host_id] = Number(row.unanswered_count) || 0;
+    return byHost;
   }
 
   static async setBoardStatus(boardId: string, status: SessionQuestionBoardStatus): Promise<ActionResult> {

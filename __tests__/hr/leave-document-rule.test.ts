@@ -24,26 +24,26 @@ const NEVER = { requires_documents: false, document_required_after_days: null };
 
 describe('leaveDocumentRequirement — a type that never wants one', () => {
   it('asks for nothing and offers nothing', () => {
-    const r = leaveDocumentRequirement(NEVER, 5);
+    const r = leaveDocumentRequirement(NEVER, 5, false);
     expect(r).toEqual({ required: false, optional: false, reason: null });
   });
 
   it('treats a missing policy the same as one that wants nothing', () => {
     // The drawer passes null before a leave type is chosen.
-    expect(leaveDocumentRequirement(null, 1).required).toBe(false);
-    expect(leaveDocumentRequirement(undefined, 1).optional).toBe(false);
+    expect(leaveDocumentRequirement(null, 1, false).required).toBe(false);
+    expect(leaveDocumentRequirement(undefined, 1, false).optional).toBe(false);
   });
 });
 
 describe('leaveDocumentRequirement — On-Duty, always required', () => {
   it('requires one for a single day', () => {
-    const r = leaveDocumentRequirement(ALWAYS, 1);
+    const r = leaveDocumentRequirement(ALWAYS, 1, false);
     expect(r.required).toBe(true);
     expect(r.reason).toMatch(/requires a supporting document/);
   });
 
   it('requires one for a half day', () => {
-    expect(leaveDocumentRequirement(ALWAYS, 0.5).required).toBe(true);
+    expect(leaveDocumentRequirement(ALWAYS, 0.5, false).required).toBe(true);
   });
 
   it('requires one however long the request is — nothing defers it any more', () => {
@@ -52,8 +52,8 @@ describe('leaveDocumentRequirement — On-Duty, always required', () => {
     // document. With that gone, every length must come back required — a
     // re-introduced escape hatch would silently reopen that hole.
     for (const days of [0.5, 1, 3, 10, 365]) {
-      expect(leaveDocumentRequirement(ALWAYS, days).required, `${days} days`).toBe(true);
-      expect(leaveDocumentRequirement(ALWAYS, days).optional, `${days} days`).toBe(false);
+      expect(leaveDocumentRequirement(ALWAYS, days, false).required, `${days} days`).toBe(true);
+      expect(leaveDocumentRequirement(ALWAYS, days, false).optional, `${days} days`).toBe(false);
     }
   });
 });
@@ -61,7 +61,7 @@ describe('leaveDocumentRequirement — On-Duty, always required', () => {
 describe('leaveDocumentRequirement — a threshold, e.g. Half Pay Leave past 3 days', () => {
   it('does NOT require one at or under the threshold, but still offers it', () => {
     for (const days of [1, 2, 3]) {
-      const r = leaveDocumentRequirement(AFTER_3, days);
+      const r = leaveDocumentRequirement(AFTER_3, days, false);
       expect(r.required, `${days} days`).toBe(false);
       // optional, not absent: the applicant may have the certificate already,
       // and hiding the field would stop them attaching it.
@@ -71,15 +71,14 @@ describe('leaveDocumentRequirement — a threshold, e.g. Half Pay Leave past 3 d
   });
 
   it('requires one the moment the request passes it', () => {
-    const r = leaveDocumentRequirement(AFTER_3, 3.5);
+    const r = leaveDocumentRequirement(AFTER_3, 3.5, false);
     expect(r.required).toBe(true);
     expect(r.reason).toMatch(/longer than 3 days/);
   });
 
   it('says "1 day" not "1 days"', () => {
     const r = leaveDocumentRequirement(
-      { requires_documents: true, document_required_after_days: 1 }, 1,
-    );
+      { requires_documents: true, document_required_after_days: 1 }, 1, false);
     expect(r.reason).toMatch(/past 1 day\./);
   });
 });
@@ -98,9 +97,31 @@ describe('the drawer and the server cannot drift', () => {
     ];
     for (const [policy, days, expected] of cases) {
       expect(
-        leaveDocumentRequirement(policy, days).required,
+        leaveDocumentRequirement(policy, days, false).required,
         `${JSON.stringify(policy)} / ${days}d`,
       ).toBe(expected);
     }
+  });
+});
+
+describe('eligibility waives the per-application document', () => {
+  // An eligibility-gated type (PH.D and its like) collects its proof ONCE, with
+  // the eligibility request, and a human approves it before the type ever
+  // appears in Apply Leave. Asking for the same enrolment certificate on every
+  // application afterwards is what this flag removes.
+  it('a type that always wants a document wants none once eligibility covers it', () => {
+    const r = leaveDocumentRequirement(ALWAYS, 5, true);
+    expect(r.required).toBe(false);
+    expect(r.optional).toBe(false);
+    expect(r.reason).toBeNull();
+  });
+
+  it('still required when eligibility does NOT cover it', () => {
+    expect(leaveDocumentRequirement(ALWAYS, 5, false).required).toBe(true);
+  });
+
+  it('does not invent a requirement for a type that never wanted one', () => {
+    expect(leaveDocumentRequirement(NEVER, 5, true).required).toBe(false);
+    expect(leaveDocumentRequirement(NEVER, 5, true).optional).toBe(false);
   });
 });

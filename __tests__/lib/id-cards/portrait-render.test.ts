@@ -447,7 +447,7 @@ describe('buildCardElement — portrait rotation wrapper', () => {
 });
 
 describe('buildCardElement — portrait default design', () => {
-  it('learner card: caps red name, ROLL NO / COURSE / YEAR lines, VALID UPTO, QR', () => {
+  it('learner card: caps red name, FATHER / ROLL NO / COURSE / YEAR lines, no VALID UPTO, QR', () => {
     const tree = buildCardElement(baseInput());
     const text = collectText(tree).join(' | ');
     expect(text).toContain('ANITHA KUMARI'); // caps
@@ -457,8 +457,8 @@ describe('buildCardElement — portrait default design', () => {
     expect(text).toContain('B.Tech AI');
     expect(text).toContain('YEAR');
     expect(text).toContain('2025-2028');
-    expect(text).toContain('VALID UPTO');
-    expect(text).toContain('31 May 2027');
+    expect(text).not.toContain('VALID UPTO'); // learner cards dropped it 2026-09-23
+    expect(text).not.toContain('31 May 2027'); // no VALID UPTO date on learner cards
     expect(text).toContain('JKKN College of Engineering');
     expect(collectImgSrcs(tree)).toContain(QR_URL);
     const nameStyle = collectStyles(tree).find((s) => s.color === '#c8102e');

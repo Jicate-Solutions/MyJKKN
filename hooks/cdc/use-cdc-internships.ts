@@ -45,6 +45,11 @@ export function useCdcInternships(initialFilters: CdcInternshipFilters = {}) {
     setFilters(prev => ({ ...prev, ...patch, page: 1 }));
   }, []);
 
+  /** Move between pages WITHOUT resetting the filters (updateFilters always returns to page 1). */
+  const goToPage = useCallback((next: number) => {
+    setFilters(prev => ({ ...prev, page: Math.max(1, next) }));
+  }, []);
+
   return {
     internships: result.data,
     total: result.total,
@@ -55,6 +60,7 @@ export function useCdcInternships(initialFilters: CdcInternshipFilters = {}) {
     error,
     fetchInternships,
     updateFilters,
+    goToPage,
   };
 }
 

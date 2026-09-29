@@ -1237,14 +1237,21 @@ export default function TimetableDetailPage() {
   // Cycle Config Save
   // ===================================
 
-  const handleSaveCycleConfig = useCallback(async (numCycles: number) => {
+  const handleSaveCycleConfig = useCallback(async (numCycles: number, startCycle: number) => {
     if (!timetable) return;
-    await TimetableService.updateTimetable(timetable.id, { num_cycles: numCycles });
+    await TimetableService.updateTimetable(timetable.id, {
+      num_cycles: numCycles,
+      // Updated: 2026-09-10 (BUG-006085) - the day order the first working day
+      // of the term carries, so a mid-term start can join the college rotation.
+      start_cycle: startCycle
+    });
     await fetchTimetableData(true);
-    // Refresh today's cycle since num_cycles change shifts the modulo calculation
+    // Refresh today's cycle since either value shifts the modulo calculation
     const newCycle = await CycleCalculationService.getTodaysCycle(timetable.id);
     setTodaysCycle(newCycle);
-    toast.success(`Cycle count updated to ${numCycles}`);
+    toast.success(
+      `Cycle configuration updated: ${numCycles} cycles, starting on Cycle ${startCycle}`
+    );
   }, [timetable, fetchTimetableData]);
 
   // ===================================
@@ -1629,6 +1636,10 @@ export default function TimetableDetailPage() {
           isOpen={cycleConfigDialog.isOpen}
           onClose={cycleConfigDialog.close}
           currentNumCycles={timetable?.num_cycles ?? 6}
+          currentStartCycle={(timetable as any)?.start_cycle ?? 1}
+          institutionId={timetable?.institution_id ?? null}
+          startDate={timetable?.start_date ?? null}
+          timetableId={timetable?.id ?? null}
           hasSlots={slots.length > 0}
           isSuperAdmin={isSuperAdmin}
           onSave={handleSaveCycleConfig}

@@ -266,6 +266,12 @@ export function WhatsNewView() {
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState<ChangeKind | 'all'>('all');
   const [moduleSlug, setModuleSlug] = useState('all');
+  /**
+   * Null rather than an 'all' sentinel like the two above, because a
+   * contributor's name is free text out of git — there is no value this filter
+   * can reserve for "everyone" that a real person could not also be called.
+   */
+  const [author, setAuthor] = useState<string | null>(null);
   const [shown, setShown] = useState(PAGE);
   const [allContributors, setAllContributors] = useState(false);
 
@@ -291,9 +297,12 @@ export function WhatsNewView() {
       (e) =>
         (kind === 'all' || e.t === kind) &&
         (moduleSlug === 'all' || e.m === moduleSlug) &&
+        // Exact, because the chips are built by tallying this same field —
+        // picking a name can only ever select the rows that minted it.
+        (!author || e.a === author) &&
         (!q || e.s.toLowerCase().includes(q) || e.a.toLowerCase().includes(q))
     );
-  }, [entries, query, kind, moduleSlug]);
+  }, [entries, query, kind, moduleSlug, author]);
 
   /**
    * One section per day, and within a day one group per Keep a Changelog
@@ -324,6 +333,13 @@ export function WhatsNewView() {
 
   // Contributors, counted across what THIS reader can see — so the credits
   // match the list underneath them rather than a total they cannot verify.
+  //
+  // OVER `entries`, NOT `filtered`, AND THAT IS NOW LOAD-BEARING. Since the
+  // names became a filter, a count that moved with the other filters would
+  // promise a number and then show a different one. Tallying the unfiltered set
+  // keeps the chip honest: pick a name on its own and you get exactly the rows
+  // it advertises. It is also why an empty list with a name picked can only
+  // mean the OTHER filters emptied it, which is what the empty card says.
   const contributors = useMemo(() => {
     if (!entries) return [];
     const tally = new Map<string, number>();
@@ -398,39 +414,108 @@ export function WhatsNewView() {
               "+N more" button is 144px. Nothing changes at sm and up, where
               the strip was always two rows.
             */
-            <div className="mt-4 flex flex-wrap items-center gap-2">
+            <div
+              className="mt-4 flex flex-wrap items-center gap-2"
+              role="group"
+              aria-label="Filter by who built it"
+            >
               <span className="mr-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Built by
               </span>
-              {contributors.map(([name, count], i) => (
-                <span
-                  key={name}
-                  className={cn(
-                    'max-w-full items-center gap-1.5 rounded-full border bg-muted/40 py-1 pl-1 pr-2.5 text-xs',
-                    i >= PHONE_CONTRIBUTORS && !allContributors
-                      ? 'hidden sm:inline-flex'
-                      : 'inline-flex'
-                  )}
-                  title={`${count.toLocaleString('en-IN')} changes`}
-                >
-                  {/* Initials repeat the name that follows — decorative to AT. */}
-                  <span
-                    className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground"
-                    aria-hidden="true"
+              {contributors.map(([name, count], i) => {
+                const picked = author === name;
+                return (
+                  /*
+                    A button, not the <span> it used to be: the credits were the
+                    only list of people on the page and tapping one did nothing.
+
+                    SAME GEOMETRY AS BEFORE — py-1 around a 20px avatar is 30px
+                    tall, which is also what the kind toggles below measure, so
+                    the row does not grow and the first change does not move
+                    down the phone screen.
+
+                    aria-pressed, like that toggle group, because this is one
+                    value being switched on and off rather than navigation; a
+                    screen reader then hears the state instead of inferring it
+                    from the fill.
+                  */
+                  <button
+                    key={name}
+                    type="button"
+                    aria-pressed={picked}
+                    onClick={() => {
+                      setAuthor(picked ? null : name);
+                      setShown(PAGE);
+                    }}
+                    className={cn(
+                      'max-w-full items-center gap-1.5 rounded-full border py-1 pl-1 pr-2.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      picked
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : 'bg-muted/40 hover:bg-muted',
+                      i >= PHONE_CONTRIBUTORS && !allContributors
+                        ? 'hidden sm:inline-flex'
+                        : 'inline-flex'
+                    )}
+                    title={`${count.toLocaleString('en-IN')} changes`}
                   >
-                    {initials(name)}
-                  </span>
-                  <span className="min-w-0 truncate font-medium">{name}</span>
-                  {/* The bare number only reads as a count because of where it
-                      sits. Say so for a screen reader. */}
-                  <span className="shrink-0 tabular-nums text-muted-foreground" aria-hidden="true">
-                    {count}
-                  </span>
-                  <span className="sr-only">
-                    {count.toLocaleString('en-IN')} {count === 1 ? 'change' : 'changes'}
-                  </span>
-                </span>
-              ))}
+                    {/* Initials repeat the name that follows — decorative to AT.
+                        Inverted when picked: bg-primary on a bg-primary chip is
+                        the same colour twice and the circle vanishes. */}
+                    <span
+                      className={cn(
+                        'grid h-5 w-5 shrink-0 place-items-center rounded-full text-[9px] font-bold',
+                        picked
+                          ? 'bg-primary-foreground text-primary'
+                          : 'bg-primary text-primary-foreground'
+                      )}
+                      aria-hidden="true"
+                    >
+                      {initials(name)}
+                    </span>
+                    <span className="min-w-0 truncate font-medium">{name}</span>
+                    {/* The bare number only reads as a count because of where it
+                        sits. Say so for a screen reader. */}
+                    {/* /90 AND NOT LOWER, MEASURED RATHER THAN EYEBALLED. The
+                        count is dimmed so it stays secondary to the name, but
+                        --primary is a dark green (150 78% 26%) in BOTH themes,
+                        and white dimmed onto it runs out of contrast fast:
+                        /70 = 3.64:1 and /80 = 4.26:1 both miss the 4.5:1 that
+                        12px text needs, /90 = 4.94:1 clears it. Tailwind has no
+                        /85 step, so /90 is the dimmest legal setting here. */}
+                    <span
+                      className={cn(
+                        'shrink-0 tabular-nums',
+                        picked ? 'text-primary-foreground/90' : 'text-muted-foreground'
+                      )}
+                      aria-hidden="true"
+                    >
+                      {count}
+                    </span>
+                    {/*
+                      THIS SPACE IS LOAD-BEARING, AND IT HAS TO SIT OUT HERE.
+
+                      A <span> has no accessible name, so the chip these used to
+                      be was read out part by part. A button's name is its
+                      contents JOINED, and inline parts join with nothing
+                      between them, so the name computed as "Boobalan2 changes"
+                      and was announced as one word.
+
+                      A space inside the sr-only span does not fix it — each
+                      part is trimmed before it is joined. Only a text node that
+                      is a direct child of the button survives. Both behaviours
+                      measured against dom-accessibility-api, which is what
+                      Testing Library resolves names through and what Chrome
+                      does here too.
+
+                      It costs nothing on screen: a whitespace-only text node in
+                      a flex container is not rendered as a flex item.
+                    */}{' '}
+                    <span className="sr-only">
+                      {count.toLocaleString('en-IN')} {count === 1 ? 'change' : 'changes'}
+                    </span>
+                  </button>
+                );
+              })}
               {contributors.length > PHONE_CONTRIBUTORS && !allContributors && (
                 <button
                   type="button"
@@ -561,10 +646,18 @@ export function WhatsNewView() {
                 and blaming their search for a list that was simply never synced sends
                 them hunting for a mistake they did not make. The first deploy after
                 the move to the database hits this for real, until the sync runs. */}
+            {/* A name picked can never empty the list on its own — the chip is
+                minted by tallying these same entries, so it always has at least
+                the changes it advertises. An empty list with a name picked
+                therefore means the OTHER filters emptied it, and saying only
+                "try a different area" would send the reader past the filter
+                that is actually in the way. */}
             <p className="mt-1 text-sm text-muted-foreground">
               {meta.total === 0
                 ? 'No changes have been loaded yet. This fills in the first time the changelog syncs.'
-                : 'Try a different area, or clear the search.'}
+                : author
+                  ? `${author} has changes, but none that also match the other filters. Select their name again to see everyone.`
+                  : 'Try a different area, or clear the search.'}
             </p>
           </CardContent>
         </Card>

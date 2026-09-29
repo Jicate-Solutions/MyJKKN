@@ -38,7 +38,8 @@ import {
   Trash2,
   Zap,
 } from 'lucide-react';
-import { format, differenceInDays, isPast } from 'date-fns';
+import { differenceInDays } from 'date-fns';
+import { formatIstDate } from '@/lib/utils/date-format';
 import type { Event, EventStatus } from '@/types/events';
 import { EVENT_STATUS_TRANSITIONS } from '@/types/events';
 
@@ -119,7 +120,7 @@ function EventCard({
           {event.event_date && (
             <div className="flex items-center gap-1.5">
               <Calendar className="h-3.5 w-3.5 shrink-0" />
-              <span>{format(new Date(event.event_date), 'EEEE, dd MMM yyyy')}</span>
+              <span>{formatIstDate(event.event_date, { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' })}</span>
               {event.start_time && <span>at {event.start_time.slice(0, 5)}</span>}
             </div>
           )}
@@ -243,6 +244,18 @@ export default function MarathonEventsPage() {
           </Link>
         )}
       </div>
+
+      {/* This page is for marathon (race) events only. Point elsewhere for other formats. */}
+      <p className="text-xs sm:text-sm text-muted-foreground mb-4">
+        Adding a different kind of event, like a chess or carrom tournament?{' '}
+        <Link href="/events/tournament" className="underline underline-offset-2">
+          Go to Sports Tournaments
+        </Link>{' '}
+        or the{' '}
+        <Link href="/events" className="underline underline-offset-2">
+          Events Hub
+        </Link>.
+      </p>
 
       {/* Search + Refresh bar */}
       <div className="flex items-center gap-2 mb-4">

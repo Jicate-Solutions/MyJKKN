@@ -121,7 +121,11 @@ export class ClubService {
       payload.status = dto.status;
       payload.is_active = dto.status === 'active';
     } else if (dto.is_active !== undefined) {
+      // Sync the OTHER way too: the list filters on `status`, so an is_active-only
+      // update (the detail page's Activate/Deactivate) used to leave status='active'
+      // and the club kept showing under Active with an Inactive badge.
       payload.is_active = dto.is_active;
+      payload.status = dto.is_active ? 'active' : 'inactive';
     }
 
     const { data, error } = await supabase

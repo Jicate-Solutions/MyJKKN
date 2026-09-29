@@ -30,10 +30,21 @@ export interface SolutionDepartmentWithDetails extends SolutionDepartment {
     id: string;
     department_name: string;
     department_code: string;
+    /**
+     * The name a department is known by, when it has been given one. Selected
+     * so that every screen can render `display_name || department_name` — the
+     * order SocietalService.mapParticipantRow and the COALESCE in
+     * fn_community_college_totals() already use. Without it here, the same
+     * department reads its formal name in a picker and its display name on the
+     * confirmation screen that picker feeds.
+     */
+    display_name?: string | null;
   };
   institution?: {
     id: string;
     name: string;
+    /** Same reason as `department.display_name`, for the college. */
+    display_name?: string | null;
   };
 }
 
@@ -366,8 +377,8 @@ export class DepartmentTrackerService extends BaseService {
       .from('sh_solution_departments')
       .select(`
         *,
-        department:departments!department_id(id, department_name, department_code),
-        institution:institutions!institution_id(id, name)
+        department:departments!department_id(id, department_name, department_code, display_name),
+        institution:institutions!institution_id(id, name, display_name)
       `)
       .order('created_at', { ascending: true });
 
@@ -391,8 +402,8 @@ export class DepartmentTrackerService extends BaseService {
       .from('sh_solution_departments')
       .select(`
         *,
-        department:departments!department_id(id, department_name, department_code),
-        institution:institutions!institution_id(id, name)
+        department:departments!department_id(id, department_name, department_code, display_name),
+        institution:institutions!institution_id(id, name, display_name)
       `)
       .eq('id', id)
       .single();
@@ -409,8 +420,8 @@ export class DepartmentTrackerService extends BaseService {
       .from('sh_solution_departments')
       .select(`
         *,
-        department:departments!department_id(id, department_name, department_code),
-        institution:institutions!institution_id(id, name)
+        department:departments!department_id(id, department_name, department_code, display_name),
+        institution:institutions!institution_id(id, name, display_name)
       `)
       .eq('department_id', departmentId)
       .single();

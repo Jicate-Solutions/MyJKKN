@@ -65,6 +65,37 @@ export function useCanApproveLeave() {
 }
 
 /**
+ * Which leave types are eligibility-gated.
+ *
+ * Just the ids — the Apply Leave drawer needs to know that the type the user
+ * picked is one whose supporting document was already given at eligibility, so
+ * it stops asking for the same certificate on every application.
+ *
+ * SAFE TO READ THIS WAY because the balance view only shows a gated type to
+ * somebody who already holds an approved grant. A type reaching the drawer is
+ * therefore one this person may use, so "gated" and "covered" are the same
+ * answer here; the server checks the grant itself before writing anything.
+ *
+ * Tiny and near-static — one row per gated type, of which there are none until
+ * somebody turns the flag on — so it is cached for the session.
+ */
+export function useEligibilityGatedTypeIds() {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: [KEY, 'eligibility-gated'],
+    queryFn: async (): Promise<Set<string>> => {
+      const { data, error } = await supabase
+        .from('hr_leave_types')
+        .select('id')
+        .eq('requires_eligibility', true);
+      if (error) throw error;
+      return new Set((data ?? []).map((r) => (r as { id: string }).id));
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
  * Institution-wise leave provisioning analytics.
  *
  * `hrAcademicYearId` null = "the year containing today". One id covers every

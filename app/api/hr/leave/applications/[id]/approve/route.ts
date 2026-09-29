@@ -10,6 +10,7 @@ import { recomputeForShortTimeOff } from '@/lib/hr/attendance/recompute-day';
 import { StaffNotificationService } from '@/lib/services/staff/notification-service';
 import { HrDecisionEmailService } from '@/lib/services/hr/decision-email-service';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -97,6 +98,9 @@ export async function POST(
       // trigger). Send it now rather than at the next 5-minute cron.
       after(() => HrDecisionEmailService.flush({ leaveApplicationId: id }));
     }
+
+    // Adoption loop: an approver decided this application.
+    await recordFeatureUse(supabase, FEATURE_KEYS.HR_LEAVE_DECIDE);
 
     return NextResponse.json({ data: updated });
   } catch (err) {

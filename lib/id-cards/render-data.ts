@@ -22,6 +22,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import QRCode from 'qrcode';
+import { joinPrintableAddress } from '@/lib/id-cards/address-quality';
 
 // Mirrors CardField in app/(routes)/admin/id-cards/_types.ts (Agent B's local
 // contract). Kept as a lib-side mirror so lib/ does not import from app/;
@@ -47,7 +48,10 @@ export type CardField =
   | 'principal_name'
   | 'institution_email'
   | 'institution_phone'
-  | 'institution_address';
+  | 'institution_address'
+  // Learner's father (learners_profiles.father_name) — printed above ROLL NO /
+  // ADM. NO. on every learner card (2026-09-23).
+  | 'father_name';
 
 export const CARD_FIELDS: readonly CardField[] = [
   'name_line_1',
@@ -64,7 +68,8 @@ export const CARD_FIELDS: readonly CardField[] = [
   'principal_name',
   'institution_email',
   'institution_phone',
-  'institution_address'
+  'institution_address',
+  'father_name'
 ] as const;
 
 export type FieldMapping = { card_field: CardField; db_column: string };
@@ -174,7 +179,12 @@ export type CardPersonData = {
     state: string | null;
     pinCode: string | null;
   } | null;
-  /** Person's own contact: student_mobile (learners) / staff.phone. */
+  /**
+   * CONTACT row on the back. Learners: the PARENT's number — father_mobile,
+   * then mother_mobile, and the learner's own student_mobile only when both
+   * parents are blank (in-charge decision 2026-09-26: a school card must reach
+   * a parent). Team members: staff.phone.
+   */
   contactPhone: string | null;
   /**
    * Barcode payload: learners_profiles.roll_number for learners,
@@ -445,6 +455,29 @@ export function formatDateDMY(value: string | null | undefined): string {
   return `${pad2(p.d)}-${pad2(p.m)}-${p.y}`;
 }
 
+const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
+
+/**
+ * School CLASS value: class in Roman numerals + section.
+ *   "Standard 1" + "A"  → "I - A"
+ *   "Grade 1"    + "A"  → "GRADE - I - A"   (Nattraja Vidhyalya names its classes Grade N)
+ *   "LKG"        + "B"  → "LKG - B"         (no number → name kept)
+ * No section → the class part alone. Unparseable → the programme name as stored.
+ */
+export function schoolClassLabel(
+  programName: string | null | undefined,
+  sectionName: string | null | undefined
+): string | null {
+  const name = (programName ?? '').trim();
+  if (name === '') return null;
+  const section = (sectionName ?? '').trim().replace(/^section\s+/i, '').toUpperCase();
+  const m = /(\d{1,2})/.exec(name);
+  const n = m ? Number(m[1]) : 0;
+  let cls = name.toUpperCase();
+  if (n >= 1 && n <= 12) cls = /^grade\b/i.test(name) ? `GRADE - ${ROMAN[n]}` : ROMAN[n];
+  return section ? `${cls} - ${section}` : cls;
+}
+
 /** Shape of the joined batches row used to derive the learner study period. */
 export type BatchLike = {
   batch_name?: string | null;
@@ -681,7 +714,7 @@ export function truncateForCard(value: string | null | undefined, max: number): 
 
 /**
  * How many characters at the END of an address are reserved as the
- * DELIVERABLE TAIL. The address is joined street → taluk → district → state →
+ * DELIVERABLE TAIL. The address is joined street → district → state →
  * PIN, so the parts that decide where a letter actually goes sit LAST.
  * Measured over the 787 active Engineering learners on 2026-08-14: the
  * district+state+PIN tail is at most 35 characters (p99 = 34), so 40 covers
@@ -843,7 +876,8 @@ export async function resolvePhotoDataUrl(candidates: string[]): Promise<string 
  * card renders without artwork rather than erroring).
  */
 export async function resolveBackgroundDataUrl(
-  backgroundImageUrl: string | null | undefined
+  backgroundImageUrl: string | null | undefined,
+  transform?: (dataUrl: string | null) => Promise<string | null>
 ): Promise<string | null> {
   const url = (backgroundImageUrl ?? '').trim();
   if (url === '') return null;
@@ -862,8 +896,15 @@ export async function resolveBackgroundDataUrl(
     );
     return null;
   }
-  return cachedAsset(url, () => fetchImageAsDataUrl(url, BACKGROUND_MAX_BYTES));
+  // `transform` (server-only print boost, passed by the render route) is part
+  // of the cache key so boosted and raw copies never mix.
+  const key = transform ? `${url}#print` : url;
+  return cachedAsset(key, async () => {
+    const raw = await fetchImageAsDataUrl(url, BACKGROUND_MAX_BYTES);
+    return transform ? transform(raw) : raw;
+  });
 }
+
 
 // ── Asset cache ───────────────────────────────────────────────────────────────
 // Template assets (card artwork, logo, principal signature) are the SAME bytes
@@ -1017,6 +1058,7 @@ type LearnerRow = {
   // pg_constraint 2026-07-25.
   batch: BatchLike | null;
   academic_year?: { academic_year_name: string | null } | null;
+  section?: { section_name: string | null } | null;
 };
 
 type StaffRow = {
@@ -1118,6 +1160,7 @@ export async function assembleCardData(
   };
 
   let learnerRowInstitutionId: string | null = null;
+  let learnerSectionName: string | null = null;
   if (p.learner_id) {
     // 2a. Learner path — join learners_profiles + cheap display-name joins.
     kind = 'learner';
@@ -1133,7 +1176,8 @@ export async function assembleCardData(
          program:programs(program_name, card_short_name),
          department:departments(department_name),
          batch:batches(batch_name, start_date, end_date),
-         academic_year:academic_years(academic_year_name)`
+         academic_year:academic_years(academic_year_name),
+         section:sections(section_name)`
       )
       .eq('id', p.learner_id)
       .maybeSingle();
@@ -1151,6 +1195,7 @@ export async function assembleCardData(
       rollNumber = learner.roll_number?.trim() || null;
       registerNumber = learner.register_number?.trim() || null;
       courseName = learner.program?.program_name?.trim() || null;
+      learnerSectionName = learner.section?.section_name?.trim() || null;
       departmentName = learner.department?.department_name?.trim() || null;
       qrValue = learner.id;
       identityLink = { column: 'learner_profile_id', value: learner.id };
@@ -1175,17 +1220,16 @@ export async function assembleCardData(
       dateOfBirthLabel = formatDateDMY(learner.date_of_birth) || null;
       guardianName = learner.father_name?.trim() || learner.mother_name?.trim() || null;
       guardianPhone = learner.father_mobile?.trim() || learner.mother_mobile?.trim() || null;
+      // Printed as `Street, Taluk, District, State - PIN` (final, 2026-09-23).
+      // Keep in step with joinPrintableAddress (lib/id-cards/address-quality.ts).
       address =
-        [
-          learner.permanent_address_street,
-          learner.permanent_address_taluk,
-          learner.permanent_address_district,
-          learner.permanent_address_state,
-          learner.permanent_address_pin_code
-        ]
-          .map((part) => (part ?? '').trim())
-          .filter(Boolean)
-          .join(', ') || null;
+        joinPrintableAddress({
+          street: learner.permanent_address_street,
+          taluk: learner.permanent_address_taluk,
+          district: learner.permanent_address_district,
+          state: learner.permanent_address_state,
+          pinCode: learner.permanent_address_pin_code
+        }) || null;
       addressParts = {
         street: learner.permanent_address_street ?? null,
         taluk: learner.permanent_address_taluk ?? null,
@@ -1193,7 +1237,12 @@ export async function assembleCardData(
         state: learner.permanent_address_state ?? null,
         pinCode: learner.permanent_address_pin_code ?? null
       };
-      contactPhone = learner.student_mobile?.trim() || null;
+      // Parent first; the learner's own mobile is the last resort, never the default.
+      contactPhone =
+        learner.father_mobile?.trim() ||
+        learner.mother_mobile?.trim() ||
+        learner.student_mobile?.trim() ||
+        null;
       idCode = learner.roll_number?.trim() || null;
       studyPeriod = deriveStudyPeriodLabel(learner.batch);
       academicYearLabel = learner.academic_year?.academic_year_name?.trim() || null;
@@ -1209,7 +1258,9 @@ export async function assembleCardData(
       valueBag['learners_profiles.date_of_birth'] = dateOfBirthLabel ?? '';
       valueBag['learners_profiles.father_name'] = learner.father_name ?? '';
       valueBag['learners_profiles.mother_name'] = learner.mother_name ?? '';
-      valueBag['learners_profiles.student_mobile'] = contactPhone ?? '';
+      valueBag['learners_profiles.father_mobile'] = learner.father_mobile ?? '';
+      valueBag['learners_profiles.mother_mobile'] = learner.mother_mobile ?? '';
+      valueBag['learners_profiles.student_mobile'] = learner.student_mobile ?? '';
     } else {
       // Degraded learner path: profiles.learner_id IS learners_profiles.id, so
       // the identity link still resolves even though the learner read failed.
@@ -1332,6 +1383,9 @@ export async function assembleCardData(
       // School cards print the CURRENT academic year on the YEAR line (a school
       // learner has no batch span); colleges keep the batch span.
       if (isSchool && academicYearLabel) studyPeriod = academicYearLabel;
+      // School CLASS line: "I - A" (Standard 1, Section A); a programme named
+      // "Grade 1" prints "GRADE - I - A". See schoolClassLabel.
+      if (isSchool && kind === 'learner') courseName = schoolClassLabel(courseName, learnerSectionName);
       // School ADMISSION NUMBER = learners_profiles.roll_number; a school row
       // that only carries register_number (the admissions import fills that
       // column) prints it instead of a blank. Barcode follows the same value.

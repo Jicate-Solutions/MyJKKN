@@ -34,6 +34,11 @@ import {
   type PurposeChoice,
   type PurposeLocationMode,
 } from '@/lib/services/meetings/group-purposes';
+import {
+  contextQuestionsFor,
+  checkBookingContext,
+  isLongMeeting,
+} from '@/lib/services/meetings/booking-context';
 import { routingFormLinkLabel } from '@/lib/services/meetings/public-host-service';
 
 interface MeetingTypeOption {
@@ -331,11 +336,17 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
   const [earliest, setEarliest] = useState<Record<string, Earliest>>({});
   const [slots, setSlots] = useState<SlotsResponse | null>(null);
   const [selectedStart, setSelectedStart] = useState<string | null>(null);
+  /**
+   * What the visitor writes about the meeting, keyed by question. Separate from
+   * `form` because WHICH questions exist depends on the length they picked —
+   * an hour is asked three things, a short slot one (Director, 16 Sep).
+   */
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+
   const [form, setForm] = useState({
     name: props.viewer?.name ?? '',
     email: props.viewer?.email ?? '',
     phone: '',
-    note: '',
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -500,7 +511,8 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
         name: form.name,
         email: form.email,
         phone: form.phone,
-        note: form.note,
+        note: answers.note ?? '',
+        answers,
         honeypot: '',
         ...(payment ?? {}),
       }),
@@ -555,9 +567,12 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
       setError('Please fill in your name and email.');
       return;
     }
-    // PR1: a prep note is required so the host can prepare for the meeting.
-    if (!form.note.trim()) {
-      setError('Please add a short note on what you’d like to cover.');
+    // PR1: context is required so the host can prepare. Since 16 Sep the amount
+    // asked for scales with the length booked, and the SAME check runs on the
+    // server — this one exists so nobody meets the rule as an error.
+    const context = checkBookingContext(selectedType.durationMin, answers);
+    if (!context.ok) {
+      setError(context.error);
       return;
     }
     if (gated) return; // a JKKN account must log in — submit is disabled anyway
@@ -580,7 +595,8 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
           name: form.name,
           email: form.email,
           phone: form.phone,
-          note: form.note,
+          note: answers.note ?? '',
+          answers,
           honeypot: '',
         }),
       });
@@ -947,21 +963,37 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
                 autoComplete="tel"
               />
             </label>
-            <label className="text-sm">
-              <span className="mb-1 block font-medium">
-                Anything to share beforehand? <span className="text-[#0E4D34]">*</span>
-              </span>
-              <textarea
-                value={form.note}
-                onChange={(e) => setForm({ ...form, note: e.target.value })}
-                rows={2}
-                maxLength={500}
-                required
-                aria-required="true"
-                placeholder="A line on what you'd like to cover helps the host prepare."
-                className="w-full rounded-md border border-[#0E4D34]/25 bg-white px-3 py-2 text-sm outline-none focus:border-[#0E4D34] focus:ring-1 focus:ring-[#0E4D34]"
-              />
-            </label>
+            {selectedType && isLongMeeting(selectedType.durationMin) ? (
+              <p className="rounded-md border border-[#0E4D34]/20 bg-[#0E4D34]/5 px-3 py-2.5 text-xs text-[#1C2B24]/80">
+                You are asking for {selectedType.durationMin} minutes. Three short answers
+                below, so the time is spent on the matter rather than on catching up.
+              </p>
+            ) : null}
+
+            {contextQuestionsFor(selectedType?.durationMin).map((q) => {
+              const value = answers[q.key] ?? '';
+              const short = value.trim().length > 0 && value.trim().length < q.minChars;
+              return (
+                <label key={q.key} className="text-sm">
+                  <span className="mb-1 block font-medium">
+                    {q.label} <span className="text-[#0E4D34]">*</span>
+                  </span>
+                  <textarea
+                    value={value}
+                    onChange={(e) => setAnswers({ ...answers, [q.key]: e.target.value })}
+                    rows={q.minChars > 1 ? 3 : 2}
+                    maxLength={2000}
+                    required
+                    aria-required="true"
+                    placeholder={q.placeholder}
+                    className="w-full rounded-md border border-[#0E4D34]/25 bg-white px-3 py-2 text-sm outline-none focus:border-[#0E4D34] focus:ring-1 focus:ring-[#0E4D34]"
+                  />
+                  <span className="mt-1 block text-xs text-[#1C2B24]/60">
+                    {short ? `${q.help} A little more, please.` : q.help}
+                  </span>
+                </label>
+              );
+            })}
 
             {slots?.requiresDeposit && typeof slots.depositAmountPaise === 'number' && (
               <div className="flex items-center gap-2 rounded-md border border-[#0E4D34]/20 bg-[#0E4D34]/5 px-3 py-2.5 text-xs text-[#1C2B24]/80">

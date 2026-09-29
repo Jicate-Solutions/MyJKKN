@@ -24,7 +24,12 @@ export class BulletinService {
       .order('posted_at', { ascending: false });
 
     if (filters?.search) {
-      query = query.or(`title.ilike.%${filters.search}%,source_organisation.ilike.%${filters.search}%`);
+      // A comma / parenthesis / wildcard in the box is or()-filter SYNTAX, not text:
+      // "TCS, Chennai" used to produce a 400 and the page's error state.
+      const safe = filters.search.replace(/[,()*\\]/g, ' ').trim();
+      if (safe) {
+        query = query.or(`title.ilike.%${safe}%,source_organisation.ilike.%${safe}%`);
+      }
     }
     if (filters?.category) {
       query = query.eq('category', filters.category);

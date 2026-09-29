@@ -118,7 +118,12 @@ export default function MyAttendancePage() {
     [employee?.first_name, employee?.last_name],
   );
 
-  const staffId = selectedStaff?.id ?? employee?.id ?? null;
+  // ?view=all is the sidebar's "All Attendance" entry (Attendance & Time row,
+  // 2026-09-21), keyed on hr.attendance.view_all. Arriving that way means "I
+  // came to look at other people", so the page opens on the picker instead of
+  // the viewer's own record; picking someone then behaves exactly as before.
+  const adminEntry = canViewAll && searchParams.get('view') === 'all';
+  const staffId = selectedStaff?.id ?? (adminEntry ? null : (employee?.id ?? null));
   const viewingOther = Boolean(selectedStaff && selectedStaff.id !== employee?.id);
 
   // Why the viewer has no record of their OWN — null when they have one. Two
@@ -204,17 +209,22 @@ export default function MyAttendancePage() {
             title="Not managed in HR"
             description="Your employment category is not included in the HR module, so no attendance is recorded for you here. Contact HR if you believe this is an error."
           />
-        ) : selfBlock && !selectedStaff ? (
-          // Reached only by a view_all holder with no usable record of their
-          // own. The filter is the whole point of the page for them, so it
-          // renders; the tabs would otherwise show an empty grid belonging to
-          // nobody, because every query is disabled while staffId is null.
+        ) : (selfBlock || adminEntry) && !selectedStaff ? (
+          // Reached by a view_all holder with no usable record of their own,
+          // or by one who came in through "All Attendance". The filter is the
+          // whole point of the page for them, so it renders; the tabs would
+          // otherwise show an empty grid belonging to nobody, because every
+          // query is disabled while staffId is null.
           <>
             {staffFilter}
             <EmptyState
               icon={<UserRound className="h-10 w-10 text-muted-foreground" />}
               title="Choose a team member"
-              description="You have no attendance record of your own, so there is nothing to show until you pick someone. Search above to open a team member’s record."
+              description={
+                adminEntry
+                  ? 'Search above to open any team member’s attendance log and calendar.'
+                  : 'You have no attendance record of your own, so there is nothing to show until you pick someone. Search above to open a team member’s record.'
+              }
             />
           </>
         ) : (

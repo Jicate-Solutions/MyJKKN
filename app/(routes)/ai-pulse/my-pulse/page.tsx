@@ -23,7 +23,11 @@ import {
 } from '@/lib/supabase/server';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { AiPulseLearnerService } from '@/lib/services/ai-pulse/learner-service';
+import {
+  AiPulseLearnerService,
+  type AiPulseAttendance,
+  type AiPulseTeamSummary,
+} from '@/lib/services/ai-pulse/learner-service';
 import { CurrentCycleCard } from '../_components/current-cycle-card';
 import { GoldThisWeekCard } from '../_components/gold-this-week-card';
 import { MyTeamCard } from '../_components/my-team-card';
@@ -60,7 +64,20 @@ export const navMeta = { label: 'My AI Pulse' };
 
 export const dynamic = 'force-dynamic';
 
-async function checkPermission(key: string): Promise<boolean> {
+/**
+ * "You may not" and "we could not find out" are different answers, and only the
+ * first one may redirect. A `user_has_permission` RPC that fails in transport
+ * used to return false, which sent a perfectly entitled learner to
+ * /unauthorized — a silent redirect they cannot diagnose.
+ */
+interface PermissionCheck {
+  allowed: boolean;
+  failed: boolean;
+}
+
+const PERMISSION_GRANTED: PermissionCheck = { allowed: true, failed: false };
+
+async function checkPermission(key: string): Promise<PermissionCheck> {
   try {
     const supabase = await createClient();
     const { data, error } = await supabase.rpc('user_has_permission', {
@@ -68,12 +85,141 @@ async function checkPermission(key: string): Promise<boolean> {
     });
     if (error) {
       console.error(`[ai-pulse/page] user_has_permission(${key}) failed:`, error);
-      return false;
+      return { allowed: false, failed: true };
     }
-    return data === true;
+    return { allowed: data === true, failed: false };
   } catch (e) {
     console.error(`[ai-pulse/page] permission check threw for ${key}:`, e);
-    return false;
+    return { allowed: false, failed: true };
+  }
+}
+
+/**
+ * getEnhancedUserProfile returns `{ profile: null, error }` both when nobody is
+ * signed in and when the profile read itself failed. Only the first belongs at
+ * the login page; bouncing a signed-in learner to login because a query timed
+ * out is the same dead end by another route.
+ */
+function isMissingSession(error: Error | null): boolean {
+  if (!error) return true; // no profile and no reason given — treat as no session
+  return /no authenticated user|auth session missing|not authenticated|jwt|refresh token/i.test(
+    error.message ?? ''
+  );
+}
+
+/** Reads opted into surfacing their failures instead of degrading silently. */
+const SURFACE_ERRORS = { throwOnError: true } as const;
+
+/** The inline "we couldn't load this" strip, shared by both places using it. */
+function RetryNotice({
+  message,
+  retryHref,
+}: {
+  message: string;
+  retryHref: string;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+      <span>{message}</span>
+      <a
+        href={retryHref}
+        className="shrink-0 rounded-md border border-amber-300 px-3 py-1.5 text-xs font-medium hover:bg-amber-100 dark:border-amber-800 dark:hover:bg-amber-900/40"
+      >
+        Try again
+      </a>
+    </div>
+  );
+}
+
+/**
+ * One card's slot when its read failed. A card that shows its empty state here
+ * would be lying — "no team", "not marked yet" and "0 week streak" are claims,
+ * and we do not have the data to make them.
+ */
+function UnavailableCard({
+  title,
+  retryHref,
+}: {
+  title: string;
+  retryHref: string;
+}) {
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 p-6 dark:border-amber-900 dark:bg-amber-950/40">
+      <h3 className="font-semibold text-amber-900 dark:text-amber-200">
+        {title}
+      </h3>
+      <p className="mt-1 text-sm text-amber-800 dark:text-amber-300">
+        This didn&apos;t load just now, so we&apos;re not showing a number we
+        can&apos;t stand behind.
+      </p>
+      <a
+        href={retryHref}
+        className="mt-3 inline-block rounded-md border border-amber-300 px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100 dark:border-amber-800 dark:text-amber-200 dark:hover:bg-amber-900/40"
+      >
+        Try again
+      </a>
+    </div>
+  );
+}
+
+/**
+ * The page when we could not establish what to show at all. Deliberately NOT a
+ * redirect and NOT an empty-looking page: it names what failed and offers the
+ * way forward.
+ */
+function UnavailablePage({
+  what,
+  retryHref,
+}: {
+  what: string;
+  retryHref: string;
+}) {
+  return (
+    <ContentLayout title="My AI Pulse">
+      <PageBreadcrumb
+        items={[
+          { label: 'Home', href: '/' },
+          { label: 'AI Pulse', href: '/ai-pulse' },
+          { label: 'My AI Pulse' },
+        ]}
+      />
+      <div className="space-y-6 mt-4">
+        <h1 className="text-2xl font-bold py-1">My AI Pulse</h1>
+        <RetryNotice
+          message={`We couldn't load ${what} just now. This is a problem on our side, not with your account.`}
+          retryHref={retryHref}
+        />
+      </div>
+    </ContentLayout>
+  );
+}
+
+/**
+ * Run one card's read without letting it take the whole page down.
+ *
+ * Four reporters (BUG-005574/5576/5579/5581) saw this page replaced by the
+ * global "Something went wrong — network error" card. A single stalled read
+ * throwing out of the server component is enough to do that, so each read now
+ * degrades to its empty shape and the page renders an inline retry instead.
+ * Next.js control-flow signals (redirect/notFound) carry a NEXT_* digest and
+ * must still propagate.
+ */
+type ServerSupabase = Awaited<ReturnType<typeof createServerSupabaseClient>>;
+
+async function settle<T>(
+  work: Promise<T>,
+  fallback: T,
+  label: string,
+  failed: string[]
+): Promise<T> {
+  try {
+    return await work;
+  } catch (e) {
+    const digest = (e as { digest?: string })?.digest;
+    if (typeof digest === 'string' && digest.startsWith('NEXT_')) throw e;
+    console.error(`[ai-pulse/my-pulse] ${label} failed:`, e);
+    failed.push(label);
+    return fallback;
   }
 }
 
@@ -82,49 +228,144 @@ export default async function AiPulseLearnerPage({
 }: {
   searchParams: Promise<{ cycle?: string }>;
 }) {
-  const { profile } = await getEnhancedUserProfile();
+  // The failed-read labels behind the inline retry notice.
+  const failed: string[] = [];
 
-  if (!profile) {
-    redirect('/auth/login?next=/ai-pulse');
-  }
-
-  // Permission gate — super_admin always passes; others require key.
-  if (profile.is_super_admin !== true) {
-    const canView = await checkPermission('aiPulse:view.self');
-    if (!canView) {
-      redirect('/unauthorized?module=ai-pulse');
-    }
-  }
-
-  // Resolve action permissions in parallel (super_admin shortcut).
-  const [canDomainSync, canQuiz, canPublication] = profile.is_super_admin
-    ? [true, true, true]
-    : await Promise.all([
-        checkPermission('aiPulse:submit.domain_sync'),
-        checkPermission('aiPulse:submit.quiz'),
-        checkPermission('aiPulse:submit.publication'),
-      ]);
+  // searchParams does not depend on the profile read — resolve both together.
+  const [{ profile, error: profileError }, sp] = await Promise.all([
+    getEnhancedUserProfile(),
+    searchParams,
+  ]);
 
   // Resolve the cycle to show. Default = current week; the week switcher can
   // deep-link any past cycle via ?cycle=<id>. cycles[] backs the switcher.
-  const sp = await searchParams;
   const requestedCycleId =
     typeof sp?.cycle === 'string' && sp.cycle.length > 0 ? sp.cycle : null;
 
-  const [cycles, currentCycle] = await Promise.all([
-    AiPulseLearnerService.listCyclesServer(),
-    AiPulseLearnerService.getCurrentCycleServer(),
+  // Same URL, full reload — the page is force-dynamic, so this re-runs every read.
+  const retryHref = requestedCycleId
+    ? `/ai-pulse/my-pulse?cycle=${encodeURIComponent(requestedCycleId)}`
+    : '/ai-pulse/my-pulse';
+
+  if (!profile) {
+    if (isMissingSession(profileError)) {
+      redirect('/auth/login?next=/ai-pulse');
+    }
+    // We could not find out who this is. Sending them to login would tell them
+    // to fix something that is not broken.
+    return <UnavailablePage what="your profile" retryHref={retryHref} />;
+  }
+
+  // Permission gate + action permissions in ONE round trip. This used to be the
+  // gate RPC awaited alone, then three more — four serial hops before any data
+  // read could start. super_admin short-circuits all four.
+  const [viewCheck, domainSyncCheck, quizCheck, publicationCheck] =
+    profile.is_super_admin === true
+      ? [
+          PERMISSION_GRANTED,
+          PERMISSION_GRANTED,
+          PERMISSION_GRANTED,
+          PERMISSION_GRANTED,
+        ]
+      : await Promise.all([
+          checkPermission('aiPulse:view.self'),
+          checkPermission('aiPulse:submit.domain_sync'),
+          checkPermission('aiPulse:submit.quiz'),
+          checkPermission('aiPulse:submit.publication'),
+        ]);
+
+  // A gate we could not READ is not a gate that said no.
+  if (viewCheck.failed) {
+    return (
+      <UnavailablePage what="your AI Pulse access" retryHref={retryHref} />
+    );
+  }
+  if (!viewCheck.allowed) {
+    redirect('/unauthorized?module=ai-pulse');
+  }
+
+  const canDomainSync = domainSyncCheck.allowed;
+  const canQuiz = quizCheck.allowed;
+  const canPublication = publicationCheck.allowed;
+
+  // An action key we could not read hides its button, so say so rather than
+  // letting the learner think the action was withdrawn.
+  if (domainSyncCheck.failed || quizCheck.failed || publicationCheck.failed) {
+    failed.push('permissions');
+  }
+
+  // Gold does not depend on the cycle, and the cycle-scoped reads below do.
+  // Keeping it in the same Promise.all made team/attendance/streak wait behind
+  // a read they have nothing to do with, so it runs on its own and is collected
+  // at the end.
+  //
+  // CARE R-move: latest faculty-picked Gold (null until the first Monday Lab
+  // scores a cycle — the card hides itself).
+  const goldPromise = settle(
+    AiPulseLearnerService.getLatestGoldServer(undefined, SURFACE_ERRORS),
+    null,
+    'gold',
+    failed
+  );
+
+  // Cycle list, current cycle and the deep-linked cycle are independent of each
+  // other. They used to run in two waves (list+current, then the deep-linked
+  // cycle); now one.
+  const [cycles, currentCycle, requestedCycle] = await Promise.all([
+    settle(
+      AiPulseLearnerService.listCyclesServer(12, SURFACE_ERRORS),
+      [],
+      'cycles',
+      failed
+    ),
+    settle(
+      AiPulseLearnerService.getCurrentCycleServer(SURFACE_ERRORS),
+      null,
+      'current-cycle',
+      failed
+    ),
+    requestedCycleId
+      ? settle(
+          AiPulseLearnerService.getCycleByIdServer(
+            requestedCycleId,
+            SURFACE_ERRORS
+          ),
+          null,
+          'requested-cycle',
+          failed
+        )
+      : Promise.resolve(null),
   ]);
 
-  // A hand-typed / stale ?cycle= id that isn't an ai_pulse cycle falls back to
-  // the current cycle rather than showing an empty page.
-  const cycle = requestedCycleId
-    ? (await AiPulseLearnerService.getCycleByIdServer(requestedCycleId)) ??
-      currentCycle
-    : currentCycle;
+  const currentCycleFailed = failed.includes('current-cycle');
+  const requestedCycleFailed = failed.includes('requested-cycle');
 
+  // A hand-typed / stale ?cycle= id that isn't an ai_pulse cycle falls back to
+  // the current cycle rather than showing an empty page. A read that FAILED is
+  // not a stale id, though: silently showing a different week would be worse
+  // than saying so, and a week we DID fetch is not thrown away just because the
+  // current-cycle read alongside it failed.
+  const cycle = requestedCycleId
+    ? requestedCycleFailed
+      ? null
+      : requestedCycle ?? (currentCycleFailed ? null : currentCycle)
+    : currentCycleFailed
+      ? null
+      : currentCycle;
+
+  // Nothing left to scope the page to. Every card below would be a guess, and
+  // "no active cycle" would be stated with the confidence of a real answer —
+  // exactly the dead end the four reporters could not get past.
+  if (!cycle && (currentCycleFailed || requestedCycleFailed)) {
+    return <UnavailablePage what="your AI Pulse week" retryHref={retryHref} />;
+  }
+
+  // With the current cycle unread we cannot tell whether the week on screen is
+  // the live one. Unknown counts as not-current: the page stays read-only
+  // rather than offering submissions against a week it cannot confirm is open.
   const isCurrentCycle =
     !!cycle && !!currentCycle && cycle.id === currentCycle.id;
+  const liveWeekUnknown = currentCycleFailed && !!cycle;
 
   // The switcher now returns every week the learner ATTENDED, including weeks
   // with no starter for their programme (has_prompt=false) — those used to be
@@ -141,9 +382,9 @@ export default async function AiPulseLearnerPage({
     cycle && !cycles.some((c) => c.id === cycle.id) ? [cycle, ...cycles] : cycles
   ).map((c) => ({ id: c.id, label: cycleSwitcherLabel(c) }));
 
-  let team = null;
-  let attendance = {
-    state: 'pending' as const,
+  let team: AiPulseTeamSummary | null = null;
+  let attendance: AiPulseAttendance = {
+    state: 'pending',
     day_type: null,
     marked_at: null,
     signals: null,
@@ -151,23 +392,70 @@ export default async function AiPulseLearnerPage({
   let streak = 0;
 
   if (cycle) {
-    const supabase = await createServerSupabaseClient();
-    team = await AiPulseLearnerService.getMyTeam(cycle.id, profile.id, supabase);
-    // Attendance is keyed on profile_id in ai_pulse_live_attendance — it does
-    // NOT depend on a team assignment. Fetch it regardless so learners who
-    // attended (or whose team isn't assigned yet) see their real status instead
-    // of a permanent "pending".
-    attendance = await AiPulseLearnerService.getMyAttendance(
-      cycle.id,
-      profile.id,
-      supabase
+    const supabase = await settle<ServerSupabase | null>(
+      createServerSupabaseClient(),
+      null,
+      'supabase-client',
+      failed
     );
-    streak = await AiPulseLearnerService.getMyStreak(profile.id, supabase);
+    if (supabase) {
+      // Team, attendance and streak are independent of each other — they used
+      // to be three serial awaits (and getMyStreak was itself a per-cycle loop).
+      // Attendance is keyed on profile_id in ai_pulse_live_attendance — it does
+      // NOT depend on a team assignment. Fetch it regardless so learners who
+      // attended (or whose team isn't assigned yet) see their real status
+      // instead of a permanent "pending".
+      const [teamResult, attendanceResult, streakResult] = await Promise.all([
+        settle(
+          AiPulseLearnerService.getMyTeam(
+            cycle.id,
+            profile.id,
+            supabase,
+            SURFACE_ERRORS
+          ),
+          null,
+          'team',
+          failed
+        ),
+        settle(
+          AiPulseLearnerService.getMyAttendance(
+            cycle.id,
+            profile.id,
+            supabase,
+            SURFACE_ERRORS
+          ),
+          attendance,
+          'attendance',
+          failed
+        ),
+        settle(
+          AiPulseLearnerService.getMyStreak(
+            profile.id,
+            supabase,
+            SURFACE_ERRORS
+          ),
+          0,
+          'streak',
+          failed
+        ),
+      ]);
+      team = teamResult;
+      attendance = attendanceResult;
+      streak = streakResult;
+    }
   }
 
-  // CARE R-move: latest faculty-picked Gold (null until the first Monday Lab
-  // scores a cycle — the card hides itself).
-  const gold = await AiPulseLearnerService.getLatestGoldServer();
+  const gold = await goldPromise;
+
+  // Failures that have their own card do not also need the page-level strip.
+  const teamFailed = failed.includes('team');
+  // Streak lives on the attendance card, so an unread streak makes that whole
+  // card unavailable rather than printing a 0 nobody measured.
+  const attendanceFailed =
+    failed.includes('attendance') || failed.includes('streak');
+  const unhandledFailures = failed.filter(
+    (f) => f !== 'team' && f !== 'attendance' && f !== 'streak'
+  );
 
   return (
     <ContentLayout title="My AI Pulse">
@@ -201,17 +489,37 @@ export default async function AiPulseLearnerPage({
         {switcherCycles.length > 0 && (
           <div className="flex flex-wrap items-center gap-3">
             <WeekSwitcher cycles={switcherCycles} selectedId={cycle?.id ?? null} />
-            {!isCurrentCycle && (
+            {/* "Viewing a past week" is a CLAIM, and it needs the current cycle
+                to be true. When that read failed we say what we actually know:
+                this week is shown, and whether it is the live one is unchecked. */}
+            {liveWeekUnknown ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900">
-                Viewing a past week — read-only
+                Read-only — we couldn&apos;t check whether this is the live week
               </span>
+            ) : (
+              !isCurrentCycle && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900">
+                  Viewing a past week — read-only
+                </span>
+              )
             )}
           </div>
         )}
 
+        {unhandledFailures.length > 0 && (
+          <RetryNotice
+            message="Part of this page didn't load just now. Everything else is shown below."
+            retryHref={retryHref}
+          />
+        )}
+
         <div className="grid gap-4 md:grid-cols-2">
           <CurrentCycleCard cycle={cycle} />
-          <MyTeamCard team={team} />
+          {teamFailed ? (
+            <UnavailableCard title="My Team" retryHref={retryHref} />
+          ) : (
+            <MyTeamCard team={team} />
+          )}
           {/* Domain Starter — the SELECTED cycle's copy-paste AI prompt pack
               for the learner's subject/programme. Scoped by cycleId so the week
               switcher shows each week's own prompt. Renders nothing while the
@@ -249,7 +557,11 @@ export default async function AiPulseLearnerPage({
               <GoldThisWeekCard gold={gold} />
             </div>
           )}
-          <MyAttendanceCard attendance={attendance} streak={streak} />
+          {attendanceFailed ? (
+            <UnavailableCard title="My Attendance" retryHref={retryHref} />
+          ) : (
+            <MyAttendanceCard attendance={attendance} streak={streak} />
+          )}
           {/* Quick Actions = submissions against the live cycle. Hidden when
               viewing a past week (read-only — you can't submit to a closed cycle). */}
           {isCurrentCycle && (
