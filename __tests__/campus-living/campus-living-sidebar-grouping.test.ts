@@ -26,7 +26,9 @@ const PRE_GROUPING_DEPTH2_ROUTES = [
   '/campus-living/health',
   '/campus-living/housekeeping',
   '/campus-living/laundry',
-  '/campus-living/leave',
+  // '/campus-living/leave' retired to a redirect (2027-04) — hostel leave
+  // requests now go through the global /learners/leave-onduty flow, so it no
+  // longer needs a sidebar row.
   '/campus-living/maintenance',
   '/campus-living/mess',
   '/campus-living/reports',

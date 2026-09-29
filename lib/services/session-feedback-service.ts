@@ -19,6 +19,7 @@ import type {
   MyImpactRow,
   AdminCollegeSummaryRow,
   AdminFacultySummaryRow,
+  AdminCourseBreakdownRow,
   AdminTrendRow,
   FacilitatorCoverageRow,
   ChecklistConfigItem,
@@ -684,6 +685,20 @@ export class SessionFeedbackService {
     });
     if (error) throw new Error(`Failed to load faculty summary: ${error.message}`);
     return (data || []) as AdminFacultySummaryRow[];
+  }
+
+  /** Per-teacher, per-course summary within scope (the split the faculty summary merges). */
+  static async getAdminCourseBreakdown(
+    from: string,
+    to: string,
+  ): Promise<AdminCourseBreakdownRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_scf_admin_course_breakdown', {
+      p_from: from,
+      p_to: to,
+    });
+    if (error) throw new Error(`Failed to load course breakdown: ${error.message}`);
+    return (data || []) as AdminCourseBreakdownRow[];
   }
 
   /** Per-day understanding trend within scope. */

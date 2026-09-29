@@ -5,7 +5,7 @@
 // types/health-sports.ts — do NOT define parallel sport enums here.
 // Created: 2026-06-22 (Sports Tournament PR1).
 
-import type { SportLevel } from '@/types/health-sports';
+import { TEAM_SPORTS, type SportLevel } from '@/types/health-sports';
 import type { Event, EventStatus } from '@/types/events';
 
 // ============================================================================
@@ -82,6 +82,40 @@ export const DIVISION_GENDERS: { value: DivisionGender; label: string }[] = [
   { value: 'female', label: "Women's" },
   { value: 'mixed', label: 'Mixed' },
 ];
+
+/**
+ * Singles vs doubles for racket/board sports, stored on the division as
+ * `config.play_type` (no column — config is free-form jsonb). Unset means the
+ * sport's default: TEAM_SPORTS register teams, everything else individuals.
+ */
+export type DivisionPlayType = 'singles' | 'doubles';
+
+/** Sports that can be played as doubles — these get the Singles/Doubles toggle. */
+export const DOUBLES_SPORTS = ['Carrom', 'Badminton', 'Table Tennis', 'Tennis'] as const;
+
+/** Players on one doubles entry. */
+export const DOUBLES_ROSTER_SIZE = 2;
+
+export const supportsDoubles = (sport: string | null | undefined) =>
+  (DOUBLES_SPORTS as readonly string[]).includes(sport ?? '');
+
+/** The division's explicit play type, or null when it follows the sport default. */
+export function divisionPlayType(
+  config: Record<string, unknown> | null | undefined
+): DivisionPlayType | null {
+  const v = config?.play_type;
+  return v === 'singles' || v === 'doubles' ? v : null;
+}
+
+/** True when entries in this division are teams (with a roster), not individuals. */
+export function isTeamDivision(d: {
+  sport: string;
+  config?: Record<string, unknown> | null;
+}): boolean {
+  const playType = divisionPlayType(d.config);
+  if (playType) return playType === 'doubles';
+  return (TEAM_SPORTS as readonly string[]).includes(d.sport);
+}
 
 /**
  * Cross-institution scope of a tournament — maps directly to the existing

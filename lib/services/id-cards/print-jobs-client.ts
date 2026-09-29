@@ -163,45 +163,99 @@ export async function resolveProfileIdByEmail(
 }
 
 export type EnqueueOutcome =
-  | { status: 'queued' }
+  | { status: 'queued'; /** Set when the card was a chargeable replacement. */ chargeMessage?: string }
   | { status: 'already_queued'; jobId: string | null }
+  /**
+   * The person has used up their free cards: the server refuses until the
+   * caller re-submits with the fee acknowledged. NOT a queue collision — the
+   * print queue is empty for this person.
+   */
+  | {
+      status: 'replacement_fee';
+      replacementNumber: number;
+      feeAmount: number;
+      feeCurrency: string;
+      message: string;
+    }
   | { status: 'failed'; message: string };
+
+export interface EnqueueOptions {
+  /** The in-charge has seen the replacement fee and accepts the charge. */
+  acknowledgeReplacementFee?: boolean;
+}
 
 /**
  * Enqueue one print job. Maps the API contract to a small outcome union:
- *   201 → queued · 409 (duplicate_active_job) → already_queued · else → failed
+ *   201 → queued
+ *   409 duplicate_active_job     → already_queued (carries the job id)
+ *   409 replacement_fee_required → replacement_fee (carries the price)
+ *   any other status / 409 code  → failed (server message)
+ *
+ * Every 409 used to collapse into already_queued, so a learner whose first
+ * card had already been printed saw "Already in the print queue" on an empty
+ * queue and a "Cancel & re-queue" that had nothing to cancel.
  */
 export async function enqueuePrintJob(
   profileId: string,
-  templateId: string
+  templateId: string,
+  options: EnqueueOptions = {}
 ): Promise<EnqueueOutcome> {
   try {
     const res = await fetch('/api/id-cards/jobs', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ profile_id: profileId, template_id: templateId })
+      body: JSON.stringify({
+        profile_id: profileId,
+        template_id: templateId,
+        ...(options.acknowledgeReplacementFee ? { replacement_fee_acknowledged: true } : {})
+      })
     });
 
-    if (res.status === 201) return { status: 'queued' };
-    if (res.status === 409) {
-      let jobId: string | null = null;
-      try {
-        const body = await res.json();
-        jobId = typeof body?.data?.id === 'string' ? body.data.id : null;
-      } catch {
-        // no body — caller can still fall back to "already queued"
-      }
-      return { status: 'already_queued', jobId };
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      // no / non-JSON body — every branch below copes with null
+    }
+    const b = (body ?? {}) as {
+      error?: { message?: string; code?: string };
+      data?: Record<string, unknown>;
+      replacement?: { message?: string };
+    };
+
+    if (res.status === 201) {
+      const chargeMessage =
+        typeof b.replacement?.message === 'string' ? b.replacement.message : undefined;
+      return chargeMessage ? { status: 'queued', chargeMessage } : { status: 'queued' };
     }
 
-    let message = `Request failed (${res.status})`;
-    try {
-      const body = await res.json();
-      if (body?.error?.message) message = body.error.message;
-    } catch {
-      // non-JSON error body — keep the status-code message
+    if (res.status === 409) {
+      const code = b.error?.code;
+      if (code === 'replacement_fee_required') {
+        const d = b.data ?? {};
+        return {
+          status: 'replacement_fee',
+          replacementNumber: typeof d.replacement_number === 'number' ? d.replacement_number : 1,
+          feeAmount: typeof d.fee_amount === 'number' ? d.fee_amount : 0,
+          feeCurrency: typeof d.fee_currency === 'string' ? d.fee_currency : 'INR',
+          message: b.error?.message ?? 'A replacement fee applies to this card.'
+        };
+      }
+      // duplicate_active_job — and, for older servers without a code, any 409
+      // that carries a job row.
+      if (code === 'duplicate_active_job' || (!code && typeof b.data?.id === 'string')) {
+        return {
+          status: 'already_queued',
+          jobId: typeof b.data?.id === 'string' ? (b.data.id as string) : null
+        };
+      }
+      return { status: 'failed', message: b.error?.message ?? 'Request refused (409)' };
     }
-    return { status: 'failed', message };
+
+    return {
+      status: 'failed',
+      message: b.error?.message ?? `Request failed (${res.status})`
+    };
   } catch (err) {
     return {
       status: 'failed',
@@ -235,11 +289,12 @@ export async function cancelPrintJob(jobId: string): Promise<{ ok: true } | { ok
  */
 export async function requeuePrintJob(
   profileId: string,
-  templateId: string
+  templateId: string,
+  options: EnqueueOptions = {}
 ): Promise<EnqueueOutcome> {
-  const first = await enqueuePrintJob(profileId, templateId);
+  const first = await enqueuePrintJob(profileId, templateId, options);
   if (first.status !== 'already_queued' || !first.jobId) return first;
   const cancelled = await cancelPrintJob(first.jobId);
   if (cancelled.ok === false) return { status: 'failed', message: cancelled.message };
-  return enqueuePrintJob(profileId, templateId);
+  return enqueuePrintJob(profileId, templateId, options);
 }

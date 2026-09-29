@@ -8206,6 +8206,23 @@ ALTER TABLE public.staff
   ADD CONSTRAINT staff_last_name_canonical
     CHECK (last_name IS NULL OR last_name = public.fn_canonical_staff_name(last_name));
 
+-- Staff emergency contact (migration 20260925140000). Optional; blank strings
+-- are rejected so "not set" is always NULL.
+ALTER TABLE public.staff
+  ADD COLUMN IF NOT EXISTS emergency_contact_name         text,
+  ADD COLUMN IF NOT EXISTS emergency_contact_relationship text,
+  ADD COLUMN IF NOT EXISTS emergency_contact_phone        text;
+
+ALTER TABLE public.staff
+  DROP CONSTRAINT IF EXISTS staff_emergency_contact_not_blank;
+
+ALTER TABLE public.staff
+  ADD CONSTRAINT staff_emergency_contact_not_blank CHECK (
+        (emergency_contact_name         IS NULL OR btrim(emergency_contact_name)         <> '')
+    AND (emergency_contact_relationship IS NULL OR btrim(emergency_contact_relationship) <> '')
+    AND (emergency_contact_phone        IS NULL OR btrim(emergency_contact_phone)        <> '')
+  );
+
 -- ============================================================================
 -- 2026-08-21 — Fee structure per-item due dates, splits and status rules
 -- Applied by: 20260821180000_fee_structure_item_schedules.sql
@@ -8971,6 +8988,15 @@ DROP INDEX IF EXISTS public.uq_hr_salary_register_runs_live;
 CREATE UNIQUE INDEX uq_hr_salary_register_runs_live
   ON public.hr_salary_register_runs (institution_id, period_year, period_month)
   WHERE superseded_at IS NULL;
+
+-- 2026-09-23: the register is grouped by PAYING institution again
+-- (20260923120000). Where someone works is snapshotted per line instead.
+ALTER TABLE public.hr_salary_register_lines
+  ADD COLUMN IF NOT EXISTS work_institution_id uuid REFERENCES public.institutions(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS work_institution_name text;
+
+CREATE INDEX IF NOT EXISTS idx_hr_salary_register_lines_work_institution
+  ON public.hr_salary_register_lines (work_institution_id);
 
 -- ============================================================================
 -- 2026-08-31 — leave approval flows: parallel/sequential, ladder
@@ -10318,3 +10344,179 @@ CREATE INDEX IF NOT EXISTS idx_learner_activation_failures_institution
 
 COMMENT ON TABLE public.learner_activation_failures IS
   'Activations that FAILED while a learner was being moved to active on their first Present mark. Written by fn_activate_learner_on_first_present() from inside an exception handler so the attendance save itself is never rejected. A row here means the attendance was saved and the learner was NOT activated — someone has to look.';
+
+-- =====================================================================
+-- Updated: 2026-09-24 - Adoption loop E: feature_registry.href + adoption_reminders
+-- Source of truth for apply: supabase/migrations/20270324090000_adoption_daily_ask_and_remind.sql
+-- Spec: specs/2026-09-16-adoption-loop.md rulings 2, 6, 9, 10
+-- =====================================================================
+-- -- 1) feature_registry.href — the one link a reminder may carry
+-- ---------------------------------------------------------------------
+ALTER TABLE public.feature_registry
+  ADD COLUMN IF NOT EXISTS href text;
+ALTER TABLE public.feature_registry
+  DROP CONSTRAINT IF EXISTS feature_registry_href_internal_check;
+-- An in-app path only ("/learners/leave"), never an outside address: a
+-- reminder sent to thousands of people must not be able to carry an off-site link.
+ALTER TABLE public.feature_registry
+  ADD CONSTRAINT feature_registry_href_internal_check
+  CHECK (href IS NULL OR href ~ '^/[A-Za-z0-9_\-/\[\]\.?=&%]*$' AND href !~ '^//');
+COMMENT ON COLUMN public.feature_registry.href IS
+  'In-app path of the page where the core action is done, e.g. /hr/leave. A reminder links here; NULL = no link (routes are never guessed). Set by the desk when the route is known (2026-09-24).';
+
+-- ---------------------------------------------------------------------
+-- 2) adoption_reminders — the ruling-10 guard and the page's count
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.adoption_reminders (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  feature_key     text NOT NULL REFERENCES public.feature_registry(feature_key) ON DELETE CASCADE,
+  notification_id uuid,
+  sent_at         timestamptz NOT NULL DEFAULT now(),
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE public.adoption_reminders IS
+  'Adoption loop ruling 10 (Director 2026-09-24): one row per reminder sent — a plain in-app notice to an intended person who has never done a feature''s core action. fn_adoption_remind_core reads it to send at most one per person per feature per 30 days. Written only by that function.';
+
+-- the 30-day lookup (person × feature, newest first) and the per-person day check
+CREATE INDEX IF NOT EXISTS idx_adoption_reminders_user_feature_sent
+  ON public.adoption_reminders (user_id, feature_key, sent_at DESC);
+CREATE INDEX IF NOT EXISTS idx_adoption_reminders_user_sent
+  ON public.adoption_reminders (user_id, sent_at DESC);
+-- the page's per-feature count and last date
+CREATE INDEX IF NOT EXISTS idx_adoption_reminders_feature_sent
+  ON public.adoption_reminders (feature_key, sent_at DESC);
+
+ALTER TABLE public.adoption_reminders ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE public.adoption_reminders FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.adoption_reminders FROM authenticated;
+GRANT SELECT ON TABLE public.adoption_reminders TO authenticated;
+GRANT ALL    ON TABLE public.adoption_reminders TO service_role;
+
+-- ============================================================================
+-- Bill cancel REQUEST flow (request -> approval flow -> cancel)
+-- Migration: 20260928100000_bill_cancel_request_flow.sql
+-- ============================================================================
+-- ---------------------------------------------------------------------------
+-- 1. Tables
+-- ---------------------------------------------------------------------------
+CREATE SEQUENCE IF NOT EXISTS public.billing_bill_cancel_number_seq;
+
+CREATE TABLE IF NOT EXISTS public.billing_bill_cancel_requests (
+  id                        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_number            text NOT NULL UNIQUE,
+  -- SET NULL, not CASCADE: a super admin may still hard-delete a bill, and the
+  -- history of who asked to cancel it must outlive the row. bill_snapshot
+  -- preserves its identity.
+  bill_id                   uuid REFERENCES public.billing_student_bills(id) ON DELETE SET NULL,
+  institution_id            uuid NOT NULL,
+  student_id                uuid,
+  reason_code               text NOT NULL
+                            CHECK (reason_code IN ('duplicate_bill','raised_in_error','fee_waived',
+                                                   'learner_withdrawn','structure_corrected','other')),
+  reason                    text NOT NULL,
+  -- [{name, drive_file_id, drive_url, mime, size}] -- same shape as
+  -- billing_bill_cancellations.attachments, copied there on approval.
+  attachments               jsonb NOT NULL DEFAULT '[]'::jsonb,
+  bill_snapshot             jsonb NOT NULL DEFAULT '{}'::jsonb,
+  amount                    numeric NOT NULL,
+  status                    text NOT NULL DEFAULT 'pending_approval'
+                            CHECK (status IN ('pending_approval','approved','declined','withdrawn','failed')),
+  -- Identity SNAPSHOTS: a profile can be renamed or deactivated long after the
+  -- fact; the uuid alone cannot answer "who asked / who approved" years later.
+  requested_by              uuid,
+  requested_by_name         text,
+  requested_by_email        text,
+  requested_by_role         text,
+  requested_at              timestamptz NOT NULL DEFAULT now(),
+  decided_by                uuid,
+  decided_by_name           text,
+  decided_by_email          text,
+  decided_by_role           text,
+  decided_by_designation    text,
+  decided_by_is_super_admin boolean,
+  decided_at                timestamptz,
+  decision_notes            text,
+  created_at                timestamptz NOT NULL DEFAULT now(),
+  updated_at                timestamptz NOT NULL DEFAULT now()
+);
+
+-- At most ONE open request per bill.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bill_cancel_open_per_bill
+  ON public.billing_bill_cancel_requests (bill_id)
+  WHERE status = 'pending_approval';
+CREATE INDEX IF NOT EXISTS idx_bill_cancel_req_status
+  ON public.billing_bill_cancel_requests (status, requested_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bill_cancel_req_institution
+  ON public.billing_bill_cancel_requests (institution_id);
+CREATE INDEX IF NOT EXISTS idx_bill_cancel_req_student
+  ON public.billing_bill_cancel_requests (student_id);
+CREATE INDEX IF NOT EXISTS idx_bill_cancel_req_bill
+  ON public.billing_bill_cancel_requests (bill_id);
+
+CREATE TABLE IF NOT EXISTS public.billing_bill_cancel_request_actions (
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_id           uuid NOT NULL
+                       REFERENCES public.billing_bill_cancel_requests(id) ON DELETE CASCADE,
+  action_type          text NOT NULL
+                       CHECK (action_type IN ('requested','approved','declined','withdrawn','failed')),
+  actor_id             uuid,
+  actor_name           text,
+  actor_email          text,
+  actor_role_name      text,
+  actor_is_super_admin boolean,
+  notes                text,
+  created_at           timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_bill_cancel_actions_request
+  ON public.billing_bill_cancel_request_actions (request_id, created_at);
+
+CREATE TABLE IF NOT EXISTS public.billing_bill_cancel_approval_flows (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- NULL = group-wide default. A row for a specific institution wins over it.
+  institution_id    uuid REFERENCES public.institutions(id) ON DELETE CASCADE,
+  flow_name         text NOT NULL,
+  approver_role_key text REFERENCES public.custom_roles(role_key)
+                         ON UPDATE CASCADE ON DELETE RESTRICT,
+  approver_user_id  uuid REFERENCES public.profiles(id) ON DELETE RESTRICT,
+  is_active         boolean NOT NULL DEFAULT true,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now(),
+  created_by        uuid REFERENCES public.profiles(id),
+  updated_by        uuid REFERENCES public.profiles(id),
+  CONSTRAINT billing_bill_cancel_flow_one_approver CHECK (
+    (approver_role_key IS NOT NULL)::int + (approver_user_id IS NOT NULL)::int = 1
+  )
+);
+COMMENT ON TABLE public.billing_bill_cancel_approval_flows IS
+  'Who may decide a bill-cancellation request. One active flow per institution, plus an optional group-wide default. No flow = super admin only.';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bill_cancel_flow_active_institution
+  ON public.billing_bill_cancel_approval_flows (institution_id)
+  WHERE is_active AND institution_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bill_cancel_flow_active_global
+  ON public.billing_bill_cancel_approval_flows ((institution_id IS NULL))
+  WHERE is_active AND institution_id IS NULL;
+CREATE INDEX IF NOT EXISTS idx_bill_cancel_flow_role
+  ON public.billing_bill_cancel_approval_flows (approver_role_key);
+CREATE INDEX IF NOT EXISTS idx_bill_cancel_flow_user
+  ON public.billing_bill_cancel_approval_flows (approver_user_id);
+
+-- The final audit row points back at the approval that authorised it.
+ALTER TABLE public.billing_bill_cancellations
+  ADD COLUMN IF NOT EXISTS request_id uuid
+  REFERENCES public.billing_bill_cancel_requests(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_bill_cancellations_request
+  ON public.billing_bill_cancellations (request_id);
+
+REVOKE ALL ON TABLE public.billing_bill_cancel_requests FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.billing_bill_cancel_request_actions FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.billing_bill_cancel_approval_flows FROM anon, PUBLIC;
+REVOKE ALL ON SEQUENCE public.billing_bill_cancel_number_seq FROM anon, PUBLIC;
+
+ALTER TABLE public.billing_bill_cancel_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.billing_bill_cancel_request_actions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.billing_bill_cancel_approval_flows ENABLE ROW LEVEL SECURITY;

@@ -42,7 +42,7 @@ import { cn } from '@/lib/utils';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { queryKeys } from '@/lib/query/query-keys';
 import { SchoolMasterService } from '@/lib/services/school-master-service';
-import { TEAM_SPORTS } from '@/types/health-sports';
+import { DOUBLES_ROSTER_SIZE, divisionPlayType, isTeamDivision } from '@/types/tournament';
 import { EventRazorpayHostedRedirect } from '@/components/events/event-razorpay-hosted-redirect';
 import {
   DynamicFieldInput,
@@ -218,7 +218,12 @@ interface SectionLite {
 }
 
 function divLabel(d: DivisionLite) {
-  return [d.sport, d.age_band, d.gender && d.gender !== 'open' ? d.gender : null].filter(Boolean).join(' · ');
+  return [
+    d.sport,
+    d.age_band,
+    d.gender && d.gender !== 'open' ? d.gender : null,
+    divisionPlayType(d.config) === 'doubles' ? 'Doubles' : null,
+  ].filter(Boolean).join(' · ');
 }
 function feeOf(d?: DivisionLite) {
   return d ? Number((d.config as { entry_fee?: number })?.entry_fee ?? 0) || 0 : 0;
@@ -278,17 +283,32 @@ export function RegisterForm({
   } | null>(null);
 
   const division = useMemo(() => divisions.find((d) => d.id === divisionId), [divisions, divisionId]);
-  const isTeam = division ? (TEAM_SPORTS as readonly string[]).includes(division.sport) : false;
+  const isTeam = division ? isTeamDivision(division) : false;
+  // A doubles division is a team of exactly two: fixed "Player 1 / Player 2"
+  // rows instead of the open-ended roster.
+  const isDoubles = isTeam && divisionPlayType(division?.config) === 'doubles';
+  const rosterRows = isDoubles
+    ? Array.from({ length: DOUBLES_ROSTER_SIZE }, (_, i) => members[i] ?? { member_name: '' })
+    : members;
   const fee = feeOf(division);
 
   function setMember(i: number, patch: Partial<{ member_name: string; jersey_no?: string }>) {
-    setMembers((m) => m.map((row, idx) => (idx === i ? { ...row, ...patch } : row)));
+    setMembers((m) => {
+      const next = [...m];
+      while (next.length <= i) next.push({ member_name: '' });
+      next[i] = { ...next[i], ...patch };
+      return next;
+    });
   }
 
   async function submit() {
     setError(null);
     if (!divisionId || !entryName.trim()) {
       setError('Please pick a division and enter a name.');
+      return;
+    }
+    if (isDoubles && rosterRows.some((m) => !m.member_name.trim())) {
+      setError('A doubles entry needs both players’ names.');
       return;
     }
     setBusy(true);
@@ -307,7 +327,7 @@ export function RegisterForm({
           participant_age: age ? Number(age) : null,
           participant_phone: phone.trim() || null,
           participant_email: email.trim() || null,
-          members: isTeam ? members.filter((m) => m.member_name.trim()) : undefined,
+          members: isTeam ? rosterRows.filter((m) => m.member_name.trim()) : undefined,
           form_id: formId,
           custom_fields: customFields,
         }),
@@ -431,14 +451,18 @@ export function RegisterForm({
         </Select>
         {division && (
           <p className="text-xs text-muted-foreground">
-            {isTeam ? 'Team event' : 'Individual event'}{fee > 0 ? ` · Entry fee ₹${fee}` : ' · Free entry'}
+            {isDoubles ? 'Doubles — 2 players' : isTeam ? 'Team event' : 'Individual event'}{fee > 0 ? ` · Entry fee ₹${fee}` : ' · Free entry'}
           </p>
         )}
       </div>
 
       <div className="space-y-1.5">
-        <Label>{isTeam ? 'Team name' : 'Your name'}</Label>
-        <Input value={entryName} onChange={(e) => setEntryName(e.target.value)} placeholder={isTeam ? 'e.g. Engineering Eagles' : 'Your full name'} />
+        <Label>{isDoubles ? 'Pair name' : isTeam ? 'Team name' : 'Your name'}</Label>
+        <Input
+          value={entryName}
+          onChange={(e) => setEntryName(e.target.value)}
+          placeholder={isDoubles ? 'e.g. Priya & Arun' : isTeam ? 'e.g. Engineering Eagles' : 'Your full name'}
+        />
       </div>
 
       <div className="flex items-center justify-between rounded-lg border p-3">
@@ -497,7 +521,21 @@ export function RegisterForm({
         </div>
       )}
 
-      {isTeam && (
+      {isDoubles && (
+        <div className="space-y-2">
+          <Label>Players</Label>
+          {rosterRows.map((m, i) => (
+            <Input
+              key={i}
+              value={m.member_name}
+              onChange={(e) => setMember(i, { member_name: e.target.value })}
+              placeholder={`Player ${i + 1} name`}
+            />
+          ))}
+        </div>
+      )}
+
+      {isTeam && !isDoubles && (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label>Roster</Label>

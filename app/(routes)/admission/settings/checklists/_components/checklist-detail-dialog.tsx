@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button';
 import { Pencil, ClipboardCheck } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import type { ChecklistRow } from './columns';
+import { admissionChecklistLifecycleLabel } from '@/lib/constants/admission-checklist-lifecycle';
 
 interface ItemRow {
   id: string;
@@ -99,8 +100,8 @@ export function ChecklistDetailDialog({
               <p className="text-xs text-muted-foreground">Applies to lifecycle</p>
               <div className="flex gap-1 flex-wrap mt-0.5">
                 {checklist.applies_to_lifecycle.map((lc) => (
-                  <Badge key={lc} variant="outline" className="text-xs capitalize">
-                    {lc}
+                  <Badge key={lc} variant="outline" className="text-xs">
+                    {admissionChecklistLifecycleLabel(lc)}
                   </Badge>
                 ))}
               </div>

@@ -25,6 +25,9 @@ interface PeriodSelectorProps {
   selectedDate: string;
   periodType: PeriodType;
   selectedPeriods: string[];
+  /** Restricts which period-type cards render (e.g. a leave type without
+   *  half-day support hides Forenoon/Afternoon). Omit to show all. */
+  allowedPeriodTypes?: PeriodType[];
   onPeriodTypeChange: (type: PeriodType) => void;
   onPeriodsChange: (periods: string[]) => void;
   /**
@@ -44,12 +47,16 @@ export function PeriodSelector({
   selectedDate,
   periodType,
   selectedPeriods,
+  allowedPeriodTypes,
   onPeriodTypeChange,
   onPeriodsChange,
   onAvailabilityChange,
   disabled = false,
   className,
 }: PeriodSelectorProps) {
+  const periodTypeOptions = allowedPeriodTypes
+    ? PERIOD_TYPES.filter((t) => allowedPeriodTypes.includes(t.value))
+    : PERIOD_TYPES;
   const {
     data: periodDetection,
     isLoading,
@@ -150,7 +157,7 @@ export function PeriodSelector({
             disabled={disabled}
             className="grid grid-cols-2 gap-2 sm:gap-3"
           >
-            {PERIOD_TYPES.map((type) => (
+            {periodTypeOptions.map((type) => (
               <label
                 key={type.value}
                 className={cn(

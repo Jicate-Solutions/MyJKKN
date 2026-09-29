@@ -538,6 +538,9 @@ export const PERMISSION_CATEGORIES = [
       { key: 'staff.edit', label: 'Edit Employees' },
       { key: 'staff.delete', label: 'Delete Employees' },
       { key: 'staff.status_update', label: 'Update Employee Status' },
+      // 2026-09-25 — lets a non-super-admin (HR Head) change staff.role_key,
+      // never onto an is_privileged role (trg_staff_guard_role_key).
+      { key: 'staff.role.change', label: 'Change Employee Role' },
       { key: 'staff.class_incharges.view', label: 'View Class Incharges' },
       { key: 'staff.class_incharges.create', label: 'Assign Class Incharges' },
       { key: 'staff.class_incharges.delete', label: 'Remove Class Incharges' },
@@ -754,7 +757,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'learners.leave_onduty.apply', label: 'Apply for Leave/OnDuty (Students)' },
       { key: 'learners.leave_onduty.view', label: 'View My Applications (Students)' },
       { key: 'learners.leave_onduty.edit', label: 'Edit My Applications (Students)' },
-      { key: 'learners.leave_onduty.cancel', label: 'Cancel My Applications (Students)' }
+      { key: 'learners.leave_onduty.cancel', label: 'Cancel My Applications (Students)' },
+
+      // Learner Leave Types + Approval Flows (global settings, 2027-04)
+      { key: 'learners.leave_types.view', label: 'View Learner Leave Types & Approval Flows' },
+      { key: 'learners.leave_types.manage', label: 'Manage Learner Leave Types & Approval Flows' }
     ]
   },
   {
@@ -788,11 +795,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.schedule.create', label: 'Create Schedule' },
       { key: 'billing.schedule.update', label: 'Update Schedule' },
       { key: 'billing.schedule.delete', label: 'Delete Schedule' },
-      // Cancelling a bill writes off money, so it is deliberately NOT
-      // billing.schedule.update: that key is held by 6 roles and also covers
-      // fixing a typo. fn_cancel_student_bill gates on THIS key, and a trigger
-      // rejects any other route into status='cancelled'.
-      { key: 'billing.schedule.cancel', label: 'Cancel Bills' },
+      // Cancelling a bill writes off money, so it is a REQUEST that an approver
+      // decides (migration 20260928100000). This key only lets a role RAISE the
+      // request (fn_request_bill_cancellation); who DECIDES comes from
+      // billing_bill_cancel_approval_flows, not a key. Held by Chief Accountant
+      // + Accountant Assistant. The old direct billing.schedule.cancel key was
+      // retired with fn_cancel_student_bill.
+      { key: 'billing.schedule.cancel.request', label: 'Request Bill Cancellation' },
       // Bulk bill creation: the "Bulk Create" button on /billing/schedule and
       // the /billing/schedule/bulk-create flow (pick many learners, or upload
       // an Excel of bills). Separate from billing.schedule.create so the bulk
@@ -2802,6 +2811,11 @@ export const PERMISSION_CATEGORIES = [
       // tables (registrations, payment transactions, tournament matches …), so
       // it is deliberately not bundled into any existing events key.
       { key: 'events.delete', label: 'Delete Events (permanent — cascades registrations & payments)' },
+      // Edit any event in your institution (2026-09-28). Before this key, edit
+      // was ownership-only (creator / super admin), so Role Management had
+      // nothing to grant. DB authority: events_edit_permission_update, scoped by
+      // role_has_institution_access. Mirrored client-side in canEditEvent().
+      { key: 'events.edit', label: 'Edit Any Event in Your Institution (details, status, visibility)' },
       // Target sections (2026-09-07). Grants writing event_target_classes — the
       // sections an event is aimed at. Reading them rides events.view, so a
       // coordinator who can see an event can see who it is for; only changing
@@ -2992,6 +3006,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'ims.settings.stores.manage', label: 'Manage IMS Stores' },
       { key: 'ims.settings.suppliers.manage', label: 'Manage Suppliers' },
       { key: 'ims.settings.units.manage', label: 'Manage Units & Unit Conversions' },
+      { key: 'ims.settings.pos_devices.manage', label: 'Manage POS Payment Terminals' },
 
       // Store Kits (PR-K2, 2026-07-12) — per-group item kits at the central
       // store. Spec: specs/store-kit-entitlements-spec-2026-07-12.md.

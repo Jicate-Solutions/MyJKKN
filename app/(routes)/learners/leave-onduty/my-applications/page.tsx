@@ -110,7 +110,7 @@ function ApplicationDetailsContent({
           {application.category}
         </Badge>
         <span className="text-sm text-gray-500 capitalize">
-          {application.sub_category.replace('_', ' ')}
+          {application.leave_type?.name ?? application.sub_category?.replace(/_/g, ' ')}
         </span>
       </div>
 
@@ -437,7 +437,7 @@ function MyApplicationsPageInner() {
                             {application.category}
                           </Badge>
                           <span className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 capitalize">
-                            {application.sub_category.replace('_', ' ')}
+                            {application.leave_type?.name ?? application.sub_category?.replace(/_/g, ' ')}
                           </span>
                         </div>
 

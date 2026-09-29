@@ -4,7 +4,7 @@
 -- JKKN Matric Hr. Sec. School — FRONT layout matching the approved sample
 -- (2026-09-24). Coordinates are canvas px on the 638 x 1014 portrait card,
 -- measured off the sample:
---   photo box     x 209–431, y 166–437  (222 x 271 incl. frame)
+--   photo box     x 188–450, y 132–452  (262 x 320; enlarged 2026-09-25 from 222 x 271)
 --   name          red, centred, cap-height 27 px → 40 px bold, y 470
 --   rows          FATHER / ADM.NO / CLASS / YEAR at y 556 / 606 / 656 / 706
 --                 label x 152 (bold), colon column x 272, value x 288 (regular)
@@ -24,7 +24,7 @@ UPDATE public.id_card_templates
 SET front_layout_json = front_layout_json || jsonb_build_object(
   'orientation', 'portrait',
   'elements', '[
-    {"x":209,"y":166,"align":"center","field":"photo","width":222,"height":271},
+    {"x":188,"y":132,"align":"center","field":"photo","width":262,"height":320},
     {"x":30, "y":470,"align":"center","color":"#c8102e","field":"name_line_1","width":578,"font_size":40,"font_weight":800},
 
     {"x":152,"y":556,"text":"FATHER","field":"static_text","width":115,"font_size":27,"font_weight":700},
