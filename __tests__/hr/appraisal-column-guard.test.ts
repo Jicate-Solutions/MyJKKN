@@ -59,7 +59,7 @@ describe('the trigger is actually installed', () => {
   });
 });
 
-describe('a staff member cannot write another tier', () => {
+describe('a team member cannot write another tier', () => {
   // Exactly the columns the reviewer named, plus the two routing columns.
   const forbidden = [
     'supervisor_review_jsonb',
