@@ -35,11 +35,11 @@ import { RFQ_STATUS_CONFIG } from '@/types/procurement';
 import type { ComparisonRow } from '@/types/procurement';
 import {
   ArrowLeft,
+  ArrowRight,
   Trash2,
   FileText,
   ExternalLink,
   Sparkles,
-  Send,
   Check,
   Undo2,
   Upload,
@@ -483,8 +483,8 @@ export default function RfqQuotationsPage() {
                                 disabled={chosenCount === 0 || submitAward.isPending}
                                 onClick={() => run(() => submitAward.mutateAsync(rfqId), 'Sent to Super Admin for approval')}
                               >
-                                <Send className="mr-1 h-3 w-3" />
                                 {submitAward.isPending ? 'Sending…' : 'Send for approval'}
+                                <ArrowRight className="ml-1 h-3.5 w-3.5" />
                               </Button>
                             </div>
                           ) : awaitingApproval ? (
@@ -634,8 +634,8 @@ export default function RfqQuotationsPage() {
                 disabled={chosenCount === 0 || submitAward.isPending}
                 onClick={() => run(() => submitAward.mutateAsync(rfqId), 'Sent to Super Admin for approval')}
               >
-                <Send className="mr-2 h-4 w-4" />
                 {submitAward.isPending ? 'Sending…' : 'Send for approval'}
+                <ArrowRight className="ml-1.5 h-4 w-4" />
               </Button>
             </div>
           </div>
