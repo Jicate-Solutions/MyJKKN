@@ -527,6 +527,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // once — the union of the three above, which is a wider grant than any of
   // them individually.
   '/hr/payroll/register': 'hr.payroll.register.view',
+  // Annual Increments — the read-only proposal report. Same key as Employee
+  // Salaries and TDS Bands, not a new one: the screen states a person's current
+  // pay and what a rise would make it, which is the salary decision. A new key
+  // would also do nothing until it was added to a role's JSONB, and that is a
+  // live change nobody has authorised. Nothing here writes: the report proposes,
+  // and every rise stays a per-person decision (Director, 2026-09-18).
+  '/hr/payroll/increments': 'hr.payroll.salary.view',
   // Closing an attendance month. Its own key, NOT the self-service
   // '/hr/attendance' one: 22 roles hold hr.attendance.view_self, and without an
   // entry here longest-prefix resolution would hand all of them the ability to
@@ -3616,6 +3623,10 @@ export function GetPages(pathname: string): MenuGroup[] {
             // they are populated: the register reads the payer directory, the
             // salary and the bank account, and reports whichever is missing.
             { href: '/hr/payroll/register', label: 'Salary Register', active: pathname.startsWith('/hr/payroll/register') },
+            // Annual Increments — read-only. Gates on hr.payroll.salary.view,
+            // the same key as Employee Salaries, because it shows pay now and
+            // pay proposed. No apply path exists anywhere behind it.
+            { href: '/hr/payroll/increments', label: 'Annual Increments', active: pathname.startsWith('/hr/payroll/increments') },
             // The /hr/admin/payroll hub (periods, preview) — payroll setup,
             // listed with payroll rather than under an "Admin" row.
             { href: '/hr/admin/payroll', label: 'Payroll Setup', active: pathname.startsWith('/hr/admin/payroll') },

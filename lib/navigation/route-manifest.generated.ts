@@ -4726,6 +4726,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/hr/payroll/increments",
+            "label": "Annual Increments",
+            "iconName": "TrendingUp",
+            "children": []
+          },
+          {
             "path": "/hr/payroll/organisation",
             "label": "Organisation",
             "iconName": "FileText",
