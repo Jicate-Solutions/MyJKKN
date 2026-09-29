@@ -14,6 +14,7 @@ import {
 import { downloadQuotationTemplate, parseQuotationFile } from '@/lib/procurement/quotation-import';
 import { matchVendor, normalizeGstin, type VendorMatchKey } from '@/lib/procurement/vendor-match';
 import type { CreateQuotationItemDto } from '@/types/procurement';
+import { PageHeader } from '@/components/procurement/page-header';
 import { AlertBox } from '@/components/ui/alert-box';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -332,8 +333,8 @@ export default function NewQuotationPage() {
     const match = matchVendor(v, ctx.allVendors);
     if (match) {
       if (ctx.quotedSupplierIds.has(match.vendor.id)) {
-        setVendorNote(`${match.vendor.name} has already submitted a quotation for this RFQ.`);
-        toast.warning(`${match.vendor.name} has already quoted on this RFQ.`);
+        setVendorNote(`${match.vendor.name} has already submitted a quotation here.`);
+        toast.warning(`${match.vendor.name} has already quoted here.`);
         return;
       }
       setVendorMode('existing');
@@ -566,7 +567,7 @@ export default function NewQuotationPage() {
     return (
       <ContentLayout title="Add Quotation">
         <div className="py-12">
-          <AlertBox type="error" message="Failed to load this RFQ. Please try again." />
+          <AlertBox type="error" message="Failed to load this quotation. Please try again." />
         </div>
       </ContentLayout>
     );
@@ -574,7 +575,7 @@ export default function NewQuotationPage() {
   if (!rfq) {
     return (
       <ContentLayout title="Add Quotation">
-        <p className="text-muted-foreground py-12 text-center">RFQ not found.</p>
+        <p className="text-muted-foreground py-12 text-center">Quotation not found.</p>
       </ContentLayout>
     );
   }
@@ -601,22 +602,21 @@ export default function NewQuotationPage() {
   return (
     <ContentLayout title="Add Vendor Quotation">
       <div className="space-y-4 sm:space-y-6 max-w-5xl">
-        <div className="flex items-center gap-2 sm:gap-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label="Back to quotations"
-            onClick={() => router.push(backHref)}
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div className="min-w-0">
-            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Add Vendor Quotation</h2>
-            <p className="text-muted-foreground">
-              {rfq.rfq_number} · {rfq.items.length} item{rfq.items.length === 1 ? '' : 's'}
-            </p>
-          </div>
-        </div>
+        <PageHeader
+          title="Add Vendor Quotation"
+          description={`${rfq.rfq_number} · ${rfq.items.length} item${rfq.items.length === 1 ? '' : 's'}`}
+          back={
+            <button
+              type="button"
+              aria-label="Back to quotations"
+              className="-ml-2 inline-flex h-10 items-center gap-1 px-2 text-sm text-muted-foreground hover:text-foreground sm:h-auto sm:px-0"
+              onClick={() => router.push(backHref)}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back
+            </button>
+          }
+        />
 
         {/* ── Step 1: who quoted ─────────────────────────────────────────── */}
         <Card>
@@ -630,7 +630,7 @@ export default function NewQuotationPage() {
                 <div className="ml-auto inline-flex rounded-md border p-0.5 text-xs">
                   <button
                     type="button"
-                    className={`px-2 py-0.5 rounded ${vendorMode === 'existing' ? 'bg-primary text-primary-foreground' : ''}`}
+                    className={`rounded px-2 py-2 sm:py-0.5 ${vendorMode === 'existing' ? 'bg-primary text-primary-foreground' : ''}`}
                     onClick={() => {
                       setVendorMode('existing');
                       setVendorNote(null);
@@ -640,7 +640,7 @@ export default function NewQuotationPage() {
                   </button>
                   <button
                     type="button"
-                    className={`px-2 py-0.5 rounded ${vendorMode === 'new' ? 'bg-primary text-primary-foreground' : ''}`}
+                    className={`rounded px-2 py-2 sm:py-0.5 ${vendorMode === 'new' ? 'bg-primary text-primary-foreground' : ''}`}
                     onClick={() => {
                       setVendorMode('new');
                       setVendorNote(null);
@@ -764,12 +764,13 @@ export default function NewQuotationPage() {
                   type="button"
                   variant="outline"
                   size="sm"
+                  className="h-10 sm:h-8"
                   onClick={() => downloadQuotationTemplate(rfq.rfq_number, rfq.items)}
                 >
                   <Download className="mr-1 h-3.5 w-3.5" />
                   Download template
                 </Button>
-                <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-accent">
+                <label className="inline-flex h-10 cursor-pointer items-center gap-1 rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-accent sm:h-auto">
                   <Upload className="h-3.5 w-3.5" />
                   Import CSV/Excel
                   <input
@@ -799,6 +800,7 @@ export default function NewQuotationPage() {
                       type="button"
                       variant="secondary"
                       size="sm"
+                      className="h-10 sm:h-8"
                       onClick={handleExtractPdf}
                       disabled={readInProgress}
                     >
@@ -834,170 +836,169 @@ export default function NewQuotationPage() {
               )}
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-sm">
-                <thead>
-                  <tr className="border-b text-left text-xs text-muted-foreground">
-                    <th className="py-2 pr-3 font-medium">Item</th>
-                    <th className="py-2 pr-3 font-medium w-40">Unit price</th>
-                    <th className="py-2 pr-3 font-medium w-28">Qty offered</th>
-                    <th className="py-2 pr-3 font-medium w-32">Line total</th>
-                    <th className="py-2 font-medium w-36">Not quoted</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rfq.items.map((it) => {
-                    const entered = Number(prices[it.id] || 0);
-                    const isNotQuoted = !!notQuoted[it.id];
-                    const spec = specs[it.id] ?? EMPTY_SPEC;
-                    const aiMark = aiFilled[it.id];
-                    const isOutlier = !!aiOutliers[it.id];
-                    const offeredQty = quantities[it.id] ? Number(quantities[it.id]) : it.quantity;
-                    const specsOpen = !!openSpecs[it.id];
-                    // A human editing the field IS the confirmation — drop the mark.
-                    const clearAiMark = () =>
-                      setAiFilled((p) => {
-                        if (!p[it.id]) return p;
-                        const next = { ...p };
-                        delete next[it.id];
-                        return next;
-                      });
-                    const updateSpec = (field: keyof QuotedSpec, value: string) =>
-                      setSpecs((p) => ({ ...p, [it.id]: { ...(p[it.id] ?? EMPTY_SPEC), [field]: value } }));
-                    return (
-                      <Fragment key={it.id}>
-                        <tr className="border-b align-top">
-                          <td className="py-2 pr-3">
-                            <p className="font-medium">{it.item_name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              asked for {it.quantity} {it.unit_label || ''}
-                              {it.item_spec ? ` · ${it.item_spec}` : ''}
-                            </p>
-                            <button
-                              type="button"
-                              className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                              onClick={() => setOpenSpecs((p) => ({ ...p, [it.id]: !p[it.id] }))}
-                              aria-expanded={specsOpen}
-                            >
-                              {specsOpen ? (
-                                <ChevronDown className="h-3 w-3" />
-                              ) : (
-                                <ChevronRight className="h-3 w-3" />
-                              )}
-                              What the vendor offered
-                            </button>
-                          </td>
-                          <td className="py-2 pr-3">
-                            <Input
-                              type="number"
-                              min={0}
-                              placeholder="0.00"
-                              aria-label={`Unit price for ${it.item_name}`}
-                              disabled={isNotQuoted}
-                              className={
-                                aiMark && !isNotQuoted
-                                  ? 'border-amber-400 bg-amber-50 dark:bg-amber-950/30'
-                                  : undefined
-                              }
-                              value={isNotQuoted ? '' : prices[it.id] ?? ''}
-                              onChange={(e) => {
-                                setPrices((p) => ({ ...p, [it.id]: e.target.value }));
-                                clearAiMark();
-                              }}
-                            />
-                            {aiMark && !isNotQuoted && (
-                              <p className="mt-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
-                                {aiMark === 'uncertain'
-                                  ? 'AI guess — confirm this is the right item'
-                                  : 'AI-filled — check before saving'}
-                              </p>
-                            )}
-                            {isOutlier && !isNotQuoted && (
-                              <p className="mt-0.5 text-[11px] font-medium text-destructive">
-                                Unusual price for this quotation — please verify
-                              </p>
-                            )}
-                          </td>
-                          <td className="py-2 pr-3">
-                            <Input
-                              type="number"
-                              min={0}
-                              placeholder="Qty"
-                              aria-label={`Quantity offered for ${it.item_name}`}
-                              disabled={isNotQuoted}
-                              value={isNotQuoted ? '' : quantities[it.id] ?? String(it.quantity)}
-                              onChange={(e) => setQuantities((p) => ({ ...p, [it.id]: e.target.value }))}
-                            />
-                          </td>
-                          <td className="py-2 pr-3 text-muted-foreground">
-                            {!isNotQuoted && entered > 0
-                              ? `₹${(entered * offeredQty).toLocaleString()}`
-                              : '—'}
-                          </td>
-                          <td className="py-2">
-                            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                              <Checkbox
-                                checked={isNotQuoted}
-                                onCheckedChange={(v) => {
-                                  const checked = !!v;
-                                  setNotQuoted((p) => ({ ...p, [it.id]: checked }));
-                                  if (checked) setPrices((p) => ({ ...p, [it.id]: '' }));
-                                }}
-                              />
-                              Not quoted
-                            </label>
-                          </td>
-                        </tr>
-                        {specsOpen && !isNotQuoted && (
-                          <tr className="border-b bg-muted/30">
-                            <td colSpan={5} className="px-3 py-3">
-                              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                                <div className="space-y-1">
-                                  <Label className="text-[11px]">Manufacturer</Label>
-                                  <Input
-                                    className="h-8 text-xs"
-                                    value={spec.manufacturer}
-                                    onChange={(e) => updateSpec('manufacturer', e.target.value)}
-                                  />
-                                </div>
-                                <div className="space-y-1">
-                                  <Label className="text-[11px]">Quality / grade</Label>
-                                  <Input
-                                    className="h-8 text-xs"
-                                    value={spec.quality_grade}
-                                    onChange={(e) => updateSpec('quality_grade', e.target.value)}
-                                  />
-                                </div>
-                                {it.is_chemical && (
-                                  <div className="space-y-1">
-                                    <Label className="text-[11px]">Concentration</Label>
-                                    <Input
-                                      className="h-8 text-xs"
-                                      value={spec.concentration}
-                                      onChange={(e) => updateSpec('concentration', e.target.value)}
-                                    />
-                                  </div>
-                                )}
-                                <div className="space-y-1">
-                                  <Label className="text-[11px]">Other specs</Label>
-                                  <Input
-                                    className="h-8 text-xs"
-                                    value={spec.other_specs}
-                                    onChange={(e) => updateSpec('other_specs', e.target.value)}
-                                  />
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
+            <div>
+              {/* Column header — desktop only; the mobile card repeats these as per-field labels. */}
+              <div className="hidden text-xs text-muted-foreground md:grid md:grid-cols-[1fr_10rem_7rem_8rem_9rem] md:gap-3 md:border-b md:pb-2">
+                <div className="font-medium">Item</div>
+                <div className="font-medium">Unit price</div>
+                <div className="font-medium">Qty offered</div>
+                <div className="font-medium">Line total</div>
+                <div className="font-medium">Not quoted</div>
+              </div>
+
+              {rfq.items.map((it) => {
+                const entered = Number(prices[it.id] || 0);
+                const isNotQuoted = !!notQuoted[it.id];
+                const spec = specs[it.id] ?? EMPTY_SPEC;
+                const aiMark = aiFilled[it.id];
+                const isOutlier = !!aiOutliers[it.id];
+                const offeredQty = quantities[it.id] ? Number(quantities[it.id]) : it.quantity;
+                const specsOpen = !!openSpecs[it.id];
+                // A human editing the field IS the confirmation — drop the mark.
+                const clearAiMark = () =>
+                  setAiFilled((p) => {
+                    if (!p[it.id]) return p;
+                    const next = { ...p };
+                    delete next[it.id];
+                    return next;
+                  });
+                const updateSpec = (field: keyof QuotedSpec, value: string) =>
+                  setSpecs((p) => ({ ...p, [it.id]: { ...(p[it.id] ?? EMPTY_SPEC), [field]: value } }));
+                return (
+                  <Fragment key={it.id}>
+                    <div className="grid grid-cols-2 items-start gap-3 rounded-md border p-3 md:grid-cols-[1fr_10rem_7rem_8rem_9rem] md:rounded-none md:border-0 md:border-b md:p-2">
+                      <div className="col-span-2 md:col-span-1">
+                        <p className="font-medium">{it.item_name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          asked for {it.quantity} {it.unit_label || ''}
+                          {it.item_spec ? ` · ${it.item_spec}` : ''}
+                        </p>
+                        <button
+                          type="button"
+                          className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                          onClick={() => setOpenSpecs((p) => ({ ...p, [it.id]: !p[it.id] }))}
+                          aria-expanded={specsOpen}
+                        >
+                          {specsOpen ? (
+                            <ChevronDown className="h-3 w-3" />
+                          ) : (
+                            <ChevronRight className="h-3 w-3" />
+                          )}
+                          What the vendor offered
+                        </button>
+                      </div>
+                      <div>
+                        <Label className="text-xs md:hidden">Unit price</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          placeholder="0.00"
+                          aria-label={`Unit price for ${it.item_name}`}
+                          disabled={isNotQuoted}
+                          className={
+                            aiMark && !isNotQuoted
+                              ? 'border-amber-400 bg-amber-50 dark:bg-amber-950/30'
+                              : undefined
+                          }
+                          value={isNotQuoted ? '' : prices[it.id] ?? ''}
+                          onChange={(e) => {
+                            setPrices((p) => ({ ...p, [it.id]: e.target.value }));
+                            clearAiMark();
+                          }}
+                        />
+                        {aiMark && !isNotQuoted && (
+                          <p className="mt-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                            {aiMark === 'uncertain'
+                              ? 'AI guess — confirm this is the right item'
+                              : 'AI-filled — check before saving'}
+                          </p>
                         )}
-                      </Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
+                        {isOutlier && !isNotQuoted && (
+                          <p className="mt-0.5 text-[11px] font-medium text-destructive">
+                            Unusual price for this quotation — please verify
+                          </p>
+                        )}
+                      </div>
+                      <div>
+                        <Label className="text-xs md:hidden">Qty offered</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          placeholder="Qty"
+                          aria-label={`Quantity offered for ${it.item_name}`}
+                          disabled={isNotQuoted}
+                          value={isNotQuoted ? '' : quantities[it.id] ?? String(it.quantity)}
+                          onChange={(e) => setQuantities((p) => ({ ...p, [it.id]: e.target.value }))}
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs md:hidden">Line total</Label>
+                        <p className="text-sm text-muted-foreground md:pt-2">
+                          {!isNotQuoted && entered > 0
+                            ? `₹${(entered * offeredQty).toLocaleString()}`
+                            : '—'}
+                        </p>
+                      </div>
+                      <div>
+                        <label className="flex items-center gap-1.5 text-xs text-muted-foreground md:pt-2">
+                          <Checkbox
+                            checked={isNotQuoted}
+                            onCheckedChange={(v) => {
+                              const checked = !!v;
+                              setNotQuoted((p) => ({ ...p, [it.id]: checked }));
+                              if (checked) setPrices((p) => ({ ...p, [it.id]: '' }));
+                            }}
+                          />
+                          Not quoted
+                        </label>
+                      </div>
+                    </div>
+                    {specsOpen && !isNotQuoted && (
+                      <div className="rounded-md border-x border-b bg-muted/30 px-3 py-3 md:rounded-none md:border-0 md:border-b">
+                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                          <div className="space-y-1">
+                            <Label className="text-[11px]">Manufacturer</Label>
+                            <Input
+                              className="h-8 text-xs"
+                              value={spec.manufacturer}
+                              onChange={(e) => updateSpec('manufacturer', e.target.value)}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[11px]">Quality / grade</Label>
+                            <Input
+                              className="h-8 text-xs"
+                              value={spec.quality_grade}
+                              onChange={(e) => updateSpec('quality_grade', e.target.value)}
+                            />
+                          </div>
+                          {it.is_chemical && (
+                            <div className="space-y-1">
+                              <Label className="text-[11px]">Concentration</Label>
+                              <Input
+                                className="h-8 text-xs"
+                                value={spec.concentration}
+                                onChange={(e) => updateSpec('concentration', e.target.value)}
+                              />
+                            </div>
+                          )}
+                          <div className="space-y-1">
+                            <Label className="text-[11px]">Other specs</Label>
+                            <Input
+                              className="h-8 text-xs"
+                              value={spec.other_specs}
+                              onChange={(e) => updateSpec('other_specs', e.target.value)}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </Fragment>
+                );
+              })}
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-sm">
+            <div className="flex flex-col gap-2 border-t pt-3 text-sm sm:flex-row sm:items-center sm:justify-between">
               <span className="text-muted-foreground">
                 {quotedCount} of {rfq.items.length} item{rfq.items.length === 1 ? '' : 's'} priced
               </span>
@@ -1009,10 +1010,10 @@ export default function NewQuotationPage() {
         </Card>
 
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button variant="outline" onClick={() => router.push(backHref)} disabled={saving}>
+          <Button variant="outline" className="w-full sm:w-auto" onClick={() => router.push(backHref)} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={saving}>
+          <Button className="w-full sm:w-auto" onClick={handleSave} disabled={saving}>
             {saving ? 'Saving…' : 'Save quotation'}
           </Button>
         </div>

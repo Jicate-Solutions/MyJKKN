@@ -9,6 +9,8 @@ import { usePurchaseRequests } from '@/hooks/procurement/use-purchase-requests';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import { StatusBadge } from '@/components/procurement/status-badge';
+import { ResponsiveList } from '@/components/procurement/responsive-list';
+import { PageHeader, FilterBar } from '@/components/procurement/page-header';
 import { EmptyState } from '@/components/empty-state';
 import { AlertBox } from '@/components/ui/alert-box';
 import { formatDateDMY } from '@/lib/utils/date-format';
@@ -27,14 +29,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Plus, Eye, Search } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 
@@ -60,34 +54,32 @@ export default function PurchaseRequestsPage() {
   const requests = response?.data ?? [];
 
   return (
-    <ContentLayout title="Purchase Requests">
+    <ContentLayout title="Requests">
       <div className="space-y-4 sm:space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Purchase Requests</h2>
-            <p className="hidden text-muted-foreground sm:block">
-              Restock and new-item requests routed for approval.
-            </p>
-          </div>
-          {canCreate && (
-            <Button
-              onClick={() =>
-                router.push(
-                  effectiveInstitution
-                    ? `/procurement/requests/new?institution=${effectiveInstitution}`
-                    : '/procurement/requests/new'
-                )
-              }
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              New Request
-            </Button>
-          )}
-        </div>
+        <PageHeader
+          title="Requests"
+          description="Restock and new-item requests routed for approval."
+          actions={
+            canCreate && (
+              <Button
+                onClick={() =>
+                  router.push(
+                    effectiveInstitution
+                      ? `/procurement/requests/new?institution=${effectiveInstitution}`
+                      : '/procurement/requests/new'
+                  )
+                }
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                New Request
+              </Button>
+            )
+          }
+        />
 
         <Card>
-          <CardContent className="pt-6">
-            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+          <CardContent className="p-4 sm:p-6">
+            <FilterBar>
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -116,7 +108,7 @@ export default function PurchaseRequestsPage() {
                 label={null}
                 className="w-full sm:w-[200px]"
               />
-            </div>
+            </FilterBar>
           </CardContent>
         </Card>
 
@@ -128,53 +120,67 @@ export default function PurchaseRequestsPage() {
               </div>
             ) : isError ? (
               <div className="py-12 px-6">
-                <AlertBox type="error" message="Failed to load purchase requests. Please try again." />
+                <AlertBox type="error" message="Failed to load requests. Please try again." />
               </div>
             ) : requests.length === 0 ? (
               <EmptyState
-                title="No purchase requests found"
+                title="No requests found"
                 description="Requests you create or that are routed to you will appear here."
               />
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Request #</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Requested By</TableHead>
-                    <TableHead>Items</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {requests.map((req) => (
-                    <TableRow key={req.id}>
-                      <TableCell className="font-medium">{req.request_number}</TableCell>
-                      <TableCell>{formatDateDMY(req.created_at)}</TableCell>
-                      <TableCell className="capitalize">
-                        {req.request_type.replace('_', ' ')}
-                      </TableCell>
-                      <TableCell>{req.requested_by_profile?.full_name || '-'}</TableCell>
-                      <TableCell>{req.item_count ?? '-'}</TableCell>
-                      <TableCell>
-                        <StatusBadge status={req.status} config={PR_STATUS_CONFIG} />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          aria-label="View request"
-                          onClick={() => router.push(`/procurement/requests/${req.id}`)}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <ResponsiveList
+                rows={requests}
+                getRowKey={(req) => req.id}
+                onRowClick={(req) => router.push(`/procurement/requests/${req.id}`)}
+                rowLabel={(req) => `View request ${req.request_number}`}
+                columns={[
+                  {
+                    key: 'request',
+                    header: 'Request #',
+                    mobile: 'title',
+                    className: 'font-medium',
+                    cell: (req) => req.request_number,
+                  },
+                  { key: 'date', header: 'Date', cell: (req) => formatDateDMY(req.created_at) },
+                  {
+                    key: 'type',
+                    header: 'Type',
+                    className: 'capitalize',
+                    cell: (req) => req.request_type.replace('_', ' '),
+                  },
+                  {
+                    key: 'requested_by',
+                    header: 'Requested By',
+                    cell: (req) => req.requested_by_profile?.full_name || '-',
+                  },
+                  { key: 'items', header: 'Items', cell: (req) => req.item_count ?? '-' },
+                  {
+                    key: 'status',
+                    header: 'Status',
+                    mobile: 'badge',
+                    cell: (req) => <StatusBadge status={req.status} config={PR_STATUS_CONFIG} />,
+                  },
+                  {
+                    key: 'actions',
+                    header: 'Actions',
+                    mobile: 'hidden',
+                    className: 'text-right',
+                    cell: (req) => (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label={`View request ${req.request_number}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          router.push(`/procurement/requests/${req.id}`);
+                        }}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    ),
+                  },
+                ]}
+              />
             )}
           </CardContent>
         </Card>

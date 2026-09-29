@@ -10,7 +10,6 @@ import {
   useSubmitPO,
   useApprovePO,
   useRejectPO,
-  useMarkPOSent,
   useCancelPO,
   useUpdatePoDocumentFields,
   useUpdatePoItemExtraFields,
@@ -22,6 +21,12 @@ import { PO_STATUS_CONFIG, type ProcurementPoFormat } from '@/types/procurement'
 import { downloadPurchaseOrderPdf } from '@/lib/procurement/purchase-order-pdf';
 import { downloadPurchaseOrderDocx } from '@/lib/procurement/purchase-order-docx';
 import { StatusBadge } from '@/components/procurement/status-badge';
+import { ResponsiveList } from '@/components/procurement/responsive-list';
+import {
+  DocumentHeader,
+  type DocAction,
+  type DocPrimaryAction,
+} from '@/components/procurement/document-header';
 import { formatDateDMY } from '@/lib/utils/date-format';
 import { AlertBox } from '@/components/ui/alert-box';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -39,21 +44,13 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { ArrowLeft, FileDown, FileText, Send, Check, X, PackageCheck } from 'lucide-react';
+import { FileDown, FileText, Send, Check, X, PackageCheck, Ban } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
@@ -91,7 +88,6 @@ export default function PurchaseOrderDetailPage() {
   const submitPO = useSubmitPO();
   const approvePO = useApprovePO();
   const rejectPO = useRejectPO();
-  const markSent = useMarkPOSent();
   const cancelPO = useCancelPO();
   const updateDocFields = useUpdatePoDocumentFields();
   const updateItemExtra = useUpdatePoItemExtraFields();
@@ -189,7 +185,7 @@ export default function PurchaseOrderDetailPage() {
 
   if (isLoading) {
     return (
-      <ContentLayout title="Purchase Order">
+      <ContentLayout title="Order">
         <div className="flex items-center justify-center py-16">
           <BeatLoader color="hsl(var(--primary))" size={10} />
         </div>
@@ -198,17 +194,17 @@ export default function PurchaseOrderDetailPage() {
   }
   if (isError) {
     return (
-      <ContentLayout title="Purchase Order">
+      <ContentLayout title="Order">
         <div className="py-12">
-          <AlertBox type="error" message="Failed to load this purchase order. Please try again." />
+          <AlertBox type="error" message="Failed to load this order. Please try again." />
         </div>
       </ContentLayout>
     );
   }
   if (!po) {
     return (
-      <ContentLayout title="Purchase Order">
-        <p className="text-muted-foreground py-12 text-center">Purchase order not found.</p>
+      <ContentLayout title="Order">
+        <p className="text-muted-foreground py-12 text-center">Order not found.</p>
       </ContentLayout>
     );
   }
@@ -218,8 +214,8 @@ export default function PurchaseOrderDetailPage() {
   const STATUS_HINT: Record<string, string> = {
     draft: 'Not yet sent for approval. Submitting sends it to a Super Admin.',
     pending_approval: 'Waiting for a Super Admin to approve before it can go to the vendor.',
-    approved: 'Approved. Send it to the vendor, then record deliveries as goods receipts.',
-    sent: 'With the vendor. Record each delivery as a goods receipt against this order.',
+    approved: 'Approved by the Super Admin. Download the PDF for the vendor, then record deliveries.',
+    sent: 'With the vendor. Record each delivery against this order.',
     partially_received: 'Some goods have arrived. The order stays open until every line is received.',
     completed: 'Everything ordered has been received and verified.',
     closed: 'Closed. No further deliveries are expected.',
@@ -230,7 +226,7 @@ export default function PurchaseOrderDetailPage() {
   // One workflow action at a time — a second click while the first is in
   // flight would try the same transition from a state the PO has already left.
   const transitionBusy =
-    submitPO.isPending || approvePO.isPending || markSent.isPending || cancelPO.isPending || rejectPO.isPending;
+    submitPO.isPending || approvePO.isPending || cancelPO.isPending || rejectPO.isPending;
 
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     try {
@@ -241,100 +237,76 @@ export default function PurchaseOrderDetailPage() {
     }
   };
 
+  const canCreateGrn = ['sent', 'approved', 'partially_received'].includes(po.status) && canReceive;
+  const canCancel = (po.status === 'draft' || po.status === 'pending_approval') && canCreate;
+
+  let primary: DocPrimaryAction | null = null;
+  if (po.status === 'draft' && canCreate) {
+    primary = {
+      key: 'submit',
+      label: 'Submit for approval',
+      icon: Send,
+      disabled: transitionBusy,
+      onClick: () => run(() => submitPO.mutateAsync({ id, userId: profile!.id }), 'Submitted for approval'),
+    };
+  } else if (po.status === 'pending_approval' && canApprove) {
+    primary = {
+      key: 'approve',
+      label: 'Approve',
+      icon: Check,
+      disabled: transitionBusy,
+      onClick: () => run(() => approvePO.mutateAsync({ id, userId: profile!.id }), 'Order approved'),
+    };
+  } else if (canCreateGrn) {
+    primary = {
+      key: 'create-grn',
+      label: 'Record delivery',
+      icon: PackageCheck,
+      onClick: () => router.push(`/procurement/grn/new?po=${po.id}`),
+    };
+  }
+
+  const reject: DocAction | null =
+    po.status === 'pending_approval' && canApprove
+      ? { key: 'reject', label: 'Reject', icon: X, onClick: () => setRejectOpen(true) }
+      : null;
+
+  const actions: DocAction[] = [];
+  if (canCancel) {
+    actions.push({
+      key: 'cancel',
+      label: 'Cancel order',
+      disabled: transitionBusy,
+      icon: Ban,
+      destructive: true,
+      confirm: {
+        title: `Cancel ${po.po_number}?`,
+        description: 'The order stops here and cannot be reopened.',
+        confirmLabel: 'Cancel order',
+      },
+      onClick: () => run(() => cancelPO.mutateAsync({ id, userId: profile!.id }), 'Order cancelled'),
+    });
+  }
+
   return (
     <ContentLayout title={po.po_number}>
       <div className="space-y-4 sm:space-y-6 max-w-5xl">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label="Back to purchase orders"
-              onClick={() => router.push('/procurement/purchase-orders')}
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <div className="min-w-0">
-              <h2 className="text-2xl font-bold tracking-tight truncate">{po.po_number}</h2>
-              <p className="text-muted-foreground break-words">
-                {po.supplier?.name ?? po.supplier_id} · ₹{Number(po.total_amount).toLocaleString()}
-                {po.created_at ? ` · raised ${formatDateDMY(po.created_at)}` : ''}
-              </p>
-            </div>
-          </div>
-          <StatusBadge
-            status={po.status}
-            config={PO_STATUS_CONFIG}
-            className="self-start shrink-0 text-sm sm:self-auto"
-          />
-        </div>
-
-        {statusHint && (
-          <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-            {statusHint}
-          </p>
-        )}
-
-        {/* Actions — the workflow only. Producing the printed document lives in
-            the Document card below, so downloads no longer outrank Approve. */}
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
-          {po.status === 'draft' && canCreate && (
-            <Button
-              className="w-full sm:w-auto"
-              onClick={() => run(() => submitPO.mutateAsync({ id, userId: profile!.id }), 'Submitted for approval')}
-              disabled={transitionBusy}
-            >
-              <Send className="mr-2 h-4 w-4" />
-              Submit for approval
-            </Button>
-          )}
-          {po.status === 'pending_approval' && canApprove && (
+        <DocumentHeader
+          onBack={() => router.push('/procurement/purchase-orders')}
+          backLabel="Back to orders"
+          title={po.po_number}
+          status={<StatusBadge status={po.status} config={PO_STATUS_CONFIG} />}
+          next={
             <>
-              <Button
-                className="w-full sm:w-auto"
-                onClick={() => run(() => approvePO.mutateAsync({ id, userId: profile!.id }), 'PO approved')}
-                disabled={transitionBusy}
-              >
-                <Check className="mr-2 h-4 w-4" />
-                Approve
-              </Button>
-              <Button
-                variant="outline"
-                className="w-full text-destructive hover:text-destructive sm:ml-auto sm:w-auto"
-                onClick={() => setRejectOpen(true)}
-              >
-                <X className="mr-2 h-4 w-4" />
-                Reject
-              </Button>
+              {statusHint && <span className="font-medium text-foreground">{statusHint} </span>}
+              {po.supplier?.name ?? po.supplier_id} · ₹{Number(po.total_amount).toLocaleString()}
+              {po.created_at ? ` · raised ${formatDateDMY(po.created_at)}` : ''}
             </>
-          )}
-          {po.status === 'approved' && canCreate && (
-            <Button
-              className="w-full sm:w-auto"
-              onClick={() => run(() => markSent.mutateAsync({ id, userId: profile!.id }), 'PO marked as sent')}
-              disabled={transitionBusy}
-            >
-              <Send className="mr-2 h-4 w-4" />
-              Send to vendor
-            </Button>
-          )}
-          {['sent', 'approved', 'partially_received'].includes(po.status) && canReceive && (
-            <Button className="w-full sm:w-auto" onClick={() => router.push(`/procurement/grn/new?po=${po.id}`)}>
-              <PackageCheck className="mr-2 h-4 w-4" />
-              Create GRN
-            </Button>
-          )}
-          {(po.status === 'draft' || po.status === 'pending_approval') && canCreate && (
-            <Button
-              variant="ghost"
-              className="w-full sm:w-auto"
-              onClick={() => run(() => cancelPO.mutateAsync({ id, userId: profile!.id }), 'PO cancelled')}
-              disabled={transitionBusy}
-            >
-              Cancel PO
-            </Button>
-          )}
-        </div>
+          }
+          primary={primary}
+          reject={reject}
+          actions={actions}
+        />
 
         <Card>
           <CardHeader>
@@ -512,66 +484,78 @@ export default function PurchaseOrderDetailPage() {
             <CardTitle className="text-base">Items</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Item</TableHead>
-                  <TableHead className="text-right">Ordered</TableHead>
-                  <TableHead className="text-right">Received</TableHead>
-                  <TableHead className="text-right">Unit Price</TableHead>
-                  <TableHead className="text-right">Line Total</TableHead>
-                  {itemExtraColumns.map((c) => (
-                    <TableHead key={c.key} className="text-right">{c.label}</TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {po.items.map((it) => (
-                  <TableRow key={it.id}>
-                    <TableCell className="font-medium">
+            <ResponsiveList
+              rows={po.items}
+              getRowKey={(it) => it.id}
+              columns={[
+                {
+                  key: 'item',
+                  header: 'Item',
+                  mobile: 'title',
+                  cell: (it) => (
+                    <>
                       {it.item_name}
                       {it.item_spec && (
-                        <span className="block text-xs text-muted-foreground">{it.item_spec}</span>
+                        <span className="block text-xs font-normal text-muted-foreground">{it.item_spec}</span>
                       )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {it.ordered_quantity} {it.unit_label || ''}
-                    </TableCell>
-                    <TableCell className="text-right">{it.received_quantity}</TableCell>
-                    <TableCell className="text-right">
-                      {po.status === 'draft' && canCreate ? (
+                    </>
+                  ),
+                },
+                {
+                  key: 'ordered',
+                  header: 'Ordered',
+                  className: 'text-right',
+                  cell: (it) => `${it.ordered_quantity} ${it.unit_label || ''}`,
+                },
+                {
+                  key: 'received',
+                  header: 'Received',
+                  className: 'text-right',
+                  cell: (it) => it.received_quantity,
+                },
+                {
+                  key: 'price',
+                  header: 'Unit Price',
+                  className: 'text-right',
+                  cell: (it) =>
+                    po.status === 'draft' && canCreate ? (
+                      <Input
+                        type="number"
+                        min={0}
+                        defaultValue={String(it.unit_price)}
+                        onBlur={(e) => handleItemPriceBlur(it.id, e.target.value)}
+                        className="h-10 w-full text-right md:ml-auto md:h-8 md:w-28"
+                      />
+                    ) : (
+                      `₹${Number(it.unit_price).toLocaleString()}`
+                    ),
+                },
+                {
+                  key: 'total',
+                  header: 'Line Total',
+                  className: 'text-right',
+                  cell: (it) => `₹${Number(it.line_total).toLocaleString()}`,
+                },
+                ...itemExtraColumns.map((c) => {
+                  const key = extraFieldKey(c.source);
+                  return {
+                    key: c.key,
+                    header: c.label,
+                    className: 'text-right',
+                    cell: (it: (typeof po.items)[number]) =>
+                      canCreate ? (
                         <Input
-                          type="number"
-                          min={0}
-                          defaultValue={String(it.unit_price)}
-                          onBlur={(e) => handleItemPriceBlur(it.id, e.target.value)}
-                          className="h-8 w-28 ml-auto text-right"
+                          defaultValue={String(it.extra_fields?.[key] ?? '')}
+                          onBlur={(e) => handleItemExtraBlur(it.id, key, e.target.value)}
+                          className="h-10 w-full text-right md:ml-auto md:h-8 md:w-28"
                         />
                       ) : (
-                        `₹${Number(it.unit_price).toLocaleString()}`
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">₹{Number(it.line_total).toLocaleString()}</TableCell>
-                    {itemExtraColumns.map((c) => {
-                      const key = extraFieldKey(c.source);
-                      return (
-                        <TableCell key={c.key} className="text-right">
-                          {canCreate ? (
-                            <Input
-                              defaultValue={String(it.extra_fields?.[key] ?? '')}
-                              onBlur={(e) => handleItemExtraBlur(it.id, key, e.target.value)}
-                              className="h-8 w-28 ml-auto text-right"
-                            />
-                          ) : (
-                            it.extra_fields?.[key] ?? '-'
-                          )}
-                        </TableCell>
-                      );
-                    })}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                        it.extra_fields?.[key] ?? '-'
+                      ),
+                  };
+                }),
+              ]}
+            />
             <div className="flex justify-end border-t p-4">
               <div className="text-right space-y-1">
                 <p className="text-sm text-muted-foreground">
@@ -593,14 +577,14 @@ export default function PurchaseOrderDetailPage() {
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Reject purchase order</DialogTitle>
+            <DialogTitle>Reject order</DialogTitle>
           </DialogHeader>
           <div className="space-y-2">
             <Label>Reason (required)</Label>
             <Textarea
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="Explain why this PO is being rejected..."
+              placeholder="Explain why this order is being rejected..."
             />
           </div>
           <DialogFooter>
@@ -614,7 +598,7 @@ export default function PurchaseOrderDetailPage() {
               onClick={async () => {
                 await run(
                   () => rejectPO.mutateAsync({ id, userId: profile!.id, reason: rejectReason }),
-                  'PO rejected'
+                  'Order rejected'
                 );
                 setRejectOpen(false);
                 setRejectReason('');

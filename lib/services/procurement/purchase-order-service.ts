@@ -1,12 +1,11 @@
 // lib/services/procurement/purchase-order-service.ts
 //
-// Purchase Order service (PRD step 7). Generates ONE PO per awarded vendor from
-// an RFQ's awarded quotation lines, then runs the approval lifecycle
-// (draft -> pending_approval -> approved/rejected -> sent). Numbering uses
-// procurement_next_number (doc_type 'PO').
+// Purchase Order service. POs are created ALREADY APPROVED by the Super Admin's
+// award approval (RPC procurement_approve_award — see ProcurementRfqService.
+// approveAward). The draft -> pending_approval -> approved transitions below remain
+// only so POs raised under the old flow can finish.
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { ProcurementQuotationService } from './quotation-service';
 import type {
   ProcurementPurchaseOrder,
   ProcurementPurchaseOrderItem,
@@ -100,181 +99,6 @@ export class ProcurementPurchaseOrderService {
     }
   }
 
-  /**
-   * Generate one PO per awarded vendor from an RFQ, then mark the RFQ 'awarded'.
-   * Returns the POs this call produced.
-   *
-   * Convergent, not all-or-nothing: the POs are written in a loop with no enclosing
-   * transaction, so a failed run can leave some created. Re-running completes the
-   * missing ones (and fills in any PO whose line items never landed) instead of
-   * refusing. Re-running once everything already exists still throws, so a repeat
-   * click gets a clear "already generated" rather than a false success.
-   */
-  static async generateFromRfq(rfqId: string, userId: string): Promise<ProcurementPurchaseOrder[]> {
-    try {
-      const { data: rfq, error: rfqErr } = await this.supabase
-        .from('procurement_rfqs')
-        .select('*')
-        .eq('id', rfqId)
-        .single();
-      if (rfqErr) throw rfqErr;
-
-      // Resume-safe. POs are created one per vendor in a loop with no surrounding
-      // transaction, so an earlier run can fail after creating only some of them.
-      // A blanket "refuse if any PO exists" guard used to strand exactly that case:
-      // the RFQ kept a partial set of POs, never reached 'awarded', and every retry
-      // was rejected. Instead, load what already exists and finish the job — the same
-      // converge-on-retry idiom verifyGrn uses with its per-line domain_posted_at
-      // markers. A vendor whose PO row exists but whose lines never landed is treated
-      // as incomplete and repaired rather than skipped or duplicated.
-      const { data: existingPos, error: exErr } = await this.supabase
-        .from('procurement_purchase_orders')
-        .select('*')
-        .eq('rfq_id', rfqId);
-      if (exErr) throw exErr;
-
-      const existingPoIds = (existingPos || []).map((p: any) => p.id);
-      const linedPoIds = new Set<string>();
-      if (existingPoIds.length > 0) {
-        const { data: existingLines, error: elErr } = await this.supabase
-          .from('procurement_purchase_order_items')
-          .select('po_id')
-          .in('po_id', existingPoIds);
-        if (elErr) throw elErr;
-        for (const l of (existingLines || []) as any[]) linedPoIds.add(l.po_id);
-      }
-      const priorBySupplier = new Map<string, any>(
-        (existingPos || []).map((p: any) => [p.supplier_id, p])
-      );
-
-      // RFQ item snapshots (name/spec/qty/unit) keyed by id.
-      const { data: rfqItems, error: riErr } = await this.supabase
-        .from('procurement_rfq_items')
-        .select('*')
-        .eq('rfq_id', rfqId);
-      if (riErr) throw riErr;
-      const riMap = new Map<string, any>((rfqItems || []).map((r: any) => [r.id, r]));
-
-      const quotations = await ProcurementQuotationService.getQuotationsForRfq(rfqId);
-      const created: ProcurementPurchaseOrder[] = [];
-      let awardedVendorCount = 0;
-
-      for (const q of quotations) {
-        const awarded = q.items.filter((i) => i.awarded);
-        if (awarded.length === 0) continue;
-        awardedVendorCount++;
-
-        const lines = awarded.map((qi) => {
-          const ri = riMap.get(qi.rfq_item_id);
-          const qty = Number(qi.quantity ?? ri?.quantity ?? 0);
-          const price = Number(qi.unit_price ?? 0);
-          return {
-            rfq_item_id: qi.rfq_item_id,
-            source_quotation_item_id: qi.id,
-            domain_item_id: ri?.domain_item_id ?? null,
-            item_name: ri?.item_name ?? 'Item',
-            item_spec: ri?.item_spec ?? null,
-            ordered_quantity: qty,
-            unit_id: ri?.unit_id ?? null,
-            unit_label: ri?.unit_label ?? null,
-            unit_price: price,
-            line_total: qty * price,
-          };
-        });
-        const subtotal = lines.reduce((s, l) => s + l.line_total, 0);
-
-        // This vendor's PO was already created and populated by an earlier run.
-        const prior = priorBySupplier.get(q.supplier_id);
-        if (prior && linedPoIds.has(prior.id)) continue;
-
-        // The PO row exists but its lines never landed — an earlier run died between
-        // the two inserts. Complete it in place rather than issuing the vendor a
-        // second PO number for the same order. Totals are rewritten from the awards
-        // as they stand now, in case they moved since that failed run.
-        if (prior) {
-          const { error: repairErr } = await this.supabase
-            .from('procurement_purchase_order_items')
-            .insert(lines.map((l) => ({ ...l, po_id: prior.id })));
-          if (repairErr) throw repairErr;
-
-          const { data: repaired, error: repairTotalErr } = await this.supabase
-            .from('procurement_purchase_orders')
-            .update({
-              subtotal,
-              total_amount: subtotal,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', prior.id)
-            .select()
-            .single();
-          if (repairTotalErr) throw repairTotalErr;
-
-          created.push((repaired ?? prior) as ProcurementPurchaseOrder);
-          continue;
-        }
-
-        const poNumber = await this.generatePoNumber(rfq.institution_id);
-
-        // Pre-select the vendor's default PO document format, if one is set.
-        const { data: supplier } = await this.supabase
-          .from('ims_suppliers')
-          .select('default_po_format_id')
-          .eq('id', q.supplier_id)
-          .single();
-
-        const { data: po, error: poErr } = await this.supabase
-          .from('procurement_purchase_orders')
-          .insert({
-            institution_id: rfq.institution_id,
-            store_id: rfq.store_id ?? null,
-            po_number: poNumber,
-            supplier_id: q.supplier_id,
-            rfq_id: rfqId,
-            domain: rfq.domain,
-            status: 'draft',
-            subtotal,
-            tax_amount: 0,
-            total_amount: subtotal,
-            payment_terms: q.payment_terms ?? null,
-            po_format_id: supplier?.default_po_format_id ?? null,
-            created_by: userId,
-          })
-          .select()
-          .single();
-        if (poErr) throw poErr;
-
-        const { error: lineErr } = await this.supabase
-          .from('procurement_purchase_order_items')
-          .insert(lines.map((l) => ({ ...l, po_id: po.id })));
-        if (lineErr) throw lineErr;
-
-        created.push(po as ProcurementPurchaseOrder);
-      }
-
-      if (awardedVendorCount === 0) {
-        throw new Error('No awarded lines found. Award vendors in the comparison first.');
-      }
-      if (created.length === 0) {
-        // Every awarded vendor already had a complete PO. Keep the explicit "nothing to
-        // do" signal a repeat click has always received, rather than silently reporting
-        // success for work that did not happen.
-        throw new Error('Purchase Orders have already been generated for this RFQ.');
-      }
-
-      // Also runs on a resumed run, so an RFQ left un-awarded by a failed attempt
-      // reaches 'awarded' once its remaining POs exist.
-      await this.supabase
-        .from('procurement_rfqs')
-        .update({ status: 'awarded', updated_at: new Date().toISOString() })
-        .eq('id', rfqId);
-
-      return created;
-    } catch (error) {
-      console.error('[ProcurementPurchaseOrderService] generateFromRfq:', error);
-      throw error;
-    }
-  }
-
   static async submitForApproval(id: string): Promise<ProcurementPurchaseOrder> {
     return this.transition(id, 'draft', { status: 'pending_approval' });
   }
@@ -296,10 +120,6 @@ export class ProcurementPurchaseOrderService {
       approved_at: new Date().toISOString(),
       rejection_reason: reason,
     });
-  }
-
-  static async markSent(id: string): Promise<ProcurementPurchaseOrder> {
-    return this.transition(id, 'approved', { status: 'sent' });
   }
 
   static async cancel(id: string): Promise<ProcurementPurchaseOrder> {
@@ -376,7 +196,7 @@ export class ProcurementPurchaseOrderService {
         .eq('id', poId)
         .single();
       if (poErr) throw poErr;
-      if (po.status !== 'draft') throw new Error('Only Draft purchase orders can be edited.');
+      if (po.status !== 'draft') throw new Error('Only draft orders can be edited.');
 
       const { data: item, error: itemErr } = await this.supabase
         .from('procurement_purchase_order_items')
@@ -448,23 +268,8 @@ export class ProcurementPurchaseOrderService {
       .maybeSingle();
     throw new Error(
       current?.status
-        ? `This purchase order is already ${String(current.status).replace(/_/g, ' ')} — the page has been refreshed.`
-        : 'This purchase order could not be found — it may have been removed.'
+        ? `This order is already ${String(current.status).replace(/_/g, ' ')} — the page has been refreshed.`
+        : 'This order could not be found — it may have been removed.'
     );
-  }
-
-  private static async generatePoNumber(institutionId: string): Promise<string> {
-    const today = new Date().toISOString().split('T')[0];
-    const { data: nextNum, error } = await this.supabase.rpc('procurement_next_number', {
-      p_institution_id: institutionId,
-      p_doc_type: 'PO',
-      p_date: today,
-    });
-    const yymmdd = today.replace(/-/g, '').slice(2);
-    if (error || nextNum == null) {
-      console.error('[ProcurementPurchaseOrderService] generatePoNumber:', error);
-      return `PO-${yymmdd}-${String(Date.now()).slice(-5)}`;
-    }
-    return `PO-${yymmdd}-${String(nextNum).padStart(5, '0')}`;
   }
 }

@@ -38,7 +38,7 @@ but enters directly at step 4b — low stock already justifies the need.
 | Today | New |
 |---|---|
 | Indent + separate PR, items typed twice | **One request.** PR is created automatically behind the scenes, linked to the indent, never shown to users |
-| PR approval (`procurement.request_approve`) | **Removed** — covered by step 2 |
+| PR approval (`procurement.request_approve`) | **Kept as sign-off #1** for requests raised in Procurement (2026-09-25 decision) — quotations start only after it. For IMS-linked requests (Phase 2) the indent approval plays this role |
 | RFQ create dialog, add vendors, Submit for review, RFQ approval, Mark sent | **Removed as separate steps.** RFQ is auto-created when a line goes to "Buy"; vendors are added inside the Purchase screen |
 | Quotation entry page, comparison page, award, Generate POs | **Merged into one Purchase screen** per request |
 | PO Submit for approval → PO approval → Send to vendor | **Replaced by one Super Admin approval** of the award; POs are generated already `approved` |
@@ -131,6 +131,22 @@ and NAAC library evidence continue to work.
 
 In-flight documents: existing PRs/RFQs/POs finish on the old statuses; the new path only
 applies to requests raised after deploy.
+
+## 8a. Step tracker (added 2026-09-25)
+
+The request page shows a 5-step tracker (removed from the other screens on user
+feedback — it was noise there) — Request → Request approval → Quotations → Super Admin approval →
+Delivery — with a "Next step" box naming who must act and linking to that screen
+(`components/procurement/request-journey.tsx`, `lib/services/procurement/journey-service.ts`).
+The Overview has five matching queues.
+
+## 8b. Quotation screen (2026-09-25)
+
+One screen, three numbered steps: ① Collect quotations (vendor cards, PDF preview,
+"Add another quotation" tile) · ② Choose vendor — items down, vendors across like the
+paper comparative statement, click a price to choose, "Choose lowest price for all",
+Ask AI · ③ sticky bar: "X of N items chosen · Total ₹…" + Send to Super Admin.
+The old RFQ detail page redirects here.
 
 ## 9. Acceptance criteria
 

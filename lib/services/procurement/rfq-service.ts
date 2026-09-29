@@ -1,15 +1,19 @@
 // lib/services/procurement/rfq-service.ts
 //
-// Request for Quotation service (PRD steps 3-4). Converts an APPROVED purchase
-// request into an RFQ (snapshotting its items), attaches vendors, and issues the
-// Purchase Requirement List. Numbering uses procurement_next_number (doc_type 'RFQ').
+// Request for Quotation service. Converts a submitted purchase request into an RFQ
+// (snapshotting its items), attaches vendors, and carries the chosen vendors to the
+// Super Admin's award approval (docs/procurement/simplified-flow-spec.md). Numbering uses procurement_next_number (doc_type 'RFQ').
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
+  ProcurementPurchaseOrder,
   ProcurementRfq,
   RfqWithDetails,
   RfqFilters,
 } from '@/types/procurement';
+
+/** A request must be approved (sign-off #1) before quotations can start. */
+const CONVERTIBLE_PR_STATUSES = ['approved'];
 
 export class ProcurementRfqService {
   private static get supabase() {
@@ -148,9 +152,10 @@ export class ProcurementRfqService {
   }
 
   /**
-   * Convert an APPROVED purchase request into an RFQ: snapshot its items into
-   * procurement_rfq_items and mark the PR 'converted'. Guarded on PR status so a
-   * request can't be converted twice or before approval.
+   * Convert a submitted (or legacy approved) purchase request into an RFQ: snapshot
+   * its items into procurement_rfq_items and mark the PR 'converted'. Guarded on PR
+   * status so a request can't be converted twice. There is no separate PR approval
+   * any more — the Super Admin's award approval is the sign-off that commits money.
    */
   static async createFromApprovedPR(requestId: string, userId: string): Promise<ProcurementRfq> {
     try {
@@ -160,8 +165,8 @@ export class ProcurementRfqService {
         .eq('id', requestId)
         .single();
       if (prError) throw prError;
-      if (pr.status !== 'approved') {
-        throw new Error(`Only an approved request can become an RFQ (current: ${pr.status}).`);
+      if (!CONVERTIBLE_PR_STATUSES.includes(pr.status)) {
+        throw new Error(`This request is ${pr.status} and cannot become a quotation.`);
       }
       if (!pr.items?.length) throw new Error('The request has no items to quote.');
 
@@ -202,7 +207,7 @@ export class ProcurementRfqService {
         .from('procurement_purchase_requests')
         .update({ status: 'converted', updated_at: new Date().toISOString() })
         .eq('id', pr.id)
-        .eq('status', 'approved');
+        .in('status', CONVERTIBLE_PR_STATUSES);
 
       return rfq as ProcurementRfq;
     } catch (error) {
@@ -235,104 +240,43 @@ export class ProcurementRfqService {
   }
 
   /**
-   * draft|rejected -> pending_review: the creator submits the RFQ for Super-Admin
-   * review. Guarded so only an editable RFQ can enter review.
+   * Store keeper → Super Admin: freeze the chosen vendors and send them for the
+   * final approval. Replaces the old submit-for-review → approve → mark-sent chain;
+   * the RPC checks at least one line is awarded and locks the quotations.
    */
-  static async submitForReview(rfqId: string): Promise<ProcurementRfq> {
-    try {
-      const { data, error } = await this.supabase
-        .from('procurement_rfqs')
-        .update({ status: 'pending_review', updated_at: new Date().toISOString() })
-        .eq('id', rfqId)
-        .in('status', ['draft', 'rejected'])
-        .select()
-        .single();
-      if (error) throw error;
-      if (!data) throw new Error('RFQ is not in a draft/rejected state; refresh and retry.');
-      return data as ProcurementRfq;
-    } catch (error) {
-      console.error('[ProcurementRfqService] submitForReview:', error);
+  static async submitAward(rfqId: string): Promise<ProcurementRfq> {
+    const { data, error } = await this.supabase.rpc('procurement_submit_award', { p_rfq_id: rfqId });
+    if (error) {
+      console.error('[ProcurementRfqService] submitAward:', error);
       throw error;
     }
+    return data as ProcurementRfq;
   }
 
-  /** pending_review -> approved: reviewer clears the RFQ to be sent to vendors. */
-  static async approveRfq(rfqId: string, reviewerId: string): Promise<ProcurementRfq> {
-    try {
-      const now = new Date().toISOString();
-      const { data, error } = await this.supabase
-        .from('procurement_rfqs')
-        .update({
-          status: 'approved',
-          reviewed_by: reviewerId,
-          reviewed_at: now,
-          review_notes: null,
-          updated_at: now,
-        })
-        .eq('id', rfqId)
-        .eq('status', 'pending_review')
-        .select()
-        .single();
-      if (error) throw error;
-      if (!data) throw new Error('RFQ is not awaiting review; refresh and retry.');
-      return data as ProcurementRfq;
-    } catch (error) {
-      console.error('[ProcurementRfqService] approveRfq:', error);
+  /**
+   * Super Admin approves the award. The RPC creates one APPROVED purchase order per
+   * chosen vendor and marks the RFQ awarded, all in one transaction.
+   */
+  static async approveAward(rfqId: string): Promise<ProcurementPurchaseOrder[]> {
+    const { data, error } = await this.supabase.rpc('procurement_approve_award', { p_rfq_id: rfqId });
+    if (error) {
+      console.error('[ProcurementRfqService] approveAward:', error);
       throw error;
     }
+    return (data || []) as ProcurementPurchaseOrder[];
   }
 
-  /** pending_review -> rejected: reviewer returns the RFQ to the creator with a reason. */
-  static async rejectRfq(rfqId: string, reviewerId: string, notes: string): Promise<ProcurementRfq> {
-    try {
-      const now = new Date().toISOString();
-      const { data, error } = await this.supabase
-        .from('procurement_rfqs')
-        .update({
-          status: 'rejected',
-          reviewed_by: reviewerId,
-          reviewed_at: now,
-          review_notes: notes?.trim() || null,
-          updated_at: now,
-        })
-        .eq('id', rfqId)
-        .eq('status', 'pending_review')
-        .select()
-        .single();
-      if (error) throw error;
-      if (!data) throw new Error('RFQ is not awaiting review; refresh and retry.');
-      return data as ProcurementRfq;
-    } catch (error) {
-      console.error('[ProcurementRfqService] rejectRfq:', error);
+  /** Super Admin returns the award to the store keeper — same RFQ, back to draft. */
+  static async sendBackAward(rfqId: string, reason: string): Promise<ProcurementRfq> {
+    const { data, error } = await this.supabase.rpc('procurement_send_back_award', {
+      p_rfq_id: rfqId,
+      p_reason: reason,
+    });
+    if (error) {
+      console.error('[ProcurementRfqService] sendBackAward:', error);
       throw error;
     }
-  }
-
-  /** approved -> sent: stamp sent_at on the RFQ and its vendor rows. */
-  static async markSent(rfqId: string): Promise<ProcurementRfq> {
-    try {
-      const now = new Date().toISOString();
-      const { data, error } = await this.supabase
-        .from('procurement_rfqs')
-        .update({ status: 'sent', sent_at: now, updated_at: now })
-        .eq('id', rfqId)
-        .eq('status', 'approved')
-        .select()
-        .single();
-      if (error) throw error;
-      if (!data) throw new Error('RFQ must be approved before it can be sent; refresh and retry.');
-
-      await this.supabase
-        .from('procurement_rfq_vendors')
-        .update({ sent_at: now })
-        .eq('rfq_id', rfqId)
-        .is('sent_at', null);
-
-      return data as ProcurementRfq;
-    } catch (error) {
-      console.error('[ProcurementRfqService] markSent:', error);
-      throw error;
-    }
+    return data as ProcurementRfq;
   }
 
   static async cancelRfq(id: string): Promise<ProcurementRfq> {
@@ -362,18 +306,23 @@ export class ProcurementRfqService {
     return data || [];
   }
 
-  /** Approved PRs not yet converted — candidates for RFQ creation. */
+  /** Submitted/approved PRs not yet converted — candidates for RFQ creation. */
   static async getApprovedRequestsForSelect(
     institutionId: string
-  ): Promise<Array<{ id: string; request_number: string }>> {
+  ): Promise<Array<{ id: string; request_number: string; item_names: string[] }>> {
     const { data, error } = await this.supabase
       .from('procurement_purchase_requests')
-      .select('id, request_number')
+      .select('id, request_number, items:procurement_purchase_request_items(item_name)')
       .eq('institution_id', institutionId)
-      .eq('status', 'approved')
+      .in('status', CONVERTIBLE_PR_STATUSES)
       .order('created_at', { ascending: false });
     if (error) throw error;
-    return data || [];
+    // Item names let the picker tell requests apart — a bare PR number means nothing to the user.
+    return (data || []).map((r: any) => ({
+      id: r.id,
+      request_number: r.request_number,
+      item_names: (r.items || []).map((it: { item_name: string | null }) => it.item_name).filter(Boolean),
+    }));
   }
 
   private static async generateRfqNumber(institutionId: string): Promise<string> {

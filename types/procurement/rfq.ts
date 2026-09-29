@@ -9,6 +9,7 @@ export type RfqStatus =
   | 'sent'
   | 'quotations_received'
   | 'compared'
+  | 'pending_award_approval'
   | 'awarded'
   | 'closed'
   | 'cancelled';
@@ -28,6 +29,12 @@ export interface ProcurementRfq {
   reviewed_by: string | null;
   reviewed_at: string | null;
   review_notes: string | null;
+  // Super Admin award approval (the single final sign-off).
+  award_submitted_by: string | null;
+  award_submitted_at: string | null;
+  award_approved_by: string | null;
+  award_approved_at: string | null;
+  award_rejection_reason: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -86,7 +93,8 @@ export const RFQ_STATUS_CONFIG: Record<RfqStatus, { label: string; color: string
   sent: { label: 'Sent to Vendors', color: 'blue' },
   quotations_received: { label: 'Quotations Received', color: 'indigo' },
   compared: { label: 'Compared', color: 'purple' },
-  awarded: { label: 'Awarded', color: 'green' },
+  pending_award_approval: { label: 'Waiting for Super Admin', color: 'amber' },
+  awarded: { label: 'Approved · order created', color: 'green' },
   closed: { label: 'Closed', color: 'gray' },
   cancelled: { label: 'Cancelled', color: 'red' },
 };

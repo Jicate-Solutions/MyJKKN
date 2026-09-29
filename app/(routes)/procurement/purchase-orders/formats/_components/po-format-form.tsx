@@ -127,7 +127,7 @@ export function PoFormatForm({ institutionId, createdBy, initial, onSave }: PoFo
         </CardHeader>
         <CardContent>
           <Textarea
-            placeholder="Free-text terms & conditions shown by default on POs using this format (editable per PO)..."
+            placeholder="Free-text terms & conditions shown by default on orders using this format (editable per order)..."
             value={termsDefault}
             onChange={(e) => setTermsDefault(e.target.value)}
             rows={4}
@@ -135,8 +135,12 @@ export function PoFormatForm({ institutionId, createdBy, initial, onSave }: PoFo
         </CardContent>
       </Card>
 
-      <div className="flex justify-end gap-2 sm:gap-3">
-        <Button variant="outline" onClick={() => router.push('/procurement/purchase-orders/formats')} disabled={saving}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:justify-end sm:gap-3">
+        <Button
+          variant="outline"
+          onClick={() => router.push('/procurement/purchase-orders/formats')}
+          disabled={saving}
+        >
           Cancel
         </Button>
         <Button onClick={handleSave} disabled={saving}>

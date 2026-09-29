@@ -8,6 +8,7 @@ import { usePurchaseOrder } from '@/hooks/procurement/use-purchase-orders';
 import { useCreateGrn } from '@/hooks/procurement/use-grns';
 import { matchLine } from '@/lib/services/procurement/three-way-match';
 import { GRN_MATCH_CONFIG, type GrnLineInput } from '@/types/procurement';
+import { PageHeader } from '@/components/procurement/page-header';
 import { StatusBadge } from '@/components/procurement/status-badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -129,7 +130,7 @@ export default function NewGrnPage() {
     return (
       <ContentLayout title="Receive Goods">
         <p className="text-muted-foreground py-12 text-center">
-          Open a Purchase Order and choose “Create GRN” to receive against it.
+          Open an order and choose “Record delivery” to receive against it.
         </p>
       </ContentLayout>
     );
@@ -146,7 +147,7 @@ export default function NewGrnPage() {
   if (!po) {
     return (
       <ContentLayout title="Receive Goods">
-        <p className="text-muted-foreground py-12 text-center">Purchase order not found.</p>
+        <p className="text-muted-foreground py-12 text-center">Order not found.</p>
       </ContentLayout>
     );
   }
@@ -162,7 +163,7 @@ export default function NewGrnPage() {
   const invoiceDateWarning: string | null = !invoiceDate
     ? null
     : poDate && invoiceDate < poDate
-      ? `This invoice is dated before the purchase order (${poDate}) — check you have the right bill.`
+      ? `This invoice is dated before the order (${poDate}) — check you have the right bill.`
       : expectations.max_invoice_age_days &&
           invoiceAgeDays != null &&
           invoiceAgeDays > expectations.max_invoice_age_days
@@ -351,31 +352,32 @@ export default function NewGrnPage() {
         },
         userId: profile!.id,
       });
-      toast.success(`GRN ${grn.grn_number} created — pending verification.`);
+      toast.success(`Delivery record ${grn.grn_number} created — pending verification.`);
       router.push(`/procurement/grn/${grn.id}`);
     } catch (e) {
       setUploading(false);
-      toast.error(errorMessage(e, 'Failed to create GRN'));
+      toast.error(errorMessage(e, 'Failed to record delivery'));
     }
   };
 
   return (
     <ContentLayout title="Receive Goods">
       <div className="space-y-4 sm:space-y-6 max-w-5xl">
-        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label="Back to purchase order"
-            onClick={() => router.push(`/procurement/purchase-orders/${po.id}`)}
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div className="min-w-0">
-            <h2 className="text-xl sm:text-2xl font-bold tracking-tight truncate">Receive against {po.po_number}</h2>
-            <p className="text-muted-foreground truncate">{po.supplier?.name ?? po.supplier_id}</p>
-          </div>
-        </div>
+        <PageHeader
+          title={`Receive against order ${po.po_number}`}
+          description={po.supplier?.name ?? po.supplier_id}
+          back={
+            <button
+              type="button"
+              aria-label="Back to order"
+              className="-ml-2 inline-flex h-10 items-center gap-1 px-2 text-sm text-muted-foreground hover:text-foreground sm:h-auto sm:px-0"
+              onClick={() => router.push(`/procurement/purchase-orders/${po.id}`)}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back
+            </button>
+          }
+        />
 
         {/* Invoice header + AI reading */}
         <Card>
@@ -394,7 +396,14 @@ export default function NewGrnPage() {
                   onChange={(e) => setInvoiceFile(e.target.files?.[0] ?? null)}
                 />
                 {invoiceFile?.type === 'application/pdf' && (
-                  <Button type="button" variant="secondary" size="sm" onClick={handleReadInvoice} disabled={reading}>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="h-10 sm:h-8"
+                    onClick={handleReadInvoice}
+                    disabled={reading}
+                  >
                     <Sparkles className="mr-1 h-3.5 w-3.5" />
                     {reading ? 'Reading invoice…' : 'Read invoice (AI)'}
                   </Button>
@@ -402,7 +411,7 @@ export default function NewGrnPage() {
               </div>
               <p className="hidden text-[11px] text-muted-foreground sm:block">
                 AI reads the invoice and fills quantity, unit cost, batch no. &amp; expiry below —
-                review and adjust before confirming. The file is stored on the GRN.
+                review and adjust before confirming. The file is stored with the delivery record.
               </p>
             </div>
 
@@ -489,8 +498,8 @@ export default function NewGrnPage() {
                       onChange={(e) => setWatchFor(e.target.value)}
                     />
                     <p className="hidden text-[11px] text-muted-foreground sm:block">
-                      Passed to the AI reader as your instruction, and kept on the GRN for the
-                      verifier.
+                      Passed to the AI reader as your instruction, and kept on the delivery record
+                      for the verifier.
                     </p>
                   </div>
                 </div>
@@ -565,7 +574,7 @@ export default function NewGrnPage() {
                     <div className="min-w-0">
                       <p className="font-medium truncate">{l.item_name}</p>
                       <p className="text-xs text-muted-foreground">
-                        Outstanding on PO: {l.ordered_remaining} {l.unit_label || ''}
+                        Outstanding on order: {l.ordered_remaining} {l.unit_label || ''}
                       </p>
                     </div>
                     <StatusBadge status={match.match_status} config={GRN_MATCH_CONFIG} />
@@ -771,14 +780,18 @@ export default function NewGrnPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="hidden text-sm text-muted-foreground sm:block">
             Nothing reaches inventory yet. The receipt is saved for verification — a Super Admin
-            checks it against the order and the invoice, and only then does accepted stock post.
+            checks it against the order and the invoice, and only then does accepted stock get added.
           </p>
-          <div className="flex justify-end gap-2 sm:gap-3">
-            <Button variant="outline" onClick={() => router.push(`/procurement/purchase-orders/${po.id}`)}>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-3">
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => router.push(`/procurement/purchase-orders/${po.id}`)}
+            >
               Cancel
             </Button>
-            <Button onClick={submit} disabled={createGrn.isPending || uploading}>
-              {uploading ? 'Uploading invoice…' : createGrn.isPending ? 'Creating…' : 'Create GRN'}
+            <Button className="w-full sm:w-auto" onClick={submit} disabled={createGrn.isPending || uploading}>
+              {uploading ? 'Uploading invoice…' : createGrn.isPending ? 'Creating…' : 'Record delivery'}
             </Button>
           </div>
         </div>
