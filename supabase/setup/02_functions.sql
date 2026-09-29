@@ -73038,6 +73038,7 @@ GRANT EXECUTE ON FUNCTION public.fn_learner_bill_year_visible(uuid, date) TO aut
 -- ----------------------------------------------------------------------------
 -- 1. The check everyone else calls
 -- ----------------------------------------------------------------------------
+-- ci:allow-secdef-authenticated answers ONE yes/no about the caller themselves (auth.uid()); takes no argument, returns no id, list or other person's data. Every approval screen must be able to ask it for the signed-in user.
 CREATE OR REPLACE FUNCTION public.fn_is_the_director()
 RETURNS boolean
 LANGUAGE sql
