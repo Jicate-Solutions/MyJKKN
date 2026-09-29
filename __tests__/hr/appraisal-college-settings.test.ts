@@ -33,11 +33,11 @@ interface Fake {
 }
 
 /**
- * Stand-in client. `staff` answers the staff-row read, `review` the
+ * Stand-in client. `personRow` answers the person's record read, `review` the
  * appraisal read, `policy` every policy read.
  */
 function fakeClient(opts: {
-  staff?: { institution_id: string | null } | null;
+  personRow?: { institution_id: string | null } | null;
   review?: Record<string, unknown>;
   policy?: Record<string, unknown> | null;
 }) {
@@ -53,7 +53,7 @@ function fakeClient(opts: {
           select: () => ({
             eq: (_k: string, v: unknown) => {
               fake.staffLookups.push(v);
-              return { maybeSingle: async () => ({ data: opts.staff ?? null, error: null }) };
+              return { maybeSingle: async () => ({ data: opts.personRow ?? null, error: null }) };
             },
           }),
         };
@@ -91,15 +91,15 @@ describe('reading the settings', () => {
     expect(fake.rpcArgs).toEqual([{ p_key: 'hr.performance_review', p_scope_id: null }]);
   });
 
-  it('for a person, uses the college on that person’s staff row', async () => {
-    const { client, fake } = fakeClient({ staff: { institution_id: 'college-b' }, policy: {} });
+  it('for a person, uses the college on that person’s own record', async () => {
+    const { client, fake } = fakeClient({ personRow: { institution_id: 'college-b' }, policy: {} });
     await PerformanceReviewService.getPolicyForStaff(client, 'staff-9');
     expect(fake.staffLookups).toEqual(['staff-9']);
     expect(fake.rpcArgs[0]?.p_scope_id).toBe('college-b');
   });
 
   it('for a person with no college, falls back to the group value', async () => {
-    const { client, fake } = fakeClient({ staff: { institution_id: null }, policy: {} });
+    const { client, fake } = fakeClient({ personRow: { institution_id: null }, policy: {} });
     await PerformanceReviewService.getPolicyForStaff(client, 'staff-9');
     expect(fake.rpcArgs[0]?.p_scope_id).toBeNull();
   });
@@ -114,7 +114,7 @@ describe('the score stored at sign-off follows the person’s own college rule',
   it('reads the rule for the person’s college, and scores with it', async () => {
     const collegeRule = { rating_points: { exceeds: 4, meets: 1, below: 0 } };
     const { client, fake } = fakeClient({
-      staff: { institution_id: 'college-b' },
+      personRow: { institution_id: 'college-b' },
       review,
       policy: collegeRule,
     });
