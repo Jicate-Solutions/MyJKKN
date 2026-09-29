@@ -17,18 +17,20 @@ import {
 } from '@/app/(routes)/meetings/[uid]/_components/download-record-button';
 
 const fetchMock = vi.fn();
-const createObjectURL = vi.fn(() => 'blob:record');
+const createObjectURL = vi.fn((_blob: Blob) => 'blob:record');
 const revokeObjectURL = vi.fn();
-let clicked: string[] = [];
+let clicked: Array<{ download: string; href: string | null }> = [];
 
 beforeEach(() => {
   Object.values(toast).forEach((f) => f.mockReset());
   fetchMock.mockReset();
+  createObjectURL.mockClear();
+  revokeObjectURL.mockClear();
   clicked = [];
   vi.stubGlobal('fetch', fetchMock);
   Object.assign(URL, { createObjectURL, revokeObjectURL });
   vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
-    clicked.push(this.download);
+    clicked.push({ download: this.download, href: this.getAttribute('href') });
   });
 });
 
@@ -78,16 +80,32 @@ describe('DownloadRecordButton', { timeout: 30_000 }, () => {
   });
 
   it('on success saves the PDF under the route’s filename', async () => {
+    // The body is a STRING, not `new Blob([...])`. Under this file's jsdom
+    // environment `Blob` is jsdom's, which has no .stream(). Node 22's fetch
+    // (undici 6, what CI runs) treats any object tagged "Blob" as a blob and
+    // calls .stream() on it — "TypeError: object.stream is not a function" —
+    // while Node 24+ silently turns it into the text "[object Blob]", so the
+    // test passed locally while saving the wrong bytes. A string body reads the
+    // same on every Node version, and the bytes are checked below.
     fetchMock.mockResolvedValue(
-      new Response(new Blob(['%PDF-1.4'], { type: 'application/pdf' }), {
+      new Response('%PDF-1.4', {
         status: 200,
-        headers: { 'Content-Disposition': 'attachment; filename="meeting-record-2026-09-01-kavya.pdf"' },
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': 'attachment; filename="meeting-record-2026-09-01-kavya.pdf"',
+        },
       }),
     );
     render(<DownloadRecordButton uid="abc" />);
     fireEvent.click(screen.getByRole('button', { name: /download record/i }));
-    await waitFor(() => expect(clicked).toEqual(['meeting-record-2026-09-01-kavya.pdf']));
-    expect(createObjectURL).toHaveBeenCalled();
+    await waitFor(() =>
+      expect(clicked).toEqual([{ download: 'meeting-record-2026-09-01-kavya.pdf', href: 'blob:record' }]),
+    );
+    // What was saved is exactly what the route sent, as a PDF.
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    const saved = createObjectURL.mock.calls[0][0];
+    expect(saved.type).toBe('application/pdf');
+    expect(await saved.text()).toBe('%PDF-1.4');
     expect(toast.error).not.toHaveBeenCalled();
   });
 });
