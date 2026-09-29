@@ -134,6 +134,14 @@ const POLICY_EDITORS: ReadonlyArray<PolicyEditorEntry> = [
     batch: 'W3-M4',
   },
   {
+    href: '/hr/admin/policies/salary-suggestion',
+    title: 'Salary suggestion',
+    description: 'What a year at JKKN, earlier experience and extras add to a suggested salary.',
+    classification: 'major',
+    scope: 'institution',
+    batch: 'W3-M4',
+  },
+  {
     href: '/hr/admin/policies/motivation-fund',
     title: 'Motivation fund',
     description: 'Performance-linked motivation fund eligibility + amounts.',

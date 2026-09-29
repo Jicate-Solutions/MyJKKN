@@ -108,9 +108,16 @@ function firstOfThisMonthIST(): string {
 interface Props {
   row: StaffSalaryDirectoryRow | null;
   onOpenChange: (open: boolean) => void;
+  /**
+   * A monthly gross to start the form with instead of the one in force — set
+   * by "Use this figure" on the suggested-salary panel. It only fills the box:
+   * every other field, the effective date included, seeds exactly as it
+   * always does, and nothing is saved until Save is pressed.
+   */
+  prefillMonthlyGross?: number | null;
 }
 
-export function EditSalaryDialog({ row, onOpenChange }: Props) {
+export function EditSalaryDialog({ row, onOpenChange, prefillMonthlyGross = null }: Props) {
   const setSalary = useSetStaffSalary();
   // TDS is DERIVED, never stored against the person — so the dialog resolves it
   // live from the bands rather than showing a figure someone typed.
@@ -153,12 +160,21 @@ export function EditSalaryDialog({ row, onOpenChange }: Props) {
    * Clearing on close is what makes REOPENING the same employee re-seed rather
    * than restore whatever was half-typed last time.
    */
+  // The prefill is part of the key, so opening the same person from the
+  // suggestion panel re-seeds with the suggested figure.
+  const seedKey = row ? `${row.staff_uuid}|${prefillMonthlyGross ?? ''}` : null;
   const [seededFor, setSeededFor] = useState<string | null>(null);
   if (!row && seededFor !== null) {
     setSeededFor(null);
-  } else if (row && seededFor !== row.staff_uuid) {
-    setSeededFor(row.staff_uuid);
-    setMonthly(row.monthly_gross === null ? '' : String(row.monthly_gross));
+  } else if (row && seededFor !== seedKey) {
+    setSeededFor(seedKey);
+    setMonthly(
+      prefillMonthlyGross !== null
+        ? String(prefillMonthlyGross)
+        : row.monthly_gross === null
+          ? ''
+          : String(row.monthly_gross)
+    );
     setEffectiveFrom(row.effective_from ?? firstOfThisMonthIST());
     setStructure(row.salary_structure ?? 'Monthly');
     setOvertimeLevel(row.overtime_level ?? 'No overtime');
@@ -324,6 +340,15 @@ export function EditSalaryDialog({ row, onOpenChange }: Props) {
             {row?.payer_org_name ? ` · paid by ${row.payer_org_name}` : ''}
           </DialogDescription>
         </DialogHeader>
+
+        {prefillMonthlyGross !== null && (
+          <Alert data-testid='prefill-note'>
+            <AlertDescription>
+              Monthly gross filled in from the suggested salary. Check every field, including
+              the effective date — nothing is saved until you press Save.
+            </AlertDescription>
+          </Alert>
+        )}
 
         {!hasPayer && (
           <Alert variant='destructive'>

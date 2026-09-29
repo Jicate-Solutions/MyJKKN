@@ -656,6 +656,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/admin/payroll': 'hr.dashboard.view',
   '/hr/admin/performance-reviews': 'hr.dashboard.view',
   '/hr/admin/policies': 'hr.dashboard.view',
+  // The salary suggestion rule holds rupee amounts per year of experience. The
+  // page itself is super-admin only; this entry stops longest-prefix resolution
+  // handing it to '/hr/admin/policies' -> 'hr.dashboard.view', which far more
+  // roles hold. The salary key is the narrowest one that already exists.
+  '/hr/admin/policies/salary-suggestion': 'hr.payroll.salary.manage',
   '/hr/admin/promotions': 'hr.dashboard.view',
   '/hr/admin/recruitment-approval-flows': 'hr.dashboard.view',
   '/hr/admin/recruitment-maintenance': 'hr.dashboard.view',

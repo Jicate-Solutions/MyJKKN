@@ -4378,6 +4378,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               },
               {
+                "path": "/hr/admin/policies/salary-suggestion",
+                "label": "Salary Suggestion",
+                "iconName": "Sparkles",
+                "children": []
+              },
+              {
                 "path": "/hr/admin/policies/staff-development",
                 "label": "Staff Development",
                 "iconName": "Users",
@@ -4729,6 +4735,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/hr/payroll/organisation",
             "label": "Organisation",
             "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/hr/payroll/pay-band-check",
+            "label": "Pay Band Check",
+            "iconName": "Scale",
             "children": []
           },
           {
