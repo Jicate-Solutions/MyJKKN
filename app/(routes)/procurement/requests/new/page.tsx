@@ -10,6 +10,7 @@ import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import { registeredDomainOptions } from '@/lib/services/procurement/domain-adapters/registry';
 import type { DomainCtx, ProcurementDomain } from '@/lib/services/procurement/domain-adapters/types';
 import type { CreatePurchaseRequestItemDto } from '@/types/procurement';
+import { PageHeader } from '@/components/procurement/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -163,7 +164,7 @@ export default function NewPurchaseRequestPage() {
         userId: profile.id,
       });
       setPreviewOpen(false);
-      toast.success(`Purchase request ${created.request_number} created`);
+      toast.success(`Purchase request ${created.request_number} submitted for approval`);
       router.push(`/procurement/requests/${created.id}`);
     } catch (e) {
       toast.error(errorMessage(e, 'Failed to create request'));
@@ -173,17 +174,21 @@ export default function NewPurchaseRequestPage() {
   return (
     <ContentLayout title="New Purchase Request">
       <div className="space-y-4 sm:space-y-6 max-w-5xl">
-        <div className="flex items-center gap-2 sm:gap-3">
-          <Button variant="ghost" size="sm" aria-label="Go back" onClick={() => router.back()}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div>
-            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">New Purchase Request</h2>
-            <p className="hidden text-muted-foreground sm:block">
-              Mix restock and new-item lines freely — each item picks its own type.
-            </p>
-          </div>
-        </div>
+        <PageHeader
+          title="New Purchase Request"
+          description="Mix restock and new-item lines freely — each item picks its own type."
+          back={
+            <button
+              type="button"
+              aria-label="Go back"
+              className="-ml-2 inline-flex h-10 items-center gap-1 px-2 text-sm text-muted-foreground hover:text-foreground sm:h-auto sm:px-0"
+              onClick={() => router.back()}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back
+            </button>
+          }
+        />
 
         <Card>
           <CardHeader>
@@ -257,15 +262,18 @@ export default function NewPurchaseRequestPage() {
                 “New item” and say why it is needed.
               </p>
             </div>
-            <Button variant="outline" size="sm" className="shrink-0" onClick={addRow}>
+            <Button variant="outline" size="sm" className="h-10 w-full shrink-0 sm:h-8 sm:w-auto" onClick={addRow}>
               <Plus className="mr-2 h-4 w-4" />
               Add item
             </Button>
           </CardHeader>
           <CardContent className="space-y-4">
             {items.map((item, idx) => (
-              <div key={idx} className="grid gap-3 lg:grid-cols-12 items-start border-b pb-4 last:border-0">
-                <div className="lg:col-span-2 space-y-1">
+              <div
+                key={idx}
+                className="grid grid-cols-2 items-start gap-3 rounded-md border p-3 last:mb-0 lg:grid-cols-12 lg:rounded-none lg:border-0 lg:border-b lg:p-0 lg:pb-4 lg:last:border-0"
+              >
+                <div className="col-span-2 space-y-1 lg:col-span-2">
                   <Label className="text-xs">Source</Label>
                   <Select
                     value={item.is_new ? 'new_item' : 'restock'}
@@ -292,7 +300,7 @@ export default function NewPurchaseRequestPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="lg:col-span-3 space-y-1">
+                <div className="col-span-2 space-y-1 lg:col-span-3">
                   <Label className="text-xs">Item name</Label>
                   {item.is_new ? (
                     <Input
@@ -339,7 +347,7 @@ export default function NewPurchaseRequestPage() {
                     </>
                   )}
                 </div>
-                <div className="lg:col-span-2 space-y-1">
+                <div className="col-span-1 space-y-1 lg:col-span-2">
                   <Label className="text-xs">Specification</Label>
                   <Input
                     value={item.item_spec ?? ''}
@@ -347,7 +355,7 @@ export default function NewPurchaseRequestPage() {
                     placeholder={item.is_new ? 'Size, grade, packaging…' : 'From catalog'}
                   />
                 </div>
-                <div className="lg:col-span-2 space-y-1">
+                <div className="col-span-1 space-y-1 lg:col-span-2">
                   <Label className="text-xs">Qty</Label>
                   <Input
                     type="number"
@@ -356,7 +364,7 @@ export default function NewPurchaseRequestPage() {
                     onChange={(e) => updateItem(idx, { required_quantity: Number(e.target.value) })}
                   />
                 </div>
-                <div className="lg:col-span-2 space-y-1">
+                <div className="col-span-1 space-y-1 lg:col-span-2">
                   <Label className="text-xs">Unit</Label>
                   <Input
                     value={item.unit_label ?? ''}
@@ -364,11 +372,12 @@ export default function NewPurchaseRequestPage() {
                     placeholder="e.g. box"
                   />
                 </div>
-                <div className="lg:col-span-1 flex items-end justify-end h-full">
+                <div className="col-span-1 flex h-full items-end justify-self-end lg:col-span-1 lg:justify-end">
                   <Button
                     variant="ghost"
-                    size="sm"
+                    size="icon"
                     aria-label="Remove item"
+                    className="h-10 w-10 sm:h-9 sm:w-9"
                     onClick={() => removeRow(idx)}
                     disabled={items.length === 1}
                   >
@@ -376,7 +385,7 @@ export default function NewPurchaseRequestPage() {
                   </Button>
                 </div>
                 {item.is_new && (
-                  <div className="lg:col-span-12 space-y-1">
+                  <div className="col-span-2 space-y-1 lg:col-span-12">
                     <Label className="text-xs">
                       Reason for new item <span className="text-destructive">*</span>
                     </Label>
@@ -392,15 +401,15 @@ export default function NewPurchaseRequestPage() {
           </CardContent>
         </Card>
 
-        <div className="flex flex-col gap-2 sm:gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="hidden text-sm text-muted-foreground sm:block">
-            This saves the request as a draft. You send it for approval from the request page.
+            This sends the request straight to a Super Admin for approval.
           </p>
-          <div className="flex justify-end gap-2 sm:gap-3">
-            <Button variant="outline" onClick={() => router.back()}>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-3">
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => router.back()}>
               Cancel
             </Button>
-            <Button onClick={handleSubmit} disabled={createPR.isPending}>
+            <Button className="w-full sm:w-auto" onClick={handleSubmit} disabled={createPR.isPending}>
               Review &amp; create
             </Button>
           </div>
@@ -460,14 +469,14 @@ export default function NewPurchaseRequestPage() {
             </div>
           </div>
           <p className="hidden text-sm text-muted-foreground sm:block">
-            The request is saved as a draft. Send it for approval from the request page.
+            The request goes straight to a Super Admin for approval.
           </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPreviewOpen(false)}>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setPreviewOpen(false)}>
               Back to edit
             </Button>
-            <Button onClick={handleConfirmCreate} disabled={createPR.isPending}>
-              {createPR.isPending ? 'Creating…' : 'Create draft request'}
+            <Button className="w-full sm:w-auto" onClick={handleConfirmCreate} disabled={createPR.isPending}>
+              {createPR.isPending ? 'Submitting…' : 'Submit request'}
             </Button>
           </DialogFooter>
         </DialogContent>

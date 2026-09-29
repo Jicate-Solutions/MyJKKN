@@ -18,6 +18,12 @@ import {
 import { RFQ_STATUS_CONFIG } from '@/types/procurement';
 import { downloadRequirementListPdf } from '@/lib/procurement/requirement-list-pdf';
 import { StatusBadge } from '@/components/procurement/status-badge';
+import { ResponsiveList } from '@/components/procurement/responsive-list';
+import {
+  DocumentHeader,
+  type DocAction,
+  type DocPrimaryAction,
+} from '@/components/procurement/document-header';
 import { AlertBox } from '@/components/ui/alert-box';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -29,14 +35,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import {
@@ -46,7 +44,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { ArrowLeft, FileDown, Send, X, UserPlus, ClipboardList, ClipboardCheck, Check, Ban } from 'lucide-react';
+import { FileDown, Send, X, UserPlus, ClipboardList, ClipboardCheck, Check, Ban } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
@@ -114,34 +112,81 @@ export default function RfqDetailPage() {
     }
   };
 
+  let primary: DocPrimaryAction | null = null;
+  let reject: DocAction | null = null;
+
+  // draft | rejected → submit for Super-Admin review
+  if (canSubmitForReview) {
+    primary = {
+      key: 'submit',
+      label: 'Submit for review',
+      icon: ClipboardCheck,
+      disabled: rfq.vendors.length === 0 || rfq.items.length === 0,
+      onClick: () => run(() => submitForReview.mutateAsync(rfq.id), 'Submitted for review'),
+    };
+  }
+
+  // pending_review → reviewer approves or rejects
+  if (canApprove && rfq.status === 'pending_review') {
+    primary = {
+      key: 'approve',
+      label: 'Approve',
+      icon: Check,
+      onClick: () =>
+        run(
+          () => approveRfq.mutateAsync({ rfqId: rfq.id, reviewerId: profile!.id }),
+          'RFQ approved'
+        ),
+    };
+    reject = { key: 'reject', label: 'Reject', icon: X, onClick: () => setRejectOpen(true) };
+  }
+
+  // approved → send to vendors
+  if (canManage && rfq.status === 'approved') {
+    primary = {
+      key: 'send',
+      label: 'Send to vendors',
+      icon: Send,
+      disabled: rfq.vendors.length === 0,
+      onClick: () => run(() => markSent.mutateAsync(rfq.id), 'RFQ sent to vendors'),
+    };
+  }
+
+  const actions: DocAction[] = [
+    {
+      key: 'quotations',
+      label: 'Quotations & awards',
+      icon: ClipboardList,
+      onClick: () => router.push(`/procurement/rfqs/${rfq.id}/quotations`),
+    },
+    {
+      key: 'requirement-pdf',
+      label: 'Requirement List (PDF)',
+      icon: FileDown,
+      onClick: () =>
+        void downloadRequirementListPdf(rfq).catch((e) =>
+          toast.error(errorMessage(e, 'Could not build the requirement list'))
+        ),
+    },
+  ];
+
   return (
     <ContentLayout title={rfq.rfq_number}>
       <div className="space-y-4 sm:space-y-6 max-w-5xl">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label="Back to RFQs"
-              onClick={() => router.push('/procurement/rfqs')}
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <div>
-              <h2 className="text-xl sm:text-2xl font-bold tracking-tight">{rfq.rfq_number}</h2>
-              <p className="text-muted-foreground">
-                {rfq.source_request?.request_number
-                  ? `From ${rfq.source_request.request_number}`
-                  : 'Ad-hoc RFQ'}
-              </p>
-            </div>
-          </div>
-          <StatusBadge
-            status={rfq.status}
-            config={RFQ_STATUS_CONFIG}
-            className="self-start text-sm sm:self-auto"
-          />
-        </div>
+        <DocumentHeader
+          onBack={() => router.push('/procurement/rfqs')}
+          backLabel="Back to RFQs"
+          title={rfq.rfq_number}
+          status={<StatusBadge status={rfq.status} config={RFQ_STATUS_CONFIG} className="text-sm" />}
+          next={
+            rfq.source_request?.request_number
+              ? `From ${rfq.source_request.request_number}`
+              : 'Ad-hoc RFQ'
+          }
+          primary={primary}
+          reject={reject}
+          actions={actions}
+        />
 
         {/* Rejected: show the reviewer's reason and prompt a resubmit. */}
         {rfq.status === 'rejected' && (
@@ -154,94 +199,22 @@ export default function RfqDetailPage() {
           </div>
         )}
 
-        {/* Actions */}
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
-          <Button className="w-full sm:w-auto" onClick={() => router.push(`/procurement/rfqs/${rfq.id}/quotations`)}>
-            <ClipboardList className="mr-2 h-4 w-4" />
-            Quotations &amp; awards
-          </Button>
-          <Button variant="outline" className="w-full sm:w-auto" onClick={() => downloadRequirementListPdf(rfq)}>
-            <FileDown className="mr-2 h-4 w-4" />
-            Requirement List (PDF)
-          </Button>
-
-          {/* draft | rejected → submit for Super-Admin review */}
-          {canSubmitForReview && (
-            <Button
-              className="w-full sm:w-auto"
-              disabled={rfq.vendors.length === 0 || rfq.items.length === 0}
-              onClick={() => run(() => submitForReview.mutateAsync(rfq.id), 'Submitted for review')}
-            >
-              <ClipboardCheck className="mr-2 h-4 w-4" />
-              Submit for review
-            </Button>
-          )}
-
-          {/* pending_review → reviewer approves or rejects */}
-          {canApprove && rfq.status === 'pending_review' && (
-            <>
-              <Button
-                className="w-full sm:w-auto"
-                onClick={() =>
-                  run(
-                    () => approveRfq.mutateAsync({ rfqId: rfq.id, reviewerId: profile!.id }),
-                    'RFQ approved'
-                  )
-                }
-              >
-                <Check className="mr-2 h-4 w-4" />
-                Approve
-              </Button>
-              <Button
-                variant="outline"
-                className="w-full text-destructive hover:text-destructive sm:ml-auto sm:w-auto"
-                onClick={() => setRejectOpen(true)}
-              >
-                <Ban className="mr-2 h-4 w-4" />
-                Reject
-              </Button>
-            </>
-          )}
-
-          {/* approved → send to vendors */}
-          {canManage && rfq.status === 'approved' && (
-            <Button
-              className="w-full sm:w-auto"
-              disabled={rfq.vendors.length === 0}
-              onClick={() => run(() => markSent.mutateAsync(rfq.id), 'RFQ sent to vendors')}
-            >
-              <Send className="mr-2 h-4 w-4" />
-              Send to vendors
-            </Button>
-          )}
-        </div>
-
         {/* Items */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Items ({rfq.items.length})</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Item</TableHead>
-                  <TableHead>Specification</TableHead>
-                  <TableHead className="text-right">Qty</TableHead>
-                  <TableHead>Unit</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rfq.items.map((it) => (
-                  <TableRow key={it.id}>
-                    <TableCell className="font-medium">{it.item_name}</TableCell>
-                    <TableCell>{it.item_spec || '—'}</TableCell>
-                    <TableCell className="text-right">{it.quantity}</TableCell>
-                    <TableCell>{it.unit_label || '—'}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <ResponsiveList
+              rows={rfq.items}
+              getRowKey={(it) => it.id}
+              columns={[
+                { key: 'item', header: 'Item', mobile: 'title', className: 'font-medium', cell: (it) => it.item_name },
+                { key: 'spec', header: 'Specification', cell: (it) => it.item_spec || '—' },
+                { key: 'qty', header: 'Qty', className: 'text-right', cell: (it) => it.quantity },
+                { key: 'unit', header: 'Unit', cell: (it) => it.unit_label || '—' },
+              ]}
+            />
           </CardContent>
         </Card>
 
@@ -300,6 +273,7 @@ export default function RfqDetailPage() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          className="h-10 w-10 sm:h-8 sm:w-8"
                           aria-label={`Remove vendor ${v.supplier?.name ?? v.supplier_id}`}
                           onClick={() =>
                             run(

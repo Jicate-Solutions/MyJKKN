@@ -363,15 +363,20 @@ export class ProcurementRfqService {
   /** Approved PRs not yet converted — candidates for RFQ creation. */
   static async getApprovedRequestsForSelect(
     institutionId: string
-  ): Promise<Array<{ id: string; request_number: string }>> {
+  ): Promise<Array<{ id: string; request_number: string; item_names: string[] }>> {
     const { data, error } = await this.supabase
       .from('procurement_purchase_requests')
-      .select('id, request_number')
+      .select('id, request_number, items:procurement_purchase_request_items(item_name)')
       .eq('institution_id', institutionId)
       .eq('status', 'approved')
       .order('created_at', { ascending: false });
     if (error) throw error;
-    return data || [];
+    // Item names let the picker tell requests apart — a bare PR number means nothing to the user.
+    return (data || []).map((r: any) => ({
+      id: r.id,
+      request_number: r.request_number,
+      item_names: (r.items || []).map((it: { item_name: string | null }) => it.item_name).filter(Boolean),
+    }));
   }
 
   private static async generateRfqNumber(institutionId: string): Promise<string> {

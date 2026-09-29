@@ -10,6 +10,9 @@ import { AlertBox } from '@/components/ui/alert-box';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { ResponsiveList } from '@/components/procurement/responsive-list';
+import { PageHeader } from '@/components/procurement/page-header';
 import {
   Select,
   SelectContent,
@@ -17,14 +20,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,6 +31,8 @@ import { Plus, MoreHorizontal, Pencil, Trash2, Star, FileStack, Truck } from 'lu
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
+import type { ProcurementPoFormat } from '@/types/procurement';
+import type { ImsSupplier } from '@/types/ims/suppliers';
 
 export default function PoFormatsPage() {
   const router = useRouter();
@@ -88,23 +85,83 @@ export default function PoFormatsPage() {
 
   const list = formats ?? [];
 
+  const renderFormatActions = (format: ProcurementPoFormat) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="sm" className="h-10 sm:h-8" aria-label={`Actions for ${format.name}`}>
+          <MoreHorizontal className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {canManage && (
+          <DropdownMenuItem
+            onClick={() => router.push(`/procurement/purchase-orders/formats/${format.id}/edit`)}
+          >
+            <Pencil className="h-4 w-4 mr-2" />
+            Edit
+          </DropdownMenuItem>
+        )}
+        {canManage && !format.is_default && (
+          <DropdownMenuItem onClick={() => handleSetDefault(format.id)}>
+            <Star className="h-4 w-4 mr-2" />
+            Set as Default
+          </DropdownMenuItem>
+        )}
+        {canManage && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-red-600 focus:text-red-600"
+              onClick={() => handleDelete(format.id, format.name)}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Deactivate
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  const renderFormatSelect = (supplier: ImsSupplier) =>
+    canManage ? (
+      <Select
+        value={supplier.default_po_format_id || 'none'}
+        onValueChange={(v) => handleAssignFormat(supplier.id, v)}
+      >
+        <SelectTrigger>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="none">Standard (default)</SelectItem>
+          {list.map((f) => (
+            <SelectItem key={f.id} value={f.id}>
+              {f.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    ) : (
+      <span className="text-sm text-muted-foreground">
+        {list.find((f) => f.id === supplier.default_po_format_id)?.name ?? 'Standard'}
+      </span>
+    );
+
   return (
     <ContentLayout title="PO Document Formats">
       <div className="space-y-4 sm:space-y-6">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div>
-            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">PO Document Formats</h2>
-            <p className="hidden text-muted-foreground mt-1 sm:block">
-              Configure item columns, header fields, and footer content per vendor layout.
-            </p>
-          </div>
-          {canManage && (
-            <Button onClick={() => router.push('/procurement/purchase-orders/formats/new')}>
-              <Plus className="h-4 w-4 mr-2" />
-              New Format
-            </Button>
-          )}
-        </div>
+        <PageHeader
+          title="PO Document Formats"
+          description="Configure item columns, header fields, and footer content per vendor layout."
+          actions={
+            canManage && (
+              <Button onClick={() => router.push('/procurement/purchase-orders/formats/new')}>
+                <Plus className="h-4 w-4 mr-2" />
+                New Format
+              </Button>
+            )
+          }
+        />
 
         <Card>
           <CardHeader>
@@ -114,15 +171,17 @@ export default function PoFormatsPage() {
               used whenever a vendor has no format of its own.
             </p>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-0">
             {isLoading ? (
               <div className="flex items-center justify-center py-12">
                 <BeatLoader color="hsl(var(--primary))" size={10} />
               </div>
             ) : isError ? (
-              <AlertBox type="error" message="Failed to load PO formats. Please try again." />
+              <div className="p-4 sm:p-6">
+                <AlertBox type="error" message="Failed to load PO formats. Please try again." />
+              </div>
             ) : list.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">
+              <div className="px-4 py-12 text-center text-muted-foreground sm:px-6">
                 <FileStack className="h-12 w-12 mx-auto mb-4 opacity-40" />
                 <p className="text-lg font-medium">No formats yet</p>
                 <p className="text-sm mt-1">
@@ -131,86 +190,61 @@ export default function PoFormatsPage() {
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead className="text-center">Item Columns</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {list.map((format) => (
-                      <TableRow key={format.id}>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <p className="font-medium">{format.name}</p>
-                            {format.is_default && (
-                              <Badge variant="success" className="gap-1">
-                                <Star className="h-3 w-3" />
-                                Default
-                              </Badge>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {format.description || '-'}
-                        </TableCell>
-                        <TableCell className="text-center">{format.item_columns.length}</TableCell>
-                        <TableCell>
-                          {format.is_active ? (
-                            <Badge variant="success">Active</Badge>
-                          ) : (
-                            <Badge variant="secondary">Inactive</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="sm" aria-label={`Actions for ${format.name}`}>
-                                <MoreHorizontal className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              {canManage && (
-                                <DropdownMenuItem
-                                  onClick={() =>
-                                    router.push(`/procurement/purchase-orders/formats/${format.id}/edit`)
-                                  }
-                                >
-                                  <Pencil className="h-4 w-4 mr-2" />
-                                  Edit
-                                </DropdownMenuItem>
-                              )}
-                              {canManage && !format.is_default && (
-                                <DropdownMenuItem onClick={() => handleSetDefault(format.id)}>
-                                  <Star className="h-4 w-4 mr-2" />
-                                  Set as Default
-                                </DropdownMenuItem>
-                              )}
-                              {canManage && (
-                                <>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem
-                                    className="text-red-600 focus:text-red-600"
-                                    onClick={() => handleDelete(format.id, format.name)}
-                                  >
-                                    <Trash2 className="h-4 w-4 mr-2" />
-                                    Deactivate
-                                  </DropdownMenuItem>
-                                </>
-                              )}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+              <ResponsiveList
+                rows={list}
+                getRowKey={(format) => format.id}
+                columns={[
+                  {
+                    key: 'name',
+                    header: 'Name',
+                    mobile: 'title',
+                    cell: (format) => (
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium">{format.name}</p>
+                        {format.is_default && (
+                          <Badge variant="success" className="gap-1">
+                            <Star className="h-3 w-3" />
+                            Default
+                          </Badge>
+                        )}
+                      </div>
+                    ),
+                  },
+                  {
+                    key: 'description',
+                    header: 'Description',
+                    className: 'text-muted-foreground',
+                    cell: (format) => format.description || '-',
+                  },
+                  {
+                    key: 'items',
+                    header: 'Item Columns',
+                    className: 'text-center',
+                    cell: (format) => format.item_columns.length,
+                  },
+                  {
+                    key: 'status',
+                    header: 'Status',
+                    mobile: 'badge',
+                    cell: (format) =>
+                      format.is_active ? (
+                        <Badge variant="success">Active</Badge>
+                      ) : (
+                        <Badge variant="secondary">Inactive</Badge>
+                      ),
+                  },
+                  {
+                    key: 'actions',
+                    header: 'Actions',
+                    mobile: 'hidden',
+                    className: 'text-right',
+                    cell: (format) => renderFormatActions(format),
+                  },
+                ]}
+                mobileFooter={(format) => (
+                  <div className="flex w-full justify-end">{renderFormatActions(format)}</div>
+                )}
+              />
             )}
           </CardContent>
         </Card>
@@ -234,56 +268,43 @@ export default function PoFormatsPage() {
                 <AlertBox type="error" message="Failed to load vendors. Please try again." />
               </div>
             ) : (suppliersList?.data ?? []).length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">
+              <div className="px-4 py-12 text-center text-muted-foreground sm:px-6">
                 <Truck className="h-12 w-12 mx-auto mb-4 opacity-40" />
                 <p>No active vendors found.</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Vendor</TableHead>
-                      <TableHead>Code</TableHead>
-                      <TableHead className="w-[240px]">Default PO Format</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {(suppliersList?.data ?? []).map((supplier) => (
-                      <TableRow key={supplier.id}>
-                        <TableCell className="font-medium">{supplier.name}</TableCell>
-                        <TableCell className="text-muted-foreground font-mono text-sm">
-                          {supplier.code}
-                        </TableCell>
-                        <TableCell>
-                          {canManage ? (
-                            <Select
-                              value={supplier.default_po_format_id || 'none'}
-                              onValueChange={(v) => handleAssignFormat(supplier.id, v)}
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="none">Standard (default)</SelectItem>
-                                {list.map((f) => (
-                                  <SelectItem key={f.id} value={f.id}>
-                                    {f.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          ) : (
-                            <span className="text-sm text-muted-foreground">
-                              {list.find((f) => f.id === supplier.default_po_format_id)?.name ?? 'Standard'}
-                            </span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+              <ResponsiveList
+                rows={suppliersList?.data ?? []}
+                getRowKey={(supplier) => supplier.id}
+                columns={[
+                  {
+                    key: 'vendor',
+                    header: 'Vendor',
+                    mobile: 'title',
+                    className: 'font-medium',
+                    cell: (supplier) => supplier.name,
+                  },
+                  {
+                    key: 'code',
+                    header: 'Code',
+                    className: 'text-muted-foreground font-mono text-sm',
+                    cell: (supplier) => supplier.code,
+                  },
+                  {
+                    key: 'format',
+                    header: 'Default PO Format',
+                    className: 'w-[240px]',
+                    mobile: 'hidden',
+                    cell: (supplier) => renderFormatSelect(supplier),
+                  },
+                ]}
+                mobileFooter={(supplier) => (
+                  <div className="w-full space-y-1">
+                    <Label className="text-xs text-muted-foreground">Default PO Format</Label>
+                    {renderFormatSelect(supplier)}
+                  </div>
+                )}
+              />
             )}
           </CardContent>
         </Card>

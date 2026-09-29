@@ -31,6 +31,7 @@ export default function NewPoFormatPage() {
           <Button
             variant="ghost"
             size="sm"
+            className="h-10 sm:h-8"
             aria-label="Back to PO formats"
             onClick={() => router.push('/procurement/purchase-orders/formats')}
           >

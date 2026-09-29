@@ -17,6 +17,12 @@ import { validateLineForVerify } from '@/lib/services/procurement/three-way-matc
 import { GRN_STATUS_CONFIG, GRN_MATCH_CONFIG, type ProcurementGrnReplacement } from '@/types/procurement';
 import { formatDateDMY, formatDateTimeDMY } from '@/lib/utils/date-format';
 import { StatusBadge } from '@/components/procurement/status-badge';
+import { ResponsiveList } from '@/components/procurement/responsive-list';
+import {
+  DocumentHeader,
+  type DocAction,
+  type DocPrimaryAction,
+} from '@/components/procurement/document-header';
 import { EmptyState } from '@/components/empty-state';
 import { AlertBox } from '@/components/ui/alert-box';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -25,21 +31,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { ArrowLeft, CheckCircle2, AlertTriangle, PackagePlus } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, PackagePlus, Ban } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
@@ -156,27 +154,54 @@ export default function GrnDetailPage() {
     })
   );
 
+  let primary: DocPrimaryAction | null = null;
+  if (pending && canVerify) {
+    primary = {
+      key: 'verify',
+      label: 'Verify & post to inventory',
+      icon: CheckCircle2,
+      disabled: verifyGrn.isPending || chemicalBlocks.length > 0,
+      onClick: () =>
+        run(
+          () => verifyGrn.mutateAsync({ id, userId: profile!.id }),
+          'GRN verified — accepted stock posted to inventory.'
+        ),
+    };
+  }
+
+  const actions: DocAction[] = [];
+  if (pending) {
+    actions.push({
+      key: 'cancel',
+      label: 'Cancel GRN',
+      icon: Ban,
+      destructive: true,
+      confirm: {
+        title: `Cancel ${grn.grn_number}?`,
+        description: 'Nothing is posted to inventory and this GRN cannot be reopened.',
+        confirmLabel: 'Cancel GRN',
+      },
+      onClick: () => run(() => cancelGrn.mutateAsync({ id }), 'GRN cancelled'),
+    });
+  }
+
   return (
     <ContentLayout title={grn.grn_number}>
       <div className="space-y-4 sm:space-y-6 max-w-5xl">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-            <Button variant="ghost" size="sm" aria-label="Back to goods receipts" onClick={() => router.push('/procurement/grn')}>
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <div className="min-w-0">
-              <h2 className="text-xl sm:text-2xl font-bold tracking-tight truncate">{grn.grn_number}</h2>
-              <p className="text-muted-foreground truncate">
-                {grn.purchase_order?.po_number ?? ''} · {grn.supplier?.name ?? grn.supplier_id}
-              </p>
-            </div>
-          </div>
-          <StatusBadge
-            status={grn.status}
-            config={GRN_STATUS_CONFIG}
-            className="self-start shrink-0 text-sm sm:self-auto"
-          />
-        </div>
+        <DocumentHeader
+          onBack={() => router.push('/procurement/grn')}
+          backLabel="Back to goods receipts"
+          title={grn.grn_number}
+          status={<StatusBadge status={grn.status} config={GRN_STATUS_CONFIG} />}
+          next={
+            <>
+              {statusHint && <span className="font-medium text-foreground">{statusHint} </span>}
+              {grn.purchase_order?.po_number ?? ''} · {grn.supplier?.name ?? grn.supplier_id}
+            </>
+          }
+          primary={primary}
+          actions={actions}
+        />
 
         {/* Invoice + receipt meta */}
         <Card>
@@ -204,45 +229,15 @@ export default function GrnDetailPage() {
           </CardContent>
         </Card>
 
-        {statusHint && (
-          <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-            {statusHint}
-          </p>
-        )}
-
-        {/* Actions */}
-        {pending && (
+        {/* Verify warnings */}
+        {pending && (hasMismatch || chemicalBlocks.length > 0) && (
           <div className="space-y-2">
-            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
-              {canVerify && (
-                <Button
-                  className="w-full sm:w-auto"
-                  onClick={() =>
-                    run(
-                      () => verifyGrn.mutateAsync({ id, userId: profile!.id }),
-                      'GRN verified — accepted stock posted to inventory.'
-                    )
-                  }
-                  disabled={verifyGrn.isPending || chemicalBlocks.length > 0}
-                >
-                  <CheckCircle2 className="mr-2 h-4 w-4" />
-                  Verify & post to inventory
-                </Button>
-              )}
-              <Button
-                variant="ghost"
-                className="w-full sm:ml-auto sm:w-auto"
-                onClick={() => run(() => cancelGrn.mutateAsync({ id }), 'GRN cancelled')}
-              >
-                Cancel GRN
-              </Button>
-              {hasMismatch && (
-                <span className="flex items-center gap-1.5 text-sm text-amber-600">
-                  <AlertTriangle className="h-4 w-4" />
-                  A line has a quantity or price mismatch — review before verifying.
-                </span>
-              )}
-            </div>
+            {hasMismatch && (
+              <span className="flex items-center gap-1.5 text-sm text-amber-600">
+                <AlertTriangle className="h-4 w-4" />
+                A line has a quantity or price mismatch — review before verifying.
+              </span>
+            )}
             {chemicalBlocks.length > 0 && (
               <div className="flex items-start gap-1.5 text-sm text-red-600">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -265,96 +260,124 @@ export default function GrnDetailPage() {
             </p>
           </CardHeader>
           <CardContent className="p-0 overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Item</TableHead>
-                  <TableHead className="text-right">Ordered</TableHead>
-                  <TableHead className="text-right">Invoiced</TableHead>
-                  <TableHead className="text-right">Received</TableHead>
-                  <TableHead className="text-right">Accepted</TableHead>
-                  <TableHead className="text-right">Rejected</TableHead>
-                  <TableHead className="text-right">Invoice ₹</TableHead>
-                  <TableHead>Batch / Expiry</TableHead>
-                  <TableHead>Match</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {grn.items.map((it) => {
-                  return (
-                    <TableRow key={it.id}>
-                      <TableCell className="font-medium">
-                        {it.item_name}
-                        {it.is_chemical && (
-                          <Badge variant="secondary" className="ml-2 text-[10px]">
-                            Chemical
-                          </Badge>
-                        )}
-                        {it.replacement_required && (
-                          <span className="block text-xs text-orange-600">Replacement requested</span>
-                        )}
-                        {Number(it.missing_quantity) > 0 && (
-                          <span className="block text-xs text-muted-foreground">
-                            Missing: {Number(it.missing_quantity)}
+            <ResponsiveList
+              rows={grn.items}
+              getRowKey={(it) => it.id}
+              columns={[
+                {
+                  key: 'item',
+                  header: 'Item',
+                  mobile: 'title',
+                  cell: (it) => (
+                    <>
+                      {it.item_name}
+                      {it.is_chemical && (
+                        <Badge variant="secondary" className="ml-2 text-[10px]">
+                          Chemical
+                        </Badge>
+                      )}
+                      {it.replacement_required && (
+                        <span className="block text-xs font-normal text-orange-600">Replacement requested</span>
+                      )}
+                      {Number(it.missing_quantity) > 0 && (
+                        <span className="block text-xs font-normal text-muted-foreground">
+                          Missing: {Number(it.missing_quantity)}
+                        </span>
+                      )}
+                    </>
+                  ),
+                },
+                {
+                  key: 'ordered',
+                  header: 'Ordered',
+                  className: 'text-right',
+                  cell: (it) => Number(it.ordered_quantity),
+                },
+                {
+                  key: 'invoiced',
+                  header: 'Invoiced',
+                  className: 'text-right',
+                  cell: (it) => (it.invoice_quantity != null ? Number(it.invoice_quantity) : '—'),
+                },
+                {
+                  key: 'received',
+                  header: 'Received',
+                  className: 'text-right',
+                  cell: (it) => Number(it.received_quantity),
+                },
+                {
+                  key: 'accepted',
+                  header: 'Accepted',
+                  className: 'text-right',
+                  cell: (it) => Number(it.accepted_quantity),
+                },
+                {
+                  key: 'rejected',
+                  header: 'Rejected',
+                  className: 'text-right',
+                  cell: (it) => Number(it.rejected_quantity),
+                },
+                {
+                  key: 'invoice_price',
+                  header: 'Invoice ₹',
+                  className: 'text-right text-xs',
+                  cell: (it) =>
+                    it.invoice_unit_price != null ? `₹${Number(it.invoice_unit_price).toLocaleString()}` : '—',
+                },
+                {
+                  key: 'batch',
+                  header: 'Batch / Expiry',
+                  className: 'text-xs',
+                  cell: (it) =>
+                    pending ? (
+                      <div className="space-y-1 min-w-[150px]">
+                        <Input
+                          className="h-10 text-xs md:h-7"
+                          placeholder="Batch no."
+                          value={effBatch(it)}
+                          onChange={(e) =>
+                            setEdits((p) => ({ ...p, [it.id]: { ...p[it.id], batch_number: e.target.value } }))
+                          }
+                          onBlur={(e) => saveField(it.id, 'batch_number', e.target.value, it.batch_number)}
+                        />
+                        <Input
+                          type="date"
+                          className="h-10 text-xs md:h-7"
+                          value={effExpiry(it)}
+                          onChange={(e) => {
+                            setEdits((p) => ({ ...p, [it.id]: { ...p[it.id], expiry_date: e.target.value } }));
+                            saveField(it.id, 'expiry_date', e.target.value, it.expiry_date);
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <>
+                        {it.batch_number || '—'}
+                        {it.expiry_date && (
+                          <span className="block text-muted-foreground">
+                            exp {formatDateDMY(it.expiry_date)}
                           </span>
                         )}
-                      </TableCell>
-                      <TableCell className="text-right">{Number(it.ordered_quantity)}</TableCell>
-                      <TableCell className="text-right">
-                        {it.invoice_quantity != null ? Number(it.invoice_quantity) : '—'}
-                      </TableCell>
-                      <TableCell className="text-right">{Number(it.received_quantity)}</TableCell>
-                      <TableCell className="text-right">{Number(it.accepted_quantity)}</TableCell>
-                      <TableCell className="text-right">{Number(it.rejected_quantity)}</TableCell>
-                      <TableCell className="text-right text-xs">
-                        {it.invoice_unit_price != null ? `₹${Number(it.invoice_unit_price).toLocaleString()}` : '—'}
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        {pending ? (
-                          <div className="space-y-1 min-w-[150px]">
-                            <Input
-                              className="h-7 text-xs"
-                              placeholder="Batch no."
-                              value={effBatch(it)}
-                              onChange={(e) =>
-                                setEdits((p) => ({ ...p, [it.id]: { ...p[it.id], batch_number: e.target.value } }))
-                              }
-                              onBlur={(e) => saveField(it.id, 'batch_number', e.target.value, it.batch_number)}
-                            />
-                            <Input
-                              type="date"
-                              className="h-7 text-xs"
-                              value={effExpiry(it)}
-                              onChange={(e) => {
-                                setEdits((p) => ({ ...p, [it.id]: { ...p[it.id], expiry_date: e.target.value } }));
-                                saveField(it.id, 'expiry_date', e.target.value, it.expiry_date);
-                              }}
-                            />
-                          </div>
-                        ) : (
-                          <>
-                            {it.batch_number || '—'}
-                            {it.expiry_date && (
-                              <span className="block text-muted-foreground">
-                                exp {formatDateDMY(it.expiry_date)}
-                              </span>
-                            )}
-                          </>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <StatusBadge status={it.match_status} config={GRN_MATCH_CONFIG} />
-                        {it.mismatch_remarks && (
-                          <span className="block text-[11px] text-muted-foreground max-w-[180px]">
-                            {it.mismatch_remarks}
-                          </span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                      </>
+                    ),
+                },
+                {
+                  key: 'match',
+                  header: 'Match',
+                  mobile: 'badge',
+                  cell: (it) => (
+                    <>
+                      <StatusBadge status={it.match_status} config={GRN_MATCH_CONFIG} />
+                      {it.mismatch_remarks && (
+                        <span className="block text-[11px] text-muted-foreground max-w-[180px]">
+                          {it.mismatch_remarks}
+                        </span>
+                      )}
+                    </>
+                  ),
+                },
+              ]}
+            />
           </CardContent>
         </Card>
 
@@ -364,42 +387,63 @@ export default function GrnDetailPage() {
             <CardHeader>
               <CardTitle className="text-base">Replacements</CardTitle>
             </CardHeader>
-            <CardContent className="p-0 overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Item</TableHead>
-                    <TableHead className="text-right">Rejected qty</TableHead>
-                    <TableHead>Reason</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {replacements.map((r) => (
-                    <TableRow key={r.id}>
-                      <TableCell className="font-medium">{r.grn_item?.item_name || '—'}</TableCell>
-                      <TableCell className="text-right">{Number(r.rejected_quantity)}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground max-w-[220px]">
-                        {r.reason || '—'}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={r.status === 'received' ? 'default' : 'outline'}>
-                          {r.status === 'received' ? 'Received' : 'Pending'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {r.status === 'pending' && canVerify && (
-                          <Button variant="outline" size="sm" onClick={() => openReceive(r)}>
-                            <PackagePlus className="mr-2 h-4 w-4" />
-                            Receive
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+            <CardContent className="p-0">
+              <ResponsiveList
+                rows={replacements}
+                getRowKey={(r) => r.id}
+                mobileFooter={(r) =>
+                  r.status === 'pending' && canVerify ? (
+                    <Button variant="outline" size="sm" className="h-10 sm:h-8" onClick={() => openReceive(r)}>
+                      <PackagePlus className="mr-2 h-4 w-4" />
+                      Receive
+                    </Button>
+                  ) : null
+                }
+                columns={[
+                  {
+                    key: 'item',
+                    header: 'Item',
+                    mobile: 'title',
+                    className: 'font-medium',
+                    cell: (r) => r.grn_item?.item_name || '—',
+                  },
+                  {
+                    key: 'status',
+                    header: 'Status',
+                    mobile: 'badge',
+                    cell: (r) => (
+                      <Badge variant={r.status === 'received' ? 'default' : 'outline'}>
+                        {r.status === 'received' ? 'Received' : 'Pending'}
+                      </Badge>
+                    ),
+                  },
+                  {
+                    key: 'rejected',
+                    header: 'Rejected qty',
+                    className: 'text-right',
+                    cell: (r) => Number(r.rejected_quantity),
+                  },
+                  {
+                    key: 'reason',
+                    header: 'Reason',
+                    className: 'text-xs text-muted-foreground max-w-[220px]',
+                    cell: (r) => r.reason || '—',
+                  },
+                  {
+                    key: 'action',
+                    header: 'Action',
+                    mobile: 'hidden',
+                    className: 'text-right',
+                    cell: (r) =>
+                      r.status === 'pending' && canVerify && (
+                        <Button variant="outline" size="sm" className="h-10 sm:h-8" onClick={() => openReceive(r)}>
+                          <PackagePlus className="mr-2 h-4 w-4" />
+                          Receive
+                        </Button>
+                      ),
+                  },
+                ]}
+              />
             </CardContent>
           </Card>
         )}

@@ -15,6 +15,7 @@ import {
 } from '@/hooks/procurement/use-quotations';
 import { useGeneratePOsFromRfq } from '@/hooks/procurement/use-purchase-orders';
 import { EmptyState } from '@/components/empty-state';
+import { PageHeader } from '@/components/procurement/page-header';
 import { AlertBox } from '@/components/ui/alert-box';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -105,35 +106,35 @@ export default function RfqQuotationsPage() {
   return (
     <ContentLayout title={`${rfq.rfq_number} — Quotations`}>
       <div className="space-y-4 sm:space-y-6">
-        <div className="flex flex-col gap-2 sm:gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2 sm:gap-3">
+        <PageHeader
+          back={
             <Button
               variant="ghost"
               size="sm"
+              className="h-10 sm:h-8"
               aria-label="Back to RFQ"
               onClick={() => router.push(`/procurement/rfqs/${rfqId}`)}
             >
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <div className="min-w-0">
-              <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Quotations</h2>
-              <p className="text-muted-foreground">
-                {rfq.rfq_number} · {quotations.length} vendor
-                {quotations.length === 1 ? '' : 's'} quoted · {awardedCount} of{' '}
-                {comparison.length} item{comparison.length === 1 ? '' : 's'} awarded
-              </p>
-            </div>
-          </div>
-          {canManage && (
-            <Button
-              className="shrink-0"
-              onClick={() => router.push(`/procurement/rfqs/${rfqId}/quotations/new`)}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Add Quotation
-            </Button>
-          )}
-        </div>
+          }
+          title="Quotations"
+          description={
+            <>
+              {rfq.rfq_number} · {quotations.length} vendor
+              {quotations.length === 1 ? '' : 's'} quoted · {awardedCount} of{' '}
+              {comparison.length} item{comparison.length === 1 ? '' : 's'} awarded
+            </>
+          }
+          actions={
+            canManage && (
+              <Button onClick={() => router.push(`/procurement/rfqs/${rfqId}/quotations/new`)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Add Quotation
+              </Button>
+            )
+          }
+        />
 
         {/* ── What came in ───────────────────────────────────────────────── */}
         <Card>
@@ -156,7 +157,7 @@ export default function RfqQuotationsPage() {
               <div className="space-y-2">
                 {quotations.map((q) => (
                   <div key={q.id} className="rounded-md border">
-                    <div className="flex items-center justify-between gap-2 px-3 py-2">
+                    <div className="flex flex-col gap-2 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium">{q.supplier?.name ?? q.supplier_id}</p>
                         <p className="truncate text-xs text-muted-foreground">
@@ -166,9 +167,9 @@ export default function RfqQuotationsPage() {
                           {q.payment_terms ? ` · ${q.payment_terms}` : ''}
                         </p>
                       </div>
-                      <div className="flex shrink-0 items-center gap-2">
+                      <div className="flex flex-wrap shrink-0 items-center gap-1 sm:gap-2">
                         {q.document_file_id ? (
-                          <Button variant="ghost" size="sm" onClick={() => togglePdf(q.id)}>
+                          <Button variant="ghost" size="sm" className="h-10 sm:h-8" onClick={() => togglePdf(q.id)}>
                             <FileText className="h-4 w-4 mr-1" />
                             {openPdfs[q.id] ? 'Hide PDF' : 'View PDF'}
                           </Button>
@@ -177,6 +178,7 @@ export default function RfqQuotationsPage() {
                             <Button
                               variant="ghost"
                               size="sm"
+                              className="h-10 sm:h-8"
                               aria-label={`Open quotation document — ${q.supplier?.name ?? q.supplier_id}`}
                             >
                               <FileText className="h-4 w-4" />
@@ -191,6 +193,7 @@ export default function RfqQuotationsPage() {
                             <Button
                               variant="ghost"
                               size="sm"
+                              className="h-10 w-10 sm:h-8 sm:w-8"
                               aria-label={`Open quotation document in a new tab — ${q.supplier?.name ?? q.supplier_id}`}
                             >
                               <ExternalLink className="h-4 w-4" />
@@ -201,6 +204,7 @@ export default function RfqQuotationsPage() {
                           <Button
                             variant="ghost"
                             size="sm"
+                            className="h-10 w-10 sm:h-8 sm:w-8"
                             aria-label={`Delete quotation — ${q.supplier?.name ?? q.supplier_id}`}
                             onClick={() => run(() => deleteQuotation.mutateAsync(q.id), 'Quotation removed')}
                           >
@@ -275,11 +279,11 @@ export default function RfqQuotationsPage() {
                   <table className="w-full min-w-[860px] text-sm">
                     <thead>
                       <tr className="border-b text-left text-xs text-muted-foreground">
-                        <th className="py-2 pr-3 font-medium">Vendor</th>
-                        <th className="py-2 pr-3 font-medium">Unit price</th>
-                        <th className="py-2 pr-3 font-medium">Qty offered</th>
-                        <th className="py-2 pr-3 font-medium">Line total</th>
-                        <th className="py-2 pr-3 font-medium">Delivery</th>
+                        <th className="sticky left-0 z-10 bg-background py-2 pr-3 font-medium">Vendor</th>
+                        <th className="whitespace-nowrap py-2 pr-3 font-medium">Unit price</th>
+                        <th className="whitespace-nowrap py-2 pr-3 font-medium">Qty offered</th>
+                        <th className="whitespace-nowrap py-2 pr-3 font-medium">Line total</th>
+                        <th className="whitespace-nowrap py-2 pr-3 font-medium">Delivery</th>
                         <th className="py-2 pr-3 font-medium">What they offered</th>
                         <th className="py-2 font-medium">Award</th>
                       </tr>
@@ -316,15 +320,15 @@ export default function RfqQuotationsPage() {
                               ]
                                 .filter(Boolean)
                                 .join(' · ');
+                              // Shared with the sticky vendor cell below so it stays opaque
+                              // without losing the award/lowest-price tint while scrolled.
+                              const rowBg = qt.awarded ? 'bg-green-500/10' : isLowest ? 'bg-blue-400/10' : 'bg-background';
                               return (
-                                <tr
-                                  key={qt.quotation_item_id}
-                                  className={`border-b ${
-                                    qt.awarded ? 'bg-green-500/10' : isLowest ? 'bg-blue-400/10' : ''
-                                  }`}
-                                >
-                                  <td className="py-2 pr-3 pl-1 font-medium">{qt.supplier_name}</td>
-                                  <td className="py-2 pr-3">
+                                <tr key={qt.quotation_item_id} className={`border-b ${rowBg}`}>
+                                  <td className={`sticky left-0 z-10 py-2 pr-3 pl-1 font-medium ${rowBg}`}>
+                                    {qt.supplier_name}
+                                  </td>
+                                  <td className="whitespace-nowrap py-2 pr-3">
                                     {isNotQuoted ? (
                                       <span className="italic text-muted-foreground">Not quoted</span>
                                     ) : (
@@ -338,15 +342,15 @@ export default function RfqQuotationsPage() {
                                       </>
                                     )}
                                   </td>
-                                  <td className="py-2 pr-3 text-muted-foreground">
+                                  <td className="whitespace-nowrap py-2 pr-3 text-muted-foreground">
                                     {isNotQuoted ? '—' : offeredQty}
                                   </td>
-                                  <td className="py-2 pr-3">
+                                  <td className="whitespace-nowrap py-2 pr-3">
                                     {isNotQuoted
                                       ? '—'
                                       : `₹${(Number(qt.unit_price) * Number(offeredQty)).toLocaleString()}`}
                                   </td>
-                                  <td className="py-2 pr-3 text-muted-foreground">
+                                  <td className="whitespace-nowrap py-2 pr-3 text-muted-foreground">
                                     {qt.delivery_time_days != null ? `${qt.delivery_time_days}d` : '—'}
                                   </td>
                                   <td className="py-2 pr-3 text-xs text-muted-foreground">
@@ -377,7 +381,7 @@ export default function RfqQuotationsPage() {
                                         <Button
                                           variant="ghost"
                                           size="sm"
-                                          className="h-6 px-2"
+                                          className="h-10 px-2 sm:h-8"
                                           onClick={() =>
                                             run(
                                               () =>

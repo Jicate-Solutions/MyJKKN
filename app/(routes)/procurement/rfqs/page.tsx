@@ -13,6 +13,8 @@ import {
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import { StatusBadge } from '@/components/procurement/status-badge';
+import { ResponsiveList } from '@/components/procurement/responsive-list';
+import { PageHeader, FilterBar } from '@/components/procurement/page-header';
 import { EmptyState } from '@/components/empty-state';
 import { AlertBox } from '@/components/ui/alert-box';
 import { formatDateDMY } from '@/lib/utils/date-format';
@@ -29,14 +31,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import {
   Dialog,
   DialogContent,
   DialogFooter,
@@ -47,6 +41,13 @@ import { Plus, Eye, Search } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
+
+/** `Keyboard, Mouse +2 more` — enough to recognise a request without flooding the dropdown. */
+function summariseItems(names: string[], shown = 2): string {
+  if (names.length === 0) return 'No items';
+  const head = names.slice(0, shown).join(', ');
+  return names.length > shown ? `${head} +${names.length - shown} more` : head;
+}
 
 export default function RfqsPage() {
   const router = useRouter();
@@ -89,24 +90,22 @@ export default function RfqsPage() {
   return (
     <ContentLayout title="RFQs">
       <div className="space-y-4 sm:space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Requests for Quotation</h2>
-            <p className="hidden text-muted-foreground sm:block">
-              Convert approved requests into RFQs and issue requirement lists to vendors.
-            </p>
-          </div>
-          {canManage && (
-            <Button onClick={() => setCreateOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              New RFQ
-            </Button>
-          )}
-        </div>
+        <PageHeader
+          title="Requests for Quotation"
+          description="Convert approved requests into RFQs and issue requirement lists to vendors."
+          actions={
+            canManage && (
+              <Button onClick={() => setCreateOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                New RFQ
+              </Button>
+            )
+          }
+        />
 
         <Card>
-          <CardContent className="pt-6">
-            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+          <CardContent className="p-4 sm:p-6">
+            <FilterBar>
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -135,7 +134,7 @@ export default function RfqsPage() {
                 label={null}
                 className="w-full sm:w-[200px]"
               />
-            </div>
+            </FilterBar>
           </CardContent>
         </Card>
 
@@ -155,43 +154,54 @@ export default function RfqsPage() {
                 description="Create an RFQ from an approved request to get started."
               />
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>RFQ #</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Source Request</TableHead>
-                    <TableHead>Items</TableHead>
-                    <TableHead>Vendors</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rfqs.map((rfq) => (
-                    <TableRow key={rfq.id}>
-                      <TableCell className="font-medium">{rfq.rfq_number}</TableCell>
-                      <TableCell>{formatDateDMY(rfq.created_at)}</TableCell>
-                      <TableCell>{rfq.source_request?.request_number || '-'}</TableCell>
-                      <TableCell>{rfq.item_count ?? '-'}</TableCell>
-                      <TableCell>{rfq.vendor_count ?? '-'}</TableCell>
-                      <TableCell>
-                        <StatusBadge status={rfq.status} config={RFQ_STATUS_CONFIG} />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          aria-label={`View RFQ ${rfq.rfq_number}`}
-                          onClick={() => router.push(`/procurement/rfqs/${rfq.id}`)}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <ResponsiveList
+                rows={rfqs}
+                getRowKey={(rfq) => rfq.id}
+                onRowClick={(rfq) => router.push(`/procurement/rfqs/${rfq.id}`)}
+                rowLabel={(rfq) => `View RFQ ${rfq.rfq_number}`}
+                columns={[
+                  {
+                    key: 'rfq',
+                    header: 'RFQ #',
+                    mobile: 'title',
+                    className: 'font-medium',
+                    cell: (rfq) => rfq.rfq_number,
+                  },
+                  { key: 'date', header: 'Date', cell: (rfq) => formatDateDMY(rfq.created_at) },
+                  {
+                    key: 'source',
+                    header: 'Source Request',
+                    cell: (rfq) => rfq.source_request?.request_number || '-',
+                  },
+                  { key: 'items', header: 'Items', cell: (rfq) => rfq.item_count ?? '-' },
+                  { key: 'vendors', header: 'Vendors', cell: (rfq) => rfq.vendor_count ?? '-' },
+                  {
+                    key: 'status',
+                    header: 'Status',
+                    mobile: 'badge',
+                    cell: (rfq) => <StatusBadge status={rfq.status} config={RFQ_STATUS_CONFIG} />,
+                  },
+                  {
+                    key: 'actions',
+                    header: 'Actions',
+                    mobile: 'hidden',
+                    className: 'text-right',
+                    cell: (rfq) => (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label={`View RFQ ${rfq.rfq_number}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          router.push(`/procurement/rfqs/${rfq.id}`);
+                        }}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    ),
+                  },
+                ]}
+              />
             )}
           </CardContent>
         </Card>
@@ -228,8 +238,9 @@ export default function RfqsPage() {
                   </div>
                 ) : (
                   approvedPRs.map((pr) => (
-                    <SelectItem key={pr.id} value={pr.id}>
-                      {pr.request_number}
+                    <SelectItem key={pr.id} value={pr.id} textValue={pr.request_number}>
+                      <span className="font-medium">{pr.request_number}</span>
+                      <span className="text-muted-foreground"> · {summariseItems(pr.item_names)}</span>
                     </SelectItem>
                   ))
                 )}

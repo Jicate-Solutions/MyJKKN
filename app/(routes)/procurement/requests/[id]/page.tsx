@@ -15,6 +15,11 @@ import {
 } from '@/hooks/procurement/use-purchase-requests';
 import { PR_STATUS_CONFIG } from '@/types/procurement';
 import { StatusBadge } from '@/components/procurement/status-badge';
+import {
+  DocumentHeader,
+  type DocAction,
+  type DocPrimaryAction,
+} from '@/components/procurement/document-header';
 import { formatDateDMY } from '@/lib/utils/date-format';
 import { AlertBox } from '@/components/ui/alert-box';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -37,7 +42,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { ArrowLeft, Send, Check, X, Pencil } from 'lucide-react';
+import { Send, Check, X, Pencil, Ban } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
@@ -113,133 +118,102 @@ export default function PurchaseRequestDetailPage() {
     }
   };
 
+  const startQtyEdit = () => {
+    setQtyEdits(
+      Object.fromEntries(pr.items.map((it) => [it.id, String(Number(it.required_quantity))]))
+    );
+    setEditingQty(true);
+  };
+  const saveAndApprove = () =>
+    run(async () => {
+      const itemUpdates = pr.items
+        .filter((it) => Number(qtyEdits[it.id]) !== Number(it.required_quantity))
+        .map((it) => ({ itemId: it.id, required_quantity: Number(qtyEdits[it.id]) }));
+      await approveWithMods.mutateAsync({ id, userId: profile!.id, itemUpdates });
+      setEditingQty(false);
+    }, 'Request approved with updated quantities');
+
+  const canDecide = !editingQty && pr.status === 'submitted' && canApprove;
+  const canCancel = !editingQty && (pr.status === 'draft' || pr.status === 'submitted') && isOwner;
+
+  let primary: DocPrimaryAction | null = null;
+  if (editingQty) {
+    primary = {
+      key: 'save-approve',
+      label: 'Save & Approve',
+      icon: Check,
+      disabled: pr.items.some((it) => !(Number(qtyEdits[it.id]) > 0)),
+      onClick: saveAndApprove,
+    };
+  } else if (canDecide) {
+    primary = {
+      key: 'approve',
+      label: 'Approve',
+      icon: Check,
+      onClick: () => run(() => approvePR.mutateAsync({ id, userId: profile!.id }), 'Request approved'),
+      menu: [
+        {
+          key: 'modify',
+          label: 'Approve with changes…',
+          hint: 'Edit quantities, then approve',
+          icon: Pencil,
+          onClick: startQtyEdit,
+        },
+      ],
+    };
+  } else if (pr.status === 'draft' && isOwner) {
+    primary = {
+      key: 'submit',
+      label: 'Submit for approval',
+      icon: Send,
+      onClick: () => run(() => submitPR.mutateAsync(id), 'Submitted for approval'),
+    };
+  }
+
+  const reject: DocAction | null = canDecide
+    ? { key: 'reject', label: 'Reject', icon: X, onClick: () => setRejectOpen(true) }
+    : null;
+
+  const actions: DocAction[] = [];
+  if (editingQty) {
+    actions.push({ key: 'discard', label: 'Discard changes', onClick: () => setEditingQty(false) });
+  }
+  if (canCancel) {
+    actions.push({
+      key: 'cancel',
+      label: 'Cancel request',
+      icon: Ban,
+      destructive: true,
+      confirm: {
+        title: `Cancel ${pr.request_number}?`,
+        description: 'The request stops here and cannot be reopened.',
+        confirmLabel: 'Cancel request',
+      },
+      onClick: () => run(() => cancelPR.mutateAsync(id), 'Request cancelled'),
+    });
+  }
+
   return (
     <ContentLayout title={pr.request_number}>
-      <div className="space-y-4 sm:space-y-6 max-w-5xl">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label="Back to requests"
-              onClick={() => router.push('/procurement/requests')}
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <div className="min-w-0">
-              <h2 className="text-xl sm:text-2xl font-bold tracking-tight truncate">{pr.request_number}</h2>
-              <p className="text-muted-foreground break-words">
-                <span className="capitalize">{pr.request_type.replace('_', ' ')}</span>
-                {' · requested by '}
-                {pr.requested_by_profile?.full_name || '—'}
-                {pr.created_at ? ` · raised ${formatDateDMY(pr.created_at)}` : ''}
-              </p>
-            </div>
-          </div>
-          <StatusBadge
-            status={pr.status}
-            config={PR_STATUS_CONFIG}
-            className="self-start shrink-0 text-sm sm:self-auto"
-          />
-        </div>
-
-        {statusHint && (
-          <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-            {statusHint}
-          </p>
-        )}
-
-        {/* Actions — affirmative on the left, declining or abandoning on the right,
-            so Reject never sits shoulder-to-shoulder with Approve. */}
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-            {pr.status === 'draft' && isOwner && (
-              <Button className="w-full sm:w-auto" onClick={() => run(() => submitPR.mutateAsync(id), 'Submitted for approval')}>
-                <Send className="mr-2 h-4 w-4" />
-                Submit for approval
-              </Button>
-            )}
-            {editingQty && (
-              <Button
-                className="w-full sm:w-auto"
-                disabled={pr.items.some((it) => !(Number(qtyEdits[it.id]) > 0))}
-                onClick={() =>
-                  run(async () => {
-                    const itemUpdates = pr.items
-                      .filter((it) => Number(qtyEdits[it.id]) !== Number(it.required_quantity))
-                      .map((it) => ({ itemId: it.id, required_quantity: Number(qtyEdits[it.id]) }));
-                    await approveWithMods.mutateAsync({ id, userId: profile!.id, itemUpdates });
-                    setEditingQty(false);
-                  }, 'Request approved with updated quantities')
-                }
-              >
-                <Check className="mr-2 h-4 w-4" />
-                Save &amp; Approve
-              </Button>
-            )}
-            {!editingQty && pr.status === 'submitted' && canApprove && (
-              <>
-                <Button
-                  className="w-full sm:w-auto"
-                  onClick={() =>
-                    run(() => approvePR.mutateAsync({ id, userId: profile!.id }), 'Request approved')
-                  }
-                >
-                  <Check className="mr-2 h-4 w-4" />
-                  Approve
-                </Button>
-                <Button
-                  variant="outline"
-                  className="w-full sm:w-auto"
-                  onClick={() => {
-                    setQtyEdits(
-                      Object.fromEntries(
-                        pr.items.map((it) => [it.id, String(Number(it.required_quantity))])
-                      )
-                    );
-                    setEditingQty(true);
-                  }}
-                >
-                  <Pencil className="mr-2 h-4 w-4" />
-                  Modify &amp; Approve
-                </Button>
-              </>
-            )}
-          </div>
-
-          <div className="flex flex-col gap-2 sm:ml-auto sm:flex-row sm:flex-wrap sm:items-center">
-            {editingQty && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="self-start text-muted-foreground sm:self-auto"
-                onClick={() => setEditingQty(false)}
-              >
-                Cancel edit
-              </Button>
-            )}
-            {!editingQty && pr.status === 'submitted' && canApprove && (
-              <Button
-                variant="outline"
-                className="w-full text-destructive hover:text-destructive sm:w-auto"
-                onClick={() => setRejectOpen(true)}
-              >
-                <X className="mr-2 h-4 w-4" />
-                Reject
-              </Button>
-            )}
-            {(pr.status === 'draft' || pr.status === 'submitted') && isOwner && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="self-start text-muted-foreground sm:self-auto"
-                onClick={() => run(() => cancelPR.mutateAsync(id), 'Request cancelled')}
-              >
-                Cancel request
-              </Button>
-            )}
-          </div>
-        </div>
+      <div className="space-y-4 sm:space-y-6">
+        <DocumentHeader
+          onBack={() => router.push('/procurement/requests')}
+          backLabel="Back to requests"
+          title={pr.request_number}
+          status={<StatusBadge status={pr.status} config={PR_STATUS_CONFIG} />}
+          next={
+            <>
+              {statusHint && <span className="font-medium text-foreground">{statusHint} </span>}
+              <span className="capitalize">{pr.request_type.replace('_', ' ')}</span>
+              {' · requested by '}
+              {pr.requested_by_profile?.full_name || '—'}
+              {pr.created_at ? ` · raised ${formatDateDMY(pr.created_at)}` : ''}
+            </>
+          }
+          primary={primary}
+          reject={reject}
+          actions={actions}
+        />
 
         {pr.status === 'rejected' && pr.rejection_reason && (
           <Card className="border-destructive/40">
@@ -264,10 +238,10 @@ export default function PurchaseRequestDetailPage() {
         )}
 
         <Card>
-          <CardHeader>
+          <CardHeader className="p-4 pb-2 sm:px-6 sm:pt-6">
             <CardTitle className="text-base">Items ({pr.items.length})</CardTitle>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="p-0 [&_td:first-child]:pl-4 [&_td:last-child]:pr-4 [&_th:first-child]:pl-4 [&_th:last-child]:pr-4 sm:[&_td:first-child]:pl-6 sm:[&_td:last-child]:pr-6 sm:[&_th:first-child]:pl-6 sm:[&_th:last-child]:pr-6 [&_th]:whitespace-nowrap">
             <Table>
               <TableHeader>
                 <TableRow>

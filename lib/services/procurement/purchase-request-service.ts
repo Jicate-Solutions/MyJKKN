@@ -100,7 +100,8 @@ export class ProcurementPurchaseRequestService {
   }
 
   /**
-   * Create a PR (header + items) in 'draft'. Each line independently is either a
+   * Create a PR (header + items) and send it straight to 'submitted' — raising a
+   * request IS asking for approval, so there is no separate submit step. Each line independently is either a
    * restock (domain_item_id set) or a new item (domain_item_id null) — a single PR
    * can freely mix both, e.g. several Chemicals lines where some are catalogued and
    * some aren't. New-item lines MUST carry a reason (PRD step 1 mandatory field),
@@ -164,7 +165,9 @@ export class ProcurementPurchaseRequestService {
         .insert(itemRows);
       if (itemsError) throw itemsError;
 
-      return header as ProcurementPurchaseRequest;
+      // Inserted as draft first so approvers never see a submitted header without its
+      // lines; flipped only once the items are in.
+      return await this.submitPurchaseRequest(header.id);
     } catch (error) {
       console.error('[ProcurementPurchaseRequestService] createPurchaseRequest:', error);
       throw error;

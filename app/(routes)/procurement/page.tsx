@@ -6,6 +6,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { AlertBox } from '@/components/ui/alert-box';
+import { PageHeader } from '@/components/procurement/page-header';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { usePurchaseRequests } from '@/hooks/procurement/use-purchase-requests';
@@ -133,20 +134,18 @@ export default function ProcurementHome() {
   return (
     <ContentLayout title="Procurement">
       <div className="space-y-6 sm:space-y-8">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between sm:gap-3">
-          <div>
-            <h2 className="text-xl font-bold tracking-tight sm:text-2xl">Procurement</h2>
-            <p className="hidden text-muted-foreground sm:block">
-              Purchase requests through to goods on the shelf.
-            </p>
-          </div>
-          {canCreateRequest && (
-            <Button className="shrink-0" onClick={() => router.push('/procurement/requests/new')}>
-              <Plus className="mr-2 h-4 w-4" />
-              New request
-            </Button>
-          )}
-        </div>
+        <PageHeader
+          title="Procurement"
+          description="Purchase requests through to goods on the shelf."
+          actions={
+            canCreateRequest && (
+              <Button onClick={() => router.push('/procurement/requests/new')}>
+                <Plus className="mr-2 h-4 w-4" />
+                New request
+              </Button>
+            )
+          }
+        />
 
         {failed && (
           <AlertBox
@@ -167,7 +166,7 @@ export default function ProcurementHome() {
               aria-hidden
               className="pointer-events-none absolute left-[12.5%] right-[12.5%] top-4 hidden h-px bg-border lg:block"
             />
-            <div className="grid gap-3 sm:gap-4 lg:grid-cols-4 lg:gap-0">
+            <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4 lg:gap-0">
               {gates.map((gate) => {
                 const needsYou = gate.mine && gate.count > 0;
                 return (
