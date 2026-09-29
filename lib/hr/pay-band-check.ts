@@ -211,6 +211,26 @@ function unknown(
 }
 
 // ---------------------------------------------------------------------------
+// Which rungs count
+// ---------------------------------------------------------------------------
+
+/**
+ * The rungs of a band that can actually be compared against: a job title that
+ * is not blank and an amount that is a real figure above zero.
+ *
+ * ONE DEFINITION, USED TWICE. checkPayBand decides a person's verdict from it,
+ * and the server decides whether a college "has a band" from it. Two separate
+ * filters are how a college came to read "has band" in the By-college table
+ * while every person in it read "College has no pay band".
+ */
+export function usablePayBandRungs(policy: PayBandPolicy | null): PayBandRung[] {
+  if (!policy) return [];
+  return (policy.rungs ?? []).filter(
+    (r) => normaliseTitle(r?.designation) !== '' && usableAmount(r?.basicPay) !== null
+  );
+}
+
+// ---------------------------------------------------------------------------
 // The check
 // ---------------------------------------------------------------------------
 
@@ -234,9 +254,7 @@ export function checkPayBand(
   //    record is also incomplete.
   if (!policy) return unknown('no_band_configured');
 
-  const usableRungs = (policy.rungs ?? []).filter(
-    (r) => normaliseTitle(r?.designation) !== '' && usableAmount(r?.basicPay) !== null
-  );
+  const usableRungs = usablePayBandRungs(policy);
   if (usableRungs.length === 0) return unknown('no_band_configured');
 
   // 2. The person's job title — without it no rung can be chosen.

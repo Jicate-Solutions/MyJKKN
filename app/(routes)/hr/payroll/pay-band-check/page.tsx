@@ -12,11 +12,18 @@
  * figure, and no recommendation. Under the Director's ruling of 18 September
  * 2026 the band is reference material and a pay change is a separate decision.
  *
- * SUPER ADMIN AND HR HEAD ONLY, on hr.payroll.salary.view — the same key as
- * Employee Salaries and TDS Bands, and no new key. The denial is enforced in
- * Postgres: hr_staff_salary_directory() RAISES insufficient_privilege without
- * that key, so the check below only decides what to SAY to someone who reaches
- * the URL. It is not what stops them reading the data.
+ * GATED ON hr.payroll.salary.view — the same key as Employee Salaries and TDS
+ * Bands, and no new key. The page reads two things and they are protected in
+ * two different places:
+ *   - THE PAY comes from hr_staff_salary_directory(), which RAISES
+ *     insufficient_privilege in Postgres without that key.
+ *   - THE BANDS come from GET /api/hr/payroll/pay-bands, which checks the key
+ *     on the server. Postgres does NOT protect them: platform_policies' SELECT
+ *     policy is `auth.uid() IS NOT NULL`, so the route's check is the only gate,
+ *     and this page must never query the table from the browser.
+ * The canView check below decides what to SAY to someone who reaches the URL,
+ * and stops the band request from being made at all. It is not what stops them
+ * reading the data.
  *
  * THE SCOPE IS THE WORK COLLEGE, NOT THE PAYER. A band is an institution
  * policy, and the only institution on a salary row is staff.institution_id —
@@ -255,7 +262,7 @@ export default function PayBandCheckPage() {
     error: policyError,
     refetch: refetchPolicies,
     isFetching: policyFetching,
-  } = usePayBandPolicies();
+  } = usePayBandPolicies({ enabled: canView });
 
   const [tab, setTab] = useState('below');
 
@@ -336,11 +343,12 @@ export default function PayBandCheckPage() {
     };
   }, [checked, perCollege]);
 
-  const isLoading = staffLoading || policyLoading;
+  const isLoading = permsLoading || staffLoading || policyLoading;
   const isFetching = staffFetching || policyFetching;
   const error = staffError ?? policyError;
 
-  // Denial is enforced by the RPC; this only explains it. Never a silent
+  // Denial is enforced by the salary RPC and the bands route; this only
+  // explains it. Never a silent
   // redirect — somebody who lands here must be told why the page is empty.
   if (!permsLoading && !canView) {
     return (
