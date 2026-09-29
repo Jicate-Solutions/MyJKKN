@@ -478,12 +478,12 @@ export default function RfqQuotationsPage() {
                               )}
                               <Button
                                 size="sm"
-                                className="h-8 w-full"
+                                className="h-7 px-2.5 text-xs"
                                 title="One purchase order per vendor is created when the Super Admin approves"
                                 disabled={chosenCount === 0 || submitAward.isPending}
                                 onClick={() => run(() => submitAward.mutateAsync(rfqId), 'Sent to Super Admin for approval')}
                               >
-                                <Send className="mr-1.5 h-3.5 w-3.5" />
+                                <Send className="mr-1 h-3 w-3" />
                                 {submitAward.isPending ? 'Sending…' : 'Send for approval'}
                               </Button>
                             </div>
