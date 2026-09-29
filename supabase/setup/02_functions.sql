@@ -72817,20 +72817,7 @@ AS $$
   SELECT p_profile IS NOT NULL AND (
     EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = p_profile AND p.is_super_admin = true)
     OR COALESCE(public.is_admin(p_profile), false)
-    OR EXISTS (
-      SELECT 1
-      FROM public.user_roles ur
-      JOIN public.custom_roles cr ON cr.id = ur.role_id
-      WHERE ur.user_id = p_profile
-        AND COALESCE(cr.permissions ->> 'hr.performance_reviews.manage', 'false') = 'true'
-    )
-    OR EXISTS (
-      SELECT 1
-      FROM public.profiles p
-      JOIN public.custom_roles cr ON cr.role_key = p.role
-      WHERE p.id = p_profile
-        AND COALESCE(cr.permissions ->> 'hr.performance_reviews.manage', 'false') = 'true'
-    )
+    OR COALESCE(public.user_has_permission(p_profile, 'hr.performance_reviews.manage'), false)
   );
 $$;
 
@@ -72967,6 +72954,15 @@ BEGIN
   IF v_uid IS NOT NULL AND v_uid = OLD.rater_id THEN
     IF NEW.rater_id IS DISTINCT FROM OLD.rater_id THEN
       RAISE EXCEPTION 'hr_second_rating: you cannot hand the second rating to someone else'
+        USING ERRCODE = 'check_violation';
+    END IF;
+
+    -- Given the appraisal key (or made an admin) AFTER being asked: this
+    -- rater can now read the head's rating, so the rating is no longer blind.
+    -- Refuse every edit and the submit; HR has to ask someone else. save() is
+    -- a plain update, so this trigger is the only gate.
+    IF public.fn_hr_profile_can_read_appraisals(v_uid) THEN
+      RAISE EXCEPTION 'hr_second_rating: you can now read appraisals, so this second rating is no longer blind — ask HR to ask someone else'
         USING ERRCODE = 'check_violation';
     END IF;
 

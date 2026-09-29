@@ -11269,4 +11269,12 @@ CREATE POLICY "hr_performance_reviews_select_appraisal_hr"
         AND s.institution_id IS NOT NULL
         AND role_has_institution_access(s.institution_id)
     )
+    -- Never a row the reader is still rating blind (a key granted after they
+    -- were asked). Once they submit, the row is readable again.
+    AND NOT EXISTS (
+      SELECT 1 FROM public.hr_performance_review_second_ratings r
+      WHERE r.review_id = hr_performance_reviews.id
+        AND r.rater_id = (SELECT auth.uid())
+        AND r.submitted_at IS NULL
+    )
   );

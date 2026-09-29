@@ -428,13 +428,12 @@ CREATE POLICY "hr_perf_second_ratings_delete"
 -- judged for the RATER's identity, not the caller's (that also stops HR
 -- assigning itself).
 --
--- user_has_permission() / is_super_admin() only answer for auth.uid(), so this
--- helper checks a GIVEN profile: the super-admin flag, is_admin(profile), and
--- the manage key on any of their roles (user_roles, then the legacy
--- profiles.role -> custom_roles.role_key mapping) — the same two paths
--- user_has_permission() walks. Handover is not consulted: the key is walled
--- from handover. Owner-only: called from the guard and the evidence function,
--- which run as definer; no signed-in user can call it directly.
+-- is_super_admin() and the one-argument user_has_permission() only answer for
+-- auth.uid(), so this helper checks a GIVEN profile: the super-admin flag,
+-- is_admin(profile), and the two-argument user_has_permission(profile, key)
+-- that already exists on main (20260927020000; roles, legacy role mapping,
+-- handover) rather than a copy of it. Owner-only: called from the guard and
+-- the evidence function, which run as definer; no signed-in user can call it.
 CREATE OR REPLACE FUNCTION public.fn_hr_profile_can_read_appraisals(p_profile uuid)
 RETURNS boolean
 LANGUAGE sql
@@ -445,20 +444,7 @@ AS $$
   SELECT p_profile IS NOT NULL AND (
     EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = p_profile AND p.is_super_admin = true)
     OR COALESCE(public.is_admin(p_profile), false)
-    OR EXISTS (
-      SELECT 1
-      FROM public.user_roles ur
-      JOIN public.custom_roles cr ON cr.id = ur.role_id
-      WHERE ur.user_id = p_profile
-        AND COALESCE(cr.permissions ->> 'hr.performance_reviews.manage', 'false') = 'true'
-    )
-    OR EXISTS (
-      SELECT 1
-      FROM public.profiles p
-      JOIN public.custom_roles cr ON cr.role_key = p.role
-      WHERE p.id = p_profile
-        AND COALESCE(cr.permissions ->> 'hr.performance_reviews.manage', 'false') = 'true'
-    )
+    OR COALESCE(public.user_has_permission(p_profile, 'hr.performance_reviews.manage'), false)
   );
 $$;
 
@@ -598,6 +584,15 @@ BEGIN
   IF v_uid IS NOT NULL AND v_uid = OLD.rater_id THEN
     IF NEW.rater_id IS DISTINCT FROM OLD.rater_id THEN
       RAISE EXCEPTION 'hr_second_rating: you cannot hand the second rating to someone else'
+        USING ERRCODE = 'check_violation';
+    END IF;
+
+    -- Given the appraisal key (or made an admin) AFTER being asked: this
+    -- rater can now read the head's rating, so the rating is no longer blind.
+    -- Refuse every edit and the submit; HR has to ask someone else. save() is
+    -- a plain update, so this trigger is the only gate.
+    IF public.fn_hr_profile_can_read_appraisals(v_uid) THEN
+      RAISE EXCEPTION 'hr_second_rating: you can now read appraisals, so this second rating is no longer blind — ask HR to ask someone else'
         USING ERRCODE = 'check_violation';
     END IF;
 
@@ -799,5 +794,13 @@ CREATE POLICY "hr_performance_reviews_select_appraisal_hr"
       WHERE s.id = hr_performance_reviews.staff_id
         AND s.institution_id IS NOT NULL
         AND role_has_institution_access(s.institution_id)
+    )
+    -- Never a row the reader is still rating blind (a key granted after they
+    -- were asked). Once they submit, the row is readable again.
+    AND NOT EXISTS (
+      SELECT 1 FROM public.hr_performance_review_second_ratings r
+      WHERE r.review_id = hr_performance_reviews.id
+        AND r.rater_id = (SELECT auth.uid())
+        AND r.submitted_at IS NULL
     )
   );

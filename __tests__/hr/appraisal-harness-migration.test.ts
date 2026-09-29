@@ -255,12 +255,27 @@ describe('nobody who can read appraisals may be a second rater (review round 2)'
   const g = fnBody(NEW, 'fn_hr_second_rating_guard');
   const e = fnBody(NEW, 'fn_hr_second_rating_evidence');
 
-  it('judges the GIVEN profile, not the caller', () => {
+  it('judges the GIVEN profile, not the caller, reusing the two-argument user_has_permission', () => {
     expect(helper).not.toContain('auth.uid()');
     expect(helper).toContain('p.is_super_admin = true');
     expect(helper).toContain('public.is_admin(p_profile)');
-    expect(helper).toContain("cr.permissions ->> 'hr.performance_reviews.manage'");
-    expect(helper).toContain('JOIN public.custom_roles cr ON cr.role_key = p.role');
+    expect(helper).toContain("public.user_has_permission(p_profile, 'hr.performance_reviews.manage')");
+    expect(helper).not.toContain('custom_roles');
+  });
+
+  it('the rater is re-checked on every edit and on submit (a key granted after being asked)', () => {
+    const rater = g.slice(g.indexOf('IF v_uid IS NOT NULL AND v_uid = OLD.rater_id THEN'));
+    expect(rater.indexOf('fn_hr_profile_can_read_appraisals(v_uid)')).toBeGreaterThan(-1);
+    expect(rater.indexOf('fn_hr_profile_can_read_appraisals(v_uid)')).toBeLessThan(
+      rater.indexOf('IF NEW.submitted_at IS NOT NULL THEN'),
+    );
+  });
+
+  it('HR never reads a row it is still rating blind', () => {
+    const pol = NEW.slice(NEW.indexOf('CREATE POLICY "hr_performance_reviews_select_appraisal_hr"'));
+    expect(pol.replace(/\s+/g, ' ')).toContain(
+      'AND NOT EXISTS ( SELECT 1 FROM public.hr_performance_review_second_ratings r WHERE r.review_id = hr_performance_reviews.id AND r.rater_id = (SELECT auth.uid()) AND r.submitted_at IS NULL )',
+    );
   });
 
   it('is owner-only', () => {

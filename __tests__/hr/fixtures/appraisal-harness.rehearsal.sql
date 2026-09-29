@@ -13,7 +13,9 @@
 --   B. the second-rating guard (who may be asked, who may write what, and
 --      that a submitted rating is frozen)
 --   E. nobody who can read appraisals (the appraisal key, an admin, a super
---      admin — including HR assigning itself) may be the second rater
+--      admin — including HR assigning itself) may be the second rater; a
+--      rater given the key after being asked can neither read the row nor
+--      edit or submit until the key is removed again
 --   D. same college only: a rater from another college can be neither asked
 --      nor reassigned to, and cannot read the evidence even if a request
 --      were planted with the guard switched off
@@ -478,6 +480,56 @@ BEGIN
     v_refused := v_refused + 1;
     RAISE NOTICE 'REFUSED (17): first head writing the second rating';
   END;
+
+  -- ── The key granted MID-WAY, after being asked and before submitting ────
+  PERFORM set_config('role', v_me, true);
+  INSERT INTO public.user_roles (user_id, role_id) VALUES (v_rater, v_role);
+  PERFORM set_config('request.jwt.claim.sub', v_rater::text, true);
+
+  -- 29. They cannot read the head's rating through the appraisal table.
+  PERFORM set_config('role', 'authenticated', true);
+  v_expected := v_expected + 1;
+  SELECT count(*) INTO v_n FROM public.hr_performance_reviews WHERE id = v_review;
+  IF v_n = 0 THEN
+    v_refused := v_refused + 1;
+    RAISE NOTICE 'REFUSED (29): a rater given the key mid-way cannot read the appraisal they are rating';
+  ELSE
+    RAISE WARNING 'HOLE (29): a rater given the key mid-way read the head''s rating through the table';
+  END IF;
+  PERFORM set_config('role', v_me, true);
+
+  -- 30. They cannot submit.
+  v_expected := v_expected + 1;
+  BEGIN
+    UPDATE public.hr_performance_review_second_ratings
+       SET rating_jsonb = c_below_ok, submitted_at = now()
+     WHERE id = v_second;
+    RAISE WARNING 'HOLE (30): a rater given the key mid-way submitted';
+  EXCEPTION WHEN check_violation THEN
+    IF SQLERRM LIKE '%no longer blind%' THEN
+      v_refused := v_refused + 1;
+      RAISE NOTICE 'REFUSED (30): submit by a rater given the key mid-way';
+    ELSE
+      RAISE WARNING 'HOLE (30): refused, but for another reason: %', SQLERRM;
+    END IF;
+  END;
+
+  -- 31. Nor edit the draft.
+  v_expected := v_expected + 1;
+  BEGIN
+    UPDATE public.hr_performance_review_second_ratings SET rating_jsonb = c_all_meets WHERE id = v_second;
+    RAISE WARNING 'HOLE (31): a rater given the key mid-way edited the rating';
+  EXCEPTION WHEN check_violation THEN
+    IF SQLERRM LIKE '%no longer blind%' THEN
+      v_refused := v_refused + 1;
+      RAISE NOTICE 'REFUSED (31): edit by a rater given the key mid-way';
+    ELSE
+      RAISE WARNING 'HOLE (31): refused, but for another reason: %', SQLERRM;
+    END IF;
+  END;
+
+  -- Key removed again: the submit below must succeed.
+  DELETE FROM public.user_roles WHERE user_id = v_rater AND role_id = v_role;
 
   -- The rater submits properly (must succeed).
   PERFORM set_config('request.jwt.claim.sub', v_rater::text, true);
