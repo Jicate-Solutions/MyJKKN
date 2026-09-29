@@ -82,6 +82,9 @@ export interface PolicyEditorShellProps<V> {
   ) => React.ReactNode;
   // Parser: hardens a freshly-loaded JSONB value into the typed shape.
   parseValue: (raw: unknown) => V;
+  // Optional: tidies the working value just before it is written, so the
+  // saved row and its audit entry carry the same cleaned value.
+  prepareForSave?: (value: V) => V;
 }
 
 // Raw row shape including W3-M0 columns (classification, draft_value,
@@ -106,7 +109,8 @@ interface RawPolicyPolicy {
 // ---------------------------------------------------------------------------
 
 export function PolicyEditorShell<V>(props: PolicyEditorShellProps<V>) {
-  const { policyKey, pageTitle, pageBlurb, defaultValue, renderEditor, parseValue } = props;
+  const { policyKey, pageTitle, pageBlurb, defaultValue, renderEditor, parseValue, prepareForSave } =
+    props;
   const { isSuperAdmin, userProfile } = usePermissions();
   // CAO (admin role) may edit rows where classification='operational';
   // super_admin (Director) may edit any classification. Use legacy
@@ -230,7 +234,8 @@ export function PolicyEditorShell<V>(props: PolicyEditorShellProps<V>) {
   }
 
   async function persistDraft({ publish }: { publish: boolean }) {
-    if (!row || !dirty) return;
+    if (!row || draftValue === null) return;
+    const toSave = prepareForSave ? prepareForSave(draftValue) : draftValue;
     setSaving(true);
     try {
       const supabase = createClientSupabaseClient();
@@ -244,12 +249,12 @@ export function PolicyEditorShell<V>(props: PolicyEditorShellProps<V>) {
       };
       if (publish) {
         // Publish: copy draft → value, clear draft, mark published.
-        updatePayload.value = draftValue;
+        updatePayload.value = toSave;
         updatePayload.draft_value = null;
         updatePayload.publication_state = 'published';
       } else {
         // Save Draft: stash in draft_value, mark pending if value already exists.
-        updatePayload.draft_value = draftValue;
+        updatePayload.draft_value = toSave;
         updatePayload.publication_state = 'draft_pending';
       }
 
@@ -280,7 +285,7 @@ export function PolicyEditorShell<V>(props: PolicyEditorShellProps<V>) {
           scope_id: row.scope_id,
           action: publish ? 'publish' : 'edit_draft',
           old_value: row.value as unknown,
-          new_value: draftValue as unknown,
+          new_value: toSave as unknown,
           reason: reason.trim(),
           edited_by: user?.id ?? null,
         });

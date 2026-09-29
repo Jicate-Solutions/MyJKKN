@@ -23,6 +23,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { RatingBadge, RatingPicker } from '@/features/hr/appraisal/rating-picker';
+import { SelfAppraisalView } from '@/features/hr/appraisal/self-appraisal-view';
 import {
   AREA_LABELS,
   parseCollegialityExample,
@@ -178,10 +179,10 @@ export function SecondRatingInbox({ supabase }: { supabase: SupabaseClient }) {
           </p>
 
           <div>
-            <h4 className="mb-2 text-sm font-semibold">The self-appraisal (read-only)</h4>
-            <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-muted/30 p-3 text-xs">
-              {JSON.stringify(openEvidence?.selfAppraisal ?? {}, null, 2)}
-            </pre>
+            <h4 className="mb-2 text-sm font-semibold">Their self-appraisal</h4>
+            {/* Only the person's own payload: the first head's review is a
+                separate column and never reaches this view. */}
+            <SelfAppraisalView payload={openEvidence?.selfAppraisal} />
           </div>
 
           <div className="border-t pt-4">

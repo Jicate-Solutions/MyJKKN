@@ -172,3 +172,13 @@ export function parseValue(raw: unknown): PerfReviewValue {
   };
 }
 
+
+/**
+ * The value as it should be written. The statement boxes keep every line
+ * while someone types (so Enter works), which means a cleared box or a
+ * trailing newline arrives here as a blank statement. Those are trimmed and
+ * dropped before the row and its audit entry are written.
+ */
+export function cleanForSave(value: PerfReviewValue): PerfReviewValue {
+  return { ...value, band_statements: parseStatements(value.band_statements) };
+}

@@ -39,6 +39,7 @@ import {
 import { PolicyEditorShell } from '../_shared/policy-editor-shell';
 import {
   DEFAULT_VALUE,
+  cleanForSave,
   parseValue,
   type PerfReviewValue,
 } from '@/lib/hr/performance-review-policy';
@@ -84,6 +85,7 @@ export default function PerformanceReviewPage() {
           pageBlurb="Appraisal cycle, eligibility, review committee, and final approver."
           defaultValue={DEFAULT_VALUE}
           parseValue={parseValue}
+          prepareForSave={cleanForSave}
           renderEditor={(value, onChange, disabled) => (
             <PerfReviewEditor value={value} onChange={onChange} disabled={disabled} />
           )}
