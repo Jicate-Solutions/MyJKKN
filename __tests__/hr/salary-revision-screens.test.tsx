@@ -53,9 +53,13 @@ vi.mock('@/hooks/hr/use-salary-revisions', async (orig) => ({
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('next/link', () => ({ default: (p: React.AnchorHTMLAttributes<HTMLAnchorElement>) => <a {...p} /> }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }), useParams: () => ({ id: 'r1' }) }));
-vi.mock('@/components/layout/content-layout', () => ({
-  ContentLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-}));
+vi.mock('@/components/layout/content-layout', async () => {
+  const React = await import('react');
+  return {
+    ContentLayout: (p: React.PropsWithChildren) =>
+      React.createElement(React.Fragment, null, p.children),
+  };
+});
 
 import ApprovePage from '@/app/(routes)/hr/salary-revisions/approve/page';
 import AskPage from '@/app/(routes)/hr/salary-revisions/ask/page';
