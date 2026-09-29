@@ -12,6 +12,10 @@
  * the first fix could have landed. Eight reports followed (BUG-004651/690/707/
  * 728/741 and BUG-005120/005178/005491, clusters 0961c22e and 3149b52f).
  *
+ * Since #3963 (20270208090000) the pending list consolidates only the
+ * back-to-back periods of one BLOCK of a course, not every period of it that
+ * day, so the predicate takes the mark's block and the readers follow suit.
+ *
  * Two layers, because neither alone is enough:
  *
  *  - The structural assertions below read the definition that WINS a full
@@ -40,6 +44,13 @@ const THIS_FIX_VERSION = '20261226000000';
 /** The one predicate, and the guard every course_id cast must go through. */
 const PREDICATE = 'fn_scf_feedback_matches_mark';
 const UUID_GUARD = 'fn_scf_uuid_or_null';
+/**
+ * The block rule the pending list uses since #3963 (20270208090000): a
+ * same-course answer covers only the back-to-back periods of ONE block, not
+ * every period of the course that day. Every confirmation reader must decide
+ * the block the same way, or it ticks a class the learner is still asked about.
+ */
+const BLOCK_KEYS = 'fn_scf_block_period_keys';
 
 /**
  * Readers that call the predicate directly. fn_scf_confirmation_rollup is NOT
@@ -139,7 +150,17 @@ describe('SCF confirmed-with-feedback — one predicate, block-course siblings',
     expect(definesFunction(mine.sql, UUID_GUARD)).toBe(true);
   });
 
-  it('the predicate consolidates by course and keeps the exact-period branch', () => {
+  it('the migration refuses to apply before the block helper exists', () => {
+    const mine = migrations.find((m) => m.version === THIS_FIX_VERSION)!;
+    const clean = stripSqlComments(mine.sql);
+    expect(
+      new RegExp(`to_regprocedure\\(\\s*'public\\.${BLOCK_KEYS}\\(jsonb, text\\)'\\s*\\)\\s+IS\\s+NULL`, 'i').test(clean),
+      'the precondition on fn_scf_block_period_keys is gone - this file sorts before the migration that defines it'
+    ).toBe(true);
+    expect(clean.indexOf('to_regprocedure')).toBeLessThan(clean.search(/CREATE\s+OR\s+REPLACE\s+FUNCTION/i));
+  });
+
+  it('the predicate consolidates by course ONLY inside the mark\u2019s block', () => {
     const body = bodyOf(winningDefinition(PREDICATE).sql, PREDICATE);
     expect(
       /p_feedback_course_id\s*=\s*p_mark_course_id/.test(body),
@@ -149,6 +170,12 @@ describe('SCF confirmed-with-feedback — one predicate, block-course siblings',
     expect(
       /p_feedback_period_id\s*=\s*p_mark_period_id/.test(body),
       'the predicate lost its exact-period branch'
+    ).toBe(true);
+    // #3963: two SEPARATE classes of a course are not one unit.
+    expect(
+      /p_feedback_period_id\s*=\s*ANY\s*\(\s*p_mark_block_keys\s*\)/i.test(body),
+      'the course branch no longer requires the feedback period to be in the ' +
+        'mark\u2019s block - it would tick a separate class the pending list still asks for'
     ).toBe(true);
     // A mark with no course must fall back to exact-period, never match every
     // feedback row whose course is also NULL.
@@ -172,6 +199,10 @@ describe('SCF confirmed-with-feedback — one predicate, block-course siblings',
       `${fn} does not call ${PREDICATE} — a private copy of the match is how the ` +
         'numerators drifted apart in the first place'
     ).toBe(true);
+    expect(
+      body.includes(BLOCK_KEYS),
+      `${fn} does not compute the mark's block with ${BLOCK_KEYS}`
+    ).toBe(true);
     // No reader may match feedback on the timetable again, inline or otherwise:
     // that is exactly the asymmetry with the pending list that left marks
     // neither offered nor confirmable.
@@ -190,12 +221,14 @@ describe('SCF confirmed-with-feedback — one predicate, block-course siblings',
     }
   });
 
-  it('the rollup carries the same rule as its second join', () => {
+  it('the rollup carries the same rule as its block join', () => {
     const body = bodyOf(winningDefinition('fn_scf_confirmation_rollup').sql, 'fn_scf_confirmation_rollup');
-    expect(/fbc\.course_id\s*=/.test(body), 'the rollup lost its block-course join').toBe(true);
-    // The DISTINCT is load-bearing: a learner can have several feedback rows for
-    // one course in a day, which is the whole point of a block course.
-    expect(/SELECT\s+DISTINCT\s+f\.student_id,\s*f\.attendance_date,\s*f\.course_id/i.test(body)).toBe(true);
+    expect(body.includes(BLOCK_KEYS), 'the rollup does not compute the mark\u2019s block').toBe(true);
+    // The block arm as equi-joins: sibling period AND same course.
+    expect(/fbb\.period_id\s*=\s*sib\.period_key/.test(body), 'the rollup lost its sibling-period join').toBe(true);
+    expect(/fbb\.course_id\s*=\s*pm\.course_id/.test(body), 'the rollup lost its same-course join').toBe(true);
+    // The DISTINCT is load-bearing: several siblings can each match a feedback row.
+    expect(/block_confirmed\s+AS\s*\(\s*[\s\S]*?SELECT\s+DISTINCT/i.test(body)).toBe(true);
     // min(course_id) over the (date, period, student) group silently picks ONE
     // course and loses feedback for the other. The course belongs in the
     // grouping, with a collapse afterwards so the denominator cannot move.
@@ -224,6 +257,8 @@ describe('SCF confirmed-with-feedback — one predicate, block-course siblings',
       'fn_scf_pending_for_learner'
     );
     expect(/f\.course_id\s*=/.test(body)).toBe(true);
+    // ...and decides the block with the same helper the readers use.
+    expect(body.includes(BLOCK_KEYS), 'the pending list no longer uses the block helper').toBe(true);
   });
 
   it('the behaviour harness exists and is wired to this migration', () => {

@@ -1,14 +1,46 @@
 -- =====================================================================
 -- SCF: ONE predicate for "did this learner's feedback confirm this
 -- mark?", and it is the rule the pending list already uses
+--
+-- UPDATED 2026-09-29 (rebase onto main after #3963), read this first.
+--   This migration's whole promise is "what the pending list withholds,
+--   these confirm". #3963 (20270208090000) changed what the pending list
+--   withholds: an answered session now hides another period of the same
+--   course ONLY when both sit in one back-to-back BLOCK (each period
+--   starting no more than 10 minutes after the previous one ends), no
+--   longer anywhere in the day. Keeping that promise therefore means the
+--   predicate below follows the new rule, so it now takes the mark's
+--   block (fn_scf_block_period_keys, defined by 20270208090000) and a
+--   same-course feedback confirms a sibling only inside that block:
+--     same period, OR same course AND the feedback's period is in the
+--     mark's block.
+--   The earlier any-period-of-the-course rule would have ticked the
+--   afternoon class of a morning/afternoon course from the morning answer
+--   while the pending list still asked for it, and credited attendance
+--   for it. That no longer happens.
+--   Consequences, stated so they are not mistaken for this file's choice:
+--   * A block class (2-4 back-to-back periods) still confirms from ONE
+--     answer, which is the reported defect this migration fixes.
+--   * Two SEPARATE classes of a course each need their own answer, as the
+--     pending list now asks for both.
+--   * Gap classes the OLD pending list hid before 28 Sep can never be
+--     confirmed: the pending list did not offer them and this rule does
+--     not credit them. 20270208090000 says it "does NOT recover periods
+--     already lost"; this file does not either.
+--   * The numerator measurements quoted below were taken on 2026-09-17
+--     under the any-period rule. They are an UPPER bound now and were not
+--     re-measured (the rework touched no database).
+--   Ordering: this file sorts BEFORE 20270208090000 but calls its helper,
+--   so it refuses to apply until that helper exists (section 0).
 -- Updated: 2026-09-17 (BUG-004651, BUG-004690, BUG-004707, BUG-004728,
 --   BUG-004741, BUG-005120, BUG-005178, BUG-005491; clusters 3149b52f,
 --   0961c22e)
 --
 -- DEFECT. A block-scheduled course occupies several periods of one day.
 -- fn_scf_pending_for_learner has known that since 20260718200000: it
--- matches on (learner, day, period OR course) and so OFFERS a learner
--- exactly one feedback per course per day. FIVE readers decide whether a
+-- matched on (learner, day, period OR course) and so OFFERED a learner
+-- one feedback per course per day (since 20270208090000: one per
+-- back-to-back block of a course - see the note at the top). FIVE readers decide whether a
 -- mark is CONFIRMED, and each carried its own copy of the match against
 -- the exact period. There was therefore no single place the July fix
 -- could have landed, and the sibling periods the pending list withholds
@@ -18,8 +50,8 @@
 -- Yet Confirmed."
 --
 -- FIX. fn_scf_feedback_matches_mark is now the only definition of the
--- match, it is the reference migration's rule verbatim, and all five
--- readers use it:
+-- match, it is the pending list's rule as 20270208090000 states it, and
+-- all five readers use it:
 --   * fn_scf_confirmation_status       - the learner's history badges
 --   * fn_scf_my_confirmed_attendance   - the learner's own percentage
 --   * fn_scf_effective_attendance      - the admin at-risk list
@@ -85,6 +117,21 @@
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
+-- 0. Precondition. The block rule lives in fn_scf_block_period_keys,
+-- created by 20270208090000, whose version sorts AFTER this file. The
+-- readers below are plpgsql, whose bodies are not checked at CREATE, so
+-- without this guard a fresh ordered replay would create five readers that
+-- fail on first call. Refuse instead, and say what to apply first.
+-- ---------------------------------------------------------------------
+DO $pre$
+BEGIN
+  IF to_regprocedure('public.fn_scf_block_period_keys(jsonb, text)') IS NULL THEN
+    RAISE EXCEPTION '20261226000000 needs public.fn_scf_block_period_keys(jsonb, text) from 20270208090000_scf_pending_separate_periods_offered.sql - apply that first';
+  END IF;
+END
+$pre$;
+
+-- ---------------------------------------------------------------------
 -- 1. The shared uuid guard.
 -- NULLIF(x,'') covers an EMPTY string and nothing else: a non-empty
 -- malformed value still raises 22P02, and because these readers explode
@@ -105,18 +152,29 @@ AS $function$
 $function$;
 
 -- ---------------------------------------------------------------------
--- 2. THE ONE PREDICATE, and it is the reference migration's rule verbatim.
+-- 2. THE ONE PREDICATE, and it is the pending list's rule.
 --
--- fn_scf_pending_for_learner (20260718200000) decides what a learner is
--- OFFERED, and it has matched on (learner, day, period OR course) ever
--- since. Every reader that decides what a learner is CREDITED now matches
+-- fn_scf_pending_for_learner decides what a learner is OFFERED. It matched
+-- on (learner, day, period OR course) from 20260718200000, and since
+-- 20270208090000 on (learner, day, period OR course-within-the-same-block). Every reader that decides what a learner is CREDITED now matches
 -- on exactly the same thing, so the two can no longer disagree: what the
 -- pending list withholds, these confirm.
 --
--- Same period, or same course - the course branch is what makes the
--- sibling periods of a block-scheduled course one confirmable unit. A
--- mark with no course_id keeps exact-period behaviour. A single-period
--- course is unchanged, because for it a course match IS the period match.
+-- Same period, or same course AND the feedback's period is in the mark's
+-- block - the course branch is what makes the sibling periods of a
+-- block-scheduled course one confirmable unit, and the block condition is
+-- 20270208090000's, verbatim, so two SEPARATE classes of a course are not
+-- one unit. p_mark_block_keys is fn_scf_block_period_keys(<the mark's own
+-- attendance_data>, <the mark's period key>), which every caller computes
+-- once per period: it already falls back to every period of the course
+-- when a time is unreadable, and to the period alone when there is no
+-- course. A mark with no course_id keeps exact-period behaviour. A
+-- single-period course is unchanged, because for it a course match IS the
+-- period match.
+--
+-- The four-argument form of this function was never applied anywhere
+-- (this file has been FILE ONLY since it was written, and its production
+-- rehearsals ended in ROLLBACK), so no DROP of it is needed.
 --
 -- NO TIMETABLE EQUALITY, and that is a change from the four readers'
 -- previous behaviour - see the migration header, which states what it
@@ -129,7 +187,8 @@ CREATE OR REPLACE FUNCTION public.fn_scf_feedback_matches_mark(
   p_feedback_period_id text,
   p_feedback_course_id uuid,
   p_mark_period_id     text,
-  p_mark_course_id     uuid
+  p_mark_course_id     uuid,
+  p_mark_block_keys    text[]
 )
 RETURNS boolean
 LANGUAGE sql
@@ -138,13 +197,14 @@ PARALLEL SAFE
 AS $function$
   SELECT p_feedback_period_id = p_mark_period_id
       OR (p_mark_course_id IS NOT NULL
-          AND p_feedback_course_id = p_mark_course_id)
+          AND p_feedback_course_id = p_mark_course_id
+          AND p_feedback_period_id = ANY (p_mark_block_keys))
 $function$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_scf_uuid_or_null(text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_scf_uuid_or_null(text) TO authenticated, service_role;
-REVOKE EXECUTE ON FUNCTION public.fn_scf_feedback_matches_mark(text, uuid, text, uuid) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_scf_feedback_matches_mark(text, uuid, text, uuid) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_scf_feedback_matches_mark(text, uuid, text, uuid, text[]) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_scf_feedback_matches_mark(text, uuid, text, uuid, text[]) TO authenticated, service_role;
 
 -- =============== 3. The five readers ===============
 
@@ -172,8 +232,9 @@ BEGIN
            -- within the institution's feedback window (class day at IST midnight
            -- + window_hours). Late or cross-timetable feedback no longer shows a tick.
            -- ONE predicate, and it is fn_scf_pending_for_learner's rule: same
-           -- period, or same course so a block-scheduled course's siblings are
-           -- one confirmable unit. What the pending list withholds, this
+           -- period, or same course within the mark's back-to-back block
+           -- (bk.keys), so a block class's siblings are one confirmable unit
+           -- and a separate class of the course is not. What the pending list withholds, this
            -- confirms. The 2026-07-31 timetable equality is GONE (header).
            -- The window below is decision #11 and is untouched.
            SELECT 1 FROM public.session_feedback f
@@ -181,12 +242,17 @@ BEGIN
              AND public.fn_scf_feedback_matches_mark(
                    f.period_id, f.course_id,
                    period.key,
-                   public.fn_scf_uuid_or_null(period.value ->> 'course_id'))
+                   public.fn_scf_uuid_or_null(period.value ->> 'course_id'),
+                   bk.keys)
              AND f.created_at <= ((sa.attendance_date::timestamp AT TIME ZONE 'Asia/Kolkata')
                                   + make_interval(hours => v_window_hours))
          ) AS confirmed
   FROM public.student_attendance sa,
-       jsonb_each(sa.attendance_data) AS period
+       jsonb_each(sa.attendance_data) AS period,
+       -- The mark's block, once per period (OFFSET 0 keeps it from being
+       -- re-evaluated per feedback row inside the EXISTS).
+       LATERAL (SELECT public.fn_scf_block_period_keys(sa.attendance_data, period.key) AS keys
+                OFFSET 0) bk
   WHERE sa.attendance_date BETWEEN p_from AND p_to
     -- Own-college scope (Director decision 2026-07-31, evidence: 0 of 304,873
     -- Present marks in the last 90 days were in another college's rows): a
@@ -260,10 +326,16 @@ BEGIN
   WITH marks AS (
     SELECT sa.attendance_date, sa.timetable_id AS ttid, period.key AS pid,
            public.fn_scf_uuid_or_null(period.value ->> 'course_id') AS cid,
+           bk.keys AS bkeys,
            (st ->> 'status') AS status
     FROM public.student_attendance sa
     CROSS JOIN LATERAL jsonb_each(
       CASE WHEN jsonb_typeof(sa.attendance_data)='object' THEN sa.attendance_data ELSE '{}'::jsonb END) AS period
+    -- The mark's block (20270208090000's rule), once per period, before the
+    -- roster explodes. OFFSET 0 is the fence.
+    CROSS JOIN LATERAL (
+      SELECT public.fn_scf_block_period_keys(sa.attendance_data, period.key) AS keys
+      OFFSET 0) bk
     CROSS JOIN LATERAL jsonb_array_elements(
       CASE WHEN jsonb_typeof(period.value -> 'students')='array' THEN period.value -> 'students' ELSE '[]'::jsonb END) AS st
     WHERE sa.attendance_date BETWEEN v_from AND v_to
@@ -286,7 +358,7 @@ BEGIN
           AND lou.period_slot_id       = period.key)
   ),
   dedup AS (
-    SELECT DISTINCT ON (attendance_date, ttid, pid) attendance_date, ttid, pid, cid, status
+    SELECT DISTINCT ON (attendance_date, ttid, pid) attendance_date, ttid, pid, cid, bkeys, status
     FROM marks ORDER BY attendance_date, ttid, pid, (status='Present') DESC
   ),
   agg AS (
@@ -297,7 +369,7 @@ BEGIN
         -- ONE predicate. This is the number all eight reports screenshotted.
         SELECT 1 FROM public.session_feedback f
         WHERE f.student_id = v_lp AND f.attendance_date = d.attendance_date
-          AND public.fn_scf_feedback_matches_mark(f.period_id, f.course_id, d.pid, d.cid)
+          AND public.fn_scf_feedback_matches_mark(f.period_id, f.course_id, d.pid, d.cid, d.bkeys)
           -- Decision #11: only feedback submitted within window_hours of the class
           -- (class day interpreted at IST midnight) confirms attendance.
           AND f.created_at <= ((d.attendance_date::timestamp AT TIME ZONE 'Asia/Kolkata')
@@ -363,11 +435,17 @@ BEGIN
       -- Guarded cast (fn_scf_uuid_or_null): a malformed course_id must not
       -- abort the dashboard for a whole institution.
       public.fn_scf_uuid_or_null(period.value ->> 'course_id') AS course_id,
+      bk.keys                     AS bkeys,
       (st ->> 'status')           AS status
     FROM public.student_attendance sa
     CROSS JOIN LATERAL jsonb_each(
       CASE WHEN jsonb_typeof(sa.attendance_data) = 'object'
            THEN sa.attendance_data ELSE '{}'::jsonb END) AS period
+    -- The mark's block (20270208090000's rule), once per period, before the
+    -- roster explodes. OFFSET 0 is the fence.
+    CROSS JOIN LATERAL (
+      SELECT public.fn_scf_block_period_keys(sa.attendance_data, period.key) AS keys
+      OFFSET 0) bk
     CROSS JOIN LATERAL jsonb_array_elements(
       CASE WHEN jsonb_typeof(period.value -> 'students') = 'array'
            THEN period.value -> 'students' ELSE '[]'::jsonb END) AS st
@@ -405,7 +483,7 @@ BEGIN
   -- official_pct and effective_pct).
   dedup AS (
     SELECT DISTINCT ON (sid, attendance_date, timetable_id, period_id)
-      sid, attendance_date, timetable_id, period_id, course_id, status
+      sid, attendance_date, timetable_id, period_id, course_id, bkeys, status
     FROM marks
     ORDER BY sid, attendance_date, timetable_id, period_id, (status = 'Present') DESC
   ),
@@ -426,7 +504,7 @@ BEGIN
         WHERE f.student_id      = d.sid
           AND f.attendance_date = d.attendance_date
           AND public.fn_scf_feedback_matches_mark(
-                f.period_id, f.course_id, d.period_id, d.course_id)
+                f.period_id, f.course_id, d.period_id, d.course_id, d.bkeys)
           -- Decision #11: only feedback submitted within window_hours of the class
           -- (class day interpreted at IST midnight, mirroring fn_scf_faculty_completion)
           -- counts as a confirmation. A late confirmation still exists but no longer
@@ -481,6 +559,8 @@ BEGIN
   sess AS (
     SELECT sa.id AS att_id, sa.institution_id, sa.attendance_date, sa.timetable_id,
            period.key AS period_id, period.value AS pv,
+           -- The session's block (20270208090000's rule), once per session.
+           public.fn_scf_block_period_keys(sa.attendance_data, period.key) AS bkeys,
            -- Decision #11 window end, anchored to IST wall-clock exactly as before:
            -- class day at IST midnight + the institution's window_hours.
            ((sa.attendance_date::timestamp AT TIME ZONE 'Asia/Kolkata')
@@ -515,7 +595,7 @@ BEGIN
     -- FILTER adds the old confirmed_count predicate on top (same feedback probe,
     -- same uuid-shape CASE guard so a malformed blob id can never raise 22P02).
     SELECT s.att_id, s.institution_id, s.attendance_date, s.timetable_id,
-           s.period_id, s.pv, s.deadline, s.gmode,
+           s.period_id, s.pv, s.bkeys, s.deadline, s.gmode,
            x.present_count, x.confirmed_count
     FROM sess s
     CROSS JOIN LATERAL (
@@ -532,7 +612,8 @@ BEGIN
                  AND public.fn_scf_feedback_matches_mark(
                        f.period_id, f.course_id,
                        s.period_id,
-                       public.fn_scf_uuid_or_null(s.pv ->> 'course_id'))
+                       public.fn_scf_uuid_or_null(s.pv ->> 'course_id'),
+                       s.bkeys)
                  -- Decision #11: only feedback submitted within window_hours
                  -- of the class confirms attendance.
                  AND f.created_at    <= s.deadline))::int AS confirmed_count
@@ -627,6 +708,11 @@ BEGIN
            -- Measured 2026-09-17: 0 of 75,756 mark groups in 14 days span
            -- more than one course - latent, but the arbitrary pick is gone.
            public.fn_scf_uuid_or_null(period.value ->> 'course_id') AS course_id,
+           -- The mark's block (20270208090000's rule), also IN the grouping:
+           -- duplicate substitute rows for one (date, period) can carry
+           -- different documents, so each keeps its own block and `scored`
+           -- collapses them with bool_or like the course.
+           bk.keys AS bkeys,
            min(pe.session_end_local) AS session_end_local
     FROM public.student_attendance sa
     CROSS JOIN LATERAL jsonb_each(
@@ -641,6 +727,10 @@ BEGIN
                + fn_scf_safe_time(period.value ->> 'end_time', TIME '23:59:59')
              AS session_end_local
       OFFSET 0) pe
+    -- Same fence for the block: once per period, not per student row.
+    CROSS JOIN LATERAL (
+      SELECT public.fn_scf_block_period_keys(sa.attendance_data, period.key) AS keys
+      OFFSET 0) bk
     -- C-level filter, same predicate as the old SQL quals:
     -- status = 'Present' AND student_id matches the uuid-shape regex (the guard
     -- that keeps one malformed blob row from aborting the whole rollup).
@@ -660,17 +750,40 @@ BEGIN
       AND (p_section_id     IS NULL OR sa.section_id     = p_section_id)
       AND (v_super OR sa.institution_id IS NULL OR sa.institution_id = ANY(v_insts))
     GROUP BY sa.attendance_date, period.key, (sid.j #>> '{}'),
-             public.fn_scf_uuid_or_null(period.value ->> 'course_id')
+             public.fn_scf_uuid_or_null(period.value ->> 'course_id'), bk.keys
+  ),
+  block_confirmed AS (
+    -- The block arm as equi-joins, so it stays a hash join: explode each
+    -- mark's block into its sibling period keys and look the learner's
+    -- feedback up on (learner, day, sibling period), requiring the same
+    -- course. The UNIQUE (student_id, attendance_date, period_id) makes each
+    -- sibling match at most one feedback row; several siblings can match,
+    -- so the DISTINCT is load-bearing. Output identity = present_marks' own
+    -- grouping key, so the LEFT JOIN back below cannot multiply.
+    SELECT DISTINCT pm.attendance_date, pm.period_id, pm.student_text,
+           pm.course_id, pm.bkeys
+    FROM present_marks pm
+    CROSS JOIN LATERAL unnest(pm.bkeys) AS sib(period_key)
+    JOIN (SELECT f.student_id, f.attendance_date, f.period_id, f.course_id
+          FROM public.session_feedback f
+          WHERE f.attendance_date BETWEEN p_from AND p_to
+            AND f.course_id IS NOT NULL) fbb
+      ON fbb.student_id      = (pm.student_text)::uuid
+     AND fbb.attendance_date = pm.attendance_date
+     AND fbb.period_id       = sib.period_key
+     AND fbb.course_id       = pm.course_id
+    WHERE pm.course_id IS NOT NULL
   ),
   scored_raw AS (
     -- Confirmed = the SAME rule fn_scf_feedback_matches_mark states, and the
     -- same rule fn_scf_pending_for_learner uses to decide what a learner is
     -- offered: this learner's feedback that day for this PERIOD, or for this
-    -- COURSE (the block-course branch, so sibling periods of one block course
-    -- are a single confirmable unit).
+    -- COURSE at a period in this mark's BLOCK (the block-course branch, so
+    -- back-to-back periods of one course are a single confirmable unit, and
+    -- two separate classes of it are not).
     --
-    -- WHY TWO JOINS AND NOT THE PREDICATE FUNCTION: the predicate's OR of two
-    -- equalities cannot be hashed, and this function exists in its current
+    -- WHY JOINS AND NOT THE PREDICATE FUNCTION: the predicate's OR cannot be
+    -- hashed, and this function exists in its current
     -- shape because a prior migration replaced ~99k per-row EXISTS probes
     -- with one hash join under a 20s statement_timeout. Two equi-joins keep
     -- that plan and mean exactly what the predicate means; the scenario file
@@ -679,11 +792,10 @@ BEGIN
     -- the two forms are pinned together by outcome, not by a shared call.
     --
     -- Neither join can multiply: the UNIQUE constraint on (student_id,
-    -- attendance_date, period_id) settles the first, and a learner CAN have
-    -- several feedback rows for one course in a day - that is the whole point
-    -- of a block course - so the DISTINCT on the second is load-bearing.
+    -- attendance_date, period_id) settles the first, and block_confirmed is
+    -- DISTINCT on present_marks' own grouping key.
     SELECT pm.attendance_date, pm.period_id, pm.student_text, pm.session_end_local,
-           (fb.student_id IS NOT NULL OR fbc.student_id IS NOT NULL) AS is_confirmed
+           (fb.student_id IS NOT NULL OR bc.student_text IS NOT NULL) AS is_confirmed
     FROM present_marks pm
     LEFT JOIN (SELECT DISTINCT f.student_id, f.attendance_date, f.period_id
                FROM public.session_feedback f
@@ -691,13 +803,12 @@ BEGIN
       ON fb.student_id      = (pm.student_text)::uuid
      AND fb.attendance_date = pm.attendance_date
      AND fb.period_id       = pm.period_id
-    LEFT JOIN (SELECT DISTINCT f.student_id, f.attendance_date, f.course_id
-               FROM public.session_feedback f
-               WHERE f.attendance_date BETWEEN p_from AND p_to
-                 AND f.course_id IS NOT NULL) fbc
-      ON fbc.student_id      = (pm.student_text)::uuid
-     AND fbc.attendance_date = pm.attendance_date
-     AND fbc.course_id       = pm.course_id
+    LEFT JOIN block_confirmed bc
+      ON bc.attendance_date = pm.attendance_date
+     AND bc.period_id       = pm.period_id
+     AND bc.student_text    = pm.student_text
+     AND bc.course_id       = pm.course_id
+     AND bc.bkeys           = pm.bkeys
   ),
   scored AS (
     -- Collapse back to ONE row per (date, period, student) - the identity this
@@ -797,11 +908,27 @@ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_proc pr JOIN pg_namespace n ON n.oid = pr.pronamespace
     WHERE n.nspname = 'public' AND pr.proname = 'fn_scf_confirmation_rollup'
-      AND pg_get_functiondef(pr.oid) LIKE '%fbc.course_id%'
+      AND pg_get_functiondef(pr.oid) LIKE '%block_confirmed%'
+      AND pg_get_functiondef(pr.oid) LIKE '%fn_scf_block_period_keys%'
       AND pg_get_functiondef(pr.oid) LIKE '%bool_or%'
   ) THEN
     RAISE EXCEPTION 'fn_scf_confirmation_rollup lost its block-course join or its collapse';
   END IF;
+
+  -- Every reader decides the block the way the pending list does (#3963).
+  FOREACH v_fn IN ARRAY ARRAY[
+    'fn_scf_confirmation_status', 'fn_scf_my_confirmed_attendance',
+    'fn_scf_effective_attendance', 'fn_scf_faculty_completion',
+    'fn_scf_confirmation_rollup', 'fn_scf_pending_for_learner'
+  ] LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_proc pr JOIN pg_namespace n ON n.oid = pr.pronamespace
+      WHERE n.nspname = 'public' AND pr.proname = v_fn
+        AND pg_get_functiondef(pr.oid) LIKE '%fn_scf_block_period_keys%'
+    ) THEN
+      RAISE EXCEPTION '% does not use fn_scf_block_period_keys, so it can disagree with the pending list about a separate class', v_fn;
+    END IF;
+  END LOOP;
 
   -- Both helpers must stay inlineable: plain SQL, IMMUTABLE, not SECURITY
   -- DEFINER, no SET. Otherwise the planner stops folding them and the EXISTS

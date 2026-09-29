@@ -88,6 +88,12 @@ CREATE OR REPLACE FUNCTION public.fn_scf_safe_time(p_text text, p_default time)
 RETURNS time LANGUAGE sql IMMUTABLE AS $$
   SELECT COALESCE((SELECT p_text::time WHERE p_text ~ '^[0-9]{1,2}:[0-9]{2}'), p_default) $$;
 
+-- fn_scf_faculty_completion sorts on this; same shape as the live helper
+-- (parsed time of day, NULL when unreadable).
+CREATE OR REPLACE FUNCTION public.fn_scf_to_time_or_null(p_text text)
+RETURNS time LANGUAGE sql IMMUTABLE AS $$
+  SELECT CASE WHEN p_text ~ '^\s*[0-9]{1,2}:[0-9]{2}' THEN p_text::time END $$;
+
 CREATE OR REPLACE FUNCTION public.is_super_admin() RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT COALESCE((SELECT is_super_admin FROM public.profiles WHERE id = auth.uid()), false) $$;
 CREATE OR REPLACE FUNCTION public.is_admin() RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;

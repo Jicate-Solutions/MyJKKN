@@ -51,6 +51,11 @@ esac
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/../../.." && pwd)"
 MIG="$ROOT/supabase/migrations/20261226000000_scf_confirmation_status_block_course_siblings.sql"
 [ -f "$MIG" ] || { echo "FAIL: migration not found at $MIG" >&2; exit 1; }
+# The block rule the pending list uses (#3963). Applied FIRST and for real,
+# never stubbed, so the readers are tested against the helper production runs
+# and the scenarios can compare them with the real pending-list clause.
+BLOCK_MIG="$ROOT/supabase/migrations/20270208090000_scf_pending_separate_periods_offered.sql"
+[ -f "$BLOCK_MIG" ] || { echo "FAIL: block-rule migration not found at $BLOCK_MIG" >&2; exit 1; }
 
 # --- role: whatever actually connects, and no password is ever invented ------
 # CI's postgres:16 service is trust auth with a `postgres` superuser; a local
@@ -88,6 +93,13 @@ echo "[scf-block-course] target $PGHOST:$PGPORT db=$DB (disposable, verified emp
 psql -d postgres -qc "DROP DATABASE IF EXISTS $DB" >/dev/null
 psql -d postgres -qc "CREATE DATABASE $DB" >/dev/null
 psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$HERE/00_stubs.sql"
+# The precondition must refuse while the block helper is missing: proven here,
+# on every run, before the helper is applied.
+if psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$MIG" >/dev/null 2>&1; then
+  echo "FAIL: the migration applied without fn_scf_block_period_keys; its precondition did not refuse" >&2; exit 1
+fi
+echo "[scf-block-course] precondition refused without the block helper (expected)"
+psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$BLOCK_MIG"
 psql -d "$DB" -v ON_ERROR_STOP=1 -q -f "$MIG"
 # `|| true` so a failing assertion still PRINTS its message: without it,
 # set -e kills the script at the psql exit code and the reason is lost.
