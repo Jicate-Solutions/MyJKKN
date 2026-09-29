@@ -155,15 +155,16 @@ function LopPreviewContent({ id }: { id: string }) {
         <CardContent>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Stat label="People on this payroll" value={String(data.payable_count)} />
+            {/* Green means "checked, nothing held back" — not "nobody to check". */}
             <Stat
               label="Days not paid for"
               value={formatDays(data.total_lop_days)}
-              tone={data.total_lop_days > 0 ? 'warn' : 'ok'}
+              tone={data.total_lop_days > 0 ? 'warn' : data.payable_count > 0 ? 'ok' : 'plain'}
             />
             <Stat
               label="Held back for absence"
               value={formatINR(data.totals.lop_amount)}
-              tone={data.totals.lop_amount > 0 ? 'warn' : 'ok'}
+              tone={data.totals.lop_amount > 0 ? 'warn' : data.payable_count > 0 ? 'ok' : 'plain'}
             />
             <Stat label="Net to be paid" value={formatINR(data.totals.net)} />
           </div>
@@ -215,9 +216,16 @@ function LopPreviewContent({ id }: { id: string }) {
       <Card className="border shadow-sm">
         <CardHeader>
           <CardTitle className="text-base">
-            {absent.length > 0
-              ? `${absent.length} of ${payableRows.length} people have days that are not paid for`
-              : `All ${payableRows.length} people were present for every working day`}
+            {/*
+              Nobody payable is its own case. Falling through to the "present"
+              wording would print "All 0 people were present for every working
+              day" over a payroll that can pay nobody at all.
+            */}
+            {payableRows.length === 0
+              ? 'Nobody on this payroll can be paid yet'
+              : absent.length > 0
+                ? `${absent.length} of ${payableRows.length} people have days that are not paid for`
+                : `All ${payableRows.length} people were present for every working day`}
           </CardTitle>
           <CardDescription>
             &ldquo;Paid for&rdquo; includes days worked, approved paid leave and on-duty days.
@@ -363,7 +371,7 @@ function Stat({
   return (
     <div className="rounded-md border border-border bg-card p-3 shadow-sm">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={`mt-1 text-xl font-semibold tabular-nums ${valueClass}`}>
+      <div data-tone={tone} className={`mt-1 text-xl font-semibold tabular-nums ${valueClass}`}>
         {value}
       </div>
     </div>
