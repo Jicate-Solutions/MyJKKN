@@ -92,7 +92,7 @@ export default function GrnDetailPage() {
 
   if (isLoading) {
     return (
-      <ContentLayout title="Goods Receipt">
+      <ContentLayout title="Goods Received">
         <div className="flex items-center justify-center py-16">
           <BeatLoader color="hsl(var(--primary))" size={10} />
         </div>
@@ -101,17 +101,17 @@ export default function GrnDetailPage() {
   }
   if (isError) {
     return (
-      <ContentLayout title="Goods Receipt">
+      <ContentLayout title="Goods Received">
         <div className="py-6">
-          <AlertBox type="error" message="Failed to load this GRN. Please try again." />
+          <AlertBox type="error" message="Failed to load this delivery record. Please try again." />
         </div>
       </ContentLayout>
     );
   }
   if (!grn) {
     return (
-      <ContentLayout title="Goods Receipt">
-        <EmptyState title="GRN not found" description="This goods receipt note may have been removed." />
+      <ContentLayout title="Goods Received">
+        <EmptyState title="Delivery record not found" description="This delivery record may have been removed." />
       </ContentLayout>
     );
   }
@@ -161,7 +161,7 @@ export default function GrnDetailPage() {
       <div className="space-y-4 sm:space-y-6 max-w-5xl">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-            <Button variant="ghost" size="sm" aria-label="Back to goods receipts" onClick={() => router.push('/procurement/grn')}>
+            <Button variant="ghost" size="sm" aria-label="Back to deliveries" onClick={() => router.push('/procurement/grn')}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
             <div className="min-w-0">
@@ -220,21 +220,21 @@ export default function GrnDetailPage() {
                   onClick={() =>
                     run(
                       () => verifyGrn.mutateAsync({ id, userId: profile!.id }),
-                      'GRN verified — accepted stock posted to inventory.'
+                      'Delivery verified — accepted stock added to inventory.'
                     )
                   }
                   disabled={verifyGrn.isPending || chemicalBlocks.length > 0}
                 >
                   <CheckCircle2 className="mr-2 h-4 w-4" />
-                  Verify & post to inventory
+                  Check & add to stock
                 </Button>
               )}
               <Button
                 variant="ghost"
                 className="w-full sm:ml-auto sm:w-auto"
-                onClick={() => run(() => cancelGrn.mutateAsync({ id }), 'GRN cancelled')}
+                onClick={() => run(() => cancelGrn.mutateAsync({ id }), 'Delivery cancelled')}
               >
-                Cancel GRN
+                Cancel delivery
               </Button>
               {hasMismatch && (
                 <span className="flex items-center gap-1.5 text-sm text-amber-600">
@@ -258,9 +258,9 @@ export default function GrnDetailPage() {
         {/* Three-way match table */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Three-way match ({grn.items.length} lines)</CardTitle>
+            <CardTitle className="text-base">Matches order and invoice ({grn.items.length} lines)</CardTitle>
             <p className="hidden text-sm text-muted-foreground sm:block">
-              Each line reconciles three numbers: what the order still expects, what the supplier
+              Each line compares three numbers: what the order still expects, what the supplier
               invoiced, and what was physically counted. Only the accepted quantity becomes stock.
             </p>
           </CardHeader>
@@ -483,13 +483,13 @@ export default function GrnDetailPage() {
                       },
                       userId: profile!.id,
                     }),
-                  'Replacement received — stock posted to inventory.'
+                  'Replacement received — stock added to inventory.'
                 );
                 setRepTarget(null);
                 setRepSerials('');
               }}
             >
-              {receiveReplacement.isPending ? 'Receiving…' : 'Receive & post'}
+              {receiveReplacement.isPending ? 'Receiving…' : 'Receive & add to stock'}
             </Button>
           </DialogFooter>
         </DialogContent>

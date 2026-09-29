@@ -77,29 +77,29 @@ export default function RfqsPage() {
     if (!selectedPR || !profile?.id) return;
     try {
       const rfq = await createRfq.mutateAsync({ requestId: selectedPR, userId: profile.id });
-      toast.success(`RFQ ${rfq.rfq_number} created`);
+      toast.success(`Quotation ${rfq.rfq_number} created`);
       setCreateOpen(false);
       setSelectedPR('');
-      router.push(`/procurement/rfqs/${rfq.id}`);
+      router.push(`/procurement/rfqs/${rfq.id}/quotations`);
     } catch (e) {
-      toast.error(errorMessage(e, 'Failed to create RFQ'));
+      toast.error(errorMessage(e, 'Failed to get quotations'));
     }
   };
 
   return (
-    <ContentLayout title="RFQs">
+    <ContentLayout title="Purchase">
       <div className="space-y-4 sm:space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Requests for Quotation</h2>
+            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Purchase</h2>
             <p className="hidden text-muted-foreground sm:block">
-              Convert approved requests into RFQs and issue requirement lists to vendors.
+              Turn requests into quotations, collect vendor quotes and send the choice to the Super Admin.
             </p>
           </div>
           {canManage && (
             <Button onClick={() => setCreateOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
-              New RFQ
+              Get quotations
             </Button>
           )}
         </div>
@@ -110,7 +110,7 @@ export default function RfqsPage() {
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search by RFQ or PR number..."
+                  placeholder="Search by quotation or request number..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-9"
@@ -147,18 +147,18 @@ export default function RfqsPage() {
               </div>
             ) : isError ? (
               <div className="p-6">
-                <AlertBox type="error" message="Failed to load RFQs. Please try again." />
+                <AlertBox type="error" message="Failed to load quotations. Please try again." />
               </div>
             ) : rfqs.length === 0 ? (
               <EmptyState
-                title="No RFQs found"
-                description="Create an RFQ from an approved request to get started."
+                title="No quotations found"
+                description="Get quotations for a request to get started."
               />
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>RFQ #</TableHead>
+                    <TableHead>Quotation #</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead>Source Request</TableHead>
                     <TableHead>Items</TableHead>
@@ -182,8 +182,8 @@ export default function RfqsPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          aria-label={`View RFQ ${rfq.rfq_number}`}
-                          onClick={() => router.push(`/procurement/rfqs/${rfq.id}`)}
+                          aria-label={`View quotation ${rfq.rfq_number}`}
+                          onClick={() => router.push(`/procurement/rfqs/${rfq.id}/quotations`)}
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
@@ -201,29 +201,29 @@ export default function RfqsPage() {
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Create RFQ from approved request</DialogTitle>
+            <DialogTitle>Get quotations for a request</DialogTitle>
           </DialogHeader>
-          {/* Institution chooser co-located with the PR picker: approved requests are
+          {/* Institution chooser co-located with the PR picker: open requests are
               institution-scoped, so a multi-institution user must pick the institution
-              here to see its approved requests. Renders nothing for single-institution users. */}
+              here to see its open requests. Renders nothing for single-institution users. */}
           <InstitutionFilter
             value={effectiveInstitution}
             onChange={(id) => {
               setInstitutionId(id);
               setSelectedPR('');
             }}
-            hint="Approved requests are shown for this institution."
+            hint="Open requests are shown for this institution."
           />
           <div className="space-y-2">
-            <Label>Approved purchase request</Label>
+            <Label>Request</Label>
             <Select value={selectedPR} onValueChange={setSelectedPR}>
               <SelectTrigger>
-                <SelectValue placeholder="Select an approved request..." />
+                <SelectValue placeholder="Select a request..." />
               </SelectTrigger>
               <SelectContent>
                 {approvedPRs.length === 0 ? (
                   <div className="px-3 py-2 text-sm text-muted-foreground">
-                    No approved requests in this institution. Approve a request first, or
+                    No approved requests in this institution. A request must be approved first, or
                     switch institution above.
                   </div>
                 ) : (
@@ -241,7 +241,7 @@ export default function RfqsPage() {
               Cancel
             </Button>
             <Button onClick={handleCreate} disabled={!selectedPR || createRfq.isPending}>
-              {createRfq.isPending ? 'Creating...' : 'Create RFQ'}
+              {createRfq.isPending ? 'Getting quotations...' : 'Get quotations'}
             </Button>
           </DialogFooter>
         </DialogContent>

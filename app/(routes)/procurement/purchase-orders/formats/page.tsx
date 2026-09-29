@@ -89,11 +89,11 @@ export default function PoFormatsPage() {
   const list = formats ?? [];
 
   return (
-    <ContentLayout title="PO Document Formats">
+    <ContentLayout title="Order Formats">
       <div className="space-y-4 sm:space-y-6">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">PO Document Formats</h2>
+            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Order Formats</h2>
             <p className="hidden text-muted-foreground mt-1 sm:block">
               Configure item columns, header fields, and footer content per vendor layout.
             </p>
@@ -120,13 +120,13 @@ export default function PoFormatsPage() {
                 <BeatLoader color="hsl(var(--primary))" size={10} />
               </div>
             ) : isError ? (
-              <AlertBox type="error" message="Failed to load PO formats. Please try again." />
+              <AlertBox type="error" message="Failed to load order formats. Please try again." />
             ) : list.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 <FileStack className="h-12 w-12 mx-auto mb-4 opacity-40" />
                 <p className="text-lg font-medium">No formats yet</p>
                 <p className="text-sm mt-1">
-                  POs without a format fall back to the standard layout. Create one per vendor
+                  Orders without a format fall back to the standard layout. Create one per vendor
                   document style (e.g. GST breakup, MRP/dealer price, ISBN/author).
                 </p>
               </div>
@@ -219,7 +219,7 @@ export default function PoFormatsPage() {
           <CardHeader>
             <CardTitle className="text-base">Vendor Format Assignments</CardTitle>
             <p className="hidden text-sm text-muted-foreground sm:block">
-              Set the default document format used when a Purchase Order is generated for each
+              Set the default document format used when an order is generated for each
               vendor. Vendor identity details (name, contact, GSTIN) are still managed in IMS →
               Settings → Suppliers.
             </p>
@@ -245,7 +245,7 @@ export default function PoFormatsPage() {
                     <TableRow>
                       <TableHead>Vendor</TableHead>
                       <TableHead>Code</TableHead>
-                      <TableHead className="w-[240px]">Default PO Format</TableHead>
+                      <TableHead className="w-[240px]">Default Order Format</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>

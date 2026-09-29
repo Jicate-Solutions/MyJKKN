@@ -332,8 +332,8 @@ export default function NewQuotationPage() {
     const match = matchVendor(v, ctx.allVendors);
     if (match) {
       if (ctx.quotedSupplierIds.has(match.vendor.id)) {
-        setVendorNote(`${match.vendor.name} has already submitted a quotation for this RFQ.`);
-        toast.warning(`${match.vendor.name} has already quoted on this RFQ.`);
+        setVendorNote(`${match.vendor.name} has already submitted a quotation here.`);
+        toast.warning(`${match.vendor.name} has already quoted here.`);
         return;
       }
       setVendorMode('existing');
@@ -566,7 +566,7 @@ export default function NewQuotationPage() {
     return (
       <ContentLayout title="Add Quotation">
         <div className="py-12">
-          <AlertBox type="error" message="Failed to load this RFQ. Please try again." />
+          <AlertBox type="error" message="Failed to load this quotation. Please try again." />
         </div>
       </ContentLayout>
     );
@@ -574,7 +574,7 @@ export default function NewQuotationPage() {
   if (!rfq) {
     return (
       <ContentLayout title="Add Quotation">
-        <p className="text-muted-foreground py-12 text-center">RFQ not found.</p>
+        <p className="text-muted-foreground py-12 text-center">Quotation not found.</p>
       </ContentLayout>
     );
   }

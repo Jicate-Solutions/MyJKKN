@@ -9,17 +9,17 @@ import {
   usePurchaseRequest,
   useSubmitPurchaseRequest,
   useApprovePurchaseRequest,
-  useApproveWithModifications,
   useRejectPurchaseRequest,
   useCancelPurchaseRequest,
 } from '@/hooks/procurement/use-purchase-requests';
+import { useCreateRfqFromPR } from '@/hooks/procurement/use-rfqs';
 import { PR_STATUS_CONFIG } from '@/types/procurement';
 import { StatusBadge } from '@/components/procurement/status-badge';
+import { RequestJourney } from '@/components/procurement/request-journey';
 import { formatDateDMY } from '@/lib/utils/date-format';
 import { AlertBox } from '@/components/ui/alert-box';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -37,7 +37,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { ArrowLeft, Send, Check, X, Pencil } from 'lucide-react';
+import { ArrowLeft, Send, X, ClipboardList, Check } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
@@ -52,21 +52,23 @@ export default function PurchaseRequestDetailPage() {
   const { data: pr, isLoading, isError } = usePurchaseRequest(id);
   const submitPR = useSubmitPurchaseRequest();
   const approvePR = useApprovePurchaseRequest();
-  const approveWithMods = useApproveWithModifications();
+  const createRfq = useCreateRfqFromPR();
   const rejectPR = useRejectPurchaseRequest();
   const cancelPR = useCancelPurchaseRequest();
 
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
-  const [editingQty, setEditingQty] = useState(false);
-  const [qtyEdits, setQtyEdits] = useState<Record<string, string>>({});
 
+  // Two sign-offs in the whole flow (docs/procurement/simplified-flow-spec.md):
+  // this one — is the need real? — and the Super Admin's approval of the chosen
+  // vendors and prices. Quotations can only start once the request is approved.
+  const canQuote = isSuperAdmin || canAccess('procurement', 'rfq_manage');
   const canApprove = isSuperAdmin || canAccess('procurement', 'request_approve');
   const isOwner = pr?.requested_by === profile?.id;
 
   if (isLoading) {
     return (
-      <ContentLayout title="Purchase Request">
+      <ContentLayout title="Request">
         <div className="flex items-center justify-center py-16">
           <BeatLoader color="hsl(var(--primary))" size={10} />
         </div>
@@ -75,16 +77,16 @@ export default function PurchaseRequestDetailPage() {
   }
   if (isError) {
     return (
-      <ContentLayout title="Purchase Request">
+      <ContentLayout title="Request">
         <div className="py-12">
-          <AlertBox type="error" message="Failed to load this purchase request. Please try again." />
+          <AlertBox type="error" message="Failed to load this request. Please try again." />
         </div>
       </ContentLayout>
     );
   }
   if (!pr) {
     return (
-      <ContentLayout title="Purchase Request">
+      <ContentLayout title="Request">
         <p className="text-muted-foreground py-12 text-center">Request not found.</p>
       </ContentLayout>
     );
@@ -100,10 +102,10 @@ export default function PurchaseRequestDetailPage() {
   // "Draft" tells you the state but not that the request is inert until submitted,
   // nor where it goes next. Rejection already has its own card, so it is skipped.
   const STATUS_HINT: Record<string, string> = {
-    draft: 'Only you can see this. Submitting sends it to a Super Admin for approval.',
-    submitted: 'Waiting for a Super Admin. They may reduce quantities when approving.',
-    approved: 'Approved. The next step is an RFQ to collect vendor quotations.',
-    converted: 'Rolled into an RFQ — vendor quotations are being collected.',
+    draft: 'Only you can see this. Submitting sends it for approval.',
+    submitted: 'Waiting for approval. Once approved, the store collects vendor quotations.',
+    approved: 'Approved. The store can now collect vendor quotations.',
+    converted: 'Rolled into a quotation — vendor quotes are being collected.',
     cancelled: 'Cancelled. This request will not go any further.',
   };
   const statusHint = STATUS_HINT[pr.status];
@@ -146,82 +148,55 @@ export default function PurchaseRequestDetailPage() {
           />
         </div>
 
+        <RequestJourney anchor={{ requestId: pr.id }} revision={pr.status} />
+
         {statusHint && (
           <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
             {statusHint}
           </p>
         )}
 
-        {/* Actions — affirmative on the left, declining or abandoning on the right,
-            so Reject never sits shoulder-to-shoulder with Approve. */}
+        {/* Actions — affirmative on the left, declining or abandoning on the right. */}
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
             {pr.status === 'draft' && isOwner && (
-              <Button className="w-full sm:w-auto" onClick={() => run(() => submitPR.mutateAsync(id), 'Submitted for approval')}>
+              <Button className="w-full sm:w-auto" onClick={() => run(() => submitPR.mutateAsync(id), 'Request submitted')}>
                 <Send className="mr-2 h-4 w-4" />
-                Submit for approval
+                Submit
               </Button>
             )}
-            {editingQty && (
+            {pr.status === 'submitted' && canApprove && (
               <Button
                 className="w-full sm:w-auto"
-                disabled={pr.items.some((it) => !(Number(qtyEdits[it.id]) > 0))}
-                onClick={() =>
-                  run(async () => {
-                    const itemUpdates = pr.items
-                      .filter((it) => Number(qtyEdits[it.id]) !== Number(it.required_quantity))
-                      .map((it) => ({ itemId: it.id, required_quantity: Number(qtyEdits[it.id]) }));
-                    await approveWithMods.mutateAsync({ id, userId: profile!.id, itemUpdates });
-                    setEditingQty(false);
-                  }, 'Request approved with updated quantities')
-                }
+                disabled={approvePR.isPending}
+                onClick={() => run(() => approvePR.mutateAsync({ id, userId: profile!.id }), 'Request approved')}
               >
                 <Check className="mr-2 h-4 w-4" />
-                Save &amp; Approve
+                Approve request
               </Button>
             )}
-            {!editingQty && pr.status === 'submitted' && canApprove && (
-              <>
-                <Button
-                  className="w-full sm:w-auto"
-                  onClick={() =>
-                    run(() => approvePR.mutateAsync({ id, userId: profile!.id }), 'Request approved')
+            {pr.status === 'approved' && canQuote && (
+              <Button
+                className="w-full sm:w-auto"
+                disabled={createRfq.isPending}
+                onClick={async () => {
+                  try {
+                    const rfq = await createRfq.mutateAsync({ requestId: id, userId: profile!.id });
+                    toast.success('Ready for quotations — add vendors and their quotes');
+                    router.push(`/procurement/rfqs/${rfq.id}/quotations`);
+                  } catch (e) {
+                    toast.error(errorMessage(e, 'Could not start quotations'));
                   }
-                >
-                  <Check className="mr-2 h-4 w-4" />
-                  Approve
-                </Button>
-                <Button
-                  variant="outline"
-                  className="w-full sm:w-auto"
-                  onClick={() => {
-                    setQtyEdits(
-                      Object.fromEntries(
-                        pr.items.map((it) => [it.id, String(Number(it.required_quantity))])
-                      )
-                    );
-                    setEditingQty(true);
-                  }}
-                >
-                  <Pencil className="mr-2 h-4 w-4" />
-                  Modify &amp; Approve
-                </Button>
-              </>
+                }}
+              >
+                <ClipboardList className="mr-2 h-4 w-4" />
+                {createRfq.isPending ? 'Starting…' : 'Start quotations'}
+              </Button>
             )}
           </div>
 
           <div className="flex flex-col gap-2 sm:ml-auto sm:flex-row sm:flex-wrap sm:items-center">
-            {editingQty && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="self-start text-muted-foreground sm:self-auto"
-                onClick={() => setEditingQty(false)}
-              >
-                Cancel edit
-              </Button>
-            )}
-            {!editingQty && pr.status === 'submitted' && canApprove && (
+            {pr.status === 'submitted' && canApprove && (
               <Button
                 variant="outline"
                 className="w-full text-destructive hover:text-destructive sm:w-auto"
@@ -293,25 +268,7 @@ export default function PurchaseRequestDetailPage() {
                     <TableCell className="font-medium">{it.item_name}</TableCell>
                     <TableCell>{it.item_spec || '—'}</TableCell>
                     <TableCell className="text-right">
-                      {editingQty ? (
-                        <>
-                          <Input
-                            type="number"
-                            min={0.01}
-                            step="any"
-                            value={qtyEdits[it.id] ?? ''}
-                            onChange={(e) =>
-                              setQtyEdits((p) => ({ ...p, [it.id]: e.target.value }))
-                            }
-                            className="h-8 w-24 ml-auto text-right"
-                          />
-                          {Number(qtyEdits[it.id]) !== Number(it.required_quantity) && (
-                            <span className="block text-[11px] text-muted-foreground">
-                              was {it.required_quantity}
-                            </span>
-                          )}
-                        </>
-                      ) : it.original_quantity != null &&
+                      {it.original_quantity != null &&
                         it.original_quantity !== it.required_quantity ? (
                         <>
                           {it.required_quantity}
@@ -351,7 +308,7 @@ export default function PurchaseRequestDetailPage() {
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Reject purchase request</DialogTitle>
+            <DialogTitle>Reject request</DialogTitle>
           </DialogHeader>
           <div className="space-y-2">
             <Label>Reason (required)</Label>

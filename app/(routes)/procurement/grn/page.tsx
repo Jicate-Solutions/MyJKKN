@@ -14,6 +14,7 @@ import { formatDateDMY } from '@/lib/utils/date-format';
 import { GRN_STATUS_CONFIG, type GrnStatus, type GrnFilters } from '@/types/procurement';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { ReceiveSwitcher } from '@/components/procurement/receive-switcher';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -53,13 +54,14 @@ export default function GrnListPage() {
   const grns = response?.data ?? [];
 
   return (
-    <ContentLayout title="Goods Receipt">
+    <ContentLayout title="Receive">
       <div className="space-y-4 sm:space-y-6">
-        <div>
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Goods Receipt Notes</h2>
+        <div className="space-y-2">
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Receive</h2>
+          <ReceiveSwitcher active="receipts" />
           <p className="hidden text-muted-foreground sm:block">
-            Receive deliveries against a PO, run three-way matching, and post accepted
-            stock to inventory on verification.
+            Receive deliveries against an order, check they match the order and invoice, and
+            add accepted stock to inventory once verified.
           </p>
         </div>
 
@@ -69,7 +71,7 @@ export default function GrnListPage() {
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search by GRN number..."
+                  placeholder="Search by delivery number..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-9"
@@ -106,20 +108,20 @@ export default function GrnListPage() {
               </div>
             ) : isError ? (
               <div className="p-6">
-                <AlertBox type="error" message="Failed to load goods receipt notes. Please try again." />
+                <AlertBox type="error" message="Failed to load delivery records. Please try again." />
               </div>
             ) : grns.length === 0 ? (
               <EmptyState
-                title="No goods receipt notes found"
-                description="Open an approved PO to receive a delivery."
+                title="No delivery records found"
+                description="Open an approved order to record a delivery."
               />
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>GRN #</TableHead>
+                    <TableHead>Delivery #</TableHead>
                     <TableHead>Date</TableHead>
-                    <TableHead>PO #</TableHead>
+                    <TableHead>Order #</TableHead>
                     <TableHead>Vendor</TableHead>
                     <TableHead>Invoice</TableHead>
                     <TableHead>Items</TableHead>

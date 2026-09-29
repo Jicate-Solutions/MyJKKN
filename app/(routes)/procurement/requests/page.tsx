@@ -60,11 +60,11 @@ export default function PurchaseRequestsPage() {
   const requests = response?.data ?? [];
 
   return (
-    <ContentLayout title="Purchase Requests">
+    <ContentLayout title="Requests">
       <div className="space-y-4 sm:space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Purchase Requests</h2>
+            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Requests</h2>
             <p className="hidden text-muted-foreground sm:block">
               Restock and new-item requests routed for approval.
             </p>
@@ -128,11 +128,11 @@ export default function PurchaseRequestsPage() {
               </div>
             ) : isError ? (
               <div className="py-12 px-6">
-                <AlertBox type="error" message="Failed to load purchase requests. Please try again." />
+                <AlertBox type="error" message="Failed to load requests. Please try again." />
               </div>
             ) : requests.length === 0 ? (
               <EmptyState
-                title="No purchase requests found"
+                title="No requests found"
                 description="Requests you create or that are routed to you will appear here."
               />
             ) : (

@@ -10,7 +10,6 @@ import {
   useSubmitPO,
   useApprovePO,
   useRejectPO,
-  useMarkPOSent,
   useCancelPO,
   useUpdatePoDocumentFields,
   useUpdatePoItemExtraFields,
@@ -91,7 +90,6 @@ export default function PurchaseOrderDetailPage() {
   const submitPO = useSubmitPO();
   const approvePO = useApprovePO();
   const rejectPO = useRejectPO();
-  const markSent = useMarkPOSent();
   const cancelPO = useCancelPO();
   const updateDocFields = useUpdatePoDocumentFields();
   const updateItemExtra = useUpdatePoItemExtraFields();
@@ -189,7 +187,7 @@ export default function PurchaseOrderDetailPage() {
 
   if (isLoading) {
     return (
-      <ContentLayout title="Purchase Order">
+      <ContentLayout title="Order">
         <div className="flex items-center justify-center py-16">
           <BeatLoader color="hsl(var(--primary))" size={10} />
         </div>
@@ -198,17 +196,17 @@ export default function PurchaseOrderDetailPage() {
   }
   if (isError) {
     return (
-      <ContentLayout title="Purchase Order">
+      <ContentLayout title="Order">
         <div className="py-12">
-          <AlertBox type="error" message="Failed to load this purchase order. Please try again." />
+          <AlertBox type="error" message="Failed to load this order. Please try again." />
         </div>
       </ContentLayout>
     );
   }
   if (!po) {
     return (
-      <ContentLayout title="Purchase Order">
-        <p className="text-muted-foreground py-12 text-center">Purchase order not found.</p>
+      <ContentLayout title="Order">
+        <p className="text-muted-foreground py-12 text-center">Order not found.</p>
       </ContentLayout>
     );
   }
@@ -218,8 +216,8 @@ export default function PurchaseOrderDetailPage() {
   const STATUS_HINT: Record<string, string> = {
     draft: 'Not yet sent for approval. Submitting sends it to a Super Admin.',
     pending_approval: 'Waiting for a Super Admin to approve before it can go to the vendor.',
-    approved: 'Approved. Send it to the vendor, then record deliveries as goods receipts.',
-    sent: 'With the vendor. Record each delivery as a goods receipt against this order.',
+    approved: 'Approved by the Super Admin. Download the PDF for the vendor, then record deliveries.',
+    sent: 'With the vendor. Record each delivery against this order.',
     partially_received: 'Some goods have arrived. The order stays open until every line is received.',
     completed: 'Everything ordered has been received and verified.',
     closed: 'Closed. No further deliveries are expected.',
@@ -230,7 +228,7 @@ export default function PurchaseOrderDetailPage() {
   // One workflow action at a time — a second click while the first is in
   // flight would try the same transition from a state the PO has already left.
   const transitionBusy =
-    submitPO.isPending || approvePO.isPending || markSent.isPending || cancelPO.isPending || rejectPO.isPending;
+    submitPO.isPending || approvePO.isPending || cancelPO.isPending || rejectPO.isPending;
 
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     try {
@@ -249,7 +247,7 @@ export default function PurchaseOrderDetailPage() {
             <Button
               variant="ghost"
               size="sm"
-              aria-label="Back to purchase orders"
+              aria-label="Back to orders"
               onClick={() => router.push('/procurement/purchase-orders')}
             >
               <ArrowLeft className="h-4 w-4" />
@@ -292,7 +290,7 @@ export default function PurchaseOrderDetailPage() {
             <>
               <Button
                 className="w-full sm:w-auto"
-                onClick={() => run(() => approvePO.mutateAsync({ id, userId: profile!.id }), 'PO approved')}
+                onClick={() => run(() => approvePO.mutateAsync({ id, userId: profile!.id }), 'Order approved')}
                 disabled={transitionBusy}
               >
                 <Check className="mr-2 h-4 w-4" />
@@ -308,30 +306,20 @@ export default function PurchaseOrderDetailPage() {
               </Button>
             </>
           )}
-          {po.status === 'approved' && canCreate && (
-            <Button
-              className="w-full sm:w-auto"
-              onClick={() => run(() => markSent.mutateAsync({ id, userId: profile!.id }), 'PO marked as sent')}
-              disabled={transitionBusy}
-            >
-              <Send className="mr-2 h-4 w-4" />
-              Send to vendor
-            </Button>
-          )}
           {['sent', 'approved', 'partially_received'].includes(po.status) && canReceive && (
             <Button className="w-full sm:w-auto" onClick={() => router.push(`/procurement/grn/new?po=${po.id}`)}>
               <PackageCheck className="mr-2 h-4 w-4" />
-              Create GRN
+              Record delivery
             </Button>
           )}
           {(po.status === 'draft' || po.status === 'pending_approval') && canCreate && (
             <Button
               variant="ghost"
               className="w-full sm:w-auto"
-              onClick={() => run(() => cancelPO.mutateAsync({ id, userId: profile!.id }), 'PO cancelled')}
+              onClick={() => run(() => cancelPO.mutateAsync({ id, userId: profile!.id }), 'Order cancelled')}
               disabled={transitionBusy}
             >
-              Cancel PO
+              Cancel order
             </Button>
           )}
         </div>
@@ -593,14 +581,14 @@ export default function PurchaseOrderDetailPage() {
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Reject purchase order</DialogTitle>
+            <DialogTitle>Reject order</DialogTitle>
           </DialogHeader>
           <div className="space-y-2">
             <Label>Reason (required)</Label>
             <Textarea
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="Explain why this PO is being rejected..."
+              placeholder="Explain why this order is being rejected..."
             />
           </div>
           <DialogFooter>
@@ -614,7 +602,7 @@ export default function PurchaseOrderDetailPage() {
               onClick={async () => {
                 await run(
                   () => rejectPO.mutateAsync({ id, userId: profile!.id, reason: rejectReason }),
-                  'PO rejected'
+                  'Order rejected'
                 );
                 setRejectOpen(false);
                 setRejectReason('');

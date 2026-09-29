@@ -77,7 +77,7 @@ export function FooterColumnsEditor({ columns, onChange }: FooterColumnsEditorPr
       <div>
         <Label className="text-base font-semibold">Footer (3 columns)</Label>
         <p className="hidden text-xs text-muted-foreground sm:block">
-          Matches the standard PO footer layout: Terms &amp; Condition, Enclosure, Special Note.
+          Matches the standard order footer layout: Terms &amp; Condition, Enclosure, Special Note.
           Rename titles or fields per vendor; toggle a group to free text if it should just be a
           paragraph (e.g. Special Note).
         </p>
@@ -108,7 +108,7 @@ export function FooterColumnsEditor({ columns, onChange }: FooterColumnsEditorPr
             <CardContent className="p-3 pt-2 space-y-2">
               {group.freeText ? (
                 <p className="hidden text-xs text-muted-foreground sm:block">
-                  Rendered as a single free-text paragraph, filled in per PO.
+                  Rendered as a single free-text paragraph, filled in per order.
                 </p>
               ) : (
                 <>

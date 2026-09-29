@@ -71,7 +71,7 @@ export function ItemColumnsEditor({ columns, onChange }: ItemColumnsEditorProps)
         <div>
           <Label className="text-base font-semibold">Item Table Columns</Label>
           <p className="hidden text-xs text-muted-foreground sm:block">
-            The line-item table on the PO document. Order here is the print order.
+            The line-item table on the order document. Order here is the print order.
           </p>
         </div>
         <Button type="button" variant="outline" size="sm" onClick={addColumn} className="gap-1">
@@ -82,7 +82,7 @@ export function ItemColumnsEditor({ columns, onChange }: ItemColumnsEditorProps)
 
       {columns.length === 0 && (
         <p className="text-sm text-muted-foreground text-center py-4">
-          No columns added yet. Add the columns this vendor&apos;s PO needs (e.g. HSN/SAC, GST%, MRP, ISBN).
+          No columns added yet. Add the columns this vendor&apos;s order needs (e.g. HSN/SAC, GST%, MRP, ISBN).
         </p>
       )}
 

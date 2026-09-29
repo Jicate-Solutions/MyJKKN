@@ -139,7 +139,10 @@ export class ProcurementPurchaseRequestService {
           request_number: requestNumber,
           domain: data.domain ?? 'ims',
           request_type: requestType,
-          status: 'draft',
+          // Filed straight away — the review dialog on the create page is the
+          // confirmation, so a separate Draft → Submit click added nothing.
+          status: 'submitted',
+          submitted_at: new Date().toISOString(),
           requested_by: userId,
           notes: data.notes ?? null,
         })

@@ -16,7 +16,7 @@ export default function NewPoFormatPage() {
 
   if (!profile?.institution_id) {
     return (
-      <ContentLayout title="New PO Format">
+      <ContentLayout title="New Order Format">
         <div className="flex items-center justify-center py-16">
           <BeatLoader color="hsl(var(--primary))" size={10} />
         </div>
@@ -25,21 +25,21 @@ export default function NewPoFormatPage() {
   }
 
   return (
-    <ContentLayout title="New PO Format">
+    <ContentLayout title="New Order Format">
       <div className="space-y-4 sm:space-y-6 max-w-5xl">
         <div className="flex items-center gap-2 sm:gap-3">
           <Button
             variant="ghost"
             size="sm"
-            aria-label="Back to PO formats"
+            aria-label="Back to order formats"
             onClick={() => router.push('/procurement/purchase-orders/formats')}
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">New PO Format</h2>
+            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">New Order Format</h2>
             <p className="hidden text-muted-foreground sm:block">
-              Define the header, item columns and footer used when a purchase order is printed.
+              Define the header, item columns and footer used when an order is printed.
             </p>
           </div>
         </div>

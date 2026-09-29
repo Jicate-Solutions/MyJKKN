@@ -22,44 +22,64 @@ import { CircleAlert, CheckCircle2, Plus, ChevronRight } from 'lucide-react';
  * constraint rather than decorating four unrelated tiles.
  *
  * Each gate holds documents that cannot move until somebody acts. `permission` is the
- * key that opens that gate, so the page can show a viewer which waits are *theirs*:
- * a Store Admin runs the whole pipeline but opens none of these gates, while a Super
- * Admin opens all four. That difference is the segregation of duties made visible.
+ * key that opens that gate, so the page can show a viewer which waits are *theirs*.
+ * Since the simplified flow (docs/procurement/simplified-flow-spec.md) there is one
+ * money sign-off — gate 2, the Super Admin's approval of the chosen vendors — and the
+ * other gates are the store's own work: quote, receive, verify.
  */
-const GATES = [
+const GATES: ReadonlyArray<{
+  step: number;
+  name: string;
+  waiting: string;
+  /** Permission key that opens this gate; null = Super Admin only. */
+  permission: string | null;
+  href: string;
+  /** Appended to `${href}/${id}` for the "Waiting for you" link. */
+  itemSuffix?: string;
+  docLabel: string;
+}> = [
   {
     step: 1,
-    name: 'Requests',
+    name: 'Request approval',
     waiting: 'awaiting approval',
     permission: 'request_approve',
     href: '/procurement/requests',
-    docLabel: 'Purchase request',
+    docLabel: 'Request to approve',
   },
   {
     step: 2,
-    name: 'RFQs',
-    waiting: 'awaiting review',
-    permission: 'rfq_approve',
-    href: '/procurement/rfqs',
-    docLabel: 'RFQ',
+    name: 'Quotations',
+    waiting: 'ready for quotations',
+    permission: 'rfq_manage',
+    href: '/procurement/requests',
+    docLabel: 'Request to quote',
   },
   {
     step: 3,
-    name: 'Orders',
+    name: 'Super Admin approval',
     waiting: 'awaiting approval',
-    permission: 'po_approve',
-    href: '/procurement/purchase-orders',
-    docLabel: 'Purchase order',
+    permission: null,
+    href: '/procurement/rfqs',
+    itemSuffix: '/quotations',
+    docLabel: 'Vendor choice',
   },
   {
     step: 4,
-    name: 'Receipts',
+    name: 'Orders',
+    waiting: 'awaiting delivery',
+    permission: 'grn_create',
+    href: '/procurement/purchase-orders',
+    docLabel: 'Order',
+  },
+  {
+    step: 5,
+    name: 'Goods received',
     waiting: 'awaiting verification',
     permission: 'grn_verify',
     href: '/procurement/grn',
-    docLabel: 'Goods receipt',
+    docLabel: 'Delivery record',
   },
-] as const;
+];
 
 interface WaitingDoc {
   id: string;
@@ -79,16 +99,17 @@ export default function ProcurementHome() {
   // count and the same rows fill the "Waiting for you" list, so the list costs
   // nothing extra.
   const prQ = usePurchaseRequests({ institution_id: institutionId, status: 'submitted', limit: 5 });
-  const rfqQ = useRfqs({ institution_id: institutionId, status: 'pending_review', limit: 5 });
-  const poQ = usePurchaseOrders({ institution_id: institutionId, status: 'pending_approval', limit: 5 });
+  const approvedQ = usePurchaseRequests({ institution_id: institutionId, status: 'approved', limit: 5 });
+  const rfqQ = useRfqs({ institution_id: institutionId, status: 'pending_award_approval', limit: 5 });
+  const poQ = usePurchaseOrders({ institution_id: institutionId, status: 'approved', limit: 5 });
   const grnQ = useGrns({ institution_id: institutionId, status: 'pending_verification', limit: 5 });
 
   const canCreateRequest = isSuperAdmin || canAccess('procurement', 'request_create');
-  const loading = prQ.isLoading || rfqQ.isLoading || poQ.isLoading || grnQ.isLoading;
-  const failed = prQ.isError || rfqQ.isError || poQ.isError || grnQ.isError;
+  const loading = prQ.isLoading || approvedQ.isLoading || rfqQ.isLoading || poQ.isLoading || grnQ.isLoading;
+  const failed = prQ.isError || approvedQ.isError || rfqQ.isError || poQ.isError || grnQ.isError;
 
   const gates = useMemo(() => {
-    const queries = [prQ, rfqQ, poQ, grnQ];
+    const queries = [prQ, approvedQ, rfqQ, poQ, grnQ];
     return GATES.map((gate, i) => {
       const q = queries[i];
       const response = q.data as { data?: unknown[]; metadata?: { total?: number } } | undefined;
@@ -97,11 +118,11 @@ export default function ProcurementHome() {
         count: response?.metadata?.total ?? 0,
         // "Needs you" is a claim about the viewer, so it is only ever shown to
         // someone who actually holds the key to that gate.
-        mine: isSuperAdmin || canAccess('procurement', gate.permission),
+        mine: isSuperAdmin || (gate.permission !== null && canAccess('procurement', gate.permission)),
       };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prQ.data, rfqQ.data, poQ.data, grnQ.data, isSuperAdmin, canAccess]);
+  }, [prQ.data, approvedQ.data, rfqQ.data, poQ.data, grnQ.data, isSuperAdmin, canAccess]);
 
   const waitingForYou = useMemo<WaitingDoc[]>(() => {
     const rows: WaitingDoc[] = [];
@@ -117,16 +138,17 @@ export default function ProcurementHome() {
           number: String(r[numberKey] ?? '—'),
           docLabel: GATES[gateIndex].docLabel,
           createdAt: (r.created_at as string) ?? null,
-          href: `${GATES[gateIndex].href}/${r.id}`,
+          href: `${GATES[gateIndex].href}/${r.id}${GATES[gateIndex].itemSuffix ?? ''}`,
         });
       }
     };
     push(prQ.data?.data as Record<string, unknown>[], 'request_number', 0);
-    push(rfqQ.data?.data as Record<string, unknown>[], 'rfq_number', 1);
-    push(poQ.data?.data as Record<string, unknown>[], 'po_number', 2);
-    push(grnQ.data?.data as Record<string, unknown>[], 'grn_number', 3);
+    push(approvedQ.data?.data as Record<string, unknown>[], 'request_number', 1);
+    push(rfqQ.data?.data as Record<string, unknown>[], 'rfq_number', 2);
+    push(poQ.data?.data as Record<string, unknown>[], 'po_number', 3);
+    push(grnQ.data?.data as Record<string, unknown>[], 'grn_number', 4);
     return rows.sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''));
-  }, [prQ.data, rfqQ.data, poQ.data, grnQ.data, gates]);
+  }, [prQ.data, approvedQ.data, rfqQ.data, poQ.data, grnQ.data, gates]);
 
   const totalWaiting = gates.reduce((sum, g) => sum + (g.mine ? g.count : 0), 0);
 
@@ -137,7 +159,7 @@ export default function ProcurementHome() {
           <div>
             <h2 className="text-xl font-bold tracking-tight sm:text-2xl">Procurement</h2>
             <p className="hidden text-muted-foreground sm:block">
-              Purchase requests through to goods on the shelf.
+              Requests through to goods on the shelf.
             </p>
           </div>
           {canCreateRequest && (
@@ -162,12 +184,12 @@ export default function ProcurementHome() {
         <section aria-label="Procurement pipeline">
           <div className="relative">
             {/* The chain itself. Runs between the centres of the first and last
-                step markers (4 equal columns → centres at 12.5% and 87.5%). */}
+                step markers (5 equal columns → centres at 10% and 90%). */}
             <div
               aria-hidden
-              className="pointer-events-none absolute left-[12.5%] right-[12.5%] top-4 hidden h-px bg-border lg:block"
+              className="pointer-events-none absolute left-[10%] right-[10%] top-4 hidden h-px bg-border lg:block"
             />
-            <div className="grid gap-3 sm:gap-4 lg:grid-cols-4 lg:gap-0">
+            <div className="grid gap-3 sm:gap-4 lg:grid-cols-5 lg:gap-0">
               {gates.map((gate) => {
                 const needsYou = gate.mine && gate.count > 0;
                 return (
@@ -231,7 +253,7 @@ export default function ProcurementHome() {
                 <p className="mt-3 font-medium">Nothing is waiting on you</p>
                 <p className="mt-1 max-w-sm text-sm text-muted-foreground">
                   {canCreateRequest
-                    ? 'Raise a purchase request to start something moving — use "New request" above.'
+                    ? 'Raise a request to start something moving — use "New request" above.'
                     : 'Approvals you are responsible for will appear here.'}
                 </p>
               </div>

@@ -3,26 +3,19 @@ import type { ModuleNavConfig } from '@/lib/navigation/nav-config';
 /**
  * Procurement — in-page tab bar (AutoTabNav).
  *
- * WHY THIS CONFIG EXISTS: without one, AutoTabNav renders the module's children
- * flat from the route manifest, which orders them by folder name. For procurement
- * that produced "Grn · Purchase Orders · Requests · Rfqs" — alphabetical, which puts
- * the LAST step of the chain first and the FIRST step third, and mis-cases two
- * acronyms into "Grn" and "Rfqs".
+ * Three working tabs, in the order the work happens
+ * (docs/procurement/simplified-flow-spec.md):
+ *   Requests — what someone needs
+ *   Purchase — vendor quotations, AI comparison, Super Admin approval
+ *   Receive  — approved orders waiting for delivery, then goods receipts
  *
- * Procurement is a strict sequence: a request precedes an RFQ, which precedes a
- * purchase order, which precedes a goods receipt. The tab order below is that
- * sequence, so the nav teaches the workflow instead of contradicting it.
+ * The URLs are unchanged (/rfqs, /purchase-orders, /grn) so bookmarks, the
+ * permission map in lib/sidebarMenuLink.ts and deep links keep working; only the
+ * grouping a user sees changed. Receive covers two routes, so it lists both in
+ * matchPaths and the pages share a ReceiveSwitcher.
  *
  * Per-tab visibility is NOT declared here — AutoTabNav.canShowChip() gates each tab
- * by its MENU_PERMISSIONS entry (lib/sidebarMenuLink.ts), so a user without a given
- * procurement permission simply does not see that chip.
- *
- * Active-state: 'Overview' matches the bare '/procurement'; every other tab has a
- * more specific path, so the most-specific match wins on deeper routes (the same
- * Dashboard-vs-siblings pattern the calendar and audit modules use). Each stage
- * path also covers its own children — '/procurement/rfqs' stays active on
- * '/procurement/rfqs/[id]/quotations', and '/procurement/purchase-orders' stays
- * active on the PO format editors.
+ * by its MENU_PERMISSIONS entry (lib/sidebarMenuLink.ts).
  */
 const config: ModuleNavConfig = {
   module: 'procurement',
@@ -40,22 +33,16 @@ const config: ModuleNavConfig = {
       matchPaths: ['/procurement/requests'],
     },
     {
-      label: 'RFQs',
+      label: 'Purchase',
       icon: 'FileSearch',
       href: '/procurement/rfqs',
       matchPaths: ['/procurement/rfqs'],
     },
     {
-      label: 'Purchase Orders',
-      icon: 'ScrollText',
-      href: '/procurement/purchase-orders',
-      matchPaths: ['/procurement/purchase-orders'],
-    },
-    {
-      label: 'Goods Receipt',
+      label: 'Receive',
       icon: 'PackageCheck',
-      href: '/procurement/grn',
-      matchPaths: ['/procurement/grn'],
+      href: '/procurement/purchase-orders',
+      matchPaths: ['/procurement/purchase-orders', '/procurement/grn'],
     },
   ],
 };
