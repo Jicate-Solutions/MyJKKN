@@ -148,9 +148,10 @@ CREATE POLICY "hr_performance_reviews_self_update"
       SELECT id FROM public.staff WHERE profile_id = (SELECT auth.uid())
     )
     AND status IN ('draft', 'self_submitted')
-    -- Only into a round that is OPEN and belongs to the person's own college
-    -- or to the whole group (round-3 review: nothing stopped an insert into
-    -- another college's round, or a locked/closed one).
+    -- The same round check as the insert: a person keeps editing and submits
+    -- only while the round is OPEN and is their own college's or the group's.
+    -- Without it, a draft could be moved into another college's round, or
+    -- submitted after HR locked the round.
     AND cycle_id IN (
       SELECT c.id
       FROM public.hr_performance_review_cycles c

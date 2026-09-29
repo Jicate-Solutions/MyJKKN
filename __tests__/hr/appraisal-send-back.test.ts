@@ -155,4 +155,13 @@ describe('a person can only file into an open round of their own college or the 
     expect(insert).toContain('c.institution_id IS NULL OR c.institution_id = s.institution_id');
     expect(insert).toContain('s.id = hr_performance_reviews.staff_id');
   });
+  it('applies the same round check when a person edits or submits their draft', () => {
+    const update = sql.slice(
+      sql.indexOf('CREATE POLICY "hr_performance_reviews_self_update"'),
+      sql.indexOf('DROP POLICY IF EXISTS "hr_performance_reviews_hod_update"'),
+    );
+    const withCheck = update.slice(update.indexOf('WITH CHECK'));
+    expect(withCheck).toContain("c.status = 'open'");
+    expect(withCheck).toContain('c.institution_id IS NULL OR c.institution_id = s.institution_id');
+  });
 });
