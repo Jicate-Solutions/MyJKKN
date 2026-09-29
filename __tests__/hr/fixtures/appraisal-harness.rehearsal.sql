@@ -12,6 +12,8 @@
 --   A. conditions-first on the head's review (the replaced 4081 guard)
 --   B. the second-rating guard (who may be asked, who may write what, and
 --      that a submitted rating is frozen)
+--   E. nobody who can read appraisals (the appraisal key, an admin, a super
+--      admin — including HR assigning itself) may be the second rater
 --   D. same college only: a rater from another college can be neither asked
 --      nor reassigned to, and cannot read the evidence even if a request
 --      were planted with the guard switched off
@@ -42,6 +44,8 @@ DECLARE
   v_inst     uuid;
   v_foreign  uuid;
   v_planted  uuid;
+  v_role     uuid;
+  v_oldrole  text;
   v_cycle    uuid;
   v_cycle2   uuid;
   v_review   uuid;
@@ -228,10 +232,82 @@ BEGIN
     RAISE NOTICE 'REFUSED (21): second rater from another college';
   END;
 
+  -- ── Nobody who can read appraisals may be the second rater ─────────────
+  -- Each refusal must be for THIS reason (checked on the message), not a
+  -- different rule that happens to fire first.
+
+  -- 24. A holder of the appraisal-manage key (given through a role).
+  INSERT INTO public.custom_roles (role_key, role_name, permissions)
+  VALUES ('rehearsal_appraisal_hr', 'REHEARSAL — rolled back',
+          '{"hr.performance_reviews.manage": true}'::jsonb)
+  RETURNING id INTO v_role;
+  INSERT INTO public.user_roles (user_id, role_id) VALUES (v_rater, v_role);
+  v_expected := v_expected + 1;
+  BEGIN
+    INSERT INTO public.hr_performance_review_second_ratings (review_id, rater_id)
+    VALUES (v_review, v_rater);
+    RAISE WARNING 'HOLE (24): a holder of the appraisal key was made second rater';
+  EXCEPTION WHEN check_violation THEN
+    IF SQLERRM LIKE '%can read appraisals%' THEN
+      v_refused := v_refused + 1;
+      RAISE NOTICE 'REFUSED (24): key holder as second rater';
+    ELSE
+      RAISE WARNING 'HOLE (24): refused, but for another reason: %', SQLERRM;
+    END IF;
+  END;
+  DELETE FROM public.user_roles WHERE user_id = v_rater AND role_id = v_role;
+
+  -- 25. An admin.
+  SELECT role INTO v_oldrole FROM public.profiles WHERE id = v_rater;
+  UPDATE public.profiles SET role = 'administrator' WHERE id = v_rater;
+  v_expected := v_expected + 1;
+  BEGIN
+    INSERT INTO public.hr_performance_review_second_ratings (review_id, rater_id)
+    VALUES (v_review, v_rater);
+    RAISE WARNING 'HOLE (25): an admin was made second rater';
+  EXCEPTION WHEN check_violation THEN
+    IF SQLERRM LIKE '%can read appraisals%' THEN
+      v_refused := v_refused + 1;
+      RAISE NOTICE 'REFUSED (25): admin as second rater';
+    ELSE
+      RAISE WARNING 'HOLE (25): refused, but for another reason: %', SQLERRM;
+    END IF;
+  END;
+  UPDATE public.profiles SET role = v_oldrole WHERE id = v_rater;
+
+  -- 26. HR assigning itself (the caller here is the super admin).
+  v_expected := v_expected + 1;
+  BEGIN
+    INSERT INTO public.hr_performance_review_second_ratings (review_id, rater_id)
+    VALUES (v_review, v_admin);
+    RAISE WARNING 'HOLE (26): the assigner made themselves second rater';
+  EXCEPTION WHEN check_violation THEN
+    IF SQLERRM LIKE '%can read appraisals%' THEN
+      v_refused := v_refused + 1;
+      RAISE NOTICE 'REFUSED (26): assigner assigning themselves';
+    ELSE
+      RAISE WARNING 'HOLE (26): refused, but for another reason: %', SQLERRM;
+    END IF;
+  END;
+
   -- must succeed
   INSERT INTO public.hr_performance_review_second_ratings (review_id, rater_id)
   VALUES (v_review, v_rater)
   RETURNING id INTO v_second;
+
+  -- 27. Nor can HR switch an existing request to itself.
+  v_expected := v_expected + 1;
+  BEGIN
+    UPDATE public.hr_performance_review_second_ratings SET rater_id = v_admin WHERE id = v_second;
+    RAISE WARNING 'HOLE (27): HR reassigned the request to itself';
+  EXCEPTION WHEN check_violation THEN
+    IF SQLERRM LIKE '%can read appraisals%' THEN
+      v_refused := v_refused + 1;
+      RAISE NOTICE 'REFUSED (27): reassigning to someone who can read appraisals';
+    ELSE
+      RAISE WARNING 'HOLE (27): refused, but for another reason: %', SQLERRM;
+    END IF;
+  END;
 
   v_expected := v_expected + 1;
   BEGIN
@@ -303,6 +379,24 @@ BEGIN
     v_refused := v_refused + 1;
     RAISE NOTICE 'REFUSED (23): evidence refused to a rater from another college';
   END;
+
+  -- 28. A rater given the appraisal key AFTER being asked is refused the
+  --     evidence too: they can read the head's rating elsewhere now.
+  PERFORM set_config('role', v_me, true);
+  INSERT INTO public.user_roles (user_id, role_id) VALUES (v_rater, v_role);
+  PERFORM set_config('role', 'authenticated', true);
+  PERFORM set_config('request.jwt.claim.sub', v_rater::text, true);
+  v_expected := v_expected + 1;
+  BEGIN
+    v_ev := public.fn_hr_second_rating_evidence(v_second);
+    RAISE WARNING 'HOLE (28): a rater who can read appraisals got the evidence view';
+  EXCEPTION WHEN insufficient_privilege THEN
+    v_refused := v_refused + 1;
+    RAISE NOTICE 'REFUSED (28): evidence refused to a rater who holds the appraisal key';
+  END;
+  PERFORM set_config('role', v_me, true);
+  DELETE FROM public.user_roles WHERE user_id = v_rater AND role_id = v_role;
+  PERFORM set_config('role', 'authenticated', true);
 
   PERFORM set_config('request.jwt.claim.sub', v_rater::text, true);
   v_expected := v_expected + 1;

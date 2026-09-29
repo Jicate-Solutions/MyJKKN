@@ -22,7 +22,9 @@
 --      the agreement report on the cycle page.
 --      The second rater must be a team member of the SAME college as the
 --      person appraised — refused by the guard trigger and again by the
---      evidence function. No exception for group-wide admins.
+--      evidence function. No exception for group-wide admins. And nobody who
+--      can read appraisals (HR with the key, admins, super admins) may be the
+--      second rater: they could see the head's rating (round-2 decision).
 --
 --   2. Conditions first on a Below. A head (or second rater) who rates Below
 --      in any area must first say what the college did not provide — time,
@@ -419,6 +421,79 @@ CREATE POLICY "hr_perf_second_ratings_delete"
     )
   );
 
+-- ── Who must never be a second rater: anyone who can read appraisals ───────
+-- Decided 2026-09-29 (review round 2, option a). HR holding the manage key,
+-- admins and super admins can read whole appraisal rows — the head's rating
+-- included — so as second rater they would not be blind. They are refused,
+-- judged for the RATER's identity, not the caller's (that also stops HR
+-- assigning itself).
+--
+-- user_has_permission() / is_super_admin() only answer for auth.uid(), so this
+-- helper checks a GIVEN profile: the super-admin flag, is_admin(profile), and
+-- the manage key on any of their roles (user_roles, then the legacy
+-- profiles.role -> custom_roles.role_key mapping) — the same two paths
+-- user_has_permission() walks. Handover is not consulted: the key is walled
+-- from handover. Owner-only: called from the guard and the evidence function,
+-- which run as definer; no signed-in user can call it directly.
+CREATE OR REPLACE FUNCTION public.fn_hr_profile_can_read_appraisals(p_profile uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT p_profile IS NOT NULL AND (
+    EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = p_profile AND p.is_super_admin = true)
+    OR COALESCE(public.is_admin(p_profile), false)
+    OR EXISTS (
+      SELECT 1
+      FROM public.user_roles ur
+      JOIN public.custom_roles cr ON cr.id = ur.role_id
+      WHERE ur.user_id = p_profile
+        AND COALESCE(cr.permissions ->> 'hr.performance_reviews.manage', 'false') = 'true'
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM public.profiles p
+      JOIN public.custom_roles cr ON cr.role_key = p.role
+      WHERE p.id = p_profile
+        AND COALESCE(cr.permissions ->> 'hr.performance_reviews.manage', 'false') = 'true'
+    )
+  );
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_profile_can_read_appraisals(uuid) FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.fn_hr_profile_can_read_appraisals(uuid) IS
+  'True when the given profile can read whole appraisal rows (super admin, '
+  'is_admin, or hr.performance_reviews.manage on a role). Such a person is '
+  'never a blind second rater. Owner-only.';
+
+-- For the rater search: which of these people cannot be asked, and so are
+-- left off the list with a reason. HR only.
+CREATE OR REPLACE FUNCTION public.fn_hr_second_rater_ineligible(p_profile_ids uuid[])
+RETURNS uuid[]
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT (is_super_admin() OR is_admin() OR user_has_permission('hr.performance_reviews.manage')) THEN
+    RAISE EXCEPTION 'hr_second_rating: only HR may search for second raters'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  RETURN COALESCE(
+    (SELECT array_agg(x) FROM unnest(p_profile_ids) AS t(x)
+     WHERE public.fn_hr_profile_can_read_appraisals(x)),
+    ARRAY[]::uuid[]
+  );
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_second_rater_ineligible(uuid[]) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_second_rater_ineligible(uuid[]) TO authenticated;
+
 -- ── Column guard for the second rating ─────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.fn_hr_second_rating_guard()
 RETURNS trigger
@@ -476,6 +551,10 @@ BEGIN
     END IF;
     IF NEW.rater_id = v_head THEN
       RAISE EXCEPTION 'hr_second_rating: the second rater must not be the head who gives the first rating'
+        USING ERRCODE = 'check_violation';
+    END IF;
+    IF public.fn_hr_profile_can_read_appraisals(NEW.rater_id) THEN
+      RAISE EXCEPTION 'hr_second_rating: the second rater must not be someone who can read appraisals (HR with the appraisal key, an admin or a super admin) — they could see the head''s rating'
         USING ERRCODE = 'check_violation';
     END IF;
     -- Same college only. The second rater reads the person's self-appraisal,
@@ -575,6 +654,10 @@ BEGIN
       RAISE EXCEPTION 'hr_second_rating: the second rater must be neither the person appraised nor their head'
         USING ERRCODE = 'check_violation';
     END IF;
+    IF public.fn_hr_profile_can_read_appraisals(NEW.rater_id) THEN
+      RAISE EXCEPTION 'hr_second_rating: the second rater must not be someone who can read appraisals (HR with the appraisal key, an admin or a super admin) — they could see the head''s rating'
+        USING ERRCODE = 'check_violation';
+    END IF;
     IF v_inst IS NULL
        OR NOT EXISTS (
          SELECT 1 FROM public.staff rs
@@ -638,6 +721,13 @@ BEGIN
 
   IF NOT FOUND OR v_row.rater_id IS DISTINCT FROM auth.uid() THEN
     RAISE EXCEPTION 'hr_second_rating: you have not been asked to rate this appraisal'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  -- Someone who can read appraisals is not blind, whatever the request row
+  -- says (e.g. they were given the key after being asked).
+  IF public.fn_hr_profile_can_read_appraisals(auth.uid()) THEN
+    RAISE EXCEPTION 'hr_second_rating: someone who can read appraisals cannot give a blind second rating'
       USING ERRCODE = 'insufficient_privilege';
   END IF;
 

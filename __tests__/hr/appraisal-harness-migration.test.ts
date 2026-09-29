@@ -182,6 +182,7 @@ describe('every new function follows the project rules', () => {
   it.each([
     'fn_hr_appraisal_unanswered_conditions(jsonb)',
     'fn_hr_second_rating_evidence(uuid)',
+    'fn_hr_second_rater_ineligible(uuid[])',
   ])('%s is revoked from anon and PUBLIC, granted to signed-in users', (sig) => {
     expect(NEW).toContain(`REVOKE EXECUTE ON FUNCTION public.${sig} FROM anon, PUBLIC;`);
     expect(NEW).toContain(`GRANT  EXECUTE ON FUNCTION public.${sig} TO authenticated;`);
@@ -197,7 +198,7 @@ describe('every new function follows the project rules', () => {
   it('pins the search path on every SECURITY DEFINER function', () => {
     const defs = NEW.split('SECURITY DEFINER').length - 1;
     const pinned = NEW.split('SECURITY DEFINER\nSET search_path = public').length - 1;
-    expect(defs).toBe(3);
+    expect(defs).toBe(5);
     expect(pinned).toBe(defs);
   });
 
@@ -246,5 +247,39 @@ describe('same college only (review round 1)', () => {
     expect(pol).toContain('FOR SELECT');
     expect(pol).toContain('role_has_institution_access(s.institution_id)');
     expect(NEW).not.toMatch(/ON public\.hr_performance_reviews FOR (UPDATE|INSERT|DELETE|ALL)/);
+  });
+});
+
+describe('nobody who can read appraisals may be a second rater (review round 2)', () => {
+  const helper = fnBody(NEW, 'fn_hr_profile_can_read_appraisals');
+  const g = fnBody(NEW, 'fn_hr_second_rating_guard');
+  const e = fnBody(NEW, 'fn_hr_second_rating_evidence');
+
+  it('judges the GIVEN profile, not the caller', () => {
+    expect(helper).not.toContain('auth.uid()');
+    expect(helper).toContain('p.is_super_admin = true');
+    expect(helper).toContain('public.is_admin(p_profile)');
+    expect(helper).toContain("cr.permissions ->> 'hr.performance_reviews.manage'");
+    expect(helper).toContain('JOIN public.custom_roles cr ON cr.role_key = p.role');
+  });
+
+  it('is owner-only', () => {
+    expect(NEW).toContain(
+      'REVOKE EXECUTE ON FUNCTION public.fn_hr_profile_can_read_appraisals(uuid) FROM anon, PUBLIC, authenticated;',
+    );
+    expect(NEW).not.toMatch(/GRANT\s+EXECUTE ON FUNCTION public\.fn_hr_profile_can_read_appraisals/);
+  });
+
+  it('the guard refuses such a rater on asking AND on reassigning', () => {
+    expect(g.split('fn_hr_profile_can_read_appraisals(NEW.rater_id)').length - 1).toBe(2);
+  });
+
+  it('the evidence function refuses such a rater too', () => {
+    expect(e).toContain('fn_hr_profile_can_read_appraisals(auth.uid())');
+  });
+
+  it('the search helper answers HR only', () => {
+    const f = fnBody(NEW, 'fn_hr_second_rater_ineligible');
+    expect(f).toContain("IF NOT (is_super_admin() OR is_admin() OR user_has_permission('hr.performance_reviews.manage')) THEN");
   });
 });

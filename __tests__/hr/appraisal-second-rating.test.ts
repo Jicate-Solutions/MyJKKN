@@ -241,7 +241,10 @@ describe('the name search', () => {
 
   it('does not query at all for under two letters', async () => {
     const { client, tables } = fakeClient();
-    expect(await AppraisalSecondRatingService.searchRaters(client, '*a', 'subject')).toEqual([]);
+    expect(await AppraisalSecondRatingService.searchRaters(client, '*a', 'subject')).toEqual({
+      candidates: [],
+      hidden: 0,
+    });
     expect(tables).toEqual([]);
   });
 });
@@ -251,15 +254,22 @@ describe('the name search', () => {
 // ---------------------------------------------------------------------------
 
 /** A client whose staff table holds people from two colleges. */
-function collegeClient(opts: { subjectCollege: string | null }) {
+function collegeClient(opts: { subjectCollege: string | null; canReadAppraisals?: string[] }) {
   const COLLEGE_A = 'col-a';
   const rows = [
     { profile_id: 'p-a', first_name: 'Anu', last_name: 'Priya', designation: 'Professor', institution_id: COLLEGE_A },
     // A namesake from another college, as if a filter were ever dropped.
     { profile_id: 'p-b', first_name: 'Anu', last_name: 'Kumar', designation: 'Professor', institution_id: 'col-b' },
+    // Same college, but HR with the appraisal key: can read every appraisal.
+    { profile_id: 'p-hr', first_name: 'Anu', last_name: 'Devi', designation: 'HR Officer', institution_id: COLLEGE_A },
   ];
   const filters: Array<[string, string, unknown]> = [];
+  const rpc = vi.fn(async (_fn: string, args: { p_profile_ids: string[] }) => ({
+    data: args.p_profile_ids.filter((id) => (opts.canReadAppraisals ?? ['p-hr']).includes(id)),
+    error: null,
+  }));
   const client = {
+    rpc,
     from: vi.fn((table: string) => {
       const b: Record<string, unknown> = {};
       const chain = () => b;
@@ -282,7 +292,7 @@ function collegeClient(opts: { subjectCollege: string | null }) {
       return b;
     }),
   };
-  return { client: client as unknown as SupabaseClient, filters };
+  return { client: client as unknown as SupabaseClient, filters, rpc };
 }
 
 describe('only a team member of the same college can be offered as second rater', () => {
@@ -296,12 +306,14 @@ describe('only a team member of the same college can be offered as second rater'
   it('never returns someone from another college, even if the query did', async () => {
     const { client } = collegeClient({ subjectCollege: 'col-a' });
     const found = await AppraisalSecondRatingService.searchRaters(client, 'Anu', 'subject-staff-id');
-    expect(found.map((c) => c.profileId)).toEqual(['p-a']);
+    expect(found.candidates.map((c) => c.profileId)).toEqual(['p-a']);
   });
 
   it('shows the college on each result', async () => {
     const { client } = collegeClient({ subjectCollege: 'col-a' });
-    const [c] = await AppraisalSecondRatingService.searchRaters(client, 'Anu', 'subject-staff-id');
+    const {
+      candidates: [c],
+    } = await AppraisalSecondRatingService.searchRaters(client, 'Anu', 'subject-staff-id');
     expect(c).toMatchObject({ institutionId: 'col-a', institutionName: 'College A' });
   });
 
@@ -310,5 +322,28 @@ describe('only a team member of the same college can be offered as second rater'
     await expect(
       AppraisalSecondRatingService.searchRaters(client, 'Anu', 'subject-staff-id'),
     ).rejects.toThrow(/no college on record/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5. Nobody who can read appraisals is offered (review round 2)
+// ---------------------------------------------------------------------------
+
+describe('someone who can read every appraisal is never offered as second rater', () => {
+  it('leaves them off the list and counts them, so the screen can say why', async () => {
+    const { client, rpc } = collegeClient({ subjectCollege: 'col-a' });
+    const found = await AppraisalSecondRatingService.searchRaters(client, 'Anu', 'subject-staff-id');
+    expect(rpc).toHaveBeenCalledWith('fn_hr_second_rater_ineligible', {
+      p_profile_ids: ['p-a', 'p-hr'],
+    });
+    expect(found.candidates.map((c) => c.profileId)).toEqual(['p-a']);
+    expect(found.hidden).toBe(1);
+  });
+
+  it('hides nobody when nobody matching can read appraisals', async () => {
+    const { client } = collegeClient({ subjectCollege: 'col-a', canReadAppraisals: [] });
+    const found = await AppraisalSecondRatingService.searchRaters(client, 'Anu', 'subject-staff-id');
+    expect(found.hidden).toBe(0);
+    expect(found.candidates).toHaveLength(2);
   });
 });

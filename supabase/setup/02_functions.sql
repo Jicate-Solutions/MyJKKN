@@ -72807,6 +72807,63 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_hr_performance_review_guard() FROM anon, PUBLIC;
 
+CREATE OR REPLACE FUNCTION public.fn_hr_profile_can_read_appraisals(p_profile uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT p_profile IS NOT NULL AND (
+    EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = p_profile AND p.is_super_admin = true)
+    OR COALESCE(public.is_admin(p_profile), false)
+    OR EXISTS (
+      SELECT 1
+      FROM public.user_roles ur
+      JOIN public.custom_roles cr ON cr.id = ur.role_id
+      WHERE ur.user_id = p_profile
+        AND COALESCE(cr.permissions ->> 'hr.performance_reviews.manage', 'false') = 'true'
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM public.profiles p
+      JOIN public.custom_roles cr ON cr.role_key = p.role
+      WHERE p.id = p_profile
+        AND COALESCE(cr.permissions ->> 'hr.performance_reviews.manage', 'false') = 'true'
+    )
+  );
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_profile_can_read_appraisals(uuid) FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.fn_hr_profile_can_read_appraisals(uuid) IS
+  'True when the given profile can read whole appraisal rows (super admin, '
+  'is_admin, or hr.performance_reviews.manage on a role). Such a person is '
+  'never a blind second rater. Owner-only.';
+
+CREATE OR REPLACE FUNCTION public.fn_hr_second_rater_ineligible(p_profile_ids uuid[])
+RETURNS uuid[]
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT (is_super_admin() OR is_admin() OR user_has_permission('hr.performance_reviews.manage')) THEN
+    RAISE EXCEPTION 'hr_second_rating: only HR may search for second raters'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  RETURN COALESCE(
+    (SELECT array_agg(x) FROM unnest(p_profile_ids) AS t(x)
+     WHERE public.fn_hr_profile_can_read_appraisals(x)),
+    ARRAY[]::uuid[]
+  );
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_second_rater_ineligible(uuid[]) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_second_rater_ineligible(uuid[]) TO authenticated;
+
 CREATE OR REPLACE FUNCTION public.fn_hr_second_rating_guard()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -72863,6 +72920,10 @@ BEGIN
     END IF;
     IF NEW.rater_id = v_head THEN
       RAISE EXCEPTION 'hr_second_rating: the second rater must not be the head who gives the first rating'
+        USING ERRCODE = 'check_violation';
+    END IF;
+    IF public.fn_hr_profile_can_read_appraisals(NEW.rater_id) THEN
+      RAISE EXCEPTION 'hr_second_rating: the second rater must not be someone who can read appraisals (HR with the appraisal key, an admin or a super admin) — they could see the head''s rating'
         USING ERRCODE = 'check_violation';
     END IF;
     -- Same college only. The second rater reads the person's self-appraisal,
@@ -72962,6 +73023,10 @@ BEGIN
       RAISE EXCEPTION 'hr_second_rating: the second rater must be neither the person appraised nor their head'
         USING ERRCODE = 'check_violation';
     END IF;
+    IF public.fn_hr_profile_can_read_appraisals(NEW.rater_id) THEN
+      RAISE EXCEPTION 'hr_second_rating: the second rater must not be someone who can read appraisals (HR with the appraisal key, an admin or a super admin) — they could see the head''s rating'
+        USING ERRCODE = 'check_violation';
+    END IF;
     IF v_inst IS NULL
        OR NOT EXISTS (
          SELECT 1 FROM public.staff rs
@@ -73010,6 +73075,13 @@ BEGIN
 
   IF NOT FOUND OR v_row.rater_id IS DISTINCT FROM auth.uid() THEN
     RAISE EXCEPTION 'hr_second_rating: you have not been asked to rate this appraisal'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  -- Someone who can read appraisals is not blind, whatever the request row
+  -- says (e.g. they were given the key after being asked).
+  IF public.fn_hr_profile_can_read_appraisals(auth.uid()) THEN
+    RAISE EXCEPTION 'hr_second_rating: someone who can read appraisals cannot give a blind second rating'
       USING ERRCODE = 'insufficient_privilege';
   END IF;
 

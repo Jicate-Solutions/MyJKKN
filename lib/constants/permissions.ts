@@ -1150,11 +1150,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.performance_reviews.view_own', label: 'View Own Appraisal' },
       // Appraisal checks (2026-09-29): opens the appraisal round pages, the
       // agreement report and asking for a blind second rater, for the
-      // holder's own college(s). Read-only on appraisals; creating rounds, the
+      // holder's own college(s). Reads EVERY appraisal there in full, so a
+      // holder can never be a second rater. Read-only; creating rounds, the
       // committee review and sign-off stay super-admin. Demanded by the RLS in
       // 20270505090000. Walled from Director handover (see
       // specs/director-desk/handover-key-classification.json).
-      { key: 'hr.performance_reviews.manage', label: 'See Appraisal Checks and Ask for Second Ratings' },
+      { key: 'hr.performance_reviews.manage', label: 'See Every Appraisal at Your College and Ask for Second Ratings' },
       { key: 'hr.promotion.apply_own', label: 'Apply for Own Promotion' },
       { key: 'hr.training.view_own', label: 'View Own Training and Enroll' },
       { key: 'hr.fdp.view_own', label: 'View Own FDP Applications' },

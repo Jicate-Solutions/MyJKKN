@@ -65,6 +65,15 @@ export interface SecondRatingEvidence {
   firstHeadRatings: AppraisalRatingMap | null;
 }
 
+/**
+ * What the rater search returns: the people who can be asked, and how many
+ * name matches were left off because they can read appraisals.
+ */
+export interface RaterSearchResult {
+  candidates: RaterCandidate[];
+  hidden: number;
+}
+
 /** A person HR can ask to be the second rater. */
 export interface RaterCandidate {
   profileId: string;
@@ -187,9 +196,9 @@ export class AppraisalSecondRatingService {
     supabase: SupabaseClient,
     query: string,
     subjectStaffId: string,
-  ): Promise<RaterCandidate[]> {
+  ): Promise<RaterSearchResult> {
     const q = cleanSearch(query);
-    if (q.length < 2) return [];
+    if (q.length < 2) return { candidates: [], hidden: 0 };
 
     const { data: subject, error: subjectError } = await supabase
       .from('staff')
@@ -221,7 +230,7 @@ export class AppraisalSecondRatingService {
     const collegeName = typeof inst?.name === 'string' ? inst.name : null;
 
     const needle = q.toLowerCase();
-    return ((data ?? []) as Array<Record<string, unknown>>)
+    const matches = ((data ?? []) as Array<Record<string, unknown>>)
       .filter((r) => r.institution_id === college)
       .map((r) => ({
         profileId: String(r.profile_id),
@@ -231,6 +240,20 @@ export class AppraisalSecondRatingService {
         institutionName: collegeName,
       }))
       .filter((c) => c.name.toLowerCase().includes(needle));
+    if (matches.length === 0) return { candidates: [], hidden: 0 };
+
+    // Anyone who can read appraisals (HR with the key, admins, super admins)
+    // would see the head's rating, so cannot be a blind second rater. The
+    // database refuses them anyway; they are left off the list here, and the
+    // screen says how many and why.
+    const { data: blocked, error: blockedError } = await supabase.rpc(
+      'fn_hr_second_rater_ineligible',
+      { p_profile_ids: matches.map((c) => c.profileId) },
+    );
+    if (blockedError) throw blockedError;
+    const out = new Set(Array.isArray(blocked) ? (blocked as string[]) : []);
+    const candidates = matches.filter((c) => !out.has(c.profileId));
+    return { candidates, hidden: matches.length - candidates.length };
   }
 
   // -----------------------------------------------------------------------

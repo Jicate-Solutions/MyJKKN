@@ -37,6 +37,13 @@ export function SecondRaterCell({
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<RaterCandidate[]>([]);
   const [busy, setBusy] = useState(false);
+  const [hidden, setHidden] = useState(0);
+
+  async function runSearch() {
+    const found = await AppraisalSecondRatingService.searchRaters(supabase, query, review.staff_id);
+    setResults(found.candidates);
+    setHidden(found.hidden);
+  }
 
   if (secondRating) {
     return (
@@ -96,9 +103,7 @@ export function SecondRaterCell({
             if (e.key !== 'Enter') return;
             e.preventDefault();
             try {
-              setResults(
-                await AppraisalSecondRatingService.searchRaters(supabase, query, review.staff_id),
-              );
+              await runSearch();
             } catch (err) {
               toast.error(err instanceof Error ? err.message : 'Search failed.');
             }
@@ -110,9 +115,7 @@ export function SecondRaterCell({
           className="h-8"
           onClick={async () => {
             try {
-              setResults(
-                await AppraisalSecondRatingService.searchRaters(supabase, query, review.staff_id),
-              );
+              await runSearch();
             } catch (err) {
               toast.error(err instanceof Error ? err.message : 'Search failed.');
             }
@@ -158,6 +161,12 @@ export function SecondRaterCell({
             </li>
           ))}
         </ul>
+      )}
+      {hidden > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {hidden === 1 ? '1 match is' : `${hidden} matches are`} not shown: they can read every
+          appraisal (HR or an admin), so they would see the head&rsquo;s rating.
+        </p>
       )}
       <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setPicking(false)}>
         Cancel
