@@ -183,7 +183,7 @@ function PerfReviewEditor({
           </div>
 
           {/* ---- How ratings turn into promotion points ------------------ */}
-          <div className="rounded-md border border-border p-4 space-y-4">
+          <div className="md:col-span-2 rounded-md border border-border p-4 space-y-4">
             <div>
               <Label className="text-sm font-semibold">
                 How ratings count towards promotion
