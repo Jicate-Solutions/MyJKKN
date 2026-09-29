@@ -73,7 +73,7 @@ export function CollegeIncrementSection({ college }: { college: CollegeIncrement
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
             {college.staffCount} {college.staffCount === 1 ? 'person' : 'people'} on the
-            active staff list
+            active team list
             {college.totalMonthlyIncrease !== null && (
               <> · {formatMoney(college.totalMonthlyIncrease)} a month proposed in total</>
             )}
@@ -123,7 +123,7 @@ export function CollegeIncrementSection({ college }: { college: CollegeIncrement
         <div className="border-t border-border">
           {rows.length === 0 ? (
             <p className="p-4 text-sm text-muted-foreground">
-              There are no active staff recorded against this college.
+              There are no active team members recorded against this college.
             </p>
           ) : (
             <div className="overflow-x-auto">

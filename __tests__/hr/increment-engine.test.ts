@@ -77,8 +77,8 @@ function completeRules(over: Partial<IncrementRules> = {}): IncrementRules {
 function person(over: Partial<PersonPayFacts> = {}): PersonPayFacts {
   return {
     staffId: 'staff-1',
-    staffName: 'A Teacher',
-    designation: 'Assistant Professor',
+    staffName: 'A Senior Learner',
+    designation: 'Senior Learner',
     institutionId: INSTITUTION,
     currentMonthlyGross: 20000,
     payEffectiveFrom: '2025-01-15',

@@ -79,7 +79,7 @@ function fullName(row: { first_name?: unknown; last_name?: unknown }): string {
   const first = typeof row.first_name === 'string' ? row.first_name.trim() : '';
   const last = typeof row.last_name === 'string' ? row.last_name.trim() : '';
   const joined = `${first} ${last}`.trim();
-  return joined === '' ? 'Unnamed staff record' : joined;
+  return joined === '' ? 'Unnamed team member record' : joined;
 }
 
 const DISCIPLINARY_OUTCOMES: DisciplinaryOutcome[] = [

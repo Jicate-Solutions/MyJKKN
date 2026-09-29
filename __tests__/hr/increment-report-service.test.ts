@@ -154,7 +154,7 @@ beforeEach(() => {
         id: 's1',
         first_name: 'Asha',
         last_name: 'Raman',
-        designation: 'Assistant Professor',
+        designation: 'Senior Learner',
         institution_id: ENGINEERING,
         date_of_joining: '2019-07-01',
         is_active: true,
@@ -163,7 +163,7 @@ beforeEach(() => {
         id: 's2',
         first_name: 'Bala',
         last_name: 'Kumar',
-        designation: 'Lab Instructor',
+        designation: 'Office Assistant',
         institution_id: NURSING,
         date_of_joining: '2021-01-10',
         is_active: true,
@@ -288,7 +288,7 @@ describe('IncrementReportService.build', () => {
     expect(performance.detail).toMatch(/scored 82/);
   });
 
-  it('leaves out inactive staff', async () => {
+  it('leaves out inactive team members', async () => {
     const report = await IncrementReportService.build(makeClient(), { asOf: ASOF });
     const eng = report.colleges.find((c) => c.institutionId === ENGINEERING)!;
     expect(eng.proposals.map((p) => p.staffId)).not.toContain('s3');

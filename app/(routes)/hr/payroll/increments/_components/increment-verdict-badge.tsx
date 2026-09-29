@@ -34,7 +34,7 @@ const LABELS: Record<IncrementVerdict, string> = {
 //                                               on grey), so the neutral
 //                                               "not due" state uses
 //                                               text-foreground.
-const CLASSES: Record<IncrementVerdict, string> = {
+const VERDICT_TONES: Record<IncrementVerdict, string> = {
   due: 'text-green-700 dark:text-emerald-400',
   not_due: 'text-foreground',
   withheld: 'text-red-700 dark:text-red-400',
@@ -45,7 +45,7 @@ const CLASSES: Record<IncrementVerdict, string> = {
 export function IncrementVerdictBadge({ verdict }: { verdict: IncrementVerdict }) {
   return (
     <span
-      className={`inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium ${CLASSES[verdict]}`}
+      className={`inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium ${VERDICT_TONES[verdict]}`}
     >
       {LABELS[verdict]}
     </span>
@@ -53,4 +53,4 @@ export function IncrementVerdictBadge({ verdict }: { verdict: IncrementVerdict }
 }
 
 export const VERDICT_LABELS = LABELS;
-export const VERDICT_CLASSES = CLASSES;
+export const VERDICT_CLASSES = VERDICT_TONES;
