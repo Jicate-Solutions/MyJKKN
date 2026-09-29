@@ -204,7 +204,10 @@ export class LeaveOndutyBulkService {
 
     let attachmentUrl: string | null = null;
     if (input.attachment) {
-      const path = `${input.institutionId}/bulk/${Date.now()}-${input.attachment.name}`;
+      // Sanitised, unguessable object name: no path separators or '..' from the
+      // client-supplied filename, and a random component so names cannot collide.
+      const safeName = input.attachment.name.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 120);
+      const path = `${input.institutionId}/bulk/${crypto.randomUUID()}-${safeName}`;
       const { data, error } = await supabase.storage
         .from('leave-onduty-attachments')
         .upload(path, input.attachment, { cacheControl: '3600', upsert: false });
