@@ -54,11 +54,11 @@ export default function PurchaseOrdersPage() {
   const pos = response?.data ?? [];
 
   return (
-    <ContentLayout title="Receive">
+    <ContentLayout title="Deliveries">
       <div className="space-y-4 sm:space-y-6">
         <div className="space-y-2">
           <PageHeader
-            title="Receive"
+            title="Deliveries"
             description="Created automatically when the Super Admin approves the chosen vendors. Download the PDF for the vendor, then record the delivery."
             actions={
               canManageFormats && (
@@ -67,7 +67,7 @@ export default function PurchaseOrdersPage() {
                   onClick={() => router.push('/procurement/purchase-orders/formats')}
                 >
                   <Settings2 className="mr-2 h-4 w-4" />
-                  Order formats
+                  PO formats
                 </Button>
               )
             }
@@ -81,7 +81,7 @@ export default function PurchaseOrdersPage() {
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search by order number..."
+                  placeholder="Search by PO number..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-9"
@@ -118,12 +118,12 @@ export default function PurchaseOrdersPage() {
               </div>
             ) : isError ? (
               <div className="p-6">
-                <AlertBox type="error" message="Failed to load orders. Please try again." />
+                <AlertBox type="error" message="Failed to load purchase orders. Please try again." />
               </div>
             ) : pos.length === 0 ? (
               <EmptyState
-                title="No orders found"
-                description="Orders generated after a vendor is chosen will appear here."
+                title="No purchase orders found"
+                description="Purchase orders are created when the Super Admin approves the chosen vendors."
               />
             ) : (
               <ResponsiveList
@@ -132,7 +132,7 @@ export default function PurchaseOrdersPage() {
                 onRowClick={(po) => router.push(`/procurement/purchase-orders/${po.id}`)}
                 rowLabel={(po) => `View order ${po.po_number}`}
                 columns={[
-                  { key: 'po', header: 'Order #', mobile: 'title', className: 'font-medium', cell: (po) => po.po_number },
+                  { key: 'po', header: 'PO #', mobile: 'title', className: 'font-medium', cell: (po) => po.po_number },
                   { key: 'date', header: 'Date', cell: (po) => formatDateDMY(po.created_at) },
                   { key: 'vendor', header: 'Vendor', cell: (po) => po.supplier?.name || '-' },
                   { key: 'items', header: 'Items', cell: (po) => po.item_count ?? '-' },

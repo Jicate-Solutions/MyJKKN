@@ -148,10 +148,10 @@ export default function PoFormatsPage() {
     );
 
   return (
-    <ContentLayout title="Order Formats">
+    <ContentLayout title="PO Formats">
       <div className="space-y-4 sm:space-y-6">
         <PageHeader
-          title="Order Formats"
+          title="PO Formats"
           description="Configure item columns, header fields, and footer content per vendor layout."
           actions={
             canManage && (
@@ -178,7 +178,7 @@ export default function PoFormatsPage() {
               </div>
             ) : isError ? (
               <div className="p-4 sm:p-6">
-                <AlertBox type="error" message="Failed to load order formats. Please try again." />
+                <AlertBox type="error" message="Failed to load PO formats. Please try again." />
               </div>
             ) : list.length === 0 ? (
               <div className="px-4 py-12 text-center text-muted-foreground sm:px-6">
@@ -292,7 +292,7 @@ export default function PoFormatsPage() {
                   },
                   {
                     key: 'format',
-                    header: 'Default Order Format',
+                    header: 'Default PO Format',
                     className: 'w-[240px]',
                     mobile: 'hidden',
                     cell: (supplier) => renderFormatSelect(supplier),
@@ -300,7 +300,7 @@ export default function PoFormatsPage() {
                 ]}
                 mobileFooter={(supplier) => (
                   <div className="w-full space-y-1">
-                    <Label className="text-xs text-muted-foreground">Default Order Format</Label>
+                    <Label className="text-xs text-muted-foreground">Default PO Format</Label>
                     {renderFormatSelect(supplier)}
                   </div>
                 )}

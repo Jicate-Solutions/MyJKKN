@@ -185,7 +185,7 @@ export default function PurchaseOrderDetailPage() {
 
   if (isLoading) {
     return (
-      <ContentLayout title="Order">
+      <ContentLayout title="Purchase Order">
         <div className="flex items-center justify-center py-16">
           <BeatLoader color="hsl(var(--primary))" size={10} />
         </div>
@@ -194,17 +194,17 @@ export default function PurchaseOrderDetailPage() {
   }
   if (isError) {
     return (
-      <ContentLayout title="Order">
+      <ContentLayout title="Purchase Order">
         <div className="py-12">
-          <AlertBox type="error" message="Failed to load this order. Please try again." />
+          <AlertBox type="error" message="Failed to load this purchase order. Please try again." />
         </div>
       </ContentLayout>
     );
   }
   if (!po) {
     return (
-      <ContentLayout title="Order">
-        <p className="text-muted-foreground py-12 text-center">Order not found.</p>
+      <ContentLayout title="Purchase Order">
+        <p className="text-muted-foreground py-12 text-center">Purchase order not found.</p>
       </ContentLayout>
     );
   }
@@ -215,11 +215,11 @@ export default function PurchaseOrderDetailPage() {
     draft: 'Not yet sent for approval. Submitting sends it to a Super Admin.',
     pending_approval: 'Waiting for a Super Admin to approve before it can go to the vendor.',
     approved: 'Approved by the Super Admin. Download the PDF for the vendor, then record deliveries.',
-    sent: 'With the vendor. Record each delivery against this order.',
-    partially_received: 'Some goods have arrived. The order stays open until every line is received.',
+    sent: 'With the vendor. Record each delivery against this purchase order.',
+    partially_received: 'Some goods have arrived. The purchase order stays open until every line is received.',
     completed: 'Everything ordered has been received and verified.',
     closed: 'Closed. No further deliveries are expected.',
-    cancelled: 'Cancelled. This order will not be fulfilled.',
+    cancelled: 'Cancelled. This purchase order will not be fulfilled.',
   };
   const statusHint = STATUS_HINT[po.status];
 
@@ -255,7 +255,7 @@ export default function PurchaseOrderDetailPage() {
       label: 'Approve',
       icon: Check,
       disabled: transitionBusy,
-      onClick: () => run(() => approvePO.mutateAsync({ id, userId: profile!.id }), 'Order approved'),
+      onClick: () => run(() => approvePO.mutateAsync({ id, userId: profile!.id }), 'Purchase order approved'),
     };
   } else if (canCreateGrn) {
     primary = {
@@ -275,16 +275,16 @@ export default function PurchaseOrderDetailPage() {
   if (canCancel) {
     actions.push({
       key: 'cancel',
-      label: 'Cancel order',
+      label: 'Cancel PO',
       disabled: transitionBusy,
       icon: Ban,
       destructive: true,
       confirm: {
         title: `Cancel ${po.po_number}?`,
-        description: 'The order stops here and cannot be reopened.',
-        confirmLabel: 'Cancel order',
+        description: 'The purchase order stops here and cannot be reopened.',
+        confirmLabel: 'Cancel PO',
       },
-      onClick: () => run(() => cancelPO.mutateAsync({ id, userId: profile!.id }), 'Order cancelled'),
+      onClick: () => run(() => cancelPO.mutateAsync({ id, userId: profile!.id }), 'Purchase order cancelled'),
     });
   }
 
@@ -293,7 +293,7 @@ export default function PurchaseOrderDetailPage() {
       <div className="space-y-4 sm:space-y-6 max-w-5xl">
         <DocumentHeader
           onBack={() => router.push('/procurement/purchase-orders')}
-          backLabel="Back to orders"
+          backLabel="Back to purchase orders"
           title={po.po_number}
           status={<StatusBadge status={po.status} config={PO_STATUS_CONFIG} />}
           next={
@@ -577,14 +577,14 @@ export default function PurchaseOrderDetailPage() {
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Reject order</DialogTitle>
+            <DialogTitle>Reject PO</DialogTitle>
           </DialogHeader>
           <div className="space-y-2">
             <Label>Reason (required)</Label>
             <Textarea
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="Explain why this order is being rejected..."
+              placeholder="Explain why this purchase order is being rejected..."
             />
           </div>
           <DialogFooter>
@@ -598,7 +598,7 @@ export default function PurchaseOrderDetailPage() {
               onClick={async () => {
                 await run(
                   () => rejectPO.mutateAsync({ id, userId: profile!.id, reason: rejectReason }),
-                  'Order rejected'
+                  'Purchase order rejected'
                 );
                 setRejectOpen(false);
                 setRejectReason('');

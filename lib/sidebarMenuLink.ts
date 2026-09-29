@@ -4048,8 +4048,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/procurement', label: 'Overview', active: pathname === '/procurement' },
             // Same three working tabs as app/(routes)/procurement/nav-config.ts.
             { href: '/procurement/requests', label: 'Requests', active: pathname.startsWith('/procurement/requests') },
-            { href: '/procurement/rfqs', label: 'Purchase', active: pathname.startsWith('/procurement/rfqs') },
-            { href: '/procurement/purchase-orders', label: 'Receive', active: pathname.startsWith('/procurement/purchase-orders') || pathname.startsWith('/procurement/grn') },
+            { href: '/procurement/rfqs', label: 'Quotations', active: pathname.startsWith('/procurement/rfqs') },
+            { href: '/procurement/purchase-orders', label: 'Deliveries', active: pathname.startsWith('/procurement/purchase-orders') || pathname.startsWith('/procurement/grn') },
           ]
         }
       ]
