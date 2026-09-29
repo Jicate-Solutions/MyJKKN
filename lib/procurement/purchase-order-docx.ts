@@ -48,6 +48,10 @@ function para(text: string, o: { size?: number; bold?: boolean; align?: Align } 
   });
 }
 
+const blankPara = () => para('');
+/** "Label<tab>: value" — the tab lines the colons up under each other. */
+const colonValue = (value: string) => `: ${value}`;
+
 function cell(
   children: Paragraph[],
   o: { span?: number; rowSpan?: number; width: number; valign?: TableVerticalAlign }
@@ -59,7 +63,7 @@ function cell(
     width: { size: o.width, type: WidthType.DXA },
     verticalAlign: o.valign ?? VerticalAlign.CENTER,
     margins: { top: 40, bottom: 40, left: 80, right: 80 },
-    children: children.length ? children : [para('')],
+    children: children.length ? children : [blankPara()],
   });
 }
 
@@ -81,6 +85,7 @@ export async function downloadPurchaseOrderDocx(po: PoWithItems): Promise<void> 
   const rows: TableRow[] = [];
 
   // Ref ........ Date, then PURCHASE ORDER.
+  const dateText = `Date: ${m.refDate}`;
   rows.push(
     new TableRow({
       children: [
@@ -90,7 +95,7 @@ export async function downloadPurchaseOrderDocx(po: PoWithItems): Promise<void> 
               tabStops: [{ type: TabStopType.RIGHT, position: TABLE_WIDTH - 200 }],
               children: [
                 new TextRun({ text: `Ref: ${m.refNo}`, font: FONT, bold: true, size: 24 }),
-                new TextRun({ children: [new Tab(), `Date: ${m.refDate}`], font: FONT, bold: true, size: 24 }),
+                new TextRun({ children: [new Tab(), dateText], font: FONT, bold: true, size: 24 }),
               ],
             }),
             para('PURCHASE ORDER', { size: 12, bold: true, align: AlignmentType.CENTER }),
@@ -181,7 +186,7 @@ export async function downloadPurchaseOrderDocx(po: PoWithItems): Promise<void> 
                         spacing: { after: 80 },
                         children: [
                           new TextRun({ text: t.label, font: FONT, bold: true, size: 20 }),
-                          new TextRun({ children: [new Tab(), `: ${t.value}`], font: FONT, bold: true, size: 20 }),
+                          new TextRun({ children: [new Tab(), colonValue(t.value)], font: FONT, bold: true, size: 20 }),
                         ],
                       })
                   ),
