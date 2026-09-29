@@ -110,4 +110,12 @@ describe('Learners sidebar grouping', () => {
       for (const s of m.submenus) expect(s.href).not.toMatch(/\/learners\/my-/);
     }
   });
+
+  it('every plain-link row opts out of manifest auto-discovery (noSubmenus)', () => {
+    // menu.tsx lists ALL /learners/* pages under the first submenus:[] row it
+    // finds; for staff that leaked the student-only My * pages under Analytics.
+    for (const m of learnersGroup().menus) {
+      if (m.submenus.length === 0) expect(m.noSubmenus, m.label).toBe(true);
+    }
+  });
 });

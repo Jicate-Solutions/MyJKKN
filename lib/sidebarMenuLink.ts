@@ -3713,14 +3713,16 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'My Timetable',
           active: pathname === '/learners/my-timetable',
           icon: CalendarClock,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           href: '/learners/my-attendance',
           label: 'My Attendance',
           active: pathname.startsWith('/learners/my-attendance'),
           icon: ClipboardCheck,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           // Post-class feedback — the student gives a 10-second rating that
@@ -3739,14 +3741,16 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Learning Studio Feedback',
           active: pathname.startsWith('/learners/class-feedback'),
           icon: MessageSquare,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           href: '/learners/my-profile',
           label: 'My Profile',
           active: pathname === '/learners/my-profile',
           icon: Users,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           // Fresher induction — the student's own induction view (their batch
@@ -3756,7 +3760,8 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'My Induction',
           active: pathname.startsWith('/learners/my-induction'),
           icon: Rocket,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           // Senior Peer Mentor — a final-year student's lane to run their assigned
@@ -3768,7 +3773,8 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Senior Peer Mentor',
           active: pathname.startsWith('/my-induction-feedback'),
           icon: UserCheck,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           // My Individual Development Plan — learner self-service (BUG-004298).
@@ -3779,14 +3785,16 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'My Development Plan',
           active: pathname.startsWith('/learner/idp'),
           icon: ClipboardList,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           href: '/learners/my-marks',
           label: 'My Marks',
           active: pathname.startsWith('/learners/my-marks'),
           icon: GraduationCap,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           // No MENU_PERMISSIONS entry, same as My Marks above: the page gates
@@ -3795,23 +3803,30 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'My Learning Pathway',
           active: pathname.startsWith('/learners/my-syllabus'),
           icon: BookOpen,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           href: '/learners/my-bills',
           label: 'My Bills',
           active: pathname.startsWith('/learners/my-bills'),
           icon: Wallet,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           href: '/learners/leave-onduty/my-applications',
           label: 'Leave/OnDuty',
           active: pathname.startsWith('/learners/leave-onduty'),
           icon: Briefcase,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
 
+        // Every plain-link row in this group carries noSubmenus: true. Without it,
+        // menu.tsx auto-discovers ALL /learners/* manifest pages under the first
+        // submenus:[] row of the slug (the anchor) — for staff that is Analytics
+        // Dashboard, which then listed the student-only My * pages.
         // Admin Features — regrouped 2026-09-29. The old single "Admission
         // Management" row mixed admission, learner records, leave/on-duty and
         // masters, and repeated the student-portal links already shown above.
@@ -3825,7 +3840,8 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Analytics Dashboard',
           active: pathname.startsWith('/learners/analytics'),
           icon: BarChart,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           href: '/learners/enquiries',
