@@ -17,31 +17,43 @@ export interface HeadStep {
   canReview: boolean;
   /** Where the appraisal is, when the head cannot act on it. */
   note: string | null;
+  /** A short heading for that note, which does not repeat it. */
+  title: string | null;
 }
 
 export const HEAD_STEP_NOTES = {
   draft: 'Still a draft — the person has not submitted it yet.',
   lockedRound:
-    'This round is locked, so the appraisal can no longer be reviewed or sent back. ' +
+    'The appraisal can no longer be reviewed or sent back. ' +
     'Ask HR to reopen the round if something still needs to change.',
   supervisor_reviewed: 'You reviewed this — it is with the committee now.',
   sedc_reviewed: 'The committee has reviewed this — it is with the Director for sign-off.',
   final_approved: 'Signed off by the Director — this appraisal is closed.',
 } as const;
 
+export const HEAD_STEP_TITLES = {
+  draft: 'Not submitted yet',
+  lockedRound: 'This round is locked',
+  supervisor_reviewed: 'With the committee',
+  sedc_reviewed: 'With the Director',
+  final_approved: 'Closed',
+} as const;
+
 export function headStep(status: ReviewStatus, roundStatus: string | null | undefined): HeadStep {
+  const readOnly = (k: keyof typeof HEAD_STEP_NOTES): HeadStep => ({
+    canReview: false,
+    note: HEAD_STEP_NOTES[k],
+    title: HEAD_STEP_TITLES[k],
+  });
   if (status === 'self_submitted') {
     return roundStatus === 'open'
-      ? { canReview: true, note: null }
-      : { canReview: false, note: HEAD_STEP_NOTES.lockedRound };
+      ? { canReview: true, note: null, title: null }
+      : readOnly('lockedRound');
   }
-  if (status === 'draft') return { canReview: false, note: HEAD_STEP_NOTES.draft };
-  if (status === 'supervisor_reviewed') {
-    return { canReview: false, note: HEAD_STEP_NOTES.supervisor_reviewed };
+  if (status === 'draft' || status === 'supervisor_reviewed' || status === 'sedc_reviewed' || status === 'final_approved') {
+    return readOnly(status);
   }
-  if (status === 'sedc_reviewed') return { canReview: false, note: HEAD_STEP_NOTES.sedc_reviewed };
-  if (status === 'final_approved') return { canReview: false, note: HEAD_STEP_NOTES.final_approved };
-  return { canReview: false, note: 'This appraisal cannot be changed from here.' };
+  return { canReview: false, note: 'This appraisal cannot be changed from here.', title: 'Read only' };
 }
 
 /** Shown when the appraisal moved on after the board was loaded. */

@@ -54,6 +54,7 @@ vi.mock('@/lib/supabase/client', () => {
 import HrSupervisorTeamReviewPage from '@/app/(routes)/hr/performance-reviews/team/page';
 import {
   HEAD_STEP_NOTES,
+  HEAD_STEP_TITLES,
   MOVED_ON_MESSAGE,
   headStep,
   isMovedOnError,
@@ -138,16 +139,20 @@ beforeEach(() => {
 
 describe('which appraisals the head may act on', () => {
   it('only a self_submitted appraisal in an open round', () => {
-    expect(headStep('self_submitted', 'open')).toEqual({ canReview: true, note: null });
+    expect(headStep('self_submitted', 'open')).toEqual({ canReview: true, note: null, title: null });
     expect(headStep('self_submitted', 'locked')).toEqual({
       canReview: false,
       note: HEAD_STEP_NOTES.lockedRound,
+      title: 'This round is locked',
     });
     for (const s of ['draft', 'supervisor_reviewed', 'sedc_reviewed', 'final_approved'] as const) {
       for (const r of ['open', 'locked']) {
         const step = headStep(s, r);
         expect(step.canReview).toBe(false);
         expect(step.note).toBe(HEAD_STEP_NOTES[s]);
+        expect(step.title).toBe(HEAD_STEP_TITLES[s]);
+        // The heading never repeats the line under it.
+        expect(step.note?.startsWith(step.title ?? '#')).toBe(false);
       }
     }
   });
@@ -211,6 +216,7 @@ describe('the board, as the head of department sees it', () => {
     setup('open', [WAITING, row]);
     await openRow(name);
     expect(screen.getByText(note)).toBeInTheDocument();
+    expect(screen.queryAllByText(/^Still a draft/)).toHaveLength(row === DRAFT ? 1 : 0);
     for (const a of ACTIONS) expect(screen.queryByRole('button', { name: a })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Validation notes')).not.toBeInTheDocument();
     expect(svc.submitSupervisorReview).not.toHaveBeenCalled();

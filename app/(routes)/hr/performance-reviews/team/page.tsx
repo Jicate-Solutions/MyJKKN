@@ -307,11 +307,7 @@ export default function HrSupervisorTeamReviewPage() {
               {step.note && (
                 <Alert>
                   <Info className="h-4 w-4" />
-                  <AlertTitle>
-                    {selected.status === 'self_submitted'
-                      ? 'This round is locked'
-                      : REVIEW_STATUS_LABEL[selected.status]}
-                  </AlertTitle>
+                  <AlertTitle>{step.title}</AlertTitle>
                   <AlertDescription>{step.note}</AlertDescription>
                 </Alert>
               )}
