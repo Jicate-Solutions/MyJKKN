@@ -26,6 +26,11 @@
 //      words — never from "tomorrow", "in two days" or "next week" — and only
 //      when that date falls on or after the meeting day and within 180 days.
 //   d. Each owner who is not the host gets ONE bell per note, never twice.
+//      The bell carries NOTHING from the note or its booking — no title, no
+//      date, no names — only a count and the link to their own list. An owner
+//      is found from Fireflies' attendee list, which grants no right to read
+//      the note (fn_can_view_meeting_note), so the note's title could reach a
+//      person the note is hidden from.
 //   e. Follow-ups are written only onto the booking the note is linked to NOW
 //      (meeting_notes.booking_id, re-read here). A note a human unlinked gets
 //      nothing, whichever door asks.
@@ -51,6 +56,7 @@ const BELL_CATEGORY = 'meetings:note-followup-owner';
  * it by noteFollowupInputFromStored().
  */
 export interface NoteFollowupInput {
+  /** Never put in an owner's bell — see notifyOwners. */
   title: string | null;
   /** Fireflies' overview. Null means Fireflies has not summarised the meeting. */
   summary: string | null;
@@ -585,7 +591,7 @@ export async function applyNoteToBooking(
 
   // ── tell each owner, once ─────────────────────────────────────────────────
   if (inserted.length > 0 && hostProfileId) {
-    await notifyOwners(supabase, noteId, bookingId, hostProfileId, note.title, inserted);
+    await notifyOwners(supabase, noteId, bookingId, hostProfileId, inserted);
   }
 
   // A note Fireflies has not summarised yet, and that produced nothing, is NOT
@@ -604,18 +610,25 @@ export async function applyNoteToBooking(
 
 /**
  * One in-app bell per owner, per note — never to the host, who already sees
- * every follow-up on their own meeting. The idempotency key is enforced by the
- * notifications table's own unique index (fanoutNotification checks it first
- * and treats a racing duplicate as already sent), so a retried run cannot bell
- * twice. A bell that fails is logged and forgotten: it must not undo the
- * follow-ups.
+ * every follow-up on their own meeting.
+ *
+ * The wording is the SAME for every owner and carries nothing from the note or
+ * its booking: no title, no date, no names. Owners come from Fireflies'
+ * attendee list, and being on that list does not let a person read the note
+ * (meeting_notes_select: admins, plus fn_can_view_meeting_note — the host,
+ * the co-hosts and the booking's own attendee). A title such as "Interview X -
+ * not selected" in the bell would tell them what the note hides.
+ *
+ * The idempotency key is enforced by the notifications table's own unique
+ * index (fanoutNotification checks it first and treats a racing duplicate as
+ * already sent), so a retried run cannot bell twice. A bell that fails is
+ * logged and forgotten: it must not undo the follow-ups.
  */
 async function notifyOwners(
   supabase: SupabaseClient,
   noteId: string,
   bookingId: string,
   hostProfileId: string,
-  title: string | null,
   items: Array<{ owner_profile_id: string | null }>,
 ): Promise<void> {
   const counts = new Map<string, number>();
@@ -625,18 +638,16 @@ async function notifyOwners(
     counts.set(owner, (counts.get(owner) ?? 0) + 1);
   }
 
-  const meeting = title ? `“${title}”` : 'a recent meeting';
-
   for (const [ownerId, count] of counts) {
     try {
       await fanoutNotification(supabase, {
         userIds: [ownerId],
         createdBy: hostProfileId,
-        title: count === 1 ? 'A follow-up is yours' : `${count} follow-ups are yours`,
+        title: count === 1 ? 'New follow-up for you' : 'New follow-ups for you',
         body:
           count === 1
-            ? `From ${meeting}, one follow-up was put on your list.`
-            : `From ${meeting}, ${count} follow-ups were put on your list.`,
+            ? '1 follow-up from a recorded meeting was added to your list.'
+            : `${count} follow-ups from a recorded meeting were added to your list.`,
         url: FOLLOWUPS_URL,
         icon: '/icons/icon-192x192.png',
         priority: 'high',

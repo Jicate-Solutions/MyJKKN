@@ -472,6 +472,66 @@ describe('applyNoteToBooking', () => {
     expect(bell.calls).toHaveLength(1);
   });
 
+  // Owners come from Fireflies' attendee list; the note itself is readable only
+  // by admins, the host, co-hosts and the booking's own attendee
+  // (fn_can_view_meeting_note). Whatever the bell says reaches people the note
+  // is hidden from, so it says nothing taken from the note or its booking.
+  it('the bell for an owner found only on the Fireflies attendee list carries no note title, date or name', async () => {
+    const db = baseDb();
+    await applyNoteToBooking(
+      fakeClient(db),
+      'n1',
+      'b1',
+      input({
+        title: 'Interview X - not selected',
+        actionItemsRaw: '**Bharathi**\nSend the report',
+        participants: [{ email: 'other@example.test', displayName: 'Bharathi N' }],
+      }),
+    );
+
+    // OTHER is neither the host nor the booking's attendee: a participant only.
+    expect(db.meeting_action_items[0].owner_profile_id).toBe(OTHER);
+    expect(bell.calls).toHaveLength(1);
+    expect(bell.calls[0]).toMatchObject({
+      userIds: [OTHER],
+      title: 'New follow-up for you',
+      body: '1 follow-up from a recorded meeting was added to your list.',
+    });
+    const sent = JSON.stringify(bell.calls[0]);
+    expect(sent).not.toContain('Interview X');
+    expect(sent).not.toContain('not selected');
+    expect(sent).not.toMatch(/2026-09-20|20 Sep/);
+    expect(sent).not.toMatch(/Bharathi|Aravind|Selvi|Natarajan|Kumaran|Rajendran/);
+  });
+
+  it('no owner’s bell ever carries the note’s title, for any title and every owner', async () => {
+    for (const title of ['Interview X - not selected', 'Salary revision: two names', 'Weekly review']) {
+      bell.calls.length = 0;
+      bell.keys.clear();
+      const db = baseDb();
+      await applyNoteToBooking(
+        fakeClient(db),
+        'n1',
+        'b1',
+        input({
+          title,
+          actionItemsRaw: '**Selvi**\nFirst task\nSecond task\n**Bharathi**\nThird task\n**Aravind**\nHost task',
+          participants: [{ email: 'other@example.test', displayName: 'Bharathi N' }],
+        }),
+      );
+
+      // the booking's attendee (two items) and a participant-only owner (one)
+      expect(bell.calls.map((c) => (c.userIds as string[])[0]).sort()).toEqual([ATTENDEE, OTHER].sort());
+      for (const call of bell.calls) {
+        expect(JSON.stringify(call)).not.toContain(title);
+      }
+      expect(bell.calls.find((c) => (c.userIds as string[])[0] === ATTENDEE)).toMatchObject({
+        title: 'New follow-ups for you',
+        body: '2 follow-ups from a recorded meeting were added to your list.',
+      });
+    }
+  });
+
   it('sends no bell when every item is unowned or the host’s', async () => {
     const db = baseDb();
     await applyNoteToBooking(
@@ -552,6 +612,8 @@ describe('linkMeetingNote — a hand-linked note becomes follow-ups, once', () =
       due_date: '2026-09-25',
     });
     expect(bell.calls).toHaveLength(1);
+    // The stored meeting_notes.title never reaches the owner's bell.
+    expect(JSON.stringify(bell.calls[0])).not.toContain('Visit planning');
 
     // A hand-link never writes the candidate's interview record.
     expect(link.db.hr_recruitment_interviews[0]).toMatchObject({
@@ -689,6 +751,7 @@ describe('ingest — follow-ups follow the note’s STORED link, not the calenda
     expect(link.db.meeting_action_items).toHaveLength(1);
     expect(link.db.meeting_action_items[0]).toMatchObject({ booking_id: 'b2', owner_profile_id: ATTENDEE });
     expect(bell.calls).toHaveLength(1);
+    expect(JSON.stringify(bell.calls[0])).not.toContain('Weekly review');
     expect(link.db.meeting_notes[0].action_items_applied_at).toEqual(expect.any(String));
     // Neither interview record is written: b2 is a hand-link, b1 is not the link.
     expect(link.db.hr_recruitment_interviews.map((i) => i.outcome_summary)).toEqual([null, null]);
