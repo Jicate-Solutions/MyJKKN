@@ -210,11 +210,12 @@ describe('a head cannot act on an appraisal once HR locks the round', () => {
     expect(hod.slice(hod.indexOf('WITH CHECK'))).toContain(CALL);
   });
 
-  it('the head’s screen disables both actions when the round is not open', () => {
+  it('the head’s screen offers neither action unless the round is open', () => {
+    // Rendered and clicked in __tests__/hr/appraisal-team-board.test.tsx; this
+    // pins that both controls sit behind the one rule.
     const team = read('app/(routes)/hr/performance-reviews/team/page.tsx');
-    expect(team).toContain("const roundOpen = openCycle?.status === 'open';");
-    expect(team).toContain('onClick={submitReview} disabled={submitting || !roundOpen}');
-    expect(team).toMatch(/onClick=\{sendBackToPerson\}\s*disabled=\{submitting \|\| !roundOpen\}/);
+    expect(team).toContain('const step = headStep(selected.status, openCycle?.status);');
+    expect(team.match(/\{step\.canReview && \(/g)).toHaveLength(2);
   });
 });
 

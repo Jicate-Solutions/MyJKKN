@@ -32,6 +32,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { TeamPerson } from '@/lib/hr/appraisal-team-board';
 import {
   deriveAppraisalScore,
   parseRatings,
@@ -427,6 +428,62 @@ export class PerformanceReviewService {
     cycleId: string,
   ): Promise<HRPerformanceReview[]> {
     return this.listReviews(supabase, cycleId);
+  }
+
+  /**
+   * Names (and departments) for the people on a board, so a reviewer sees who
+   * an appraisal belongs to instead of an id. Read-only and under the caller's
+   * own row-level security: anyone whose staff row cannot be read is simply
+   * left out, and the screen shows "Team member". Never throws — a missing
+   * name must not stop the board from loading.
+   */
+  static async listPeople(
+    supabase: SupabaseClient,
+    staffIds: readonly string[],
+  ): Promise<Record<string, TeamPerson>> {
+    const ids = [...new Set(staffIds.filter(Boolean))];
+    if (ids.length === 0) return {};
+    try {
+      const { data, error } = await supabase
+        .from('staff')
+        .select('id, first_name, last_name, department_id')
+        .in('id', ids);
+      if (error || !data) return {};
+      const rows = data as Array<{
+        id: string;
+        first_name: string | null;
+        last_name: string | null;
+        department_id: string | null;
+      }>;
+
+      const deptName = new Map<string, string>();
+      const deptIds = [...new Set(rows.map((r) => r.department_id).filter((d): d is string => !!d))];
+      if (deptIds.length > 0) {
+        try {
+          const { data: depts } = await supabase
+            .from('departments')
+            .select('id, department_name')
+            .in('id', deptIds);
+          for (const d of (depts ?? []) as Array<{ id: string; department_name: string | null }>) {
+            if (d.department_name) deptName.set(d.id, d.department_name);
+          }
+        } catch {
+          // Departments are a courtesy; names still show without them.
+        }
+      }
+
+      const out: Record<string, TeamPerson> = {};
+      for (const r of rows) {
+        const name = [r.first_name, r.last_name].filter(Boolean).join(' ').trim();
+        out[r.id] = {
+          name: name || null,
+          department: (r.department_id && deptName.get(r.department_id)) || null,
+        };
+      }
+      return out;
+    } catch {
+      return {};
+    }
   }
 
   // -----------------------------------------------------------------------

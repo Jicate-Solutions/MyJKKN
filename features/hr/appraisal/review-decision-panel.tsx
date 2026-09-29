@@ -18,6 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ArrowLeft, CheckCircle2, Send, Undo2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { RatingBadge, RatingPicker } from '@/features/hr/appraisal/rating-picker';
+import { SelfAppraisalView } from '@/features/hr/appraisal/self-appraisal-view';
 import {
   AREA_LABELS,
   collegialityExampleMissing,
@@ -185,6 +186,16 @@ export function ReviewDecisionPanel({
             </tbody>
           </table>
         </div>
+
+        {/* What the person wrote, readable — the table above shows only bands. */}
+        <details className="rounded-md border border-border p-3">
+          <summary className="cursor-pointer text-sm font-semibold">
+            What the person wrote in their self-appraisal
+          </summary>
+          <div className="mt-3">
+            <SelfAppraisalView payload={review.self_appraisal_jsonb} />
+          </div>
+        </details>
 
         {isCommitteeStep && (
           <div className="border-t pt-4">

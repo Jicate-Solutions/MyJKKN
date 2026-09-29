@@ -319,3 +319,26 @@ describe('a Director whose profile cannot be identified', () => {
     expect(svc.finalApprove).not.toHaveBeenCalled();
   });
 });
+
+describe('what the person wrote', () => {
+  it.each(['supervisor_reviewed', 'sedc_reviewed'] as const)(
+    'at the %s step, shows the self-appraisal in words, not JSON',
+    (status) => {
+      renderPanel(
+        appraisal({
+          status,
+          self_appraisal_jsonb: {
+            ...SELF,
+            achievements: 'Guided four final-year projects.',
+            goals_next_year: 'Submit the thesis.',
+          },
+          supervisor_review_jsonb: SUPERVISOR,
+        }),
+      );
+      expect(screen.getByText('What the person wrote in their self-appraisal')).toBeInTheDocument();
+      expect(screen.getByText('Guided four final-year projects.')).toBeInTheDocument();
+      expect(screen.getByText('Goals for next year')).toBeInTheDocument();
+      expect(document.body.textContent).not.toContain('"achievements"');
+    },
+  );
+});
