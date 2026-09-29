@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   AI_DRAFT_ACTION_PREFIX,
   LIMITS,
@@ -7,15 +7,22 @@ import {
   parseAndValidate,
   recordDraft,
   resolveOwner,
+  collectNoteDraftJobs,
   runCollect,
   runEnqueue,
+  runNoteDraftCron,
+  runPromptSweep,
   selectEnqueueCandidates,
+  selectPromptsToRetire,
+  STALE_PENDING_REASON,
   supabaseNoteDraftDb,
   validateDueDate,
   type CandidateNote,
   type DraftNote,
+  type HeldPromptJob,
   type NoteDraftDb,
 } from '@/lib/services/meetings/meeting-note-draft';
+import { fetchFirefliesTranscriptSentences } from '@/lib/services/meetings/fireflies-client';
 import type { CollectedJobsLaneItem } from '@/lib/services/platform/ai-jobs-lane';
 
 // ── fixtures ────────────────────────────────────────────────────────────────
@@ -56,6 +63,12 @@ interface FakeState {
   candidates: CandidateNote[];
   interviews: Set<string> | null;
   summaryWrites: number;
+  /** ai_jobs rows of this type, for the prompt sweep. */
+  jobs: Record<string, HeldPromptJob & { payload: Record<string, unknown> }>;
+  /** null → listJobsHoldingPrompt fails */
+  jobsReadable: boolean;
+  /** ids the drain "claims" between the sweep's read and its write */
+  claimedMidway: Set<string>;
 }
 
 function fakeDb(over: Partial<FakeState> = {}): { db: NoteDraftDb; state: FakeState } {
@@ -78,6 +91,9 @@ function fakeDb(over: Partial<FakeState> = {}): { db: NoteDraftDb; state: FakeSt
     candidates: [],
     interviews: new Set(),
     summaryWrites: 0,
+    jobs: {},
+    jobsReadable: true,
+    claimedMidway: new Set(),
     ...over,
   };
   const db: NoteDraftDb = {
@@ -110,7 +126,25 @@ function fakeDb(over: Partial<FakeState> = {}): { db: NoteDraftDb; state: FakeSt
     async stripJobPrompt(jobId) {
       const p = state.jobPayloads[jobId];
       if (p) delete p.prompt;
+      const j = state.jobs[jobId];
+      if (j) delete j.payload.prompt;
       return { error: null };
+    },
+    async listJobsHoldingPrompt(jobType) {
+      if (!state.jobsReadable) return null;
+      expect(jobType).toBe(NOTE_DRAFT_JOB);
+      return Object.values(state.jobs)
+        .filter((j) => 'prompt' in j.payload)
+        .map(({ id, status, requestedAt, deliveredAt }) => ({ id, status, requestedAt, deliveredAt }));
+    },
+    async cancelPendingJob(jobId, reason) {
+      const j = state.jobs[jobId];
+      if (state.claimedMidway.has(jobId) && j) j.status = 'claimed';
+      if (!j || j.status !== 'pending') return { applied: false, error: null };
+      delete j.payload.prompt;
+      j.status = 'canceled';
+      j.payload.__reason = reason;
+      return { applied: true, error: null };
     },
     async isJobTypeEnabled() {
       return state.enabled;
@@ -386,9 +420,291 @@ describe('enqueue', () => {
   });
 });
 
+// ── no_transcript: stamped ONLY for a transcript with zero sentences ───────
+
+describe('no_transcript is stamped only when Fireflies returned zero sentences', () => {
+  const okEnqueue = () => vi.fn(async () => ({ ok: true as const, jobId: 'j' }));
+
+  it('a transcript with zero sentences is stamped no_transcript', async () => {
+    const { db, state } = fakeDb({ candidates: [cand('note-1', 'booking-1')] });
+    const enqueue = okEnqueue();
+    const s = await runEnqueue(db, { enqueue, fetchSentences: async () => ({ ok: true, data: [] }) }, NOW);
+    expect(s.noTranscript).toBe(1);
+    expect(state.notes['note-1'].aiDraftedAt).not.toBeNull();
+    expect(state.notes['note-1'].aiDraft?.status).toBe('no_transcript');
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('an unreadable answer leaves the note UNSTAMPED and the rest of the batch still runs', async () => {
+    const { db, state } = fakeDb({ candidates: [cand('note-1', 'booking-1'), cand('ok', 'b-ok')] });
+    const enqueue = okEnqueue();
+    const fetchSentences = vi.fn(async (ref: string) =>
+      ref === 'ff-note-1'
+        ? { ok: false as const, reason: 'unreadable' as const, message: 'not JSON' }
+        : { ok: true as const, data: [{ speakerName: 'A', text: 'We agreed.' }] },
+    );
+    const s = await runEnqueue(db, { enqueue, fetchSentences }, NOW);
+    expect(s.transcriptRetry).toBe(1);
+    expect(s.noTranscript).toBe(0);
+    expect(state.notes['note-1'].aiDraftedAt).toBeNull();
+    expect(state.notes['note-1'].aiDraft).toBeUndefined();
+    expect(s.enqueued).toBe(1);
+    expect(s.stoppedReason).toBeNull();
+  });
+
+  it.each(['unreachable', 'rejected', 'not_connected'] as const)(
+    'a %s failure leaves the note UNSTAMPED and stops the run',
+    async (reason) => {
+      const { db, state } = fakeDb({ candidates: [cand('note-1', 'booking-1'), cand('ok', 'b-ok')] });
+      const enqueue = okEnqueue();
+      const s = await runEnqueue(
+        db,
+        { enqueue, fetchSentences: async () => ({ ok: false, reason, message: 'x' }) },
+        NOW,
+      );
+      expect(state.notes['note-1'].aiDraftedAt).toBeNull();
+      expect(s.noTranscript).toBe(0);
+      expect(s.stoppedReason).toBe(`fireflies ${reason}`);
+      expect(enqueue).not.toHaveBeenCalled();
+    },
+  );
+
+  it('an unreadable note is retried on the next run, and stamped once the transcript really is empty', async () => {
+    const { db, state } = fakeDb({ candidates: [cand('note-1', 'booking-1')] });
+    const enqueue = okEnqueue();
+    await runEnqueue(
+      db,
+      { enqueue, fetchSentences: async () => ({ ok: false, reason: 'unreadable', message: 'x' }) },
+      NOW,
+    );
+    expect(state.notes['note-1'].aiDraftedAt).toBeNull();
+    const fetchSentences = vi.fn(async () => ({ ok: true as const, data: [] }));
+    await runEnqueue(db, { enqueue, fetchSentences }, NOW);
+    expect(fetchSentences).toHaveBeenCalledWith('ff-note-1');
+    expect(state.notes['note-1'].aiDraft?.status).toBe('no_transcript');
+  });
+});
+
+describe('fetchFirefliesTranscriptSentences — what counts as "zero sentences"', () => {
+  function withFetch(impl: () => Promise<Response>) {
+    vi.stubEnv('FIREFLIES_API_KEY', 'test-key');
+    vi.stubGlobal('fetch', vi.fn(impl));
+  }
+  const json = (body: unknown) => async () =>
+    new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it('an empty sentence list is ok with zero sentences', async () => {
+    withFetch(json({ data: { transcript: { sentences: [] } } }));
+    expect(await fetchFirefliesTranscriptSentences('t1')).toEqual({ ok: true, data: [] });
+  });
+
+  it('a body that is not JSON is unreadable', async () => {
+    withFetch(async () => new Response('<html>maintenance</html>', { status: 200 }));
+    const r = await fetchFirefliesTranscriptSentences('t1');
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe('unreadable');
+  });
+
+  it('a null transcript is unreadable', async () => {
+    withFetch(json({ data: { transcript: null } }));
+    expect((await fetchFirefliesTranscriptSentences('t1')).reason).toBe('unreadable');
+  });
+
+  it('sentences that are all blank are unreadable, not "zero sentences"', async () => {
+    withFetch(json({ data: { transcript: { sentences: [{ speaker_name: 'A', text: null }, { text: '  ' }] } } }));
+    expect((await fetchFirefliesTranscriptSentences('t1')).reason).toBe('unreadable');
+  });
+
+  it('a network error is unreachable and an auth refusal is rejected', async () => {
+    withFetch(async () => {
+      throw new Error('ECONNRESET');
+    });
+    expect((await fetchFirefliesTranscriptSentences('t1')).reason).toBe('unreachable');
+    withFetch(async () => new Response('no', { status: 401 }));
+    expect((await fetchFirefliesTranscriptSentences('t1')).reason).toBe('rejected');
+  });
+
+  it('end to end: a non-JSON answer never stamps; an empty transcript does', async () => {
+    const { db, state } = fakeDb({ candidates: [cand('note-1', 'booking-1')] });
+    const enqueue = vi.fn(async () => ({ ok: true as const, jobId: 'j' }));
+    withFetch(async () => new Response('Bad gateway', { status: 200 }));
+    await runEnqueue(db, { enqueue, fetchSentences: fetchFirefliesTranscriptSentences }, NOW);
+    expect(state.notes['note-1'].aiDraftedAt).toBeNull();
+
+    withFetch(json({ data: { transcript: { sentences: [] } } }));
+    await runEnqueue(db, { enqueue, fetchSentences: fetchFirefliesTranscriptSentences }, NOW);
+    expect(state.notes['note-1'].aiDraft?.status).toBe('no_transcript');
+  });
+});
+
+// ── prompt retention: jobs that were never delivered ────────────────────────
+
+function job(
+  id: string,
+  status: string,
+  requestedAt: string | null,
+  deliveredAt: string | null = null,
+): HeldPromptJob & { payload: Record<string, unknown> } {
+  return {
+    id,
+    status,
+    requestedAt,
+    deliveredAt,
+    payload: { prompt: 'TRANSCRIPT', _ctx: { note_id: id }, _dedupe: `k-${id}` },
+  };
+}
+const DAY = 86_400_000;
+const ago = (days: number) => new Date(NOW.getTime() - days * DAY).toISOString();
+
+describe('selectPromptsToRetire', () => {
+  it('strips error / canceled / delivered-done, cancels pending from 7 days, keeps the rest', () => {
+    const r = selectPromptsToRetire(
+      [
+        job('err', 'error', ago(1)),
+        job('can', 'canceled', ago(1)),
+        job('done-delivered', 'done', ago(1), ago(1)),
+        job('done-undelivered', 'done', ago(1)),
+        job('claimed', 'claimed', ago(30)),
+        job('running', 'running', ago(30)),
+        job('pending-8d', 'pending', ago(8)),
+        job('pending-7d', 'pending', ago(7)),
+        job('pending-6d', 'pending', ago(6)),
+        job('pending-no-date', 'pending', null),
+      ],
+      NOW,
+    );
+    expect(r.strip.sort()).toEqual(['can', 'done-delivered', 'err']);
+    expect(r.cancel.sort()).toEqual(['pending-7d', 'pending-8d']);
+  });
+});
+
+describe('runPromptSweep', () => {
+  it('removes the prompt from failed and cancelled jobs and cancels a stale pending one, keeping _ctx/_dedupe', async () => {
+    const { db, state } = fakeDb({
+      jobs: {
+        err: job('err', 'error', ago(2)),
+        can: job('can', 'canceled', ago(2)),
+        stale: job('stale', 'pending', ago(9)),
+        fresh: job('fresh', 'pending', ago(1)),
+        running: job('running', 'running', ago(1)),
+      },
+    });
+    const s = await runPromptSweep(db, NOW);
+    expect(s).toEqual({ listed: 5, stripped: 2, canceled: 1, errors: 0 });
+    expect('prompt' in state.jobs.err.payload).toBe(false);
+    expect('prompt' in state.jobs.can.payload).toBe(false);
+    expect(state.jobs.err.payload._ctx).toEqual({ note_id: 'err' });
+    expect(state.jobs.err.payload._dedupe).toBe('k-err');
+    expect(state.jobs.stale.status).toBe('canceled');
+    expect('prompt' in state.jobs.stale.payload).toBe(false);
+    expect(state.jobs.stale.payload.__reason).toBe(STALE_PENDING_REASON);
+    expect(state.jobs.fresh.payload.prompt).toBe('TRANSCRIPT');
+    expect(state.jobs.running.payload.prompt).toBe('TRANSCRIPT');
+  });
+
+  it('leaves a stale job alone when the drain claimed it in between', async () => {
+    const { db, state } = fakeDb({
+      jobs: { stale: job('stale', 'pending', ago(9)) },
+      claimedMidway: new Set(['stale']),
+    });
+    const s = await runPromptSweep(db, NOW);
+    expect(s.canceled).toBe(0);
+    expect(state.jobs.stale.status).toBe('claimed');
+    expect(state.jobs.stale.payload.prompt).toBe('TRANSCRIPT');
+  });
+
+  it('counts an error when the jobs cannot be listed', async () => {
+    const { db } = fakeDb({ jobsReadable: false });
+    expect(await runPromptSweep(db, NOW)).toEqual({ listed: 0, stripped: 0, canceled: 0, errors: 1 });
+  });
+});
+
+// ── one cron run: a collect failure skips enqueue ───────────────────────────
+
+describe('runNoteDraftCron', () => {
+  const fetchOk = () =>
+    vi.fn(async () => ({ ok: true as const, data: [{ speakerName: 'A', text: 'We agreed.' }] }));
+
+  it('when collecting throws: reports it, still sweeps prompts, and does NOT enqueue', async () => {
+    const { db, state } = fakeDb({
+      candidates: [cand('note-1', 'booking-1')],
+      jobs: { err: job('err', 'error', ago(2)) },
+    });
+    const enqueue = vi.fn(async () => ({ ok: true as const, jobId: 'j' }));
+    const fetchSentences = fetchOk();
+    const r = await runNoteDraftCron(
+      db,
+      {
+        collect: async () => {
+          throw new Error('collect claim failed: boom');
+        },
+        fetchSentences,
+        enqueue,
+      },
+      NOW,
+    );
+    expect(r.collectError).toBe('collect claim failed: boom');
+    expect(r.enqueueSkipped).toBe(true);
+    expect(r.enqueue).toBeNull();
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(fetchSentences).not.toHaveBeenCalled();
+    expect(r.sweep?.stripped).toBe(1);
+    expect('prompt' in state.jobs.err.payload).toBe(false);
+  });
+
+  it('when collecting succeeds, enqueues as usual', async () => {
+    const { db } = fakeDb({ candidates: [cand('note-1', 'booking-1')] });
+    const enqueue = vi.fn(async () => ({ ok: true as const, jobId: 'j' }));
+    const r = await runNoteDraftCron(db, { collect: async () => [], fetchSentences: fetchOk(), enqueue }, NOW);
+    expect(r.enqueueSkipped).toBe(false);
+    expect(r.collectError).toBeNull();
+    expect(r.enqueue?.enqueued).toBe(1);
+    expect(enqueue).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('collectNoteDraftJobs', () => {
+  it('THROWS on an RPC error instead of reading it as "nothing finished"', async () => {
+    const admin = { rpc: vi.fn(async () => ({ data: null, error: { message: 'timeout' } })) } as never;
+    await expect(collectNoteDraftJobs(admin, 25)).rejects.toThrow(/timeout/);
+  });
+
+  it('claims only this job type and maps result text + context', async () => {
+    const rpc = vi.fn(async () => ({
+      data: [
+        {
+          id: 'j1',
+          job_type: NOTE_DRAFT_JOB,
+          payload: { _ctx: { note_id: 'n1' } },
+          result: { answer: '{"summary":"s"}' },
+        },
+        { id: 'j2', job_type: NOTE_DRAFT_JOB, payload: null, result: null },
+      ],
+      error: null,
+    }));
+    const items = await collectNoteDraftJobs({ rpc } as never, 25);
+    expect(rpc).toHaveBeenCalledWith('fn_ai_collect_claim', { p_job_types: [NOTE_DRAFT_JOB], p_limit: 25 });
+    expect(items[0].jobId).toBe('j1');
+    expect(items[0].context).toEqual({ note_id: 'n1' });
+    expect((items[0].message as unknown as { content: Array<{ text: string }> }).content[0].text).toBe(
+      '{"summary":"s"}',
+    );
+    expect(items[1].message).toBeNull();
+    expect(items[1].context).toEqual({});
+  });
+});
+
 // ── the Supabase adapter: what actually reaches the database ────────────────
 
-function stubAdmin(selectResult: unknown = { data: null, error: null }) {
+function stubAdmin(
+  selectResult: unknown = { data: null, error: null },
+  awaitedResult: unknown = { data: [], error: null },
+) {
   const calls: Array<{ table: string; op: string; arg?: unknown; filters: unknown[][] }> = [];
   const from = (table: string) => {
     const call = { table, op: 'select', arg: undefined as unknown, filters: [] as unknown[][] };
@@ -405,7 +721,7 @@ function stubAdmin(selectResult: unknown = { data: null, error: null }) {
       return chain;
     };
     chain.maybeSingle = () => Promise.resolve(selectResult);
-    chain.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(res);
+    chain.then = (res: (v: unknown) => unknown) => Promise.resolve(awaitedResult).then(res);
     return chain;
   };
   return { admin: { from } as never, calls };
@@ -430,5 +746,47 @@ describe('supabaseNoteDraftDb', () => {
     const up = calls.find((c) => c.op === 'update')!;
     expect(up.table).toBe('ai_jobs');
     expect(up.arg).toEqual({ payload: { _ctx: { note_id: 'n' }, _dedupe: 'k' } });
+  });
+
+  it('listJobsHoldingPrompt reads only this job type, only rows still holding a prompt', async () => {
+    const { admin, calls } = stubAdmin(undefined, {
+      data: [{ id: 'j', status: 'error', requested_at: 'r', delivered_at: null }],
+      error: null,
+    });
+    const rows = await supabaseNoteDraftDb(admin).listJobsHoldingPrompt(NOTE_DRAFT_JOB, 100);
+    expect(rows).toEqual([{ id: 'j', status: 'error', requestedAt: 'r', deliveredAt: null }]);
+    const f = calls[0].filters;
+    expect(calls[0].table).toBe('ai_jobs');
+    expect(f).toContainEqual(['eq', 'job_type', NOTE_DRAFT_JOB]);
+    expect(f).toContainEqual(['in', 'status', ['error', 'canceled', 'done', 'pending']]);
+    expect(f).toContainEqual(['not', 'payload->prompt', 'is', null]);
+  });
+
+  it('cancelPendingJob strips the prompt and cancels, guarded on status = pending in the write', async () => {
+    const { admin, calls } = stubAdmin(
+      { data: { payload: { prompt: 'T', _ctx: { note_id: 'n' }, _dedupe: 'k' } }, error: null },
+      { data: [{ id: 'j' }], error: null },
+    );
+    const r = await supabaseNoteDraftDb(admin).cancelPendingJob('j', STALE_PENDING_REASON);
+    expect(r).toEqual({ applied: true, error: null });
+    const up = calls.find((c) => c.op === 'update')!;
+    const arg = up.arg as Record<string, unknown>;
+    expect(arg.payload).toEqual({ _ctx: { note_id: 'n' }, _dedupe: 'k' });
+    expect(arg.status).toBe('canceled');
+    expect(arg.error).toBe(STALE_PENDING_REASON);
+    expect(up.filters).toContainEqual(['eq', 'status', 'pending']);
+    expect(up.filters).toContainEqual(['eq', 'id', 'j']);
+  });
+
+  it('cancelPendingJob changes nothing when the job is no longer pending', async () => {
+    const { admin, calls } = stubAdmin({ data: null, error: null });
+    const r = await supabaseNoteDraftDb(admin).cancelPendingJob('j', STALE_PENDING_REASON);
+    expect(r).toEqual({ applied: false, error: null });
+    expect(calls.find((c) => c.op === 'update')).toBeUndefined();
+  });
+
+  it('cancelPendingJob reports not-applied when the guarded write matched no row', async () => {
+    const { admin } = stubAdmin({ data: { payload: { prompt: 'T' } }, error: null }, { data: [], error: null });
+    expect(await supabaseNoteDraftDb(admin).cancelPendingJob('j', 'r')).toEqual({ applied: false, error: null });
   });
 });

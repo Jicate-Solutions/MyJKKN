@@ -1,4 +1,4 @@
--- supabase/migrations/20270402120000_meetings_note_draft_job.sql
+-- supabase/migrations/20270421124053_meetings_note_draft_job.sql
 --
 -- ############################################################################
 -- ## FILE ONLY — NOT APPLIED. The operator applies this at merge.           ##
@@ -42,8 +42,17 @@
 --   * NO new function, so no SECURITY DEFINER surface and nothing to REVOKE.
 --   * NO grant changes. Both new columns inherit their table's existing RLS.
 --
--- Version 20270402120000: above every file on jicate/main (max
--- 20270331090000 on 2026-09-26). No BEGIN/COMMIT of its own. Idempotent.
+-- Version 20270421124053 (renumbered 2026-09-28 from 20270402120000, which
+-- had fallen BELOW the live ledger): above the live ledger max
+-- (20270414090000, re-read 2026-09-29 09:04 IST), above every file on
+-- jicate/main (max 20270415090100), and claimed by no other open PR (swept
+-- 2026-09-29 09:05 IST). The trailing 4053 is this PR's number, to keep
+-- sibling lanes off it. No BEGIN/COMMIT of its own. Idempotent.
+--
+-- Live pg_policies on meeting_action_items, read 2026-09-28 and re-read
+-- 2026-09-29 09:04 IST (read-only catalog query): exactly one,
+-- meeting_action_items_select (SELECT, roles {public}). No write policy, so
+-- the apply-time check in §5 passes against production as it stands.
 
 -- ───────────────────────────────────────────────────────────────────────────
 -- 1. The job type — DARK
@@ -76,7 +85,7 @@ ALTER TABLE public.meeting_notes
   ADD COLUMN IF NOT EXISTS ai_drafted_at timestamptz;
 
 COMMENT ON COLUMN public.meeting_notes.ai_drafted_at IS
-  'When the AI note-drafter (job meetings.note_draft) reached a final outcome for this note — drafted, skipped because follow-ups already existed, or unreadable. Set once; the cron never enqueues a note that carries it.';
+  'When the AI note-drafter (job meetings.note_draft) reached a final outcome for this note — drafted, skipped because follow-ups already existed, unreadable model output, no booking host, or no_transcript (Fireflies returned the transcript with zero sentences). A Fireflies failure never sets it. Set once; the cron never enqueues a note that carries it.';
 
 ALTER TABLE public.meeting_notes
   ADD COLUMN IF NOT EXISTS ai_draft jsonb;

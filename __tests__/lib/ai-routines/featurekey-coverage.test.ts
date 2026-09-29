@@ -19,7 +19,7 @@ import knownJobTypes from './known-job-types.json';
 // at the bottom of this file exists to force.
 const KNOWN_UNREGISTERED: Record<string, string> = {
   'meetings.note_draft':
-    'Registered by supabase/migrations/20270402120000_meetings_note_draft_job.sql (FILE ONLY, applied at merge, ships enabled=false). Remove this entry and refresh known-job-types.json once applied.',
+    'Registered by supabase/migrations/20270421124053_meetings_note_draft_job.sql (FILE ONLY, applied at merge, ships enabled=false). Remove this entry and refresh known-job-types.json once applied.',
 };
 
 // ---------------------------------------------------------------------------

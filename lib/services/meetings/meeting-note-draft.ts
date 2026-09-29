@@ -26,6 +26,17 @@
 //     meeting_notes.ai_draft, because the Fireflies ingest rewrites `summary`
 //     and `raw` on every 30-minute tick and would wipe a draft stored there.
 //   * Interview bookings are never enqueued.
+//   * A note is stamped 'no_transcript' ONLY when Fireflies returned the
+//     transcript and it holds zero sentences. Every other Fireflies failure
+//     (an answer that is not JSON, a null transcript, a network or auth error)
+//     leaves the note UNSTAMPED so a later run retries it; the 10-per-run cap
+//     bounds what the retries cost.
+//   * A transcript does not linger in ai_jobs.payload.prompt: it is removed
+//     from every delivered job (collect), from every job that ended 'error' or
+//     'canceled', and from any job still pending after 7 days — which is also
+//     cancelled, because a pending job with no prompt would run blank.
+//   * If the collect pass throws, the enqueue pass does not run that time: a
+//     note whose finished job was not collected must not be sent twice.
 //
 // DB access goes through the small NoteDraftDb interface so the rules above
 // are unit-tested without a database (__tests__/meetings/meeting-note-draft.test.ts).
@@ -35,7 +46,11 @@
 
 import type { createServiceRoleClient } from '@/lib/supabase/server';
 import type { FirefliesResult, FirefliesSentence } from '@/lib/services/meetings/fireflies-client';
-import type { CollectedJobsLaneItem, JobsLaneEnqueueResult } from '@/lib/services/platform/ai-jobs-lane';
+import {
+  extractJobResultText,
+  type CollectedJobsLaneItem,
+  type JobsLaneEnqueueResult,
+} from '@/lib/services/platform/ai-jobs-lane';
 
 type Admin = ReturnType<typeof createServiceRoleClient>;
 
@@ -59,7 +74,22 @@ export const LIMITS = {
   minAgeHours: 2,
   /** Per-run enqueue cap. */
   enqueueCap: 10,
+  /** A job still PENDING after this many days is cancelled and its prompt
+   *  (a meeting transcript) removed — the drain is not coming for it. */
+  pendingPromptMaxDays: 7,
+  /** How many prompt-holding jobs one sweep looks at. */
+  promptSweepBatch: 100,
 } as const;
+
+/**
+ * ai_jobs.status values, from ai_jobs_status_chk (20260712183000; read live
+ * 2026-09-28: pending | claimed | running | done | error | canceled). There is
+ * no 'expired' or 'failed'. 'error' and 'canceled' are the terminal states a
+ * job reaches WITHOUT being delivered — nothing re-pends them
+ * (fn_ai_requeue_stale only rescues claimed/running jobs), so their prompt has
+ * no further use.
+ */
+export const TERMINAL_UNDELIVERED_STATUSES = ['error', 'canceled'] as const;
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -108,6 +138,14 @@ export interface CandidateNote {
   occurredAt: string | null;
 }
 
+/** One ai_jobs row of this job type whose payload still carries a prompt. */
+export interface HeldPromptJob {
+  id: string;
+  status: string;
+  requestedAt: string | null;
+  deliveredAt: string | null;
+}
+
 /** Everything the drafter reads or writes. Implemented over Supabase by
  *  supabaseNoteDraftDb(); faked in tests. */
 export interface NoteDraftDb {
@@ -131,6 +169,13 @@ export interface NoteDraftDb {
   stampDraft(noteId: string, aiDraft: Record<string, unknown>): Promise<{ error: string | null }>;
   /** Remove payload.prompt from one ai_jobs row, keeping every other key. */
   stripJobPrompt(jobId: string): Promise<{ error: string | null }>;
+  /** This job type's ai_jobs rows whose payload still carries a prompt,
+   *  oldest first. null = could not read. */
+  listJobsHoldingPrompt(jobType: string, limit: number): Promise<HeldPromptJob[] | null>;
+  /** Remove payload.prompt AND mark the job 'canceled' — ONLY while it is
+   *  still 'pending'. applied=false means the drain claimed it in between, so
+   *  it runs with its prompt intact and is left alone. */
+  cancelPendingJob(jobId: string, reason: string): Promise<{ applied: boolean; error: string | null }>;
   isJobTypeEnabled(jobType: string): Promise<boolean>;
   listCandidates(olderThanIso: string, limit: number): Promise<CandidateNote[] | null>;
   /** Booking ids that are interviews — hr_recruitment_interviews.booking_id,
@@ -438,6 +483,72 @@ export async function runCollect(
   return s;
 }
 
+// ── Prompt retention: jobs that were never delivered ────────────────────────
+
+/**
+ * Which prompt-holding jobs give up their prompt (pure).
+ *   strip  — 'error' / 'canceled' (terminal, never delivered, never re-pended),
+ *            and 'done' jobs already delivered (a collect run that died
+ *            between claim and strip left the prompt behind).
+ *   cancel — 'pending' for more than pendingPromptMaxDays: the prompt goes and
+ *            the job is cancelled with it, because a pending job with no prompt
+ *            would still be claimed and run blank.
+ * Kept: claimed / running (in use), 'done' not yet delivered (the collect loop
+ * strips it when it claims it), pending younger than the limit, and a pending
+ * job with no readable request time (never cancelled on a guess).
+ */
+export function selectPromptsToRetire(
+  jobs: HeldPromptJob[],
+  now: Date,
+): { strip: string[]; cancel: string[] } {
+  const cutoff = now.getTime() - LIMITS.pendingPromptMaxDays * 86_400_000;
+  const strip: string[] = [];
+  const cancel: string[] = [];
+  for (const j of jobs) {
+    if ((TERMINAL_UNDELIVERED_STATUSES as readonly string[]).includes(j.status)) strip.push(j.id);
+    else if (j.status === 'done' && j.deliveredAt) strip.push(j.id);
+    else if (j.status === 'pending') {
+      const t = j.requestedAt ? Date.parse(j.requestedAt) : NaN;
+      if (Number.isFinite(t) && t <= cutoff) cancel.push(j.id);
+    }
+  }
+  return { strip, cancel };
+}
+
+export const STALE_PENDING_REASON =
+  'canceled by meeting-note-drafts: still pending after 7 days, so its prompt (a meeting transcript) was removed';
+
+export interface PromptSweepSummary {
+  listed: number;
+  stripped: number;
+  canceled: number;
+  errors: number;
+}
+
+/** Part of the collect pass. Runs even when collecting itself failed — how
+ *  long a transcript is kept must not depend on the drain being healthy. */
+export async function runPromptSweep(db: NoteDraftDb, now: Date = new Date()): Promise<PromptSweepSummary> {
+  const s: PromptSweepSummary = { listed: 0, stripped: 0, canceled: 0, errors: 0 };
+  const jobs = await db.listJobsHoldingPrompt(NOTE_DRAFT_JOB, LIMITS.promptSweepBatch);
+  if (!jobs) {
+    s.errors++;
+    return s;
+  }
+  s.listed = jobs.length;
+  const { strip, cancel } = selectPromptsToRetire(jobs, now);
+  for (const id of strip) {
+    const { error } = await db.stripJobPrompt(id);
+    if (error) s.errors++;
+    else s.stripped++;
+  }
+  for (const id of cancel) {
+    const { applied, error } = await db.cancelPendingJob(id, STALE_PENDING_REASON);
+    if (error) s.errors++;
+    else if (applied) s.canceled++;
+  }
+  return s;
+}
+
 export interface EnqueueSummary {
   dark: boolean;
   considered: number;
@@ -445,6 +556,9 @@ export interface EnqueueSummary {
   enqueued: number;
   inFlight: number;
   noTranscript: number;
+  /** Fireflies' answer could not be read (not JSON, null transcript, …). The
+   *  note is NOT stamped; a later run tries it again. */
+  transcriptRetry: number;
   skipped: number;
   stoppedReason: string | null;
 }
@@ -469,6 +583,7 @@ export async function runEnqueue(
     enqueued: 0,
     inFlight: 0,
     noTranscript: 0,
+    transcriptRetry: 0,
     skipped: 0,
     stoppedReason: null,
   };
@@ -502,15 +617,14 @@ export async function runEnqueue(
   for (const c of picked) {
     const sentences = await deps.fetchSentences(c.providerRef);
     if (!sentences.ok) {
+      // NOTHING is stamped on any failure: none of them proves the transcript
+      // is empty, and a stamp is permanent. The note stays a candidate and a
+      // later run retries it; enqueueCap bounds what that costs.
       if (sentences.reason === 'unreadable') {
-        // Fireflies holds no sentences for this one; stamp it so it does not
-        // block the queue on every run.
-        await db.stampDraft(c.id, {
-          label: AI_DRAFT_LABEL,
-          status: 'no_transcript',
-          drafted_at: now.toISOString(),
-        });
-        s.noTranscript++;
+        // An answer that is not JSON, or no transcript / no sentences list —
+        // possibly this one note (a transcript the key cannot read), so the
+        // rest of the batch still gets its turn.
+        s.transcriptRetry++;
         continue;
       }
       // not_connected / rejected / unreachable are systemic — stop the run.
@@ -518,6 +632,8 @@ export async function runEnqueue(
       break;
     }
     if (sentences.data.length === 0) {
+      // The ONLY 'no_transcript' stamp: Fireflies returned the transcript and
+      // it holds zero sentences — a retry cannot change that.
       await db.stampDraft(c.id, {
         label: AI_DRAFT_LABEL,
         status: 'no_transcript',
@@ -557,6 +673,111 @@ export async function runEnqueue(
     }
   }
   return s;
+}
+
+// ── Collect claim that FAILS LOUDLY ─────────────────────────────────────────
+
+/**
+ * fn_ai_collect_claim for this job type. Same claim as collectJobsLane, with
+ * one difference that matters here: an RPC error THROWS instead of reading as
+ * "nothing finished". collectJobsLane logs and returns [] on an error, and an
+ * empty collect followed by an enqueue would send a note whose finished job
+ * was never collected to the model a second time.
+ */
+export async function collectNoteDraftJobs(admin: Admin, limit: number): Promise<CollectedJobsLaneItem[]> {
+  const { data, error } = await admin.rpc('fn_ai_collect_claim', {
+    p_job_types: [NOTE_DRAFT_JOB],
+    p_limit: limit,
+  });
+  if (error) throw new Error(`collect claim failed: ${error.message}`);
+  if (!Array.isArray(data)) throw new Error('collect claim returned no rows array');
+  return (
+    data as Array<{ id: string; job_type: string; payload: Record<string, unknown> | null; result: unknown }>
+  ).map((row) => {
+    const text = extractJobResultText(row.result);
+    return {
+      jobId: row.id,
+      jobType: row.job_type,
+      context: ((row.payload?._ctx as Record<string, unknown>) ?? {}) as Record<string, unknown>,
+      // Only content[].text is read (readMessageText), as in collectJobsLane.
+      message: text
+        ? ({ content: [{ type: 'text', text }] } as unknown as CollectedJobsLaneItem['message'])
+        : null,
+    };
+  });
+}
+
+// ── One cron run ────────────────────────────────────────────────────────────
+
+export interface NoteDraftCronResult {
+  collect: CollectSummary | null;
+  collectError: string | null;
+  sweep: PromptSweepSummary | null;
+  sweepError: string | null;
+  enqueue: EnqueueSummary | null;
+  enqueueError: string | null;
+  /** true when the enqueue pass was NOT run because collecting threw. */
+  enqueueSkipped: boolean;
+}
+
+function errText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/**
+ * COLLECT → PROMPT SWEEP → ENQUEUE. If collecting throws, the sweep still runs
+ * (retention does not wait on the drain) but ENQUEUE does not: a note whose
+ * finished job was not collected is still unstamped, and the lane's duplicate
+ * guard only covers pending/claimed/running jobs, so enqueueing now would pay
+ * for a second model call on the same transcript.
+ */
+export async function runNoteDraftCron(
+  db: NoteDraftDb,
+  deps: {
+    collect: () => Promise<CollectedJobsLaneItem[]>;
+    fetchSentences: (providerRef: string) => Promise<FirefliesResult<FirefliesSentence[]>>;
+    enqueue: (args: {
+      jobType: string;
+      prompt: string;
+      context: Record<string, unknown>;
+      dedupeKey: string;
+    }) => Promise<JobsLaneEnqueueResult>;
+  },
+  now: Date = new Date(),
+): Promise<NoteDraftCronResult> {
+  const r: NoteDraftCronResult = {
+    collect: null,
+    collectError: null,
+    sweep: null,
+    sweepError: null,
+    enqueue: null,
+    enqueueError: null,
+    enqueueSkipped: false,
+  };
+
+  try {
+    r.collect = await runCollect(db, deps.collect, now);
+  } catch (e) {
+    r.collectError = errText(e);
+  }
+
+  try {
+    r.sweep = await runPromptSweep(db, now);
+  } catch (e) {
+    r.sweepError = errText(e);
+  }
+
+  if (r.collectError) {
+    r.enqueueSkipped = true;
+    return r;
+  }
+
+  try {
+    r.enqueue = await runEnqueue(db, { fetchSentences: deps.fetchSentences, enqueue: deps.enqueue }, now);
+  } catch (e) {
+    r.enqueueError = errText(e);
+  }
+  return r;
 }
 
 // ── Supabase adapter ────────────────────────────────────────────────────────
@@ -655,6 +876,47 @@ export function supabaseNoteDraftDb(admin: Admin): NoteDraftDb {
       delete rest.prompt;
       const { error: upErr } = await sb.from('ai_jobs').update({ payload: rest }).eq('id', jobId);
       return { error: upErr?.message ?? null };
+    },
+
+    async listJobsHoldingPrompt(jobType, limit) {
+      const { data, error } = await sb
+        .from('ai_jobs')
+        .select('id, status, requested_at, delivered_at')
+        .eq('job_type', jobType)
+        .in('status', [...TERMINAL_UNDELIVERED_STATUSES, 'done', 'pending'])
+        .not('payload->prompt', 'is', null)
+        .order('requested_at', { ascending: true })
+        .limit(limit);
+      if (error) return null;
+      return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
+        id: String(r.id),
+        status: String(r.status),
+        requestedAt: (r.requested_at as string | null) ?? null,
+        deliveredAt: (r.delivered_at as string | null) ?? null,
+      }));
+    },
+
+    async cancelPendingJob(jobId, reason) {
+      const { data, error } = await sb
+        .from('ai_jobs')
+        .select('payload')
+        .eq('id', jobId)
+        .eq('status', 'pending')
+        .maybeSingle();
+      if (error) return { applied: false, error: error.message };
+      if (!data) return { applied: false, error: null }; // no longer pending
+      const rest = { ...((data.payload ?? {}) as Record<string, unknown>) };
+      delete rest.prompt;
+      // Guarded on status='pending' again: if the drain claimed it between the
+      // read and this write, nothing changes and it runs with its prompt.
+      const { data: updated, error: upErr } = await sb
+        .from('ai_jobs')
+        .update({ payload: rest, status: 'canceled', error: reason, completed_at: new Date().toISOString() })
+        .eq('id', jobId)
+        .eq('status', 'pending')
+        .select('id');
+      if (upErr) return { applied: false, error: upErr.message };
+      return { applied: Array.isArray(updated) && updated.length > 0, error: null };
     },
 
     async isJobTypeEnabled(jobType) {

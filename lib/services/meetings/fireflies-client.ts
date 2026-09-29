@@ -419,5 +419,17 @@ export async function fetchFirefliesTranscriptSentences(
     if (!text) continue;
     sentences.push({ speakerName: asString(row.speaker_name), text });
   }
+  // `{ ok: true, data: [] }` means ONE thing only: the transcript came back
+  // and its sentence list is EMPTY — the drafter stamps that note for good.
+  // Lines that are there but none of them readable is not that fact (a field
+  // returning null reads the same way), so it is reported as unreadable and
+  // the caller retries rather than giving the note up.
+  if (sentences.length === 0 && transcript.sentences.length > 0) {
+    return {
+      ok: false,
+      reason: 'unreadable',
+      message: 'Fireflies returned sentences for this transcript, but none of them had readable text.',
+    };
+  }
   return { ok: true, data: sentences };
 }
