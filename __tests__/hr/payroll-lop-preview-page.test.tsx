@@ -58,6 +58,8 @@ function skipped(staff_id: string, name: string): LopPreviewResult['rows'][numbe
     gross_after_lop: 0,
     total_deductions: 0,
     net_pay: 0,
+    basic_pay: null,
+    deductions_not_worked_out: [],
   };
 }
 
@@ -221,5 +223,38 @@ describe('absence preview — a refusal reads as a refusal', () => {
     render(<PayrollLopPreviewPage params={resolvedParams('p1')} />);
 
     expect(screen.getByText('Could not work out this month’s absence')).toBeTruthy();
+  });
+});
+
+describe('absence preview — basic comes from what HR recorded, never a guess (ruling 2026-09-30)', () => {
+  it('prints a recorded basic as a figure, and "basic not recorded" where there is none', () => {
+    preview = result([
+      { ...payableRow('s1', 'Priya D'), basic_pay: 12000 },
+      { ...payableRow('s2', 'Arun M'), basic_pay: null, deductions_not_worked_out: ['PF'] },
+    ]);
+    render(<PayrollLopPreviewPage params={resolvedParams('p1')} />);
+
+    expect(screen.getByText('Basic')).toBeTruthy();
+    // Exactly one person has no basic, and only that row says so.
+    expect(screen.getAllByTestId('basic-not-recorded')).toHaveLength(1);
+    expect(screen.getByText('basic not recorded')).toBeTruthy();
+    expect(screen.getByText(/₹12,000/)).toBeTruthy();
+    // The provident fund is worked out from basic: say it was not worked out.
+    expect(screen.getAllByText('PF not worked out: basic not recorded')).toHaveLength(1);
+  });
+
+  it('a skipped person is listed with the reason, not silently dropped', () => {
+    preview = result([
+      payableRow('s1', 'Priya D'),
+      {
+        ...skipped('s2', 'Nila S'),
+        reason:
+          'No current salary recorded for this person — record their monthly gross on the Salaries screen, then rerun. Nobody is paid a guessed figure.',
+      },
+    ]);
+    render(<PayrollLopPreviewPage params={resolvedParams('p1')} />);
+
+    expect(screen.getByText('Nila S')).toBeTruthy();
+    expect(screen.getByText(/No current salary recorded for this person/)).toBeTruthy();
   });
 });

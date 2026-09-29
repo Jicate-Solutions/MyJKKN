@@ -155,7 +155,8 @@ export interface HRPayslip {
   period_id: string;
   staff_id: string;
   engine_type: PayrollEngineType;
-  basic_pay: number;
+  /** The recorded basic. null = "basic not recorded" (20270523090000); never computed. */
+  basic_pay: number | null;
   pay_scale_snapshot_id: string | null;
   working_days_attended: number;
   lop_days: number;

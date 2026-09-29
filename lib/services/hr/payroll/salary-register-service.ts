@@ -9,10 +9,10 @@
  * counts freeze in hr_attendance_period_summaries. This service turns those
  * frozen counts plus hr_staff_salaries.monthly_gross into a register.
  *
- * NOT PayslipGenerator. That one still carries `const lopDays = 0 // deferred
- * to attendance linkage` and sources pay from hr_pay_scales, which has no rows.
- * It is left alone rather than rewritten: it belongs to a five-signature
- * approval chain with PF/ESI/TDS deductions that this register does not use.
+ * NOT PayslipGenerator. That one belongs to a five-signature approval chain
+ * with PF/ESI/TDS deductions that this register does not use. Since 2026-09-30
+ * it takes pay from the same current monthly_gross this register reads, through
+ * loadCurrentSalaryRows below, rather than from the never-written hr_pay_scales.
  *
  * THE ROSTER IS THE PAYING INSTITUTION (restored 2026-09-23, see migration
  * 20260923120000). hr_staff_payroll groups the register, because that is how
@@ -508,6 +508,56 @@ export function computeRegisterLine(input: {
   };
 }
 
+/**
+ * One person's salary IN FORCE, as the register and the payslip generator both
+ * read it. The columns are exactly the ones the register has always selected.
+ */
+export interface CurrentSalaryRow {
+  staff_id: string;
+  monthly_gross: unknown;
+  eligible_for_pf: boolean | null;
+  epf_amount: unknown;
+  eligible_for_esi: boolean | null;
+  esi_amount: unknown;
+  allowance_amount: unknown;
+}
+
+/**
+ * THE CURRENT-SALARY RULE, defined once. `superseded_by IS NULL` is the row in
+ * force: a raise writes a new row and stamps the old one with the new row's id,
+ * and the partial unique index hr_staff_salaries_one_current keeps that row
+ * singular per person.
+ *
+ * effective_from is DELIBERATELY NOT CONSULTED. The register has never read it,
+ * so a row whose start date is empty, or later than the month being paid, is
+ * still the row in force. The payslip generator imports this function rather
+ * than restating the rule, because two copies of a rule that decides pay drift,
+ * and the drift is invisible until one person is paid two different amounts
+ * for the same month on two screens.
+ *
+ * Chunked for the same reason as every other `.in()` here. Throws on a failed
+ * read: a partial salary read would exclude people as "no salary recorded".
+ */
+export async function loadCurrentSalaryRows(
+  supabase: SupabaseClient,
+  staffIds: string[],
+): Promise<CurrentSalaryRow[]> {
+  const rows: CurrentSalaryRow[] = [];
+  for (const ids of chunk(staffIds)) {
+    const { data, error } = await (supabase as any)
+      .from('hr_staff_salaries')
+      .select(
+        'staff_id, monthly_gross, eligible_for_pf, epf_amount, eligible_for_esi, esi_amount, allowance_amount'
+      )
+      .in('staff_id', ids)
+      .is('superseded_by', null);
+
+    if (error) throw new Error(`Failed to load salaries: ${getErrorMessage(error)}`);
+    rows.push(...((data ?? []) as CurrentSalaryRow[]));
+  }
+  return rows;
+}
+
 export class SalaryRegisterService {
   // ───────────────────────────────────────────────────────────────────────
   // Shared loader
@@ -762,17 +812,10 @@ export class SalaryRegisterService {
       string,
       { epf: number; esi: number; allowance: number; tds: number }
     >();
-    for (const ids of chunk(staffIds)) {
-      const { data, error } = await (supabase as any)
-        .from('hr_staff_salaries')
-        .select(
-          'staff_id, monthly_gross, eligible_for_pf, epf_amount, eligible_for_esi, esi_amount, allowance_amount'
-        )
-        .in('staff_id', ids)
-        .is('superseded_by', null);
-
-      if (error) throw new Error(`Failed to load salaries: ${getErrorMessage(error)}`);
-      for (const s of (data ?? []) as any[]) {
+    {
+      // The current-salary rule lives in loadCurrentSalaryRows, shared with the
+      // payslip generator.
+      for (const s of (await loadCurrentSalaryRows(supabase, staffIds)) as any[]) {
         const gross = num(s.monthly_gross);
         salaryByStaff.set(s.staff_id, gross);
         // The flag decides, not the amount. fn_hr_set_staff_salary already

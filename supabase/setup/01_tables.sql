@@ -10520,3 +10520,14 @@ REVOKE ALL ON SEQUENCE public.billing_bill_cancel_number_seq FROM anon, PUBLIC;
 ALTER TABLE public.billing_bill_cancel_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.billing_bill_cancel_request_actions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.billing_bill_cancel_approval_flows ENABLE ROW LEVEL SECURITY;
+
+-- Updated: 2026-09-30 - hr_payslips.basic_pay allows NULL = "basic not recorded"
+-- (migration 20270523090000). hr_payslips itself is created by
+-- 20260628000000_t4_3_payroll_periods_approvals_payslips.sql. Payslips now take
+-- pay from hr_staff_salaries.monthly_gross and no per-person basic is recorded,
+-- so the column says "none" instead of forcing a number. CHECK (basic_pay >= 0)
+-- is unchanged.
+ALTER TABLE public.hr_payslips
+  ALTER COLUMN basic_pay DROP NOT NULL;
+COMMENT ON COLUMN public.hr_payslips.basic_pay IS
+  'The basic HR recorded for this person, not cut for loss of pay. NULL = no basic recorded; the payslip shows "basic not recorded" and the provident fund (worked out from basic) was not worked out. Never computed from the gross. Ruling 2026-09-30.';

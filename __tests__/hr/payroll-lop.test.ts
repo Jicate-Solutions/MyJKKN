@@ -323,7 +323,7 @@ function stubSupabase(fx: Fixture) {
   };
 }
 
-/** A period, a roster, pay scales and components — everything but attendance. */
+/** A period, a roster and current salaries — everything but attendance. */
 function baseFixture(): Fixture {
   return {
     period: {
@@ -353,37 +353,28 @@ function baseFixture(): Fixture {
           institution_id: 'inst-1',
         },
       ],
-      hr_staff_details: [
-        { staff_id: 'staff-present', designation_id: 'desig-1', cadre_id: null },
-        { staff_id: 'staff-absent', designation_id: 'desig-1', cadre_id: null },
-      ],
-      hr_pay_scales: [
-        { id: 'scale-1', designation_id: 'desig-1', cadre_id: null, basic_pay: 95000, grade_pay: 0 },
-      ],
-      hr_pay_components: [
+      // Pay comes from each person's CURRENT monthly gross (ruling
+      // 2026-09-30), not from a pay scale. The stub is filter-blind, so only
+      // current rows are listed here; __tests__/hr/payslip-monthly-gross.test.ts
+      // proves superseded rows are ignored with a filter-honouring stub.
+      hr_staff_salaries: [
         {
-          id: 'c-basic',
-          code: 'BASIC',
-          component_type: 'earning',
-          calculation_basis: 'flat',
-          default_amount_or_percent: 0,
-          applies_to_engine_types: ['faculty', 'non_teaching'],
+          staff_id: 'staff-present',
+          monthly_gross: 150000,
+          eligible_for_pf: true,
+          epf_amount: 1800,
+          eligible_for_esi: false,
+          esi_amount: 0,
+          allowance_amount: 0,
         },
         {
-          id: 'c-da',
-          code: 'DA',
-          component_type: 'earning',
-          calculation_basis: 'percent_of_basic',
-          default_amount_or_percent: 30,
-          applies_to_engine_types: ['faculty', 'non_teaching'],
-        },
-        {
-          id: 'c-hra',
-          code: 'HRA',
-          component_type: 'earning',
-          calculation_basis: 'percent_of_basic',
-          default_amount_or_percent: 25,
-          applies_to_engine_types: ['faculty', 'non_teaching'],
+          staff_id: 'staff-absent',
+          monthly_gross: '150000.00',
+          eligible_for_pf: true,
+          epf_amount: 1800,
+          eligible_for_esi: false,
+          esi_amount: 0,
+          allowance_amount: null,
         },
       ],
       hr_attendance_periods: [
@@ -420,7 +411,10 @@ function baseFixture(): Fixture {
   };
 }
 
-const FULL_GROSS = 95000 + Math.round((95000 * 30) / 100) + Math.round((95000 * 25) / 100);
+// The whole monthly gross. Large enough that income tax is due, so the "LOP
+// reaches the tax" test below has a tax to move (PF is not worked out: no
+// basic is recorded).
+const FULL_GROSS = 150000;
 
 describe('PayslipGenerator.previewLop — the generator actually reads attendance', () => {
   beforeEach(() => vi.clearAllMocks());

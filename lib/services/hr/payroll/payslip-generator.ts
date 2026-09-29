@@ -3,12 +3,36 @@
  *
  * Orchestrates payslip generation for a payroll period:
  *   1. Load active staff PAID BY the period's organisation (hr_staff_payroll)
- *   2. Look up each staff member's pay scale (by designation/cadre)
- *   3. Calculate earnings from pay components
- *   4. Apply LOP adjustment from the CLOSED attendance month
- *   5. Run DeductionEngine for PF/ESI/TDS/PT on the LOP-adjusted basic/gross
- *   6. Insert hr_payslips + hr_payslip_line_items
- *   7. Update period aggregates (total_gross, total_deductions, total_net, staff_count)
+ *   2. Take each person's CURRENT monthly gross from hr_staff_salaries
+ *   3. Apply LOP adjustment from the CLOSED attendance month
+ *   4. Run DeductionEngine for ESI/TDS/PT on the LOP-adjusted gross, and PF
+ *      only where a basic is recorded
+ *   5. Insert hr_payslips
+ *   6. Update period aggregates (total_gross, total_deductions, total_net, staff_count)
+ *
+ * ── PAY COMES FROM THE MONTHLY GROSS (Director ruling, 2026-09-30) ────────
+ *
+ * "Payslips: take pay from each person's current monthly gross
+ * (hr_staff_salaries), unblocking payslips; Basic comes from the basic HR
+ * already records, and where none is recorded the payslip shows 'basic not
+ * recorded' rather than guessing."
+ *
+ * Until then this engine read a TABLE, hr_pay_scales, that no screen, service
+ * or import can write (the pay-scales screen saves a platform_policies row named
+ * hr.pay_scales instead). Every person was skipped as "No pay scale configured"
+ * before any other logic ran, so no payslip could ever be produced.
+ *
+ * The current row is chosen by loadCurrentSalaryRows, imported from the salary
+ * register, so the two screens cannot disagree about which salary is in force.
+ *
+ * NO BASIC IS RECORDED PER PERSON ANYWHERE TODAY. hr_staff_salaries has no
+ * basic column; its import sheet's "Basic_Salary" is stored as monthly_gross
+ * because it is the WHOLE monthly pay (20260821191000 states this); the
+ * pay-scales policy is a designation-level scale, not a person's basic; and
+ * hr_payslips / hr_salary_register_lines only hold figures computed by payroll.
+ * So every payslip records basic_pay NULL, shown as "basic not recorded", and
+ * the provident fund — the one deduction worked out from basic — is reported as
+ * not worked out instead of being guessed. See payslipPayFor.
  *
  * ── LOSS OF PAY (2026-09-29) ──────────────────────────────────────────────
  *
@@ -43,19 +67,24 @@ import {
   computeDeductions,
   loadPayrollPolicies,
   type DeductionResult,
+  type PayrollPolicies,
 } from './deduction-engine';
 import {
   applyLop,
+  BASIC_NOT_RECORDED,
   capDeductionsToGross,
   computeLopDays,
   LOP_SKIP_REASONS,
-  type LopEarning,
+  PF_NOT_WORKED_OUT,
+  type CappedDeductions,
 } from '@/lib/hr/payroll/lop-engine';
 // The basis rule (per-person scheduled days, falling back to the month's mode)
 // is DEFINED ONCE, in the salary register, and imported here rather than
 // restated. Two copies of a rule that decides pay drift, and the drift is
 // invisible until somebody is paid twice for the same month on two screens.
-import { registerBasisFor } from './salary-register-service';
+//
+// The CURRENT-SALARY rule is imported the same way, for the same reason.
+import { loadCurrentSalaryRows, registerBasisFor } from './salary-register-service';
 
 interface StaffPayInfo {
   id: string;
@@ -64,29 +93,105 @@ interface StaffPayInfo {
   institution_id: string;
 }
 
+/** What a payslip prints where no basic is recorded. Never a number. */
+export { BASIC_NOT_RECORDED, PF_NOT_WORKED_OUT };
+
+/** Deductions this engine works out FROM BASIC. Without a basic they are not worked out. */
+export type BasicDependentDeduction = 'PF';
+
+/** Why a person is left off for a reason about their SALARY, in the words HR reads. */
+export const SALARY_SKIP_REASONS = {
+  noSalary:
+    'No current salary recorded for this person — record their monthly gross on the Salaries screen, then rerun. Nobody is paid a guessed figure.',
+  salaryIsZero:
+    'Their current salary records a monthly gross of 0 — correct it on the Salaries screen, then rerun.',
+} as const;
+
+/** One person's pay for the month, before anything is written. */
+export interface PayslipPay {
+  /** The RECORDED basic, or null when none is recorded. Never computed. */
+  basicPay: number | null;
+  fullGross: number;
+  lopAdjustedGross: number;
+  lopAmount: number;
+  deductions: CappedDeductions;
+  /** Deductions that could not be worked out because they depend on basic. */
+  notWorkedOut: BasicDependentDeduction[];
+}
+
 /**
- * designation_id / cadre_id live on hr_staff_details, NOT on staff.
- * Loaded as a separate lookup (never an `!inner` embed) because a large share of
- * staff rows have no hr_staff_details row at all — those people must still appear
- * in the run and be reported as skipped, not silently dropped.
+ * One person's pay from their monthly gross. PURE.
+ *
+ * The gross is the whole monthly pay and is cut by the LOP factor exactly as
+ * before (lib/hr/payroll/lop-engine.ts). ESI, income tax and professional tax
+ * are worked out from the gross, as the deduction engine always has.
+ *
+ * BASIC IS NEVER DERIVED. A recorded basic is used as recorded; with none, the
+ * payslip carries null and the provident fund, which this engine works out as a
+ * percentage of basic, is NOT deducted and is reported in `notWorkedOut`. A
+ * basic of 0 counts as not recorded: a PF of 0 worked out from it would be a
+ * guess dressed as a figure.
+ *
+ * `recordedBasic` has no source today (see the header). It is a parameter, not
+ * a lookup, so a recorded basic can be passed the day HR records one, and so
+ * both branches are tested now.
  */
-interface StaffHrMapping {
-  designation_id: string | null;
-  cadre_id: string | null;
-}
+export function payslipPayFor(input: {
+  monthlyGross: number;
+  recordedBasic: number | null;
+  factor: number;
+  policies: PayrollPolicies;
+}): PayslipPay {
+  const basicPay =
+    input.recordedBasic !== null && Number.isFinite(input.recordedBasic) && input.recordedBasic > 0
+      ? input.recordedBasic
+      : null;
 
-interface PayScale {
-  id: string;
-  basic_pay: number;
-  grade_pay: number;
-}
+  const pay = applyLop({
+    basicPay: basicPay ?? 0,
+    earnings: [
+      { component_id: 'monthly_gross', code: 'MONTHLY_GROSS', amount: Math.max(0, input.monthlyGross) },
+    ],
+    factor: input.factor,
+  });
 
-interface PayComponent {
-  id: string;
-  code: string;
-  component_type: string;
-  calculation_basis: string;
-  default_amount_or_percent: number;
+  // Run deduction engine on the LOP-ADJUSTED figures, so ESI and the
+  // professional-tax slab follow what the month actually earns.
+  //
+  // TAX CAVEAT, pre-existing and not changed here: computeTds ANNUALISES
+  // the gross it is handed (this month × 12). A month with unpaid days is
+  // therefore projected as if the whole year were docked the same way, and
+  // withholds less income tax this month than the person's real annual
+  // liability would call for. No year-to-date true-up exists in lib/ or
+  // app/ to correct it later; Finance should know the monthly figure runs
+  // low in a docked month.
+  const deductions: DeductionResult = computeDeductions(
+    {
+      basicPay: pay.lopAdjustedBasic,
+      grossPay: pay.lopAdjustedGross,
+      paymentMode: 'neft',
+      // Without a basic, PF is left out of the arithmetic rather than worked
+      // out from a guess. notWorkedOut below is what says so.
+      exemptions: basicPay === null ? { pf: true } : undefined,
+    },
+    input.policies,
+  );
+
+  // Professional tax is a FLAT slab, so on a fully-absent month the
+  // deductions can exceed a gross of zero and net pay would go negative —
+  // which hr_payslips forbids, and which would fail the batch insert for
+  // EVERYBODY. Hold the total at the gross; the provident fund survives and
+  // the tax is dropped first.
+  const capped = capDeductionsToGross(deductions, pay.lopAdjustedGross);
+
+  return {
+    basicPay,
+    fullGross: pay.fullGross,
+    lopAdjustedGross: pay.lopAdjustedGross,
+    lopAmount: pay.lopAmount,
+    deductions: capped,
+    notWorkedOut: basicPay === null ? ['PF'] : [],
+  };
 }
 
 export interface GenerationResult {
@@ -135,6 +240,10 @@ export interface LopPreviewRow {
   gross_after_lop: number;
   total_deductions: number;
   net_pay: number;
+  /** The RECORDED basic. null = "basic not recorded"; never a computed figure. */
+  basic_pay: number | null;
+  /** Deductions left out because they are worked out from a basic nobody recorded. */
+  deductions_not_worked_out: BasicDependentDeduction[];
 }
 
 /** What the preview screen renders. Computed by the SAME code path as a real run. */
@@ -373,8 +482,8 @@ export class PayslipGenerator {
     // hr_staff_payroll is gated on hr.payroll.institution.view, so an operator
     // without that key reads ZERO rows and NO error — indistinguishable from
     // "nobody here has a payer recorded yet". Those two demand OPPOSITE actions,
-    // so ask directly rather than infer from emptiness. Same reasoning as the
-    // hr_staff_details check below; only runs in the degenerate case.
+    // so ask directly rather than infer from emptiness. Only runs in the
+    // degenerate case.
     if (payeeIds.length === 0) {
       const { data: canSeePayroll } = await (supabase as any).rpc('user_has_permission', {
         permission_name: 'hr.payroll.institution.view',
@@ -388,9 +497,9 @@ export class PayslipGenerator {
       return emptyRun(period);
     }
 
-    // Chunked for the same reason as hr_staff_details below: a single `.in()`
-    // over a whole organisation can truncate silently, and the `in.(...)` list
-    // inflates the query string past what a proxy will accept.
+    // Chunked: a single `.in()` over a whole organisation can truncate
+    // silently at the PostgREST row cap, and the `in.(...)` list inflates the
+    // query string past what a proxy will accept.
     const STAFF_CHUNK = 100;
     const staffList: StaffPayInfo[] = [];
 
@@ -412,89 +521,7 @@ export class PayslipGenerator {
       return emptyRun(period);
     }
 
-    // 3b. Load designation/cadre mapping from hr_staff_details (separate query, not an embed).
-    //
-    // Chunked deliberately. A single `.in()` over a whole institution has two silent
-    // failure modes: PostgREST caps the rows it returns, so a big institution would
-    // truncate and the missing people would be misreported as "no HR record"; and the
-    // `in.(...)` list inflates the query string (156 ids already costs ~5.8KB), which a
-    // proxy can reject outright. Chunking removes both without changing the result.
-    const staffIds = (staffList as StaffPayInfo[]).map((s) => s.id);
-    const HR_DETAILS_CHUNK = 100;
-    const hrMappingByStaffId = new Map<string, StaffHrMapping>();
-
-    for (let i = 0; i < staffIds.length; i += HR_DETAILS_CHUNK) {
-      const { data: hrDetails, error: hrDetailsErr } = await (supabase as any)
-        .from('hr_staff_details')
-        .select('staff_id, designation_id, cadre_id')
-        .in('staff_id', staffIds.slice(i, i + HR_DETAILS_CHUNK));
-
-      // Abort the whole run if any chunk fails to read. Carrying on would generate
-      // payslips for the people whose chunk already loaded and skip everyone after —
-      // a PARTIAL payroll run that reports success. A failed run is obvious and
-      // recoverable; a partial one is not obvious until somebody is paid twice on the
-      // rerun. This is the one place where failing loudly beats degrading.
-      if (hrDetailsErr) {
-        throw new Error(`Failed to load HR team member details: ${hrDetailsErr.message}`);
-      }
-
-      // staff_id is the PRIMARY KEY of hr_staff_details, so one row per person: no
-      // last-write-wins ambiguity in this Map.
-      for (const d of (hrDetails ?? [])) {
-        hrMappingByStaffId.set(d.staff_id, {
-          designation_id: d.designation_id ?? null,
-          cadre_id: d.cadre_id ?? null,
-        });
-      }
-    }
-
-    // This runs on the caller's RLS-scoped client, and hr_staff_details is tenant-gated
-    // by `hr_organization_id = auth_hr_organization_id()`, which reads the caller's row
-    // in user_hr_access. An operator without such a row gets ZERO rows and NO error.
-    //
-    // An empty result is therefore ambiguous — "nobody here has a record yet" and "you
-    // are not allowed to see them" look identical — and the two demand OPPOSITE actions.
-    // Do not infer which it is from emptiness: a brand-new organisation legitimately has
-    // no records, and telling its HR team to stop creating them would dead-end go-live.
-    // Ask directly instead. Only runs in the already-degenerate case, so it costs nothing
-    // on a normal run.
-    let hrDetailsUnreadable = false;
-    if (hrMappingByStaffId.size === 0 && staffIds.length > 0) {
-      const [{ data: hrOrgId }, { data: isSuperAdmin }] = await Promise.all([
-        (supabase as any).rpc('auth_hr_organization_id'),
-        (supabase as any).rpc('is_super_admin'),
-      ]);
-      // A super admin bypasses the policy, so an empty result for them is genuinely empty.
-      hrDetailsUnreadable = !isSuperAdmin && !hrOrgId;
-    }
-
-    // 4. Load pay scales for the institution (keyed by designation_id)
-    const { data: payScales } = await (supabase as any)
-      .from('hr_pay_scales')
-      .select('id, designation_id, cadre_id, basic_pay, grade_pay')
-      .eq('hr_organization_id', period.hr_organization_id)
-      .is('superseded_by', null);
-
-    const scaleByDesignation = new Map<string, PayScale>();
-    const scaleByCadre = new Map<string, PayScale>();
-    for (const s of (payScales ?? [])) {
-      if (s.designation_id) scaleByDesignation.set(s.designation_id, s);
-      if (s.cadre_id) scaleByCadre.set(s.cadre_id, s);
-    }
-
-    // 5. Load active pay components for the institution
-    const { data: components } = await (supabase as any)
-      .from('hr_pay_components')
-      .select('id, code, component_type, calculation_basis, default_amount_or_percent, applies_to_engine_types')
-      .eq('institution_id', period.institution_id)
-      .eq('is_active', true)
-      .order('display_order', { ascending: true });
-
-    const earningComponents = (components ?? []).filter(
-      (c: PayComponent) =>
-        c.component_type === 'earning' &&
-        (c as any).applies_to_engine_types?.includes(period.engine_type),
-    );
+    const staffIds = staffList.map((s) => s.id);
 
     // 6. Load payroll policies for deduction calculation
     const policies = await loadPayrollPolicies(period.institution_id);
@@ -529,12 +556,45 @@ export class PayslipGenerator {
       );
     }
 
+    // 6c. Each person's CURRENT salary — the pay this run is worked out from.
+    //
+    // READ AFTER the attendance refusal above, so an account missing both keys
+    // is told about attendance first, exactly as before this change.
+    //
+    // READABILITY IS DECIDED FROM THE PERMISSION, NEVER FROM THE ROW COUNT. The
+    // hr_staff_salaries SELECT policy also returns the caller's OWN row, so an
+    // operator on this payroll who lacks hr.payroll.salary.view reads exactly
+    // one row and no error, and everybody else would be skipped as "no salary
+    // recorded". Ask up front instead, the same way the day counts are asked.
+    const [{ data: canSeeSalaries }, { data: isSuperAdminForSalary }] = await Promise.all([
+      (supabase as any).rpc('user_has_permission', {
+        permission_name: 'hr.payroll.salary.view',
+      }),
+      (supabase as any).rpc('is_super_admin'),
+    ]);
+    if (!canSeeSalaries && !isSuperAdminForSalary) {
+      throw new PayrollPermissionError(
+        'hr.payroll.salary.view',
+        'Cannot read salaries: this account is missing hr.payroll.salary.view. Without it the account sees at most its own salary, so everybody else would be skipped as "no salary recorded", which is indistinguishable from the salaries genuinely not being entered. Ask an administrator to grant it.',
+      );
+    }
+
+    const salaryByStaff = new Map<string, { monthlyGross: number; allowance: number }>();
+    for (const row of await loadCurrentSalaryRows(supabase, staffIds)) {
+      salaryByStaff.set(row.staff_id, {
+        monthlyGross: num(row.monthly_gross),
+        allowance: num(row.allowance_amount),
+      });
+    }
+
     const payslipInserts: any[] = [];
     const lineItemInserts: any[] = [];
     const previewRows: LopPreviewRow[] = [];
     let unprocessedDaysAcrossRun = 0;
     let zeroPaidDayPeople = 0;
     const droppedDeductionPeople: string[] = [];
+    let basicNotRecordedPeople = 0;
+    let allowanceNotPaidPeople = 0;
 
     /**
      * Record one person as not payable, with the reason a human has to act on.
@@ -562,55 +622,24 @@ export class PayslipGenerator {
         gross_after_lop: 0,
         total_deductions: 0,
         net_pay: 0,
+        basic_pay: null,
+        deductions_not_worked_out: [],
       });
     };
 
     for (const staff of staffList as StaffPayInfo[]) {
       const name = `${staff.first_name} ${staff.last_name}`.trim();
-      const hrMapping = hrMappingByStaffId.get(staff.id);
 
-      // Distinguish the three blockers so HR can work the backlog by reason.
-      if (!hrMapping) {
-        // Backing table for this reason is hr_staff_details.
-        skip(
-          staff,
-          name,
-          hrDetailsUnreadable
-            ? 'HR records are not visible to this account — grant it HR organisation access, then rerun. Do not create records until then; they may already exist.'
-            : 'No HR record for this team member — create one and set designation/cadre',
-        );
+      // A person with no salary in force is LISTED as skipped, never dropped
+      // and never paid a guess. First, because it is the first thing to fix:
+      // the salary register orders its exclusions the same way.
+      const salary = salaryByStaff.get(staff.id);
+      if (!salary) {
+        skip(staff, name, SALARY_SKIP_REASONS.noSalary);
         continue;
       }
-
-      if (!hrMapping.designation_id && !hrMapping.cadre_id) {
-        skip(
-          staff,
-          name,
-          'HR record exists but designation and cadre are both unset',
-        );
-        continue;
-      }
-
-      // Find pay scale (try designation first, then cadre)
-      const scale = (hrMapping.designation_id ? scaleByDesignation.get(hrMapping.designation_id) : null)
-        ?? (hrMapping.cadre_id ? scaleByCadre.get(hrMapping.cadre_id) : null);
-
-      if (!scale) {
-        skip(
-          staff,
-          name,
-          'No pay scale configured for this designation/cadre',
-        );
-        continue;
-      }
-
-      const basicPay = Number(scale.basic_pay) || 0;
-      if (basicPay <= 0) {
-        skip(
-          staff,
-          name,
-          'Basic pay is 0',
-        );
+      if (salary.monthlyGross <= 0) {
+        skip(staff, name, SALARY_SKIP_REASONS.salaryIsZero);
         continue;
       }
 
@@ -643,50 +672,21 @@ export class PayslipGenerator {
         continue;
       }
 
-      // Calculate earnings from components (full month, before the LOP cut)
-      const earnings: LopEarning[] = [];
-
-      for (const comp of earningComponents) {
-        let amount = 0;
-        if (comp.code === 'BASIC') {
-          amount = basicPay;
-        } else if (comp.calculation_basis === 'percent_of_basic') {
-          amount = Math.round((basicPay * Number(comp.default_amount_or_percent)) / 100);
-        } else {
-          amount = Number(comp.default_amount_or_percent) || 0;
-        }
-        if (amount > 0) {
-          earnings.push({ component_id: comp.id, code: comp.code, amount });
-        }
-      }
-
-      // LOP adjustment — every earning cut by paid-days / working-days.
-      const pay = applyLop({ basicPay, earnings, factor: days.factor });
-
-      // Run deduction engine on the LOP-ADJUSTED figures, so PF, ESI and the
-      // professional-tax slab follow what the month actually earns.
-      //
-      // TAX CAVEAT, pre-existing and not changed here: computeTds ANNUALISES
-      // the gross it is handed (this month × 12). A month with unpaid days is
-      // therefore projected as if the whole year were docked the same way, and
-      // withholds less income tax this month than the person's real annual
-      // liability would call for. No year-to-date true-up exists in lib/ or
-      // app/ to correct it later; Finance should know the monthly figure runs
-      // low in a docked month.
-      const deductions: DeductionResult = computeDeductions(
-        { basicPay: pay.lopAdjustedBasic, grossPay: pay.lopAdjustedGross, paymentMode: 'neft' },
+      // The monthly gross, cut by the LOP factor; deductions from the cut
+      // gross. No basic is recorded anywhere today, so recordedBasic is null
+      // and the payslip says "basic not recorded" (see the header).
+      const pay = payslipPayFor({
+        monthlyGross: salary.monthlyGross,
+        recordedBasic: null,
+        factor: days.factor,
         policies,
-      );
-
-      // Professional tax is a FLAT slab, so on a fully-absent month the
-      // deductions can exceed a gross of zero and net pay would go negative —
-      // which hr_payslips forbids, and which would fail the batch insert for
-      // EVERYBODY. Hold the total at the gross; the provident fund survives and
-      // the tax is dropped first.
-      const capped = capDeductionsToGross(deductions, pay.lopAdjustedGross);
+      });
+      const capped = pay.deductions;
       if (capped.dropped > 0) {
         droppedDeductionPeople.push(name);
       }
+      if (pay.basicPay === null) basicNotRecordedPeople++;
+      if (salary.allowance > 0) allowanceNotPaidPeople++;
 
       const slipId = crypto.randomUUID();
 
@@ -695,12 +695,14 @@ export class PayslipGenerator {
         period_id: periodId,
         staff_id: staff.id,
         engine_type: period.engine_type,
-        // The CONTRACTUAL basic, deliberately not cut. The column has always
-        // held the scale figure and other screens read it as such; what the
-        // person is actually paid is gross_amount, which IS cut. lop_days and
-        // working_days_attended next to it say why the two differ.
-        basic_pay: basicPay,
-        pay_scale_snapshot_id: scale.id,
+        // The RECORDED basic, deliberately not cut, or NULL when none is
+        // recorded — which the payslip prints as "basic not recorded". Never
+        // a figure worked out from the gross. What the person is actually
+        // paid is gross_amount, which IS cut; lop_days and
+        // working_days_attended next to it say why.
+        basic_pay: pay.basicPay,
+        // Pay no longer comes from a pay scale, so there is none to point at.
+        pay_scale_snapshot_id: null,
         working_days_attended: days.paidDays,
         lop_days: days.lopDays,
         gross_amount: pay.lopAdjustedGross,
@@ -710,16 +712,10 @@ export class PayslipGenerator {
         correction_type: 'initial',
       });
 
-      // Line items for each earning component, at their LOP-adjusted amounts,
-      // so the lines on a payslip add up to the gross printed on it.
-      for (const e of pay.adjustedEarnings) {
-        lineItemInserts.push({
-          slip_id: slipId,
-          component_id: e.component_id,
-          amount: e.amount,
-          is_one_off: false,
-        });
-      }
+      // NO earning line items. A line item must name an hr_pay_components
+      // row, and the monthly gross is one figure with no recorded split into
+      // components — inventing one would print amounts nobody authorised
+      // (20260821191000 says the same). The payslip's gross_amount carries it.
 
       previewRows.push({
         staff_id: staff.id,
@@ -736,6 +732,8 @@ export class PayslipGenerator {
         gross_after_lop: pay.lopAdjustedGross,
         total_deductions: capped.total,
         net_pay: capped.netPay,
+        basic_pay: pay.basicPay,
+        deductions_not_worked_out: pay.notWorkedOut,
       });
 
       unprocessedDaysAcrossRun += dayCounts.unprocessed_days;
@@ -763,6 +761,16 @@ export class PayslipGenerator {
     if (droppedDeductionPeople.length > 0) {
       result.warnings.push(
         `Deductions had to be reduced for ${droppedDeductionPeople.length} person(s) because the month earns less than the fixed deductions: ${droppedDeductionPeople.slice(0, 5).join(', ')}${droppedDeductionPeople.length > 5 ? ', …' : ''}. Income tax is dropped first and the provident fund last; net pay is held at zero rather than going negative.`,
+      );
+    }
+    if (basicNotRecordedPeople > 0) {
+      result.warnings.push(
+        `${basicNotRecordedPeople} person(s) have no basic recorded, so their payslips show "${BASIC_NOT_RECORDED}". The provident fund (PF) is worked out from basic, so it could not be worked out for them and is NOT taken off their net pay. Settle PF before paying.`,
+      );
+    }
+    if (allowanceNotPaidPeople > 0) {
+      result.warnings.push(
+        `${allowanceNotPaidPeople} person(s) have an allowance recorded on their salary. Payslips pay the monthly gross only, so that allowance is not on these payslips, although the salary register pays it. Check before paying.`,
       );
     }
     const monthNotClosedCount = result.errors.filter(

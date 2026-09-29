@@ -228,6 +228,17 @@ export const LOP_SKIP_REASONS = {
     'The closed month records no working days for this person, so a day rate cannot be worked out. Recheck their work pattern for the month, then rerun.',
 } as const;
 
+/**
+ * What a payslip prints where no basic is recorded (Director ruling,
+ * 2026-09-30). Never a number. Lives here, in a file with no imports, so the
+ * payslip screens can print the same words the generator writes without
+ * pulling server code into the browser.
+ */
+export const BASIC_NOT_RECORDED = 'basic not recorded';
+
+/** What the payslip says about the provident fund when basic is not recorded. */
+export const PF_NOT_WORKED_OUT = 'PF not worked out: basic not recorded';
+
 // ── local helpers ───────────────────────────────────────────────────────────
 
 /** Never above a full month, never below nothing. */

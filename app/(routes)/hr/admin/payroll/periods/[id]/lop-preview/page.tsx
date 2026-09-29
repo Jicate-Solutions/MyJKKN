@@ -14,6 +14,11 @@
  * READS ONLY. Every figure comes from the generator's own preview path, so what
  * this screen shows is what a real run would produce — not a second
  * implementation that can drift away from it.
+ *
+ * Pay comes from each person's current monthly gross (ruling 2026-09-30). The
+ * Basic column prints the RECORDED basic, or the words "basic not recorded" —
+ * never a figure worked out from the gross — and says when the provident fund
+ * could not be worked out for want of one.
  */
 
 import { use } from 'react';
@@ -46,6 +51,7 @@ import {
   LopPreviewRequestError,
   usePayrollLopPreview,
 } from '@/hooks/hr/payroll/use-payroll-lop-preview';
+import { BASIC_NOT_RECORDED, PF_NOT_WORKED_OUT } from '@/lib/hr/payroll/lop-engine';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -262,6 +268,7 @@ function LopPreviewContent({ id }: { id: string }) {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Name</TableHead>
+                    <TableHead className="text-right">Basic</TableHead>
                     <TableHead className="text-right">Working days</TableHead>
                     <TableHead className="text-right">Paid for</TableHead>
                     <TableHead className="text-right">Not paid for</TableHead>
@@ -279,6 +286,18 @@ function LopPreviewContent({ id }: { id: string }) {
                           <span className="ml-2 text-xs text-amber-700 dark:text-amber-400">
                             {formatDays(r.unprocessed_days)} day(s) unjudged
                           </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {r.basic_pay === null ? (
+                          <span
+                            data-testid="basic-not-recorded"
+                            className="text-xs italic text-amber-700 dark:text-amber-400"
+                          >
+                            {BASIC_NOT_RECORDED}
+                          </span>
+                        ) : (
+                          formatINR(r.basic_pay)
                         )}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
@@ -310,6 +329,11 @@ function LopPreviewContent({ id }: { id: string }) {
                       </TableCell>
                       <TableCell className="text-right font-semibold tabular-nums">
                         {formatINR(r.net_pay)}
+                        {r.deductions_not_worked_out.includes('PF') && (
+                          <span className="block text-[11px] font-normal text-amber-700 dark:text-amber-400">
+                            {PF_NOT_WORKED_OUT}
+                          </span>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}

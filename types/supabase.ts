@@ -89108,7 +89108,7 @@ export type Database = {
       hr_payslips: {
         Row: {
           bank_file_batch_id: string | null
-          basic_pay: number
+          basic_pay: number | null
           cheque_roll_batch_id: string | null
           correction_type: string
           created_at: string
@@ -89129,7 +89129,7 @@ export type Database = {
         }
         Insert: {
           bank_file_batch_id?: string | null
-          basic_pay: number
+          basic_pay?: number | null
           cheque_roll_batch_id?: string | null
           correction_type?: string
           created_at?: string
@@ -89150,7 +89150,7 @@ export type Database = {
         }
         Update: {
           bank_file_batch_id?: string | null
-          basic_pay?: number
+          basic_pay?: number | null
           cheque_roll_batch_id?: string | null
           correction_type?: string
           created_at?: string
