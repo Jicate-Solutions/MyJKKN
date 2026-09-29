@@ -57,10 +57,10 @@ describe('who is sending back', () => {
 });
 
 describe('reading a note', () => {
-  const note = { sent_back_reason: '  Add the March workshops.  ', sent_back_by: 'head' };
+  const note = { sent_back_reason: '  Add the evidence for March, with dates.  ', sent_back_by: 'head' };
 
   it('shows the note to the reader it was meant for', () => {
-    expect(parseSentBackReason(note, 'head')).toBe('Add the March workshops.');
+    expect(parseSentBackReason(note, 'head')).toBe('Add the evidence for March, with dates.');
   });
 
   it('never shows a note under another sender’s name', () => {

@@ -332,7 +332,7 @@ export default function HrSupervisorTeamReviewPage() {
                     rows={2}
                     value={sendBackReason}
                     onChange={(e) => setSendBackReason(e.target.value)}
-                    placeholder="For example: add the two workshops you ran in March, with dates."
+                    placeholder="For example: attach the evidence for March, with dates."
                   />
                   <Button variant="outline" onClick={sendBackToPerson} disabled={submitting}>
                     <Undo2 className="h-4 w-4" />
