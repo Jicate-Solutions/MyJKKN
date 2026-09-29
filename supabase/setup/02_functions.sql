@@ -72992,3 +72992,39 @@ END;
 $$;
 REVOKE EXECUTE ON FUNCTION public.fn_adoption_daily_tick(boolean) FROM anon, authenticated, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_adoption_daily_tick(boolean) TO service_role;
+
+-- Learner advance-year window (2026-09-29). See migration
+-- 20260929_learner_bill_advance_year_window.sql for the full rationale.
+-- SECURITY DEFINER: avoids the academic_years <-> billing_student_bills RLS cycle.
+CREATE OR REPLACE FUNCTION public.fn_learner_bill_year_visible(
+  p_academic_year_id uuid,
+  p_as_of date DEFAULT current_date
+)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  WITH by AS (
+    SELECT institution_id, start_date FROM public.academic_years WHERE id = p_academic_year_id
+  ),
+  cur AS (
+    SELECT max(a.start_date) AS start_date
+    FROM public.academic_years a, by
+    WHERE a.institution_id = by.institution_id AND a.is_active AND a.start_date <= p_as_of
+  ),
+  nxt AS (
+    SELECT min(a.start_date) AS start_date
+    FROM public.academic_years a, by, cur
+    WHERE a.institution_id = by.institution_id AND a.is_active AND a.start_date > cur.start_date
+  )
+  SELECT CASE
+    WHEN p_academic_year_id IS NULL THEN true
+    WHEN NOT EXISTS (SELECT 1 FROM by) THEN true
+    WHEN (SELECT start_date FROM cur) IS NULL THEN true
+    ELSE (SELECT start_date FROM by) <= coalesce((SELECT start_date FROM nxt), (SELECT start_date FROM cur))
+  END;
+$$;
+REVOKE ALL ON FUNCTION public.fn_learner_bill_year_visible(uuid, date) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_learner_bill_year_visible(uuid, date) TO authenticated, service_role;

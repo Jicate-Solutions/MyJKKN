@@ -41,6 +41,7 @@ interface FlowStepEditorProps {
   description: string;
   initialSteps: LearnerLeaveFlowStep[];
   residency: LearnerLeaveResidency;
+  flowResidency?: 'day_scholar' | 'hostel' | null;
   canManage: boolean;
   isOverride?: boolean;
   onSaved?: () => void;
@@ -54,6 +55,7 @@ export function FlowStepEditor({
   description,
   initialSteps,
   residency,
+  flowResidency = null,
   canManage,
   isOverride,
   onSaved,
@@ -70,7 +72,7 @@ export function FlowStepEditor({
   useEffect(() => {
     setSteps(initialSteps.map((s) => ({ role_id: s.role_id, scope: s.scope })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [leaveTypeId, institutionId]);
+  }, [leaveTypeId, institutionId, flowResidency]);
 
   const roleById = (id: string) => roles?.find((r) => r.id === id);
 
@@ -90,13 +92,13 @@ export function FlowStepEditor({
 
   const handleSave = () => {
     saveFlow.mutate(
-      { leaveTypeId, institutionId, steps: steps.filter((s) => s.role_id) },
+      { leaveTypeId, institutionId, flowResidency, steps: steps.filter((s) => s.role_id) },
       { onSuccess: () => onSaved?.() }
     );
   };
 
   const handleRemoveOverride = () => {
-    saveFlow.mutate({ leaveTypeId, institutionId, steps: [] }, { onSuccess: () => onRemoved?.() });
+    saveFlow.mutate({ leaveTypeId, institutionId, flowResidency, steps: [] }, { onSuccess: () => onRemoved?.() });
   };
 
   const preview = steps

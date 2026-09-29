@@ -54,6 +54,8 @@ export interface LearnerLeaveFlow {
   leave_type_id: string;
   /** NULL = group default; a value = that institution's override. */
   institution_id: string | null;
+  /** NULL = any learner; otherwise the residency this chain is for. */
+  flow_residency: 'day_scholar' | 'hostel' | null;
   is_active: boolean;
   steps: LearnerLeaveFlowStep[];
   institution?: { id: string; name: string } | null;

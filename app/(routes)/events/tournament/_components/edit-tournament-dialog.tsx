@@ -336,8 +336,9 @@ function EditTournamentForm({
     venue: tournament.venue ?? '',
     is_public: tournament.is_public ?? false,
     allow_external_registration: tournament.allow_external_registration ?? false,
-    participant_org_type: (tournament.participant_org_type === 'college'
-      ? 'college'
+    participant_org_type: (tournament.participant_org_type === 'college' ||
+    tournament.participant_org_type === 'both'
+      ? tournament.participant_org_type
       : 'school') as ParticipantOrgType,
     // NAAC evidence tags — the writer for the events → evidence-spine
     // emitter (naac_criteria text[] on events; empty array = untagged).
@@ -645,12 +646,14 @@ function EditTournamentForm({
             <SelectContent>
               <SelectItem value="school">Schools</SelectItem>
               <SelectItem value="college">Colleges</SelectItem>
+              <SelectItem value="both">Both schools and colleges</SelectItem>
             </SelectContent>
           </Select>
           <p className="text-xs text-muted-foreground">
             Sets what external entrants are asked on the public registration form:
             Schools shows &ldquo;School / club&rdquo; with the school-directory picker;
-            Colleges shows &ldquo;College&rdquo; as free text.
+            Colleges shows &ldquo;College&rdquo; as free text; Both lets each entrant
+            choose school or college first.
           </p>
         </div>
 

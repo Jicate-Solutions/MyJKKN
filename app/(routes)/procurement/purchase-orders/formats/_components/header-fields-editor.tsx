@@ -21,8 +21,8 @@ interface HeaderFieldsEditorProps {
 }
 
 const KNOWN_HEADER_SOURCES: { value: string; label: string; format?: PoFieldFormat }[] = [
-  { value: 'po.po_number', label: 'Order Number / Ref No' },
-  { value: 'po.created_at', label: 'Order Date', format: 'date' },
+  { value: 'po.po_number', label: 'PO Number / Ref No' },
+  { value: 'po.created_at', label: 'PO Date', format: 'date' },
   { value: 'po.expected_delivery_date', label: 'Expected Delivery Date', format: 'date' },
   { value: 'po.payment_terms', label: 'Payment Terms' },
   { value: 'supplier.name', label: 'Vendor Name' },

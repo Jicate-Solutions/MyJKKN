@@ -7,6 +7,7 @@ import { Check, X, Minus, ArrowRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { displayRequestNumber } from '@/lib/procurement/display-number';
 import {
   ProcurementJourneyService,
   type JourneyAnchor,
@@ -53,7 +54,7 @@ function buildSteps(j: RequestJourney): Step[] {
         }
       : req.status === 'cancelled'
         ? { title: 'Request', state: 'blocked', note: 'Cancelled' }
-        : { title: 'Request', state: 'done', note: req.request_number };
+        : { title: 'Request', state: 'done', note: displayRequestNumber(req.request_number) };
 
   // 2 — Request approval
   let s2: Step;
@@ -143,8 +144,8 @@ function buildSteps(j: RequestJourney): Step[] {
       title: 'Delivery',
       state: 'current',
       who: 'Store keeper',
-      note: 'Send the order PDF to the vendor, then record the delivery when goods arrive',
-      action: { label: 'Open order', href: `/procurement/purchase-orders/${openOrders[0].id}` },
+      note: 'Send the purchase order PDF to the vendor, then record the delivery when goods arrive',
+      action: { label: 'Open purchase order', href: `/procurement/purchase-orders/${openOrders[0].id}` },
     };
   else s5 = { title: 'Delivery', state: 'upcoming' };
 

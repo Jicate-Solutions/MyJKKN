@@ -31,6 +31,12 @@ export interface ProcurementPurchaseRequest {
   requested_by_profile?: { full_name: string | null } | null;
   approved_by_profile?: { full_name: string | null } | null;
   item_count?: number;
+  /** List view only: what was asked for, so a row reads "Keyboard × 5", not a number. */
+  item_preview?: Array<{ item_name: string; required_quantity: number }>;
+  /** List view only: statuses of the quotation(s) raised from this request. */
+  quote_statuses?: string[];
+  /** List view only: statuses of the purchase orders those quotations produced. */
+  order_statuses?: string[];
 }
 
 export interface ProcurementPurchaseRequestItem {
@@ -93,10 +99,10 @@ export const PR_STATUS_CONFIG: Record<
   PurchaseRequestStatus,
   { label: string; color: string }
 > = {
-  draft: { label: 'Draft', color: 'gray' },
-  submitted: { label: 'Submitted', color: 'blue' },
-  approved: { label: 'Approved', color: 'green' },
+  draft: { label: 'Not submitted', color: 'gray' },
+  submitted: { label: 'Waiting for approval', color: 'amber' },
+  approved: { label: 'Ready for quotations', color: 'blue' },
   rejected: { label: 'Rejected', color: 'red' },
-  converted: { label: 'Converted', color: 'purple' },
+  converted: { label: 'Collecting quotations', color: 'purple' },
   cancelled: { label: 'Cancelled', color: 'gray' },
 };

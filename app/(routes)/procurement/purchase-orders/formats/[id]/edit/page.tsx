@@ -20,7 +20,7 @@ export default function EditPoFormatPage() {
 
   if (isLoading || !profile?.institution_id) {
     return (
-      <ContentLayout title="Edit Order Format">
+      <ContentLayout title="Edit PO Format">
         <div className="flex items-center justify-center py-16">
           <BeatLoader color="hsl(var(--primary))" size={10} />
         </div>
@@ -30,7 +30,7 @@ export default function EditPoFormatPage() {
 
   if (isError) {
     return (
-      <ContentLayout title="Edit Order Format">
+      <ContentLayout title="Edit PO Format">
         <div className="py-12">
           <AlertBox type="error" message="Failed to load this format. Please try again." />
         </div>
@@ -39,7 +39,7 @@ export default function EditPoFormatPage() {
   }
   if (!format) {
     return (
-      <ContentLayout title="Edit Order Format">
+      <ContentLayout title="Edit PO Format">
         <p className="text-muted-foreground py-12 text-center">Format not found.</p>
       </ContentLayout>
     );
@@ -53,7 +53,7 @@ export default function EditPoFormatPage() {
             variant="ghost"
             size="sm"
             className="h-10 sm:h-8"
-            aria-label="Back to order formats"
+            aria-label="Back to PO formats"
             onClick={() => router.push('/procurement/purchase-orders/formats')}
           >
             <ArrowLeft className="h-4 w-4" />

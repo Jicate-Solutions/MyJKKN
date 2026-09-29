@@ -75,6 +75,7 @@ import { toast } from 'sonner';
 
 import { ApplicationDetailsDialog } from './_components/application-details-dialog';
 import { ForwardDialog } from './_components/forward-dialog';
+import { useDecideBatch } from '@/hooks/academic/use-leave-onduty-bulk';
 import { useTabParam } from '@/hooks/use-tab-param';
 
 const APPROVALS_TABS = ['pending', 'approved', 'rejected', 'all'] as const;
@@ -156,6 +157,8 @@ function ApprovalsPageInner() {
 
   const processApproval = useProcessApproval();
   const processForward = useProcessForward();
+  const decideBatch = useDecideBatch();
+  const [confirmBatchReject, setConfirmBatchReject] = useState<string | null>(null);
 
   const handleForwardSubmit = (forwardToId: string, comments: string) => {
     if (!selectedApplicationId || !profile?.id) return;
@@ -277,6 +280,18 @@ function ApprovalsPageInner() {
     setComments('');
     toast.success(`${selectedApps.length} application(s) ${bulkAction}`);
   };
+
+  // Facilitator batches with applications waiting on this approver.
+  const batchGroups = useMemo(() => {
+    const m = new Map<string, { id: string; title: string; count: number }>();
+    for (const a of normalizedApprovals as any[]) {
+      if (!a.batch_id || a.status !== 'pending') continue;
+      const g = m.get(a.batch_id) ?? { id: a.batch_id, title: a.batch?.title ?? 'Event batch', count: 0 };
+      g.count += 1;
+      m.set(a.batch_id, g);
+    }
+    return Array.from(m.values());
+  }, [normalizedApprovals]);
 
   // Create table columns
   const columns = useMemo(
@@ -554,6 +569,53 @@ function ApprovalsPageInner() {
           </div>
         </CardHeader>
         <CardContent className="p-6">
+          {statusFilter === 'pending' && batchGroups.length > 0 && (
+            <div className="mb-4 space-y-2">
+              {batchGroups.map((b) => (
+                <div
+                  key={b.id}
+                  className="flex flex-col gap-2 rounded-md border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="text-sm">
+                    <span className="font-medium">{b.title}</span>
+                    <Badge variant="secondary" className="ml-2">
+                      {b.count} pending
+                    </Badge>
+                    <span className="ml-2 text-muted-foreground">Facilitator batch</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      disabled={decideBatch.isPending}
+                      onClick={() => decideBatch.mutate({ batchId: b.id, action: 'approved' })}
+                    >
+                      Approve all
+                    </Button>
+                    {confirmBatchReject === b.id ? (
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        disabled={decideBatch.isPending}
+                        onClick={() => {
+                          decideBatch.mutate({ batchId: b.id, action: 'rejected' });
+                          setConfirmBatchReject(null);
+                        }}
+                      >
+                        Confirm reject all
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="outline" onClick={() => setConfirmBatchReject(b.id)}>
+                        Reject all
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <p className="text-xs text-muted-foreground">
+                Batch actions only apply to learners whose current step you can approve.
+              </p>
+            </div>
+          )}
           <DataTable
             columns={columns}
             data={normalizedApprovals || []}

@@ -6,6 +6,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { useCreatePurchaseRequest } from '@/hooks/procurement/use-purchase-requests';
 import { CatalogItemPicker } from '@/components/procurement/catalog-item-picker';
+import { RequestFileImport } from '@/components/procurement/request-file-import';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import { registeredDomainOptions } from '@/lib/services/procurement/domain-adapters/registry';
 import type { DomainCtx, ProcurementDomain } from '@/lib/services/procurement/domain-adapters/types';
@@ -31,6 +32,7 @@ import {
 import { Plus, Trash2, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
+import { displayRequestNumber } from '@/lib/procurement/display-number';
 
 // is_new is local UI state only — never sent to the server. domain_item_id
 // (null = new item) is what the service actually derives request_type from.
@@ -73,7 +75,6 @@ export default function NewPurchaseRequestPage() {
   const [domain, setDomain] = useState<ProcurementDomain>(
     () => domainOptions[0]?.value ?? 'ims'
   );
-  const [notes, setNotes] = useState('');
   const [items, setItems] = useState<ItemRow[]>([emptyRow()]);
   const [previewOpen, setPreviewOpen] = useState(false);
 
@@ -152,7 +153,7 @@ export default function NewPurchaseRequestPage() {
         data: {
           institution_id: effectiveInstitution,
           domain,
-          notes: notes || null,
+          notes: null,
           items: cleanedItems.map(({ is_new, ...i }) => ({
             ...i,
             required_quantity: Number(i.required_quantity) || 0,
@@ -162,7 +163,7 @@ export default function NewPurchaseRequestPage() {
         userId: profile.id,
       });
       setPreviewOpen(false);
-      toast.success(`Request ${created.request_number} submitted`);
+      toast.success(`Request ${displayRequestNumber(created.request_number)} submitted`);
       router.push('/procurement/requests');
     } catch (e) {
       toast.error(errorMessage(e, 'Failed to create request'));
@@ -171,7 +172,7 @@ export default function NewPurchaseRequestPage() {
 
   return (
     <ContentLayout title="New Request">
-      <div className="max-w-5xl space-y-4">
+      <div className="max-w-3xl space-y-4">
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" aria-label="Go back" onClick={() => router.back()}>
             <ArrowLeft className="h-4 w-4" />
@@ -179,12 +180,12 @@ export default function NewPurchaseRequestPage() {
           <h2 className="text-xl font-bold tracking-tight sm:text-2xl">New Request</h2>
         </div>
 
-        {/* ── Details: one compact row ─────────────────────────────────── */}
+        {/* ── One card: where it's for, then the items ──────────────────── */}
         <Card>
-          <CardContent className="space-y-2 p-4">
-            <div className="grid gap-3 sm:grid-cols-3">
+          <CardContent className="space-y-4 p-4">
+            <div className="grid gap-3 sm:grid-cols-2">
               <InstitutionFilter
-                className="space-y-1"
+                className="space-y-1 [&_button]:h-8 [&_button]:text-sm [&_label]:text-xs"
                 value={effectiveInstitution || undefined}
                 onChange={(id) => {
                   setInstitutionId(id);
@@ -202,7 +203,7 @@ export default function NewPurchaseRequestPage() {
                     setItems([emptyRow()]);
                   }}
                 >
-                  <SelectTrigger className="h-9">
+                  <SelectTrigger className="h-8 text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -214,15 +215,6 @@ export default function NewPurchaseRequestPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Note for the approver (optional)</Label>
-                <Input
-                  className="h-9"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Why it is needed, by when…"
-                />
-              </div>
             </div>
             {domain === 'resource_mgmt' && requestTypeSummary !== 'Restock' && (
               <p className="text-xs text-amber-800 dark:text-amber-300">
@@ -230,115 +222,113 @@ export default function NewPurchaseRequestPage() {
                 <b> Consumables &amp; chemicals</b> instead.
               </p>
             )}
-          </CardContent>
-        </Card>
 
-        {/* ── Items: one line each ─────────────────────────────────────── */}
-        <Card>
-          <CardContent className="p-4">
-            <p className="mb-2 text-sm font-medium">
-              Items{cleanedItems.length ? ` (${cleanedItems.length})` : ''}
-            </p>
+            <div className="border-t pt-3">
+              <div className="hidden grid-cols-[minmax(0,2fr)_minmax(0,1.3fr)_64px_28px] gap-2 px-1 pb-1 text-xs text-muted-foreground md:grid">
+                <span>Item</span>
+                <span>Specification</span>
+                <span>Qty</span>
+                <span />
+              </div>
 
-            <div className="hidden grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_80px_32px] gap-2 px-1 pb-1 text-xs text-muted-foreground md:grid">
-              <span>Item</span>
-              <span>Specification</span>
-              <span>Qty</span>
-              <span />
-            </div>
-
-            <div className="divide-y">
-              {items.map((item, idx) => {
-                return (
-                  <div key={idx} className="space-y-1.5 py-2">
-                    <div className="grid grid-cols-[1fr_80px_32px] gap-2 md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_80px_32px]">
-                      <div className="col-span-3 md:col-span-1">
-                        <CatalogItemPicker
-                          domain={domain}
-                          ctx={ctx}
-                          value={item.item_name || null}
-                          placeholder="Search or type an item…"
-                          onSelect={(sel) =>
-                            updateItem(idx, {
-                              is_new: false,
-                              domain_item_id: sel.domainItemId,
-                              item_name: sel.name,
-                              item_spec: sel.spec ?? item.item_spec ?? '',
-                              unit_id: sel.unitId ?? null,
-                              unit_label: sel.unitLabel ?? item.unit_label ?? '',
-                              current_stock: sel.currentStock ?? null,
-                              reorder_level: sel.reorderLevel ?? null,
-                              estimated_cost:
-                                item.estimated_cost ?? (sel.costPrice != null ? sel.costPrice : undefined),
-                            })
-                          }
-                          // Not in the catalog → the same box turns it into a new-item line.
-                          onCreateNew={(name) =>
-                            updateItem(idx, {
-                              is_new: true,
-                              item_name: name,
-                              domain_item_id: null,
-                              unit_id: null,
-                              current_stock: null,
-                              reorder_level: null,
-                            })
-                          }
+              <div className="divide-y">
+                {items.map((item, idx) => {
+                  return (
+                    <div key={idx} className="space-y-1.5 py-2">
+                      <div className="grid grid-cols-[1fr_64px_28px] gap-2 md:grid-cols-[minmax(0,2fr)_minmax(0,1.3fr)_64px_28px]">
+                        <div className="col-span-3 md:col-span-1 [&_button]:h-8 [&_button]:text-sm">
+                          <CatalogItemPicker
+                            domain={domain}
+                            ctx={ctx}
+                            value={item.item_name || null}
+                            placeholder="Search or type an item…"
+                            onSelect={(sel) =>
+                              updateItem(idx, {
+                                is_new: false,
+                                domain_item_id: sel.domainItemId,
+                                item_name: sel.name,
+                                item_spec: sel.spec ?? item.item_spec ?? '',
+                                unit_id: sel.unitId ?? null,
+                                unit_label: sel.unitLabel ?? item.unit_label ?? '',
+                                current_stock: sel.currentStock ?? null,
+                                reorder_level: sel.reorderLevel ?? null,
+                                estimated_cost:
+                                  item.estimated_cost ?? (sel.costPrice != null ? sel.costPrice : undefined),
+                              })
+                            }
+                            // Not in the catalog → the same box turns it into a new-item line.
+                            onCreateNew={(name) =>
+                              updateItem(idx, {
+                                is_new: true,
+                                item_name: name,
+                                domain_item_id: null,
+                                unit_id: null,
+                                current_stock: null,
+                                reorder_level: null,
+                              })
+                            }
+                          />
+                        </div>
+                        <Input
+                          className="col-span-3 h-8 text-sm md:col-span-1"
+                          value={item.item_spec ?? ''}
+                          onChange={(e) => updateItem(idx, { item_spec: e.target.value })}
+                          placeholder="Size, brand, grade…"
                         />
-                      </div>
-                      <Input
-                        className="col-span-3 h-9 md:col-span-1"
-                        value={item.item_spec ?? ''}
-                        onChange={(e) => updateItem(idx, { item_spec: e.target.value })}
-                        placeholder="Size, brand, grade…"
-                      />
-                      <Input
-                        className="h-9"
-                        type="number"
-                        min={1}
-                        aria-label="Quantity"
-                        value={item.required_quantity}
-                        onChange={(e) => updateItem(idx, { required_quantity: Number(e.target.value) })}
-                      />
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-9 w-8"
-                        aria-label="Remove item"
-                        onClick={() => removeRow(idx)}
-                        disabled={items.length === 1}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                    {item.is_new && (
-                      <div className="flex items-center gap-2">
-                        <span className="shrink-0 rounded bg-blue-100 px-1.5 py-0.5 text-[11px] font-medium text-blue-800 dark:bg-blue-950 dark:text-blue-200">
-                          New item
-                        </span>
                         <Input
                           className="h-8 text-sm"
-                          value={item.reason ?? ''}
-                          onChange={(e) => updateItem(idx, { reason: e.target.value })}
-                          placeholder="Why is it needed? (required for items not in the catalog)"
+                          type="number"
+                          min={1}
+                          aria-label="Quantity"
+                          value={item.required_quantity}
+                          onChange={(e) => updateItem(idx, { required_quantity: Number(e.target.value) })}
                         />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-7"
+                          aria-label="Remove item"
+                          onClick={() => removeRow(idx)}
+                          disabled={items.length === 1}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
                       </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                      {item.is_new && (
+                        <div className="flex items-center gap-2">
+                          <span className="shrink-0 rounded bg-blue-100 px-1.5 py-0.5 text-[11px] font-medium text-blue-800 dark:bg-blue-950 dark:text-blue-200">
+                            New item
+                          </span>
+                          <Input
+                            className="h-8 text-sm"
+                            value={item.reason ?? ''}
+                            onChange={(e) => updateItem(idx, { reason: e.target.value })}
+                            placeholder="Why is it needed? (required for items not in the catalog)"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
 
-            <Button variant="ghost" size="sm" className="mt-1 text-primary" onClick={addRow}>
-              <Plus className="mr-1 h-4 w-4" />
-              Add another item
-            </Button>
+              <div className="flex flex-wrap items-center gap-1">
+                <Button variant="ghost" size="sm" className="mt-1 text-primary" onClick={addRow}>
+                  <Plus className="mr-1 h-4 w-4" />
+                  Add another item
+                </Button>
+                <RequestFileImport
+                  domain={domain}
+                  ctx={ctx}
+                  // Imported lines replace the blank starter row(s) and follow any already filled in.
+                  onAdd={(rows) => setItems((cur) => [...cur.filter((r) => r.item_name.trim()), ...rows])}
+                />
+              </div>
+            </div>
           </CardContent>
         </Card>
 
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
-          <p className="text-xs text-muted-foreground sm:mr-auto">
-            Goes for approval first; then the store collects vendor quotations.
-          </p>
+        <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => router.back()}>
             Cancel
           </Button>
@@ -363,12 +353,6 @@ export default function NewPurchaseRequestPage() {
                 <span className="text-muted-foreground">Items: </span>
                 {cleanedItems.length}
               </div>
-              {notes.trim() && (
-                <div className="sm:col-span-2">
-                  <span className="text-muted-foreground">Notes: </span>
-                  {notes}
-                </div>
-              )}
             </div>
             <div className="overflow-x-auto rounded-md border">
               <table className="w-full text-sm">

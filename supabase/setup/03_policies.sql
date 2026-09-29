@@ -1465,6 +1465,7 @@ CREATE POLICY "bills_select_scoped" ON billing_student_bills
                     SELECT id FROM billing_categories WHERE visible_to_learners
                 )
             )
+            AND fn_learner_bill_year_visible(academic_year_id)
         )
     );
 
@@ -1486,6 +1487,8 @@ CREATE POLICY "Students can view their own bills" ON billing_student_bills
                 SELECT id FROM billing_categories WHERE visible_to_learners
             )
         )
+        -- Updated: 2026-09-29 - advance-year window (past + current + ONE next AY).
+        AND fn_learner_bill_year_visible(academic_year_id)
     );
 
 CREATE POLICY "bills_insert_admin" ON billing_student_bills

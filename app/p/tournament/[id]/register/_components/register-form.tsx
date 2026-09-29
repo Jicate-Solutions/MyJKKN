@@ -258,7 +258,12 @@ export function RegisterForm({
    */
   participantOrgType: ParticipantOrgType;
 }) {
-  const isCollegeTournament = participantOrgType === 'college';
+  // 'both' events let the entrant say which kind of institution they are from;
+  // the answer then picks the same control a school or college event would show.
+  const [entrantOrgType, setEntrantOrgType] = useState<'school' | 'college'>('school');
+  const isCollegeTournament =
+    participantOrgType === 'college' ||
+    (participantOrgType === 'both' && entrantOrgType === 'college');
   const [divisionId, setDivisionId] = useState(divisions[0]?.id ?? '');
   const [entryName, setEntryName] = useState('');
   const [isExternal, setIsExternal] = useState(!isLearner);
@@ -478,6 +483,28 @@ export function RegisterForm({
           it anyway. isCollegeTournament therefore switches BOTH the label and the
           control, not just the wording. A JKKN registrant (isExternal off) always
           gets free text — their own college is not in a school directory either. */}
+      {isExternal && participantOrgType === 'both' && (
+        <div className="space-y-1.5">
+          <Label>You are from a</Label>
+          <Select
+            value={entrantOrgType}
+            onValueChange={(v) => {
+              setEntrantOrgType(v as 'school' | 'college');
+              // The two controls hold different kinds of value (a directory-linked
+              // school vs free text), so switching clears the answer.
+              setInstitution('');
+              setInstitutionSchoolId(null);
+            }}
+          >
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="school">School / club</SelectItem>
+              <SelectItem value="college">College</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
       <div className="space-y-1.5">
         <Label>{isExternal && !isCollegeTournament ? 'School / club' : 'College'}</Label>
         {isExternal && !isCollegeTournament ? (

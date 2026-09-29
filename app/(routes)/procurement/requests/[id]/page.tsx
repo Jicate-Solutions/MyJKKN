@@ -15,13 +15,13 @@ import {
 import { useCreateRfqFromPR } from '@/hooks/procurement/use-rfqs';
 import { PR_STATUS_CONFIG } from '@/types/procurement';
 import { StatusBadge } from '@/components/procurement/status-badge';
-import { RequestJourney } from '@/components/procurement/request-journey';
 import {
   DocumentHeader,
   type DocAction,
   type DocPrimaryAction,
 } from '@/components/procurement/document-header';
 import { formatDateDMY } from '@/lib/utils/date-format';
+import { displayRequestNumber } from '@/lib/procurement/display-number';
 import { AlertBox } from '@/components/ui/alert-box';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -104,16 +104,6 @@ export default function PurchaseRequestDetailPage() {
   // it is the approver's justification for the quantity, so show it.
   const hasStockSnapshot = pr.items.some((it) => it.current_stock != null || it.reorder_level != null);
 
-  // "Draft" tells you the state but not that the request is inert until submitted,
-  // nor where it goes next. Rejection already has its own card, so it is skipped.
-  const STATUS_HINT: Record<string, string> = {
-    draft: 'Only you can see this. Submitting sends it for approval.',
-    submitted: 'Waiting for approval. Once approved, the store collects vendor quotations.',
-    approved: 'Approved. The store can now collect vendor quotations.',
-    converted: 'Rolled into a quotation — vendor quotes are being collected.',
-    cancelled: 'Cancelled. This request will not go any further.',
-  };
-  const statusHint = STATUS_HINT[pr.status];
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     try {
       await fn();
@@ -143,7 +133,23 @@ export default function PurchaseRequestDetailPage() {
       label: 'Approve request',
       icon: Check,
       disabled: approvePR.isPending,
-      onClick: () => run(() => approvePR.mutateAsync({ id, userId: profile!.id }), 'Request approved'),
+      // Approval opens the quotations for this request in the same click — no
+      // separate "Start quotations" step and no second number to track. If that
+      // part fails, the request is still approved and "Start quotations" appears.
+      onClick: async () => {
+        try {
+          await approvePR.mutateAsync({ id, userId: profile!.id });
+        } catch (e) {
+          toast.error(errorMessage(e, 'Could not approve'));
+          return;
+        }
+        try {
+          await createRfq.mutateAsync({ requestId: id, userId: profile!.id });
+          toast.success('Approved — the store can now collect quotations');
+        } catch {
+          toast.success('Request approved');
+        }
+      },
     };
   } else if (pr.status === 'draft' && isOwner) {
     primary = {
@@ -156,6 +162,15 @@ export default function PurchaseRequestDetailPage() {
     primary = {
       key: 'quote',
       label: createRfq.isPending ? 'Starting…' : 'Start quotations',
+      icon: ClipboardList,
+      disabled: createRfq.isPending,
+      onClick: startQuotations,
+    };
+  } else if (pr.status === 'converted') {
+    // Quotations already exist for this request — take the person there.
+    primary = {
+      key: 'open-quotes',
+      label: createRfq.isPending ? 'Opening…' : 'Open quotations',
       icon: ClipboardList,
       disabled: createRfq.isPending,
       onClick: startQuotations,
@@ -174,7 +189,7 @@ export default function PurchaseRequestDetailPage() {
       icon: Ban,
       destructive: true,
       confirm: {
-        title: `Cancel ${pr.request_number}?`,
+        title: `Cancel ${displayRequestNumber(pr.request_number)}?`,
         description: 'The request stops here and cannot be reopened.',
         confirmLabel: 'Cancel request',
       },
@@ -183,28 +198,24 @@ export default function PurchaseRequestDetailPage() {
   }
 
   return (
-    <ContentLayout title={pr.request_number}>
-      <div className="space-y-4 sm:space-y-6">
+    <ContentLayout title={displayRequestNumber(pr.request_number)}>
+      <div className="space-y-4">
         <DocumentHeader
+          compact
           onBack={() => router.push('/procurement/requests')}
           backLabel="Back to requests"
-          title={pr.request_number}
+          title={displayRequestNumber(pr.request_number)}
           status={<StatusBadge status={pr.status} config={PR_STATUS_CONFIG} />}
-          next={
-            <>
-              {statusHint && <span className="font-medium text-foreground">{statusHint} </span>}
-              <span className="capitalize">{pr.request_type.replace('_', ' ')}</span>
-              {' · requested by '}
-              {pr.requested_by_profile?.full_name || '—'}
-              {pr.created_at ? ` · raised ${formatDateDMY(pr.created_at)}` : ''}
-            </>
-          }
+          next={[
+            `Asked by ${pr.requested_by_profile?.full_name || '—'}`,
+            pr.created_at ? formatDateDMY(pr.created_at) : null,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
           primary={primary}
           reject={reject}
           actions={actions}
         />
-
-        <RequestJourney anchor={{ requestId: pr.id }} revision={pr.status} />
 
         {pr.status === 'rejected' && pr.rejection_reason && (
           <Card className="border-destructive/40">
@@ -229,30 +240,33 @@ export default function PurchaseRequestDetailPage() {
         )}
 
         <Card>
-          <CardHeader className="p-4 pb-2 sm:px-6 sm:pt-6">
-            <CardTitle className="text-base">Items ({pr.items.length})</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0 [&_td:first-child]:pl-4 [&_td:last-child]:pr-4 [&_th:first-child]:pl-4 [&_th:last-child]:pr-4 sm:[&_td:first-child]:pl-6 sm:[&_td:last-child]:pr-6 sm:[&_th:first-child]:pl-6 sm:[&_th:last-child]:pr-6 [&_th]:whitespace-nowrap">
+          <CardContent className="p-0 text-sm [&_td]:py-2 [&_th]:h-9 [&_td:first-child]:pl-4 [&_td:last-child]:pr-4 [&_th:first-child]:pl-4 [&_th:last-child]:pr-4 sm:[&_td:first-child]:pl-6 sm:[&_td:last-child]:pr-6 sm:[&_th:first-child]:pl-6 sm:[&_th:last-child]:pr-6 [&_th]:whitespace-nowrap">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Item</TableHead>
                   <TableHead>Specification</TableHead>
                   <TableHead className="text-right">Qty</TableHead>
-                  <TableHead>Unit</TableHead>
                   {hasStockSnapshot && (
                     <>
                       <TableHead className="text-right">On hand</TableHead>
                       <TableHead className="text-right">Reorder level</TableHead>
                     </>
                   )}
-                  {hasNewItemLine && <TableHead>Reason</TableHead>}
+                  {hasNewItemLine && <TableHead>Why needed</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {pr.items.map((it) => (
                   <TableRow key={it.id}>
-                    <TableCell className="font-medium">{it.item_name}</TableCell>
+                    <TableCell className="font-medium">
+                      {it.item_name}
+                      {!it.domain_item_id && (
+                        <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-[11px] font-medium text-blue-800 dark:bg-blue-950 dark:text-blue-200">
+                          New item
+                        </span>
+                      )}
+                    </TableCell>
                     <TableCell>{it.item_spec || '—'}</TableCell>
                     <TableCell className="text-right">
                       {it.original_quantity != null &&
@@ -266,8 +280,8 @@ export default function PurchaseRequestDetailPage() {
                       ) : (
                         it.required_quantity
                       )}
+                      {it.unit_label ? <span className="text-muted-foreground"> {it.unit_label}</span> : null}
                     </TableCell>
-                    <TableCell>{it.unit_label || '—'}</TableCell>
                     {hasStockSnapshot && (
                       <>
                         <TableCell className="text-right tabular-nums">
