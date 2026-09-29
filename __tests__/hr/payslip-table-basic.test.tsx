@@ -18,6 +18,8 @@ import type { PayslipWithStaff } from '@/hooks/hr/payroll/use-payroll-payslips';
 
 afterEach(() => cleanup());
 
+const PERSON = { id: 's1', first_name: 'Arun', last_name: 'M', designation: 'Clerk' };
+
 function slip(over: Partial<PayslipWithStaff>): PayslipWithStaff {
   return {
     id: 'slip-1',
@@ -39,7 +41,7 @@ function slip(over: Partial<PayslipWithStaff>): PayslipWithStaff {
     correction_type: 'initial',
     reason: null,
     created_at: '2026-09-30T00:00:00Z',
-    staff: { id: 's1', first_name: 'Arun', last_name: 'M', designation: 'Clerk' },
+    staff: PERSON,
     ...over,
   };
 }
