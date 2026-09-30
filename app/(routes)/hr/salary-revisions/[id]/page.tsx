@@ -107,7 +107,6 @@ export default function SalaryRevisionDetailPage() {
                 <dd className='text-lg font-semibold tabular-nums'>{rupees(asked)}</dd>
                 <dd className='text-xs text-muted-foreground'>{changeText(current, asked)}</dd>
                 <dd><BandWarning text={r.band_warning} /></dd>
-                <dd><BandChangedNote changed={r.band_changed} /></dd>
               </div>
               <div className='rounded-md border border-border p-3'>
                 <dt className='text-xs text-muted-foreground'>Suggested</dt>
@@ -119,6 +118,8 @@ export default function SalaryRevisionDetailPage() {
                 {r.starts_on && <dd className='text-xs text-muted-foreground'>from {longDate(r.starts_on)}</dd>}
               </div>
             </dl>
+            {/* Below the tiles, not inside one: with a band warning too, the tile ran to seven lines (blind review, 1 Oct). */}
+            <BandChangedNote changed={r.band_changed} />
 
             <p className='text-sm font-medium'>{decisionSummary(r)}</p>
             <RequestNote text={r.cancel_note ?? r.apply_note} />
