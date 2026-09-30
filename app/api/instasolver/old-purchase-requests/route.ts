@@ -21,6 +21,15 @@
 // A half-finished approve is finished on the next 'begin' by finding the
 // request through its marker — never raised twice.
 //
+// createPurchaseRequest is itself three browser calls (header as 'draft',
+// then its lines, then draft -> submitted), so a marked request found later
+// can be half-made. settleMarked() never records the old row against a
+// request Procurement cannot see: a submitted (or later) one counts; a draft
+// WITH lines is finished (flipped to submitted, as createPurchaseRequest
+// would have); a draft with NO lines is withdrawn ('cancelled') and does not
+// count. A duplicate raised by a tab whose claim was taken over is withdrawn
+// in 'complete'.
+//
 // REJECT stores the reason and bells the old requester when they matched a
 // MyJKKN profile. BULK_REJECT does the same for everything older than two years.
 // ============================================================================
@@ -32,10 +41,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { createBellNotification } from '@/lib/services/meetings/meeting-trigger-service';
 import {
-  BULK_REJECT_OLDER_THAN_DAYS,
   PENDING_MD_STATUS,
   STALE_CLAIM_MINUTES,
   buildPurchaseRequestDto,
+  bulkRejectCutoff,
   itemLabel,
   oldRequestMarker,
   rejectionBell,
@@ -44,7 +53,7 @@ import {
 
 const TABLE = 'legacy_instasolver_requirements';
 const ROW_COLUMNS =
-  'legacy_id, institution_id, details, cause, clean_category, clean_site, clean_area, legacy_location, priority, requested_at, reporter_profile_id, legacy_status, decision, decision_claimed_at, imported_purchase_request_id';
+  'legacy_id, institution_id, details, cause, clean_category, clean_site, clean_area, legacy_location, priority, requested_at, reporter_profile_id, legacy_status, decision, decided_by, decision_claimed_at, imported_purchase_request_id';
 
 type LegacyRow = {
   legacy_id: number;
@@ -60,6 +69,7 @@ type LegacyRow = {
   reporter_profile_id: string | null;
   legacy_status: string | null;
   decision: string | null;
+  decided_by: string | null;
   decision_claimed_at: string | null;
   imported_purchase_request_id: string | null;
 };
@@ -93,18 +103,100 @@ async function requireSuperAdmin(): Promise<
   return { ok: true, userId: user.id };
 }
 
-async function findMarkedRequest(
-  admin: SupabaseClient,
-  legacyId: number
-): Promise<{ id: string; requested_by: string | null } | null> {
+const PR_TABLE = 'procurement_purchase_requests';
+const PR_MARKED_COLUMNS = 'id, status, requested_by, notes, items:procurement_purchase_request_items(count)';
+
+type MarkedRequest = { id: string; status: string; requested_by: string | null; notes: string | null; items: number };
+
+function toMarked(raw: Record<string, unknown>): MarkedRequest {
+  const items = raw.items as Array<{ count: number }> | { count: number } | null | undefined;
+  const count = Array.isArray(items) ? Number(items[0]?.count ?? 0) : Number(items?.count ?? 0);
+  return {
+    id: String(raw.id),
+    status: String(raw.status ?? ''),
+    requested_by: (raw.requested_by as string | null) ?? null,
+    notes: (raw.notes as string | null) ?? null,
+    items: Number.isFinite(count) ? count : 0,
+  };
+}
+
+/** Who the Procurement request for this row is raised by: the matched old requester, else the claimer. */
+function expectedRequester(row: LegacyRow, fallback: string): string {
+  return row.reporter_profile_id ?? row.decided_by ?? fallback;
+}
+
+/** A draft with its lines in: finish it exactly as createPurchaseRequest would have. */
+async function finishDraft(admin: SupabaseClient, id: string): Promise<boolean> {
+  const now = new Date().toISOString();
   const { data } = await admin
-    .from('procurement_purchase_requests')
-    .select('id, requested_by')
-    .like('notes', `%${oldRequestMarker(legacyId)}%`)
-    .order('created_at', { ascending: true })
-    .limit(1);
-  const hit = (data ?? [])[0] as { id: string; requested_by: string | null } | undefined;
-  return hit ?? null;
+    .from(PR_TABLE)
+    .update({ status: 'submitted', submitted_at: now, updated_at: now })
+    .eq('id', id)
+    .eq('status', 'draft')
+    .select('id');
+  return Array.isArray(data) && data.length > 0;
+}
+
+/** Withdraw a request this flow made that must not reach Procurement's queue. */
+async function withdraw(admin: SupabaseClient, id: string, fromStatuses: string[]) {
+  await admin
+    .from(PR_TABLE)
+    .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .in('status', fromStatuses);
+}
+
+/**
+ * Finds the Procurement request an earlier tap raised for this old row (by its
+ * marker AND its requester) and says whether it really exists for Procurement.
+ *   'look'   -> only a submitted-or-later request counts; drafts are left alone
+ *               (the tab that made them may still be finishing them);
+ *   'finish' -> a draft with lines is submitted; a draft with none is withdrawn;
+ *   'cancel' -> every draft is withdrawn (the Director is rejecting this row).
+ * Returns the id to record, or null when nothing usable exists.
+ */
+async function settleMarked(
+  admin: SupabaseClient,
+  row: LegacyRow,
+  fallbackRequester: string,
+  drafts: 'look' | 'finish' | 'cancel'
+): Promise<{ raisedId: string | null } | { error: string }> {
+  const { data, error } = await admin
+    .from(PR_TABLE)
+    .select(PR_MARKED_COLUMNS)
+    .like('notes', `%${oldRequestMarker(row.legacy_id)}%`)
+    .eq('requested_by', expectedRequester(row, fallbackRequester))
+    .order('created_at', { ascending: true });
+  if (error) return { error: 'Could not check Procurement for this one. Try again.' };
+  const marked = ((data ?? []) as Array<Record<string, unknown>>)
+    .map(toMarked)
+    .filter((m) => String(m.notes ?? '').includes(oldRequestMarker(row.legacy_id)));
+
+  const live = marked.find((m) => m.status !== 'draft' && m.status !== 'cancelled');
+  if (live) return { raisedId: live.id };
+  if (drafts === 'look') return { raisedId: null };
+
+  let finished: string | null = null;
+  for (const d of marked.filter((m) => m.status === 'draft')) {
+    if (drafts === 'finish' && !finished && d.items > 0 && (await finishDraft(admin, d.id))) {
+      finished = d.id;
+    } else {
+      await withdraw(admin, d.id, ['draft']);
+    }
+  }
+  return { raisedId: finished };
+}
+
+function claimIsStale(row: LegacyRow): boolean {
+  const claimedMs = row.decision_claimed_at ? Date.parse(row.decision_claimed_at) : 0;
+  return Date.now() - claimedMs >= STALE_CLAIM_MINUTES * 60_000;
+}
+
+/** The claim the browser holds (returned by 'begin') still matches the row. Absent = not checked. */
+function holdsClaim(row: LegacyRow, claimedAt: unknown): boolean {
+  if (typeof claimedAt !== 'string' || !claimedAt) return true;
+  if (!row.decision_claimed_at) return false;
+  return Date.parse(claimedAt) === Date.parse(row.decision_claimed_at);
 }
 
 async function markApproved(
@@ -173,7 +265,7 @@ export async function POST(request: NextRequest) {
     const bad = validateReason(reason);
     if (bad) return fail(bad, 400);
 
-    const cutoff = new Date(Date.now() - BULK_REJECT_OLDER_THAN_DAYS * 86_400_000).toISOString();
+    const cutoff = bulkRejectCutoff().toISOString();
     const { data: rows, error } = await admin
       .from(TABLE)
       .select(ROW_COLUMNS)
@@ -227,9 +319,34 @@ export async function POST(request: NextRequest) {
     const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
     const bad = validateReason(reason);
     if (bad) return fail(bad, 400);
-    if (row.decision) return fail(`Already decided (${row.decision}).`, 409);
 
-    const { data: updated, error } = await admin
+    if (row.decision === 'approving') {
+      // An approve that was started and never finished (tab closed). If it did
+      // reach Procurement, record that instead of rejecting; otherwise, once
+      // the claim is stale, withdraw any half-made draft and let the reject through.
+      const stale = claimIsStale(row);
+      const settled = await settleMarked(admin, row, userId, stale ? 'cancel' : 'look');
+      if ('error' in settled) return fail(settled.error, 503);
+      if (settled.raisedId) {
+        const { error } = await markApproved(admin, legacyId, settled.raisedId, userId);
+        if (error) return fail('Could not record the approval. Try again.', 503);
+        return fail(
+          'This one was already sent to Procurement by an earlier Approve, so it cannot be rejected here. Reject it in Procurement instead.',
+          409,
+          { already_done: true, purchase_request_id: settled.raisedId }
+        );
+      }
+      if (!stale) {
+        return fail(
+          `This one is being approved in another tab. If that tab was closed, you can reject it after ${STALE_CLAIM_MINUTES} minutes.`,
+          409
+        );
+      }
+    } else if (row.decision) {
+      return fail(`Already decided (${row.decision}).`, 409);
+    }
+
+    const rejectUpdate = admin
       .from(TABLE)
       .update({
         decision: 'rejected',
@@ -238,9 +355,11 @@ export async function POST(request: NextRequest) {
         decided_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
-      .eq('legacy_id', legacyId)
-      .is('decision', null)
-      .select('legacy_id');
+      .eq('legacy_id', legacyId);
+    const { data: updated, error } = await (row.decision === 'approving'
+      ? rejectUpdate.eq('decision', 'approving').eq('decision_claimed_at', row.decision_claimed_at as string)
+      : rejectUpdate.is('decision', null)
+    ).select('legacy_id');
     if (error) return fail('Could not save the rejection. Try again.', 503);
     if (!updated || updated.length === 0) return fail('Someone decided this one a moment ago.', 409);
 
@@ -256,15 +375,18 @@ export async function POST(request: NextRequest) {
     if (row.decision === 'rejected') return fail('This one was already rejected.', 409);
 
     if (row.decision === 'approving') {
-      // A request raised by an earlier tap whose 'complete' never landed.
-      const marked = await findMarkedRequest(admin, legacyId);
-      if (marked) {
-        const { error } = await markApproved(admin, legacyId, marked.id, userId);
+      // A request raised by an earlier tap whose 'complete' never landed. A
+      // submitted one is recorded at once; a half-made draft is only touched
+      // once the claim is stale (the tab that made it may still be finishing it).
+      const stale = claimIsStale(row);
+      const settled = await settleMarked(admin, row, userId, stale ? 'finish' : 'look');
+      if ('error' in settled) return fail(settled.error, 503);
+      if (settled.raisedId) {
+        const { error } = await markApproved(admin, legacyId, settled.raisedId, userId);
         if (error) return fail('Could not record the approval. Try again.', 503);
-        return NextResponse.json({ success: true, already_done: true, purchase_request_id: marked.id });
+        return NextResponse.json({ success: true, already_done: true, purchase_request_id: settled.raisedId });
       }
-      const claimedMs = row.decision_claimed_at ? Date.parse(row.decision_claimed_at) : 0;
-      if (Date.now() - claimedMs < STALE_CLAIM_MINUTES * 60_000) {
+      if (!stale) {
         return fail('This one is being approved in another tab. Wait a moment and refresh.', 409);
       }
     }
@@ -288,13 +410,16 @@ export async function POST(request: NextRequest) {
     const { data: claimed, error } = await (row.decision === 'approving'
       ? claim.eq('decision', 'approving').eq('decision_claimed_at', row.decision_claimed_at as string)
       : claim.is('decision', null)
-    ).select('legacy_id');
+    ).select('legacy_id, decision_claimed_at');
     if (error) return fail('Could not start the approval. Try again.', 503);
     if (!claimed || claimed.length === 0) return fail('Someone decided this one a moment ago.', 409);
 
     return NextResponse.json({
       success: true,
       already_done: false,
+      // Sent back on 'complete' / 'release' so a tab whose claim was taken
+      // over cannot record (or free) someone else's approval.
+      claimed_at: (claimed[0] as { decision_claimed_at: string | null }).decision_claimed_at,
       // On behalf of the old requester when they matched a MyJKKN profile,
       // otherwise the Director himself.
       requested_by: row.reporter_profile_id ?? userId,
@@ -306,20 +431,39 @@ export async function POST(request: NextRequest) {
   if (action === 'complete') {
     const prId = typeof body.purchase_request_id === 'string' ? body.purchase_request_id : '';
     if (!prId) return fail('purchase_request_id is missing.', 400);
-    if (row.decision !== 'approving') return fail('This approval was not started, or already finished.', 409);
 
-    const { data: pr } = await admin
-      .from('procurement_purchase_requests')
-      .select('id, notes, requested_by')
-      .eq('id', prId)
-      .maybeSingle();
-    const expectedBy = row.reporter_profile_id ?? userId;
+    const { data: prData } = await admin.from(PR_TABLE).select(PR_MARKED_COLUMNS).eq('id', prId).maybeSingle();
+    const pr = prData ? toMarked(prData as Record<string, unknown>) : null;
+    // This tab raised it on behalf of the matched old requester, else as itself.
     if (
       !pr ||
-      !String((pr as { notes: string | null }).notes ?? '').includes(oldRequestMarker(legacyId)) ||
-      (pr as { requested_by: string | null }).requested_by !== expectedBy
+      !String(pr.notes ?? '').includes(oldRequestMarker(legacyId)) ||
+      pr.requested_by !== (row.reporter_profile_id ?? userId)
     ) {
       return fail('That purchase request does not belong to this old request.', 422);
+    }
+
+    if (row.decision === 'approved' && row.imported_purchase_request_id === prId) {
+      return NextResponse.json({ success: true, decision: 'approved', purchase_request_id: prId });
+    }
+    if (row.decision !== 'approving' || !holdsClaim(row, body.claimed_at)) {
+      // Another tab took this one over (or it was decided) while this tab was
+      // raising its request — withdraw this tab's request so Procurement never
+      // gets the same old request twice.
+      await withdraw(admin, prId, ['draft', 'submitted']);
+      return fail(
+        'Another tab finished this one first, so the extra purchase request from this tab was withdrawn.',
+        409
+      );
+    }
+    if (pr.status === 'cancelled') {
+      return fail('That purchase request was cancelled, so it was not recorded. Tap Approve again.', 422);
+    }
+    if (pr.status === 'draft') {
+      // Header written, submit never landed. Finish it only when its lines are in.
+      if (pr.items === 0 || !(await finishDraft(admin, prId))) {
+        return fail('That purchase request was only half made, so it was not recorded. Tap Approve again.', 422);
+      }
     }
 
     const { error } = await markApproved(admin, legacyId, prId, userId);
@@ -329,18 +473,22 @@ export async function POST(request: NextRequest) {
 
   // ── Approve failed in the browser: free the claim ──────────────────────────
   if (action === 'release') {
-    if (row.decision !== 'approving') return NextResponse.json({ success: true, released: false });
-    const marked = await findMarkedRequest(admin, legacyId);
-    if (marked) {
-      const { error } = await markApproved(admin, legacyId, marked.id, userId);
+    if (row.decision !== 'approving' || !holdsClaim(row, body.claimed_at)) {
+      return NextResponse.json({ success: true, released: false });
+    }
+    const settled = await settleMarked(admin, row, userId, 'finish');
+    if ('error' in settled) return fail(settled.error, 503);
+    if (settled.raisedId) {
+      const { error } = await markApproved(admin, legacyId, settled.raisedId, userId);
       if (error) return fail('Could not record the approval. Try again.', 503);
-      return NextResponse.json({ success: true, released: false, already_done: true, purchase_request_id: marked.id });
+      return NextResponse.json({ success: true, released: false, already_done: true, purchase_request_id: settled.raisedId });
     }
     const { error } = await admin
       .from(TABLE)
       .update({ decision: null, decision_claimed_at: null, decided_by: null, updated_at: new Date().toISOString() })
       .eq('legacy_id', legacyId)
-      .eq('decision', 'approving');
+      .eq('decision', 'approving')
+      .eq('decision_claimed_at', row.decision_claimed_at as string);
     if (error) return fail('Could not free this one. It frees itself after 10 minutes.', 503);
     return NextResponse.json({ success: true, released: true });
   }

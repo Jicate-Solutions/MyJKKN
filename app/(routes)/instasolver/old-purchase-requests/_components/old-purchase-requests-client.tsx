@@ -80,6 +80,7 @@ export function OldPurchaseRequestsClient({ initialRows }: { initialRows: OldReq
         toast.success('Already sent to Procurement.');
         return;
       }
+      const claimedAt = begun.claimed_at ?? null;
       let prId: string;
       try {
         const pr = await ProcurementPurchaseRequestService.createPurchaseRequest(
@@ -88,12 +89,27 @@ export function OldPurchaseRequestsClient({ initialRows }: { initialRows: OldReq
         );
         prId = pr.id;
       } catch (e: unknown) {
-        await post({ action: 'release', legacy_id: row.legacyId }).catch(() => undefined);
+        const why = e instanceof Error ? e.message : 'unknown error';
+        // Release says what it found: the request may have got far enough to be
+        // finished and recorded, in which case the approve DID go through.
+        let released: Record<string, unknown> | null = null;
+        try {
+          released = await post({ action: 'release', legacy_id: row.legacyId, claimed_at: claimedAt });
+        } catch {
+          released = null;
+        }
+        if (released?.already_done) {
+          drop([row.legacyId]);
+          toast.success('Approved — sent to Procurement as a purchase request waiting for their approval.');
+          return;
+        }
         throw new Error(
-          `Procurement did not accept it: ${e instanceof Error ? e.message : 'unknown error'}. Nothing was approved — try again.`
+          released?.released
+            ? `Procurement did not accept it: ${why}. Nothing was approved — try again.`
+            : `Procurement did not accept it: ${why}. This one stays marked "being approved" for up to 10 minutes, then you can try again.`
         );
       }
-      await post({ action: 'complete', legacy_id: row.legacyId, purchase_request_id: prId });
+      await post({ action: 'complete', legacy_id: row.legacyId, purchase_request_id: prId, claimed_at: claimedAt });
       drop([row.legacyId]);
       toast.success('Approved — sent to Procurement as a purchase request waiting for their approval.');
     } catch (e: unknown) {

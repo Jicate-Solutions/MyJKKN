@@ -71,9 +71,19 @@ export function ageInDays(iso: string | null, now: Date = new Date()): number | 
   return Number.isFinite(ms) ? Math.floor((now.getTime() - ms) / DAY_MS) : null;
 }
 
+/**
+ * The bulk bar's cutoff instant. The API route rejects rows with
+ * requested_at < this, and the screen counts with the same instant, so the
+ * "Yes, reject N" count and the number actually rejected cannot differ by a day.
+ */
+export function bulkRejectCutoff(now: Date = new Date()): Date {
+  return new Date(now.getTime() - BULK_REJECT_OLDER_THAN_DAYS * DAY_MS);
+}
+
 export function isOlderThanBulkCutoff(iso: string | null, now: Date = new Date()): boolean {
-  const age = ageInDays(iso, now);
-  return age !== null && age > BULK_REJECT_OLDER_THAN_DAYS;
+  if (!iso) return false;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) && ms < bulkRejectCutoff(now).getTime();
 }
 
 /**
