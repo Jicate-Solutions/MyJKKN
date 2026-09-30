@@ -297,7 +297,7 @@ function stubSupabase(fx: Fixture) {
 
   const builder = (table: string) => {
     const b: Record<string, unknown> = {};
-    for (const m of ['select', 'eq', 'in', 'is', 'order', 'neq', 'not', 'limit', 'update']) {
+    for (const m of ['select', 'eq', 'in', 'is', 'order', 'neq', 'not', 'limit', 'range', 'update']) {
       b[m] = () => b;
     }
     b.single = () => Promise.resolve(resultFor(table));
@@ -353,10 +353,11 @@ function baseFixture(): Fixture {
           institution_id: 'inst-1',
         },
       ],
-      // Pay comes from each person's CURRENT monthly gross (ruling
-      // 2026-09-30), not from a pay scale. The stub is filter-blind, so only
-      // current rows are listed here; __tests__/hr/payslip-monthly-gross.test.ts
-      // proves superseded rows are ignored with a filter-honouring stub.
+      // Pay comes from each person's monthly gross in force for the month
+      // (rulings 2026-09-30), not from a pay scale. One row each, with no
+      // start date, so it is in force for any month;
+      // __tests__/hr/payslip-monthly-gross.test.ts proves the month rule with a
+      // filter-honouring stub.
       hr_staff_salaries: [
         {
           staff_id: 'staff-present',
@@ -412,8 +413,8 @@ function baseFixture(): Fixture {
 }
 
 // The whole monthly gross. Large enough that income tax is due, so the "LOP
-// reaches the tax" test below has a tax to move (PF is not worked out: no
-// basic is recorded).
+// reaches the tax" test below has a tax to move. PF is the flat 1800 HR typed
+// on each salary, taken in full.
 const FULL_GROSS = 150000;
 
 describe('PayslipGenerator.previewLop — the generator actually reads attendance', () => {

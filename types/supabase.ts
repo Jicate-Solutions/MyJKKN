@@ -88734,6 +88734,7 @@ export type Database = {
           distributed_at: string | null
           distributed_by: string | null
           engine_type: string
+          generation_notes: Json | null
           hr_organization_id: string
           id: string
           institution_id: string
@@ -88767,6 +88768,7 @@ export type Database = {
           distributed_at?: string | null
           distributed_by?: string | null
           engine_type: string
+          generation_notes?: Json | null
           hr_organization_id: string
           id?: string
           institution_id: string
@@ -88800,6 +88802,7 @@ export type Database = {
           distributed_at?: string | null
           distributed_by?: string | null
           engine_type?: string
+          generation_notes?: Json | null
           hr_organization_id?: string
           id?: string
           institution_id?: string
@@ -89107,12 +89110,14 @@ export type Database = {
       }
       hr_payslips: {
         Row: {
+          allowance_paid: number | null
           bank_file_batch_id: string | null
           basic_pay: number | null
           cheque_roll_batch_id: string | null
           correction_type: string
           created_at: string
           engine_type: string
+          esi_deduction: number | null
           gross_amount: number
           id: string
           lop_days: number
@@ -89121,19 +89126,24 @@ export type Database = {
           payment_mode: string
           pdf_storage_path: string | null
           period_id: string
+          pf_deduction: number | null
+          pt_deduction: number | null
           reason: string | null
           staff_id: string
           superseded_by: string | null
+          tds_deduction: number | null
           total_deductions: number
           working_days_attended: number
         }
         Insert: {
+          allowance_paid?: number | null
           bank_file_batch_id?: string | null
           basic_pay?: number | null
           cheque_roll_batch_id?: string | null
           correction_type?: string
           created_at?: string
           engine_type: string
+          esi_deduction?: number | null
           gross_amount: number
           id?: string
           lop_days?: number
@@ -89142,19 +89152,24 @@ export type Database = {
           payment_mode?: string
           pdf_storage_path?: string | null
           period_id: string
+          pf_deduction?: number | null
+          pt_deduction?: number | null
           reason?: string | null
           staff_id: string
           superseded_by?: string | null
+          tds_deduction?: number | null
           total_deductions: number
           working_days_attended: number
         }
         Update: {
+          allowance_paid?: number | null
           bank_file_batch_id?: string | null
           basic_pay?: number | null
           cheque_roll_batch_id?: string | null
           correction_type?: string
           created_at?: string
           engine_type?: string
+          esi_deduction?: number | null
           gross_amount?: number
           id?: string
           lop_days?: number
@@ -89163,9 +89178,12 @@ export type Database = {
           payment_mode?: string
           pdf_storage_path?: string | null
           period_id?: string
+          pf_deduction?: number | null
+          pt_deduction?: number | null
           reason?: string | null
           staff_id?: string
           superseded_by?: string | null
+          tds_deduction?: number | null
           total_deductions?: number
           working_days_attended?: number
         }

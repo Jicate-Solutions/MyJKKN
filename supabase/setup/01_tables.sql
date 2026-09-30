@@ -10521,13 +10521,35 @@ ALTER TABLE public.billing_bill_cancel_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.billing_bill_cancel_request_actions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.billing_bill_cancel_approval_flows ENABLE ROW LEVEL SECURITY;
 
--- Updated: 2026-09-30 - hr_payslips.basic_pay allows NULL = "basic not recorded"
--- (migration 20270523090000). hr_payslips itself is created by
+-- Updated: 2026-09-30 - migration 20270523090000. hr_payslips and
+-- hr_payroll_periods are created by
 -- 20260628000000_t4_3_payroll_periods_approvals_payslips.sql. Payslips now take
--- pay from hr_staff_salaries.monthly_gross and no per-person basic is recorded,
--- so the column says "none" instead of forcing a number. CHECK (basic_pay >= 0)
--- is unchanged.
+-- pay from hr_staff_salaries.monthly_gross in force for the month; no
+-- per-person basic is recorded, so basic_pay allows NULL ("basic not
+-- recorded"); the allowance and the four deductions are saved one by one (so a
+-- manual override can leave a blank field unchanged); a run keeps its notes on
+-- the period. CHECK (basic_pay >= 0), RLS and grants are unchanged.
 ALTER TABLE public.hr_payslips
   ALTER COLUMN basic_pay DROP NOT NULL;
+ALTER TABLE public.hr_payslips
+  ADD COLUMN IF NOT EXISTS allowance_paid numeric CHECK (allowance_paid >= 0),
+  ADD COLUMN IF NOT EXISTS pf_deduction   numeric CHECK (pf_deduction >= 0),
+  ADD COLUMN IF NOT EXISTS esi_deduction  numeric CHECK (esi_deduction >= 0),
+  ADD COLUMN IF NOT EXISTS tds_deduction  numeric CHECK (tds_deduction >= 0),
+  ADD COLUMN IF NOT EXISTS pt_deduction   numeric CHECK (pt_deduction >= 0);
+ALTER TABLE public.hr_payroll_periods
+  ADD COLUMN IF NOT EXISTS generation_notes jsonb;
 COMMENT ON COLUMN public.hr_payslips.basic_pay IS
-  'The basic HR recorded for this person, not cut for loss of pay. NULL = no basic recorded; the payslip shows "basic not recorded" and the provident fund (worked out from basic) was not worked out. Never computed from the gross. Ruling 2026-09-30.';
+  'The basic HR recorded for this person, not cut for loss of pay. NULL = no basic recorded; the payslip shows "basic not recorded". Never computed from the gross. PF does not depend on it: PF is the flat amount HR typed on the salary. Ruling 2026-09-30.';
+COMMENT ON COLUMN public.hr_payslips.allowance_paid IS
+  'The allowance (hr_staff_salaries.allowance_amount) paid this month, after loss of pay. Already inside gross_amount. NULL on slips made before 20270523090000.';
+COMMENT ON COLUMN public.hr_payslips.pf_deduction IS
+  'PF taken off: the flat amount HR typed on the salary (epf_amount), 0 when HR marked the person not eligible. NULL on slips made before 20270523090000.';
+COMMENT ON COLUMN public.hr_payslips.esi_deduction IS
+  'ESI taken off, 0 when HR marked the person not eligible. NULL on slips made before 20270523090000.';
+COMMENT ON COLUMN public.hr_payslips.tds_deduction IS
+  'Income tax (TDS) taken off. NULL on slips made before 20270523090000.';
+COMMENT ON COLUMN public.hr_payslips.pt_deduction IS
+  'Professional tax taken off. NULL on slips made before 20270523090000.';
+COMMENT ON COLUMN public.hr_payroll_periods.generation_notes IS
+  'The last payslip run''s notes: {generated_at, generated, skipped, warnings[], skipped_people[{staff_id,name,reason}]}. Shown on the period page. NULL = no run yet. 20270523090000.';

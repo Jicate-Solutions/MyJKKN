@@ -236,9 +236,6 @@ export const LOP_SKIP_REASONS = {
  */
 export const BASIC_NOT_RECORDED = 'basic not recorded';
 
-/** What the payslip says about the provident fund when basic is not recorded. */
-export const PF_NOT_WORKED_OUT = 'PF not worked out: basic not recorded';
-
 // ── local helpers ───────────────────────────────────────────────────────────
 
 /** Never above a full month, never below nothing. */

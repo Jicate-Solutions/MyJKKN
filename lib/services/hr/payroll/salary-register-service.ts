@@ -11,8 +11,9 @@
  *
  * NOT PayslipGenerator. That one belongs to a five-signature approval chain
  * with PF/ESI/TDS deductions that this register does not use. Since 2026-09-30
- * it takes pay from the same current monthly_gross this register reads, through
- * loadCurrentSalaryRows below, rather than from the never-written hr_pay_scales.
+ * it takes pay from the same monthly_gross this register reads, through
+ * loadSalaryRowsInForce below (one month rule for both screens), rather than
+ * from the never-written hr_pay_scales.
  *
  * THE ROSTER IS THE PAYING INSTITUTION (restored 2026-09-23, see migration
  * 20260923120000). hr_staff_payroll groups the register, because that is how
@@ -40,6 +41,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getErrorMessage } from '@/lib/utils';
 import { resolveTds } from '@/lib/hr/payroll/tds-slabs';
+import { lastDayOfMonth, pickSalaryInForce } from '@/lib/hr/payroll/salary-in-force';
 import { TdsSlabService } from '@/lib/services/hr/payroll/tds-slab-service';
 import type {
   HRSalaryRegisterDeletedRun,
@@ -200,6 +202,13 @@ interface RegisterContext {
   /** work institution id -> its locked period (only locked ones are present). */
   lockedPeriodByInstitution: Map<string, { id: string; workingDays: number }>;
   salaryByStaff: Map<string, number>;
+  /**
+   * People whose only salary rows start AFTER this month, mapped to the start
+   * date. Absent from salaryByStaff (nothing is in force for the month), so
+   * they are excluded as "No salary recorded"; the preflight names them so HR
+   * sees why.
+   */
+  salaryStartsAfterMonth: Map<string, string>;
   /**
    * EPF/ESI in force, already zeroed where the eligibility flag is off.
    *
@@ -509,8 +518,9 @@ export function computeRegisterLine(input: {
 }
 
 /**
- * One person's salary IN FORCE, as the register and the payslip generator both
- * read it. The columns are exactly the ones the register has always selected.
+ * One person's salary row, as the register and the payslip generator both
+ * read it. The money columns are the ones the register has always selected;
+ * the last four are what the month rule needs.
  */
 export interface CurrentSalaryRow {
   staff_id: string;
@@ -520,42 +530,82 @@ export interface CurrentSalaryRow {
   eligible_for_esi: boolean | null;
   esi_amount: unknown;
   allowance_amount: unknown;
+  id?: string | null;
+  effective_from?: string | null;
+  superseded_by?: string | null;
+  created_at?: string | null;
 }
 
+/** The salaries that pay one month, and who has a salary that starts later. */
+export interface SalariesInForce {
+  /** At most one row per person: the row in force for the month. */
+  rows: CurrentSalaryRow[];
+  /**
+   * People who HAVE salary rows, none of which has started by the month's last
+   * day, mapped to the date their pay starts ('YYYY-MM-DD'). Not paid for this
+   * month; the screens name them rather than calling them "no salary recorded".
+   */
+  startsAfterMonth: Map<string, string>;
+}
+
+/** Rows per page when reading salary history. Below the PostgREST row cap. */
+const SALARY_PAGE = 500;
+
 /**
- * THE CURRENT-SALARY RULE, defined once. `superseded_by IS NULL` is the row in
- * force: a raise writes a new row and stamps the old one with the new row's id,
- * and the partial unique index hr_staff_salaries_one_current keeps that row
- * singular per person.
+ * THE MONTH RULE, defined once (Director ruling, 30 Sep 2026). The row that
+ * pays a month is the one IN FORCE for that month by effective_from, walking
+ * the superseded_by chain, not simply the newest row: a raise dated 1 October
+ * does not pay September. The rule itself is pickSalaryInForce in
+ * lib/hr/payroll/salary-in-force.ts; this loads each person's whole salary
+ * history and applies it.
  *
- * effective_from is DELIBERATELY NOT CONSULTED. The register has never read it,
- * so a row whose start date is empty, or later than the month being paid, is
- * still the row in force. The payslip generator imports this function rather
- * than restating the rule, because two copies of a rule that decides pay drift,
- * and the drift is invisible until one person is paid two different amounts
- * for the same month on two screens.
+ * The payslip generator and this register both call it, because two copies of
+ * a rule that decides pay drift, and the drift is invisible until one person is
+ * paid two different amounts for the same month on two screens.
  *
- * Chunked for the same reason as every other `.in()` here. Throws on a failed
- * read: a partial salary read would exclude people as "no salary recorded".
+ * History is read, not only the current row, so it is paged as well as
+ * chunked: a person with many raises must not push anyone's rows past the
+ * PostgREST row cap. Throws on a failed read: a partial salary read would
+ * exclude people as "no salary recorded".
  */
-export async function loadCurrentSalaryRows(
+export async function loadSalaryRowsInForce(
   supabase: SupabaseClient,
   staffIds: string[],
-): Promise<CurrentSalaryRow[]> {
-  const rows: CurrentSalaryRow[] = [];
+  year: number,
+  month: number,
+): Promise<SalariesInForce> {
+  const history = new Map<string, CurrentSalaryRow[]>();
   for (const ids of chunk(staffIds)) {
-    const { data, error } = await (supabase as any)
-      .from('hr_staff_salaries')
-      .select(
-        'staff_id, monthly_gross, eligible_for_pf, epf_amount, eligible_for_esi, esi_amount, allowance_amount'
-      )
-      .in('staff_id', ids)
-      .is('superseded_by', null);
+    for (let from = 0; ; from += SALARY_PAGE) {
+      const { data, error } = await (supabase as any)
+        .from('hr_staff_salaries')
+        .select(
+          'id, staff_id, monthly_gross, eligible_for_pf, epf_amount, eligible_for_esi, esi_amount, allowance_amount, effective_from, superseded_by, created_at'
+        )
+        .in('staff_id', ids)
+        .order('id', { ascending: true })
+        .range(from, from + SALARY_PAGE - 1);
 
-    if (error) throw new Error(`Failed to load salaries: ${getErrorMessage(error)}`);
-    rows.push(...((data ?? []) as CurrentSalaryRow[]));
+      if (error) throw new Error(`Failed to load salaries: ${getErrorMessage(error)}`);
+      const page = (data ?? []) as CurrentSalaryRow[];
+      for (const r of page) {
+        const list = history.get(r.staff_id) ?? [];
+        list.push(r);
+        history.set(r.staff_id, list);
+      }
+      if (page.length < SALARY_PAGE) break;
+    }
   }
-  return rows;
+
+  const lastDay = lastDayOfMonth(year, month);
+  const rows: CurrentSalaryRow[] = [];
+  const startsAfterMonth = new Map<string, string>();
+  for (const [staffId, list] of history) {
+    const { row, startsAfter } = pickSalaryInForce(list, lastDay);
+    if (row) rows.push(row);
+    else if (startsAfter) startsAfterMonth.set(staffId, startsAfter);
+  }
+  return { rows, startsAfterMonth };
 }
 
 export class SalaryRegisterService {
@@ -739,6 +789,7 @@ export class SalaryRegisterService {
         dependencies: [],
         lockedPeriodByInstitution: new Map(),
         salaryByStaff: new Map(),
+        salaryStartsAfterMonth: new Map(),
         statutoryByStaff: new Map(),
         bankByStaff: new Map(),
         payerByStaff: new Map(),
@@ -812,10 +863,14 @@ export class SalaryRegisterService {
       string,
       { epf: number; esi: number; allowance: number; tds: number }
     >();
+    let salaryStartsAfterMonth = new Map<string, string>();
     {
-      // The current-salary rule lives in loadCurrentSalaryRows, shared with the
-      // payslip generator.
-      for (const s of (await loadCurrentSalaryRows(supabase, staffIds)) as any[]) {
+      // The month rule lives in loadSalaryRowsInForce, shared with the payslip
+      // generator: the row in force for THIS month by effective_from, not the
+      // newest row (ruling 2026-09-30).
+      const inForce = await loadSalaryRowsInForce(supabase, staffIds, year, month);
+      salaryStartsAfterMonth = inForce.startsAfterMonth;
+      for (const s of inForce.rows as any[]) {
         const gross = num(s.monthly_gross);
         salaryByStaff.set(s.staff_id, gross);
         // The flag decides, not the amount. fn_hr_set_staff_salary already
@@ -929,6 +984,7 @@ export class SalaryRegisterService {
       dependencies,
       lockedPeriodByInstitution,
       salaryByStaff,
+      salaryStartsAfterMonth,
       statutoryByStaff,
       bankByStaff,
       payerByStaff,
@@ -1137,6 +1193,20 @@ export class SalaryRegisterService {
         missingSalary === ctx.roster.length
           ? `No salary is recorded for anyone paid by ${ctx.organisationName}. Enter salaries in Employee Salaries — there is nothing to generate until then.`
           : `${missingSalary} of ${ctx.roster.length} staff have no salary recorded. They will be listed as excluded, not paid zero.`,
+      );
+    }
+
+    // Some of those DO have a salary: it just starts after this month. Name
+    // them, so "no salary recorded" is not read as "HR forgot".
+    const startsLater = ctx.roster.filter((m) => ctx.salaryStartsAfterMonth.has(m.staff_id));
+    if (startsLater.length > 0) {
+      const shown = startsLater
+        .slice(0, 10)
+        .map((m) => `${m.staff_name} (from ${ctx.salaryStartsAfterMonth.get(m.staff_id)})`)
+        .join(', ');
+      const more = startsLater.length > 10 ? ` and ${startsLater.length - 10} more` : '';
+      warnings.push(
+        `${startsLater.length} of them have a salary that starts after ${label}, so nothing is paid to them for ${label}: ${shown}${more}.`,
       );
     }
 

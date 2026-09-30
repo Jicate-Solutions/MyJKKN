@@ -85,6 +85,9 @@ export interface HRPayrollPeriod {
   total_net: number | null;
   staff_count: number | null;
 
+  /** What the last payslip run said (20270523090000). null = no run yet. */
+  generation_notes?: PayslipRunNotes | null;
+
   created_at: string;
   updated_at: string;
 }
@@ -146,6 +149,19 @@ export interface HRPayrollPeriodApproval {
   rejected_from_stage: PayrollPeriodStatus | null;
 }
 
+/**
+ * What a payslip run keeps on its period (hr_payroll_periods.generation_notes,
+ * 20270523090000), so the warnings and the people left off stay on the period
+ * page after the run's response is gone.
+ */
+export interface PayslipRunNotes {
+  generated_at: string;
+  generated: number;
+  skipped: number;
+  warnings: string[];
+  skipped_people: { staff_id: string; name: string; reason: string }[];
+}
+
 // =====================================================================================
 // hr_payslips (minimal — full surface lands with T4.4+ when slips are generated)
 // =====================================================================================
@@ -163,6 +179,16 @@ export interface HRPayslip {
   gross_amount: number;
   total_deductions: number;
   net_amount: number;
+  /**
+   * Saved one by one since 20270523090000. null on a slip made before that.
+   * allowance_paid is inside gross_amount; the four deductions add up to
+   * total_deductions.
+   */
+  allowance_paid?: number | null;
+  pf_deduction?: number | null;
+  esi_deduction?: number | null;
+  tds_deduction?: number | null;
+  pt_deduction?: number | null;
   payment_mode: PayrollPaymentMode;
   bank_file_batch_id: string | null;
   cheque_roll_batch_id: string | null;
