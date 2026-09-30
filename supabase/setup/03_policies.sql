@@ -11511,3 +11511,60 @@ CREATE POLICY hvci_delete ON public.hostel_vacate_checklist_items FOR DELETE TO 
     OR (SELECT public.is_admin())
     OR (SELECT public.user_has_permission('campus_living.vacate_checklist.manage'))
   );
+
+-- =====================================================================
+-- Updated: 2026-10-01 - Grievance complaint privacy (policies)
+-- Source of truth for apply: supabase/migrations/20270624093700_grievance_complaint_privacy.sql
+-- =====================================================================
+-- The parent read runs under the caller's own grievance_tickets RLS, so the
+-- ICC-only rules, institution scope and the rest are inherited exactly.
+DROP POLICY IF EXISTS grievance_anonymous_messages_select ON public.grievance_anonymous_messages;
+CREATE POLICY grievance_anonymous_messages_select ON public.grievance_anonymous_messages
+  FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.grievance_tickets gt WHERE gt.id = ticket_id));
+
+-- A handler may only ASK, only as herself, only on an anonymous ticket she can
+-- read, and not once it is closed or withdrawn. Answers go through the RPC.
+-- No UPDATE / DELETE policy: a message, once sent, stays as sent.
+DROP POLICY IF EXISTS grievance_anonymous_messages_insert ON public.grievance_anonymous_messages;
+CREATE POLICY grievance_anonymous_messages_insert ON public.grievance_anonymous_messages
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    direction = 'question'
+    AND author_id = (SELECT auth.uid())
+    AND EXISTS (
+      SELECT 1 FROM public.grievance_tickets gt
+      WHERE gt.id = ticket_id
+        AND COALESCE(gt.is_anonymous, false)
+        AND gt.status::text <> 'closed'
+        AND gt.withdrawn_at IS NULL
+    )
+  );
+
+-- Only when the route itself did the sending: metadata.routing is
+-- 'icc_no_committee' (no active ICC committee at that college) or
+-- 'superior_bypass' (about the filer's own HOD / principal / manager), and
+-- only for the person it is assigned to. The existing ICC branches (committee
+-- members, super admin, admin) are untouched and still apply.
+DROP POLICY IF EXISTS grievance_tickets_select_icc_routed_assignee ON public.grievance_tickets;
+CREATE POLICY grievance_tickets_select_icc_routed_assignee ON public.grievance_tickets
+  FOR SELECT TO authenticated
+  USING (
+    is_icc_only = true
+    AND assigned_to = (SELECT auth.uid())
+    AND (metadata ->> 'routing') IN ('icc_no_committee', 'superior_bypass')
+  );
+
+DROP POLICY IF EXISTS grievance_tickets_update_icc_routed_assignee ON public.grievance_tickets;
+CREATE POLICY grievance_tickets_update_icc_routed_assignee ON public.grievance_tickets
+  FOR UPDATE TO authenticated
+  USING (
+    is_icc_only = true
+    AND assigned_to = (SELECT auth.uid())
+    AND (metadata ->> 'routing') IN ('icc_no_committee', 'superior_bypass')
+  )
+  WITH CHECK (
+    is_icc_only = true
+    AND assigned_to = (SELECT auth.uid())
+    AND (metadata ->> 'routing') IN ('icc_no_committee', 'superior_bypass')
+  );

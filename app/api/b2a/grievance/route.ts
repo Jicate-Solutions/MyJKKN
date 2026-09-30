@@ -5,6 +5,7 @@ import { authenticateApiKey, resolveInstitutionId } from '@/lib/api-keys/authent
 import { checkRateLimit } from '@/lib/api-keys/rate-limiter';
 import { logApiUsage, extractRequestMeta } from '@/lib/api-keys/audit-logger';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { redactAnonymousFilers } from '@/lib/grievance/anonymous-filer';
 
 // Status values match production grievance_tickets_status_check constraint.
 const VALID_STATUSES = [
@@ -174,7 +175,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         { status: 500 }
       );
     } else {
-      items = (data ?? []) as unknown as GrievanceRow[];
+      // An anonymous complaint never names its filer over the API (Director
+      // ruling, 30 Sep 2026). The database stores none since migration
+      // 20270624093700; this blanks them again whatever the row carries.
+      items = redactAnonymousFilers((data ?? []) as unknown as GrievanceRow[]);
       total = count ?? 0;
     }
   } catch {

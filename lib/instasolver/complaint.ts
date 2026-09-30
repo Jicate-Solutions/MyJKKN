@@ -7,9 +7,15 @@
 //       team-member role, and parents. Not one door per persona.
 //   I7  a filing may be made without a name attached, and the person is handed
 //       a private code to follow it with.
-//   I8  a complaint about the filer's OWN head of department or manager is
-//       routed past them, to the profile named by the platform policy key
-//       below, and that head of department is not told.
+//   I8  a complaint about the filer's OWN head of department, principal or
+//       manager is routed past them, to the profile named by the platform
+//       policy key below, and that person is not told. (Principal added by the
+//       Director's ruling of 30 Sep 2026.)
+//
+// Rulings of 30 Sep 2026 also implemented here and in the route: anonymous
+// stores no filer; harassment and ragging are ICC-only; with no active ICC
+// committee they go privately to the same superior-route person; the form
+// shows the type's answer window.
 //
 // It lives outside app/api/instasolver/complaint/route.ts because Next.js
 // type-checks App Router route modules against a fixed export shape — a named
@@ -167,6 +173,12 @@ export interface ComplaintCategory {
    * not make that promise.
    */
   allow_anonymous: boolean;
+  /**
+   * The category's answer window in hours (grievance_categories
+   * .default_sla_hours), shown above Send as "Usually answered within N hours"
+   * and used as the ticket's deadline. Null when the college has not set one.
+   */
+  default_sla_hours?: number | null;
 }
 
 /**
@@ -224,18 +236,28 @@ export async function readComplaintCategories(
 ): Promise<ComplaintCategoriesResult> {
   const withColumn = await client
     .from('grievance_categories')
-    .select('id, name, allow_anonymous')
+    .select('id, name, allow_anonymous, default_sla_hours')
     .eq('institution_id', institutionId)
     .eq('is_active', true)
     .order('sort_order');
 
   if (!withColumn.error) {
-    const rows = (withColumn.data ?? []) as Array<{ id: string; name: string; allow_anonymous: boolean | null }>;
+    const rows = (withColumn.data ?? []) as Array<{
+      id: string;
+      name: string;
+      allow_anonymous: boolean | null;
+      default_sla_hours: number | null;
+    }>;
     if (rows.length === 0) return { ok: false, reason: 'empty' };
     return {
       ok: true,
       anonymousColumnPresent: true,
-      categories: rows.map((c) => ({ id: c.id, name: c.name, allow_anonymous: c.allow_anonymous === true })),
+      categories: rows.map((c) => ({
+        id: c.id,
+        name: c.name,
+        allow_anonymous: c.allow_anonymous === true,
+        default_sla_hours: normaliseSlaHours(c.default_sla_hours),
+      })),
     };
   }
 
@@ -248,7 +270,7 @@ export async function readComplaintCategories(
   // category as not offering anonymous filing.
   const plain = await client
     .from('grievance_categories')
-    .select('id, name')
+    .select('id, name, default_sla_hours')
     .eq('institution_id', institutionId)
     .eq('is_active', true)
     .order('sort_order');
@@ -258,13 +280,87 @@ export async function readComplaintCategories(
     return { ok: false, reason: 'error' };
   }
 
-  const rows = (plain.data ?? []) as Array<{ id: string; name: string }>;
+  const rows = (plain.data ?? []) as Array<{ id: string; name: string; default_sla_hours: number | null }>;
   if (rows.length === 0) return { ok: false, reason: 'empty' };
   return {
     ok: true,
     anonymousColumnPresent: false,
-    categories: rows.map((c) => ({ id: c.id, name: c.name, allow_anonymous: false })),
+    categories: rows.map((c) => ({
+      id: c.id,
+      name: c.name,
+      allow_anonymous: false,
+      default_sla_hours: normaliseSlaHours(c.default_sla_hours),
+    })),
   };
+}
+
+/** A usable whole number of hours, or null. */
+function normaliseSlaHours(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+}
+
+/**
+ * The line shown above Send once a type is chosen (Director ruling 8, 30 Sep
+ * 2026). Null when the type has no answer window, so nothing is promised.
+ */
+export function answerWindowSentence(category: ComplaintCategory | null): string | null {
+  const hours = category?.default_sla_hours ?? null;
+  if (!hours) return null;
+  return `Usually answered within ${hours} ${hours === 1 ? 'hour' : 'hours'}`;
+}
+
+// ============================================================================
+// Harassment and ragging stay with the committee (Director rulings 2 and 3,
+// 30 Sep 2026).
+// ============================================================================
+
+/**
+ * Whether a complaint of this type is ICC-only.
+ *
+ * grievance_categories has no flag for it, so the NAME decides. Every college's
+ * seeded types (20260422_grievance_module_a6a_seeds.sql,
+ * 20261230090100_grievance_categories_schools_offices.sql) are named
+ * 'Sexual Harassment (ICC)' and 'Ragging'; the match also catches a college
+ * that renamed them ('Harassment', 'Anti-ragging', 'ICC complaint').
+ */
+const ICC_CATEGORY_RE = /harass|ragging|\bicc\b/i;
+
+export function isIccOnlyCategory(name: string | null | undefined): boolean {
+  return ICC_CATEGORY_RE.test(name ?? '');
+}
+
+/**
+ * Whether the college has an ACTIVE Internal Complaints Committee
+ * (accreditation_committees.committee_type = 'icc'). Call with the service-role
+ * client — the committee list is not something every filer can read.
+ *
+ * 'unknown' when the read fails: the caller treats that like "no committee"
+ * and sends the complaint privately to the superior-route person, because a
+ * harassment complaint that silently waits for a committee that may not exist
+ * is the outcome ruling 3 is there to prevent.
+ */
+export async function hasActiveIccCommittee(
+  client: MinimalQueryClient,
+  institutionId: string
+): Promise<'yes' | 'no' | 'unknown'> {
+  try {
+    const { data, error } = await client
+      .from('accreditation_committees')
+      .select('id')
+      .eq('institution_id', institutionId)
+      .eq('committee_type', 'icc')
+      .eq('is_active', true)
+      .limit(1);
+    if (error) {
+      console.error('[instasolver/complaint] ICC committee check failed:', error.message);
+      return 'unknown';
+    }
+    return Array.isArray(data) && data.length > 0 ? 'yes' : 'no';
+  } catch (err) {
+    console.error('[instasolver/complaint] ICC committee check threw:', err);
+    return 'unknown';
+  }
 }
 
 /**

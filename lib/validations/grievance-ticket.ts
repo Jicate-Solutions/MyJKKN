@@ -4,14 +4,16 @@
 //   "violates check constraint 'grievance_tickets_description_check'"
 // and no ticket was created.
 //
-// The database rule is CORRECT and is NOT changed anywhere:
-//   grievance_tickets_description_check  CHECK (char_length(description) >= 10)
+// The database rule, as defined by
+// supabase/migrations/20270624093700_grievance_complaint_privacy.sql
+// (Director ruling, 30 Sep 2026 — it was 10 characters and lived in no migration):
+//   grievance_tickets_description_check  CHECK (char_length(btrim(description)) >= 3)
 // This module mirrors that one rule for inline form validation, and maps a
 // check-constraint refusal coming back from the database into plain wording so
 // the raw constraint text can never reach a person.
 
 /** Mirrors grievance_tickets_description_check in the database. */
-export const GRIEVANCE_DESCRIPTION_MIN_LENGTH = 10;
+export const GRIEVANCE_DESCRIPTION_MIN_LENGTH = 3;
 
 /** Fields on the report-an-issue form that mirror a database CHECK rule. */
 export type GrievanceField = 'description';
@@ -50,7 +52,8 @@ function characterCount(value: string): number {
  * to the field, or null when the value satisfies the database rule.
  */
 export function validateGrievanceDescription(value: string): string | null {
-  return characterCount(value) < GRIEVANCE_DESCRIPTION_MIN_LENGTH ? DESCRIPTION_TOO_SHORT : null;
+  // Trimmed, because the database counts btrim(description).
+  return characterCount(value.trim()) < GRIEVANCE_DESCRIPTION_MIN_LENGTH ? DESCRIPTION_TOO_SHORT : null;
 }
 
 /** Known check constraints on grievance_tickets, with wording a person can act on. */
@@ -74,9 +77,8 @@ interface DatabaseErrorLike {
  * wording still gets a plain message — the raw constraint text is never
  * returned.
  *
- * `submitted` guards against drift. The constraint is not defined by any
- * migration in this repo, so if the database rule ever moves away from the
- * value mirrored here, repeating "at least 10 characters" to someone who
+ * `submitted` guards against drift. If the database rule ever moves away from
+ * the value mirrored here, repeating "at least 3 characters" to someone who
  * already wrote more than that would be a dead end. In that case the general
  * wording is used instead.
  */

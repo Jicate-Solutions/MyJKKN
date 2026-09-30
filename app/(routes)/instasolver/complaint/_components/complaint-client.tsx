@@ -14,7 +14,8 @@
  *       unmounted instead, which left a tick the person had made sitting in
  *       state and silently ignored at submit time: they believed they had filed
  *       without a name and they had not. The retraction is now explicit.
- *   I8  "This is about my HOD or manager" — sends it past them.
+ *   I8  "This is about my HOD, principal or manager" — sends it past them
+ *       (principal added by the Director's ruling, 30 Sep 2026).
  *
  * The description rule is mirrored from the database through
  * validateGrievanceDescription, the same function the board uses (BUG-01), so
@@ -22,7 +23,7 @@
  */
 
 import { useMemo, useState } from 'react';
-import { AlertCircle, CheckCircle2, Copy, Loader2, ShieldCheck } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock, Copy, Loader2, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -41,6 +42,7 @@ import { useToast } from '@/hooks/use-toast';
 import { validateGrievanceDescription } from '@/lib/validations/grievance-ticket';
 import {
   SUBJECT_MAX_LENGTH,
+  answerWindowSentence,
   resolveAnonymousChoice,
   validateSubject,
   type ComplaintCategory,
@@ -108,6 +110,7 @@ export function ComplaintClient({
     setAnonymousRetracted(choice.retracted);
   }
 
+  const answerWindow = answerWindowSentence(chosen);
   const subjectError = validateSubject(subject);
   const descriptionError = validateGrievanceDescription(description);
 
@@ -365,13 +368,20 @@ export function ComplaintClient({
           />
           <div className="space-y-1">
             <Label htmlFor="complaint-superior" className="font-medium">
-              This is about my HOD or manager
+              This is about my HOD, principal or manager
             </Label>
             <p className="text-sm text-muted-foreground">
               It skips them and goes straight to senior management.
             </p>
           </div>
         </div>
+
+        {answerWindow ? (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Clock className="h-4 w-4 shrink-0" />
+            {answerWindow}
+          </p>
+        ) : null}
 
         <div className="flex items-center gap-3">
           <Button

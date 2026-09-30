@@ -4,7 +4,11 @@
 //
 // Decisions (Director, 2026-09-14): I1 anyone signed in may file · I7 filing
 // without a name is allowed and returns a private code · I8 a complaint about
-// the filer's own head of department or manager goes past them.
+// the filer's own head of department, principal or manager goes past them.
+// Rulings of 30 Sep 2026: an anonymous complaint stores no filer at all
+// (LCIssueService + a database trigger) · harassment and ragging are ICC-only ·
+// with no active ICC committee they go privately to the superior-route person ·
+// the ticket's deadline is the type's own answer window.
 // The rules themselves live in lib/instasolver/complaint.ts; this file is the
 // door: authenticate, validate, write once, answer explicitly.
 //
@@ -47,6 +51,8 @@ import { validateGrievanceDescription } from '@/lib/validations/grievance-ticket
 import {
   INSTASOLVER_SOURCE,
   confirmProfileExists,
+  hasActiveIccCommittee,
+  isIccOnlyCategory,
   mapRoleToRaisedByType,
   mintAnonymousToken,
   readComplaintCategories,
@@ -176,15 +182,33 @@ export async function POST(request: NextRequest) {
     anonymousToken = mintAnonymousToken();
   }
 
-  // ── I8: a complaint about the filer's own head of department or manager ───
+  // ── Rulings 2 + 3 (30 Sep 2026): harassment and ragging stay with the ICC ─
+  // ICC-only means that college's committee reads it and nobody else (the
+  // grievance_tickets RLS). With NO active ICC committee at the college, it
+  // goes privately to the superior-route person instead — same profile, same
+  // fail-closed rules as I8 below.
+  const iccOnly = isIccOnlyCategory(category.name);
+  const extraMetadata: Record<string, unknown> = {};
+  let iccNeedsSuperior = false;
+  if (iccOnly) {
+    const committee = await hasActiveIccCommittee(admin, institutionId);
+    if (committee !== 'yes') {
+      iccNeedsSuperior = true;
+      extraMetadata.icc_no_committee = true;
+      if (committee === 'unknown') extraMetadata.icc_committee_check_failed = true;
+    }
+  }
+
+  // ── I8: a complaint about the filer's own HOD, principal or manager ──────
   let assignedTo: string | null = null;
   let notice: string | null = null;
-  const extraMetadata: Record<string, unknown> = {};
 
-  if (aboutSuperior) {
+  if (aboutSuperior || iccNeedsSuperior) {
     // Read by the database (fn_grievance_sensitive_reason): routing on create
-    // and SLA escalation never send this ticket to a HOD or Principal.
-    extraMetadata.about_superior = true;
+    // and SLA escalation never send this ticket to a HOD or Principal. An
+    // ICC-only ticket is sensitive in its own right, so the about_superior flag
+    // is only stamped when the filer said so.
+    if (aboutSuperior) extraMetadata.about_superior = true;
     const routeTo = await resolveSuperiorRouteProfileId(supabase);
 
     // A UUID-shaped policy value is not proof the profile still exists, and
@@ -198,7 +222,10 @@ export async function POST(request: NextRequest) {
 
     if (routeTo && routeToExists) {
       assignedTo = routeTo;
-      extraMetadata.routing = 'superior_bypass';
+      // 'icc_no_committee' / 'superior_bypass' is also what lets this assignee
+      // open an ICC-only ticket (policy grievance_tickets_*_icc_routed_assignee,
+      // migration 20270624093700). The filer's own tick wins the label.
+      extraMetadata.routing = aboutSuperior ? 'superior_bypass' : 'icc_no_committee';
     } else {
       if (routeTo && !routeToExists) {
         console.error(
@@ -233,6 +260,9 @@ export async function POST(request: NextRequest) {
         anonymousToken,
         assignedTo,
         extraMetadata,
+        isIccOnly: iccOnly,
+        // Ruling 8: the window the form promised is the ticket's real deadline.
+        ...(category.default_sla_hours ? { slaHours: category.default_sla_hours } : {}),
       }
     );
   } catch (err) {

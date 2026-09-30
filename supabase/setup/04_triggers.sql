@@ -2835,3 +2835,12 @@ CREATE TRIGGER trg_grievance_notify_on_create
         AND (NEW.metadata -> 'auto_route' ->> 'assigned_to') = NEW.assigned_to::text)
   EXECUTE FUNCTION public.fn_grievance_notify_on_create();
 
+
+-- =====================================================================
+-- Updated: 2026-10-01 - Grievance complaint privacy (triggers)
+-- Source of truth for apply: supabase/migrations/20270624093700_grievance_complaint_privacy.sql
+-- =====================================================================
+DROP TRIGGER IF EXISTS trg_grievance_zz_scrub_anonymous_filer ON public.grievance_tickets;
+CREATE TRIGGER trg_grievance_zz_scrub_anonymous_filer
+  BEFORE INSERT OR UPDATE ON public.grievance_tickets
+  FOR EACH ROW EXECUTE FUNCTION public.fn_grievance_scrub_anonymous_filer();

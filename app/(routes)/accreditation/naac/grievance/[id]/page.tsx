@@ -26,6 +26,7 @@ import { Label } from '@/components/ui/label';
 import { AlertTriangle, CheckCircle2, MessageSquarePlus, ShieldAlert } from 'lucide-react';
 import { GrievanceService } from '@/lib/services/grievance/grievance-service';
 import { useAuth } from '@/hooks/use-auth';
+import { AnonymousFilerPanel } from './_components/anonymous-filer-panel';
 
 export default function GrievanceDetailPage({
   params,
@@ -197,6 +198,16 @@ export default function GrievanceDetailPage({
               </CardContent>
             </Card>
           )}
+
+          <AnonymousFilerPanel
+            ticketId={t.id}
+            isAnonymous={t.is_anonymous}
+            status={t.status}
+            withdrawn={Boolean(t.withdrawn_at)}
+            rating={t.satisfaction_rating}
+            feedback={t.satisfaction_feedback}
+            profileId={profile?.id ?? null}
+          />
 
           <Card className="mt-4">
             <CardHeader><CardTitle className="text-base">Timeline</CardTitle></CardHeader>

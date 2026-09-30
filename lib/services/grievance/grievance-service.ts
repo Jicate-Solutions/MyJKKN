@@ -14,6 +14,7 @@
 // ============================================================================
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { redactAnonymousFiler, redactAnonymousFilers } from '@/lib/grievance/anonymous-filer';
 import type {
   GrievanceTicket,
   GrievanceTicketDetail,
@@ -24,6 +25,17 @@ import type {
   GrievanceDashboardStats,
   CreateGrievanceInput,
 } from '@/lib/types/grievance';
+
+/** A row of grievance_anonymous_messages (migration 20270624093700). */
+export interface GrievanceAnonymousMessage {
+  id: string;
+  ticket_id: string;
+  direction: 'question' | 'answer';
+  body: string;
+  /** The handler who asked. Always null on an answer. */
+  author_id: string | null;
+  created_at: string;
+}
 
 export class GrievanceService {
   private static supabase = createClientSupabaseClient();
@@ -63,7 +75,9 @@ export class GrievanceService {
     const { data, error, count } = await query;
     if (error) throw error;
 
-    return { items: (data ?? []) as GrievanceTicket[], total: count ?? 0 };
+    // An anonymous complaint never names its filer to a handler (Director
+    // ruling, 30 Sep 2026) — see lib/grievance/anonymous-filer.ts.
+    return { items: redactAnonymousFilers((data ?? []) as GrievanceTicket[]), total: count ?? 0 };
   }
 
   static async getTicket(id: string): Promise<GrievanceTicketDetail> {
@@ -74,7 +88,9 @@ export class GrievanceService {
       .single();
 
     if (error) throw error;
-    return data as GrievanceTicketDetail;
+    // The handler detail screen loads every column; an anonymous row leaves
+    // here with raised_by_id / name / email / phone blanked.
+    return redactAnonymousFiler(data as GrievanceTicketDetail);
   }
 
   static async getCategories(institutionId: string): Promise<GrievanceCategory[]> {
@@ -189,6 +205,44 @@ export class GrievanceService {
 
     if (error) throw error;
     return data as GrievanceComment;
+  }
+
+  /**
+   * Questions to the anonymous filer of a ticket and her nameless answers
+   * (Director ruling 5, 30 Sep 2026). RLS: whoever can read the ticket. An
+   * answer never carries an author.
+   */
+  static async listAnonymousMessages(ticketId: string): Promise<GrievanceAnonymousMessage[]> {
+    const { data, error } = await (this.supabase as any)
+      .from('grievance_anonymous_messages')
+      .select('id, ticket_id, direction, body, author_id, created_at')
+      .eq('ticket_id', ticketId)
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+    return (data ?? []) as GrievanceAnonymousMessage[];
+  }
+
+  /**
+   * Ask the anonymous filer a question. She sees it on her tracking page and
+   * answers there. RLS admits only a question, only as the signed-in person,
+   * only on an anonymous ticket she can read that is not closed.
+   */
+  static async askAnonymousFiler(input: {
+    ticket_id: string;
+    body: string;
+    author_id: string;
+  }): Promise<void> {
+    const { error } = await (this.supabase as any)
+      .from('grievance_anonymous_messages')
+      .insert({
+        ticket_id: input.ticket_id,
+        direction: 'question',
+        body: input.body.trim(),
+        author_id: input.author_id,
+      });
+
+    if (error) throw error;
   }
 
   /**

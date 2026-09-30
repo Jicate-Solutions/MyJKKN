@@ -5,6 +5,7 @@
 import { createClientSupabaseClient, type TypedSupabaseClient } from '@/lib/supabase/client';
 import { LCNotificationService } from './notification-service';
 import { describeCheckConstraintViolation } from '@/lib/validations/grievance-ticket';
+import { redactAnonymousFiler } from '@/lib/grievance/anonymous-filer';
 import type { TablesInsert } from '@/types/supabase';
 import type {
   GrievanceTicket,
@@ -48,6 +49,17 @@ export interface CreateLCIssueOptions {
   assignedTo?: string | null;
   /** Merged into `metadata` alongside `source`. */
   extraMetadata?: Record<string, unknown>;
+  /**
+   * Marks the ticket ICC-only (read by that college's committee and nobody
+   * else). The InstaSolver route sets it for harassment and ragging complaints.
+   */
+  isIccOnly?: boolean;
+  /**
+   * The answer window in hours. Defaults to the board's flat 72. The
+   * InstaSolver route passes the category's default_sla_hours so the
+   * "Usually answered within N hours" it shows is the ticket's real deadline.
+   */
+  slaHours?: number;
 }
 
 /** Kanban board data structure */
@@ -255,7 +267,8 @@ export class LCIssueService {
       throw new Error(`Failed to fetch issue: ${error.message}`);
     }
 
-    return data as GrievanceTicket;
+    // An anonymous complaint never names its filer (Director ruling, 30 Sep 2026).
+    return redactAnonymousFiler(data as GrievanceTicket);
   }
 
   // ============================================================================
@@ -277,6 +290,10 @@ export class LCIssueService {
     options: CreateLCIssueOptions = {}
   ): Promise<GrievanceTicket> {
     const db = options.client ?? this.supabase;
+    const slaHours =
+      typeof options.slaHours === 'number' && Number.isFinite(options.slaHours) && options.slaHours > 0
+        ? Math.round(options.slaHours)
+        : 72;
 
     // Look up category ID - try by name first, then check if it's already a UUID
     let categoryId = data.category;
@@ -324,18 +341,21 @@ export class LCIssueService {
         : profile?.role === 'parent' ? 'parent'
         : profile?.role === 'alumni' ? 'alumni'
         : 'learner') as 'learner' | 'parent' | 'staff' | 'alumni'),
-      raised_by_id: userId,
-      // An anonymous filing keeps raised_by_id — it is the filer's own read key
-      // under the ICC select policy and is never rendered to anybody else —
-      // but carries none of the three identifying columns.
+      // An anonymous filing stores NO filer at all (Director ruling, 30 Sep
+      // 2026): not the id, not the name, not the email, not the phone. The
+      // filer follows it with the private tracking code only. The database
+      // enforces the same (trg_grievance_zz_scrub_anonymous_filer, migration
+      // 20270624093700) for every writer; this keeps the insert honest.
+      raised_by_id: options.isAnonymous ? null : userId,
       raised_by_name: options.isAnonymous ? null : (profile?.full_name || 'Unknown'),
       raised_by_email: options.isAnonymous ? null : (profile?.email || null),
       ...(options.isAnonymous
         ? { is_anonymous: true, raised_by_phone: null, anonymous_token: options.anonymousToken ?? null }
         : {}),
       ...(options.assignedTo ? { assigned_to: options.assignedTo, assigned_at: new Date().toISOString() } : {}),
-      sla_hours: 72, // Default 72h SLA for LC issues
-      sla_deadline: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(),
+      ...(options.isIccOnly ? { is_icc_only: true } : {}),
+      sla_hours: slaHours, // Default 72h SLA for LC issues
+      sla_deadline: new Date(Date.now() + slaHours * 60 * 60 * 1000).toISOString(),
       sla_status: 'on_track',
       attachments: [],
       metadata: { source: options.source ?? 'learners_council', ...(options.extraMetadata ?? {}) }
