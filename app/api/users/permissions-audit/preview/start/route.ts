@@ -15,6 +15,7 @@ import {
   canUseWriteMode,
   type PreviewMode,
 } from '@/lib/auth/preview-session';
+import { isOnTheDirectorList } from '@/lib/auth/the-director-list';
 
 // ============================================================================
 // POST /api/users/permissions-audit/preview/start
@@ -28,6 +29,8 @@ import {
 //   1. Validate caller is signed in + super admin
 //   2. Validate target exists + no nested preview
 //   3. If mode=write, caller email must match DIRECTOR_EMAIL
+//   3b. Refuse any target on the Director list (a real session as the
+//       Director could change who counts as the Director — #4121 review)
 //   4. Back up the caller's sb-*-auth-token.* cookies → PREVIEW_ADMIN_BACKUP
 //   5. Generate a magic-link session for the target via service-role
 //   6. Exchange the hashed_token for a real access_token + refresh_token
@@ -163,16 +166,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Step 7 — mint a real Supabase session for the target using service-role
-    // admin.generateLink. This does NOT send an email (admin.* functions skip
-    // the email delivery step); it just produces a hashed_token that we
-    // immediately exchange for a session.
     const serviceClient = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
       { auth: { autoRefreshToken: false, persistSession: false } },
     );
 
+    // Step 6b — never preview as someone on the Director list. The preview is
+    // a REAL session: the database sees the target as signed in, so a super
+    // admin previewing the Director could add themselves to the list (the
+    // database guard trusts the session). Checked before any session exists.
+    // If the list cannot be read, refuse: "could not tell" is not "no".
+    const targetIsListed = await isOnTheDirectorList(serviceClient, target.id);
+    if (targetIsListed !== false) {
+      return NextResponse.json(
+        {
+          error:
+            targetIsListed === null
+              ? 'Could not check the Director list, so this preview is refused. Try again later.'
+              : 'This person is on the Director list. Nobody can preview as them.',
+        },
+        { status: targetIsListed === null ? 503 : 403 },
+      );
+    }
+
+    // Step 7 — mint a real Supabase session for the target using service-role
+    // admin.generateLink. This does NOT send an email (admin.* functions skip
+    // the email delivery step); it just produces a hashed_token that we
+    // immediately exchange for a session.
     const { data: linkData, error: linkError } = await serviceClient.auth.admin.generateLink({
       type: 'magiclink',
       email: target.email,
