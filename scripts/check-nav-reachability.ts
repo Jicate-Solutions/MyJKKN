@@ -66,6 +66,10 @@ const NAV_EXCLUDE = new Set<string>([
   // (see its `searchParams: { task?: string }`) and shows a "no ticket" state
   // with no task id, so it has no standalone chip surface to be reached from.
   '/campus-walk/fix',
+  // Campus Walk routine check screen. Reached from the bell a routine check
+  // job raises, as `/campus-walk/check?task=<id>` — one specific job, same
+  // shape as the fixer screen above, so no standalone chip surface.
+  '/campus-walk/check',
   // Top-bar avatar / bell targets
   '/profile',
   '/notifications',

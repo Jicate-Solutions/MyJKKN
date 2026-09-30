@@ -161,9 +161,14 @@ export function isCampusWalkTask(row: WalkTaskRow): boolean {
  * Director's walk with ground he never covered, which is the one number this
  * board exists to state honestly. So the coverage board — and ONLY the
  * coverage board — filters these out.
+ *
+ * Routine checks (front_door 'routine_check', 30 Sep 2026) are created by the
+ * daily routine-checks job from maintenance schedules — nobody walked to those
+ * either, so they are left out of coverage for the same reason.
  */
 export function isWalkedObservation(row: WalkTaskRow): boolean {
-  return isCampusWalkTask(row) && (row.metadata ?? {}).front_door !== 'instasolver';
+  const door = (row.metadata ?? {}).front_door;
+  return isCampusWalkTask(row) && door !== 'instasolver' && door !== 'routine_check';
 }
 
 /** D13. `metadata.kind`, defaulting to the overwhelmingly common case. */

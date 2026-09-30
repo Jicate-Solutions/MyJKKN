@@ -5,3 +5,4 @@ export * from './approval-config-tab';
 export * from './custom-attributes-tab';
 export * from './images-tab';
 export * from './usage-stats-tab';
+export * from './maintenance-history-tab';
