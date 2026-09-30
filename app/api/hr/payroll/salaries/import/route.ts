@@ -27,19 +27,24 @@ export const dynamic = 'force-dynamic';
 // enforces hr.payroll.salary.manage per row — a caller who somehow reached this
 // route without the permission writes nothing.
 //
-// PAST START DATES (Director's ruling, 2026-09-29): "the DATABASE must refuse
-// any salary change starting in the past, except the super admin's Excel import
-// of old history." This route is that one exception, and only for a super
-// admin: it passes p_allow_past = true to fn_hr_set_staff_salary when, and only
-// when, is_super_admin() says the caller is one. For everybody else the flag is
-// false and the database refuses each past-dated row on its own; the refusal
-// lands in `failures` against that row's employee code while the other rows
-// still import. See 20270521090000_hr_salary_no_backdating.sql.
+// PAST START DATES. Director's rulings: "the DATABASE must refuse any salary
+// change starting in the past" (2026-09-29), and on 2026-09-30: "The past-date
+// exception may be used ONLY by names on the Director list, nobody else from
+// any screen or tool." Old rows are filed as history and never change today's
+// pay (the database does that part).
+// So this route asks for the exception (p_allow_past = true) only for a row
+// whose start is before today in India AND only when fn_is_the_director() says
+// the caller is on the Director list. For anybody else a past-dated row is
+// refused on its own, by name, and the other rows still import. The dry run
+// reports the same refusals (past_date_refusals), so the preview never promises
+// a row the real run will refuse. The database re-checks all of it.
+// See 20270521090000_hr_salary_no_backdating.sql.
 // ============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
 
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { isBeforeTodayIST, todayIST } from '@/lib/hr/payroll/salary-start-date';
 import { parseSalarySheet } from '@/lib/hr/payroll/parse-salary-sheet';
 import {
   validateSalaryUpload,
@@ -56,14 +61,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized', message: 'Sign in to continue.' }, { status: 401 });
     }
 
-    const [{ data: isAdmin }, { data: canManage }, { data: isSuperAdmin }] = await Promise.all([
+    const [{ data: isAdmin }, { data: canManage }, { data: isDirector }] = await Promise.all([
       session.rpc('is_admin'),
       session.rpc('user_has_permission', { permission_name: 'hr.payroll.salary.manage' }),
-      session.rpc('is_super_admin'),
+      session.rpc('fn_is_the_director'),
     ]);
-    // Only a strict `true` opens the past-date door. An error or a null answer
-    // leaves it shut, and the database re-checks is_super_admin() regardless.
-    const allowPast = isSuperAdmin === true;
+    // Only a strict `true` opens the past-date door. An error (for example the
+    // function not existing yet) or a null answer leaves it shut, and the
+    // database re-checks fn_is_the_director() regardless.
+    const allowPast = isDirector === true;
     if (isAdmin !== true && canManage !== true) {
       return NextResponse.json(
         { error: 'Forbidden', message: 'You need Manage Employee Salary to import salaries.' },
@@ -177,11 +183,32 @@ export async function POST(request: NextRequest) {
       currentByStaffId.set(c.staff_id, Number(c.monthly_gross));
     }
 
+    const byRowNumber = new Map(parsed.rows.map((r) => [r.row_number, r]));
+
     const validation = validateSalaryUpload({
       rows: parsed.rows,
       staff,
       currentByStaffId,
     });
+
+    // Rows that start before today, when the caller is not on the Director
+    // list. Worked out here, once, for the preview AND the real run.
+    const today = todayIST();
+    const pastDateRefusals: Array<{ employee_code: string; effective_from: string; message: string }> = [];
+    if (!allowPast) {
+      for (const row of validation.rows) {
+        if (!row.importable || !row.staff_uuid || !row.hr_organization_id) continue;
+        const date = byRowNumber.get(row.row_number)?.effective_from ?? effectiveFrom;
+        if (isBeforeTodayIST(date)) {
+          pastDateRefusals.push({
+            employee_code: row.employee_code,
+            effective_from: date,
+            message: `Starts ${date}, before today (${today}). Only the Director may import old salary history.`,
+          });
+        }
+      }
+    }
+    const refusedCodes = new Set(pastDateRefusals.map((r) => r.employee_code));
 
     const base = {
       success: true,
@@ -192,11 +219,19 @@ export async function POST(request: NextRequest) {
       validation,
       written: 0,
       failures: [] as Array<{ employee_code: string; message: string }>,
+      past_date_refusals: pastDateRefusals,
     };
 
     if (dryRun) {
+      const ready = validation.counts.importable - pastDateRefusals.length;
       return NextResponse.json(
-        { ...base, message: `${validation.counts.importable} of ${validation.counts.total} row(s) ready to import.` },
+        {
+          ...base,
+          message:
+            pastDateRefusals.length === 0
+              ? `${ready} of ${validation.counts.total} row(s) ready to import.`
+              : `${ready} of ${validation.counts.total} row(s) ready to import. ${pastDateRefusals.length} will be refused: they start before today.`,
+        },
         { status: 200 },
       );
     }
@@ -219,20 +254,23 @@ export async function POST(request: NextRequest) {
     // per-staff by nature — it supersedes the incumbent and inserts under a
     // per-staff advisory lock — and a per-row failure names the employee
     // instead of losing the whole batch.
-    const byRow = new Map(parsed.rows.map((r) => [r.row_number, r]));
     let written = 0;
-    const failures: Array<{ employee_code: string; message: string }> = [];
+    const failures: Array<{ employee_code: string; message: string }> =
+      pastDateRefusals.map(({ employee_code, message }) => ({ employee_code, message }));
 
     for (const row of validation.rows) {
       if (!row.importable || !row.staff_uuid || !row.hr_organization_id) continue;
-      const src = byRow.get(row.row_number);
+      // Refused before any write, exactly as the preview said.
+      if (refusedCodes.has(row.employee_code)) continue;
+      const src = byRowNumber.get(row.row_number);
       if (!src) continue;
+      const rowDate = src.effective_from ?? effectiveFrom;
 
       const { error } = await session.rpc('fn_hr_set_staff_salary', {
         p_staff_id: row.staff_uuid,
         p_hr_organization_id: row.hr_organization_id,
         p_monthly_gross: row.monthly_gross,
-        p_effective_from: src.effective_from ?? effectiveFrom,
+        p_effective_from: rowDate,
         p_salary_structure: src.salary_structure ?? 'Monthly',
         p_overtime_level: src.overtime_level ?? 'No overtime',
         p_overtime_amount: src.overtime_amount ?? 0,
@@ -251,9 +289,9 @@ export async function POST(request: NextRequest) {
         p_esi_amount: src.esi_amount ?? 0,
         p_allowance_amount: src.allowance_amount ?? 0,
         p_allowance_label: src.allowance_label,
-        // The super admin's import of old history is the only caller allowed a
-        // past start. Everyone else gets false and the database decides per row.
-        p_allow_past: allowPast,
+        // Asked for only where it is needed: a Director's row that starts
+        // before today. A current or future row goes in the normal way.
+        p_allow_past: allowPast && isBeforeTodayIST(rowDate),
       });
 
       if (error) {

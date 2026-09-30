@@ -190,6 +190,11 @@ export interface SalaryImportResponse {
   validation: SalaryUploadValidation;
   written: number;
   failures: Array<{ employee_code: string; message: string }>;
+  /**
+   * Rows that start before today, for a caller who is not on the Director
+   * list (2026-09-30). The preview lists them; the real run refuses them by name.
+   */
+  past_date_refusals?: Array<{ employee_code: string; effective_from: string; message: string }>;
   message?: string;
   error?: string;
 }

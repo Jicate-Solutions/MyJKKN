@@ -199,7 +199,15 @@ export function SalaryImportDialog({ open, onOpenChange, onImportComplete }: Pro
   const counts = report?.validation.counts;
   const needsAck = report?.validation.requires_acknowledgement ?? false;
   const canImport = report?.validation.can_import ?? false;
-  const canSubmit = canImport && (!needsAck || acknowledged);
+  // Rows that start before today, for someone not on the Director list
+  // (2026-09-30). The server refuses them by name; the preview says so first.
+  const pastRefusals = useMemo(() => report?.past_date_refusals ?? [], [report]);
+  const refusedCodes = useMemo(
+    () => new Set(pastRefusals.map((r) => r.employee_code)),
+    [pastRefusals]
+  );
+  const willWrite = Math.max(0, (counts?.importable ?? 0) - pastRefusals.length);
+  const canSubmit = canImport && willWrite > 0 && (!needsAck || acknowledged);
 
   const changedLabel = useMemo(() => {
     if (!counts) return '';
@@ -210,9 +218,9 @@ export function SalaryImportDialog({ open, onOpenChange, onImportComplete }: Pro
   const totalMonthly = useMemo(() => {
     if (!report) return 0;
     return report.validation.rows
-      .filter((r) => r.importable)
+      .filter((r) => r.importable && !refusedCodes.has(r.employee_code))
       .reduce((sum, r) => sum + (r.monthly_gross ?? 0), 0);
-  }, [report]);
+  }, [report, refusedCodes]);
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -289,7 +297,7 @@ export function SalaryImportDialog({ open, onOpenChange, onImportComplete }: Pro
               <div className="rounded-lg border p-3">
                 <p className="text-xs text-muted-foreground">Will import</p>
                 <p className="text-2xl font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
-                  {counts.importable}
+                  {willWrite}
                 </p>
               </div>
               <div className="rounded-lg border p-3">
@@ -309,6 +317,28 @@ export function SalaryImportDialog({ open, onOpenChange, onImportComplete }: Pro
                 <AlertDescription>
                   <ul className="space-y-0.5 text-xs">
                     {report.parser_warnings.map((w) => <li key={w}>{w}</li>)}
+                  </ul>
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {pastRefusals.length > 0 && (
+              <Alert variant="destructive" data-testid="past-date-refusals">
+                <XCircle className="h-4 w-4" />
+                <AlertDescription>
+                  <p className="mb-1 font-medium">
+                    {pastRefusals.length} row(s) will be refused: they start before today.
+                    Only the Director may import old salary history.
+                  </p>
+                  <ul className="space-y-0.5 text-xs">
+                    {pastRefusals.slice(0, 12).map((r) => (
+                      <li key={r.employee_code}>
+                        <span className="font-mono">{r.employee_code}</span> — starts {r.effective_from}
+                      </li>
+                    ))}
+                    {pastRefusals.length > 12 && (
+                      <li className="italic">…and {pastRefusals.length - 12} more</li>
+                    )}
                   </ul>
                 </AlertDescription>
               </Alert>
@@ -334,8 +364,8 @@ export function SalaryImportDialog({ open, onOpenChange, onImportComplete }: Pro
                     className="mt-0.5"
                   />
                   <span>
-                    I understand that {counts.total - counts.importable} of {counts.total} row(s)
-                    will be skipped and only {counts.importable} salaries will be written.
+                    I understand that {counts.total - willWrite} of {counts.total} row(s)
+                    will be skipped and only {willWrite} salaries will be written.
                   </span>
                 </label>
               </>
@@ -366,6 +396,9 @@ export function SalaryImportDialog({ open, onOpenChange, onImportComplete }: Pro
                         <span className="font-mono">{f.employee_code}</span> — {f.message}
                       </li>
                     ))}
+                    {report.failures.length > 12 && (
+                      <li className="italic">…and {report.failures.length - 12} more</li>
+                    )}
                   </ul>
                 </AlertDescription>
               </Alert>
@@ -408,7 +441,7 @@ export function SalaryImportDialog({ open, onOpenChange, onImportComplete }: Pro
                 Back
               </Button>
               <Button onClick={handleCommit} disabled={!canSubmit}>
-                Import {counts?.importable ?? 0} salaries
+                Import {willWrite} salaries
               </Button>
             </>
           )}

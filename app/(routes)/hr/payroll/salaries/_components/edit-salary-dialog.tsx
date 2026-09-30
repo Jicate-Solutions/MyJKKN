@@ -12,10 +12,13 @@
  * points at the screen that fixes it — a 22023 from the database would say the
  * same thing far less usefully.
  *
- * The effective date defaults to the FIRST OF THE CURRENT MONTH, not today.
- * Salaries are monthly and a payslip run keys off the figure in force for the
- * period; dating a correction mid-month invites two salaries inside one payroll
- * period for no reason the user intended.
+ * The effective date defaults to the 1ST OF NEXT MONTH (India time), and
+ * nothing before today can be picked (2026-09-30). The database refuses a
+ * salary change that starts in the past, and the Director's ruling is that a
+ * raise entered late starts from the 1st of next month; the missed month is not
+ * paid back through the system. Today itself is allowed. The old default (the
+ * 1st of THIS month, or the row's own start) was in the past on every day but
+ * the 1st, so a default save would have been refused.
  */
 
 import { useCallback, useMemo, useState } from 'react';
@@ -47,6 +50,7 @@ import { getErrorMessage } from '@/lib/utils';
 import { useSetStaffSalary } from '@/hooks/hr/use-staff-salaries';
 import { useTdsSlabs } from '@/hooks/hr/use-tds-slabs';
 import { describeSlab, resolveTds } from '@/lib/hr/payroll/tds-slabs';
+import { firstOfNextMonthIST, todayIST } from '@/lib/hr/payroll/salary-start-date';
 import type { StaffSalaryDirectoryRow } from '@/lib/services/hr/payroll/staff-salary-service';
 
 const INR = new Intl.NumberFormat('en-IN', {
@@ -93,17 +97,6 @@ const CONTRIBUTIONS = [
 ] as const;
 
 type ContributionKey = (typeof CONTRIBUTIONS)[number]['key'];
-
-/** First of the current month, in IST, as yyyy-MM-dd. */
-function firstOfThisMonthIST(): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Kolkata',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
-  return `${parts.slice(0, 7)}-01`;
-}
 
 interface Props {
   row: StaffSalaryDirectoryRow | null;
@@ -159,7 +152,7 @@ export function EditSalaryDialog({ row, onOpenChange }: Props) {
   } else if (row && seededFor !== row.staff_uuid) {
     setSeededFor(row.staff_uuid);
     setMonthly(row.monthly_gross === null ? '' : String(row.monthly_gross));
-    setEffectiveFrom(row.effective_from ?? firstOfThisMonthIST());
+    setEffectiveFrom(firstOfNextMonthIST());
     setStructure(row.salary_structure ?? 'Monthly');
     setOvertimeLevel(row.overtime_level ?? 'No overtime');
     setOvertimeAmount(String(row.overtime_amount ?? 0));
@@ -185,7 +178,8 @@ export function EditSalaryDialog({ row, onOpenChange }: Props) {
   const amount = Number(monthly.replace(/[,\s₹]/g, ''));
   const amountValid = Number.isFinite(amount) && amount > 0;
   const hasPayer = Boolean(row?.payer_org_id);
-  const dateValid = /^\d{4}-\d{2}-\d{2}$/.test(effectiveFrom);
+  const minDate = todayIST();
+  const dateValid = /^\d{4}-\d{2}-\d{2}$/.test(effectiveFrom) && effectiveFrom >= minDate;
 
   /**
    * A contribution counts only while its flag is on, so unticking a box
@@ -232,7 +226,7 @@ export function EditSalaryDialog({ row, onOpenChange }: Props) {
     !setSalary.isPending;
 
   /**
-   * COMPARES THE WHOLE PAYLOAD, not just the gross and the date.
+   * COMPARES THE WHOLE PAYLOAD, not just the gross.
    *
    * The RPC returns the incumbent untouched when nothing differs, and this hint
    * says so. While it tested only two fields it lied about every other kind of
@@ -243,7 +237,9 @@ export function EditSalaryDialog({ row, onOpenChange }: Props) {
     () =>
       row !== null &&
       row.monthly_gross === amount &&
-      row.effective_from === effectiveFrom &&
+      // The start date is left out (2026-09-30): it now defaults to next
+      // month, so it always differs from the row in force. Saving the same
+      // figures again would only add a duplicate row from next month.
       row.salary_structure === structure &&
       row.overtime_level === overtimeLevel &&
       (row.overtime_amount ?? 0) === (Number(overtimeAmount) || 0) &&
@@ -262,10 +258,13 @@ export function EditSalaryDialog({ row, onOpenChange }: Props) {
         (allowanceAmount > 0 ? allowanceLabel.trim() : '') &&
       (row.notes ?? '') === notes.trim(),
     [
-      allowanceAmount, allowanceLabel, amount, effectiveFrom, epfAmount,
+      allowanceAmount, allowanceLabel, amount, epfAmount,
       esiAmount, flags, notes, overtimeAmount, overtimeLevel, row, structure,
     ]
   );
+
+  // Same figures as the row in force: nothing to record.
+  const canSubmit = canSave && !(unchanged && Boolean(row?.salary_id));
 
   const handleSave = useCallback(async () => {
     if (!row || !row.payer_org_id) return;
@@ -358,12 +357,21 @@ export function EditSalaryDialog({ row, onOpenChange }: Props) {
               <Input
                 id='salary-effective'
                 type='date'
+                min={minDate}
                 value={effectiveFrom}
                 disabled={!hasPayer}
                 onChange={(e) => setEffectiveFrom(e.target.value)}
               />
-              <p className='text-xs text-muted-foreground'>
-                Payslips before this date keep the previous figure.
+              <p
+                className={
+                  effectiveFrom && effectiveFrom < minDate
+                    ? 'text-xs text-destructive'
+                    : 'text-xs text-muted-foreground'
+                }
+              >
+                {effectiveFrom && effectiveFrom < minDate
+                  ? 'A salary change cannot start in the past. Pick today or a later date.'
+                  : 'Today or later. Payslips before this date keep the previous figure.'}
               </p>
             </div>
           </div>
@@ -537,15 +545,14 @@ export function EditSalaryDialog({ row, onOpenChange }: Props) {
 
           {unchanged && row?.salary_id && (
             <p className='text-xs text-muted-foreground'>
-              This is the figure already in force — saving will leave it untouched rather than
-              adding a duplicate to the history.
+              Nothing has changed from the figure in force, so there is nothing to save.
             </p>
           )}
         </div>
 
         <DialogFooter>
           <Button variant='outline' onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleSave} disabled={!canSave}>
+          <Button onClick={handleSave} disabled={!canSubmit}>
             {setSalary.isPending && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
             {row?.salary_id ? 'Update salary' : 'Record salary'}
           </Button>

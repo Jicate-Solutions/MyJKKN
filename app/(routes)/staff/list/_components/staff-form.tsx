@@ -86,6 +86,7 @@ import {
   saveStaffOffice,
   type OfficeValues
 } from '@/lib/hr/payroll/staff-office';
+import { firstOfNextMonthIST, todayIST } from '@/lib/hr/payroll/salary-start-date';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
@@ -422,13 +423,16 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
   }, [canManageOffice, watchedInstitutionId, orgMappings, isEditing, form, payerFetched]);
 
   // New staff: the salary takes effect from the date of joining unless changed.
+  // A joining date already in the past cannot be a salary start (the database
+  // refuses past starts), so it becomes the 1st of next month (2026-09-30).
   const watchedJoining = form.watch('date_of_joining');
   useEffect(() => {
     if (isEditing || !canManageOffice || !watchedJoining) return;
     if (form.getValues('office.salary.effective_from' as any)) return;
+    const joining = format(watchedJoining, 'yyyy-MM-dd');
     form.setValue(
       'office.salary.effective_from' as any,
-      format(watchedJoining, 'yyyy-MM-dd') as any,
+      (joining < todayIST() ? firstOfNextMonthIST() : joining) as any,
       { shouldDirty: false }
     );
   }, [isEditing, canManageOffice, watchedJoining, form]);
@@ -793,7 +797,12 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
           createClientSupabaseClient(),
           savedStaffId,
           office,
-          isEditing ? initialPayerOrgId : null
+          isEditing ? initialPayerOrgId : null,
+          // What the salary fields were pre-filled with, so an unchanged past
+          // start date is not re-sent (the database refuses past starts).
+          isEditing && currentSalary
+            ? officeValuesFromRecords(initialPayerOrgId, currentSalary, null).salary
+            : null
         );
         if (savedAny || failures.length) {
           queryClient.invalidateQueries({ queryKey: ['hr', 'staff-payroll'] });

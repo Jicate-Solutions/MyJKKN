@@ -60,7 +60,13 @@ export function OfficeSection({
   const pfOn = form.watch('office.salary.eligible_for_pf');
   const esiOn = form.watch('office.salary.eligible_for_esi');
 
-  const text = (name: string, label: string, placeholder = '', type = 'text') => (
+  const text = (
+    name: string,
+    label: string,
+    placeholder = '',
+    type = 'text',
+    extra: { hint?: string } = {}
+  ) => (
     <FormField
       control={form.control}
       name={name}
@@ -76,6 +82,7 @@ export function OfficeSection({
               value={field.value ?? ''}
             />
           </FormControl>
+          {extra.hint && <p className='text-xs text-muted-foreground'>{extra.hint}</p>}
           <FormMessage />
         </FormItem>
       )}
@@ -186,7 +193,14 @@ export function OfficeSection({
         <div className='grid gap-4 md:grid-cols-3'>
           {text('office.salary.monthly_gross', 'Monthly Gross (₹)', 'e.g. 35000', 'number')}
           {select('office.salary.salary_structure', 'Salary Structure', SALARY_STRUCTURES)}
-          {text('office.salary.effective_from', 'Effective From', '', 'date')}
+          {text('office.salary.effective_from', 'Effective From', '', 'date', {
+            // 2026-09-30: a salary change cannot start in the past. No `min` on
+            // the input: the edit form shows the start already on record (often
+            // past), and a `min` would make the browser block the WHOLE staff
+            // form's submit. saveStaffOffice moves an untouched past date to
+            // the 1st of next month instead (salaryWritePlan).
+            hint: 'Today or later. If an old date is left here, the change starts on the 1st of next month.'
+          })}
           {select('office.salary.overtime_level', 'Overtime Level', OVERTIME_LEVELS)}
           {text('office.salary.overtime_amount', 'Overtime Amount (₹)', '0', 'number')}
         </div>
