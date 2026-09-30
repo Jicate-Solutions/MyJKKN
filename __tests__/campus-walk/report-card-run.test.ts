@@ -268,7 +268,7 @@ describe('loadPlacementLookups', () => {
   it('reads ids, institution and department only — and skips an estate-office fallback owner', async () => {
     const { admin: fake, calls } = recordingAdmin({
       resources: [{ id: 'res-1', institution_id: 'inst-engg', department_id: 'dept-1' }],
-      staff: [{ id: 'staff-1', institution_id: 'inst-arts', department_id: 'dept-2' }],
+      'staff': [{ id: 'staff-1', institution_id: 'inst-arts', department_id: 'dept-2' }],
       profiles: [{ id: 'walker', institution_id: 'inst-office' }],
       departments: [
         { id: 'dept-1', institution_id: 'inst-engg' },
