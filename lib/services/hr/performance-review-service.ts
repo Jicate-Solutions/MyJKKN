@@ -42,6 +42,7 @@ import {
   resolveRatingPoints,
   type AppraisalRatingPolicySlice,
   sentBackByFor,
+  collegialityExampleMissing,
 } from '@/lib/hr/appraisal-ratings';
 
 // ---------------------------------------------------------------------------
@@ -668,6 +669,8 @@ export class PerformanceReviewService {
        */
       director_ratings?: AppraisalRatingMap;
       director_reason?: string;
+      /** Required when his change gives Collegiality a Below and the college asks for an example. */
+      director_collegiality_example?: string;
     },
   ): Promise<HRPerformanceReview> {
     const current = await this.requireReview(supabase, reviewId);
@@ -685,6 +688,12 @@ export class PerformanceReviewService {
       throw new Error('Say why you changed a rating (at least 10 characters). It is recorded beside the committee\'s.');
     }
     const ratings: AppraisalRatingMap = { ...committee, ...overrides };
+    if (
+      overrides.collegiality === 'below' &&
+      collegialityExampleMissing(ratings, args.director_collegiality_example, policy)
+    ) {
+      throw new Error('A Below in Collegiality needs a written example.');
+    }
     const derived = deriveAppraisalScore(ratings, areas, resolveRatingPoints(policy), policy);
     if (derived === null) {
       throw new Error(
@@ -705,6 +714,9 @@ export class PerformanceReviewService {
               director_review_jsonb: {
                 ratings: overrides,
                 reason: (args.director_reason ?? '').trim(),
+                ...(overrides.collegiality === 'below' && args.director_collegiality_example
+                  ? { collegiality_example: args.director_collegiality_example.trim() }
+                  : {}),
                 set_by: args.approver_profile_id,
                 set_at: new Date().toISOString(),
               },
