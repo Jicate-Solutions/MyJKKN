@@ -542,6 +542,7 @@ export function EditSalaryDialog({ row, onOpenChange }: Props) {
               onChange={(e) => setNotes(e.target.value)}
             />
           </div>
+        </div>
 
         <DialogFooter className='items-center'>
           {unchanged && row?.salary_id && (
