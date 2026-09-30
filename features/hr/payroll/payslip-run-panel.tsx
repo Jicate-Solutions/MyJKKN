@@ -126,7 +126,7 @@ export function PayslipRunPanel({ period, payslipCount, payslipsLoading }: Paysl
         {notes && notes.skipped_people.length > 0 && (
           <div data-testid="payslip-run-skipped" className="rounded-md border border-border">
             <p className="border-b border-border bg-muted/40 px-3 py-2 text-sm font-medium">
-              Left off this payroll ({notes.skipped_people.length}) — fix the reason, then rerun
+              Left off this payroll ({notes.skipped_people.length}) — not paid by this run; the reason under each name says why
             </p>
             <ul className="divide-y divide-border text-sm">
               {notes.skipped_people.map((p) => (

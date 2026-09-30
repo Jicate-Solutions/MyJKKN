@@ -28,7 +28,8 @@
 -- WHAT DOES NOT CHANGE. No RLS policy, grant, trigger or function. The new
 -- columns are written by whoever may already write the row (payroll staff
 -- under the existing rules); none of them decides who may do anything. Existing
--- rows are untouched (production has no hr_payslips rows as of 2026-09-30).
+-- rows are untouched: they keep their basic and get NULL in the five new
+-- columns (production's row count was not re-read for this change).
 --
 -- Idempotent: DROP NOT NULL on a nullable column is a no-op; ADD COLUMN IF NOT
 -- EXISTS skips the column and its CHECK the second time.

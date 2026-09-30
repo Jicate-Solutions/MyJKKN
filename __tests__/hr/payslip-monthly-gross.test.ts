@@ -87,7 +87,7 @@ const {
   payslipPayFor,
   resolveDeductionOverrides,
 } = await import('@/lib/services/hr/payroll/payslip-generator');
-const { loadSalaryRowsInForce, SalaryRegisterService } = await import(
+const { computeRegisterLine, loadSalaryRowsInForce, SalaryRegisterService } = await import(
   '@/lib/services/hr/payroll/salary-register-service'
 );
 
@@ -675,6 +675,65 @@ describe('the salary register uses the SAME month rule as the payslip', () => {
     expect(pre.warnings.join(' ')).toMatch(/have a salary that starts after August 2026/);
     expect(pre.warnings.join(' ')).toContain('New Joiner (from 2026-10-01)');
   });
+});
+
+describe('register and payslip agree on PF and allowance for the same salary row', () => {
+  // The same person, the same month, the same salary row, on both screens.
+  // PF: HR's flat epf_amount, withheld in full, zero when the flag is off.
+  // Allowance: paid, cut for unpaid days with the gross.
+  //
+  // KNOWN, NOT CHANGED HERE, and listed in the PR for the Director: ESI (the
+  // register takes HR's flat esi_amount; the payslip works ESI out as a
+  // percentage), income tax (hr_tds_slabs vs the policy's annual slabs),
+  // professional tax (payslip only) and rounding (paise vs whole rupees per
+  // earning). So net pay can still differ; PF, allowance and earnings do not.
+  const summary = (paid: number) => ({
+    present_days: paid,
+    leave_days: 0,
+    on_duty_days: 0,
+    comp_off_days: 0,
+    payable_days: paid,
+    leave_by_type: {},
+  });
+  const cases = [
+    { who: 'PF-eligible with an allowance', gross: 18000, allowance: 2000, pfOn: true, epf: 1500 },
+    { who: 'marked not eligible for PF, a PF figure on the row anyway', gross: 15000, allowance: 0, pfOn: false, epf: 1800 },
+  ];
+  for (const c of cases) {
+    for (const paid of [22, 20]) {
+      it(`${c.who}, ${paid} of 22 days paid`, () => {
+        const register = computeRegisterLine({
+          monthlyGross: c.gross,
+          workingDaysBasis: 22,
+          // The register's caller zeroes the amount when the flag is off.
+          epfAmount: c.pfOn ? c.epf : 0,
+          esiAmount: 0,
+          allowance: c.allowance,
+          tdsAmount: 0,
+          summary: summary(paid),
+        });
+        const slip = payslipPayFor({
+          monthlyGross: c.gross,
+          allowance: c.allowance,
+          eligibleForPf: c.pfOn,
+          epfAmount: c.epf,
+          eligibleForEsi: false,
+          factor: paid / 22,
+          policies: POLICIES,
+        });
+
+        expect(slip.deductions.pf).toBe(register.epf_deduction);
+        expect(slip.fullGross).toBe(register.total_earnings);
+        const registerEarned = register.total_earnings - register.unpaid_leave_deduction;
+        // Whole rupees per earning on the payslip vs paise on the register.
+        expect(Math.abs(slip.lopAdjustedGross - registerEarned)).toBeLessThanOrEqual(1);
+        if (paid === 22) {
+          expect(slip.allowancePaid).toBe(register.allowance);
+          expect(slip.lopAdjustedGross).toBe(registerEarned);
+        }
+      });
+    }
+  }
 });
 
 // ============================================================================

@@ -113,7 +113,7 @@ export const SALARY_SKIP_REASONS = {
  */
 export const SALARY_STARTS_LATER_PREFIX = 'Their salary starts on';
 export function salaryStartsLaterReason(startDate: string): string {
-  return `${SALARY_STARTS_LATER_PREFIX} ${startDate}, after this month, so nothing is paid to them for this month. If that date is wrong, correct it on the Salaries screen, then rerun.`;
+  return `${SALARY_STARTS_LATER_PREFIX} ${startDate}, after this month, so nothing is paid to them for this month. That is the start date on their salary row; a raise or a new salary is not paid before it starts.`;
 }
 
 /** One person's salary row, reduced to what a payslip needs. */
@@ -894,7 +894,7 @@ export class PayslipGenerator {
     }
     if (pfFlagButNoAmountPeople > 0) {
       result.warnings.push(
-        `${pfFlagButNoAmountPeople} person(s) are marked for PF on their salary, but no PF amount is typed there, so no PF is taken off their pay. Type the PF amount on the Salaries screen if PF is due, then rerun.`,
+        `${pfFlagButNoAmountPeople} person(s) are marked for PF on their salary, but no PF amount is typed there, so no PF is taken off their pay. If PF is due, type the amount on the Salaries screen for future months, and use the pencil on each of these payslips to add it to this month.`,
       );
     }
     const startsLaterCount = result.errors.filter((e) =>
