@@ -43,6 +43,7 @@ export async function GET(request: NextRequest) {
     bug_feedback_still_open_expired: 0,
     bug_feedback_still_open_closed: 0,
     bug_feedback_still_open_expired_unseen: 0,
+    bug_feedback_still_open_prepared: 0,
     bug_feedback_still_open_sent: 0,
     bug_feedback_reminders: 0,
     errors: [] as string[],
@@ -247,6 +248,23 @@ export async function GET(request: NextRequest) {
         results.bug_feedback_still_open_closed = Number(silenceRes?.closed ?? 0);
         // Expired without ever being seen — closes nothing (Director, 27 Sep).
         results.bug_feedback_still_open_expired_unseen = Number(silenceRes?.expired_unseen ?? 0);
+      }
+
+      // Queue a "still happening?" prompt for every open report older than 60
+      // days that sits in no group and was never asked (Director, 16 Sep:
+      // "ask each reporter"). Idempotent — a report is queued once — and it
+      // only queues; the send below respects the 3-per-reporter cap. Like the
+      // send, it had only ever been run by hand (16-17 Sep).
+      const { data: prepRes, error: prepErr } = await svc.rpc('fn_bug_stale_prompt_prepare', {
+        p_older_than_days: 60,
+        p_limit: 200,
+      });
+      if (prepErr) {
+        results.errors.push(`Bug still-open prepare error: ${prepErr.message}`);
+      } else if (prepRes?.success === false) {
+        results.errors.push(`Bug still-open prepare refused: ${prepRes?.error ?? 'unknown'}`);
+      } else {
+        results.bug_feedback_still_open_prepared = Number(prepRes?.prepared ?? 0);
       }
 
       // Send the next queued "still happening?" prompts. A reporter holds at
