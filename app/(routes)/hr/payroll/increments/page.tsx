@@ -77,7 +77,7 @@ export default function AnnualIncrementsPage() {
   const { canAccess, isLoading: permsLoading } = usePermissions();
   const canView = canAccess('hr.payroll.salary', 'view');
 
-  const report = useIncrementReport();
+  const report = useIncrementReport(undefined, !permsLoading && canView);
 
   if (!permsLoading && !canView) {
     return (

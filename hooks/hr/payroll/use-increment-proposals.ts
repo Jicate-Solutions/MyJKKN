@@ -21,9 +21,11 @@ export const INCREMENT_KEYS = {
   report: (asOf: string | undefined) => ['hr', 'increments', 'report', asOf ?? 'today'] as const,
 };
 
-export function useIncrementReport(asOf?: string) {
+/** `enabled` false = the role cannot see salaries, so the report is never even asked for (blind review, 1 Oct). */
+export function useIncrementReport(asOf?: string, enabled = true) {
   return useQuery<IncrementReport>({
     queryKey: INCREMENT_KEYS.report(asOf),
+    enabled,
     queryFn: async () => {
       const qs = asOf ? `?asOf=${encodeURIComponent(asOf)}` : '';
       const res = await fetch(`/api/hr/payroll/increments${qs}`);
