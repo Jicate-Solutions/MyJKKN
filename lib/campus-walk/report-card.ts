@@ -9,13 +9,26 @@
 // rule below is asserted in __tests__/campus-walk/report-card.test.ts with no
 // database. The reads live in lib/campus-walk/report-card-run.ts.
 //
-// ── WHAT A "COLLEGE" IS HERE ────────────────────────────────────────────────
-// CAMPUS-OPS itself carries institution_id NULL (it is cross-institution), so
-// a job's college is the one the service stamped on it:
-// `metadata.institution_id`, falling back to InstaSolver's
-// `metadata.reporter_institution_id`. A job tied to no college in the list is
-// never dropped — it is counted in `unassigned`, which only the Director sees.
-//
+// ── WHICH COLLEGE A JOB BELONGS TO (repair round, 1 Oct 2026) ─────────────
+// CAMPUS-OPS itself carries institution_id NULL (it is cross-institution), and
+// a Director walk job is filed with NO college at all (the walk screen never
+// sends one). So a job's college is derived, most reliable source first —
+// see placeTask below:
+//   1. the item or room it is about: metadata.resource_id -> resources.institution_id
+//   2. the person accountable for fixing it: owner_staff_id -> staff.institution_id
+//      (skipped when the job only went to the estate office because nobody
+//      else was found — the estate office's college says nothing about where
+//      the problem is)
+//   3. the department: the item's department, else the accountable person's
+//      department -> departments.institution_id
+//   4. the person who reported it: metadata.institution_id /
+//      metadata.reporter_institution_id (InstaSolver stamps the reporter's
+//      college there), else the reporter's profile.
+// The first source that names an institution wins. A job placed in a school
+// or an office goes to `unassigned` ("outside the colleges"); a job no source
+// can place goes to `collegeNotKnown`. Both are counted, never dropped, and
+// only the Director sees them.
+
 // ── THE RULES THIS FILE REUSES, NOT RESTATES ────────────────────────────────
 // "Fixed" is scoreboard.ts's isVerifiedClosure (status 'done' AND an approved
 // fix photo — PR #4133's instant close writes the same approved record, so it
@@ -129,11 +142,82 @@ function inWeek(iso: string | null | undefined, week: ReportWeek): boolean {
 
 // ── One job ──────────────────────────────────────────────────────────────────
 
-/** The college a campus job belongs to, or null when none was recorded. */
+/**
+ * The college STAMPED on a job when it was filed, or null. For InstaSolver
+ * this is the reporter's own college (app/api/instasolver/broken/route.ts), so
+ * it is the reporter tier of placeTask, not an authoritative place.
+ */
 export function institutionOfTask(row: WalkTaskRow): string | null {
   const meta = row.metadata ?? {};
   const id = meta.institution_id ?? meta.reporter_institution_id ?? null;
   return typeof id === 'string' && id ? id : null;
+}
+
+export type PlacementSource = 'resource' | 'owner' | 'department' | 'reporter';
+
+export interface TaskPlacement {
+  /** Null when no source could name an institution ("college not known"). */
+  institutionId: string | null;
+  source: PlacementSource | null;
+}
+
+/** The rows placeTask reads, each keyed by id. Built by report-card-run.ts. */
+export interface PlacementLookups {
+  resources: Map<string, { institution_id: string | null; department_id: string | null }>;
+  staff: Map<string, { institution_id: string | null; department_id: string | null }>;
+  departments: Map<string, string | null>;
+  profiles: Map<string, string | null>;
+}
+
+function idOrNull(v: unknown): string | null {
+  return typeof v === 'string' && v ? v : null;
+}
+
+/** The ids placeTask may look up for one job — what the loader has to read. */
+export function placementIdsOf(row: WalkTaskRow): {
+  resourceId: string | null;
+  ownerStaffId: string | null;
+  departmentId: string | null;
+  reporterProfileId: string | null;
+} {
+  const meta = row.metadata ?? {};
+  return {
+    resourceId: idOrNull(meta.resource_id),
+    // An estate-office fallback owner is not a statement about the place.
+    ownerStaffId: meta.accountable_routed_to_eao_no_owner === true ? null : idOrNull(row.owner_staff_id),
+    departmentId: idOrNull(meta.department_id),
+    reporterProfileId: idOrNull(meta.reporter_id) ?? idOrNull(meta.raised_by_profile_id)
+  };
+}
+
+/**
+ * Which institution a job belongs to — resource, then accountable person, then
+ * department, then reporter. The first source that names one wins. Pure.
+ */
+export function placeTask(row: WalkTaskRow, lookups: PlacementLookups): TaskPlacement {
+  const ids = placementIdsOf(row);
+  const resource = ids.resourceId ? lookups.resources.get(ids.resourceId) ?? null : null;
+  const owner = ids.ownerStaffId ? lookups.staff.get(ids.ownerStaffId) ?? null : null;
+
+  const fromResource = idOrNull(resource?.institution_id);
+  if (fromResource) return { institutionId: fromResource, source: 'resource' };
+
+  const fromOwner = idOrNull(owner?.institution_id);
+  if (fromOwner) return { institutionId: fromOwner, source: 'owner' };
+
+  for (const deptId of [ids.departmentId, idOrNull(resource?.department_id), idOrNull(owner?.department_id)]) {
+    const fromDept = deptId ? idOrNull(lookups.departments.get(deptId)) : null;
+    if (fromDept) return { institutionId: fromDept, source: 'department' };
+  }
+
+  const stamped = institutionOfTask(row);
+  if (stamped) return { institutionId: stamped, source: 'reporter' };
+  const fromReporter = ids.reporterProfileId
+    ? idOrNull(lookups.profiles.get(ids.reporterProfileId))
+    : null;
+  if (fromReporter) return { institutionId: fromReporter, source: 'reporter' };
+
+  return { institutionId: null, source: null };
 }
 
 /**
@@ -216,12 +300,20 @@ export function isFixedInWeek(row: WalkTaskRow, week: ReportWeek): boolean {
 
 /**
  * Fixed by its due day. Same UTC-day comparison as scoreboard.ts's isOverdue.
- * A job with no due date cannot be late, so it counts as on time.
+ *
+ * A job with NO due date is not judged at all (repair round, 1 Oct): it is
+ * left out of both sides of the on-time percentage. Counting it as on time
+ * would let a college whose jobs carry no due dates score 100% and top a
+ * ranking every principal sees. Campus Walk always sets a due date; jobs from
+ * other doors (e.g. an import) may not.
  */
+export function hasDueDate(row: WalkTaskRow): boolean {
+  return typeof row.due_date === 'string' && row.due_date.length >= 10;
+}
+
 export function isFixedOnTime(row: WalkTaskRow): boolean {
-  if (!row.completed_at) return false;
-  if (!row.due_date) return true;
-  return row.completed_at.slice(0, 10) <= row.due_date.slice(0, 10);
+  if (!row.completed_at || !hasDueDate(row)) return false;
+  return row.completed_at.slice(0, 10) <= (row.due_date as string).slice(0, 10);
 }
 
 /**
@@ -295,7 +387,9 @@ export interface CollegeCard {
   reportsReceived: number;
   fixed: number;
   fixedOnTime: number;
-  /** Whole-number percent; null when nothing was fixed (not a zero). */
+  /** Fixes that had a due date — the on-time percentage's denominator. */
+  fixedJudged: number;
+  /** Whole-number percent of fixedJudged; null when none could be judged (not a zero). */
   fixedOnTimePct: number | null;
   lateNow: number;
   /** Days the oldest still-open job has waited; null when nothing is open. */
@@ -308,7 +402,7 @@ export interface CollegeCard {
   typicalDaysToFix: number | null;
   /** Null until a star-rating source exists — the row is then left out. */
   ratings: RatingSummary | null;
-  /** 1 = best. Null when the college fixed nothing this week (not ranked). */
+  /** 1 = best. Null when no fix this week had a due date to judge (not ranked). */
   rankOnTime: number | null;
   /** 1 = fewest late jobs. */
   rankLate: number;
@@ -320,10 +414,18 @@ export interface ReportCardBoard {
   asOf: string;
   /** One card per college, in name order. */
   cards: CollegeCard[];
-  /** Jobs not tied to any college in the list. Director view only. */
+  /** Jobs placed in an institution that is not a college (a school, an office). Director view only. */
   unassigned: { reportsReceived: number; lateNow: number };
-  /** Colleges that ranked on fixed-on-time (fixed at least one job). */
+  /**
+   * Jobs no source could place in any institution. `jobs` counts those that
+   * touched the week (reported in it, fixed in it, or open at its end).
+   * Director view only — shown, never guessed.
+   */
+  collegeNotKnown: { jobs: number; reportsReceived: number; lateNow: number };
+  /** Colleges that ranked on fixed-on-time (fixed at least one job with a due date). */
   rankedOnTimeCount: number;
+  /** True when the complaint read hit its row limit, so complaint counts may be short. */
+  complaintsTruncated: boolean;
 }
 
 export interface BuildReportCardsInput {
@@ -334,6 +436,12 @@ export interface BuildReportCardsInput {
   now: Date;
   /** Optional, per college. Omitted today: no star-rating source exists yet. */
   ratingsByInstitution?: Map<string, RatingSummary>;
+  /**
+   * Per task id, from placeTask. A task missing from the map (or no map) falls
+   * back to the college stamped on it at filing (the reporter tier).
+   */
+  placements?: Map<string, TaskPlacement>;
+  complaintsTruncated?: boolean;
 }
 
 /** Standard competition ranking (1, 1, 3). The LOWEST `value` ranks first. */
@@ -353,17 +461,24 @@ export function buildReportCards(input: BuildReportCardsInput): ReportCardBoard 
 
   const byCollege = new Map<string, WalkTaskRow[]>();
   const unassigned = { reportsReceived: 0, lateNow: 0 };
+  const collegeNotKnown = { jobs: 0, reportsReceived: 0, lateNow: 0 };
   const known = new Set(colleges.map((c) => c.id));
 
   for (const row of tasks) {
-    const inst = institutionOfTask(row);
+    const inst = input.placements?.get(row.id)?.institutionId ?? institutionOfTask(row);
     if (inst && known.has(inst)) {
       const list = byCollege.get(inst) ?? [];
       list.push(row);
       byCollege.set(inst, list);
-    } else {
+    } else if (inst) {
       unassigned.reportsReceived += reportsInWeek(row, week);
       if (isLateAt(row, asOf)) unassigned.lateNow += 1;
+    } else {
+      const reported = reportsInWeek(row, week);
+      const late = isLateAt(row, asOf);
+      if (reported > 0 || isFixedInWeek(row, week) || isOpenAt(row, asOf)) collegeNotKnown.jobs += 1;
+      collegeNotKnown.reportsReceived += reported;
+      if (late) collegeNotKnown.lateNow += 1;
     }
   }
 
@@ -378,7 +493,8 @@ export function buildReportCards(input: BuildReportCardsInput): ReportCardBoard 
   const cards: CollegeCard[] = colleges.map((college) => {
     const rows = byCollege.get(college.id) ?? [];
     const fixedRows = rows.filter((r) => isFixedInWeek(r, week));
-    const fixedOnTime = fixedRows.filter(isFixedOnTime).length;
+    const judgedRows = fixedRows.filter(hasDueDate);
+    const fixedOnTime = judgedRows.filter(isFixedOnTime).length;
     const openAges = rows
       .filter((r) => !r.is_blocked && isOpenAt(r, asOf))
       .map((r) => Math.floor((asOf.getTime() - Date.parse(r.created_at)) / MS_PER_DAY));
@@ -393,7 +509,8 @@ export function buildReportCards(input: BuildReportCardsInput): ReportCardBoard 
       reportsReceived: rows.reduce((n, r) => n + reportsInWeek(r, week), 0),
       fixed: fixedRows.length,
       fixedOnTime,
-      fixedOnTimePct: fixedRows.length > 0 ? Math.round((fixedOnTime / fixedRows.length) * 100) : null,
+      fixedJudged: judgedRows.length,
+      fixedOnTimePct: judgedRows.length > 0 ? Math.round((fixedOnTime / judgedRows.length) * 100) : null,
       lateNow: rows.filter((r) => isLateAt(r, asOf)).length,
       oldestOpenDays: openAges.length > 0 ? Math.max(...openAges) : null,
       repeats: rows.filter((r) => isRepeatInWeek(r, rows, week)).length,
@@ -425,7 +542,9 @@ export function buildReportCards(input: BuildReportCardsInput): ReportCardBoard 
     asOf: asOf.toISOString(),
     cards,
     unassigned,
-    rankedOnTimeCount: ranked.length
+    collegeNotKnown,
+    rankedOnTimeCount: ranked.length,
+    complaintsTruncated: Boolean(input.complaintsTruncated)
   };
 }
 
@@ -470,7 +589,9 @@ export function headBellBody(card: CollegeCard, rankedOnTimeCount: number): stri
   const standing =
     card.rankOnTime !== null
       ? `On time: ${ordinal(card.rankOnTime)} of ${plural(rankedOnTimeCount, 'college', 'colleges')} that fixed something.`
-      : 'Nothing was fixed this week, so no on-time place.';
+      : card.fixed > 0
+        ? 'No fix this week had a due date, so no on-time place.'
+        : 'Nothing was fixed this week, so no on-time place.';
   return `${top.join(', ')}. ${standing} Open the card to see every college.`;
 }
 
@@ -484,7 +605,12 @@ export function directorBellBody(
   );
   if (board.unassigned.reportsReceived > 0 || board.unassigned.lateNow > 0) {
     lines.push(
-      `Not tied to a college: ${board.unassigned.reportsReceived} reported, ${board.unassigned.lateNow} late`
+      `Schools and offices (not a college): ${board.unassigned.reportsReceived} reported, ${board.unassigned.lateNow} late`
+    );
+  }
+  if (board.collegeNotKnown.jobs > 0) {
+    lines.push(
+      `College not known: ${plural(board.collegeNotKnown.jobs, 'job', 'jobs')} (${board.collegeNotKnown.reportsReceived} reported, ${board.collegeNotKnown.lateNow} late)`
     );
   }
   if (collegesWithoutHead.length > 0) {

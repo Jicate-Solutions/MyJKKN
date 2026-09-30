@@ -11,6 +11,8 @@ import { buildReportCards, weekFromMonday } from '@/lib/campus-walk/report-card'
 import {
   collegeBellKey,
   directorBellKey,
+  loadComplaintRows,
+  loadPlacementLookups,
   REPORT_CARD_CATEGORY,
   reportCardUrl,
   resolveReportCardViewer,
@@ -224,5 +226,124 @@ describe('resolveReportCardViewer', () => {
       { resolveHeads: heads, resolveDirectorIds: noDirector }
     );
     expect(v.scope).toBe('none');
+  });
+});
+
+// ── Repair round, 1 Oct 2026 ─────────────────────────────────────────────────
+
+/** A fake admin that records each read and answers `.in('id', ids)` from fixed tables. */
+function recordingAdmin(tables: Record<string, Array<Record<string, unknown>>>) {
+  const calls: Array<{ table: string; columns: string; ids: string[] }> = [];
+  const admin = {
+    from(table: string) {
+      let columns = '';
+      return {
+        select(c: string) {
+          columns = c;
+          return this;
+        },
+        async in(_col: string, ids: string[]) {
+          calls.push({ table, columns, ids });
+          return { data: (tables[table] ?? []).filter((r) => ids.includes(r.id as string)), error: null };
+        }
+      };
+    }
+  } as unknown as SupabaseClient;
+  return { admin, calls };
+}
+
+describe('loadPlacementLookups', () => {
+  const row = (id: string, metadata: Record<string, unknown>, owner: string | null = null) => ({
+    id,
+    title: 't',
+    status_key: 'todo',
+    is_blocked: false,
+    due_date: null,
+    completed_at: null,
+    created_at: '2026-06-23T05:00:00Z',
+    owner_staff_id: owner,
+    metadata
+  });
+
+  it('reads ids, institution and department only — and skips an estate-office fallback owner', async () => {
+    const { admin: fake, calls } = recordingAdmin({
+      resources: [{ id: 'res-1', institution_id: 'inst-engg', department_id: 'dept-1' }],
+      staff: [{ id: 'staff-1', institution_id: 'inst-arts', department_id: 'dept-2' }],
+      profiles: [{ id: 'walker', institution_id: 'inst-office' }],
+      departments: [
+        { id: 'dept-1', institution_id: 'inst-engg' },
+        { id: 'dept-2', institution_id: 'inst-arts' }
+      ]
+    });
+    const L = await loadPlacementLookups(fake, [
+      row('a', { resource_id: 'res-1' }),
+      row('b', { raised_by_profile_id: 'walker' }, 'staff-1'),
+      row('c', { accountable_routed_to_eao_no_owner: true }, 'staff-eao')
+    ]);
+    expect(L.resources.get('res-1')).toEqual({ institution_id: 'inst-engg', department_id: 'dept-1' });
+    expect(L.staff.get('staff-1')?.institution_id).toBe('inst-arts');
+    expect(L.profiles.get('walker')).toBe('inst-office');
+    expect(L.departments.get('dept-2')).toBe('inst-arts');
+    // the estate-office owner is never looked up
+    expect(calls.find((c) => c.table === 'staff')?.ids).toEqual(['staff-1']);
+    for (const c of calls) {
+      expect(c.columns).not.toMatch(/name|email|phone|title|description/);
+    }
+  });
+
+  it('reads in chunks so a long list never makes one huge request', async () => {
+    const tasks = Array.from({ length: 450 }, (_, i) => row(`t${i}`, {}, `staff-${i}`));
+    const { admin: fake, calls } = recordingAdmin({});
+    await loadPlacementLookups(fake, tasks);
+    const staffCalls = calls.filter((c) => c.table === 'staff');
+    expect(staffCalls.map((c) => c.ids.length)).toEqual([200, 200, 50]);
+  });
+});
+
+describe('loadComplaintRows', () => {
+  function complaintAdmin(n: number) {
+    const chain: any = {
+      select: () => chain,
+      eq: () => chain,
+      lt: () => chain,
+      or: () => chain,
+      order: () => chain,
+      limit: async () => ({
+        data: Array.from({ length: n }, () => ({ institution_id: 'inst-arts', status: 'open' })),
+        error: null
+      })
+    };
+    return { from: () => chain } as unknown as SupabaseClient;
+  }
+
+  it('says so when the read hit its limit, instead of cutting silently', async () => {
+    expect((await loadComplaintRows(complaintAdmin(5000), WEEK)).truncated).toBe(true);
+    expect((await loadComplaintRows(complaintAdmin(12), WEEK)).truncated).toBe(false);
+  });
+});
+
+describe('the run reports jobs whose college is not known', () => {
+  it('carries the not-known count into the result and the Director bell', async () => {
+    const walk = {
+      id: 'w1',
+      title: 'walk',
+      status_key: 'todo',
+      is_blocked: false,
+      due_date: '2026-06-20',
+      completed_at: null,
+      created_at: '2026-06-23T05:00:00Z',
+      owner_staff_id: null,
+      metadata: { source: 'campus-walk', institution_id: null }
+    };
+    const { deps, sendBell } = makeDeps({
+      loadReportCards: async () => ({
+        colleges: COLLEGES,
+        board: buildReportCards({ colleges: COLLEGES, tasks: [walk], complaints: [], week: WEEK, now: NOW })
+      })
+    });
+    const result = await runWeeklyReportCard(admin, { week: WEEK, now: NOW }, deps);
+    expect(result.collegeNotKnownJobs).toBe(1);
+    const director = sendBell.mock.calls.find((c) => c[1].idempotencyKey === directorBellKey('2026-06-22'));
+    expect(director?.[1].body).toContain('College not known: 1 job');
   });
 });

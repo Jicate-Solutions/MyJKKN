@@ -40,7 +40,11 @@ import {
   directorBellBody,
   headBellBody,
   headBellTitle,
+  placeTask,
+  placementIdsOf,
   type College,
+  type PlacementLookups,
+  type TaskPlacement,
   type ComplaintRow,
   type ReportCardBoard,
   type ReportWeek
@@ -111,6 +115,76 @@ export async function loadCampusWalkTasks(admin: SupabaseClient): Promise<WalkTa
   return (data ?? []) as WalkTaskRow[];
 }
 
+// ── Which college each job belongs to ────────────────────────────────────────
+
+/** `.in()` rides in the URL; keep each list short enough for any proxy. */
+const IN_CHUNK = 200;
+
+async function readById<T extends { id: string }>(
+  admin: SupabaseClient,
+  table: string,
+  columns: string,
+  ids: string[]
+): Promise<T[]> {
+  const unique = [...new Set(ids.filter(Boolean))];
+  const out: T[] = [];
+  for (let i = 0; i < unique.length; i += IN_CHUNK) {
+    const { data, error } = await admin
+      .from(table)
+      .select(columns)
+      .in('id', unique.slice(i, i + IN_CHUNK));
+    if (error) throw new Error(`${table}_read_failed: ${error.message}`);
+    out.push(...((data ?? []) as unknown as T[]));
+  }
+  return out;
+}
+
+/**
+ * The rows placeTask needs, read in batches. THE SELECT LISTS ARE THE
+ * ENFORCEMENT: ids, institution and department only — no names, no text.
+ */
+export async function loadPlacementLookups(
+  admin: SupabaseClient,
+  tasks: WalkTaskRow[]
+): Promise<PlacementLookups> {
+  const wanted = tasks.map(placementIdsOf);
+  type Placed = { id: string; institution_id: string | null; department_id: string | null };
+
+  const [resources, staff, profiles] = await Promise.all([
+    readById<Placed>(admin, 'resources', 'id, institution_id, department_id', wanted.map((w) => w.resourceId)),
+    readById<Placed>(admin, 'staff', 'id, institution_id, department_id', wanted.map((w) => w.ownerStaffId)),
+    readById<{ id: string; institution_id: string | null }>(
+      admin,
+      'profiles',
+      'id, institution_id',
+      wanted.map((w) => w.reporterProfileId)
+    )
+  ]);
+
+  const departmentIds = [
+    ...wanted.map((w) => w.departmentId),
+    ...resources.map((r) => r.department_id),
+    ...staff.map((r) => r.department_id)
+  ];
+  const departments = await readById<{ id: string; institution_id: string | null }>(
+    admin,
+    'departments',
+    'id, institution_id',
+    departmentIds
+  );
+
+  return {
+    resources: new Map(resources.map((r) => [r.id, { institution_id: r.institution_id, department_id: r.department_id }])),
+    staff: new Map(staff.map((r) => [r.id, { institution_id: r.institution_id, department_id: r.department_id }])),
+    departments: new Map(departments.map((r) => [r.id, r.institution_id])),
+    profiles: new Map(profiles.map((r) => [r.id, r.institution_id]))
+  };
+}
+
+export function placeTasks(tasks: WalkTaskRow[], lookups: PlacementLookups): Map<string, TaskPlacement> {
+  return new Map(tasks.map((t) => [t.id, placeTask(t, lookups)]));
+}
+
 /**
  * Complaints that were alive at some point in the week: filed before it ended
  * and not resolved before it began.
@@ -122,7 +196,7 @@ export async function loadCampusWalkTasks(admin: SupabaseClient): Promise<WalkTa
 export async function loadComplaintRows(
   admin: SupabaseClient,
   week: ReportWeek
-): Promise<ComplaintRow[]> {
+): Promise<{ rows: ComplaintRow[]; truncated: boolean }> {
   const weekStartIso = new Date(week.startMs).toISOString();
   const weekEndIso = new Date(week.endMs).toISOString();
   const { data, error } = await admin
@@ -131,9 +205,20 @@ export async function loadComplaintRows(
     .eq('is_icc_only', false)
     .lt('created_at', weekEndIso)
     .or(`resolved_at.is.null,resolved_at.gte."${weekStartIso}"`)
+    // Newest first, so if the limit is ever hit it is the oldest backlog that
+    // is cut — and the cut is reported, never silent.
+    .order('created_at', { ascending: false })
     .limit(COMPLAINT_LIMIT);
   if (error) throw new Error(`complaint_read_failed: ${error.message}`);
-  return (data ?? []) as ComplaintRow[];
+  const rows = (data ?? []) as ComplaintRow[];
+  const truncated = rows.length >= COMPLAINT_LIMIT;
+  if (truncated) {
+    logger.warn(LOG_MODULE, 'complaint read hit its limit — complaint counts may be short', {
+      limit: COMPLAINT_LIMIT,
+      weekStart: week.weekStart
+    });
+  }
+  return { rows, truncated };
 }
 
 export interface LoadedReportCards {
@@ -151,7 +236,19 @@ export async function loadReportCards(
     loadCampusWalkTasks(admin),
     loadComplaintRows(admin, week)
   ]);
-  return { colleges, board: buildReportCards({ colleges, tasks, complaints, week, now }) };
+  const placements = placeTasks(tasks, await loadPlacementLookups(admin, tasks));
+  return {
+    colleges,
+    board: buildReportCards({
+      colleges,
+      tasks,
+      complaints: complaints.rows,
+      complaintsTruncated: complaints.truncated,
+      placements,
+      week,
+      now
+    })
+  };
 }
 
 // ── Who may see which card ───────────────────────────────────────────────────
@@ -247,6 +344,8 @@ export interface ReportCardRunResult {
   collegeBellsFailed: number;
   /** Colleges with no principal on record — named in the Director's bell. */
   collegesWithoutHead: string[];
+  /** Jobs touching the week that no source could place in any institution. */
+  collegeNotKnownJobs: number;
   directorBell: 'sent' | 'already_sent' | 'would_send' | 'failed' | 'no_recipient';
   directorSource: string;
   errors: string[];
@@ -275,6 +374,7 @@ export async function runWeeklyReportCard(
     collegeBellsWouldSend: 0,
     collegeBellsFailed: 0,
     collegesWithoutHead: [],
+    collegeNotKnownJobs: board.collegeNotKnown.jobs,
     directorBell: 'no_recipient',
     directorSource: directors.source,
     errors: []

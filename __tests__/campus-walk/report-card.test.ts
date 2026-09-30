@@ -12,6 +12,8 @@ import {
   headBellTitle,
   isFixedOnTime,
   isLateAt,
+  placeTask,
+  type PlacementLookups,
   isRepeatInWeek,
   lastCompletedWeekStart,
   parseWeekParam,
@@ -347,7 +349,9 @@ describe('comparison with the other colleges', () => {
   });
 
   it('keeps a job with no college in its own bucket instead of dropping it', () => {
-    expect(board.unassigned.lateNow).toBe(1);
+    expect(board.collegeNotKnown.lateNow).toBe(1);
+    expect(board.collegeNotKnown.jobs).toBe(1);
+    expect(board.unassigned.lateNow).toBe(0);
     expect(board.cards.map((c) => c.name)).toEqual([
       'Arts College',
       'Engineering College',
@@ -388,5 +392,148 @@ describe('bell words', () => {
     const body = directorBellBody(board, [{ id: NURSING, name: 'Nursing College' }]);
     expect(body).toContain('Arts College: 1 fixed, 2 late, 0 came back');
     expect(body).toContain('No head on record: Nursing College');
+  });
+});
+
+// ── Repair round, 1 Oct 2026 ─────────────────────────────────────────────────
+
+function lookups(partial: Partial<PlacementLookups> = {}): PlacementLookups {
+  return {
+    resources: new Map(),
+    staff: new Map(),
+    departments: new Map(),
+    profiles: new Map(),
+    ...partial
+  };
+}
+
+/** A Director walk job: no college stamped, as the walk screen files it. */
+function walkJob(overrides: Partial<WalkTaskRow> & { metadata?: Record<string, any> } = {}): WalkTaskRow {
+  const row = task(overrides);
+  return { ...row, metadata: { ...row.metadata, institution_id: null, ...(overrides.metadata ?? {}) } };
+}
+
+describe('which college a job belongs to (placeTask)', () => {
+  const L = lookups({
+    resources: new Map([
+      ['res-engg', { institution_id: ENGG, department_id: null }],
+      ['res-nodept', { institution_id: null, department_id: 'dept-nursing' }]
+    ]),
+    staff: new Map([
+      ['staff-arts', { institution_id: ARTS, department_id: null }],
+      ['staff-eao', { institution_id: 'inst-office', department_id: null }],
+      ['staff-nocollege', { institution_id: null, department_id: 'dept-engg' }]
+    ]),
+    departments: new Map([
+      ['dept-nursing', NURSING],
+      ['dept-engg', ENGG]
+    ]),
+    profiles: new Map([['walker', 'inst-office']])
+  });
+
+  it('the item or room comes first, even over the fixer and the reporter', () => {
+    const row = task({ owner_staff_id: 'staff-arts', metadata: { resource_id: 'res-engg', reporter_institution_id: NURSING } });
+    expect(placeTask(row, L)).toEqual({ institutionId: ENGG, source: 'resource' });
+  });
+
+  it('a walk job with no college stamped is placed by the person accountable for fixing it', () => {
+    expect(placeTask(walkJob({ owner_staff_id: 'staff-arts' }), L)).toEqual({ institutionId: ARTS, source: 'owner' });
+  });
+
+  it('skips an estate-office fallback owner — that says nothing about where the problem is', () => {
+    const row = walkJob({
+      owner_staff_id: 'staff-eao',
+      metadata: { accountable_routed_to_eao_no_owner: true, raised_by_profile_id: 'nobody' }
+    });
+    expect(placeTask(row, L)).toEqual({ institutionId: null, source: null });
+  });
+
+  it("falls back to the item's department, then the fixer's department", () => {
+    expect(placeTask(walkJob({ metadata: { resource_id: 'res-nodept' } }), L)).toEqual({
+      institutionId: NURSING,
+      source: 'department'
+    });
+    expect(placeTask(walkJob({ owner_staff_id: 'staff-nocollege' }), L)).toEqual({
+      institutionId: ENGG,
+      source: 'department'
+    });
+  });
+
+  it("the reporter's college is the last resort: the stamp first, then the profile", () => {
+    const stamped = task({ metadata: { institution_id: null, reporter_institution_id: NURSING } });
+    expect(placeTask(stamped, L)).toEqual({ institutionId: NURSING, source: 'reporter' });
+    expect(placeTask(walkJob({ metadata: { raised_by_profile_id: 'walker' } }), L)).toEqual({
+      institutionId: 'inst-office',
+      source: 'reporter'
+    });
+  });
+
+  it('a job nothing can place is "not known", never guessed', () => {
+    expect(placeTask(walkJob(), L)).toEqual({ institutionId: null, source: null });
+  });
+});
+
+describe('the card uses the derived college', () => {
+  const walkArts = walkJob({ owner_staff_id: 'staff-arts', due_date: '2026-06-20' });
+  const walkOffice = walkJob({ owner_staff_id: 'staff-office', due_date: '2026-06-20' });
+  const walkUnknown = walkJob({ due_date: '2026-06-20' });
+  const oldUnknown = walkJob({ created_at: '2026-01-05T05:00:00Z', status_key: 'done', completed_at: '2026-01-06T05:00:00Z' });
+  const board = buildReportCards({
+    colleges: COLLEGES,
+    tasks: [walkArts, walkOffice, walkUnknown, oldUnknown],
+    complaints: [],
+    week: WEEK,
+    now: MONDAY_RUN,
+    placements: new Map([
+      [walkArts.id, { institutionId: ARTS, source: 'owner' as const }],
+      [walkOffice.id, { institutionId: 'inst-office', source: 'owner' as const }],
+      [walkUnknown.id, { institutionId: null, source: null }],
+      [oldUnknown.id, { institutionId: null, source: null }]
+    ])
+  });
+
+  it("a walk job placed by its fixer counts on that college's card", () => {
+    expect(cardFor(board, ARTS).lateNow).toBe(1);
+    expect(cardFor(board, ARTS).reportsReceived).toBe(1);
+  });
+
+  it('a job placed in a school or office is outside the colleges; an unplaceable one is "not known"', () => {
+    expect(board.unassigned.lateNow).toBe(1);
+    expect(board.collegeNotKnown).toEqual({ jobs: 1, reportsReceived: 1, lateNow: 1 });
+  });
+
+  it('shows the not-known count to the Director', () => {
+    expect(directorBellBody(board, [])).toContain('College not known: 1 job (1 reported, 1 late)');
+    expect(directorBellBody(board, [])).toContain('Schools and offices (not a college): 1 reported, 1 late');
+  });
+});
+
+describe('a fix with no due date is not judged on time', () => {
+  it('is left out of both sides of the percentage', () => {
+    expect(isFixedOnTime(fixed('2026-06-24T05:00:00Z', { due_date: null }))).toBe(false);
+    const board = buildReportCards({
+      colleges: COLLEGES,
+      tasks: [
+        fixed('2026-06-24T05:00:00Z', { due_date: '2026-06-30' }),
+        fixed('2026-06-24T05:00:00Z', { due_date: null }),
+        // Engineering fixed only jobs with no due date — it must NOT rank first at 100%.
+        fixed('2026-06-24T05:00:00Z', { due_date: null, metadata: { institution_id: ENGG } })
+      ],
+      complaints: [],
+      week: WEEK,
+      now: MONDAY_RUN
+    });
+    const arts = cardFor(board, ARTS);
+    expect(arts.fixed).toBe(2);
+    expect(arts.fixedJudged).toBe(1);
+    expect(arts.fixedOnTimePct).toBe(100);
+    const engg = cardFor(board, ENGG);
+    expect(engg.fixed).toBe(1);
+    expect(engg.fixedOnTimePct).toBeNull();
+    expect(engg.rankOnTime).toBeNull();
+    expect(board.rankedOnTimeCount).toBe(1);
+    expect(headBellBody(engg, board.rankedOnTimeCount)).toContain(
+      'No fix this week had a due date, so no on-time place.'
+    );
   });
 });

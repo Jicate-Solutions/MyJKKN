@@ -106,7 +106,11 @@ function OwnCard({ card, board }: { card: CollegeCard; board: ReportCardBoard })
           label="Fixed on time"
           value={card.fixedOnTimePct === null ? '—' : `${card.fixedOnTimePct}%`}
           hint={
-            card.fixed > 0 ? `${card.fixedOnTime} of ${card.fixed} by the due date` : 'nothing fixed yet'
+            card.fixedJudged > 0
+              ? `${card.fixedOnTime} of ${card.fixedJudged} by the due date`
+              : card.fixed > 0
+                ? 'no fix had a due date'
+                : 'nothing fixed yet'
           }
         />
         <Tile label="Past the date" value={String(card.lateNow)} hint="still open, due date gone" />
@@ -129,7 +133,9 @@ function OwnCard({ card, board }: { card: CollegeCard; board: ReportCardBoard })
       <p className="text-sm text-muted-foreground">
         {card.rankOnTime !== null
           ? `Fixing on time: ${ordinal(card.rankOnTime)} of the ${board.rankedOnTimeCount} ${board.rankedOnTimeCount === 1 ? 'college' : 'colleges'} that fixed something.`
-          : 'Nothing was fixed this week, so there is no on-time place.'}{' '}
+          : card.fixed > 0
+            ? 'No fix this week had a due date, so there is no on-time place.'
+            : 'Nothing was fixed this week, so there is no on-time place.'}{' '}
         {`Fewest jobs past the date: ${ordinal(card.rankLate)} of ${collegeCount}.`}
       </p>
     </section>
@@ -259,6 +265,19 @@ export default async function WeeklyReportCardPage({
     viewer.scope === 'college'
       ? board.cards.find((c) => c.institutionId === viewer.institutionId) ?? null
       : null;
+
+  // A principal of a school or an office is not a college head: refuse here,
+  // and show NOTHING else — not the all-colleges table either.
+  if (viewer.scope === 'college' && !own) {
+    return (
+      <BoardShell title={TITLE} description={DESCRIPTION}>
+        <DeniedCard
+          heading="Your college is not in this list"
+          reason="The report card covers active colleges. Your institution is not recorded as one, so there is no card for it."
+        />
+      </BoardShell>
+    );
+  }
   const prevWeek = weekFromMonday(addDaysTo(week.weekStart, -7));
   const nextMonday = addDaysTo(week.weekStart, 7);
   const nextAvailable = nextMonday <= lastCompletedWeekStart(now);
@@ -295,24 +314,30 @@ export default async function WeeklyReportCardPage({
         </Note>
       ) : null}
 
-      {viewer.scope === 'college' && !own ? (
-        <DeniedCard
-          heading="Your college is not in this list"
-          reason="The report card covers active colleges. Your college is not recorded as one, so there is no card for it."
-        />
-      ) : null}
-
       {own ? <OwnCard card={own} board={board} /> : null}
 
       <ComparisonTable board={board} highlightId={own?.institutionId ?? ''} />
 
-      {viewer.scope === 'all' &&
-      (board.unassigned.reportsReceived > 0 || board.unassigned.lateNow > 0) ? (
+      {viewer.scope === 'all' ? (
         <Note>
           <p>
-            Not tied to a college: {board.unassigned.reportsReceived} reported this week,{' '}
-            {board.unassigned.lateNow} past the date. These jobs were filed without a college.
+            <strong>College not known: {board.collegeNotKnown.jobs}</strong>{' '}
+            {board.collegeNotKnown.jobs === 1 ? 'job' : 'jobs'} this week (
+            {board.collegeNotKnown.reportsReceived} reported, {board.collegeNotKnown.lateNow} past
+            the date). No item, fixer, department or reporter on these jobs names an institution, so they
+            are on no college&apos;s card.
           </p>
+          {board.unassigned.reportsReceived > 0 || board.unassigned.lateNow > 0 ? (
+            <p>
+              Schools and offices (not a college): {board.unassigned.reportsReceived} reported this
+              week, {board.unassigned.lateNow} past the date.
+            </p>
+          ) : null}
+          {board.complaintsTruncated ? (
+            <p>
+              The complaint list was too long to read in full, so complaint counts may be short.
+            </p>
+          ) : null}
         </Note>
       ) : null}
 
@@ -326,7 +351,9 @@ export default async function WeeklyReportCardPage({
           &quot;Came back&quot; means someone reported the same problem again, or a new report
           was filed at the same place for the same kind of problem within 90 days of a fix.
           Complaints count all complaints except those that go only to the Internal Complaints
-          Committee.
+          Committee. A job counts for the college of the item or room it is about; failing that,
+          the college of the person responsible for fixing it, then of the department, then of the
+          person who reported it. &quot;Fixed on time&quot; leaves out fixes that had no due date.
         </p>
       </Note>
 
