@@ -11253,3 +11253,37 @@ CREATE INDEX IF NOT EXISTS hr_leave_type_deletions_deleted_at_idx
   ON public.hr_leave_type_deletions (deleted_at DESC);
 COMMENT ON TABLE public.hr_leave_type_deletions IS
   'Tombstone of every hr_leave_type_delete_super_admin() commit: who, when, how many rows of each kind went with the type, and the type row itself as jsonb. No foreign keys on purpose. Balances and adjustments are NOT recoverable from it.';
+
+-- =====================================================================================
+-- Updated: 2026-10-01 - HR staff harness (R5/R6/R8): hr_recruitment_nudges_sent
+-- Migration: 20270522090000_hr_recruitment_nudges.sql
+-- One row per recruitment nudge ever due (approval reminder / escalation, missing
+-- scorecard, offer not issued, joining outcome missing). Claimed BEFORE the send;
+-- UNIQUE (kind, ref_key) makes every nudge fire once. Service role only.
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS public.hr_recruitment_nudges_sent (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  kind             text NOT NULL,
+  ref_key          text NOT NULL,
+  candidate_id     uuid NOT NULL REFERENCES public.hr_recruitment_candidates(id) ON DELETE CASCADE,
+  recipient_ids    uuid[] NOT NULL DEFAULT '{}',
+  notification_id  uuid,
+  sent_at          timestamptz NOT NULL DEFAULT now(),
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_recruitment_nudges_sent_kind_chk CHECK (kind IN (
+    'approval_reminder',
+    'approval_escalation',
+    'scorecard_missing',
+    'offer_not_issued',
+    'joining_outcome_missing'
+  )),
+  CONSTRAINT hr_recruitment_nudges_sent_once UNIQUE (kind, ref_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_nudges_sent_candidate
+  ON public.hr_recruitment_nudges_sent (candidate_id);
+
+ALTER TABLE public.hr_recruitment_nudges_sent ENABLE ROW LEVEL SECURITY;
+-- Deliberately NO policies: written and read only by /api/cron/hr-recruitment-nudges.
+REVOKE ALL ON public.hr_recruitment_nudges_sent FROM anon, authenticated;
