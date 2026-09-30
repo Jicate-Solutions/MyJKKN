@@ -311,7 +311,11 @@ out(`  offer detail: ${offerDetailBad.length === 0 ? 'all match' : `${offerDetai
 for (const b of offerDetailBad.slice(0, 5)) out(`      ${b}`);
 if (offerDetailBad.length) failed = true;
 
-const badShape = got.filter((r) => !SOURCES.includes(r.source) || !r.item_id || !r.title || !String(r.href).startsWith('/') || typeof r.age_days !== 'number' || r.age_days < 0);
+// The eleven HR queues added by 20270613101149 are shape-checked here but NOT
+// reproduced in JS above: each has its own rule, stated in that migration's header.
+const HR_SOURCES = ['comp_off', 'leave_eligibility', 'regularisation', 'attendance_close', 'salary_revision',
+  'payroll_period', 'staff_photo', 'employee_document', 'promotion', 'termination', 'onboarding_step'];
+const badShape = got.filter((r) => !(SOURCES.includes(r.source) || HR_SOURCES.includes(r.source)) || !r.item_id || !r.title || !String(r.href).startsWith('/') || typeof r.age_days !== 'number' || r.age_days < 0);
 const sorted = got.every((r, i) => i === 0 || got[i - 1].waiting_since <= r.waiting_since);
 out(`  contract: shape ${badShape.length === 0 ? 'ok' : `${badShape.length} bad rows`}, order ${sorted ? 'waiting_since ASC ok' : 'NOT sorted'}, cap ${got.length <= 500 ? 'ok' : 'EXCEEDED'}`);
 if (badShape.length || !sorted) failed = true;
