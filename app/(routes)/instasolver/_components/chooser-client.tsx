@@ -12,7 +12,14 @@
 // disappearing or linking somewhere that will bounce (rule #27).
 
 import Link from 'next/link';
-import { ChevronRight, ListChecks, MessageSquareWarning, ShoppingCart, Wrench } from 'lucide-react';
+import {
+  ChevronRight,
+  ListChecks,
+  MessageSquareText,
+  MessageSquareWarning,
+  ShoppingCart,
+  Wrench
+} from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 
 interface ChooserClientProps {
@@ -24,6 +31,11 @@ const CARD_BASE =
   'group block rounded-xl border bg-background shadow-sm transition-colors ' +
   'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 ' +
   'focus-visible:ring-ring focus-visible:ring-offset-2';
+
+const FOLLOW_UP_LINK =
+  'flex min-h-[48px] items-center justify-center gap-2 rounded-lg border bg-background ' +
+  'px-3 text-sm font-medium text-primary shadow-sm transition-colors hover:bg-accent ' +
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 
 const ICON_WRAP =
   'flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground';
@@ -98,22 +110,27 @@ export function ChooserClient({ canRaisePurchase }: ChooserClientProps) {
                 We need to buy something
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Direct purchase requests open soon — for now ask your HOD to raise it in
-                Procurement.
+                Ask your HOD or office to raise it in Procurement — it goes for approval the
+                same day.
               </p>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Where "fixed" shows up, and where "Not fixed" lives (Director, 2026-09-30). */}
-      <Link
-        href="/instasolver/my-reports"
-        className="flex min-h-[48px] items-center justify-center gap-2 rounded-md text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <ListChecks className="h-4 w-4" aria-hidden="true" />
-        See my reports
-      </Link>
+      {/* How you follow up (Director, 2026-09-30): where "fixed" shows up and
+          "Not fixed" lives, and where a complaint's progress shows up.
+          /instasolver/my-complaints arrives with PR #4144. */}
+      <nav aria-label="Follow up" className="grid grid-cols-2 gap-3">
+        <Link href="/instasolver/my-reports" className={FOLLOW_UP_LINK}>
+          <ListChecks className="h-4 w-4" aria-hidden="true" />
+          My reports
+        </Link>
+        <Link href="/instasolver/my-complaints" className={FOLLOW_UP_LINK}>
+          <MessageSquareText className="h-4 w-4" aria-hidden="true" />
+          My complaints
+        </Link>
+      </nav>
     </div>
   );
 }

@@ -98,7 +98,7 @@ export default async function InstaSolverPage() {
       <div className="mt-4">
         <PageHeader
           title="InstaSolver"
-          description="Tell us what's wrong. It goes to the right person."
+          description="Tell us what's wrong. It goes to the right person, and you'll see when it's fixed."
         />
       </div>
       <ChooserClient canRaisePurchase={canRaisePurchase} />
