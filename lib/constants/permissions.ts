@@ -1567,6 +1567,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.consultants.analytics.view', label: 'View Consultant Analytics' },
       { key: 'admission.consultants.commissions.view', label: 'View Commissions' },
       { key: 'admission.consultants.commissions.manage', label: 'Manage Commissions & Payouts' },
+      { key: 'admission.consultants.commissions.configure', label: 'Configure Commission Payment Approvals' },
       { key: 'admission.consultants.referrals.view', label: 'View Referrals' },
       { key: 'admission.consultants.rewards.view', label: 'View Rewards' },
       { key: 'admission.consultants.rewards.manage', label: 'Manage Rewards Configuration' },

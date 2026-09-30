@@ -1181,6 +1181,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // commission machinery, matching its RPC.
   '/admission/consultants/payout-readiness': 'admission.consultants.commissions.view',
   '/admission/consultants/reconciliation': 'admission.consultants.commissions.view',
+  // Added 2026-09-28 — commission payment approval workflow (mirrors billing refunds).
+  '/admission/consultants/commission-payments': 'admission.consultants.commissions.view',
+  '/admission/consultants/commission-payments/[id]': 'admission.consultants.commissions.view',
+  '/admission/consultants/commission-approvals': 'admission.consultants.commissions.configure',
   '/admission/consultants/referrals': 'admission.consultants.referrals.view',
   // Added 2026-08-10 — read-only review worklist for agency credits that need a
   // human look. Gated on the enquiry-desk read permission, matching its RPC.
@@ -3218,6 +3222,18 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/consultants/payouts',
               label: 'Payouts',
               active: pathname === '/admission/consultants/payouts'
+            },
+            {
+              // Added 2026-09-28 — rate-card commission payments raised from the
+              // consultant's Commission Structure tab and their approval flow.
+              href: '/admission/consultants/commission-payments',
+              label: 'Commission Payments',
+              active: pathname.startsWith('/admission/consultants/commission-payments')
+            },
+            {
+              href: '/admission/consultants/commission-approvals',
+              label: 'Commission Approvals',
+              active: pathname === '/admission/consultants/commission-approvals'
             },
             {
               // Added 2026-08-17 — sits next to Payouts because it answers the
