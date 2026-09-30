@@ -18,6 +18,40 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 /** A task in one of these states is finished; anything else is still open. */
 export const TERMINAL_STATUS_KEYS = ['done', 'cancelled', 'archived'] as const;
+
+/**
+ * 'review' = the fixer has sent the finished-work photo and it waits for
+ * sign-off (a sent-back job returns to 'in_progress'). A note added then would
+ * reach a sign-off that was decided on the earlier photo, so a report in
+ * 'review' is NOT joined — the new report gets its own task.
+ */
+export const AWAITING_SIGN_OFF_STATUS = 'review';
+
+/** True when "Add to the open report" may add to a task in this state. */
+export function isJoinableStatus(statusKey: string | null | undefined): boolean {
+  if (!statusKey) return false;
+  if ((TERMINAL_STATUS_KEYS as readonly string[]).includes(statusKey)) return false;
+  return statusKey !== AWAITING_SIGN_OFF_STATUS;
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** project_tasks ids are UUIDs; anything else is refused before a query. */
+export function isUuid(value: unknown): value is string {
+  return typeof value === 'string' && UUID_PATTERN.test(value);
+}
+
+/**
+ * Printed stickers always point at the production site. The page that prints
+ * them may be opened from a preview or a local address, and a sticker that
+ * encodes that address is dead once it is on the wall.
+ */
+export const STICKER_ORIGIN = 'https://www.jkkn.ai';
+
+/** The URL a sticker's QR code opens. */
+export function stickerUrl(token: string): string {
+  return `${STICKER_ORIGIN}/instasolver/r/${encodeURIComponent(token)}`;
+}
 export const REPEAT_WINDOW_DAYS = 90;
 /** "Reported N times" shows from this many reports in the window. */
 export const REPEAT_BANNER_MIN = 2;
@@ -140,17 +174,16 @@ export interface RecentReports {
   count: number;
   /** True when the read limit was hit, so the count is "at least". */
   capped: boolean;
-  /** The newest report that is still open, if any. */
+  /** The newest report that can still take "Add to the open report", if any. */
   openTask: RecentReportRow | null;
 }
 
-/** Pure: the newest row whose status is not terminal. Rows arrive newest first. */
+/**
+ * Pure: the newest row that can still be joined — open and not waiting for
+ * sign-off (isJoinableStatus). Rows arrive newest first.
+ */
 export function pickOpenTask(rows: RecentReportRow[]): RecentReportRow | null {
-  return (
-    rows.find(
-      (r) => !(TERMINAL_STATUS_KEYS as readonly string[]).includes(r.status_key)
-    ) ?? null
-  );
+  return rows.find((r) => isJoinableStatus(r.status_key)) ?? null;
 }
 
 /**

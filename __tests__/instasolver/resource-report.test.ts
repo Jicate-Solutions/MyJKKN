@@ -28,7 +28,14 @@ function readPath(row: Row, col: string): unknown {
   return row[col];
 }
 
-function makeDb(tables: Record<string, Row[]>, log: { writes: Array<[string, string, any]>; reads: string[] }) {
+type DbLog = {
+  writes: Array<[string, string, any]>;
+  reads: string[];
+  /** Runs after each maybeSingle read — lets a test change the row in between. */
+  onMaybeSingle?: (table: string) => void;
+};
+
+function makeDb(tables: Record<string, Row[]>, log: DbLog) {
   return {
     from(table: string) {
       log.reads.push(table);
@@ -39,6 +46,7 @@ function makeDb(tables: Record<string, Row[]>, log: { writes: Array<[string, str
       let orderCol: string | null = null;
       let orderAsc = true;
       let pendingUpdate: any = null;
+      let returnRows = false;
       const run = () => {
         let out = rows().filter((r) => filters.every((f) => f(r)));
         if (orderCol) {
@@ -53,6 +61,7 @@ function makeDb(tables: Record<string, Row[]>, log: { writes: Array<[string, str
       const chain: any = {
         select(_cols?: string, opts?: { head?: boolean }) {
           head = Boolean(opts?.head);
+          if (pendingUpdate) returnRows = true;
           return chain;
         },
         eq(col: string, val: unknown) {
@@ -83,7 +92,10 @@ function makeDb(tables: Record<string, Row[]>, log: { writes: Array<[string, str
           return chain;
         },
         async maybeSingle() {
-          return { data: run()[0] ?? null, error: null };
+          const row = run()[0] ?? null;
+          const data = row ? { ...row } : null;
+          log.onMaybeSingle?.(table);
+          return { data, error: null };
         },
         async single() {
           return { data: run()[0] ?? null, error: null };
@@ -99,9 +111,11 @@ function makeDb(tables: Record<string, Row[]>, log: { writes: Array<[string, str
         },
         then(resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) {
           if (pendingUpdate) {
-            for (const r of run()) Object.assign(r, pendingUpdate);
+            const hit = run();
+            // trg_*_updated_at: every update bumps updated_at.
+            for (const r of hit) Object.assign(r, pendingUpdate, { updated_at: `${r.updated_at ?? 't'}+` });
             log.writes.push(['update', table, pendingUpdate]);
-            return Promise.resolve({ error: null }).then(resolve, reject);
+            return Promise.resolve(returnRows ? { data: hit, error: null } : { error: null }).then(resolve, reject);
           }
           const out = run();
           return Promise.resolve(head ? { count: out.length, error: null } : { data: out, error: null }).then(
@@ -112,7 +126,14 @@ function makeDb(tables: Record<string, Row[]>, log: { writes: Array<[string, str
       };
       return chain;
     },
-    storage: { from: () => ({ upload: async () => ({ error: null }) }) },
+    storage: {
+      from: () => ({
+        upload: async (path: string, _body: unknown, opts: unknown) => {
+          log.writes.push(['upload', 'storage', { path, opts }]);
+          return { error: null };
+        },
+      }),
+    },
   };
 }
 
@@ -198,12 +219,15 @@ describe('resolveResourceReportOwner — caretaker, then estate office, then pri
 
 // ── 2 + 3. The API route ─────────────────────────────────────────────────────
 const TOKEN = 'res_0123456789abcdef0123456789abcdef';
+const OPEN_ID = '11111111-1111-4111-8111-111111111111';
+const DONE_ID = '22222222-2222-4222-8222-222222222222';
+const OTHER_ID = '33333333-3333-4333-8333-333333333333';
 const getUser = vi.fn();
 const createWalkTask = vi.fn();
 const createBellNotification = vi.fn();
 const resolveOwner = vi.fn();
 let adminTables: Record<string, Row[]>;
-const adminLog = { writes: [] as Array<[string, string, any]>, reads: [] as string[] };
+const adminLog: DbLog = { writes: [], reads: [] };
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: async () => ({
@@ -271,6 +295,7 @@ describe('POST /api/instasolver/resource-report', () => {
     vi.clearAllMocks();
     adminLog.writes = [];
     adminLog.reads = [];
+    adminLog.onMaybeSingle = undefined;
     adminTables = {
       instasolver_report_ledger: [],
       resources: [structuredClone(RESOURCE)],
@@ -341,28 +366,23 @@ describe('POST /api/instasolver/resource-report', () => {
     // D10: the owner is never told WHO reported it.
     expect(createBellNotification.mock.calls[0][1].createdBy).not.toBe('user-1');
 
-    const log = adminTables.resource_maintenance_logs[0];
-    expect(log).toMatchObject({
-      resource_id: 'res-1',
-      maintenance_type: 'corrective',
-      assigned_to_user_id: 'care-p',
-      created_by: 'user-1',
-    });
-    expect(log.notes).toContain('task-new');
+    // No maintenance-log row: nothing would ever close it (repair round 1 Oct).
+    expect(adminTables.resource_maintenance_logs).toHaveLength(0);
+    expect(adminLog.reads).not.toContain('resource_maintenance_logs');
     expect(adminTables.instasolver_report_ledger).toHaveLength(1);
   });
 
   it('adds to the OPEN report on the same item instead of creating a duplicate, and bells its owner', async () => {
     adminTables.project_tasks = [
       {
-        id: 'task-open',
+        id: OPEN_ID,
         title: 'Ceiling fan — noisy',
         status_key: 'todo',
         owner_staff_id: 'st-owner',
         metadata: { source: 'campus-walk', resource_id: 'res-1', additional_reports: [] },
       },
     ];
-    const res = await post({ token: TOKEN, description: 'Still broken', join_task_id: 'task-open' });
+    const res = await post({ token: TOKEN, description: 'Still broken', join_task_id: OPEN_ID });
     const body = await res.json();
     expect(res.status).toBe(200);
     expect(body.joined).toBe(true);
@@ -382,9 +402,9 @@ describe('POST /api/instasolver/resource-report', () => {
 
   it('files a new report when the task to join is closed', async () => {
     adminTables.project_tasks = [
-      { id: 'task-done', status_key: 'done', metadata: { source: 'campus-walk', resource_id: 'res-1' } },
+      { id: DONE_ID, status_key: 'done', metadata: { source: 'campus-walk', resource_id: 'res-1' } },
     ];
-    const res = await post({ token: TOKEN, description: 'Broken again', join_task_id: 'task-done' });
+    const res = await post({ token: TOKEN, description: 'Broken again', join_task_id: DONE_ID });
     const body = await res.json();
     expect(body.joined).toBe(false);
     expect(createWalkTask).toHaveBeenCalledTimes(1);
@@ -393,9 +413,9 @@ describe('POST /api/instasolver/resource-report', () => {
 
   it('never joins a task that belongs to a different item', async () => {
     adminTables.project_tasks = [
-      { id: 'task-x', status_key: 'todo', metadata: { source: 'campus-walk', resource_id: 'res-OTHER' } },
+      { id: OTHER_ID, status_key: 'todo', metadata: { source: 'campus-walk', resource_id: 'res-OTHER' } },
     ];
-    const res = await post({ token: TOKEN, description: 'Broken', join_task_id: 'task-x' });
+    const res = await post({ token: TOKEN, description: 'Broken', join_task_id: OTHER_ID });
     expect((await res.json()).joined).toBe(false);
     expect(createWalkTask).toHaveBeenCalledTimes(1);
     expect(adminTables.project_tasks[0].metadata.additional_reports).toBeUndefined();
@@ -403,12 +423,113 @@ describe('POST /api/instasolver/resource-report', () => {
 
   it('never folds a DANGEROUS report into an open one — it gets its own urgent task', async () => {
     adminTables.project_tasks = [
-      { id: 'task-open', status_key: 'todo', metadata: { source: 'campus-walk', resource_id: 'res-1' } },
+      { id: OPEN_ID, status_key: 'todo', metadata: { source: 'campus-walk', resource_id: 'res-1' } },
     ];
-    await post({ token: TOKEN, description: 'Sparks from the switch', dangerous: 'true', join_task_id: 'task-open' });
+    await post({ token: TOKEN, description: 'Sparks from the switch', dangerous: 'true', join_task_id: OPEN_ID });
     expect(createWalkTask).toHaveBeenCalledTimes(1);
     expect(createWalkTask.mock.calls[0][1].isUnsafe).toBe(true);
-    expect(adminTables.resource_maintenance_logs[0].maintenance_type).toBe('emergency');
+    expect(adminTables.resource_maintenance_logs).toHaveLength(0);
+  });
+
+  it('does not join a report that is waiting for sign-off — files a new one and says why', async () => {
+    adminTables.project_tasks = [
+      { id: OPEN_ID, status_key: 'review', updated_at: 't1', metadata: { source: 'campus-walk', resource_id: 'res-1' } },
+    ];
+    const res = await post({ token: TOKEN, description: 'Still dripping', join_task_id: OPEN_ID });
+    const body = await res.json();
+    expect(body.joined).toBe(false);
+    expect(body.notice).toMatch(/waiting for sign-off/);
+    expect(createWalkTask).toHaveBeenCalledTimes(1);
+    expect(adminTables.project_tasks[0].metadata.additional_reports).toBeUndefined();
+  });
+
+  it('refuses to add past the cap instead of dropping the oldest report', async () => {
+    const full = Array.from({ length: 50 }, (_, i) => ({ reporter_id: `r-${i}`, note: `n${i}`, photo_storage_path: null, at: 'x' }));
+    adminTables.project_tasks = [
+      { id: OPEN_ID, status_key: 'todo', updated_at: 't1', metadata: { source: 'campus-walk', resource_id: 'res-1', additional_reports: full } },
+    ];
+    const res = await post({ token: TOKEN, description: 'Again', join_task_id: OPEN_ID });
+    const body = await res.json();
+    expect(body.joined).toBe(false);
+    expect(body.notice).toMatch(/many reports/);
+    const kept = adminTables.project_tasks[0].metadata.additional_reports;
+    expect(kept).toHaveLength(50);
+    expect(kept[0].reporter_id).toBe('r-0');
+  });
+
+  it('refuses a join id that is not a task id, before any task is read', async () => {
+    const res = await post({ token: TOKEN, description: 'Broken', join_task_id: 'not-a-uuid' });
+    expect(res.status).toBe(400);
+    expect(createWalkTask).not.toHaveBeenCalled();
+    expect(adminLog.reads).not.toContain('project_tasks');
+  });
+
+  it('keeps a write that landed in between: re-reads and appends on top of it', async () => {
+    const task = {
+      id: OPEN_ID,
+      title: 'Ceiling fan — noisy',
+      status_key: 'todo',
+      owner_staff_id: 'st-owner',
+      updated_at: 't1',
+      metadata: { source: 'campus-walk', resource_id: 'res-1' } as Record<string, any>,
+    };
+    adminTables.project_tasks = [task];
+    // The fix route writes metadata.fix right after our first read.
+    let reads = 0;
+    adminLog.onMaybeSingle = (table) => {
+      if (table !== 'project_tasks' || ++reads !== 1) return;
+      task.metadata = { ...task.metadata, fix: { note: 'done' } };
+      task.updated_at = 't2';
+    };
+    const res = await post({ token: TOKEN, description: 'Still broken', join_task_id: OPEN_ID });
+    const body = await res.json();
+    expect(body.joined).toBe(true);
+    const meta = adminTables.project_tasks[0].metadata;
+    expect(meta.fix).toEqual({ note: 'done' });
+    expect(meta.additional_reports).toHaveLength(1);
+  });
+
+  it('charges the page cap and the ledger row to the ITEM’s college, not the reporter’s', async () => {
+    adminTables.resources = [{ ...structuredClone(RESOURCE), institution_id: 'inst-pharm' }];
+    const recent = new Date(Date.now() - 3600_000).toISOString();
+    // The reporter's own college has used its 20 pages; the item's has not.
+    adminTables.instasolver_report_ledger = Array.from({ length: 20 }, () => ({
+      reporter_id: 'x',
+      institution_id: 'inst-1',
+      paged: true,
+      created_at: recent,
+    }));
+    await post({ token: TOKEN, description: 'Sparks from the switch', dangerous: 'true' });
+    const input = createWalkTask.mock.calls[0][1];
+    expect(input.urgentPaging.whatsApp).toBe(true);
+    const mine = adminTables.instasolver_report_ledger.filter((r) => r.reporter_id === 'user-1');
+    expect(mine).toHaveLength(1);
+    expect(mine[0].institution_id).toBe('inst-pharm');
+  });
+
+  it('does not bell the owner twice when createWalkTask already sent its on-leave bell', async () => {
+    adminTables.project_tasks = [{ id: 'task-new', is_blocked: true }];
+    await post({ token: TOKEN, description: 'Fan is broken' });
+    expect(createBellNotification).not.toHaveBeenCalled();
+  });
+
+  it('stores each photo as its own object, never overwriting another report’s', async () => {
+    const bytes = new Uint8Array(2048).fill(7);
+    const { POST } = await import('@/app/api/instasolver/resource-report/route');
+    const send = async () => {
+      const form = new FormData();
+      form.set('token', TOKEN);
+      form.set('description', 'Fan is broken');
+      form.set('photo', new File([bytes], 'a.jpg', { type: 'image/jpeg' }));
+      return POST({ formData: async () => form } as any);
+    };
+    await send();
+    await send();
+    const uploads = adminLog.writes.filter((w) => w[0] === 'upload').map((w) => w[2]);
+    expect(uploads).toHaveLength(2);
+    expect(uploads[0].path).not.toBe(uploads[1].path);
+    expect(uploads[0].opts).toMatchObject({ upsert: false });
+    expect(uploads[0].path).toMatch(/^user-1\/resource-report\//);
   });
 
   it('refuses a code that is not a sticker code, and an unknown sticker, with reasons', async () => {
@@ -428,15 +549,16 @@ describe('POST /api/instasolver/resource-report', () => {
 
 // ── Pure helpers ─────────────────────────────────────────────────────────────
 describe('resource-report helpers', () => {
-  it('picks the newest OPEN report', async () => {
+  it('picks the newest report that can still be joined', async () => {
     const { pickOpenTask } = await import('@/lib/instasolver/resource-report');
     const rows = [
       { id: 'a', title: null, status_key: 'done', created_at: '3', owner_staff_id: null },
       { id: 'b', title: null, status_key: 'review', created_at: '2', owner_staff_id: null },
       { id: 'c', title: null, status_key: 'todo', created_at: '1', owner_staff_id: null },
     ];
-    expect(pickOpenTask(rows)?.id).toBe('b');
-    expect(pickOpenTask(rows.slice(0, 1))).toBeNull();
+    // 'review' = waiting for sign-off, so it is skipped for joining.
+    expect(pickOpenTask(rows)?.id).toBe('c');
+    expect(pickOpenTask(rows.slice(0, 2))).toBeNull();
   });
 
   it('formats the place without doubling labels', async () => {
@@ -445,6 +567,21 @@ describe('resource-report helpers', () => {
       'Building 2 · Block A · Room 104'
     );
     expect(formatPlace({})).toBe('');
+  });
+
+  it('only joins open reports that are not waiting for sign-off', async () => {
+    const { isJoinableStatus } = await import('@/lib/instasolver/resource-report');
+    expect(isJoinableStatus('todo')).toBe(true);
+    expect(isJoinableStatus('in_progress')).toBe(true);
+    expect(isJoinableStatus('review')).toBe(false);
+    expect(isJoinableStatus('done')).toBe(false);
+    expect(isJoinableStatus('cancelled')).toBe(false);
+    expect(isJoinableStatus(null)).toBe(false);
+  });
+
+  it('prints stickers for the production site, whatever page printed them', async () => {
+    const { stickerUrl } = await import('@/lib/instasolver/resource-report');
+    expect(stickerUrl(TOKEN)).toBe(`https://www.jkkn.ai/instasolver/r/${TOKEN}`);
   });
 
   it('accepts only sticker-shaped tokens', async () => {
@@ -512,5 +649,46 @@ describe('suggested places — aggregate only, no personal fields', () => {
     expect(labelMatchesInstitution('Dental College & Hospital', 'JKKN Dental College and Hospital')).toBe(true);
     expect(labelMatchesInstitution('Dental College & Hospital', 'JKKN College of Pharmacy')).toBe(false);
     expect(isCollegeLabel('Boys Hostel')).toBe(false);
+  });
+});
+
+// ── 5. Joined reports reach the fixer, the approver and the retention purge ──
+describe('joined reports — read for the screens, with no reporter identity', () => {
+  const meta = {
+    additional_reports: [
+      { reporter_id: 'u-9', raised_by_profile_id: 'u-9', reporter_role: 'faculty', note: ' Still broken ', photo_storage_path: 'u-9/resource-report/2026-10/a.jpg', at: '2026-10-01T08:00:00Z' },
+      { reporter_id: 'u-8', raised_by_profile_id: 'u-8', reporter_role: null, note: 'Water on the floor', photo_storage_path: null, at: '2026-10-01T09:00:00Z' },
+      { reporter_id: 'u-7', note: '', photo_storage_path: null, at: 'x' },
+      'junk',
+    ],
+  };
+
+  it('returns note, time and photo path only — never who reported it (D10)', async () => {
+    const { readJoinedReports } = await import('@/lib/campus-walk/joined-reports');
+    const out = readJoinedReports(meta);
+    expect(out).toEqual([
+      { note: 'Still broken', at: '2026-10-01T08:00:00Z', photoStoragePath: 'u-9/resource-report/2026-10/a.jpg' },
+      { note: 'Water on the floor', at: '2026-10-01T09:00:00Z', photoStoragePath: null },
+    ]);
+    expect(JSON.stringify(out)).not.toMatch(/u-9"|u-8|reporter|faculty/);
+    expect(readJoinedReports({})).toEqual([]);
+    expect(readJoinedReports(null)).toEqual([]);
+  });
+
+  it('lists every joined photo for signing and for the 90-day purge', async () => {
+    const { joinedReportPhotoPaths, countJoinedReports } = await import('@/lib/campus-walk/joined-reports');
+    expect(joinedReportPhotoPaths(meta)).toEqual(['u-9/resource-report/2026-10/a.jpg']);
+    expect(countJoinedReports(meta)).toBe(3);
+  });
+
+  it('the fix screen, the approvals screen and the retention cron all read it', () => {
+    for (const file of [
+      'app/(routes)/campus-walk/fix/page.tsx',
+      'app/(routes)/campus-walk/review/page.tsx',
+      'app/api/cron/campus-walk-photo-retention/route.ts',
+    ]) {
+      const src = readFileSync(join(process.cwd(), file), 'utf8');
+      expect(src, file).toMatch(/@\/lib\/campus-walk\/joined-reports/);
+    }
   });
 });

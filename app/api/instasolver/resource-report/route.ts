@@ -18,9 +18,13 @@
 //   - the place and the item come from the resource, not from typing;
 //   - the owner is the item's caretaker when one is recorded;
 //   - metadata.resource_id ties the task to the item, which is what powers
-//     "reported N times in the last 90 days" and "add to the open report";
-//   - a resource_maintenance_logs row, so the item's own maintenance history
-//     in Resource Management shows the report.
+//     "reported N times in the last 90 days" and "add to the open report".
+//
+// NO resource_maintenance_logs row (repair round, 1 Oct 2026): nothing in the
+// Campus Walk lane ever closes such a row, so every report showed as
+// "overdue" in Resource Management for ever once its due date passed. The
+// Campus Walk task is the record of the work. Writing the row back — and
+// completing it when the task closes — is a follow-up.
 //
 // SHARED, NOT COPIED:
 //   - the JPEG pipeline (isJpegMagic -> stripJpegMetadata -> scanJpegForMetadata)
@@ -36,7 +40,7 @@ export const runtime = 'nodejs';
 export const maxDuration = 30;
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
   isJpegMagic,
@@ -62,6 +66,8 @@ import {
   TERMINAL_STATUS_KEYS,
   buildReportTitle,
   formatLocation,
+  isJoinableStatus,
+  isUuid,
   isValidQrToken,
   loadResourceByToken,
   type ScannedResource,
@@ -70,12 +76,17 @@ import {
   OWNER_SOURCE_LABEL,
   resolveResourceReportOwner,
 } from '@/lib/instasolver/resource-report-owner';
+import {
+  MAX_JOINED_REPORTS,
+  countJoinedReports,
+  type JoinedReportEntry,
+} from '@/lib/campus-walk/joined-reports';
 
 const BUCKET = 'campus-walk';
 const MAX_BYTES = 10 * 1024 * 1024;
 const MIN_BYTES = 1024;
-/** How many extra reports one task keeps in metadata.additional_reports. */
-const MAX_JOINED_REPORTS = 50;
+/** Times the join re-reads the task when someone else wrote it in between. */
+const JOIN_ATTEMPTS = 3;
 
 function fail(error: string, status: number, extra?: Record<string, unknown>) {
   return NextResponse.json({ success: false, error, ...extra }, { status });
@@ -176,6 +187,12 @@ export async function POST(request: NextRequest) {
     String(form.get('dangerous') ?? '').trim().toLowerCase()
   );
   const joinTaskId = String(form.get('join_task_id') ?? '').trim() || null;
+  if (joinTaskId && !isUuid(joinTaskId)) {
+    return fail('That report link is not valid. Scan the sticker again.', 400);
+  }
+  // The page cap and the ledger row are charged to the ITEM's college — where
+  // the task is filed and the page is sent — and fall back to the reporter's.
+  const chargeInstitutionId = resource.institution_id ?? profile.institution_id ?? null;
 
   // ── Optional photo — the same strip-and-fail-closed pipeline ──────────────
   const rawPhoto = form.get('photo');
@@ -199,14 +216,16 @@ export async function POST(request: NextRequest) {
     if (!cleaned || !scanJpegForMetadata(cleaned).ok) {
       return fail('That photo could not be read. Try another one, or send without it.', 422);
     }
-    // Its own path segment, so the same bytes sent through the broken-thing
-    // form never overwrite (and later get purged under) this report's photo.
+    // One object per report: its own path segment AND a random suffix, so the
+    // same bytes sent twice (through this door or the broken-thing form) never
+    // share an object — otherwise purging one task's photo would delete the
+    // other task's.
     const sha256 = createHash('sha256').update(cleaned).digest('hex');
     const month = new Date().toISOString().slice(0, 7);
-    const storagePath = `${user.id}/resource-report/${month}/${sha256}.jpg`;
+    const storagePath = `${user.id}/resource-report/${month}/${sha256.slice(0, 32)}-${randomUUID()}.jpg`;
     const { error: upErr } = await admin.storage
       .from(BUCKET)
-      .upload(storagePath, cleaned, { contentType: 'image/jpeg', upsert: true });
+      .upload(storagePath, cleaned, { contentType: 'image/jpeg', upsert: false });
     if (upErr) {
       console.error('[instasolver/resource-report] upload failed:', upErr.message);
       return fail(
@@ -220,34 +239,54 @@ export async function POST(request: NextRequest) {
   // ── "Add to the open report" ──────────────────────────────────────────────
   // Never for a dangerous report: that must get its own same-day, paged task
   // rather than be folded into an ordinary one. The task id from the client
-  // is not trusted — it must be an OPEN report on THIS item.
+  // is not trusted — it must be an OPEN report on THIS item, not waiting for
+  // sign-off, and not already full.
+  //
+  // The note goes into metadata.additional_reports (shape: JoinedReportEntry,
+  // lib/campus-walk/joined-reports.ts). The fix screen, the approvals screen
+  // and the photo-retention cron all read it from there.
+  //
+  // Written with a version check on updated_at (bumped by
+  // trg_project_tasks_updated_at on every update): if the fix or review route
+  // wrote the task in between, re-read and try again, so neither side's keys
+  // are lost.
   let joinNotice: string | null = null;
   if (joinTaskId && !dangerous) {
-    const { data: task } = await admin
-      .from('project_tasks')
-      .select('id, title, status_key, owner_staff_id, metadata')
-      .eq('id', joinTaskId)
-      .maybeSingle();
-    const meta = (task?.metadata ?? {}) as Record<string, unknown>;
-    const joinable =
-      task &&
-      meta.resource_id === resource.id &&
-      meta.source === 'campus-walk' &&
-      !(TERMINAL_STATUS_KEYS as readonly string[]).includes(task.status_key as string);
+    let joinedTask: { id: string; title: string | null; owner_staff_id: string | null } | null = null;
+    let refusal: 'closed' | 'awaiting_sign_off' | 'full' | 'not_this_item' | 'busy' = 'busy';
 
-    if (joinable) {
-      const ledgerOk = await recordLedgerRow(admin, {
-        reporterId: user.id,
-        institutionId: profile.institution_id ?? null,
-        paged: false,
-      });
-      if (!ledgerOk) {
-        console.warn('[instasolver/resource-report] joined without a ledger row');
+    for (let attempt = 0; attempt < JOIN_ATTEMPTS && !joinedTask; attempt++) {
+      const { data: task, error: taskErr } = await admin
+        .from('project_tasks')
+        .select('id, title, status_key, owner_staff_id, metadata, updated_at')
+        .eq('id', joinTaskId)
+        .maybeSingle();
+      if (taskErr) {
+        console.error('[instasolver/resource-report] join lookup failed:', taskErr.message);
+        return fail('Could not check the open report just now. Please try again.', 503);
       }
-      const previous = Array.isArray(meta.additional_reports)
-        ? (meta.additional_reports as unknown[])
-        : [];
-      const entry = {
+      const meta = (task?.metadata ?? {}) as Record<string, unknown>;
+      if (!task || meta.resource_id !== resource.id || meta.source !== 'campus-walk') {
+        refusal = 'not_this_item';
+        break;
+      }
+      if ((TERMINAL_STATUS_KEYS as readonly string[]).includes(task.status_key as string)) {
+        refusal = 'closed';
+        break;
+      }
+      if (!isJoinableStatus(task.status_key as string)) {
+        refusal = 'awaiting_sign_off';
+        break;
+      }
+      if (countJoinedReports(meta) >= MAX_JOINED_REPORTS) {
+        // Refuse rather than drop the oldest: every entry is a person who is
+        // told when the job is fixed, and a dropped entry's photo would never
+        // be purged.
+        refusal = 'full';
+        break;
+      }
+
+      const entry: JoinedReportEntry = {
         reporter_id: user.id,
         raised_by_profile_id: user.id,
         reporter_role: profile.role ?? null,
@@ -255,24 +294,44 @@ export async function POST(request: NextRequest) {
         photo_storage_path: uploaded?.storagePath ?? null,
         at: new Date().toISOString(),
       };
-      const nextMeta = {
-        ...meta,
-        additional_reports: [...previous, entry].slice(-MAX_JOINED_REPORTS),
-      };
-      const { error: updErr } = await admin
+      const previous = Array.isArray(meta.additional_reports) ? (meta.additional_reports as unknown[]) : [];
+      const nextMeta = { ...meta, additional_reports: [...previous, entry] };
+
+      const { data: written, error: updErr } = await admin
         .from('project_tasks')
         .update({ metadata: nextMeta })
-        .eq('id', task.id);
+        .eq('id', task.id)
+        .eq('updated_at', task.updated_at)
+        .select('id');
       if (updErr) {
         console.error('[instasolver/resource-report] join update failed:', updErr.message);
         return fail('Could not add your note to the open report. Please try again.', 502);
       }
+      if (Array.isArray(written) && written.length > 0) {
+        joinedTask = {
+          id: task.id as string,
+          title: (task.title as string | null) ?? null,
+          owner_staff_id: (task.owner_staff_id as string | null) ?? null,
+        };
+      }
+      // Zero rows: someone wrote the task in between. Loop and re-read.
+    }
+
+    if (joinedTask) {
+      const ledgerOk = await recordLedgerRow(admin, {
+        reporterId: user.id,
+        institutionId: chargeInstitutionId,
+        paged: false,
+      });
+      if (!ledgerOk) {
+        console.warn('[instasolver/resource-report] joined without a ledger row');
+      }
 
       // Bell whoever owns the task now.
       let ownerProfileId: string | null = null;
-      if (task.owner_staff_id) {
-        const map = await mapStaffToProfilesLocal(admin, [task.owner_staff_id as string]);
-        ownerProfileId = map.get(task.owner_staff_id as string) ?? null;
+      if (joinedTask.owner_staff_id) {
+        const map = await mapStaffToProfilesLocal(admin, [joinedTask.owner_staff_id]);
+        ownerProfileId = map.get(joinedTask.owner_staff_id) ?? null;
       }
       if (ownerProfileId) {
         try {
@@ -282,10 +341,10 @@ export async function POST(request: NextRequest) {
             // bell is "from" its own recipient, as every campus-walk bell is.
             createdBy: ownerProfileId,
             title: `Reported again — ${resource.name.slice(0, 80)}`,
-            body: `Someone else has reported "${String(task.title ?? resource.name).slice(0, 120)}": ${description.slice(0, 200)}`,
-            url: `/campus-walk/fix?task=${task.id}`,
+            body: `Someone else has reported "${String(joinedTask.title ?? resource.name).slice(0, 120)}": ${description.slice(0, 200)}`,
+            url: `/campus-walk/fix?task=${joinedTask.id}`,
             category: 'instasolver:resource-report-joined',
-            metadata: { task_id: task.id, resource_id: resource.id, source: 'campus-walk' },
+            metadata: { task_id: joinedTask.id, resource_id: resource.id, source: 'campus-walk' },
           });
         } catch (e: unknown) {
           console.error(
@@ -298,7 +357,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         joined: true,
-        task_id: task.id,
+        task_id: joinedTask.id,
         routed_to: await ownerName(admin, ownerProfileId),
         notice: null,
         due_date: null,
@@ -306,9 +365,16 @@ export async function POST(request: NextRequest) {
         photo_saved: Boolean(uploaded),
       });
     }
-    // Closed in the meantime, or not this item's: file a new report instead
-    // of losing this one.
-    joinNotice = 'That report was already closed, so this was sent as a new report.';
+
+    // Not joinable: file a new report instead of losing this one, and say why.
+    joinNotice =
+      refusal === 'awaiting_sign_off'
+        ? 'The earlier report is already fixed and waiting for sign-off, so this was sent as a new report.'
+        : refusal === 'full'
+          ? 'The earlier report already has many reports added to it, so this was sent as a new report.'
+          : refusal === 'busy'
+            ? 'The earlier report was being updated just then, so this was sent as a new report.'
+            : 'That report was already closed, so this was sent as a new report.';
   }
 
   // ── New report ────────────────────────────────────────────────────────────
@@ -320,14 +386,14 @@ export async function POST(request: NextRequest) {
   if (dangerous && reporterCount.failed) {
     pageSuppressedReason = 'ledger_unavailable';
   } else if (dangerous) {
-    const pages = await countInstitutionPages(admin, profile.institution_id ?? null);
+    const pages = await countInstitutionPages(admin, chargeInstitutionId);
     if (pages.failed) pageSuppressedReason = 'ledger_unavailable';
     else if (pages.count >= INSTITUTION_PAGE_LIMIT_PER_DAY) pageSuppressedReason = 'institution_cap';
   }
   const mayPage = dangerous && pageSuppressedReason === null;
   const ledgerOk = await recordLedgerRow(admin, {
     reporterId: user.id,
-    institutionId: profile.institution_id ?? null,
+    institutionId: chargeInstitutionId,
     paged: mayPage,
   });
   if (!ledgerOk && dangerous) pageSuppressedReason = 'ledger_unavailable';
@@ -405,7 +471,19 @@ export async function POST(request: NextRequest) {
 
   // createWalkTask bells only on its own EAO fallback and leave paths; an
   // owner WE supplied who is available gets nothing from it. Bell them here.
+  // When that owner is on approved leave with nobody to hand over to,
+  // createWalkTask has already sent them its "clock paused" bell and marked
+  // the task is_blocked — skip ours then, so they are not belled twice.
+  let ownerAlreadyBelled = false;
   if (accountable && accountable === owner.profileId) {
+    const { data: created } = await admin
+      .from('project_tasks')
+      .select('is_blocked')
+      .eq('id', result.taskId)
+      .maybeSingle();
+    ownerAlreadyBelled = created?.is_blocked === true;
+  }
+  if (accountable && accountable === owner.profileId && !ownerAlreadyBelled) {
     try {
       await createBellNotification(admin, {
         recipientIds: [accountable],
@@ -423,25 +501,6 @@ export async function POST(request: NextRequest) {
         e instanceof Error ? e.message : e
       );
     }
-  }
-
-  // The item's own maintenance history. Best-effort: the task is the record
-  // of work; this row only makes the report visible from Resource Management.
-  // resource_maintenance_logs has no task column, so the task id goes in notes.
-  const { error: logErr } = await admin.from('resource_maintenance_logs').insert({
-    resource_id: resource.id,
-    maintenance_type: dangerous ? 'emergency' : 'corrective',
-    title: buildReportTitle(resource, description).slice(0, 255),
-    description,
-    scheduled_date: result.dueDate ?? new Date().toISOString().slice(0, 10),
-    status: 'scheduled',
-    priority: dangerous ? 4 : 2,
-    assigned_to_user_id: accountable,
-    notes: `Reported via InstaSolver (QR scan). Campus Walk task: ${result.taskId}`,
-    created_by: user.id,
-  });
-  if (logErr) {
-    console.error('[instasolver/resource-report] maintenance log insert failed:', logErr.message);
   }
 
   const routedTo = await ownerName(admin, accountable);

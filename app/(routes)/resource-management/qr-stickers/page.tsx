@@ -36,7 +36,7 @@ import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ParentCategoryService } from '@/lib/services/resource-management/parent-category-service';
 import { qrCodeService } from '@/lib/services/resource-management/qr-code-service';
-import { formatPlace } from '@/lib/instasolver/resource-report';
+import { formatPlace, stickerUrl } from '@/lib/instasolver/resource-report';
 
 const ALL = 'all';
 /** 3 × 5 = 15 stickers per A4 sheet: big enough to scan from a metre away. */
@@ -120,7 +120,6 @@ export default function QrStickersPage() {
     setPreparing(true);
     setError(null);
     try {
-      const origin = window.location.origin;
       const out: Sticker[] = [];
       let failed = 0;
       for (const row of rows) {
@@ -133,7 +132,7 @@ export default function QrStickersPage() {
             continue;
           }
         }
-        const qrDataUrl = await QRCode.toDataURL(`${origin}/instasolver/r/${token}`, {
+        const qrDataUrl = await QRCode.toDataURL(stickerUrl(token), {
           width: 320,
           margin: 1,
           errorCorrectionLevel: 'M',
@@ -185,7 +184,7 @@ export default function QrStickersPage() {
 
   return (
     <ContentLayout title="QR stickers">
-      <style jsx global>{`
+      <style>{`
         @media print {
           @page {
             size: A4 portrait;

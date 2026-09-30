@@ -94,6 +94,7 @@ export const maxDuration = 120;
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { getOccurrenceCount } from '@/lib/campus-walk/repeats';
+import { joinedReportPhotoPaths } from '@/lib/campus-walk/joined-reports';
 
 const BUCKET = 'campus-walk';
 
@@ -269,6 +270,10 @@ export async function GET(request: NextRequest) {
         if (typeof metadata.photo_storage_path === 'string') {
           paths.add(metadata.photo_storage_path);
         }
+        // Photos sent with "Add to the open report" (QR sticker) live only in
+        // metadata.additional_reports — they have no attachment row — so they
+        // are added here or they would never be purged.
+        for (const p of joinedReportPhotoPaths(metadata)) paths.add(p);
 
         // ── Ruling 1: recurring problem keeps its one problem photo ──────
         // "Recurring" is repeats.ts's own occurrence_count > 1, not a second
