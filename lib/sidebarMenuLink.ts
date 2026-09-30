@@ -327,6 +327,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/instasolver/broken': 'instasolver.view',
   '/instasolver/complaint': 'instasolver.view',
   '/instasolver/track/[token]': 'instasolver.view',
+  // The page a room's or an item's QR sticker opens (scan to report).
+  '/instasolver/r/[token]': 'instasolver.view',
 
   // Profile
   '/profile': 'view_profile', // All users should be able to view their own profile
@@ -1141,6 +1143,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/resource-management/maintenance': 'resources.maintenance.view',
   '/resource-management/analytics': 'resources.analytics.view',
   '/resource-management/analytics-dashboard': 'resources.analytics.view',
+  // InstaSolver QR stickers: preparing a sheet may write a missing sticker
+  // code, so it needs edit. Suggested places creates resources, so create.
+  '/resource-management/qr-stickers': 'resources.resources.edit',
+  '/resource-management/suggested-places': 'resources.resources.create',
   '/audit-trail': 'audit.view',
 
   // Service Requests
@@ -4233,6 +4239,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/resource-management/reservations/approvals', label: 'Reservations · Approvals', active: pathname.startsWith('/resource-management/reservations/approvals') },
             { href: '/resource-management/reservations/calendar', label: 'Reservations · Calendar', active: pathname === '/resource-management/reservations/calendar' },
             { href: '/resource-management/maintenance', label: 'Maintenance', active: pathname.startsWith('/resource-management/maintenance') },
+            { href: '/resource-management/qr-stickers', label: 'QR Stickers', active: pathname === '/resource-management/qr-stickers' },
+            { href: '/resource-management/suggested-places', label: 'Suggested Places', active: pathname === '/resource-management/suggested-places' },
           ]
         }
       ]
