@@ -10520,3 +10520,143 @@ REVOKE ALL ON SEQUENCE public.billing_bill_cancel_number_seq FROM anon, PUBLIC;
 ALTER TABLE public.billing_bill_cancel_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.billing_bill_cancel_request_actions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.billing_bill_cancel_approval_flows ENABLE ROW LEVEL SECURITY;
+
+
+-- ============================================================================
+-- Updated: 2026-09-29 - Salary revisions: ask -> principal's check -> the Director's yes or no
+-- The four tables and the one-open-request index. Copied from supabase/migrations/20270519090000_hr_salary_revision_requests.sql,
+-- which carries the full reasoning (the Director's 16 rulings of 29 Sep 2026).
+-- ============================================================================
+-- ----------------------------------------------------------------------------
+-- 1. Tables
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.hr_salary_revision_requests (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- The person whose pay it is.
+  staff_id               uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  -- Where they worked and in which department WHEN ASKED. Snapshots, so a
+  -- transfer does not move a request into another principal's list.
+  institution_id         uuid NOT NULL REFERENCES public.institutions(id),
+  department_id          uuid REFERENCES public.departments(id) ON DELETE SET NULL,
+
+  asked_by               uuid NOT NULL,
+  asked_as               text NOT NULL
+                           CHECK (asked_as IN ('director', 'hr_head', 'principal', 'hod')),
+  route                  text NOT NULL CHECK (route IN ('direct', 'via_principal')),
+  is_self                boolean NOT NULL DEFAULT false,
+  is_for_senior          boolean NOT NULL DEFAULT false,
+
+  current_monthly_gross  numeric(12,2) NOT NULL CHECK (current_monthly_gross > 0),
+  asked_monthly_gross    numeric(12,2) NOT NULL CHECK (asked_monthly_gross > 0),
+  is_cut                 boolean GENERATED ALWAYS AS (asked_monthly_gross < current_monthly_gross) STORED,
+  reason                 text NOT NULL
+                           CHECK (length(btrim(reason)) BETWEEN 1 AND 2000),
+
+  status                 text NOT NULL CHECK (status IN (
+                           'waiting_principal', 'waiting_director',
+                           'approved', 'applied', 'stopped', 'refused')),
+
+  principal_decided_by   uuid,
+  principal_decided_at   timestamptz,
+  director_decided_by    uuid,
+  director_decided_at    timestamptz,
+
+  final_monthly_gross    numeric(12,2) CHECK (final_monthly_gross > 0),
+  final_is_cut           boolean GENERATED ALWAYS AS (final_monthly_gross < current_monthly_gross) STORED,
+  starts_on              date,
+
+  applied_salary_id      uuid REFERENCES public.hr_staff_salaries(id),
+  applied_at             timestamptz,
+  -- Why an approved revision whose date has come could not be written yet.
+  apply_note             text,
+
+  created_at             timestamptz NOT NULL DEFAULT now(),
+  updated_at             timestamptz NOT NULL DEFAULT now(),
+
+  -- Only an HOD's request goes via the principal.
+  CONSTRAINT hr_srr_via_principal_is_hod
+    CHECK (route = 'direct' OR asked_as = 'hod'),
+  CONSTRAINT hr_srr_waiting_principal_route
+    CHECK (status <> 'waiting_principal' OR route = 'via_principal'),
+  -- A request that went via the principal left that step with a decision.
+  CONSTRAINT hr_srr_principal_decided
+    CHECK (route = 'direct' OR status = 'waiting_principal'
+           OR (principal_decided_by IS NOT NULL AND principal_decided_at IS NOT NULL)),
+  CONSTRAINT hr_srr_stopped_only_via_principal
+    CHECK (status <> 'stopped' OR route = 'via_principal'),
+  CONSTRAINT hr_srr_director_decided
+    CHECK (status NOT IN ('approved', 'applied', 'refused')
+           OR (director_decided_by IS NOT NULL AND director_decided_at IS NOT NULL)),
+  -- A yes always carries the figure and a start on the 1st of a month.
+  CONSTRAINT hr_srr_approved_has_figure_and_start
+    CHECK (status NOT IN ('approved', 'applied')
+           OR (final_monthly_gross IS NOT NULL AND starts_on IS NOT NULL
+               AND EXTRACT(DAY FROM starts_on) = 1)),
+  CONSTRAINT hr_srr_applied_has_salary
+    CHECK ((status = 'applied') = (applied_salary_id IS NOT NULL AND applied_at IS NOT NULL))
+);
+
+-- RULING 10: one open request per person. 'approved' counts as open: until the
+-- new pay is written, a second yes could be applied on top of the first.
+CREATE UNIQUE INDEX IF NOT EXISTS hr_salary_revision_requests_one_open
+  ON public.hr_salary_revision_requests (staff_id)
+  WHERE status IN ('waiting_principal', 'waiting_director', 'approved');
+
+CREATE INDEX IF NOT EXISTS hr_salary_revision_requests_status_idx
+  ON public.hr_salary_revision_requests (status, starts_on);
+CREATE INDEX IF NOT EXISTS hr_salary_revision_requests_institution_idx
+  ON public.hr_salary_revision_requests (institution_id);
+CREATE INDEX IF NOT EXISTS hr_salary_revision_requests_department_idx
+  ON public.hr_salary_revision_requests (department_id);
+CREATE INDEX IF NOT EXISTS hr_salary_revision_requests_asked_by_idx
+  ON public.hr_salary_revision_requests (asked_by);
+
+DROP TRIGGER IF EXISTS trg_hr_salary_revision_requests_updated_at ON public.hr_salary_revision_requests;
+CREATE TRIGGER trg_hr_salary_revision_requests_updated_at
+  BEFORE UPDATE ON public.hr_salary_revision_requests
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+COMMENT ON TABLE public.hr_salary_revision_requests IS
+  'A request to change one person''s monthly pay: asked by a principal, an HOD or the HR head; checked by the principal when an HOD asked; decided by the Director. The pay itself is written to hr_staff_salaries only on starts_on. See 20270519090000.';
+
+CREATE TABLE IF NOT EXISTS public.hr_salary_revision_comments (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_id  uuid NOT NULL REFERENCES public.hr_salary_revision_requests(id) ON DELETE CASCADE,
+  author_id   uuid NOT NULL,
+  body        text NOT NULL CHECK (length(btrim(body)) BETWEEN 1 AND 2000),
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS hr_salary_revision_comments_request_idx
+  ON public.hr_salary_revision_comments (request_id, created_at);
+
+COMMENT ON TABLE public.hr_salary_revision_comments IS
+  'Comments on a salary revision request, seen by whoever can see the request. Never by the person whose pay it is.';
+
+CREATE TABLE IF NOT EXISTS public.hr_salary_revision_decision_notes (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_id  uuid NOT NULL REFERENCES public.hr_salary_revision_requests(id) ON DELETE CASCADE,
+  kind        text NOT NULL CHECK (kind IN ('stopped', 'refused')),
+  reason      text NOT NULL CHECK (length(btrim(reason)) BETWEEN 1 AND 2000),
+  written_by  uuid NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_salary_revision_decision_notes_one UNIQUE (request_id, kind)
+);
+
+COMMENT ON TABLE public.hr_salary_revision_decision_notes IS
+  'Why a request was stopped (principal) or refused (Director). RULING 14: only the asker, the principal for an HOD''s request, and the Director see it — narrower than the request itself, hence its own table.';
+
+CREATE TABLE IF NOT EXISTS public.hr_salary_revision_outcomes (
+  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_id              uuid NOT NULL UNIQUE REFERENCES public.hr_salary_revision_requests(id) ON DELETE CASCADE,
+  staff_id                uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  previous_monthly_gross  numeric(12,2) NOT NULL,
+  new_monthly_gross       numeric(12,2) NOT NULL CHECK (new_monthly_gross > 0),
+  is_cut                  boolean GENERATED ALWAYS AS (new_monthly_gross < previous_monthly_gross) STORED,
+  starts_on               date NOT NULL CHECK (EXTRACT(DAY FROM starts_on) = 1),
+  created_at              timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS hr_salary_revision_outcomes_staff_idx
+  ON public.hr_salary_revision_outcomes (staff_id);
+
+COMMENT ON TABLE public.hr_salary_revision_outcomes IS
+  'What the person whose pay it is may know: the new monthly pay and the day it starts. Written only at the Director''s yes (ruling 5). Nothing about who asked, why, or any refusal.';

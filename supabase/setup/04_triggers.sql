@@ -2805,3 +2805,16 @@ DROP TRIGGER IF EXISTS trg_log_bill_cancel_activity ON public.billing_bill_cance
 CREATE TRIGGER trg_log_bill_cancel_activity
   AFTER INSERT ON public.billing_bill_cancel_request_actions
   FOR EACH ROW EXECUTE FUNCTION public._fn_log_bill_cancel_activity();
+
+-- ============================================================================
+-- Only the Director list may write the salary suggestion amounts
+-- Migration: 20270512090000_hr_salary_suggestion_inputs_rpc.sql (section 5)
+-- Added: 2026-09-30 - the Director's ruling: the per-department amounts
+-- (hr.salary_suggestion_rule) are editable ONLY by the Director list
+-- (fn_is_the_director(), #4121). Needs #4121 first. Function in 02_functions.sql.
+-- ============================================================================
+DROP TRIGGER IF EXISTS trg_guard_salary_suggestion_rule_writes ON public.platform_policies;
+CREATE TRIGGER trg_guard_salary_suggestion_rule_writes
+  BEFORE INSERT OR UPDATE OR DELETE ON public.platform_policies
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_guard_salary_suggestion_rule_writes();

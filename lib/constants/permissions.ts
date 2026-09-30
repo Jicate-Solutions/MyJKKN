@@ -1022,6 +1022,29 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.payroll.salary.view', label: 'View Employee Salary' },
       { key: 'hr.payroll.salary.manage', label: 'Manage Employee Salary' },
 
+      // ── Salary revisions: ask, check, approve (2026-09-29) ───────────────
+      // The Director's 16 rulings of 29 Sep 2026, built by
+      // 20270519090000_hr_salary_revision_requests.sql. SIX keys, because the
+      // rulings name three different scopes of asking and two different acts
+      // of deciding, and MENU_PERMISSIONS takes one key per page:
+      //   .ask                  opens "Salary Revisions" (the page key only)
+      //   .ask_own_college      principal: ask for people in their own college
+      //   .ask_own_department   HOD: ask for their own department (goes via the principal)
+      //   .ask_anyone           HR head: ask for anyone
+      //   .college_check        principal: agree to or stop an HOD's request
+      //   .approve              the final yes. Granted to NOBODY: the Director is
+      //                         a super admin and passes is_super_admin().
+      // The migration grants the first five to principal / hod / hr_head by
+      // role_key. A principal or HOD holding them sees the PAY of their own
+      // people inside these screens only (ruling 8) — Employee Salaries itself
+      // stays on hr.payroll.salary.view.
+      { key: 'hr.payroll.salary_revision.ask', label: 'Open Salary Revisions' },
+      { key: 'hr.payroll.salary_revision.ask_own_college', label: 'Ask for a Salary Revision (Own College)' },
+      { key: 'hr.payroll.salary_revision.ask_own_department', label: 'Ask for a Salary Revision (Own Department)' },
+      { key: 'hr.payroll.salary_revision.ask_anyone', label: 'Ask for a Salary Revision (Anyone)' },
+      { key: 'hr.payroll.salary_revision.college_check', label: "Principal's Check of Salary Revisions" },
+      { key: 'hr.payroll.salary_revision.approve', label: 'Approve Salary Revisions (Final Yes)' },
+
       // ── Employee bank account (2026-08-21) ───────────────────────────────
       // A THIRD pair, not a reuse of the salary keys. Amount and destination
       // are different questions: a payroll clerk who must see what someone
