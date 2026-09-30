@@ -10997,6 +10997,50 @@ GRANT EXECUTE ON FUNCTION fn_notification_is_for_user(JSONB, UUID) TO authentica
 -- 20260424_bos_align_institutions_id_and_drop_expert_fk.sql).
 -- ============================================================================
 
+-- ============================================================================
+-- Updated: 2026-09-30 - fn_is_the_director() (migration 20270520090000_the_director_list.sql)
+-- Placed HERE, before fn_get_policy(), because fn_get_policy below calls it
+-- and is LANGUAGE sql (its body is checked when it is created). The rest of
+-- the Director list (guard + audit triggers) is at the end of this file.
+-- Needs public.profiles and public.platform_policies (01_tables.sql) and
+-- auth.uid(); nothing else.
+-- ============================================================================
+-- ----------------------------------------------------------------------------
+-- 1. The check everyone else calls
+-- ----------------------------------------------------------------------------
+-- ci:allow-secdef-authenticated answers ONE yes/no about the caller themselves (auth.uid()); takes no argument, returns no id, list or other person's data. Every approval screen must be able to ask it for the signed-in user.
+CREATE OR REPLACE FUNCTION public.fn_is_the_director()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT auth.uid() IS NOT NULL
+     -- a deleted profile never counts, even while its id is still on the list
+     AND EXISTS (SELECT 1 FROM public.profiles pr WHERE pr.id = auth.uid())
+     AND COALESCE((
+           SELECT jsonb_typeof(pp.value) = 'array'
+              AND pp.value ? (auth.uid())::text
+             FROM public.platform_policies pp
+            WHERE pp.policy_key = 'platform.the_director_profile_ids'
+              AND pp.scope_type = 'global'
+              AND pp.scope_id IS NULL
+              AND pp.is_active = true
+            LIMIT 1
+         ), false);
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_is_the_director() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_is_the_director() TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.fn_is_the_director() IS
+  'True only when the signed-in caller is on platform_policies '
+  '''platform.the_director_profile_ids'' (global, active, a JSON array of '
+  'profile ids) and still has a profile row. NOT the same as is_super_admin(): 15 accounts are super '
+  'admins. Use this for the Director-only decisions (salary revision final '
+  'yes, appraisal rating override). Migration 20270520090000.';
+
 -- Resolution priority: user-override > institution-override > role-override > global default
 CREATE OR REPLACE FUNCTION fn_get_policy(p_key TEXT, p_scope_id UUID DEFAULT NULL)
 RETURNS JSONB
@@ -73039,38 +73083,11 @@ GRANT EXECUTE ON FUNCTION public.fn_learner_bill_year_visible(uuid, date) TO aut
 -- 'platform.the_director_profile_ids'), NOT is_super_admin() (15 accounts).
 -- ============================================================================
 -- ----------------------------------------------------------------------------
--- 1. The check everyone else calls
+-- 1. fn_is_the_director() is defined EARLIER in this file, just before
+--    fn_get_policy(), because fn_get_policy (LANGUAGE sql, body checked
+--    when created) calls it; replaying this file in order needs it first.
+--    Search 'the_director_profile_ids'.
 -- ----------------------------------------------------------------------------
--- ci:allow-secdef-authenticated answers ONE yes/no about the caller themselves (auth.uid()); takes no argument, returns no id, list or other person's data. Every approval screen must be able to ask it for the signed-in user.
-CREATE OR REPLACE FUNCTION public.fn_is_the_director()
-RETURNS boolean
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
-  SELECT auth.uid() IS NOT NULL
-     AND COALESCE((
-           SELECT jsonb_typeof(pp.value) = 'array'
-              AND pp.value ? (auth.uid())::text
-             FROM public.platform_policies pp
-            WHERE pp.policy_key = 'platform.the_director_profile_ids'
-              AND pp.scope_type = 'global'
-              AND pp.scope_id IS NULL
-              AND pp.is_active = true
-            LIMIT 1
-         ), false);
-$$;
-
-REVOKE EXECUTE ON FUNCTION public.fn_is_the_director() FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_is_the_director() TO authenticated, service_role;
-
-COMMENT ON FUNCTION public.fn_is_the_director() IS
-  'True only when the signed-in caller is on platform_policies '
-  '''platform.the_director_profile_ids'' (global, active, a JSON array of '
-  'profile ids). NOT the same as is_super_admin(): 15 accounts are super '
-  'admins. Use this for the Director-only decisions (salary revision final '
-  'yes, appraisal rating override). Migration 20270520090000.';
 
 -- ----------------------------------------------------------------------------
 -- 2. Guard: who may change the list, and the list can never be empty.
@@ -73089,6 +73106,7 @@ DECLARE
   v_role text := auth.role();
   v_seed boolean;
   v_bad  text;
+  v_live int;
 BEGIN
   IF NOT (   (TG_OP IN ('INSERT', 'UPDATE') AND NEW.policy_key = c_key)
           OR (TG_OP IN ('UPDATE', 'DELETE') AND OLD.policy_key = c_key)) THEN
@@ -73148,6 +73166,24 @@ BEGIN
        FROM jsonb_array_elements_text(NEW.value) AS t(e)),
     '[]'::jsonb);
 
+  -- b (continued). A list that names no EXISTING account (empty, or only
+  -- ids whose profile is gone), or a switched-off list, is refused, except
+  -- for the one seed insert in section 6: a direct database session (no JWT
+  -- role) that has set app.the_director_list_seed = 'on' for its own
+  -- transaction. Checked before the per-id check below, so taking the last
+  -- existing account off reads as "never empty", not as "unknown id".
+  v_seed := TG_OP = 'INSERT'
+        AND v_role IS NULL
+        AND current_setting('app.the_director_list_seed', true) = 'on';
+  SELECT count(*) INTO v_live
+    FROM jsonb_array_elements_text(NEW.value) AS t(e)
+    JOIN public.profiles p ON p.id = e::uuid;
+  IF (v_live = 0 OR NEW.is_active IS DISTINCT FROM true)
+     AND NOT v_seed THEN
+    RAISE EXCEPTION 'The Director list can never be empty or switched off, and must always name at least one existing account. Add another name before removing the last one.'
+      USING ERRCODE = '23514';
+  END IF;
+
   SELECT e INTO v_bad
     FROM jsonb_array_elements_text(NEW.value) AS t(e)
    WHERE NOT EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = e::uuid)
@@ -73155,18 +73191,6 @@ BEGIN
   IF FOUND THEN
     RAISE EXCEPTION 'No account has the id %. Only existing accounts can be on the Director list.', v_bad
       USING ERRCODE = '22023';
-  END IF;
-
-  -- b (continued). An empty or switched-off list is refused, except for the
-  -- one seed insert in section 6: a direct database session (no JWT role)
-  -- that has set app.the_director_list_seed = 'on' for its own transaction.
-  v_seed := TG_OP = 'INSERT'
-        AND v_role IS NULL
-        AND current_setting('app.the_director_list_seed', true) = 'on';
-  IF (NEW.value = '[]'::jsonb OR NEW.is_active IS DISTINCT FROM true)
-     AND NOT v_seed THEN
-    RAISE EXCEPTION 'The Director list can never be empty or switched off. Add another name before removing the last one.'
-      USING ERRCODE = '23514';
   END IF;
 
   -- d. WHO CHANGED IT.
@@ -73183,10 +73207,17 @@ COMMENT ON FUNCTION public.fn_guard_the_director_list() IS
   'BEFORE trigger on platform_policies for ''platform.the_director_profile_ids''. '
   'Who: only someone already on the list, service_role, or a direct DB session '
   'with no JWT (42501). Never empty (Director ruling 30 Sep 2026): no caller may '
-  'delete, rename, switch off or empty the row (23514); only the migration seed '
+  'delete, rename, switch off the row or leave it naming no existing account '
+  '(23514); a row trigger, so TRUNCATE / DISABLE TRIGGER are outside it; only the migration seed '
   'may insert an empty list. Shape: one global row, a JSON array of existing '
   'profile ids, stored lower-case/de-duplicated/sorted (22023). Sets updated_by '
   'and updated_at. Migration 20270520090000.';
+
+DROP TRIGGER IF EXISTS trg_guard_the_director_list ON public.platform_policies;
+CREATE TRIGGER trg_guard_the_director_list
+  BEFORE INSERT OR UPDATE OR DELETE ON public.platform_policies
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_guard_the_director_list();
 
 -- ----------------------------------------------------------------------------
 -- 3. Record every change a signed-in person makes (hr_policy_audit_log).
@@ -73239,6 +73270,13 @@ COMMENT ON FUNCTION public.fn_audit_the_director_list() IS
   'a change by a signed-in person writes one hr_policy_audit_log row (action '
   'publish, old and new list, edited_by = that person). Server-key and SQL '
   'console changes write none (edited_by is NOT NULL). Migration 20270520090000.';
+
+DROP TRIGGER IF EXISTS trg_audit_the_director_list ON public.platform_policies;
+CREATE TRIGGER trg_audit_the_director_list
+  AFTER INSERT OR UPDATE ON public.platform_policies
+  FOR EACH ROW
+  WHEN (NEW.policy_key = 'platform.the_director_profile_ids')
+  EXECUTE FUNCTION public.fn_audit_the_director_list();
 
 -- ----------------------------------------------------------------------------
 -- 7. fn_get_policy() and fn_internship_evaluate_policy() are patched IN PLACE by

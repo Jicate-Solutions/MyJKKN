@@ -114,12 +114,15 @@ GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA t TO anon, authenticated, service_role,
 \set NOPRO 'd0000000-0000-4000-8000-000000000007'
 \set BLANK 'd0000000-0000-4000-8000-000000000008'
 \set SPOOF 'd0000000-0000-4000-8000-000000000009'
+\set ADD   'd0000000-0000-4000-8000-00000000000c'
 
 \echo '== 1. Seed and grants'
-SELECT t.ok(t.list() = '["d0000000-0000-4000-8000-000000000001"]'::jsonb,
-  'seed = the ONE confirmed auth account for director@jkkn.ac.in (auth email had spaces and capitals)');
+SELECT t.ok(t.list() = '["d0000000-0000-4000-8000-000000000001","d0000000-0000-4000-8000-000000000006"]'::jsonb,
+  'seed = BOTH Directors: the ONE confirmed auth account for director@jkkn.ac.in (auth email had spaces and capitals) and the ONE for isvarya@jkkn.ac.in');
 SELECT t.ok(NOT (t.list() ? 'd0000000-0000-4000-8000-000000000009'),
   'seed ignores a person who edited their own profiles.email to director@jkkn.ac.in');
+SELECT t.ok(NOT (t.list() ? 'd0000000-0000-4000-8000-000000000008'),
+  'seed ignores a person who edited their own profiles.email to isvarya@jkkn.ac.in');
 SELECT t.ok((SELECT count(*) FROM public.platform_policies WHERE policy_key = :K) = 1,
   'applied twice: exactly one list row');
 SELECT t.ok((t.row()).updated_by IS NULL, 'seed row: updated_by is empty (made by the migration, no person)');
@@ -154,6 +157,8 @@ SELECT t.ok((SELECT proowner::regrole::text FROM pg_proc WHERE proname = 'fn_gua
 
 \echo '== 2. Who is the Director'
 SELECT t.ok(t.is_dir(:'DIR'),        'the Director => true');
+SELECT t.ok(t.is_dir(:'JMD'),        'the Joint MD (isvarya@jkkn.ac.in) => true');
+SELECT t.ok(NOT t.is_dir(:'ADD'),    'a third person not (yet) on the list => false');
 SELECT t.ok(NOT t.is_dir(:'DEV'),    'another active super admin (developer) => false');
 SELECT t.ok(NOT t.is_dir(:'TSA'),    'the shared test super admin => false');
 SELECT t.ok(NOT t.is_dir(:'PRIN'),   'a principal => false');
@@ -221,7 +226,7 @@ SELECT t.ok(t.q(:'SPOOF', $q$SELECT public.fn_get_policy('platform.the_director_
 SELECT t.ok(t.q(:'NOPRO', $q$SELECT public.fn_get_policy('platform.the_director_profile_ids', NULL) IS NULL$q$)::boolean, 'no-profile user: fn_get_policy(list) => nothing');
 SELECT t.ok(t.q(:'BLANK', $q$SELECT public.fn_get_policy('platform.the_director_profile_ids', NULL) IS NULL$q$)::boolean, 'no-role user: fn_get_policy(list) => nothing');
 SELECT t.ok(t.q(NULL,     $q$SELECT public.fn_get_policy('platform.the_director_profile_ids', NULL) IS NULL$q$)::boolean, 'NULL uid: fn_get_policy(list) => nothing');
-SELECT t.ok(t.q(:'DIR',   $q$SELECT public.fn_get_policy('platform.the_director_profile_ids', NULL) = '["d0000000-0000-4000-8000-000000000001"]'::jsonb$q$)::boolean, 'Director: fn_get_policy(list) => the list');
+SELECT t.ok(t.q(:'DIR',   $q$SELECT public.fn_get_policy('platform.the_director_profile_ids', NULL) = '["d0000000-0000-4000-8000-000000000001","d0000000-0000-4000-8000-000000000006"]'::jsonb$q$)::boolean, 'Director: fn_get_policy(list) => the list');
 SELECT t.ok(t.q(:'DEV',   $q$SELECT public.fn_get_policy('platform.the_director_profile_ids', NULL) IS NOT NULL$q$)::boolean, 'super admin: fn_get_policy(list) => the list');
 SELECT t.ok(t.q(:'DIR',   $q$SELECT public.fn_internship_evaluate_policy('platform.the_director_profile_ids', '{}'::jsonb) ->> 'source' = 'global_policy'$q$)::boolean, 'Director: internship reader => the list');
 SELECT t.ok(t.q(:'HOD',   $q$SELECT public.fn_get_policy('hr.attendance.geofence_radius_m', NULL) = '200'::jsonb$q$)::boolean, 'HOD: fn_get_policy still returns an ordinary key');
@@ -285,9 +290,9 @@ SELECT t.must_not_change($q$UPDATE public.platform_policies SET value = '[]' WHE
   'anon UPDATE the list');
 RESET ROLE;
 SELECT t.claims(NULL, NULL);
-SELECT t.ok(t.list() = '["d0000000-0000-4000-8000-000000000001"]'::jsonb, 'after all refused attempts the list is unchanged');
+SELECT t.ok(t.list() = '["d0000000-0000-4000-8000-000000000001","d0000000-0000-4000-8000-000000000006"]'::jsonb, 'after all refused attempts the list is unchanged');
 
-\echo '== 7. The Director adds a second person; ids are checked; the change is recorded'
+\echo '== 7. The Director adds a third person (one row change); ids are checked; the change is recorded'
 SELECT t.claims(:'DIR', 'authenticated'); SET ROLE authenticated;
 SELECT t.must_fail_22023($q$UPDATE public.platform_policies SET value = '["not-a-profile-id"]' WHERE policy_key = 'platform.the_director_profile_ids'$q$,
   'a value that is not a profile id');
@@ -300,22 +305,23 @@ SELECT t.must_fail_22023($q$UPDATE public.platform_policies SET value = '["d0000
 SELECT t.must_fail_22023($q$UPDATE public.platform_policies SET scope_type = 'user', scope_id = 'd0000000-0000-4000-8000-000000000001' WHERE policy_key = 'platform.the_director_profile_ids'$q$,
   'moving the list to one person''s scope');
 UPDATE public.platform_policies
-   SET value = '["D0000000-0000-4000-8000-000000000001","d0000000-0000-4000-8000-000000000006","d0000000-0000-4000-8000-000000000006"]'
+   SET value = '["D0000000-0000-4000-8000-000000000001","d0000000-0000-4000-8000-000000000006","d0000000-0000-4000-8000-00000000000C","d0000000-0000-4000-8000-00000000000c"]'
  WHERE policy_key = 'platform.the_director_profile_ids';
 RESET ROLE;
 SELECT t.claims(NULL, NULL);
-SELECT t.ok(t.list() = '["d0000000-0000-4000-8000-000000000001","d0000000-0000-4000-8000-000000000006"]'::jsonb,
+SELECT t.ok(t.list() = '["d0000000-0000-4000-8000-000000000001","d0000000-0000-4000-8000-000000000006","d0000000-0000-4000-8000-00000000000c"]'::jsonb,
   'stored cleaned: lower-case, de-duplicated, sorted');
 SELECT t.ok((t.row()).updated_by = :'DIR'::uuid, 'updated_by = the Director');
 SELECT t.ok(t.audit_n() = 1, 'one audit row written');
 SELECT t.ok((SELECT edited_by = :'DIR'::uuid AND action = 'publish'
-                AND old_value = '["d0000000-0000-4000-8000-000000000001"]'::jsonb
-                AND new_value = '["d0000000-0000-4000-8000-000000000001","d0000000-0000-4000-8000-000000000006"]'::jsonb
+                AND old_value = '["d0000000-0000-4000-8000-000000000001","d0000000-0000-4000-8000-000000000006"]'::jsonb
+                AND new_value = '["d0000000-0000-4000-8000-000000000001","d0000000-0000-4000-8000-000000000006","d0000000-0000-4000-8000-00000000000c"]'::jsonb
                 AND policy_id = (t.row()).id
-                AND reason = 'Changed who counts as the Director: 1 name(s) before, 2 after.'
+                AND reason = 'Changed who counts as the Director: 2 name(s) before, 3 after.'
                FROM public.hr_policy_audit_log WHERE policy_key = :K),
   'audit row: who (the Director), what (old and new list), publish');
-SELECT t.ok(t.is_dir(:'JMD'),       'the added person (Joint MD) => true');
+SELECT t.ok(t.is_dir(:'ADD'),       'the added third person => true');
+SELECT t.ok(t.is_dir(:'JMD'),       'the Joint MD still => true');
 SELECT t.ok(t.is_dir(:'DIR'),       'the Director still => true');
 SELECT t.ok(NOT t.is_dir(:'DEV'),   'developer super admin still => false');
 
@@ -334,8 +340,8 @@ SELECT t.claims(NULL, NULL);
 SET ROLE supa_owner;
 \ir ../../migrations/20270520090000_the_director_list.sql
 RESET ROLE;
-SELECT t.ok(t.list() = '["d0000000-0000-4000-8000-000000000001","d0000000-0000-4000-8000-000000000006"]'::jsonb,
-  'third apply: the edited two-person list is kept');
+SELECT t.ok(t.list() = '["d0000000-0000-4000-8000-000000000001","d0000000-0000-4000-8000-000000000006","d0000000-0000-4000-8000-00000000000c"]'::jsonb,
+  'third apply: the edited three-person list is kept');
 SELECT t.ok((SELECT count(*) FROM public.platform_policies WHERE policy_key = :K) = 1, 'third apply: still one row');
 SELECT t.ok((SELECT count(*) FROM regexp_matches(pg_get_functiondef('public.fn_internship_evaluate_policy(text, jsonb)'::regprocedure),
                  'p_key IS DISTINCT FROM ''platform\.the_director_profile_ids''', 'g')) = 3,
@@ -356,9 +362,10 @@ RESET ROLE;
 SELECT t.claims(NULL, NULL); SET ROLE supa_owner;
 SELECT t.must_keep($q$UPDATE public.platform_policies SET value = '[]' WHERE policy_key = 'platform.the_director_profile_ids'$q$, 'SQL console / migration empties the list');
 SELECT t.must_keep($q$DELETE FROM public.platform_policies WHERE policy_key = 'platform.the_director_profile_ids'$q$, 'SQL console / migration deletes the list');
-SELECT t.must_fail_22023($q$UPDATE public.platform_policies SET value = '["d0000000-0000-4000-8000-000000000007"]' WHERE policy_key = 'platform.the_director_profile_ids'$q$, 'SQL console puts an id with no profile on the list');
+SELECT t.must_keep($q$UPDATE public.platform_policies SET value = '["d0000000-0000-4000-8000-000000000007"]' WHERE policy_key = 'platform.the_director_profile_ids'$q$, 'SQL console leaves only an id with no profile (names no existing account)');
+SELECT t.must_fail_22023($q$UPDATE public.platform_policies SET value = '["d0000000-0000-4000-8000-000000000001","d0000000-0000-4000-8000-000000000007"]' WHERE policy_key = 'platform.the_director_profile_ids'$q$, 'SQL console adds an id with no profile next to a real one');
 RESET ROLE;
-SELECT t.ok(t.list() = '["d0000000-0000-4000-8000-000000000001","d0000000-0000-4000-8000-000000000006"]'::jsonb, 'after all refused attempts the list is unchanged');
+SELECT t.ok(t.list() = '["d0000000-0000-4000-8000-000000000001","d0000000-0000-4000-8000-000000000006","d0000000-0000-4000-8000-00000000000c"]'::jsonb, 'after all refused attempts the list is unchanged');
 -- one listed person can take another off, never the last one
 SELECT t.claims(:'JMD', 'authenticated'); SET ROLE authenticated;
 UPDATE public.platform_policies SET value = '["d0000000-0000-4000-8000-000000000006"]' WHERE policy_key = 'platform.the_director_profile_ids';
@@ -382,7 +389,7 @@ SELECT t.ok(NOT t.is_dir(:'DIR'), 'no list row: the Director => false');
 SELECT t.claims(NULL, NULL); SET ROLE supa_owner;
 \ir ../../migrations/20270520090000_the_director_list.sql
 RESET ROLE;
-SELECT t.ok(t.list() = '["d0000000-0000-4000-8000-000000000001"]'::jsonb, 're-apply after deletion re-seeds the Director');
+SELECT t.ok(t.list() = '["d0000000-0000-4000-8000-000000000001","d0000000-0000-4000-8000-000000000006"]'::jsonb, 're-apply after deletion re-seeds both Directors');
 
 \echo '== 12. Inactive row => false'
 ALTER TABLE public.platform_policies DISABLE TRIGGER trg_guard_the_director_list;
@@ -408,43 +415,44 @@ RESET ROLE;
 SELECT t.claims(NULL, NULL);
 SELECT t.ok(t.list() IS NULL, 'no empty list was created');
 
-\echo '== 14. The seed trusts only ONE confirmed auth account'
--- a. the address is not confirmed
+\echo '== 14. The seed trusts only ONE confirmed auth account per address; one missing still seeds the other'
+-- a. the Director's address is not confirmed: the Joint MD is still seeded
 UPDATE auth.users SET email_confirmed_at = NULL WHERE id = 'd0000000-0000-4000-8000-000000000001';
+SELECT t.drop_list();
 SET ROLE supa_owner;
 \ir ../../migrations/20270520090000_the_director_list.sql
 RESET ROLE;
-SELECT t.ok(t.list() = '[]'::jsonb, 'unconfirmed Director address: seeded an EMPTY list');
-SELECT t.ok(NOT t.is_dir(:'DIR'), 'empty seed: the Director => false');
+SELECT t.ok(t.list() = '["d0000000-0000-4000-8000-000000000006"]'::jsonb, 'unconfirmed director@ address: the Joint MD alone is seeded (NOTICE for the other)');
+SELECT t.ok(NOT t.is_dir(:'DIR') AND t.is_dir(:'JMD'), 'one seeded: the Director => false, the Joint MD => true');
 SELECT t.claims(:'DIR', 'authenticated'); SET ROLE authenticated;
-SELECT t.must_refuse($q$UPDATE public.platform_policies SET value = '["d0000000-0000-4000-8000-000000000001"]' WHERE policy_key = 'platform.the_director_profile_ids'$q$,
-  'empty seed: the Director cannot add himself from the app');
+SELECT t.must_refuse($q$UPDATE public.platform_policies SET value = '["d0000000-0000-4000-8000-000000000001","d0000000-0000-4000-8000-000000000006"]' WHERE policy_key = 'platform.the_director_profile_ids'$q$,
+  'one seeded: the Director cannot add himself from the app');
 RESET ROLE;
-SELECT t.claims(NULL, 'service_role'); SET ROLE service_role;
-UPDATE public.platform_policies SET value = '["d0000000-0000-4000-8000-000000000001"]' WHERE policy_key = 'platform.the_director_profile_ids';
+SELECT t.claims(:'JMD', 'authenticated'); SET ROLE authenticated;
+UPDATE public.platform_policies SET value = '["d0000000-0000-4000-8000-000000000001","d0000000-0000-4000-8000-000000000006"]' WHERE policy_key = 'platform.the_director_profile_ids';
 RESET ROLE;
 SELECT t.claims(NULL, NULL);
-SELECT t.ok(t.is_dir(:'DIR'), 'empty seed: service_role adds the Director => true');
+SELECT t.ok(t.is_dir(:'DIR'), 'one seeded: the Joint MD adds the Director back from the app => true');
 UPDATE auth.users SET email_confirmed_at = now() WHERE id = 'd0000000-0000-4000-8000-000000000001';
 
--- b. two confirmed accounts carry the address
+-- b. two confirmed accounts carry the Director's address: only the Joint MD
 SELECT t.drop_list();
 INSERT INTO auth.users (id, email, email_confirmed_at) VALUES ('d0000000-0000-4000-8000-00000000000a', 'director@jkkn.ac.in', now());
 INSERT INTO public.profiles (id, email, role) VALUES ('d0000000-0000-4000-8000-00000000000a', 'director@jkkn.ac.in', 'hod');
 SET ROLE supa_owner;
 \ir ../../migrations/20270520090000_the_director_list.sql
 RESET ROLE;
-SELECT t.ok(t.list() = '[]'::jsonb, 'two confirmed accounts with the address: seeded an EMPTY list, nobody guessed');
+SELECT t.ok(t.list() = '["d0000000-0000-4000-8000-000000000006"]'::jsonb, 'two confirmed accounts with director@: nobody guessed for that address, the Joint MD seeded');
 DELETE FROM auth.users WHERE id = 'd0000000-0000-4000-8000-00000000000a';
 DELETE FROM public.profiles WHERE id = 'd0000000-0000-4000-8000-00000000000a';
 
--- c. the account is deleted
+-- c. the Director's account is deleted
 SELECT t.drop_list();
 UPDATE auth.users SET deleted_at = now() WHERE id = 'd0000000-0000-4000-8000-000000000001';
 SET ROLE supa_owner;
 \ir ../../migrations/20270520090000_the_director_list.sql
 RESET ROLE;
-SELECT t.ok(t.list() = '[]'::jsonb, 'deleted Director account: seeded an EMPTY list');
+SELECT t.ok(t.list() = '["d0000000-0000-4000-8000-000000000006"]'::jsonb, 'deleted Director account: left out, the Joint MD seeded');
 UPDATE auth.users SET deleted_at = NULL WHERE id = 'd0000000-0000-4000-8000-000000000001';
 
 -- d. only a profile email says director@ (the spoof), no auth account does
@@ -453,23 +461,90 @@ UPDATE auth.users SET email = 'someone.else@jkkn.ac.in' WHERE id = 'd0000000-000
 SET ROLE supa_owner;
 \ir ../../migrations/20270520090000_the_director_list.sql
 RESET ROLE;
-SELECT t.ok(t.list() = '[]'::jsonb, 'only an edited profiles.email says director@: seeded an EMPTY list (profiles.email is not trusted)');
+SELECT t.ok(t.list() = '["d0000000-0000-4000-8000-000000000006"]'::jsonb, 'only an edited profiles.email says director@: the spoofer is NOT seeded (profiles.email is not trusted)');
 
--- e. the auth account exists but has no profile
+-- e. the Director's auth account exists but has no profile
 SELECT t.drop_list();
 UPDATE auth.users SET email = 'director@jkkn.ac.in' WHERE id = 'd0000000-0000-4000-8000-000000000007';
 SET ROLE supa_owner;
 \ir ../../migrations/20270520090000_the_director_list.sql
 RESET ROLE;
-SELECT t.ok(t.list() = '[]'::jsonb, 'Director auth account with no profile: seeded an EMPTY list');
+SELECT t.ok(t.list() = '["d0000000-0000-4000-8000-000000000006"]'::jsonb, 'director@ auth account with no profile: left out, the Joint MD seeded');
 UPDATE auth.users SET email = 'noprofile@jkkn.ac.in' WHERE id = 'd0000000-0000-4000-8000-000000000007';
 
--- f. back to the real case
+-- f. BOTH missing (director@ still pointed away, isvarya@ unconfirmed): empty
+SELECT t.drop_list();
+UPDATE auth.users SET email_confirmed_at = NULL WHERE id = 'd0000000-0000-4000-8000-000000000006';
+SET ROLE supa_owner;
+\ir ../../migrations/20270520090000_the_director_list.sql
+RESET ROLE;
+SELECT t.ok(t.list() = '[]'::jsonb, 'neither Director verifiable: seeded an EMPTY list, nobody guessed');
+SELECT t.ok(NOT t.is_dir(:'DIR') AND NOT t.is_dir(:'JMD'), 'empty seed: nobody is the Director');
+SELECT t.claims(:'JMD', 'authenticated'); SET ROLE authenticated;
+SELECT t.must_not_change($q$UPDATE public.platform_policies SET value = '["d0000000-0000-4000-8000-000000000006"]' WHERE policy_key = 'platform.the_director_profile_ids'$q$,
+  'empty seed: the Joint MD (not a super admin, so the row is not even visible) cannot add herself from the app');
+RESET ROLE;
+SELECT t.claims(:'DIR', 'authenticated'); SET ROLE authenticated;
+SELECT t.must_refuse($q$UPDATE public.platform_policies SET value = '["d0000000-0000-4000-8000-000000000001"]' WHERE policy_key = 'platform.the_director_profile_ids'$q$,
+  'empty seed: the Director (a super admin, sees the row) cannot add himself from the app');
+RESET ROLE;
+SELECT t.claims(NULL, 'service_role'); SET ROLE service_role;
+UPDATE public.platform_policies SET value = '["d0000000-0000-4000-8000-000000000001"]' WHERE policy_key = 'platform.the_director_profile_ids';
+RESET ROLE;
+SELECT t.claims(NULL, NULL);
+SELECT t.ok(t.is_dir(:'DIR'), 'empty seed: service_role adds the Director => true (the recovery path)');
+UPDATE auth.users SET email_confirmed_at = now() WHERE id = 'd0000000-0000-4000-8000-000000000006';
+
+-- g. back to the real case
 SELECT t.drop_list();
 UPDATE auth.users SET email = ' Director@JKKN.ac.in ' WHERE id = 'd0000000-0000-4000-8000-000000000001';
 SET ROLE supa_owner;
 \ir ../../migrations/20270520090000_the_director_list.sql
 RESET ROLE;
-SELECT t.ok(t.list() = '["d0000000-0000-4000-8000-000000000001"]'::jsonb, 'one confirmed account again: seeded the Director');
+SELECT t.ok(t.list() = '["d0000000-0000-4000-8000-000000000001","d0000000-0000-4000-8000-000000000006"]'::jsonb, 'both confirmed again: seeded both Directors');
+
+\echo '== 15. A deleted profile never counts; the list must keep one EXISTING account'
+SELECT t.claims(NULL, 'service_role'); SET ROLE service_role;
+UPDATE public.platform_policies SET value = '["d0000000-0000-4000-8000-000000000001","d0000000-0000-4000-8000-00000000000c"]' WHERE policy_key = 'platform.the_director_profile_ids';
+RESET ROLE;
+SELECT t.claims(NULL, NULL);
+SELECT t.ok(t.is_dir(:'ADD'), 'listed third person => true while the profile exists');
+DELETE FROM public.profiles WHERE id = 'd0000000-0000-4000-8000-00000000000c';  -- the sign-in account stays
+SELECT t.ok(NOT t.is_dir(:'ADD'), 'profile deleted, id still on the list, still signed in => false');
+SELECT t.ok(t.q(:'ADD', $q$SELECT public.fn_get_policy('platform.the_director_profile_ids', NULL) IS NULL$q$)::boolean,
+  'profile deleted: fn_get_policy(list) => nothing');
+SELECT t.claims(:'ADD', 'authenticated'); SET ROLE authenticated;
+SELECT t.must_not_change($q$UPDATE public.platform_policies SET value = '["d0000000-0000-4000-8000-00000000000c"]' WHERE policy_key = 'platform.the_director_profile_ids'$q$,
+  'profile deleted: that person cannot change the list');
+RESET ROLE;
+SELECT t.claims(:'DIR', 'authenticated'); SET ROLE authenticated;
+SELECT t.must_keep($q$UPDATE public.platform_policies SET value = '["d0000000-0000-4000-8000-00000000000c"]' WHERE policy_key = 'platform.the_director_profile_ids'$q$,
+  'the Director removes himself, leaving only a deleted profile (the last EXISTING account)');
+SELECT t.must_fail_22023($q$UPDATE public.platform_policies SET value = '["d0000000-0000-4000-8000-000000000001","d0000000-0000-4000-8000-000000000006","d0000000-0000-4000-8000-00000000000c"]' WHERE policy_key = 'platform.the_director_profile_ids'$q$,
+  'a change that keeps the deleted id is refused until it is taken off');
+UPDATE public.platform_policies SET value = '["d0000000-0000-4000-8000-000000000001","d0000000-0000-4000-8000-000000000006"]' WHERE policy_key = 'platform.the_director_profile_ids';
+RESET ROLE;
+SELECT t.claims(NULL, NULL);
+SELECT t.ok(t.list() = '["d0000000-0000-4000-8000-000000000001","d0000000-0000-4000-8000-000000000006"]'::jsonb, 'the Director took the deleted id off and kept the Joint MD: allowed');
+-- every listed profile gone: the list names nobody; only the server key / console can recover
+INSERT INTO public.profiles (id, email, role) VALUES ('d0000000-0000-4000-8000-00000000000c', 'registrar@jkkn.ac.in', 'admin');
+SELECT t.claims(NULL, 'service_role'); SET ROLE service_role;
+UPDATE public.platform_policies SET value = '["d0000000-0000-4000-8000-00000000000c"]' WHERE policy_key = 'platform.the_director_profile_ids';
+RESET ROLE;
+SELECT t.claims(NULL, NULL);
+DELETE FROM public.profiles WHERE id = 'd0000000-0000-4000-8000-00000000000c';
+SELECT t.ok(NOT t.is_dir(:'ADD') AND NOT t.is_dir(:'DIR') AND NOT t.is_dir(:'JMD'),
+  'every listed profile deleted: nobody is the Director');
+SELECT t.claims(:'DIR', 'authenticated'); SET ROLE authenticated;
+SELECT t.must_refuse($q$UPDATE public.platform_policies SET value = '["d0000000-0000-4000-8000-000000000001"]' WHERE policy_key = 'platform.the_director_profile_ids'$q$,
+  'every listed profile deleted: the Director cannot put himself back from the app');
+RESET ROLE;
+SELECT t.claims(NULL, 'service_role'); SET ROLE service_role;
+SELECT t.must_keep($q$UPDATE public.platform_policies SET description = 'touched' WHERE policy_key = 'platform.the_director_profile_ids'$q$,
+  'service_role cannot save the list while it names no existing account');
+UPDATE public.platform_policies SET value = '["d0000000-0000-4000-8000-000000000001","d0000000-0000-4000-8000-000000000006"]' WHERE policy_key = 'platform.the_director_profile_ids';
+RESET ROLE;
+SELECT t.claims(NULL, NULL);
+SELECT t.ok(t.is_dir(:'DIR') AND t.is_dir(:'JMD'), 'recovery: service_role names both Directors again');
 
 \echo 'ALL CHECKS PASSED'

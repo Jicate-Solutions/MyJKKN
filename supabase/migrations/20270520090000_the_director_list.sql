@@ -5,6 +5,10 @@
 --   preview-as refusal (app side), a verified seed, a list that can never be
 --   empty, the generic policy readers closed for this key, profile ids checked,
 --   and every change recorded (updated_by + hr_policy_audit_log).
+-- Updated: 2026-09-30 (round 3, Director ruling 08:59 + reviewer A round 2):
+--   seed BOTH director@jkkn.ac.in and isvarya@jkkn.ac.in; a deleted profile
+--   never counts as the Director; the list must always name at least one
+--   EXISTING account; preview-as resolves the target by sign-in id (app side).
 -- ============================================================================
 --
 -- WHY
@@ -17,24 +21,36 @@
 --   one named list instead.
 --   Director ruling 30 Sep 2026 (1): the list can NEVER be empty; refuse the
 --   change that would empty it.
+--   Director ruling 30 Sep 2026 08:59: the Director list is exactly two
+--   accounts, director@jkkn.ac.in and isvarya@jkkn.ac.in, seeded both. Adding
+--   a third is one change to this row by either of them.
 --
 -- WHAT
 --   1. A row in the canonical config table platform_policies (the pattern in
 --      docs/architecture/config-table-pattern.md), key
 --      'platform.the_director_profile_ids', value = JSON array of profile ids.
---   2. public.fn_is_the_director() — true only when the caller is signed in
---      and their profile id is in that list. Missing row, inactive row, empty
---      list, a non-array value, or no signed-in user => false.
+--   2. public.fn_is_the_director() — true only when the caller is signed in,
+--      still has a profile, and their profile id is in that list. Missing row,
+--      inactive row, empty list, a non-array value, no signed-in user, or a
+--      deleted profile => false.
 --   3. Guard trigger (BEFORE insert/update/delete on platform_policies):
 --      a. WHO: only someone already on the list, service_role, or a database
 --         session with no signed-in user (a migration / the SQL console).
 --         A super admin who is not on the list is refused (42501).
---      b. NEVER EMPTY (ruling 30 Sep): for EVERY caller, service_role and the
---         SQL console included, the row cannot be deleted, renamed, switched
---         off, or set to an empty list (23514). The only way an empty list
---         can exist is section 6's seed, and only when no single verified
---         Director account exists at apply time. Such an empty list can only
---         be filled by service_role or the SQL console (nobody is on it).
+--      b. NEVER EMPTY (ruling 30 Sep): for EVERY caller whose change passes
+--         through the row's triggers, service_role and the SQL console
+--         included, the row cannot be deleted, renamed, switched off, or left
+--         naming no EXISTING account (23514). The only way an empty list can
+--         exist is section 6's seed, and only when neither Director account
+--         can be verified at apply time. Such an empty list can only be
+--         filled by service_role or the SQL console (nobody is on it).
+--         LIMIT: this is a row trigger. It does not see TRUNCATE, and anyone
+--         with owner rights can switch it off (ALTER TABLE ... DISABLE
+--         TRIGGER, or SET session_replication_role = replica). A person with
+--         the database console can therefore still empty the list; the
+--         trigger stops the app, the server key and ordinary console
+--         statements. Deleting a PROFILE that is on the list is not stopped
+--         here either: fn_is_the_director() simply stops counting that id.
 --      c. SHAPE: one global row; a JSON array of profile ids; every id must be
 --         an existing profile (22023). Stored lower-case, de-duplicated,
 --         sorted.
@@ -58,12 +74,14 @@
 --         time (section 7), not re-created from a repo copy, so a fix that
 --         exists only in production, or Draft #4111's pay-key gate on
 --         fn_get_policy, is kept.
---   6. Seed: the ONE auth account whose email is director@jkkn.ac.in, whose
---      email is confirmed, which is not deleted, and which has a profile.
---      Read from auth.users, NOT profiles.email (a person can edit their own
---      profiles.email, and it is not unique). Zero or more than one such
---      account => an EMPTY list and a NOTICE with the counts. ON CONFLICT DO
---      NOTHING: re-running never resets a list someone has since edited.
+--   6. Seed: for EACH of director@jkkn.ac.in and isvarya@jkkn.ac.in, the ONE
+--      auth account with that email, whose email is confirmed, which is not
+--      deleted, and which has a profile. Read from auth.users, NOT
+--      profiles.email (a person can edit their own profiles.email, and it is
+--      not unique). An address with zero or more than one such account is
+--      left out with a NOTICE giving the counts; the other is still seeded.
+--      Both left out => an EMPTY list and a NOTICE. ON CONFLICT DO NOTHING:
+--      re-running never resets a list someone has since edited.
 --
 -- NOT HERE: no UI, and no existing page calls fn_is_the_director() yet.
 --   The "preview as" refusal (a super admin must not get a real session as
@@ -92,6 +110,8 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
   SELECT auth.uid() IS NOT NULL
+     -- a deleted profile never counts, even while its id is still on the list
+     AND EXISTS (SELECT 1 FROM public.profiles pr WHERE pr.id = auth.uid())
      AND COALESCE((
            SELECT jsonb_typeof(pp.value) = 'array'
               AND pp.value ? (auth.uid())::text
@@ -110,7 +130,7 @@ GRANT  EXECUTE ON FUNCTION public.fn_is_the_director() TO authenticated, service
 COMMENT ON FUNCTION public.fn_is_the_director() IS
   'True only when the signed-in caller is on platform_policies '
   '''platform.the_director_profile_ids'' (global, active, a JSON array of '
-  'profile ids). NOT the same as is_super_admin(): 15 accounts are super '
+  'profile ids) and still has a profile row. NOT the same as is_super_admin(): 15 accounts are super '
   'admins. Use this for the Director-only decisions (salary revision final '
   'yes, appraisal rating override). Migration 20270520090000.';
 
@@ -131,6 +151,7 @@ DECLARE
   v_role text := auth.role();
   v_seed boolean;
   v_bad  text;
+  v_live int;
 BEGIN
   IF NOT (   (TG_OP IN ('INSERT', 'UPDATE') AND NEW.policy_key = c_key)
           OR (TG_OP IN ('UPDATE', 'DELETE') AND OLD.policy_key = c_key)) THEN
@@ -190,6 +211,24 @@ BEGIN
        FROM jsonb_array_elements_text(NEW.value) AS t(e)),
     '[]'::jsonb);
 
+  -- b (continued). A list that names no EXISTING account (empty, or only
+  -- ids whose profile is gone), or a switched-off list, is refused, except
+  -- for the one seed insert in section 6: a direct database session (no JWT
+  -- role) that has set app.the_director_list_seed = 'on' for its own
+  -- transaction. Checked before the per-id check below, so taking the last
+  -- existing account off reads as "never empty", not as "unknown id".
+  v_seed := TG_OP = 'INSERT'
+        AND v_role IS NULL
+        AND current_setting('app.the_director_list_seed', true) = 'on';
+  SELECT count(*) INTO v_live
+    FROM jsonb_array_elements_text(NEW.value) AS t(e)
+    JOIN public.profiles p ON p.id = e::uuid;
+  IF (v_live = 0 OR NEW.is_active IS DISTINCT FROM true)
+     AND NOT v_seed THEN
+    RAISE EXCEPTION 'The Director list can never be empty or switched off, and must always name at least one existing account. Add another name before removing the last one.'
+      USING ERRCODE = '23514';
+  END IF;
+
   SELECT e INTO v_bad
     FROM jsonb_array_elements_text(NEW.value) AS t(e)
    WHERE NOT EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = e::uuid)
@@ -197,18 +236,6 @@ BEGIN
   IF FOUND THEN
     RAISE EXCEPTION 'No account has the id %. Only existing accounts can be on the Director list.', v_bad
       USING ERRCODE = '22023';
-  END IF;
-
-  -- b (continued). An empty or switched-off list is refused, except for the
-  -- one seed insert in section 6: a direct database session (no JWT role)
-  -- that has set app.the_director_list_seed = 'on' for its own transaction.
-  v_seed := TG_OP = 'INSERT'
-        AND v_role IS NULL
-        AND current_setting('app.the_director_list_seed', true) = 'on';
-  IF (NEW.value = '[]'::jsonb OR NEW.is_active IS DISTINCT FROM true)
-     AND NOT v_seed THEN
-    RAISE EXCEPTION 'The Director list can never be empty or switched off. Add another name before removing the last one.'
-      USING ERRCODE = '23514';
   END IF;
 
   -- d. WHO CHANGED IT.
@@ -225,7 +252,8 @@ COMMENT ON FUNCTION public.fn_guard_the_director_list() IS
   'BEFORE trigger on platform_policies for ''platform.the_director_profile_ids''. '
   'Who: only someone already on the list, service_role, or a direct DB session '
   'with no JWT (42501). Never empty (Director ruling 30 Sep 2026): no caller may '
-  'delete, rename, switch off or empty the row (23514); only the migration seed '
+  'delete, rename, switch off the row or leave it naming no existing account '
+  '(23514); a row trigger, so TRUNCATE / DISABLE TRIGGER are outside it; only the migration seed '
   'may insert an empty list. Shape: one global row, a JSON array of existing '
   'profile ids, stored lower-case/de-duplicated/sorted (22023). Sets updated_by '
   'and updated_at. Migration 20270520090000.';
@@ -350,14 +378,17 @@ END
 $audit_read$;
 
 -- ----------------------------------------------------------------------------
--- 6. Seed: the ONE verified auth account for director@jkkn.ac.in.
---    Only this block may create an empty list (see section 2 b).
+-- 6. Seed: BOTH Directors (ruling 30 Sep 2026 08:59), each the ONE
+--    verified auth account for its address. Only this block may create an
+--    empty list (see section 2 b), and only when neither can be verified.
 -- ----------------------------------------------------------------------------
 DO $seed$
 DECLARE
+  v_email  text;
   v_auth_n int;
   v_n      int;
-  v_ids    jsonb;
+  v_id     text;
+  v_ids    jsonb := '[]'::jsonb;
 BEGIN
   IF EXISTS (SELECT 1 FROM public.platform_policies
               WHERE policy_key = 'platform.the_director_profile_ids'
@@ -366,23 +397,30 @@ BEGIN
     RETURN;
   END IF;
 
-  SELECT count(*) INTO v_auth_n
-    FROM auth.users u
-   WHERE lower(trim(u.email)) = 'director@jkkn.ac.in'
-     AND u.email_confirmed_at IS NOT NULL
-     AND u.deleted_at IS NULL;
+  FOREACH v_email IN ARRAY ARRAY['director@jkkn.ac.in', 'isvarya@jkkn.ac.in'] LOOP
+    SELECT count(*) INTO v_auth_n
+      FROM auth.users u
+     WHERE lower(trim(u.email)) = v_email
+       AND u.email_confirmed_at IS NOT NULL
+       AND u.deleted_at IS NULL;
 
-  SELECT count(*), COALESCE(jsonb_agg(p.id::text), '[]'::jsonb)
-    INTO v_n, v_ids
-    FROM auth.users u
-    JOIN public.profiles p ON p.id = u.id
-   WHERE lower(trim(u.email)) = 'director@jkkn.ac.in'
-     AND u.email_confirmed_at IS NOT NULL
-     AND u.deleted_at IS NULL;
+    SELECT count(*), min(p.id::text)
+      INTO v_n, v_id
+      FROM auth.users u
+      JOIN public.profiles p ON p.id = u.id
+     WHERE lower(trim(u.email)) = v_email
+       AND u.email_confirmed_at IS NOT NULL
+       AND u.deleted_at IS NULL;
 
-  IF v_n <> 1 THEN
-    RAISE NOTICE 'the_director_list: found % confirmed auth account(s) for director@jkkn.ac.in (% with a profile); exactly one is needed. Seeding an EMPTY list: fn_is_the_director() is false for everyone until service_role or the SQL console adds an id.', v_auth_n, v_n;
-    v_ids := '[]'::jsonb;
+    IF v_n = 1 THEN
+      v_ids := v_ids || to_jsonb(v_id);
+    ELSE
+      RAISE NOTICE 'the_director_list: found % confirmed auth account(s) for % (% with a profile); exactly one is needed, so % is NOT on the list. service_role or the SQL console can add the right id.', v_auth_n, v_email, v_n, v_email;
+    END IF;
+  END LOOP;
+
+  IF v_ids = '[]'::jsonb THEN
+    RAISE NOTICE 'the_director_list: neither Director account could be verified. Seeding an EMPTY list: fn_is_the_director() is false for everyone until service_role or the SQL console adds an id.';
   END IF;
 
   PERFORM set_config('app.the_director_list_seed', 'on', true);
@@ -391,10 +429,12 @@ BEGIN
     (policy_key, scope_type, scope_id, value, description, data_type, is_system, is_active)
   VALUES
     ('platform.the_director_profile_ids', 'global', NULL, v_ids,
-     'Who counts as "the Director" for Director-only decisions (salary revision '
-     'final yes, appraisal rating override). A JSON array of profile ids. Only '
-     'someone already on this list can change it, and it can never be emptied. '
-     'Read through fn_is_the_director(); is_super_admin() is NOT the Director.',
+     'Who counts as "the Director" for Director-only decisions (salary create '
+     'and edit, salary revision final yes, appraisal rating override). A JSON '
+     'array of profile ids; seeded with director@jkkn.ac.in and '
+     'isvarya@jkkn.ac.in (ruling 30 Sep 2026). Only someone already on this '
+     'list can change it, and it can never be emptied. Read through '
+     'fn_is_the_director(); is_super_admin() is NOT the Director.',
      'array', true, true)
   ON CONFLICT (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid))
   DO NOTHING;

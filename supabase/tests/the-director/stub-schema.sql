@@ -53,18 +53,22 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supa_owner IN SCHEMA public GRANT ALL ON TABLE
 ALTER DEFAULT PRIVILEGES FOR ROLE supa_owner IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon, authenticated, service_role;
 
 -- Auth accounts. d...01 is the Director: the auth email has stray spaces and
--- capitals (the seed trims and lower-cases). d...09 has EDITED their own
--- profiles.email to director@jkkn.ac.in; their auth email is their own.
+-- capitals (the seed trims and lower-cases). d...06 is the Joint MD, the
+-- second Director (isvarya@jkkn.ac.in, ruling 30 Sep 08:59). d...09 has
+-- EDITED their own profiles.email to director@jkkn.ac.in, and d...08 to
+-- isvarya@jkkn.ac.in; their auth emails are their own. d...0c is a third
+-- person a Director may add later.
 INSERT INTO auth.users (id, email, email_confirmed_at) VALUES
   ('d0000000-0000-4000-8000-000000000001', ' Director@JKKN.ac.in ',       now()),
   ('d0000000-0000-4000-8000-000000000002', 'dev.one@jkkn.ac.in',         now()),
   ('d0000000-0000-4000-8000-000000000003', 'test.superadmin@jkkn.ac.in', now()),
   ('d0000000-0000-4000-8000-000000000004', 'principal@jkkn.ac.in',       now()),
   ('d0000000-0000-4000-8000-000000000005', 'hod@jkkn.ac.in',             now()),
-  ('d0000000-0000-4000-8000-000000000006', 'jointmd@jkkn.ac.in',         now()),
+  ('d0000000-0000-4000-8000-000000000006', 'isvarya@jkkn.ac.in',         now()),
   ('d0000000-0000-4000-8000-000000000007', 'noprofile@jkkn.ac.in',       now()),
   ('d0000000-0000-4000-8000-000000000008', 'blank@jkkn.ac.in',           now()),
-  ('d0000000-0000-4000-8000-000000000009', 'spoof@jkkn.ac.in',           now());
+  ('d0000000-0000-4000-8000-000000000009', 'spoof@jkkn.ac.in',           now()),
+  ('d0000000-0000-4000-8000-00000000000c', 'registrar@jkkn.ac.in',       now());
 
 SET ROLE supa_owner;
 
@@ -98,9 +102,10 @@ INSERT INTO public.profiles (id, email, role, is_super_admin) VALUES
   ('d0000000-0000-4000-8000-000000000003', 'test.superadmin@jkkn.ac.in','super_admin', true),  -- the shared test account
   ('d0000000-0000-4000-8000-000000000004', 'principal@jkkn.ac.in',      'principal',   false),
   ('d0000000-0000-4000-8000-000000000005', 'hod@jkkn.ac.in',            'hod',         false),
-  ('d0000000-0000-4000-8000-000000000006', 'jointmd@jkkn.ac.in',        'admin',       false),
-  ('d0000000-0000-4000-8000-000000000008', 'blank@jkkn.ac.in',          NULL,          false), -- signed in, no role
-  ('d0000000-0000-4000-8000-000000000009', 'director@jkkn.ac.in',       'hod',         false); -- edited own profile email
+  ('d0000000-0000-4000-8000-000000000006', 'isvarya@jkkn.ac.in',        'admin',       false), -- the Joint MD
+  ('d0000000-0000-4000-8000-000000000008', 'isvarya@jkkn.ac.in',        NULL,          false), -- signed in, no role; edited own profile email
+  ('d0000000-0000-4000-8000-000000000009', 'director@jkkn.ac.in',       'hod',         false), -- edited own profile email
+  ('d0000000-0000-4000-8000-00000000000c', 'registrar@jkkn.ac.in',      'admin',       false); -- a third person
 -- d...0007 is a signed-in auth user with NO profile row at all.
 
 RESET ROLE;

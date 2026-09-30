@@ -3,9 +3,10 @@
 `supabase/migrations/20270520090000_the_director_list.sql` adds
 `fn_is_the_director()`, a guard trigger (who may change the list; the list can
 never be empty; ids must be real profiles), an audit trigger, RESTRICTIVE read
-policies on `platform_policies` and `hr_policy_audit_log`, a seed from the one
-confirmed `auth.users` account, and an in-place patch of the generic policy
-readers. CI has no database, so it is rehearsed on a throwaway local
+policies on `platform_policies` and `hr_policy_audit_log`, a seed of BOTH
+Directors (director@jkkn.ac.in and isvarya@jkkn.ac.in, each the one confirmed
+`auth.users` account with a profile), and an in-place patch of the generic
+policy readers. CI has no database, so it is rehearsed on a throwaway local
 PostgreSQL 16 cluster:
 
 ```bash
@@ -27,9 +28,13 @@ Every check is made as the role a PostgREST request would use
 (`SET ROLE authenticated` / `anon` / `service_role` plus
 `request.jwt.claims`), or as `supa_owner` with no claims for "the SQL console /
 a migration". People: the Director, a developer super admin, the shared test
-super admin, a principal, an HOD, the Joint MD, a signed-in user with no
-profile, a signed-in user with no role, and someone who edited their own
-`profiles.email` to director@jkkn.ac.in.
+super admin, a principal, an HOD, the Joint MD (isvarya@jkkn.ac.in, the
+second Director), a third person a Director adds, a signed-in user with no
+profile, a signed-in user with no role, and people who edited their own
+`profiles.email` to director@jkkn.ac.in or isvarya@jkkn.ac.in. Section 14
+seeds with one address unverifiable (the other is still seeded) and with
+both unverifiable (empty list). Section 15 deletes a listed person's profile:
+they stop counting, and the list must keep at least one existing account.
 
 `stub-schema.sql` holds only what the repo does not: the platform roles and
 the owner role, Supabase's own `auth.uid()` / `auth.role()`, a minimal
