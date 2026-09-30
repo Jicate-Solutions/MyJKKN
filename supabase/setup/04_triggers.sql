@@ -2867,3 +2867,13 @@ CREATE TRIGGER trg_hlb_reject_unfunded
      OR NEW.carried_forward < OLD.carried_forward
      OR NEW.entitled < OLD.entitled)
   EXECUTE FUNCTION public.hr_trig_reject_unfunded_after_balance_change();
+
+-- =====================================================================
+-- Updated: 2026-10-01 - HR memo detector run log + acknowledgement nudges
+-- Migration: 20270526090000_hr_memo_detector_schedule_disabled_with_dry_run.sql
+-- =====================================================================
+DROP TRIGGER IF EXISTS trg_hr_memo_nudges_updated_at ON public.hr_memo_nudges;
+CREATE TRIGGER trg_hr_memo_nudges_updated_at
+  BEFORE UPDATE ON public.hr_memo_nudges
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+

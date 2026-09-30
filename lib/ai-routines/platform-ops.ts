@@ -429,6 +429,22 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "notes": "Auth: Bearer or ?secret=. IST math: 07:00 UTC = 12:30 IST (minute_of_day 750)."
   },
   {
+    "id": "hr-memo-auto-detector",
+    "name": "HR memo detector + acknowledgement nudges",
+    "category": "platform-ops",
+    "type": "cron",
+    "schedule": "Daily · 07:30 IST (seeded OFF — enable at /admin/ai-routines)",
+    "triggerPath": "/api/cron/hr-memo-auto-detector",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based detector and reminder windows; no model involved.",
+    "whatItDoes": "Finds memo-worthy events (leave taken before approval, too many loss-of-pay days in a month), issues the memo, and chases memos nobody has answered: one reminder to the team member after 3 days, then one notice to their reporting head 3 days later.",
+    "configKnobs": "platform_policies 'hr.memo_auto_detector' = { mode: off | dry_run | live, staff_reminder_after_days: 3, hod_notice_after_days: 3, nudge_max_age_days: 30 }. Seeded dry_run. Trigger thresholds come from fn_get_hr_memo_triggers. Day/time editable at /admin/ai-routines.",
+    "sideEffects": "mode live: writes hr_memo_eligibility_events, hr_memos, hr_memo_state_transitions and hr_memo_nudges, and SENDS in-app notices (bell + web push; no WhatsApp). mode dry_run: writes ONE hr_memo_detector_runs row describing what it would do, and nothing else. mode off: nothing.",
+    "safeToManualTrigger": false,
+    "notes": "Schedule row seeded DISABLED by migration 20270526090000; the header of that migration has the exact statements to enable it. Auth: Bearer ONLY. ?dry_run=1 forces a preview of a live detector. IST math: 02:00 UTC = 07:30 IST (minute_of_day 450)."
+  },
+  {
     "id": "hr-policy-promote-detector",
     "name": "HR policy promotion detector (weekly)",
     "category": "platform-ops",
