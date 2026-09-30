@@ -443,3 +443,14 @@ Per memory `feedback_implementation_pivot_vs_verdict_semantics.md` — this IS a
 - **B.2 wave** — `/issues/requirements/new` form needs the parent-category whitelist enforcement; super_admin UI at `/admin/issues/parent-allowed-categories` writes the `platform_policies` row.
 
 *Final lockset captured 2026-05-04 15:48 IST · all 6 Director questions resolved · B.2 wave unblocked.*
+
+---
+
+## Follow-ups (open)
+
+Recorded 2026-10-01 from the blind review of PR #4156 (complaint privacy). Each is known, not fixed there.
+
+| # | Gap | Fix wanted | Pinned by |
+|---|-----|-----------|-----------|
+| F1 | The assignee of an ICC-only complaint (admitted by `grievance_tickets_update_icc_routed_assignee`, migration `20270624093700`) can set `is_icc_only = false` and keep herself as assignee, because substrate v2's `grievance_tickets_update` WITH CHECK arm `(is_icc_only = false AND assigned_to = auth.uid())` is OR'd with it. On a named row she can also set `raised_by_id` to herself and reassign. The people it admits are trusted with the complaint and no screen offers the toggle. | A BEFORE UPDATE column-guard trigger: a non-committee, non-admin actor may not change `is_icc_only`, `raised_by_id` or `assigned_to` on an ICC-only row. | `supabase/tests/grievance/20_privacy.sql` — the "KNOWN GAP (follow-up)" assertion; it must flip to "refused" when F1 lands. |
+| F2 | `grievance_history_select` (`rls_initplan_wrap_sweep.sql`, ~line 2050) lets any profile whose legacy role is admin, super_admin, staff, hod or principal read the history of ANY ticket, ICC-only rows included, and names roles instead of `user_has_permission()`. The table is live but no migration or app code writes it. | Recreate the policy on the ticket's own read rule (`EXISTS (SELECT 1 FROM grievance_tickets gt WHERE gt.id = ticket_id)` under the caller's RLS). First find what writes the table (live `pg_trigger` on `grievance_tickets`). | — |

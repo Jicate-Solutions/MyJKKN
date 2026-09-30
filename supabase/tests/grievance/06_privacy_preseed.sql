@@ -10,6 +10,11 @@
 --     filed_by comment branch — what the backfill must also scrub;
 --   * custom_roles.institution_scope and user_institution_access (production
 --     shape, types/supabase.ts), which fn_grievance_icc_reader_exists reads.
+--   * grievance_history (production shape, types/supabase.ts; defined by no
+--     migration), with rows the filers performed on their anonymous tickets and
+--     a handler's row — the backfill must de-name the first and keep the last;
+--   * a STAND-IN for a live-only history trigger that records auth.uid() as the
+--     actor on every ticket UPDATE — the shape the rating path must not feed.
 ALTER TABLE public.grievance_tickets
   ADD COLUMN IF NOT EXISTS satisfaction_rating integer,
   ADD COLUMN IF NOT EXISTS satisfaction_feedback text;
@@ -62,3 +67,23 @@ VALUES ('d1000000-0000-0000-0000-000000000005', '11000000-0000-0000-0000-0000000
 INSERT INTO grievance_comments (ticket_id, author_id, author_name, author_type, content) VALUES
   ('d1000000-0000-0000-0000-000000000005', 'b0000000-0000-0000-0000-000000000003', 'Filer F', 'staff', 'Adding a date, from the form filer'),
   ('d1000000-0000-0000-0000-000000000005', 'b0000000-0000-0000-0000-000000000002', 'Handler H', 'staff', 'Handler on the accreditation one');
+
+CREATE TABLE public.grievance_history (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  ticket_id uuid NOT NULL REFERENCES public.grievance_tickets(id) ON DELETE CASCADE,
+  action text NOT NULL, performed_by uuid, performed_at timestamptz DEFAULT now(),
+  old_value text, new_value text);
+GRANT SELECT ON public.grievance_history TO authenticated;  -- so the rehearsal can look, as the filer
+INSERT INTO grievance_history (ticket_id, action, performed_by) VALUES
+  ('d1000000-0000-0000-0000-000000000001', 'created',   'b0000000-0000-0000-0000-000000000003'),
+  ('d1000000-0000-0000-0000-000000000001', 'commented', 'b0000000-0000-0000-0000-000000000002'),
+  ('d1000000-0000-0000-0000-000000000005', 'created',   'b0000000-0000-0000-0000-000000000003');
+
+CREATE FUNCTION public.stub_grievance_history_on_update() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public AS $$
+BEGIN
+  INSERT INTO grievance_history (ticket_id, action, performed_by) VALUES (NEW.id, 'updated', auth.uid());
+  RETURN NEW;
+END $$;
+CREATE TRIGGER stub_grievance_history_on_update AFTER UPDATE ON public.grievance_tickets
+  FOR EACH ROW EXECUTE FUNCTION public.stub_grievance_history_on_update();

@@ -31,6 +31,14 @@ SELECT t_ok((SELECT author_id IS NULL AND author_name = 'Anonymous filer' FROM g
 SELECT t_ok((SELECT author_id = 'b0000000-0000-0000-0000-000000000002' AND author_name = 'Handler H' FROM grievance_comments
               WHERE content = 'Handler on the accreditation one'),
             'backfill: a handler''s comment on the /accreditation ticket is left alone');
+SELECT t_ok((SELECT count(*) FROM grievance_history WHERE performed_by = 'b0000000-0000-0000-0000-000000000003') = 0,
+            'backfill: grievance_history rows the filer performed on her anonymous tickets (raised_by_id or filed_by) are de-named');
+SELECT t_ok((SELECT count(*) FROM grievance_history WHERE ticket_id IN ('d1000000-0000-0000-0000-000000000001',
+                                                                     'd1000000-0000-0000-0000-000000000005')
+                                                   AND action = 'created' AND performed_by IS NULL) = 2,
+            'backfill: the de-named history rows are kept, only the actor is removed');
+SELECT t_ok((SELECT performed_by = 'b0000000-0000-0000-0000-000000000002' FROM grievance_history WHERE action = 'commented'),
+            'backfill: a handler''s history row on the same ticket is left alone');
 
 -- ----------------------------------------------- 2. anonymous never stores the filer
 INSERT INTO grievance_tickets (id, institution_id, ticket_number, category_id, subject, description, raised_by_type,
@@ -176,7 +184,18 @@ SELECT as_user('b0000000-0000-0000-0000-000000000003');
 SELECT t_ok((fn_grievance_track_conversation('anon_new_token_1111111111111111111111') ->> 'can_rate')::boolean, 'she can rate once resolved');
 SELECT t_ok(NOT (fn_grievance_track_rate('anon_new_token_1111111111111111111111', 6, NULL) ->> 'success')::boolean, '6 stars is refused');
 SELECT t_ok(NOT (fn_grievance_track_rate('anon_new_token_1111111111111111111111', 0, NULL) ->> 'success')::boolean, '0 stars is refused');
-SELECT t_ok((fn_grievance_track_rate('anon_new_token_1111111111111111111111', 4, '  Took a while  ') ->> 'success')::boolean, '4 stars is accepted');
+DO $$
+DECLARE v_before integer;
+BEGIN
+  SELECT count(*) INTO v_before FROM grievance_history WHERE ticket_id = 'd1000000-0000-0000-0000-000000000002';
+  PERFORM t_ok((fn_grievance_track_rate('anon_new_token_1111111111111111111111', 4, '  Took a while  ') ->> 'success')::boolean,
+               '4 stars is accepted');
+  PERFORM t_ok((SELECT count(*) FROM grievance_history WHERE ticket_id = 'd1000000-0000-0000-0000-000000000002') = v_before + 1,
+               'rating: the stand-in history trigger fired on the rating UPDATE');
+  PERFORM t_ok(NOT EXISTS (SELECT 1 FROM grievance_history WHERE performed_by = 'b0000000-0000-0000-0000-000000000003'),
+               'rating: a trigger recording auth.uid() does not write the anonymous filer onto her ticket''s history');
+  PERFORM t_ok(auth.uid() = 'b0000000-0000-0000-0000-000000000003', 'rating: the caller''s identity is restored after the UPDATE');
+END $$;
 SELECT t_ok((fn_grievance_track_conversation('anon_new_token_1111111111111111111111') ->> 'satisfaction_rating')::int = 4,
             'her rating shows back to her');
 SELECT as_user('b0000000-0000-0000-0000-000000000002');
@@ -223,6 +242,38 @@ SELECT t_ok((SELECT count(*) FROM grievance_tickets WHERE is_icc_only) = 0,
 RESET ROLE;
 SELECT t_ok((SELECT status = 'in_progress' FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000010'),
             'the routed assignee could act on it');
+
+-- The routed-assignee UPDATE policy next to substrate v2's grievance_tickets_update
+-- and raiser guard (both in 00_stubs.sql, as production has them).
+SELECT t_ok((SELECT count(*) FROM pg_policy WHERE polrelid = 'public.grievance_tickets'::regclass
+               AND polname IN ('grievance_tickets_update', 'grievance_tickets_update_icc_routed_assignee')) = 2,
+            'rehearsal: v2''s UPDATE policy and the routed-assignee UPDATE policy are both present');
+SELECT t_ok((SELECT count(*) FROM pg_trigger WHERE tgrelid = 'public.grievance_tickets'::regclass
+               AND tgname = 'trg_grievance_raiser_update_guard') = 1,
+            'rehearsal: the raiser guard is present');
+SET ROLE authenticated;
+SELECT as_user('b0000000-0000-0000-0000-000000000004');    -- Other O: the RAISER of d…011 (open), not icc_member
+DO $$ BEGIN
+  UPDATE grievance_tickets SET is_icc_only = false WHERE id = 'd1000000-0000-0000-0000-000000000011';
+  RAISE EXCEPTION 'FAIL: the raiser took her own complaint off ICC-only';
+EXCEPTION WHEN insufficient_privilege THEN NULL; END $$;
+DO $$ BEGIN
+  UPDATE grievance_tickets SET assigned_to = 'b0000000-0000-0000-0000-000000000004' WHERE id = 'd1000000-0000-0000-0000-000000000011';
+  RAISE EXCEPTION 'FAIL: the raiser reassigned her own ICC-only complaint';
+EXCEPTION WHEN insufficient_privilege THEN NULL; END $$;
+-- KNOWN, ACCEPTED GAP, pinned so any change to it is seen (follow-up:
+-- docs/INSTASOLVER-MODULE-SPEC.md, "Follow-ups"). The assignee admitted by
+-- grievance_tickets_update_icc_routed_assignee can take the row off ICC-only:
+-- v2's WITH CHECK arm (is_icc_only = false AND assigned_to = auth.uid()) is
+-- OR'd with this PR's. When the column-guard trigger lands, this assertion
+-- must flip to "refused".
+SELECT as_user('b0000000-0000-0000-0000-000000000005');    -- Plain Assignee of d…011
+UPDATE grievance_tickets SET is_icc_only = false WHERE id = 'd1000000-0000-0000-0000-000000000011';
+RESET ROLE;
+SELECT t_ok((SELECT is_icc_only = false AND assigned_to = 'b0000000-0000-0000-0000-000000000005'
+               FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000011'),
+            'KNOWN GAP (follow-up): the ICC-only assignee can reclassify the row to not ICC-only, keeping herself as assignee');
+UPDATE grievance_tickets SET is_icc_only = true WHERE id = 'd1000000-0000-0000-0000-000000000011';
 
 -- ----------------------------------------------- 8. is there a committee member who can read it?
 INSERT INTO custom_roles (role_key, role_name) VALUES ('icc_member', 'ICC member');

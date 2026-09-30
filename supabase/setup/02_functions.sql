@@ -76132,6 +76132,12 @@ GRANT  EXECUTE ON FUNCTION public.fn_grievance_track_answer(text, text) TO authe
 
 -- The filer rates the outcome, 1-5 stars and an optional note, once the
 -- complaint is resolved or closed. A later rating replaces the earlier one.
+-- The rating is the one write to grievance_tickets made while the anonymous
+-- filer's own session is the request identity (SECURITY DEFINER does not
+-- change auth.uid()). Any trigger that records auth.uid() as the actor — a
+-- live-only history or audit trigger, say — would write her id onto her own
+-- anonymous ticket. So the UPDATE runs with NO request identity (both places
+-- auth.uid() reads, transaction-local), restored straight after.
 CREATE OR REPLACE FUNCTION public.fn_grievance_track_rate(p_token text, p_rating integer, p_note text DEFAULT NULL)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -76142,6 +76148,8 @@ DECLARE
   v_id   uuid;
   v_t    public.grievance_tickets;
   v_note text := NULLIF(btrim(COALESCE(p_note, '')), '');
+  v_sub    text;
+  v_claims text;
 BEGIN
   IF auth.uid() IS NULL THEN
     RETURN jsonb_build_object('success', false, 'error', 'You are not signed in. Sign in and try again.');
@@ -76162,10 +76170,20 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'error', 'Please keep the note to 1000 characters or fewer.');
   END IF;
 
+  v_sub    := current_setting('request.jwt.claim.sub', true);
+  v_claims := current_setting('request.jwt.claims', true);
+  PERFORM set_config('request.jwt.claim.sub', '', true);
+  -- '{}' rather than '': a reader that casts the claims to jsonb without
+  -- NULLIF must still parse them.
+  PERFORM set_config('request.jwt.claims', '{}', true);
+
   UPDATE public.grievance_tickets
      SET satisfaction_rating = p_rating,
          satisfaction_feedback = v_note
    WHERE id = v_id;
+
+  PERFORM set_config('request.jwt.claim.sub', COALESCE(v_sub, ''), true);
+  PERFORM set_config('request.jwt.claims', COALESCE(v_claims, '{}'), true);
 
   RETURN jsonb_build_object('success', true);
 END;

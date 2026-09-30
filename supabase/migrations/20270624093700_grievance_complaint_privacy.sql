@@ -14,7 +14,10 @@
 --      writer (InstaSolver, the Learners Council board, the /accreditation
 --      form, anything later), not only the ones the app changed. Existing
 --      anonymous rows are scrubbed below, and the comments their filer wrote
---      (as raised_by_id OR as filed_by) are de-named the same way.
+--      (as raised_by_id OR as filed_by) are de-named the same way, as are the
+--      grievance_history rows she performed (live table, written by no code in
+--      this repo). The tracking-page rating writes the ticket with no request
+--      identity, so no actor-recording trigger can put her back.
 --      No sealed copy of the filer is kept anywhere: nothing in the system reads
 --      it (there is no abuse limit keyed on the filer), and a copy would be the
 --      one thing a handler could ask to have looked up.
@@ -125,6 +128,26 @@ BEGIN
        AND COALESCE(gt.is_anonymous, false)
        AND (gt.raised_by_id IS NOT NULL OR gt.filed_by IS NOT NULL)
        AND c.author_id IN (gt.raised_by_id, gt.filed_by);
+  END IF;
+END $$;
+
+-- grievance_history is LIVE (types/supabase.ts) but defined and written by no
+-- migration or app code in this repo — only a live-only trigger could fill it.
+-- Its read policy (rls_initplan_wrap_sweep.sql grievance_history_select) lets
+-- every admin / super_admin / staff / hod / principal read the history of ANY
+-- ticket, so a row the filer performed on her own anonymous ticket names her.
+-- De-named the same way, and before the ticket UPDATE below, which is what
+-- still knows who she was. Fires no trigger on grievance_tickets.
+DO $$
+BEGIN
+  IF to_regclass('public.grievance_history') IS NOT NULL THEN
+    UPDATE public.grievance_history h
+       SET performed_by = NULL
+      FROM public.grievance_tickets gt
+     WHERE gt.id = h.ticket_id
+       AND COALESCE(gt.is_anonymous, false)
+       AND (gt.raised_by_id IS NOT NULL OR gt.filed_by IS NOT NULL)
+       AND h.performed_by IN (gt.raised_by_id, gt.filed_by);
   END IF;
 END $$;
 
@@ -333,6 +356,12 @@ GRANT  EXECUTE ON FUNCTION public.fn_grievance_track_answer(text, text) TO authe
 
 -- The filer rates the outcome, 1-5 stars and an optional note, once the
 -- complaint is resolved or closed. A later rating replaces the earlier one.
+-- The rating is the one write to grievance_tickets made while the anonymous
+-- filer's own session is the request identity (SECURITY DEFINER does not
+-- change auth.uid()). Any trigger that records auth.uid() as the actor — a
+-- live-only history or audit trigger, say — would write her id onto her own
+-- anonymous ticket. So the UPDATE runs with NO request identity (both places
+-- auth.uid() reads, transaction-local), restored straight after.
 CREATE OR REPLACE FUNCTION public.fn_grievance_track_rate(p_token text, p_rating integer, p_note text DEFAULT NULL)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -343,6 +372,8 @@ DECLARE
   v_id   uuid;
   v_t    public.grievance_tickets;
   v_note text := NULLIF(btrim(COALESCE(p_note, '')), '');
+  v_sub    text;
+  v_claims text;
 BEGIN
   IF auth.uid() IS NULL THEN
     RETURN jsonb_build_object('success', false, 'error', 'You are not signed in. Sign in and try again.');
@@ -363,10 +394,20 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'error', 'Please keep the note to 1000 characters or fewer.');
   END IF;
 
+  v_sub    := current_setting('request.jwt.claim.sub', true);
+  v_claims := current_setting('request.jwt.claims', true);
+  PERFORM set_config('request.jwt.claim.sub', '', true);
+  -- '{}' rather than '': a reader that casts the claims to jsonb without
+  -- NULLIF must still parse them.
+  PERFORM set_config('request.jwt.claims', '{}', true);
+
   UPDATE public.grievance_tickets
      SET satisfaction_rating = p_rating,
          satisfaction_feedback = v_note
    WHERE id = v_id;
+
+  PERFORM set_config('request.jwt.claim.sub', COALESCE(v_sub, ''), true);
+  PERFORM set_config('request.jwt.claims', COALESCE(v_claims, '{}'), true);
 
   RETURN jsonb_build_object('success', true);
 END;
@@ -410,7 +451,9 @@ GRANT  EXECUTE ON FUNCTION public.fn_grievance_track_rate(text, integer, text) T
 -- which nulls raised_by_id before the WITH CHECK runs. The assignees this admits are
 -- the superior-route person, the ICC chair and the Director-policy person —
 -- people already trusted with the complaint's confidentiality. Not closed
--- here; a column guard would be a trigger of its own.
+-- here; a column guard would be a trigger of its own — follow-up F1 in
+-- docs/INSTASOLVER-MODULE-SPEC.md, pinned by the "KNOWN GAP" assertion in
+-- supabase/tests/grievance/20_privacy.sql.
 DROP POLICY IF EXISTS grievance_tickets_select_icc_routed_assignee ON public.grievance_tickets;
 CREATE POLICY grievance_tickets_select_icc_routed_assignee ON public.grievance_tickets
   FOR SELECT TO authenticated

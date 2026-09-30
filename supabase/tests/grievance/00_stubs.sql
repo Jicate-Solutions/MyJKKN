@@ -1,6 +1,7 @@
 -- Rehearsal stubs: the minimum of production MyJKKN the grievance escalation
--- migration touches. Column shapes and the grievance_tickets RLS policy are
--- copied from production (information_schema / pg_policy, read 2026-09-28).
+-- migration touches. Column shapes and the grievance_tickets INSERT / SELECT
+-- policies are copied from production (information_schema / pg_policy, read
+-- 2026-09-28); the UPDATE policy and raiser guard from substrate v2's file.
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon NOLOGIN; END IF;
@@ -134,6 +135,181 @@ CREATE POLICY grievance_tickets_select ON public.grievance_tickets FOR SELECT US
     WHERE ((ur.user_id = ( SELECT auth.uid() AS uid)) AND ((cr.role_key)::text = 'icc_member'::text)))))
   OR ((is_icc_only = false) AND ((assigned_to = ( SELECT auth.uid() AS uid)) OR (filed_by = ( SELECT auth.uid() AS uid))
      OR (( SELECT user_has_permission('grievance.tickets.view'::text) AS user_has_permission) AND role_has_institution_access(institution_id))))));
+
+-- Production's UPDATE policy and raiser column guard on grievance_tickets, as
+-- 20261213100000_instasolver_substrate_v2.sql creates them (copied from that
+-- file, comments included). Without them no rehearsal covers how an UPDATE
+-- policy added later combines with v2's OR'd WITH CHECK.
+CREATE POLICY "grievance_tickets_update" ON public.grievance_tickets FOR UPDATE
+USING (
+  (SELECT is_super_admin()) OR (SELECT is_admin())
+  -- (2) The complainant can still act on her own case while it is open.
+  -- UNCHANGED FROM PRODUCTION, which carries exactly
+  -- `(raised_by_id = auth.uid() AND status = 'open')` at top level. What she
+  -- may actually change on that row is NOT enforced by RLS and never was —
+  -- see section 5, which adds a BEFORE UPDATE trigger for it.
+  OR (raised_by_id = (SELECT auth.uid()) AND status IN ('open'))
+  -- (1) ICC-only tickets: that college's committee only (super_admin handled
+  -- by the first branch as break-glass). NEW ACCESS PATH, exactly as in the
+  -- SELECT policy — production has no is_icc_only branch, so this grants
+  -- update to institution-scoped icc_members rather than repairing a leak.
+  OR (
+    is_icc_only = true
+    AND role_has_institution_access(institution_id)
+    AND EXISTS (
+      SELECT 1
+      FROM public.user_roles ur
+      JOIN public.custom_roles cr ON ur.role_id = cr.id
+      WHERE ur.user_id = (SELECT auth.uid())
+        AND cr.role_key = 'icc_member'
+    )
+  )
+  -- Non-ICC-only: the branches production carries at TOP LEVEL, DEMOTED here.
+  -- On an ICC-only row the assignee and every holder of
+  -- grievance.tickets.edit therefore LOSE update unless they are also an
+  -- institution-scoped icc_member. Same intent and same justification as the
+  -- SELECT demotion above, and same reason it is safe to ship today: zero
+  -- is_icc_only = true rows exist in production. Listed as its own risk line
+  -- in the pull request.
+  OR (
+    is_icc_only = false
+    AND (
+      assigned_to = (SELECT auth.uid())
+      OR (
+        (SELECT user_has_permission('grievance.tickets.edit'))
+        AND role_has_institution_access(institution_id)
+      )
+    )
+  )
+)
+WITH CHECK (
+  (SELECT is_super_admin()) OR (SELECT is_admin())
+  OR raised_by_id = (SELECT auth.uid())
+  OR (
+    is_icc_only = true
+    AND role_has_institution_access(institution_id)
+    AND EXISTS (
+      SELECT 1
+      FROM public.user_roles ur
+      JOIN public.custom_roles cr ON ur.role_id = cr.id
+      WHERE ur.user_id = (SELECT auth.uid())
+        AND cr.role_key = 'icc_member'
+    )
+  )
+  OR (
+    is_icc_only = false
+    AND (
+      assigned_to = (SELECT auth.uid())
+      OR (
+        (SELECT user_has_permission('grievance.tickets.edit'))
+        AND role_has_institution_access(institution_id)
+      )
+    )
+  )
+);
+
+CREATE OR REPLACE FUNCTION public.fn_grievance_raiser_change_allowed(
+  p_old                  public.grievance_tickets,
+  p_new                  public.grievance_tickets,
+  p_actor_is_privileged  boolean
+)
+RETURNS text
+LANGUAGE plpgsql
+IMMUTABLE
+SET search_path = public, pg_temp
+AS $raiser_guard$
+DECLARE
+  v_allowed_status text[] := ARRAY['open', 'withdrawn'];
+BEGIN
+  -- Privileged actors (super_admin / admin / icc_member) are not constrained
+  -- here at all; RLS already decided they may write this row.
+  IF p_actor_is_privileged THEN
+    RETURN NULL;
+  END IF;
+
+  -- Columns the raiser may never touch on her own ticket.
+  IF coalesce(p_new.is_icc_only, false) IS DISTINCT FROM coalesce(p_old.is_icc_only, false) THEN
+    RETURN 'is_icc_only';
+  END IF;
+  IF p_new.assigned_to IS DISTINCT FROM p_old.assigned_to THEN
+    RETURN 'assigned_to';
+  END IF;
+  IF p_new.filed_by IS DISTINCT FROM p_old.filed_by THEN
+    RETURN 'filed_by';
+  END IF;
+  IF p_new.institution_id IS DISTINCT FROM p_old.institution_id THEN
+    RETURN 'institution_id';
+  END IF;
+  IF p_new.category_id IS DISTINCT FROM p_old.category_id THEN
+    RETURN 'category_id';
+  END IF;
+  IF p_new.raised_by_id IS DISTINCT FROM p_old.raised_by_id THEN
+    RETURN 'raised_by_id';
+  END IF;
+
+  -- Status: she may leave it alone or withdraw. She may not resolve or close
+  -- her own complaint, because that is what emits accreditation evidence.
+  IF p_new.status IS DISTINCT FROM p_old.status
+     AND NOT (p_new.status = ANY (v_allowed_status)) THEN
+    RETURN 'status';
+  END IF;
+
+  -- Anything else (description, subject, attachments, the timestamps the app
+  -- maintains) is hers to edit.
+  RETURN NULL;
+END;
+$raiser_guard$;
+
+COMMENT ON FUNCTION public.fn_grievance_raiser_change_allowed(public.grievance_tickets, public.grievance_tickets, boolean) IS
+  'Returns NULL when the proposed change is allowed, or the NAME of the first forbidden column when it is not. Pure and IMMUTABLE so it is unit-testable without a session identity — the trigger fn_grievance_raiser_update_guard resolves the actor and calls this. A non-privileged raiser may edit her own open ticket''s free text and withdraw it; she may not change is_icc_only, assigned_to, filed_by, institution_id, category_id or raised_by_id, and may not set status to anything but open or withdrawn (resolving it would emit NAAC/UGC evidence for a complaint no team member ever handled).';
+
+CREATE OR REPLACE FUNCTION public.fn_grievance_raiser_update_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $raiser_trigger$
+DECLARE
+  v_actor       uuid := auth.uid();
+  v_privileged  boolean;
+  v_blocked     text;
+BEGIN
+  -- Only the raiser acting on her own row is constrained. Staff writes are
+  -- governed by RLS and by the app.
+  IF v_actor IS NULL OR OLD.raised_by_id IS NULL OR OLD.raised_by_id <> v_actor THEN
+    RETURN NEW;
+  END IF;
+
+  v_privileged := coalesce(public.is_super_admin(), false)
+               OR coalesce(public.is_admin(), false)
+               OR EXISTS (
+                    SELECT 1
+                    FROM public.user_roles ur
+                    JOIN public.custom_roles cr ON ur.role_id = cr.id
+                    WHERE ur.user_id = v_actor
+                      AND cr.role_key = 'icc_member'
+                  );
+
+  v_blocked := public.fn_grievance_raiser_change_allowed(OLD, NEW, v_privileged);
+
+  IF v_blocked IS NOT NULL THEN
+    RAISE EXCEPTION
+      'grievance_tickets.% cannot be changed by the person who raised the ticket (ticket %). Allowed edits: the complaint text, and status -> withdrawn. Changing is_icc_only would lock the team members handling it out of the case; changing status to resolved or closed would emit NAAC/UGC accreditation evidence for a complaint nobody handled.',
+      v_blocked, OLD.id
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  RETURN NEW;
+END;
+$raiser_trigger$;
+
+COMMENT ON FUNCTION public.fn_grievance_raiser_update_guard() IS
+  'BEFORE UPDATE on grievance_tickets. Constrains ONLY the person who raised the ticket, and only when she is not super_admin / admin / icc_member. Delegates the decision to fn_grievance_raiser_change_allowed() so the rule is unit-testable. Closes a pre-existing gap: RLS says who may update a row, never which columns, and the raiser branch of grievance_tickets_update carries a bare raised_by_id check.';
+
+DROP TRIGGER IF EXISTS trg_grievance_raiser_update_guard ON public.grievance_tickets;
+CREATE TRIGGER trg_grievance_raiser_update_guard
+  BEFORE UPDATE ON public.grievance_tickets
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_grievance_raiser_update_guard();
 
 -- What fn_generate_unresolved_issue_items calls (production signatures).
 CREATE OR REPLACE FUNCTION public.fn_get_generator_config(p_name text, p_default jsonb) RETURNS jsonb LANGUAGE sql AS $$ SELECT p_default $$;

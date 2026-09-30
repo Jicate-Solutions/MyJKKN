@@ -11574,7 +11574,9 @@ CREATE POLICY grievance_anonymous_messages_insert ON public.grievance_anonymous_
 -- which nulls raised_by_id before the WITH CHECK runs. The assignees this admits are
 -- the superior-route person, the ICC chair and the Director-policy person —
 -- people already trusted with the complaint's confidentiality. Not closed
--- here; a column guard would be a trigger of its own.
+-- here; a column guard would be a trigger of its own — follow-up F1 in
+-- docs/INSTASOLVER-MODULE-SPEC.md, pinned by the "KNOWN GAP" assertion in
+-- supabase/tests/grievance/20_privacy.sql.
 DROP POLICY IF EXISTS grievance_tickets_select_icc_routed_assignee ON public.grievance_tickets;
 CREATE POLICY grievance_tickets_select_icc_routed_assignee ON public.grievance_tickets
   FOR SELECT TO authenticated

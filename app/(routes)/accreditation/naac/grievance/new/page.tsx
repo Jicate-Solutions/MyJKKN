@@ -25,6 +25,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { GrievanceService } from '@/lib/services/grievance/grievance-service';
+import { isIccOnlyCategory } from '@/lib/instasolver/complaint';
 import { useAuth } from '@/hooks/use-auth';
 import type {
   GrievancePriority, RaisedByType, GrievanceCategory,
@@ -106,7 +107,9 @@ export default function NewGrievancePage() {
         // Anonymous means no filer on the row — not even the person typing.
         filed_by: !isAnonymous ? profile?.id ?? null : null,
         is_emergency: !!selectedCategory?.is_emergency,
-        is_icc_only: (selectedCategory?.name ?? '').toLowerCase().includes('sexual harassment'),
+        // Harassment and ragging stay with the committee — the same rule
+        // InstaSolver applies (Director rulings 2 and 3, 30 Sep 2026).
+        is_icc_only: isIccOnlyCategory(selectedCategory?.name),
         sla_hours: slaHours,
         sla_deadline: slaDeadline,
       });
