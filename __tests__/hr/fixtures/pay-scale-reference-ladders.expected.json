@@ -1,0 +1,467 @@
+{
+  "ladders": [
+    {
+      "list": "eng",
+      "id": "eng-ap-me-mech-eee-ece",
+      "staff_group": "teaching",
+      "designation": "Assistant Professor",
+      "qualification": "M.E (Mech/EEE/ECE)",
+      "labels": [
+        "0-1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "pays": [
+        18000,
+        18720,
+        19469,
+        20248,
+        21058
+      ],
+      "note": null,
+      "source": "JKKN Salary Band.xlsx · Engr 2nd Work Sheet 6% · dated 24 Jan 2024, headed 2022-23 salary calculation"
+    },
+    {
+      "list": "eng",
+      "id": "eng-ap-me-cse-it",
+      "staff_group": "teaching",
+      "designation": "Assistant Professor",
+      "qualification": "M.E (CSE/IT)",
+      "labels": [
+        "0-1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "pays": [
+        20000,
+        20800,
+        21632,
+        22497,
+        23397
+      ],
+      "note": null,
+      "source": "JKKN Salary Band.xlsx · Engr 2nd Work Sheet 6% · dated 24 Jan 2024, headed 2022-23 salary calculation"
+    },
+    {
+      "list": "eng",
+      "id": "eng-ap-years-6-10",
+      "staff_group": "teaching",
+      "designation": "Assistant Professor",
+      "qualification": null,
+      "labels": [
+        "6",
+        "7",
+        "8",
+        "9",
+        "10"
+      ],
+      "pays": [
+        25000,
+        26000,
+        27040,
+        28122,
+        29247
+      ],
+      "note": "The sheet shows years 6 to 10 under 'Asst. Professor' without naming a qualification.",
+      "source": "JKKN Salary Band.xlsx · Engr 2nd Work Sheet 6% · dated 24 Jan 2024, headed 2022-23 salary calculation"
+    },
+    {
+      "list": "eng",
+      "id": "eng-associate-professor",
+      "staff_group": "teaching",
+      "designation": "Associate Professor",
+      "qualification": null,
+      "labels": [
+        "11",
+        "12",
+        "13",
+        "14",
+        "15"
+      ],
+      "pays": [
+        31000,
+        32240,
+        33530,
+        34871,
+        36266
+      ],
+      "note": null,
+      "source": "JKKN Salary Band.xlsx · Engr 2nd Work Sheet 6% · dated 24 Jan 2024, headed 2022-23 salary calculation"
+    },
+    {
+      "list": "eng",
+      "id": "eng-professor",
+      "staff_group": "teaching",
+      "designation": "Professor",
+      "qualification": null,
+      "labels": [
+        "16",
+        "17",
+        "18",
+        "19",
+        "20"
+      ],
+      "pays": [
+        40000,
+        41600,
+        43264,
+        44995,
+        46795
+      ],
+      "note": null,
+      "source": "JKKN Salary Band.xlsx · Engr 2nd Work Sheet 6% · dated 24 Jan 2024, headed 2022-23 salary calculation"
+    },
+    {
+      "list": "eng",
+      "id": "eng-ap-sh-msc-mca",
+      "staff_group": "teaching",
+      "designation": "Assistant Professor (Science & Humanities)",
+      "qualification": "M.Sc./M.C.A.",
+      "labels": [
+        "0-1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "pays": [
+        13000,
+        13520,
+        14061,
+        14623,
+        15208
+      ],
+      "note": "The Arts & Science sheet carries a second version starting at 15,000, and the sheet says this scale should equal Arts & Science Assistant Professor, which starts at 15,000. Neither version is marked current.",
+      "source": "JKKN Salary Band.xlsx · Engr 2nd Work Sheet 6% · dated 24 Jan 2024, headed 2022-23 salary calculation"
+    },
+    {
+      "list": "eng",
+      "id": "eng-ap-sh-msc-mca-15000",
+      "staff_group": "teaching",
+      "designation": "Assistant Professor (Science & Humanities)",
+      "qualification": "M.Sc./M.C.A.",
+      "labels": [
+        "0-1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "pays": [
+        15000,
+        15600,
+        16224,
+        16873,
+        17548
+      ],
+      "note": "Second version, found on the Arts & Science sheet and marked Fresher. The Engineering sheet's own version starts at 13,000. Neither is marked current.",
+      "source": "JKKN Salary Band.xlsx · Arts & Science Basic + 5% · Engineering College Science and Humanities block"
+    },
+    {
+      "list": "eng",
+      "id": "eng-ap-mba-mphil",
+      "staff_group": "teaching",
+      "designation": "Assistant Professor",
+      "qualification": "MBA/M.Phil",
+      "labels": [
+        "0-1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15"
+      ],
+      "pays": [
+        14000,
+        14560,
+        15142,
+        15745,
+        16375,
+        17030,
+        17711,
+        18419,
+        19156,
+        19922,
+        20719,
+        21548,
+        22410,
+        23306,
+        24238
+      ],
+      "note": "The sheet leaves open whether this should start at 15,000.",
+      "source": "JKKN Salary Band.xlsx · Engr 2nd Work Sheet 6% · dated 24 Jan 2024, headed 2022-23 salary calculation"
+    },
+    {
+      "list": "eng",
+      "id": "eng-ap-set-net",
+      "staff_group": "teaching",
+      "designation": "Assistant Professor",
+      "qualification": "SET/NET",
+      "labels": [
+        "0-1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "pays": [
+        15000,
+        15600,
+        16224,
+        16873,
+        17548
+      ],
+      "note": "The sheet names this scale only 'SET, NET'. Assistant Professor is our reading.",
+      "source": "JKKN Salary Band.xlsx · Engr 2nd Work Sheet 6% · dated 24 Jan 2024, headed 2022-23 salary calculation"
+    },
+    {
+      "list": "eng",
+      "id": "eng-lab-instructor-degree",
+      "staff_group": "non_teaching",
+      "designation": "Lab Instructor",
+      "qualification": "B.E./M.Sc./M.C.A.",
+      "labels": [
+        "0-1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "pays": [
+        11000,
+        11440,
+        11898,
+        12374,
+        12869
+      ],
+      "note": null,
+      "source": "JKKN Salary Band.xlsx · Engr 2nd Work Sheet 6% · dated 24 Jan 2024, headed 2022-23 salary calculation"
+    },
+    {
+      "list": "eng",
+      "id": "eng-lab-instructor-diploma",
+      "staff_group": "non_teaching",
+      "designation": "Lab Instructor",
+      "qualification": "Diploma",
+      "labels": [
+        "0-1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "pays": [
+        8000,
+        8240,
+        8487,
+        8742,
+        9004
+      ],
+      "note": null,
+      "source": "JKKN Salary Band.xlsx · Engr 2nd Work Sheet 6% · dated 24 Jan 2024, headed 2022-23 salary calculation"
+    },
+    {
+      "list": "eng",
+      "id": "eng-lab-instructor-other-ug",
+      "staff_group": "non_teaching",
+      "designation": "Lab Instructor",
+      "qualification": "Any other UG degree",
+      "labels": [
+        "0-1"
+      ],
+      "pays": [
+        9000
+      ],
+      "note": "The sheet leaves years 2 to 5 blank.",
+      "source": "JKKN Salary Band.xlsx · Engr 2nd Work Sheet 6% · dated 24 Jan 2024, headed 2022-23 salary calculation"
+    },
+    {
+      "list": "as",
+      "id": "as-assistant-professor",
+      "staff_group": "teaching",
+      "designation": "Assistant Professor",
+      "qualification": null,
+      "labels": [
+        "Step 1",
+        "Step 2",
+        "Step 3",
+        "Step 4",
+        "Step 5",
+        "Step 6",
+        "Step 7",
+        "Step 8",
+        "Step 9",
+        "Step 10",
+        "Step 11",
+        "Step 12"
+      ],
+      "pays": [
+        15000,
+        15500,
+        16000,
+        16500,
+        17000,
+        17500,
+        18000,
+        18500,
+        19000,
+        19500,
+        20000,
+        21500
+      ],
+      "note": "The sheet lists these amounts without years, so the step numbers are ours. The last step rises 1,500, not 500, as written.",
+      "source": "JKKN Salary Band.xlsx · Arts & Science Basic + 5% · dated 24 Jan 2024"
+    },
+    {
+      "list": "support",
+      "id": "support-office-assistant-typist",
+      "staff_group": "non_teaching",
+      "designation": "Office Assistant & Typist",
+      "qualification": "High school diploma",
+      "labels": [
+        "0-1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15"
+      ],
+      "pays": [
+        7000,
+        7210,
+        7426,
+        7649,
+        7878,
+        8115,
+        8358,
+        8609,
+        8867,
+        9133,
+        9407,
+        9689,
+        9980,
+        10279,
+        10588
+      ],
+      "note": "3% a year.",
+      "source": "JKKN Salary Band.xlsx · Office Assistants cum Typist"
+    },
+    {
+      "list": "support",
+      "id": "support-lab-technician",
+      "staff_group": "non_teaching",
+      "designation": "Lab Technician",
+      "qualification": null,
+      "labels": [
+        "0-1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15"
+      ],
+      "pays": [
+        7000,
+        7210,
+        7426,
+        7649,
+        7878,
+        8115,
+        8358,
+        8609,
+        8867,
+        9133,
+        9407,
+        9689,
+        9980,
+        10279,
+        10588
+      ],
+      "note": "The Lab Technician sheet is a copy of the Office Assistant sheet, down to its headings. No separate Lab Technician figures exist.",
+      "source": "JKKN Salary Band.xlsx · Lab Technician"
+    },
+    {
+      "list": "support",
+      "id": "support-librarian",
+      "staff_group": "non_teaching",
+      "designation": "Librarian",
+      "qualification": "Master's in Library Science",
+      "labels": [
+        "0-1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15"
+      ],
+      "pays": [
+        10000,
+        10500,
+        11025,
+        11576,
+        12155,
+        12763,
+        13401,
+        14071,
+        14775,
+        15513,
+        16289,
+        17103,
+        17959,
+        18856,
+        19799
+      ],
+      "note": "5% a year.",
+      "source": "JKKN Salary Band.xlsx · Librarians"
+    }
+  ],
+  "engineeringNotes": [
+    "Head of department allowance: Rs 3,000, written twice on the sheet.",
+    "The sheet marks its Science & Humanities, MBA/M.Phil and SET/NET ladders as held for the MD's final approval.",
+    "These sheets have no Ph.D. line. Other sheets in the workbook set PG plus Ph.D. as the minimum for Associate Professor and Professor.",
+    "Director's ruling, 18 Sep 2026: a doctorate makes someone eligible to move up, and he approves each person."
+  ],
+  "artsScienceNotes": [
+    "A meeting note on the sheet, dated 25 Jan 2024, says only the Assistant Professor designation is used across salary packages. The sheet also lists heads of department on higher figures, not as a ladder."
+  ]
+}

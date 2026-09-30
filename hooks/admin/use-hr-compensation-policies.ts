@@ -19,6 +19,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import type { PayLadder } from '@/types/hr-pay-ladders';
+import type { Json } from '@/types/supabase';
 
 // ---------------------------------------------------------------------------
 // Canonical institution IDs (mirrors internship + telephony seeds).
@@ -38,6 +40,29 @@ export const COMPENSATION_INSTITUTIONS = [
 
 export type CompensationInstitutionId =
   (typeof COMPENSATION_INSTITUTIONS)[number]['id'];
+
+// Pay-scale editor only: the two seeded colleges plus Arts & Science, whose
+// (empty) hr.pay_scales row is created by
+// migrations/20270415090000_hr_pay_scales_arts_science_reference_row.sql.
+// COMPENSATION_INSTITUTIONS is left unchanged because the allowances and
+// motivation-fund editors use it and Arts & Science has no rows for those keys.
+export const PAY_SCALE_INSTITUTIONS = [
+  {
+    id: '5de4fba1-4564-41ed-8c73-5d948b74b843',
+    label: 'JKKN Engineering',
+  },
+  {
+    id: 'e8fbe8aa-c44e-41aa-a44b-39dab2c8b9a5',
+    label: 'JKKN Dental',
+  },
+  {
+    id: 'b0b8a724-7c65-4f07-8047-2a38e8100ad5',
+    label: 'JKKN Arts & Science (Self)',
+  },
+] as const;
+
+export type PayScaleInstitutionId =
+  (typeof PAY_SCALE_INSTITUTIONS)[number]['id'];
 
 // ---------------------------------------------------------------------------
 // Policy keys
@@ -72,6 +97,14 @@ export interface PayScalesValue {
   fixation_basis: string[];
   selection_committee_authority: boolean;
   higher_pay_package_approver: string;
+  /**
+   * Year ladders (salary per year / step of service). REFERENCE ONLY —
+   * nothing reads these to change anyone's pay. Optional and additive:
+   * rows saved before ladders existed simply do not carry the key.
+   */
+  ladders?: PayLadder[];
+  /** Plain-English notes shown alongside the ladders. */
+  ladder_notes?: string[];
 }
 
 export interface AllowancesAndIncrementsValue {
@@ -148,6 +181,21 @@ function unwrapValue<T>(v: unknown): T | null {
   return v as T;
 }
 
+/**
+ * An UPDATE that matches no row is not an error to PostgREST — it returns an
+ * empty array, and the screen used to say "Policy saved" while nothing was
+ * stored (e.g. a college that has no hr.pay_scales row yet). Treat zero
+ * affected rows as a failure. Pure so it can be unit-tested without React.
+ */
+export const NO_POLICY_ROW_MESSAGE =
+  'No policy row exists for this college yet, so nothing was saved. Ask an administrator to create it.';
+
+export function assertPolicyRowUpdated(rows: unknown[] | null | undefined): void {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw new Error(NO_POLICY_ROW_MESSAGE);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Generic typed reader + writer for an institution-scoped policy row
 // ---------------------------------------------------------------------------
@@ -189,16 +237,18 @@ export function useUpdateCompensationPolicy<T>(
 
   return useMutation({
     mutationFn: async (value: T) => {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from(PLATFORM_POLICIES_TABLE)
         .update({
-          value: value as unknown as object,
+          value: value as unknown as Json,
           updated_at: new Date().toISOString(),
         })
         .eq('policy_key', policyKey)
         .eq('scope_type', 'institution')
-        .eq('scope_id', institutionId);
+        .eq('scope_id', institutionId)
+        .select('policy_key');
       if (error) throw new Error(error.message);
+      assertPolicyRowUpdated(data);
       return value;
     },
     onSuccess: () => {
