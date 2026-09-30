@@ -229,7 +229,7 @@ BEGIN
      NULL,5,NULL,v_std,false,'/hr/recruitment',v_off,'Initial seed 20270613101207'),
   ('R8','Issue the offer and record the joining','Offer within 2 days of the package; outcome within 2 days of the joining date (proposed).','recruitment','Offers and joinings','permission','hr.recruitment.edit',
      NULL,2,NULL,v_std,false,'/hr/recruitment',v_off,'Initial seed 20270613101207'),
-  ('R9','Onboarding checklist to staff record','Every step done by the joining date (proposed).','recruitment','Onboarding steps','permission','hr.employees.edit',
+  ('R9','Onboarding checklist to team member record','Every step done by the joining date (proposed).','recruitment','Onboarding steps','permission','hr.employees.edit',
      NULL,NULL,'before_item_deadline:0',v_std,false,'/hr/onboarding',v_off||'Onboarding step notifications are lane work elsewhere.','Initial seed 20270613101207'),
   -- ── Leave ──────────────────────────────────────────────────────────────────
   ('L1','Approve or reject leave','48 hours, already stored on each chain step, and always before the leave starts.','leave','Leave approvals','chain_step',NULL,
@@ -265,11 +265,11 @@ BEGIN
   ('P4','Salary revision requests','Principal check within 5 working days (proposed). The Monday digest to the Director already exists.','payroll','Salary revisions','permission','hr.payroll.salary_revision.approve',
      NULL,5,NULL,v_std,false,'/hr/salary-revisions',v_off,'Initial seed 20270613101207'),
   -- ── Staff records ──────────────────────────────────────────────────────────
-  ('S1','Staff records and profile completion','New joiners complete within 7 days (proposed).','staff_records','Profile completion','permission','hr.employees.edit',
+  ('S1','Team member records and profile completion','New joiners complete within 7 days (proposed).','staff_records','Profile completion','permission','hr.employees.edit',
      NULL,7,NULL,v_std,false,'/hr/employees',v_off,'Initial seed 20270613101207'),
   ('S2','Verify employee documents','Verified within 3 working days (proposed). Expiry reminders already run.','staff_records','Document verification','permission','hr.employees.edit',
      NULL,3,NULL,v_std,true,'/hr/documents/verify','Pending uploads (verification_status = pending).','Initial seed 20270613101207'),
-  ('S3','Review staff photos and chase missing ones','Reviewed within 2 days (proposed). The weekly nudge to people with no photo is not part of this ladder.','staff_records','Staff photo review','permission','hr.staff_photo.review',
+  ('S3','Review photos and chase missing ones','Reviewed within 2 days (proposed). The weekly nudge to people with no photo is not part of this ladder.','staff_records','Photo review','permission','hr.staff_photo.review',
      NULL,2,NULL,v_std,true,'/hr/staff-photos','Pending submissions only; missing photos are a separate weekly nudge, not built here.','Initial seed 20270613101207'),
   ('S4','Print ID cards','Printed within 5 days of photo approval (proposed). Owned outside HR.','staff_records','ID card printing','none',NULL,
      NULL,5,NULL,v_std,false,'/admin/id-cards/print-queue',v_off||'Owned by the registrar / admission side.','Initial seed 20270613101207'),
@@ -290,7 +290,7 @@ BEGIN
      NULL,NULL,NULL,v_std,false,'/hr/performance-reviews',v_off,'Initial seed 20270613101207'),
   ('G8','Promotions','Scored within 14 days (proposed).','governance','Promotion scoring','none',NULL,
      NULL,14,NULL,v_std,false,'/hr/admin/promotions',v_off,'Initial seed 20270613101207'),
-  ('G9','Training and faculty development','Attendance within 2 days of a session (proposed).','governance','Training attendance','none',NULL,
+  ('G9','Training and development programmes','Attendance within 2 days of a session (proposed).','governance','Training attendance','none',NULL,
      NULL,2,NULL,v_std,false,'/hr/admin/training',v_off,'Initial seed 20270613101207'),
   ('G10','Benefits and assets','Tied to the G6 exit dates.','governance','Benefits and assets','none',NULL,
      NULL,NULL,NULL,v_std,false,'/hr/benefits',v_off,'Initial seed 20270613101207')
@@ -687,7 +687,7 @@ ON CONFLICT (routine_id) DO NOTHING;
 INSERT INTO public.loop_registry
   (loop_key, name, stack_tier, loop_class, domain, description, gates, routine_id, owner_email)
 VALUES
-  ('hr-duty-chase', 'HR Duty Chase — the staff harness ladder', 3, 'accountability', 'hr',
+  ('hr-duty-chase', 'HR Duty Chase — the HR harness ladder', 3, 'accountability', 'hr',
    'Every HR duty in hr_duty_definitions carries a due rule; a late item climbs a ladder (owner, then supervisor at +2 working days, then the HR head''s weekly list at +4) and the Director gets one weekly digest of late items per desk, never per person. Ships SWITCHED OFF (platform_policies hr.harness.chase.enabled = false): until the Director flips it, runs only record a preview. It generates nothing live and measures nothing yet, so every gate is off.',
    '{"g":"off","a":"off","m":"off","f":"off"}'::jsonb,
    'hr-duty-chase',

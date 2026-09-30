@@ -301,7 +301,7 @@ describe('weekly lists', () => {
     const rows = buildDirectorDigest([
       standing({}),
       standing({ lateWorkingDays: 6, audience: 'hr_head', blocked: true }),
-      standing({ dutyCode: 'S3', owningQueue: 'Staff photo review', label: 'Arun K — photo to review' }),
+      standing({ dutyCode: 'S3', owningQueue: 'Photo review', label: 'Arun K — photo to review' }),
       standing({ lateWorkingDays: 0, audience: 'owner' }) // due today: not late
     ]);
     expect(rows).toHaveLength(2);

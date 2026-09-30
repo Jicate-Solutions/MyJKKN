@@ -113,7 +113,7 @@ async function staffByIds(
       .from('staff')
       .select('id, first_name, last_name, profile_id, institution_id')
       .in('id', batch);
-    if (error) throw new Error(`staff lookup: ${error.message}`);
+    if (error) throw new Error(`people lookup: ${error.message}`);
     for (const r of (data ?? []) as any[]) out.set(r.id, r);
   }
   return out;
@@ -603,7 +603,7 @@ export function createHarnessDbDeps(db: SupabaseClient = createServiceRoleClient
           .from('staff')
           .select('id, profile_id, department_id, is_active')
           .in('profile_id', batch);
-        if (error) throw new Error(`staff: ${error.message}`);
+        if (error) throw new Error(`people: ${error.message}`);
         staffRows.push(...((data ?? []) as any[]).filter((r) => r.is_active !== false));
       }
       const staffIds = staffRows.map((s) => s.id);
@@ -622,7 +622,7 @@ export function createHarnessDbDeps(db: SupabaseClient = createServiceRoleClient
           .from('staff')
           .select('id, profile_id, is_active')
           .in('id', batch);
-        if (error) throw new Error(`staff (managers): ${error.message}`);
+        if (error) throw new Error(`people (managers): ${error.message}`);
         for (const r of (data ?? []) as any[]) if (r.profile_id && r.is_active !== false) managerStaff.set(r.id, r.profile_id);
       }
       const hod = new Map<string, string>();
@@ -649,7 +649,7 @@ export function createHarnessDbDeps(db: SupabaseClient = createServiceRoleClient
       const profileOf = new Map<string, string>();
       for (const batch of chunk([...new Set(profileIds)])) {
         const { data, error } = await db.from('staff').select('id, profile_id').in('profile_id', batch);
-        if (error) throw new Error(`leave check (staff): ${error.message}`);
+        if (error) throw new Error(`leave check (people): ${error.message}`);
         for (const r of (data ?? []) as any[]) profileOf.set(r.id, r.profile_id);
       }
       for (const batch of chunk([...profileOf.keys()])) {
