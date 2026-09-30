@@ -72,7 +72,8 @@ END
 $certificate_submitted$;
 
 -- Assert the end state: every programme with a newly admitted learner now has
--- the checklist, with four items.
+-- the checklist (an error if not); a checklist whose item count differs from
+-- four only raises a NOTICE.
 DO $certificate_submitted_assert$
 BEGIN
   IF EXISTS (
@@ -92,6 +93,8 @@ BEGIN
     RAISE EXCEPTION 'a programme with newly admitted learners has no Certificate Submitted checklist';
   END IF;
 
+  -- A NOTICE, not an error: once the office edits a copy (adds or retires an
+  -- item) the count legitimately differs, and a re-apply must not fail on that.
   IF EXISTS (
     SELECT 1
       FROM public.admission_checklists c
@@ -101,7 +104,7 @@ BEGIN
        AND (SELECT count(*) FROM public.admission_checklist_items i
              WHERE i.checklist_id = c.id AND i.is_active) <> 4
   ) THEN
-    RAISE EXCEPTION 'a Certificate Submitted checklist created here does not have exactly four items';
+    RAISE NOTICE 'a Certificate Submitted checklist does not have exactly four active items (edited by the office?)';
   END IF;
 END
 $certificate_submitted_assert$;
