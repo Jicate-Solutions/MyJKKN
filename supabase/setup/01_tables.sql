@@ -11256,7 +11256,7 @@ COMMENT ON TABLE public.hr_leave_type_deletions IS
 
 -- ============================================================================
 -- Updated: 2026-10-01 - HR staff harness (duties R9 onboarding, A3 regularisation):
--- hr_duty_notices notice ledger (one row per notice, ever). Migration 20270523090000_hr_duty_notices_onboarding_regularization.sql
+-- hr_duty_notices notice ledger (one row per notice, ever). Migration 20270613101133_hr_duty_notices_onboarding_regularization.sql
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS public.hr_duty_notices (
   id                 uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
