@@ -11567,9 +11567,11 @@ CREATE POLICY grievance_anonymous_messages_insert ON public.grievance_anonymous_
 -- WITH CHECK clauses of permissive UPDATE policies, and substrate v2's
 -- grievance_tickets_update WITH CHECK still offers `raised_by_id = auth.uid()`
 -- and `(is_icc_only = false AND assigned_to = auth.uid())`. So an assignee
--- admitted by the USING below can set raised_by_id to herself and then
--- reassign, or set is_icc_only = false and so expose the row to every holder
--- of grievance.tickets.view at that college. The assignees this admits are
+-- admitted by the USING below can, on a NAMED row, set raised_by_id to herself
+-- and reassign; and on any row set is_icc_only = false (keeping herself as
+-- assignee) and so expose it to every holder of grievance.tickets.view at that
+-- college. On an ANONYMOUS row the first path is closed by section 1's scrub,
+-- which nulls raised_by_id before the WITH CHECK runs. The assignees this admits are
 -- the superior-route person, the ICC chair and the Director-policy person —
 -- people already trusted with the complaint's confidentiality. Not closed
 -- here; a column guard would be a trigger of its own.

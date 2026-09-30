@@ -349,7 +349,7 @@ export class LCIssueService {
       // An anonymous filing stores NO filer at all (Director ruling, 30 Sep
       // 2026): not the id, not the name, not the email, not the phone. The
       // filer follows it with the private tracking code only. The database
-      // enforces the same (trg_grievance_zz_scrub_anonymous_filer, migration
+      // enforces the same (zzz_grievance_scrub_anonymous_filer, migration
       // 20270624093700) for every writer; this keeps the insert honest.
       raised_by_id: options.isAnonymous ? null : userId,
       raised_by_name: options.isAnonymous ? null : (profile?.full_name || 'Unknown'),
