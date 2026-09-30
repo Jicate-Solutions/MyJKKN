@@ -326,6 +326,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/instasolver': 'instasolver.view',
   '/instasolver/broken': 'instasolver.view',
   '/instasolver/complaint': 'instasolver.view',
+  '/instasolver/my-complaints': 'instasolver.view',
   '/instasolver/track/[token]': 'instasolver.view',
 
   // Profile
