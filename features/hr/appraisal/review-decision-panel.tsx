@@ -137,7 +137,8 @@ export function ReviewDecisionPanel({
     }
     // The same rule the committee lives by: a Below in Collegiality needs a
     // written example, whoever gives it (blind review, 1 Oct).
-    if (changedAreas.length > 0 && collegialityExampleMissing(approvedRatings, example, policy)) {
+    // Only when HIS change is the Below: a committee Below already carries the committee's example.
+    if (changedAreas.includes('collegiality') && collegialityExampleMissing(approvedRatings, example, policy)) {
       toast.error('A Below in Collegiality needs a written example.');
       return;
     }
@@ -338,11 +339,14 @@ export function ReviewDecisionPanel({
           <p className="mt-1 text-muted-foreground">
             {previewScore === null
               ? 'Every area must be rated before this can be approved.'
-              : `Promotion reads this as ${previewScore} out of 100. That number exists only to ` +
-                'order candidates; it is not the appraisal result and is not shown to the team member.'}
-            {isClosed && review.final_score !== null && review.final_score !== previewScore && (
-              <> The stored score is {review.final_score}.</>
-            )}
+              : isClosed && review.final_score !== null
+                ? `The recorded promotion score is ${review.final_score} out of 100.` +
+                  (review.final_score !== previewScore
+                    ? ` Today's college rule would read the same ratings as ${previewScore}; the recorded figure is the one that governed.`
+                    : '') +
+                  ' That number exists only to order candidates; it is not the appraisal result and is not shown to the team member.'
+                : `Promotion reads this as ${previewScore} out of 100. That number exists only to ` +
+                  'order candidates; it is not the appraisal result and is not shown to the team member.'}
           </p>
           {blocked && (
             <p className="mt-2 font-medium text-amber-700 dark:text-amber-300">
