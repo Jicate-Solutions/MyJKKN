@@ -20,6 +20,7 @@ import {
   checkAsk,
   decisionSummary,
   flagsFor,
+  STATUS_LABELS,
   isOpen,
   longDate,
   toAmount,
@@ -90,6 +91,13 @@ describe('words on screen', () => {
   it('treats approved (not yet in the pay) as still open (ruling 10)', () => {
     expect(isOpen('approved')).toBe(true);
     expect(isOpen('applied')).toBe(false);
+    expect(isOpen('cancelled')).toBe(false);
+  });
+
+  it('30 Sep: a principal who is also the head of department is flagged; a cancelled raise has its own label', () => {
+    expect(flagsFor({ ...base, asker_is_also_hod: true }).map((f) => f.kind)).toEqual(['also_hod']);
+    expect(flagsFor({ ...base, asker_is_also_hod: false })).toEqual([]);
+    expect(STATUS_LABELS.cancelled).toContain('left');
     expect(isOpen('refused')).toBe(false);
   });
   it('names the Director’s figure when he changed it (ruling 12)', () => {

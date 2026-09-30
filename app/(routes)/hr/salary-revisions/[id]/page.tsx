@@ -36,8 +36,7 @@ import {
   RevisionPage,
   StatusBadge,
   SuggestionBeside,
-  rupees,
-} from '../_components/revision-bits';
+  rupees, BandChangedNote, RequestNote } from '../_components/revision-bits';
 
 export default function SalaryRevisionDetailPage() {
   const params = useParams<{ id: string }>();
@@ -108,6 +107,7 @@ export default function SalaryRevisionDetailPage() {
                 <dd className='text-lg font-semibold tabular-nums'>{rupees(asked)}</dd>
                 <dd className='text-xs text-muted-foreground'>{changeText(current, asked)}</dd>
                 <dd><BandWarning text={r.band_warning} /></dd>
+                <dd><BandChangedNote changed={r.band_changed} /></dd>
               </div>
               <div className='rounded-md border border-border p-3'>
                 <dt className='text-xs text-muted-foreground'>Suggested</dt>
@@ -121,6 +121,7 @@ export default function SalaryRevisionDetailPage() {
             </dl>
 
             <p className='text-sm font-medium'>{decisionSummary(r)}</p>
+            <RequestNote text={r.cancel_note ?? r.apply_note} />
 
             <div className='rounded-md bg-muted/50 p-3 text-sm'>
               <p className='text-xs text-muted-foreground'>
