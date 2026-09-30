@@ -31,12 +31,22 @@
 // (D4) or waited on a budget decision (D8). The median duration already has
 // paused days subtracted for the same reason.
 //
+// ── WHO MAY OPEN IT (Director, 2026-09-30) ──────────────────────────────────
+// Every team member, through the campus_walk.fix_board.view permission
+// (gateFixesBoard) — no longer the named-email allow-list, which the walking
+// and coverage boards keep. The same ruling added "fixed this month vs last
+// month", the average of the stars reporters give after a fix, and a CSV of
+// the department totals for the IQAC file (./csv/route.ts).
+// Stars are loaded as task id + number only (loadTaskStars): no rater, no
+// fixer, no thank-you text reaches this page.
+//
 // ── GUARDRAIL G2 ────────────────────────────────────────────────────────────
 // This board is never rendered beside the walking board. They are separate
 // routes and there is no page that shows both. Hunters and hunted.
 // ============================================================================
 
-import { AlertCircle, Info } from 'lucide-react';
+import { AlertCircle, Download, Info, Star } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Table,
@@ -48,6 +58,7 @@ import {
 } from '@/components/ui/table';
 import {
   buildFixBoard,
+  isVerifiedClosure,
   MIN_DISTINCT_FIXERS_TO_SHOW_A_DEPARTMENT,
   type FixBoard
 } from '@/lib/campus-walk/scoreboard';
@@ -55,8 +66,9 @@ import {
   adminClient,
   BoardShell,
   DeniedCard,
-  gateScoreboard,
+  gateFixesBoard,
   loadStaffDepartments,
+  loadTaskStars,
   loadWalkTasks,
   resolveCampusOpsProjectId
 } from '../_lib/scoreboard-page';
@@ -66,6 +78,19 @@ export const dynamic = 'force-dynamic';
 const TITLE = 'Campus fixes by department';
 const DESCRIPTION =
   'How many campus jobs each department has finished, and how long they took. Departments only — never individual people.';
+
+const CSV_URL = '/campus-walk/scoreboard/fixes/csv';
+
+function StarsCell({ average, count }: { average: number | null; count: number }) {
+  if (average === null) return <span className="text-muted-foreground">—</span>;
+  return (
+    <span className="inline-flex items-center justify-end gap-1">
+      <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-500" aria-hidden="true" />
+      {average.toFixed(1)}
+      <span className="text-xs text-muted-foreground">({count})</span>
+    </span>
+  );
+}
 
 function Note({ children }: { children: React.ReactNode }) {
   return (
@@ -79,7 +104,7 @@ function Note({ children }: { children: React.ReactNode }) {
 }
 
 export default async function CampusWalkFixesBoardPage() {
-  const gate = await gateScoreboard();
+  const gate = await gateFixesBoard();
   if (!gate.ok) {
     return (
       <BoardShell title={TITLE} description={DESCRIPTION}>
@@ -109,7 +134,11 @@ export default async function CampusWalkFixesBoardPage() {
       admin,
       tasks.map((t) => t.owner_staff_id).filter((id): id is string => Boolean(id))
     );
-    board = buildFixBoard(tasks, staffIndex);
+    const stars = await loadTaskStars(
+      admin,
+      tasks.filter(isVerifiedClosure).map((t) => t.id)
+    );
+    board = buildFixBoard(tasks, staffIndex, new Date(), stars);
   } catch {
     return (
       <BoardShell title={TITLE} description={DESCRIPTION}>
@@ -144,17 +173,28 @@ export default async function CampusWalkFixesBoardPage() {
 
   return (
     <BoardShell title={TITLE} description={DESCRIPTION}>
+      <div className="mt-4 flex justify-end">
+        <Button asChild variant="outline" className="h-11">
+          <a href={CSV_URL} download>
+            <Download className="mr-2 h-4 w-4" aria-hidden="true" />
+            Download department totals (CSV)
+          </a>
+        </Button>
+      </div>
       <div className="mt-4 overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Department</TableHead>
+              <TableHead className="text-right">Fixed this month</TableHead>
+              <TableHead className="text-right">Fixed last month</TableHead>
               <TableHead className="text-right">Finished and approved</TableHead>
               <TableHead className="text-right">Typical days to finish</TableHead>
               <TableHead className="text-right">Still open</TableHead>
               <TableHead className="text-right">Past its date</TableHead>
               <TableHead className="text-right">Waiting on approval</TableHead>
               <TableHead className="text-right">Waiting on a decision</TableHead>
+              <TableHead className="text-right">Average stars</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -168,6 +208,8 @@ export default async function CampusWalkFixesBoardPage() {
                     </span>
                   ) : null}
                 </TableCell>
+                <TableCell className="text-right tabular-nums">{row.fixedThisMonth}</TableCell>
+                <TableCell className="text-right tabular-nums">{row.fixedLastMonth}</TableCell>
                 <TableCell className="text-right tabular-nums">{row.verifiedClosures}</TableCell>
                 <TableCell className="text-right tabular-nums">
                   {row.medianDaysToClose === null ? (
@@ -180,10 +222,15 @@ export default async function CampusWalkFixesBoardPage() {
                 <TableCell className="text-right tabular-nums">{row.overdueJobs}</TableCell>
                 <TableCell className="text-right tabular-nums">{row.awaitingApproval}</TableCell>
                 <TableCell className="text-right tabular-nums">{row.blockedJobs}</TableCell>
+                <TableCell className="text-right tabular-nums">
+                  <StarsCell average={row.averageStars} count={row.ratingCount} />
+                </TableCell>
               </TableRow>
             ))}
             <TableRow className="border-t-2 font-medium">
               <TableCell>All departments</TableCell>
+              <TableCell className="text-right tabular-nums">{totals.fixedThisMonth}</TableCell>
+              <TableCell className="text-right tabular-nums">{totals.fixedLastMonth}</TableCell>
               <TableCell className="text-right tabular-nums">{totals.verifiedClosures}</TableCell>
               <TableCell className="text-right tabular-nums">
                 {totals.medianDaysToClose === null ? (
@@ -196,6 +243,9 @@ export default async function CampusWalkFixesBoardPage() {
               <TableCell className="text-right tabular-nums">{totals.overdueJobs}</TableCell>
               <TableCell className="text-right tabular-nums">{totals.awaitingApproval}</TableCell>
               <TableCell className="text-right tabular-nums">{totals.blockedJobs}</TableCell>
+              <TableCell className="text-right tabular-nums">
+                <StarsCell average={totals.averageStars} count={totals.ratingCount} />
+              </TableCell>
             </TableRow>
           </TableBody>
         </Table>
@@ -230,6 +280,13 @@ export default async function CampusWalkFixesBoardPage() {
           second on money or on a colleague&apos;s return. They are excluded from &ldquo;typical
           days to finish&rdquo;, which is a middle value rather than an average so one unusual job
           cannot swing a whole department.
+        </p>
+        <p>
+          <span className="font-medium">&ldquo;Fixed this month&rdquo; and &ldquo;last month&rdquo;</span>{' '}
+          count approved fixes by the calendar month (India time) they were closed in.{' '}
+          <span className="font-medium">Average stars</span> is the mean of the 1&ndash;5 stars
+          people gave after a fix on this department&apos;s jobs, with how many ratings it is made
+          of in brackets. Who gave the stars is never shown here.
         </p>
       </Note>
     </BoardShell>
