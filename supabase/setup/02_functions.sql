@@ -72641,6 +72641,24 @@ DECLARE
 BEGIN
   v_admin := COALESCE(is_super_admin(), false) OR COALESCE(is_admin(), false);
 
+  -- ── 30 Sep 2026: the Director's own rating (director_review_jsonb) ──────
+  -- Written by the NAMED Director list only (fn_is_the_director(), #4121),
+  -- never by an admin or another super admin, and only with a reason. Checked
+  -- before the admin shortcut below, so the shortcut cannot bypass it.
+  IF (TG_OP = 'INSERT' AND NEW.director_review_jsonb IS NOT NULL)
+     OR (TG_OP = 'UPDATE' AND NEW.director_review_jsonb IS DISTINCT FROM OLD.director_review_jsonb) THEN
+    IF NOT COALESCE(public.fn_is_the_director(), false) THEN
+      RAISE EXCEPTION 'hr_performance_reviews: only the Director can change a rating at sign-off (director_review_jsonb)'
+        USING ERRCODE = 'check_violation';
+    END IF;
+    IF NEW.director_review_jsonb IS NOT NULL
+       AND (jsonb_typeof(NEW.director_review_jsonb -> 'ratings') IS DISTINCT FROM 'object'
+            OR length(trim(COALESCE(NEW.director_review_jsonb ->> 'reason', ''))) < 10) THEN
+      RAISE EXCEPTION 'hr_performance_reviews: a changed rating needs the ratings and a reason of at least 10 characters'
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+
   v_self := EXISTS (
     SELECT 1 FROM public.staff
     WHERE id = NEW.staff_id AND profile_id = auth.uid()
@@ -72743,6 +72761,7 @@ BEGIN
     END IF;
     IF NEW.supervisor_review_jsonb IS NOT NULL
        OR NEW.sedc_review_jsonb IS NOT NULL
+       OR NEW.director_review_jsonb IS NOT NULL
        OR NEW.final_score IS NOT NULL
        OR NEW.final_remarks IS NOT NULL
        OR NEW.final_approved_at IS NOT NULL
@@ -72771,6 +72790,7 @@ BEGIN
   IF v_self THEN
     IF NEW.supervisor_review_jsonb IS DISTINCT FROM OLD.supervisor_review_jsonb
        OR NEW.sedc_review_jsonb IS DISTINCT FROM OLD.sedc_review_jsonb
+       OR NEW.director_review_jsonb IS DISTINCT FROM OLD.director_review_jsonb
        OR NEW.final_score IS DISTINCT FROM OLD.final_score
        OR NEW.final_remarks IS DISTINCT FROM OLD.final_remarks
        OR NEW.final_approved_at IS DISTINCT FROM OLD.final_approved_at
@@ -72786,6 +72806,7 @@ BEGIN
   IF v_hod THEN
     IF NEW.self_appraisal_jsonb IS DISTINCT FROM OLD.self_appraisal_jsonb
        OR NEW.sedc_review_jsonb IS DISTINCT FROM OLD.sedc_review_jsonb
+       OR NEW.director_review_jsonb IS DISTINCT FROM OLD.director_review_jsonb
        OR NEW.final_score IS DISTINCT FROM OLD.final_score
        OR NEW.final_remarks IS DISTINCT FROM OLD.final_remarks
        OR NEW.final_approved_at IS DISTINCT FROM OLD.final_approved_at

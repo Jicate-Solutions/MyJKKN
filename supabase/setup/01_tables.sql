@@ -10436,3 +10436,7 @@ ALTER TABLE public.hr_performance_review_second_ratings ENABLE ROW LEVEL SECURIT
 
 REVOKE ALL ON TABLE public.hr_performance_review_second_ratings FROM anon, PUBLIC;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.hr_performance_review_second_ratings TO authenticated;
+
+-- Updated: 2026-09-30 - 20270525090000: the Director's own ratings at sign-off, beside the committee's.
+ALTER TABLE public.hr_performance_reviews
+  ADD COLUMN IF NOT EXISTS director_review_jsonb jsonb;

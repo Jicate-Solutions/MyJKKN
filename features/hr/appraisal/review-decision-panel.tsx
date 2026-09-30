@@ -26,6 +26,7 @@ import {
   incrementBlocked,
   missingAreas,
   parseCollegialityExample,
+  parseDirectorRatings,
   parseRatings,
   parseSentBackReason,
   resolveAreas,
@@ -60,6 +61,9 @@ export function ReviewDecisionPanel({
   const selfRatings = parseRatings(review.self_appraisal_jsonb, areas);
   const supRatings = parseRatings(review.supervisor_review_jsonb, areas);
   const sedcRatings = parseRatings(review.sedc_review_jsonb, areas);
+  // 30 Sep: the Director's changes as recorded beside the committee's (read-only for everyone).
+  const recordedDirector = parseDirectorRatings(review.director_review_jsonb, areas);
+  const hasRecordedDirector = Object.keys(recordedDirector).length > 0;
 
   // Committee starts from the supervisor's ratings — normalising means
   // adjusting what the department said, not starting from a blank sheet.
@@ -72,8 +76,13 @@ export function ReviewDecisionPanel({
   );
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
+  // 30 Sep: at sign-off the Director may change a rating. Starts from the
+  // committee's; only areas he changes are recorded, with his reason.
+  const [directorRatings, setDirectorRatings] = useState<AppraisalRatingMap>(sedcRatings);
+  const [directorReason, setDirectorReason] = useState('');
+  const changedAreas = areas.filter((a) => directorRatings[a] && directorRatings[a] !== sedcRatings[a]);
 
-  const approvedRatings = isDirectorStep ? sedcRatings : ratings;
+  const approvedRatings = isDirectorStep ? { ...sedcRatings, ...directorRatings } : ratings;
   const previewScore = deriveAppraisalScore(
     approvedRatings, areas, resolveRatingPoints(policy), policy,
   );
@@ -110,6 +119,10 @@ export function ReviewDecisionPanel({
       toast.error('Your profile could not be identified, so this cannot be signed off.');
       return;
     }
+    if (changedAreas.length > 0 && directorReason.trim().length < 10) {
+      toast.error('Say why you changed a rating (at least 10 characters). It is recorded beside the committee\'s.');
+      return;
+    }
     setBusy(true);
     try {
       // The service re-reads the person's own college rule for the stored
@@ -117,6 +130,8 @@ export function ReviewDecisionPanel({
       const updated = await PerformanceReviewService.finalApprove(supabase, review.id, {
         final_remarks: notes,
         approver_profile_id: approverProfileId,
+        director_ratings: changedAreas.length > 0 ? directorRatings : undefined,
+        director_reason: changedAreas.length > 0 ? directorReason : undefined,
       });
       toast.success('Appraisal approved and closed.');
       onDone(updated);
@@ -172,6 +187,7 @@ export function ReviewDecisionPanel({
                 <th className="py-2 pr-4">Self</th>
                 <th className="py-2 pr-4">Supervisor</th>
                 <th className="py-2 pr-4">Committee</th>
+                {hasRecordedDirector && <th className="py-2 pr-4">Director</th>}
               </tr>
             </thead>
             <tbody>
@@ -181,6 +197,11 @@ export function ReviewDecisionPanel({
                   <td className="py-2 pr-4"><RatingBadge rating={selfRatings[a]} /></td>
                   <td className="py-2 pr-4"><RatingBadge rating={supRatings[a]} /></td>
                   <td className="py-2 pr-4"><RatingBadge rating={sedcRatings[a]} /></td>
+                  {hasRecordedDirector && (
+                    <td className="py-2 pr-4" data-testid={`director-rating-${a}`}>
+                      <RatingBadge rating={recordedDirector[a]} />
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -215,6 +236,40 @@ export function ReviewDecisionPanel({
               prior={supRatings}
               priorLabel="Supervisor"
             />
+          </div>
+        )}
+
+        {isDirectorStep && (
+          <div className="border-t pt-4">
+            <h4 className="text-sm font-semibold">Your rating, if you change the committee&rsquo;s</h4>
+            <p className="mt-1 mb-3 text-xs text-muted-foreground">
+              Pre-filled from the committee. Change only what you decide differently; the
+              committee&rsquo;s rating stays recorded beside yours.
+            </p>
+            <RatingPicker
+              idPrefix="director"
+              areas={areas}
+              value={directorRatings}
+              onChange={setDirectorRatings}
+              collegialityExample={example}
+              onCollegialityExampleChange={setExample}
+              policy={policy}
+              prior={sedcRatings}
+              priorLabel="Committee"
+            />
+            {changedAreas.length > 0 && (
+              <div className="mt-3">
+                <Label htmlFor="director-reason">Why you changed {changedAreas.length === 1 ? 'this rating' : 'these ratings'}</Label>
+                <Textarea
+                  id="director-reason"
+                  rows={2}
+                  className="mt-1"
+                  value={directorReason}
+                  onChange={(e) => setDirectorReason(e.target.value)}
+                  placeholder="Recorded beside the committee's rating. At least 10 characters."
+                />
+              </div>
+            )}
           </div>
         )}
 
