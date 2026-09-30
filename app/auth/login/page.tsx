@@ -11,6 +11,7 @@ import { useRouter } from 'next/navigation';
 import { BeatLoader } from 'react-spinners';
 import toast from 'react-hot-toast';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
+import { safeReturnPath } from '@/lib/auth/safe-return-path';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 // Simple Educational Hero Component
@@ -171,9 +172,10 @@ export default function LoginPage() {
             destination = '/driver';
           }
 
-          // For non-student users, allow redirectedFrom as before
+          // For non-student users, allow redirectedFrom as before — but only a
+          // path on this site (safeReturnPath refuses '//host', '/\\host', URLs).
           if (redirectedFrom && profileData?.role !== 'student') {
-            destination = redirectedFrom;
+            destination = safeReturnPath(redirectedFrom) ?? destination;
           }
 
           // CRITICAL: Check if destination is the current login page to prevent loops
@@ -330,11 +332,22 @@ export default function LoginPage() {
         // request ID, thread it through the OAuth redirect_uri so that
         // /auth/callback can resume the SAML flow after Google auth.
         // Google preserves the redirect_uri query string verbatim on return.
-        const samlReqId = new URLSearchParams(window.location.search).get('samlReqId');
+        const pageParams = new URLSearchParams(window.location.search);
+        const callbackUrl = new URL('/auth/callback', origin);
+        const samlReqId = pageParams.get('samlReqId');
         if (samlReqId) {
-          redirectTo = `${origin}/auth/callback?samlReqId=${encodeURIComponent(samlReqId)}`;
+          callbackUrl.searchParams.set('samlReqId', samlReqId);
           console.log('[Login Page] Threading samlReqId through OAuth:', samlReqId);
         }
+        // Return-to: the page the person was on when proxy.ts sent them here
+        // (e.g. a scanned QR sticker, /instasolver/r/<token>). Threaded through
+        // the OAuth round trip the same way as samlReqId; /auth/callback checks
+        // it again before using it.
+        const returnPath = safeReturnPath(pageParams.get('redirectedFrom'));
+        if (returnPath) {
+          callbackUrl.searchParams.set('next', returnPath);
+        }
+        redirectTo = callbackUrl.toString();
       }
 
       console.log('[Login Page] Current origin:', window.location.origin);
