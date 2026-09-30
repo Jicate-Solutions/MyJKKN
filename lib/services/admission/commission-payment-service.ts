@@ -39,7 +39,11 @@ const RPC_MESSAGES: Record<string, string> = {
   reason_required: 'A decline reason is required.',
   no_lines_selected: 'Select at least one institution to pay.',
   not_current_stage_assignee: 'This request is waiting on someone else.',
-  not_disburser: 'You are not allowed to disburse this payment.',
+  not_disburser: 'You are not allowed to act on this payment at disbursement.',
+  disburse_super_admin_only: 'Only a super admin can pay an approved commission request.',
+  cannot_disburse_own_request: 'You initiated or approved this request, so another super admin must pay it.',
+  cannot_approve_own_request: 'You initiated this request, so someone else must approve it.',
+  already_approved_earlier_stage: 'You approved an earlier stage, so someone else must approve this one.',
 };
 
 function rpcError(error: unknown): Error {

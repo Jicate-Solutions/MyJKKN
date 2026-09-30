@@ -27,9 +27,15 @@ interface Props {
   requestNumber: string;
   consultantName: string;
   stageName: string;
+  /** Hide Approve, e.g. at the disbursement stage where only a decline is possible. */
+  declineOnly?: boolean;
+  /** Why Approve is not offered to this person (shown in place of the button). */
+  approveBlockedReason?: string | null;
 }
 
-export function StageActionPanel({ requestId, requestNumber, consultantName, stageName }: Props) {
+export function StageActionPanel({
+  requestId, requestNumber, consultantName, stageName, declineOnly = false, approveBlockedReason = null
+}: Props) {
   const [notes, setNotes] = useState('');
   const [attachments, setAttachments] = useState<CommissionPaymentAttachment[]>([]);
   const [declineOpen, setDeclineOpen] = useState(false);
@@ -69,13 +75,19 @@ export function StageActionPanel({ requestId, requestNumber, consultantName, sta
             endpoint={COMMISSION_PAYMENT_ATTACHMENTS_ENDPOINT} />
         </div>
 
+        {approveBlockedReason && !declineOnly && (
+          <p className='text-sm text-muted-foreground'>{approveBlockedReason}</p>
+        )}
+
         <div className='flex justify-end gap-2 pt-2 border-t'>
           <Button variant='destructive' onClick={() => setDeclineOpen(true)} disabled={actOnCommissionPayment.isPending}>
             Decline
           </Button>
-          <Button onClick={handleApprove} disabled={actOnCommissionPayment.isPending}>
-            {actOnCommissionPayment.isPending ? 'Submitting…' : 'Approve'}
-          </Button>
+          {!declineOnly && !approveBlockedReason && (
+            <Button onClick={handleApprove} disabled={actOnCommissionPayment.isPending}>
+              {actOnCommissionPayment.isPending ? 'Submitting…' : 'Approve'}
+            </Button>
+          )}
         </div>
       </CardContent>
 

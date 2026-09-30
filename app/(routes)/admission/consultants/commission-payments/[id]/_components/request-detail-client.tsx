@@ -91,7 +91,25 @@ export function RequestDetailClient({ id }: Props) {
   const matches = (a?: { assignee_roles: string[]; assignee_users: string[] }) =>
     !!a && !!myUserId && (a.assignee_users.includes(myUserId) || a.assignee_roles.some((r) => roleIds.includes(r)));
   const canActOnStage = isSuperAdmin || matches(stage ?? undefined);
-  const canDisburse = request.status === 'pending_disbursement' && (isSuperAdmin || matches(request.flow_snapshot.disburser));
+
+  // Separation of duties, as fn_act_on / fn_disburse_commission_payment_request
+  // enforce it: nobody approves their own request or approves it twice, and
+  // nobody who initiated or approved it pays it.
+  const iInitiated = !!myUserId && request.initiated_by === myUserId;
+  const iApproved = !!myUserId && (request.actions ?? []).some(
+    (a) => a.action_type === 'approved' && a.actor_id === myUserId
+  );
+  const approveBlockedReason = iInitiated
+    ? 'You initiated this request, so someone else must approve it.'
+    : iApproved
+      ? 'You approved an earlier stage, so someone else must approve this one.'
+      : null;
+
+  const atDisbursement = request.status === 'pending_disbursement';
+  // Paying is super-admin only (same rule as recording a payment directly).
+  const canDisburse = atDisbursement && isSuperAdmin && !iInitiated && !iApproved;
+  // A request whose balance changed after final approval must be declinable here.
+  const canDeclineAtDisbursement = atDisbursement && (isSuperAdmin || matches(request.flow_snapshot.disburser));
 
   const declineAction = request.actions?.find((a) => a.action_type === 'declined');
   const disburseAction = request.actions?.find((a) => a.action_type === 'disbursed');
@@ -309,6 +327,29 @@ export function RequestDetailClient({ id }: Props) {
               requestNumber={request.request_number}
               consultantName={consultantName}
               stageName={stage.name}
+              approveBlockedReason={approveBlockedReason}
+            />
+          )}
+
+          {atDisbursement && !isSuperAdmin && (
+            <p className='text-sm text-muted-foreground'>
+              Approved. Paying it is done by a super admin who did not initiate or approve it.
+            </p>
+          )}
+
+          {atDisbursement && isSuperAdmin && (iInitiated || iApproved) && (
+            <p className='text-sm text-muted-foreground'>
+              You initiated or approved this request, so another super admin must pay it.
+            </p>
+          )}
+
+          {canDeclineAtDisbursement && (
+            <StageActionPanel
+              requestId={request.id}
+              requestNumber={request.request_number}
+              consultantName={consultantName}
+              stageName='Disbursement'
+              declineOnly
             />
           )}
 

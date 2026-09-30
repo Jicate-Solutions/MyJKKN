@@ -20,6 +20,14 @@ export async function POST(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
+  // Uploads land on institutional Drive with link sharing, so only people who
+  // work commission money may add files — not every signed-in user.
+  const [{ data: isSuper }, { data: canView }] = await Promise.all([
+    (supabase as any).rpc('is_super_admin'),
+    (supabase as any).rpc('user_has_permission', { permission_name: 'admission.consultants.commissions.view' }),
+  ]);
+  if (!isSuper && !canView) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+
   const form = await request.formData();
   const file = form.get('file') as File | null;
   // The shared field posts the folder name as institutionName; here it is the consultant.

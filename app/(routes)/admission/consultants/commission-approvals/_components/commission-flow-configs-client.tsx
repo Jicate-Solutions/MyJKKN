@@ -488,6 +488,10 @@ function FlowEditorDialog({
           <Card>
             <CardHeader className='pb-2'>
               <CardTitle className='text-sm'>Disbursers</CardTitle>
+              <p className='text-xs text-muted-foreground'>
+                Can decline an approved request at disbursement. Paying it is always done by a super admin
+                who did not initiate or approve it.
+              </p>
             </CardHeader>
             <CardContent className='grid gap-3 sm:grid-cols-2'>
               <RolePicker label='Roles' options={roleOptions} selected={disburserRoles} onChange={setDisburserRoles} />
