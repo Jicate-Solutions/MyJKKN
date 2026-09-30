@@ -96,6 +96,11 @@ REVOKE ALL ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, 
 GRANT EXECUTE ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text, numeric, boolean, numeric, numeric, text) TO authenticated, service_role;
 SQL
 "${PSQL[@]}" -f "$WORK/before.sql"
+# Drift stand-in: pretend production's copy had lost the anon revoke (Supabase's
+# default grant), so the rehearsal proves THIS migration's own REVOKE removes it.
+# CREATE OR REPLACE keeps an existing ACL, so without this the REVOKE could be
+# deleted and nothing here would notice.
+"${PSQL[@]}" -c "GRANT EXECUTE ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text, numeric, boolean, numeric, numeric, text) TO anon"
 "${PSQL[@]}" -Atc "select 'before: fn_hr_set_staff_salary args = ' || pronargs from pg_proc where proname = 'fn_hr_set_staff_salary'"
 
 # People. Profiles and logins first: the Director list seeds itself from the
@@ -123,11 +128,11 @@ grep -q 'needs public.fn_is_the_director()' "$WORK/pre.out" \
 "${PSQL[@]}" -Atc "select 'precondition: refused without the Director list; fn_hr_set_staff_salary args still = ' || pronargs from pg_proc where proname = 'fn_hr_set_staff_salary'"
 
 "${PSQL[@]}" -f "$WORK/director.sql"
-# The 08:59 ruling names TWO accounts (director@ and isvarya@). #4121's seed may
-# carry only director@ until its own rework lands, so the rehearsal adds
-# isvarya@ (and c7, a listed account with no super admin / HR keys) as the SQL
-# console would: an owner session with no signed-in user, which #4121's guard
-# allows. Nothing is removed from the list.
+# The 08:59 ruling names TWO accounts (director@ and isvarya@). #4121 round 3
+# (083653e34e) seeds both; an older #4121 head seeded director@ only. Either
+# way the rehearsal makes sure isvarya@ is there, and adds c7 (a listed account
+# with no super admin / HR keys), as the SQL console would: an owner session
+# with no signed-in user, which #4121's guard allows. Nothing is removed.
 "${PSQL[@]}" <<'SQL'
 SELECT set_config('request.jwt.claims', '', false);
 UPDATE public.platform_policies
