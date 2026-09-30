@@ -135,6 +135,15 @@ export interface PersonPayFacts {
   /** Free-text job title from `staff.designation`. */
   designation: string | null;
   institutionId: string;
+  /** `staff.department_id`. The amount per year is set per department. */
+  departmentId: string | null;
+  /**
+   * The rupees a month one more year at JKKN is worth for this person's
+   * department, from the Director's per-department rule
+   * (hr.salary_suggestion_rule, #4119). Null when the Director left the
+   * department empty: then no rise is proposed (Director, 30 Sep 2026).
+   */
+  departmentIncrementAmount: number | null;
   /** `hr_staff_salaries.monthly_gross` of the row in force. */
   currentMonthlyGross: number | null;
   /**
@@ -174,9 +183,12 @@ export type IncrementVerdict =
   | 'due';
 
 export type AmountRule =
+  /** The department's amount per year at JKKN (Director, 30 Sep 2026). */
+  | 'department_amount'
+  /** Older forms, no longer proposed; kept so stored reports still type-check. */
   | 'policy_fixed_amount'
   | 'policy_percent_of_gross'
-  /** The policy states no amount and no percentage. */
+  /** No amount is set for this person's department. */
   | 'not_configured'
   /** A percentage is configured but this person's current pay is unrecorded. */
   | 'unknown_current_pay'
@@ -445,9 +457,17 @@ export interface AmountProposal {
   note: string | null;
 }
 
+/**
+ * The Director's ruling of 30 Sep 2026: increments use the SAME per-department
+ * amounts as the salary suggestion (rupees a month for one more year at JKKN,
+ * set by the Director for each department). The college's own increment rules
+ * still decide WHETHER a rise is due; they no longer say how much. A
+ * department the Director left empty proposes no figure, and says so.
+ */
 export function proposeAmount(
-  rules: IncrementRules,
+  _rules: IncrementRules,
   currentMonthlyGross: number | null,
+  departmentIncrementAmount: number | null | undefined,
 ): AmountProposal {
   const gross =
     typeof currentMonthlyGross === 'number' &&
@@ -456,12 +476,16 @@ export function proposeAmount(
       ? currentMonthlyGross
       : null;
 
-  if (rules.annualAmount !== null) {
-    const increase = roundCurrency(rules.annualAmount);
+  if (
+    typeof departmentIncrementAmount === 'number' &&
+    Number.isFinite(departmentIncrementAmount) &&
+    departmentIncrementAmount > 0
+  ) {
+    const increase = roundCurrency(departmentIncrementAmount);
     return {
       monthlyIncrease: increase,
       newMonthlyGross: gross === null ? null : roundCurrency(gross + increase),
-      rule: 'policy_fixed_amount',
+      rule: 'department_amount',
       note:
         gross === null
           ? 'No monthly pay is recorded for this person, so the new figure cannot be shown.'
@@ -469,30 +493,11 @@ export function proposeAmount(
     };
   }
 
-  if (rules.annualPercentOfGross !== null) {
-    if (gross === null) {
-      return {
-        monthlyIncrease: null,
-        newMonthlyGross: null,
-        rule: 'unknown_current_pay',
-        note:
-          'The rules set the rise as a percentage of pay, and no monthly pay is recorded for this person.',
-      };
-    }
-    const increase = roundCurrency((gross * rules.annualPercentOfGross) / 100);
-    return {
-      monthlyIncrease: increase,
-      newMonthlyGross: roundCurrency(gross + increase),
-      rule: 'policy_percent_of_gross',
-      note: null,
-    };
-  }
-
   return {
     monthlyIncrease: null,
     newMonthlyGross: null,
     rule: 'not_configured',
-    note: 'The rules for this college do not say how much an increment is worth.',
+    note: 'No amount is set for this department. The Director sets the amount per year for each department on the salary suggestion settings page; until then no rise is proposed.',
   };
 }
 
@@ -885,7 +890,7 @@ export function assessIncrement(
     };
   }
 
-  const amount = proposeAmount(rules, person.currentMonthlyGross);
+  const amount = proposeAmount(rules, person.currentMonthlyGross, person.departmentIncrementAmount);
   const reason =
     amount.monthlyIncrease === null
       ? `Due — the year has passed and every condition is met. ${amount.note ?? ''}`.trim()

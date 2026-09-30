@@ -91,6 +91,9 @@ function person(over: Partial<PersonPayFacts>): PersonPayFacts {
     staffName: 'Nobody',
     designation: null,
     institutionId: INSTITUTION,
+    // The Director's per-department amount (30 Sep 2026): the rise itself.
+    departmentId: 'dept-1',
+    departmentIncrementAmount: 1500,
     currentMonthlyGross: 20000,
     payEffectiveFrom: '2025-01-15',
     dateOfJoining: '2020-06-01',
@@ -168,9 +171,10 @@ describe('college table: a DUE row with an amount the rules state', () => {
     expect(screen.getByText(/₹1,500\.00 a month proposed in total/)).toBeInTheDocument();
   });
 
-  it('formats a percentage-of-pay rise in rupees, with Indian digit grouping', () => {
+  it('formats a large department amount in rupees, with Indian digit grouping', () => {
     // 3.5% of 2,45,000 = 8,575; the new figure crosses a lakh.
     const higherPaid = person({
+      departmentIncrementAmount: 8575,
       staffId: 'p-9',
       staffName: 'Lakshmi Devi',
       currentMonthlyGross: 245000,
@@ -227,17 +231,17 @@ describe('college table: WITHHELD rows', () => {
   });
 });
 
-describe('college table: a DUE row when the rules state no amount', () => {
-  const report = college({}, [DUE]);
+describe('college table: a DUE row when the Director has set no amount for the department', () => {
+  const report = college({ annual_amount: 1500 }, [{ ...DUE, departmentIncrementAmount: null }]);
 
-  it('shows "Due" and says in words that the rules do not say how much', () => {
+  it('shows "Due" and says in words that no amount is set for the department', () => {
     render(<CollegeIncrementSection college={report} />);
     const row = rowFor('Kavya Ramesh');
 
     expect(within(row).getByText('Due')).toBeInTheDocument();
     expect(
       within(row).getByText(
-        'Due — the year has passed and every condition is met. The rules for this college do not say how much an increment is worth.',
+        'Due — the year has passed and every condition is met. No amount is set for this department. The Director sets the amount per year for each department on the salary suggestion settings page; until then no rise is proposed.',
       ),
     ).toBeInTheDocument();
   });
@@ -268,13 +272,13 @@ function pageReport(colleges: CollegeIncrementReport[]): IncrementReport {
 }
 
 describe('Annual Increments page', () => {
-  it('with nobody priced, says the rules do not say how much an increment is worth', () => {
+  it('with nobody priced, says the Director has set no amount for their departments', () => {
     grantedKeys = ['hr.payroll.salary.view'];
-    reportData = pageReport([college({}, [DUE])]);
+    reportData = pageReport([college({ annual_amount: 1500 }, [{ ...DUE, departmentIncrementAmount: null }])]);
     render(<AnnualIncrementsPage />);
 
     expect(
-      screen.getByText('The rules do not say how much an increment is worth'),
+      screen.getByText('No amount is set for their departments'),
     ).toBeInTheDocument();
     expect(
       screen.getByText(/1 person has met every condition their college.s rules set/),
@@ -288,7 +292,7 @@ describe('Annual Increments page', () => {
     render(<AnnualIncrementsPage />);
 
     expect(
-      screen.queryByText('The rules do not say how much an increment is worth'),
+      screen.queryByText('No amount is set for their departments'),
     ).not.toBeInTheDocument();
     expect(screen.getByText('₹1,500.00')).toBeInTheDocument();
     expect(screen.getByText('would become ₹21,500.00')).toBeInTheDocument();

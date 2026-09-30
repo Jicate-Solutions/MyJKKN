@@ -80,6 +80,8 @@ function person(over: Partial<PersonPayFacts> = {}): PersonPayFacts {
     staffName: 'A Senior Learner',
     designation: 'Senior Learner',
     institutionId: INSTITUTION,
+    departmentId: 'dept-1',
+    departmentIncrementAmount: 1000,
     currentMonthlyGross: 20000,
     payEffectiveFrom: '2025-01-15',
     dateOfJoining: '2020-06-01',
@@ -226,60 +228,44 @@ describe('parseIncrementRules', () => {
 // Amount
 // ===========================================================================
 
-describe('proposeAmount', () => {
-  it('uses the fixed amount from the rules', () => {
-    const a = proposeAmount(completeRules({ annualAmount: 1500 }), 20000);
-    expect(a.rule).toBe('policy_fixed_amount');
-    expect(a.monthlyIncrease).toBe(1500);
-    expect(a.newMonthlyGross).toBe(21500);
+describe("proposeAmount (Director, 30 Sep 2026: the department's amount, not the college's)", () => {
+  it('uses the department amount per year at JKKN', () => {
+    const a = proposeAmount(completeRules({ annualAmount: 1500 }), 20000, 1200);
+    expect(a.rule).toBe('department_amount');
+    expect(a.monthlyIncrease).toBe(1200);
+    expect(a.newMonthlyGross).toBe(21200);
   });
 
-  it('computes a percentage of current pay', () => {
-    const a = proposeAmount(
-      completeRules({ annualAmount: null, annualPercentOfGross: 3 }),
-      20000,
-    );
-    expect(a.rule).toBe('policy_percent_of_gross');
-    expect(a.monthlyIncrease).toBe(600);
-    expect(a.newMonthlyGross).toBe(20600);
+  it("ignores the college's fixed amount and percentage: the same per-department amounts everywhere", () => {
+    const fixed = proposeAmount(completeRules({ annualAmount: 1500 }), 20000, 700);
+    const pct = proposeAmount(completeRules({ annualAmount: null, annualPercentOfGross: 3 }), 20000, 700);
+    expect(fixed.monthlyIncrease).toBe(700);
+    expect(pct.monthlyIncrease).toBe(700);
+    expect(fixed.rule).toBe('department_amount');
+    expect(pct.rule).toBe('department_amount');
   });
 
-  it('rounds a percentage to paise, not to a float artefact', () => {
-    const a = proposeAmount(
-      completeRules({ annualAmount: null, annualPercentOfGross: 3.5 }),
-      17333.33,
-    );
+  it('rounds the department amount to paise', () => {
+    const a = proposeAmount(completeRules(), 17333.33, 606.666);
     expect(a.monthlyIncrease).toBe(606.67);
     expect(a.newMonthlyGross).toBe(17940);
   });
 
-  it('will not compute a percentage of pay it does not know', () => {
-    for (const gross of [null, 0, -5]) {
-      const a = proposeAmount(
-        completeRules({ annualAmount: null, annualPercentOfGross: 3 }),
-        gross,
-      );
-      expect(a.rule).toBe('unknown_current_pay');
+  it('proposes nothing, and says why, when the Director left the department empty', () => {
+    for (const amount of [null, undefined, 0, -5, Number.NaN]) {
+      const a = proposeAmount(completeRules({ annualAmount: 1500 }), 20000, amount as number | null);
+      expect(a.rule).toBe('not_configured');
       expect(a.monthlyIncrease).toBeNull();
-      expect(a.note).toMatch(/no monthly pay is recorded/i);
+      expect(a.newMonthlyGross).toBeNull();
+      expect(a.note).toMatch(/no amount is set for this department/i);
     }
   });
 
-  it('reports "not configured" rather than inventing a figure', () => {
-    const a = proposeAmount(
-      completeRules({ annualAmount: null, annualPercentOfGross: null }),
-      20000,
-    );
-    expect(a.rule).toBe('not_configured');
-    expect(a.monthlyIncrease).toBeNull();
-    expect(a.newMonthlyGross).toBeNull();
-    expect(a.note).toMatch(/do not say how much/i);
-  });
-
-  it('still states the fixed amount when current pay is unknown', () => {
-    const a = proposeAmount(completeRules({ annualAmount: 1000 }), null);
+  it('still states the department amount when current pay is unknown', () => {
+    const a = proposeAmount(completeRules(), null, 1000);
     expect(a.monthlyIncrease).toBe(1000);
     expect(a.newMonthlyGross).toBeNull();
+    expect(a.note).toMatch(/no monthly pay is recorded/i);
   });
 });
 
@@ -625,16 +611,16 @@ describe('assessIncrement — a definite fail beats an unknown', () => {
 });
 
 describe('assessIncrement — due but unpriced', () => {
-  it('says due and leaves the amount null when the rules give no figure', () => {
+  it('says due and leaves the amount null when the department has no amount set', () => {
     const r = assessIncrement(
-      person(),
-      completeRules({ annualAmount: null, annualPercentOfGross: null }),
+      person({ departmentIncrementAmount: null }),
+      completeRules({ annualAmount: 1500 }),
       { asOf: ASOF },
     );
     expect(r.verdict).toBe('due');
     expect(r.proposedMonthlyIncrease).toBeNull();
     expect(r.amountRule).toBe('not_configured');
-    expect(r.reason).toMatch(/do not say how much/i);
+    expect(r.reason).toMatch(/no amount is set for this department/i);
   });
 
   it('carries the approver from the rules', () => {

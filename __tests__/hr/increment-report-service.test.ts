@@ -15,6 +15,10 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
+// The service reads the Director's per-department rule through the server
+// key (#4111 keeps it unreadable to signed-in accounts). Same fake tables.
+vi.mock('@/lib/supabase/server', () => ({ createServiceRoleClient: () => makeClient() }));
+
 import { IncrementReportService } from '@/lib/services/hr/increments/increment-report-service';
 
 // ---------------------------------------------------------------------------
@@ -148,6 +152,16 @@ beforeEach(() => {
         scope_id: null,
         value: SEEDED_INCREMENTS,
       },
+      // The Director's per-department amounts (30 Sep 2026): the amount of
+      // every increment, whatever the college's own rules say.
+      {
+        policy_key: 'hr.salary_suggestion_rule',
+        scope_type: 'global',
+        scope_id: null,
+        is_active: true,
+        publication_state: 'published',
+        value: { per_year_by_department: { 'aaaaaaaa-0000-4000-8000-000000000d01': 1000 } },
+      },
     ],
     staff: [
       {
@@ -156,6 +170,7 @@ beforeEach(() => {
         last_name: 'Raman',
         designation: 'Senior Learner',
         institution_id: ENGINEERING,
+        department_id: 'aaaaaaaa-0000-4000-8000-000000000d01',
         date_of_joining: '2019-07-01',
         is_active: true,
       },
@@ -174,6 +189,7 @@ beforeEach(() => {
         last_name: 'Away',
         designation: 'Typist',
         institution_id: ENGINEERING,
+        department_id: 'aaaaaaaa-0000-4000-8000-000000000d01',
         date_of_joining: '2015-01-01',
         is_active: false,
       },

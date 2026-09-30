@@ -38,8 +38,18 @@ import {
   type PerformanceReviewFact,
   type PersonPayFacts,
 } from '@/lib/hr/increment-engine';
+import { createServiceRoleClient } from '@/lib/supabase/server';
+import { departmentRate, parseSalarySuggestionRule } from '@/lib/hr/salary-suggestion';
 
 export const INCREMENT_POLICY_KEY = 'hr.allowances_and_increments' as const;
+/**
+ * The Director's per-department amounts (#4119). One group-wide row. Read
+ * through the server key, because #4111 keeps the rule unreadable to every
+ * signed-in account; only the ONE department's amount per person leaves this
+ * service, never the rule (Director, 30 Sep 2026: increments use the SAME
+ * per-department amounts).
+ */
+export const DEPARTMENT_AMOUNT_RULE_KEY = 'hr.salary_suggestion_rule' as const;
 
 export interface IncrementReport {
   asOf: string;
@@ -155,10 +165,26 @@ export class IncrementReportService {
       if (row?.scope_id) policyByCollege.set(row.scope_id, unwrapPolicyValue(row.value));
     }
 
+    // --- 2b. The amount, per department (Director, 30 Sep 2026) ----------
+    // The published, active, group-wide rule only. The stored object IS the
+    // rule (no { value: ... } wrapper), as lib/hr/salary-suggestion.ts reads it.
+    const admin: any = createServiceRoleClient();
+    const { data: ruleRows, error: ruleError } = await admin
+      .from('platform_policies')
+      .select('value, publication_state, is_active')
+      .eq('policy_key', DEPARTMENT_AMOUNT_RULE_KEY)
+      .eq('scope_type', 'global')
+      .is('scope_id', null);
+    if (ruleError) throw new Error(ruleError.message);
+    const ruleRow = ((ruleRows ?? []) as Array<Record<string, unknown>>).find(
+      (r) => r.is_active !== false && r.publication_state !== 'draft_only',
+    );
+    const departmentRule = parseSalarySuggestionRule(ruleRow?.value ?? null);
+
     // --- 3. The people ---------------------------------------------------
     const { data: staffRows, error: staffError } = await supabase
       .from('staff')
-      .select('id, first_name, last_name, designation, institution_id, date_of_joining')
+      .select('id, first_name, last_name, designation, institution_id, department_id, date_of_joining')
       .in('institution_id', institutionIds)
       .eq('is_active', true)
       .order('first_name', { ascending: true });
@@ -294,11 +320,14 @@ export class IncrementReportService {
       const designationId = designationByStaff.get(id);
       const scale = designationId ? scaleByDesignation.get(designationId) ?? null : null;
 
+      const departmentId = typeof row.department_id === 'string' ? row.department_id : null;
       const facts: PersonPayFacts = {
         staffId: id,
         staffName: fullName(row),
         designation: typeof row.designation === 'string' ? row.designation : null,
         institutionId: collegeId,
+        departmentId,
+        departmentIncrementAmount: departmentRate(departmentRule, departmentId),
         currentMonthlyGross: salary?.gross ?? null,
         payEffectiveFrom: salary?.effectiveFrom ?? null,
         dateOfJoining:

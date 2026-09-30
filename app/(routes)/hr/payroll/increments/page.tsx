@@ -224,12 +224,12 @@ export default function AnnualIncrementsPage() {
             {nobodyIsPriced && (
               <Alert>
                 <Info className="h-4 w-4" />
-                <AlertTitle>The rules do not say how much an increment is worth</AlertTitle>
+                <AlertTitle>No amount is set for their departments</AlertTitle>
                 <AlertDescription>
                   {totals.due} {totals.due === 1 ? 'person has' : 'people have'} met every
-                  condition their college&rsquo;s rules set, but no college has recorded an
-                  amount or a percentage, so no figure can be shown. MyJKKN will not invent
-                  one. Recording it on the Allowances &amp; Increments policy page is what
+                  condition their college&rsquo;s rules set, but the Director has not set an
+                  amount per year for their department, so no figure can be shown. MyJKKN will
+                  not invent one. Setting it on the salary suggestion settings page is what
                   turns this list into rupees.
                 </AlertDescription>
               </Alert>
