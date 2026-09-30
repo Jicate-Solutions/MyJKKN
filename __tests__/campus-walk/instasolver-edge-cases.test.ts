@@ -7,8 +7,9 @@
 //       does not, and a spot checker's own "Not fixed" never counts;
 //   (2) a report joins an open job only on the same college + same place +
 //       similar words + open + recent — a wrong join hides a report;
-//   (3) 1 in 10 photo closures is picked, deterministically per task, written
-//       in the SAME update as the closure; only the right checker may decide;
+//   (3) 1 in 10 photo closures is picked at random at close time, written in
+//       the SAME update as the closure; only the right checker — never the
+//       fixer — may decide;
 //   (4) no owner -> caretaker -> estate office (EAO) -> principal.
 // ============================================================================
 
@@ -249,6 +250,44 @@ describe('ruling 2 — writing the join', () => {
       'learner-2',
     ]);
     expect(bellsIn('instasolver:report-joined')).toHaveLength(1);
+  });
+
+  it('files a new job, rather than looping, when the updated_at guard misses an unchanged row', async () => {
+    fake = makeFakeDb((q) => {
+      if (q.table === 'project_tasks' && q.op === 'update') return { data: [] };
+      if (q.table === 'project_tasks' && q.op === 'select') {
+        return { data: { status_key: 'todo', updated_at: 'v1', metadata: {} } };
+      }
+      return { data: null };
+    });
+    const { joinOpenReport } = await import('@/lib/campus-walk/join-report');
+    const res = await joinOpenReport(fake.db as any, { ...openJob, updated_at: 'v1' }, entry, 'owner-1');
+    expect(res.ok).toBe(false);
+    expect(updates()).toHaveLength(1);
+  });
+
+  it('a close whose updated_at guard misses an unchanged row still closes, with the status-only guard', async () => {
+    let calls = 0;
+    fake = makeFakeDb((q) => {
+      if (q.table === 'project_tasks' && q.op === 'update') {
+        calls += 1;
+        return q.filters.some(([c]) => c === 'updated_at') ? { data: [] } : { data: [{ id: 'task-1', updated_at: 'v2' }] };
+      }
+      if (q.table === 'project_tasks' && q.op === 'select') {
+        return { data: { status_key: 'review', updated_at: 'v1', metadata: {} } };
+      }
+      return respond(q);
+    });
+    const res = await closeCampusWalkTask(
+      fake.db as any,
+      { ...fixedTask('task-1'), updated_at: 'v1' },
+      { decidedByProfileId: 'fixer-1', auto: true, spotCheckRoll: NO_PICK }
+    );
+    expect(res.ok && res.already).toBe(false);
+    expect(calls).toBe(2);
+    const last = updates()[1];
+    expect(filterOf(last, 'updated_at')).toBeUndefined();
+    expect(filterOf(last, 'status_key')).toBe('review');
   });
 
   it('does not join a job that was closed while it retried', async () => {

@@ -193,6 +193,14 @@ export async function joinOpenReport(
         console.error(`[campus-walk/join-report] re-read failed (task ${task.id}) — filing a new job:`, readErr?.message ?? 'gone');
         return { ok: false };
       }
+      if ((fresh.updated_at as string | null) === current.updated_at) {
+        // The row did NOT move, yet the guard missed: the updated_at round trip
+        // is not matching. Safe side — file a new job, and say so loudly.
+        console.error(
+          `[campus-walk/join-report] updated_at guard did not match an unchanged row (task ${task.id}) — filing a new job`
+        );
+        return { ok: false };
+      }
       current = {
         status_key: fresh.status_key as string,
         updated_at: (fresh.updated_at as string | null) ?? null,
@@ -278,6 +286,16 @@ export async function updateTaskKeepingJoins(
       return { ok: false, code: 'raced', error: 'status changed' };
     }
     metadata = mergeJoinedReports(metadata, (fresh.metadata as Record<string, any> | null) ?? null);
+    if ((fresh.updated_at as string | null) === updatedAt) {
+      // The row did NOT move, yet the guard missed: the updated_at round trip
+      // is not matching. Never let that stop a fix photo closing a job — fall
+      // back to the status-only write this step had before, and say so loudly.
+      console.error(
+        `[campus-walk/join-report] updated_at guard did not match an unchanged row (task ${opts.taskId}) — writing without it`
+      );
+      updatedAt = null;
+      continue;
+    }
     updatedAt = (fresh.updated_at as string | null) ?? null;
   }
   return { ok: false, code: 'raced', error: 'the job kept changing' };
