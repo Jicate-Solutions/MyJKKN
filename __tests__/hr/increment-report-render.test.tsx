@@ -188,6 +188,21 @@ describe('college table: a DUE row with an amount the rules state', () => {
   });
 });
 
+describe('college table: two DUE people, only one of them priced', () => {
+  const report = college({ annual_amount: 1500 }, [
+    DUE,
+    { ...DUE, staffId: 'staff-unpriced', staffName: 'Mohan Das', departmentIncrementAmount: null },
+  ]);
+
+  it('does not call a partial sum "in total"; it says who the figure covers and who has no amount', () => {
+    render(<CollegeIncrementSection college={report} />);
+    expect(screen.queryByText(/a month proposed in total/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/₹1,500\.00 a month proposed for 1 of the 2 people who are due; 1 has no amount set/),
+    ).toBeInTheDocument();
+  });
+});
+
 describe('college table: WITHHELD rows', () => {
   const report = college({ annual_amount: 1500 }, [DUE, WITHHELD_SCORE, WITHHELD_CONDUCT]);
 

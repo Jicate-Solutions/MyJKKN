@@ -58,6 +58,12 @@ function CountPill({ verdict, count }: { verdict: IncrementVerdict; count: numbe
 export function CollegeIncrementSection({ college }: { college: CollegeIncrementReport }) {
   const [open, setOpen] = useState(!college.hasRules || college.counts.due > 0);
   const rows = sortProposals(college.proposals);
+  // Due people whose department has no amount set carry no figure, so the
+  // college total is only the sum of the ones that do. Say so rather than
+  // calling a partial sum "in total" (blind review, 1 Oct).
+  const unpricedDue = college.proposals.filter(
+    (p) => p.verdict === 'due' && p.proposedMonthlyIncrease === null,
+  ).length;
 
   return (
     <section className="rounded-xl border border-border bg-card shadow-sm dark:shadow-none">
@@ -75,7 +81,13 @@ export function CollegeIncrementSection({ college }: { college: CollegeIncrement
             {college.staffCount} {college.staffCount === 1 ? 'person' : 'people'} on the
             active team list
             {college.totalMonthlyIncrease !== null && (
-              <> · {formatMoney(college.totalMonthlyIncrease)} a month proposed in total</>
+              <>
+                {' · '}
+                {formatMoney(college.totalMonthlyIncrease)} a month proposed
+                {unpricedDue > 0
+                  ? ` for ${college.counts.due - unpricedDue} of the ${college.counts.due} people who are due; ${unpricedDue} ${unpricedDue === 1 ? 'has' : 'have'} no amount set`
+                  : ' in total'}
+              </>
             )}
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-3">
