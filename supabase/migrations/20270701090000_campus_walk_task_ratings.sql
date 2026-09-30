@@ -24,11 +24,16 @@
 --   lib/campus-walk/my-reports.ts.
 --
 -- WHO CAN SEE WHAT (RLS)
---   INSERT  the reporter, for a CLOSED campus-walk job they reported, as
---           themselves. The API route (app/api/instasolver/thanks/route.ts)
---           is the normal writer and re-checks all of this; the policy stops a
---           direct PostgREST insert from rating somebody else's job or a job
---           that is not closed.
+--   INSERT  NOBODY signed in. The ONLY writer is the API route
+--           (app/api/instasolver/thanks/route.ts) running as service_role. It
+--           checks that the caller really reported this job, that the job is
+--           fixed and its fix photo accepted, that the caller is not the
+--           fixer, and it computes fix_round_key from the task itself, so the
+--           UNIQUE index below really does mean one rating per reporter per
+--           fix. A direct PostgREST insert would let a reporter choose any
+--           round key and stuff a department's stars average (repair round,
+--           1 Oct 2026), so authenticated gets SELECT only and there is no
+--           INSERT policy at all.
 --   SELECT  the reporter (their own rows); super admin / admin; and the FIXER
 --           only for rows the reporter SIGNED. An unsigned row carries
 --           reporter_profile_id, and RLS cannot hide one column, so letting the
@@ -75,28 +80,16 @@ ALTER TABLE public.campus_walk_task_ratings ENABLE ROW LEVEL SECURITY;
 
 -- Supabase's default privileges hand anon ALL on new tables. Nobody signed out
 -- has any business here.
-REVOKE ALL ON TABLE public.campus_walk_task_ratings FROM anon, PUBLIC;
-GRANT SELECT, INSERT ON TABLE public.campus_walk_task_ratings TO authenticated;
+-- The same default privileges hand authenticated ALL too, so revoke it from
+-- authenticated as well and give back SELECT only. Writes go through the
+-- thanks route as service_role; nobody signed in can insert, change or delete.
+REVOKE ALL ON TABLE public.campus_walk_task_ratings FROM anon, authenticated, PUBLIC;
+GRANT SELECT ON TABLE public.campus_walk_task_ratings TO authenticated;
+GRANT ALL ON TABLE public.campus_walk_task_ratings TO service_role;
 
+-- No INSERT policy: see "WHO CAN SEE WHAT" above. The DROP keeps a re-run of
+-- an earlier draft of this file from leaving one behind.
 DROP POLICY IF EXISTS campus_walk_task_ratings_insert_own ON public.campus_walk_task_ratings;
-CREATE POLICY campus_walk_task_ratings_insert_own
-  ON public.campus_walk_task_ratings
-  FOR INSERT
-  TO authenticated
-  WITH CHECK (
-    reporter_profile_id = (SELECT auth.uid())
-    AND EXISTS (
-      SELECT 1
-        FROM public.project_tasks t
-       WHERE t.id = campus_walk_task_ratings.task_id
-         AND t.metadata ->> 'source' = 'campus-walk'
-         AND t.status_key = 'done'
-         AND (
-               t.metadata ->> 'reporter_id' = (SELECT auth.uid())::text
-            OR t.metadata ->> 'raised_by_profile_id' = (SELECT auth.uid())::text
-         )
-    )
-  );
 
 DROP POLICY IF EXISTS campus_walk_task_ratings_select ON public.campus_walk_task_ratings;
 CREATE POLICY campus_walk_task_ratings_select
@@ -127,5 +120,24 @@ BEGIN
     INTO v_anon;
   IF v_anon THEN
     RAISE EXCEPTION 'campus_walk_task_ratings: anon can still read or write the table';
+  END IF;
+
+  IF has_table_privilege('authenticated', 'public.campus_walk_task_ratings', 'INSERT')
+     OR has_table_privilege('authenticated', 'public.campus_walk_task_ratings', 'UPDATE')
+     OR has_table_privilege('authenticated', 'public.campus_walk_task_ratings', 'DELETE') THEN
+    RAISE EXCEPTION 'campus_walk_task_ratings: signed-in users can still write the table directly';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM pg_policies
+     WHERE schemaname = 'public'
+       AND tablename = 'campus_walk_task_ratings'
+       AND cmd IN ('INSERT', 'UPDATE', 'DELETE', 'ALL')
+  ) THEN
+    RAISE EXCEPTION 'campus_walk_task_ratings: a write policy exists; writes must go through the thanks route only';
+  END IF;
+
+  IF NOT has_table_privilege('service_role', 'public.campus_walk_task_ratings', 'INSERT') THEN
+    RAISE EXCEPTION 'campus_walk_task_ratings: service_role cannot insert, so the thanks route would fail';
   END IF;
 END $$;

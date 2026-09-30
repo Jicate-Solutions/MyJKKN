@@ -17,8 +17,10 @@
 // ── WHY SERVICE ROLE ────────────────────────────────────────────────────────
 // Same reason as app/api/campus-walk/not-fixed/route.ts: project_* RLS is
 // `auth.uid() IS NOT NULL`, so the checks below — this is YOUR report, it IS
-// fixed — are the real boundary. The table's own INSERT policy re-states them
-// for anybody who writes to it directly.
+// fixed — are the real boundary. This route is also the table's ONLY writer:
+// signed-in users have SELECT only on campus_walk_task_ratings, so nobody can
+// skip these checks by inserting straight through PostgREST with a round key
+// of their choosing (migration 20270701090000, repair round 1 Oct 2026).
 //
 // ── D10 ─────────────────────────────────────────────────────────────────────
 // The reporter is never told who fixed it: nothing in the response names the
@@ -28,7 +30,14 @@
 // ── FAIL SOFT ON THE BELL ───────────────────────────────────────────────────
 // The rating is the record; the bell is the courtesy. A bell that fails is
 // reported back as fixerTold:false, never turned into an error that invites a
-// second tap (which the unique index would refuse anyway).
+// second tap (which the unique index would refuse anyway). createBellNotification
+// returns null (it does not throw) when the notification row was not written,
+// and it returns an id even when the recipient row failed — so "told" means an
+// id came back AND the fixer's user_notifications row is there.
+//
+// The bell's idempotency key is the rating row's own id. It must not carry the
+// reporter's profile id: the fixer can read their notification row, key
+// included, and an unsigned "Someone" must stay unnamed.
 //
 // Every refusal is { success: false, error } with a sentence the reporter can
 // act on (rule #27).
@@ -171,15 +180,19 @@ export async function POST(request: NextRequest) {
   }
 
   // ── Save the rating — the unique index decides "one per round" ────────────
-  const { error: insertErr } = await admin.from('campus_walk_task_ratings').insert({
-    task_id: task.id,
-    fix_round_key: fixRoundKey,
-    reporter_profile_id: user.id,
-    fixer_profile_id: fixerProfileId,
-    stars,
-    thanks_text: thanks,
-    signed,
-  });
+  const { data: ratingRow, error: insertErr } = await admin
+    .from('campus_walk_task_ratings')
+    .insert({
+      task_id: task.id,
+      fix_round_key: fixRoundKey,
+      reporter_profile_id: user.id,
+      fixer_profile_id: fixerProfileId,
+      stars,
+      thanks_text: thanks,
+      signed,
+    })
+    .select('id')
+    .single();
 
   if (insertErr) {
     if ((insertErr as any).code === '23505') {
@@ -195,7 +208,9 @@ export async function POST(request: NextRequest) {
   }
 
   // ── The fixer's bell (fail soft) ──────────────────────────────────────────
-  let fixerTold: boolean | null = null;
+  const ratingId = typeof (ratingRow as any)?.id === 'string' ? ((ratingRow as any).id as string) : null;
+
+  let fixerTold = false;
   if (fixerProfileId) {
     try {
       const [fixerName, reporterName, reporterDepartment] = await Promise.all([
@@ -213,7 +228,7 @@ export async function POST(request: NextRequest) {
         stars,
         thanks,
       });
-      await createBellNotification(admin, {
+      const notificationId = await createBellNotification(admin, {
         recipientIds: [fixerProfileId],
         createdBy: fixerProfileId,
         title: bell.title,
@@ -221,18 +236,26 @@ export async function POST(request: NextRequest) {
         url: `/campus-walk/fix?task=${task.id}`,
         category: 'instasolver:thanks',
         metadata: { task_id: task.id, source: 'campus-walk', stars, signed },
-        idempotencyKey: `instasolver-thanks:${task.id}:${fixRoundKey}:${user.id}`,
+        // One bell per rating row. No reporter id in the key (see the header).
+        ...(ratingId ? { idempotencyKey: `instasolver-thanks:${ratingId}` } : {}),
       });
-      // A null return means the idempotency index already holds this key —
-      // the fixer HAS been told. Only a throw means nobody was.
-      fixerTold = true;
+      if (notificationId) {
+        const { count, error: deliveredErr } = await admin
+          .from('user_notifications')
+          .select('notification_id', { count: 'exact', head: true })
+          .eq('notification_id', notificationId)
+          .eq('user_id', fixerProfileId);
+        fixerTold = !deliveredErr && (count ?? 0) > 0;
+      }
+      if (!fixerTold) {
+        console.error(`[instasolver/thanks] rating saved but the fixer's bell did not land (task ${task.id})`);
+      }
     } catch (e: any) {
       console.error('[instasolver/thanks] fixer bell failed:', e?.message ?? e);
       fixerTold = false;
     }
   } else {
     console.error(`[instasolver/thanks] rating saved but no fixer to tell (task ${task.id})`);
-    fixerTold = false;
   }
 
   return NextResponse.json({
@@ -241,7 +264,7 @@ export async function POST(request: NextRequest) {
     task_id: task.id,
     fixer_told: fixerTold,
     message:
-      fixerTold === false
+      !fixerTold
         ? 'Thank you. Your stars are saved.'
         : 'Thank you. The person who fixed it has been told.',
   });

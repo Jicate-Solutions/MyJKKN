@@ -16,6 +16,8 @@
 // ============================================================================
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { makeFakeDb, filterOf, type RecordedQuery } from './fake-db';
 import {
   ANONYMOUS_THANKER,
@@ -40,6 +42,7 @@ const createBellNotification = vi.fn();
 let fake: ReturnType<typeof makeFakeDb>;
 let taskRow: Record<string, any> | null;
 let insertError: any;
+let deliveredCount: number;
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: async () => ({ auth: { getUser } }),
@@ -52,7 +55,10 @@ vi.mock('@/lib/services/meetings/meeting-trigger-service', () => ({
 
 function respond(q: RecordedQuery) {
   if (q.table === 'project_tasks' && q.op === 'select') return { data: taskRow };
-  if (q.table === 'campus_walk_task_ratings' && q.op === 'insert') return { error: insertError };
+  if (q.table === 'campus_walk_task_ratings' && q.op === 'insert') {
+    return insertError ? { error: insertError } : { data: { id: 'rating-1' } };
+  }
+  if (q.table === 'user_notifications') return { count: deliveredCount };
   if (q.table === 'profiles') {
     const id = filterOf(q, 'id');
     if (id === 'fixer-1') return { data: { full_name: 'Kumar' } };
@@ -105,6 +111,7 @@ beforeEach(() => {
   fake = makeFakeDb(respond);
   taskRow = fixedTask();
   insertError = null;
+  deliveredCount = 1;
   createBellNotification.mockResolvedValue('notif-1');
   getUser.mockResolvedValue({ data: { user: { id: 'learner-1' } } });
 });
@@ -135,7 +142,33 @@ describe('POST /api/instasolver/thanks', () => {
     // Created BY the fixer: the reporter can never surface as "From:".
     expect(opts.createdBy).toBe('fixer-1');
     expect(opts.title).toBe('Thank you, Kumar');
-    expect(opts.idempotencyKey).toBe('instasolver-thanks:task-1:att-9:learner-1');
+    // Keyed on the rating row, never on the reporter: the fixer can read the key.
+    expect(opts.idempotencyKey).toBe('instasolver-thanks:rating-1');
+    expect(json.fixer_told).toBe(true);
+    expect(json.message).toBe('Thank you. The person who fixed it has been told.');
+  });
+
+  it('an unsigned thank-you leaks the reporter id nowhere the fixer can read', async () => {
+    await post({ taskId: 'task-1', stars: 4 });
+    const opts = createBellNotification.mock.calls[0][1] as any;
+    expect(JSON.stringify(opts)).not.toContain('learner-1');
+  });
+
+  it('a bell that was not written (helper returns null) is NOT reported as told', async () => {
+    createBellNotification.mockResolvedValue(null);
+    const { status, json } = await post({ taskId: 'task-1', stars: 5 });
+    expect(status).toBe(200);
+    expect(json.success).toBe(true);
+    expect(json.fixer_told).toBe(false);
+    expect(json.message).toBe('Thank you. Your stars are saved.');
+    expect(inserts()).toHaveLength(1);
+  });
+
+  it('a bell with no recipient row (helper returned an id anyway) is NOT reported as told', async () => {
+    deliveredCount = 0;
+    const { json } = await post({ taskId: 'task-1', stars: 5 });
+    expect(json.fixer_told).toBe(false);
+    expect(json.message).toBe('Thank you. Your stars are saved.');
   });
 
   it('an unsigned thank-you says "Someone" even though the reporter has a name on record', async () => {
@@ -371,5 +404,38 @@ describe('the fixes board — month vs last month and stars', () => {
     // A formula-looking department name is neutralised and quoted.
     expect(csv).toContain(`"'=Engineering, Civil"`);
     expect(lines).toContain('Pharmacy,1,1,2,46.9,0,0,0,0,5,1');
+  });
+});
+
+// ── The ratings table has no direct write surface ────────────────────────────
+// Repair round, 1 Oct 2026: a direct PostgREST INSERT let a reporter choose any
+// fix_round_key and stuff a department's stars average. The thanks route
+// (service_role) must stay the only writer.
+
+describe('campus_walk_task_ratings migration — writes only through the thanks route', () => {
+  const sql = readFileSync(
+    join(process.cwd(), 'supabase/migrations/20270701090000_campus_walk_task_ratings.sql'),
+    'utf8'
+  )
+    // Ignore comments so a sentence ABOUT an insert policy cannot trip the check.
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n');
+
+  it('grants signed-in users SELECT only', () => {
+    const grants = [...sql.matchAll(/GRANT\s+([A-Z ,]+?)\s+ON\s+TABLE\s+public\.campus_walk_task_ratings\s+TO\s+authenticated/gi)];
+    expect(grants.length).toBeGreaterThan(0);
+    for (const g of grants) expect(g[1].trim().toUpperCase()).toBe('SELECT');
+  });
+
+  it('revokes the Supabase default ALL from authenticated as well as anon', () => {
+    expect(sql).toMatch(
+      /REVOKE\s+ALL\s+ON\s+TABLE\s+public\.campus_walk_task_ratings\s+FROM\s+anon,\s*authenticated,\s*PUBLIC/i
+    );
+  });
+
+  it('creates no INSERT, UPDATE, DELETE or ALL policy', () => {
+    const policies = [...sql.matchAll(/CREATE\s+POLICY[\s\S]*?FOR\s+(\w+)/gi)].map((m) => m[1].toUpperCase());
+    expect(policies).toEqual(['SELECT']);
   });
 });
