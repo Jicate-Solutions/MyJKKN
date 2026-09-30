@@ -1,4 +1,4 @@
--- 20270405090000_walkin_release_owner_and_rate_card_hold.sql
+-- 20270610090000_walkin_release_owner_and_rate_card_hold.sql
 -- Added: 2026-09-27 — Director rulings on walk-in agency claims (interview, 06:25 IST).
 --
 -- WHY THIS EXISTS
@@ -188,8 +188,9 @@ GRANT  EXECUTE ON FUNCTION public.fn_clear_walkin_credit_for_payout(uuid, text) 
 --        AND hl.source::text = 'walk_in'
 --        AND h.payout_cleared_at IS NULL)
 --
--- 4a. Earnings — body copied from the live definition (20261231090000), with the
---     one predicate added to `qualifying`. Everything else is byte-for-byte.
+-- 4a. Earnings — body copied from main's newest definition (20270418100000,
+--     referrer parity), with the one predicate added to `qualifying`. Everything
+--     else is byte-for-byte.
 CREATE OR REPLACE FUNCTION public.fn_consultant_rate_card_earnings(p_consultant_id uuid, p_academic_year integer DEFAULT NULL::integer)
  RETURNS TABLE(group_id uuid, group_name text, priority integer, qualifying_count bigint, slab_min integer, slab_max integer, rate_amount numeric, total_amount numeric, paid_amount numeric, balance_amount numeric, excess_amount numeric, is_override boolean, advance_applied numeric)
  LANGUAGE sql
@@ -215,11 +216,26 @@ AS $function$
   -- written with admission_id NULL and the learner hanging off the attribution's
   -- own learner_profile_id, so reading either path alone silently loses rows.
   referred AS (
-    SELECT DISTINCT COALESCE(a.learner_profile_id, al.learner_profile_id) AS learner_profile_id
+    SELECT COALESCE(a.learner_profile_id, al.learner_profile_id) AS learner_profile_id
       FROM public.consultant_lead_attributions a
       LEFT JOIN public.admission_leads al ON al.id = a.admission_id
      WHERE a.consultant_id = p_consultant_id
        AND COALESCE(a.learner_profile_id, al.learner_profile_id) IS NOT NULL
+    UNION
+    -- A team-member / learner referrer's consultant row (20270418100000): their
+    -- referrals live on the learner (referral_type + referred_by_id), not in
+    -- consultant_lead_attributions. UNION de-duplicates across the paths.
+    SELECT lp.id
+      FROM public.education_consultants ec
+      JOIN public.learners_profiles lp
+        ON lp.referral_type = 'faculty' AND lp.referred_by_id = ec.staff_id
+     WHERE ec.id = p_consultant_id AND ec.staff_id IS NOT NULL
+    UNION
+    SELECT lp.id
+      FROM public.education_consultants ec
+      JOIN public.learners_profiles lp
+        ON lp.referral_type = 'student' AND lp.referred_by_id = ec.learner_referrer_id
+     WHERE ec.id = p_consultant_id AND ec.learner_referrer_id IS NOT NULL
   ),
   qualifying AS (
     SELECT lp.id, lp.institution_id, lp.degree_id, lp.program_id,
@@ -327,7 +343,7 @@ GRANT  EXECUTE ON FUNCTION public.fn_consultant_rate_card_earnings(uuid, integer
 
 -- 4b. First-year fee collection — defined as "the same learner set as the
 --     earnings card", so it takes the same predicate or its counts stop adding up
---     to the card's Learners figure. Live body (20261225040000) plus the predicate.
+--     to the card's Learners figure. Body from 20270418100000 (referrer parity) plus the predicate.
 CREATE OR REPLACE FUNCTION public.fn_consultant_first_year_fee_collection(p_consultant_id uuid, p_academic_year integer DEFAULT NULL::integer)
  RETURNS TABLE(institution_id uuid, institution_name text, learner_count bigint, fee_amount numeric, paid_amount numeric, balance_amount numeric)
  LANGUAGE sql
@@ -348,11 +364,26 @@ AS $function$
   -- Same learner set as fn_consultant_rate_card_earnings, so the counts here
   -- add up to the "Learners" figure on the Commission Earned card.
   referred AS (
-    SELECT DISTINCT COALESCE(a.learner_profile_id, al.learner_profile_id) AS learner_profile_id
+    SELECT COALESCE(a.learner_profile_id, al.learner_profile_id) AS learner_profile_id
       FROM public.consultant_lead_attributions a
       LEFT JOIN public.admission_leads al ON al.id = a.admission_id
      WHERE a.consultant_id = p_consultant_id
        AND COALESCE(a.learner_profile_id, al.learner_profile_id) IS NOT NULL
+    UNION
+    -- A team-member / learner referrer's consultant row (20270418100000): their
+    -- referrals live on the learner (referral_type + referred_by_id), not in
+    -- consultant_lead_attributions. UNION de-duplicates across the paths.
+    SELECT lp.id
+      FROM public.education_consultants ec
+      JOIN public.learners_profiles lp
+        ON lp.referral_type = 'faculty' AND lp.referred_by_id = ec.staff_id
+     WHERE ec.id = p_consultant_id AND ec.staff_id IS NOT NULL
+    UNION
+    SELECT lp.id
+      FROM public.education_consultants ec
+      JOIN public.learners_profiles lp
+        ON lp.referral_type = 'student' AND lp.referred_by_id = ec.learner_referrer_id
+     WHERE ec.id = p_consultant_id AND ec.learner_referrer_id IS NOT NULL
   ),
   qualifying AS (
     SELECT lp.id, lp.institution_id, lp.degree_id, lp.program_id,
@@ -364,7 +395,8 @@ AS $function$
       CROSS JOIN card
      WHERE ay.year = card.academic_year
        AND lp.lifecycle_status IN ('account', 'admitted', 'active')
-       -- Walk-in hold — must match fn_consultant_rate_card_earnings exactly.
+       -- Walk-in hold (Director ruling 2026-08-17, owner named 2026-09-27): a
+       -- walk-in credit nobody has released is not counted until it is.
        AND NOT EXISTS (
          SELECT 1
            FROM public.consultant_lead_attributions h

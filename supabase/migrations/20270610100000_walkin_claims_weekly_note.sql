@@ -1,5 +1,5 @@
 -- ============================================================================
--- 20270405100000_walkin_claims_weekly_note.sql
+-- 20270610100000_walkin_claims_weekly_note.sql
 -- ----------------------------------------------------------------------------
 -- Walk-in agency claims — the weekly note's recipient list and its clock.
 --

@@ -679,6 +679,6 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "configKnobs": "platform_policies admission.walkin_release.weekly_note_recipient_ids (JSON array of profile ids; seeded with the Director) plus admission.walkin_release.owner_user_id (JSON string; the owner is added at runtime and de-duplicated — a missing owner row is logged and skipped). Day/time editable at /admin/ai-routines.",
     "sideEffects": "WRITES one notifications row (+ user_notifications link) per recipient per ISO week and SENDS one email per recipient via Resend when that row is freshly created. Moves no money and releases nothing.",
     "safeToManualTrigger": true,
-    "notes": "Idempotent per ISO week (IST calendar): notifications.idempotency_key walkin-claims-weekly-note:<week>:<user>, and the email is gated on that row being new, so a re-run in the same week sends nothing. Auth: CRON_SECRET, Bearer ONLY (constant-time). Migration 20270405100000."
+    "notes": "Idempotent per ISO week (IST calendar): notifications.idempotency_key walkin-claims-weekly-note:<week>:<user>, and the email is gated on that row being new, so a re-run in the same week sends nothing. Auth: CRON_SECRET, Bearer ONLY (constant-time). Migration 20270610100000."
   }
 ];
