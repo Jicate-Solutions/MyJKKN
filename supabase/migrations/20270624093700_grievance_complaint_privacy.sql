@@ -641,10 +641,11 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_filer uuid := auth.uid();
-  v_name  text;
-  v_raw   jsonb;
-  v_to    uuid;
+  v_filer  uuid := auth.uid();
+  v_name   text;
+  v_raw    jsonb;
+  v_to     uuid;
+  v_reader boolean;
 BEGIN
   IF NOT COALESCE(NEW.is_icc_only, false) THEN
     SELECT c.name INTO v_name FROM public.grievance_categories c WHERE c.id = NEW.category_id;
@@ -659,23 +660,36 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  IF public.fn_grievance_icc_reader_exists(NEW.institution_id, v_filer) THEN
+  -- The routing half never loses the complaint: an error in the reader check
+  -- counts as "no reader" (the superior-route person can read it), an error in
+  -- the policy read as "no policy" (route_pending_policy). The ICC-only marking
+  -- above is NOT wrapped — that rule must hold.
+  BEGIN
+    v_reader := public.fn_grievance_icc_reader_exists(NEW.institution_id, v_filer);
+  EXCEPTION WHEN OTHERS THEN
+    v_reader := false;
+    NEW.metadata := COALESCE(NEW.metadata, '{}'::jsonb) || jsonb_build_object('icc_committee_check_failed', true);
+  END;
+  IF v_reader THEN
     RETURN NEW;
   END IF;
 
   NEW.metadata := COALESCE(NEW.metadata, '{}'::jsonb) || jsonb_build_object('icc_no_committee', true);
 
-  v_raw := public.fn_get_policy('instasolver.complaint.superior_route_to', NULL);
   BEGIN
+    v_raw := public.fn_get_policy('instasolver.complaint.superior_route_to', NULL);
     v_to := CASE WHEN jsonb_typeof(v_raw) = 'string' THEN btrim(v_raw #>> '{}')::uuid
                  WHEN jsonb_typeof(v_raw) = 'object' THEN btrim(COALESCE(v_raw ->> 'profile_id', v_raw ->> 'id'))::uuid
                  ELSE NULL END;
-  EXCEPTION WHEN invalid_text_representation THEN
+    IF v_to IS NOT NULL
+       AND public.fn_grievance_profile_unusable(v_to, array_remove(ARRAY[v_filer], NULL)) IS NOT NULL THEN
+      v_to := NULL;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
     v_to := NULL;
   END;
 
-  IF v_to IS NOT NULL
-     AND public.fn_grievance_profile_unusable(v_to, array_remove(ARRAY[v_filer], NULL)) IS NULL THEN
+  IF v_to IS NOT NULL THEN
     NEW.assigned_to := v_to;
     NEW.assigned_at := now();
     NEW.metadata := NEW.metadata || jsonb_build_object('routing', 'icc_no_committee');

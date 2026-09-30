@@ -457,6 +457,26 @@ SELECT t_ok((SELECT is_icc_only FROM grievance_tickets WHERE id = 'd1000000-0000
 SELECT t_ok((SELECT NOT is_icc_only FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000003'),
             'an ordinary type stays an ordinary complaint');
 
+-- The routing half never loses a complaint: with the reader check throwing,
+-- the row is still saved, ICC-only, and sent on as if nobody could read it.
+DO $do$
+DECLARE v_def text := pg_get_functiondef('public.fn_grievance_icc_reader_exists(uuid, uuid)'::regprocedure);
+BEGIN
+  EXECUTE $f$CREATE OR REPLACE FUNCTION public.fn_grievance_icc_reader_exists(p_institution_id uuid, p_exclude uuid DEFAULT NULL)
+    RETURNS boolean LANGUAGE plpgsql AS $b$ BEGIN RAISE EXCEPTION 'stand-in: reader check broken'; END $b$ $f$;
+  INSERT INTO grievance_tickets (id, institution_id, ticket_number, category_id, subject, description, raised_by_type,
+    sla_deadline)
+  VALUES ('d1000000-0000-0000-0000-000000000026', '11000000-0000-0000-0000-000000000001', 'x', 'c1000000-0000-0000-0000-000000000011',
+     'Reader check broken', 'Must still be saved', 'staff', now() + interval '1 day');
+  EXECUTE v_def;
+END $do$;
+SELECT t_ok((SELECT is_icc_only AND assigned_to = 'b0000000-0000-0000-0000-000000000001'
+                    AND (metadata ->> 'icc_committee_check_failed') = 'true'
+               FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000026'),
+            'a failing reader check does not lose the complaint: saved, ICC-only, sent to the superior-route person');
+SELECT t_ok(fn_grievance_icc_reader_exists('11000000-0000-0000-0000-000000000001'),
+            'rehearsal: the real reader check is back after the stand-in');
+
 -- Who MAY still reassign an ICC-only complaint: the committee, an admin, the service role.
 SET ROLE authenticated;
 SELECT as_user('b0000000-0000-0000-0000-000000000004');    -- Other O: icc_member with access to college 1
