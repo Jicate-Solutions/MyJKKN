@@ -13,6 +13,8 @@ import {
   AI_FILL_LIMIT_PER_WINDOW,
   INSTASOLVER_TRADES,
   distinctPlaces,
+  mergeDangerous,
+  mergeFilledField,
   parseAiFill,
   resetAiFillSlots
 } from '@/lib/instasolver/ai-fill';
@@ -22,6 +24,8 @@ const profileMaybeSingle = vi.fn();
 const claudeChatForFeature = vi.fn();
 let resourceRows: Array<Record<string, string | null>> = [];
 let tablesRead: string[] = [];
+/** Every builder call made on the `resources` read, in order: [method, ...args]. */
+let resourceCalls: unknown[][] = [];
 
 function makeSessionClient() {
   return {
@@ -32,11 +36,18 @@ function makeSessionClient() {
         return { select: () => ({ eq: () => ({ maybeSingle: profileMaybeSingle }) }) };
       }
       if (table === 'resources') {
-        return {
-          select: () => ({
-            eq: () => ({ limit: async () => ({ data: resourceRows, error: null }) })
-          })
+        const q: Record<string, unknown> = {};
+        for (const m of ['select', 'eq', 'or', 'order']) {
+          q[m] = (...args: unknown[]) => {
+            resourceCalls.push([m, ...args]);
+            return q;
+          };
+        }
+        q.limit = async (...args: unknown[]) => {
+          resourceCalls.push(['limit', ...args]);
+          return { data: resourceRows, error: null };
         };
+        return q;
       }
       throw new Error(`unexpected session read of ${table}`);
     }
@@ -88,6 +99,7 @@ beforeEach(() => {
     { name: 'Lab', building_number: null, block_number: 'Block B' }
   ];
   tablesRead = [];
+  resourceCalls = [];
   getUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
   profileMaybeSingle.mockResolvedValue({
     data: { id: 'user-1', role: 'staff', institution_id: 'inst-1', is_active: true },
@@ -137,6 +149,21 @@ describe('ai-fill — a clean reply fills the form', () => {
     const body = await (await post({ text: 'something long' })).json();
     expect(body.fill.place.length).toBe(120);
     expect(body.fill.description.length).toBe(500);
+  });
+
+  it('reads only resource rows that name a building or block, in a stable order, own college only', async () => {
+    claudeChatForFeature.mockResolvedValue(reply(GOOD));
+    await post({ text: 'fan not working' });
+    const methods = resourceCalls.map((c) => c[0]);
+    expect(resourceCalls).toContainEqual(['eq', 'institution_id', 'inst-1']);
+    expect(resourceCalls).toContainEqual([
+      'or',
+      'building_number.not.is.null,block_number.not.is.null'
+    ]);
+    expect(methods).toContain('order');
+    // The filter and the order come before the row cap, not after it.
+    expect(methods.indexOf('or')).toBeLessThan(methods.indexOf('limit'));
+    expect(methods.indexOf('order')).toBeLessThan(methods.indexOf('limit'));
   });
 
   it('accepts a reply wrapped in a json code fence', () => {
@@ -202,7 +229,7 @@ describe('ai-fill — graceful fallback to the plain form', () => {
     expect(body).toMatchObject({ success: false, fallback: true, error: AI_FILL_FALLBACK_MESSAGE });
   });
 
-  it('an unknown trade fails the parse (never invents a thirteenth kind)', () => {
+  it('an unknown trade fails the parse (never invents a twelfth kind)', () => {
     expect(parseAiFill(JSON.stringify({ ...GOOD, trade: 'Gardening' }))).toBeNull();
     expect(parseAiFill(JSON.stringify({ ...GOOD, urgency: 'high' }))).toBeNull();
   });
@@ -285,5 +312,23 @@ describe('ai-fill — the trade list and places', () => {
         { building_number: null, block_number: null }
       ])
     ).toEqual(['Building Main · Block A', 'Block B']);
+  });
+});
+
+describe('ai-fill — the AI never overrules what the person set', () => {
+  it('can turn "dangerous" on, never off', () => {
+    expect(mergeDangerous(true, 'normal')).toBe(true);
+    expect(mergeDangerous(true, undefined)).toBe(true);
+    expect(mergeDangerous(false, 'dangerous')).toBe(true);
+    expect(mergeDangerous(true, 'dangerous')).toBe(true);
+    expect(mergeDangerous(false, 'normal')).toBe(false);
+  });
+
+  it("fills an empty field, replaces its own earlier fill, keeps the person's words", () => {
+    expect(mergeFilledField('', null, 'Block A')).toBe('Block A');
+    expect(mergeFilledField('   ', null, 'Block A')).toBe('Block A');
+    expect(mergeFilledField('Block A', 'Block A', 'Block B')).toBe('Block B');
+    expect(mergeFilledField('near the canteen tap', null, 'Block A')).toBe('near the canteen tap');
+    expect(mergeFilledField('Block A, edited', 'Block A', 'Block B')).toBe('Block A, edited');
   });
 });

@@ -68,6 +68,32 @@ export const AI_FILL_FALLBACK_MESSAGE = "Couldn't fill it — please pick below.
 /** Put in "Where is it?" when the person skipped and no place was found. */
 export const SKIPPED_PLACE_TEXT = 'Place not given (estate office to sort)';
 
+/**
+ * The AI may turn "dangerous" ON, never OFF. A box the person ticked by hand
+ * stays ticked whatever the model says (repair round, 1 Oct 2026): a hazard
+ * must never drop from same-day-plus-a-page into the 2-day lane because a
+ * model read it as routine. Only the person can untick it.
+ */
+export function mergeDangerous(current: boolean, aiUrgency: unknown): boolean {
+  return current || aiUrgency === 'dangerous';
+}
+
+/**
+ * A fill replaces a text field only when the field is empty or still holds
+ * exactly what the previous fill (or a skip placeholder) put there — never
+ * words the person typed by hand. A second "Fill it for me" still updates
+ * what the first one wrote.
+ */
+export function mergeFilledField(
+  current: string,
+  lastFilled: string | null,
+  next: string
+): string {
+  if (!current.trim()) return next;
+  if (lastFilled !== null && current === lastFilled) return next;
+  return current;
+}
+
 export interface AiFillQuestion {
   field: AiFillQuestionField;
   text: string;

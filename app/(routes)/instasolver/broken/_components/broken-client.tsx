@@ -54,6 +54,8 @@ import {
   INSTASOLVER_TRADES,
   SKIPPED_PLACE_TEXT,
   isInstaSolverTrade,
+  mergeDangerous,
+  mergeFilledField,
   type AiFillQuestion,
   type InstaSolverTrade
 } from '@/lib/instasolver/ai-fill';
@@ -96,6 +98,9 @@ export function BrokenClient() {
   const [filling, setFilling] = useState(false);
   const [fillNote, setFillNote] = useState<string | null>(null);
   const [aiFilled, setAiFilled] = useState(false);
+  // The exact text the model read on the last successful fill — stored as the
+  // person's own words, even if the box is edited afterwards.
+  const [aiReadText, setAiReadText] = useState<string | null>(null);
   const [question, setQuestion] = useState<AiFillQuestion | null>(null);
   const [needsSorting, setNeedsSorting] = useState(false);
   const [trade, setTrade] = useState<InstaSolverTrade | null>(null);
@@ -113,11 +118,18 @@ export function BrokenClient() {
   const [success, setSuccess] = useState<SuccessState | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
+  // What the last fill (or a skip placeholder) wrote into each text field, so a
+  // later fill can replace its own text but never the person's.
+  const lastFilledLocation = useRef<string | null>(null);
+  const lastFilledDescription = useRef<string | null>(null);
 
   const resetForm = useCallback(() => {
     setAiText('');
     setFillNote(null);
     setAiFilled(false);
+    setAiReadText(null);
+    lastFilledLocation.current = null;
+    lastFilledDescription.current = null;
     setQuestion(null);
     setNeedsSorting(false);
     setTrade(null);
@@ -219,12 +231,19 @@ export function BrokenClient() {
 
       if (isInstaSolverTrade(fill.trade)) setTrade(fill.trade);
       if (typeof fill.place === 'string' && fill.place.trim()) {
-        setLocation(fill.place.slice(0, LOCATION_MAX));
+        const place = fill.place.slice(0, LOCATION_MAX);
+        const prev = lastFilledLocation.current;
+        setLocation((cur) => mergeFilledField(cur, prev, place));
+        lastFilledLocation.current = place;
       }
       if (typeof fill.description === 'string' && fill.description.trim()) {
-        setDescription(fill.description.slice(0, DESCRIPTION_MAX));
+        const desc = fill.description.slice(0, DESCRIPTION_MAX);
+        const prev = lastFilledDescription.current;
+        setDescription((cur) => mergeFilledField(cur, prev, desc));
+        lastFilledDescription.current = desc;
       }
-      setDangerous(fill.urgency === 'dangerous');
+      // ON only, never OFF: a box the person ticked stays ticked.
+      setDangerous((cur) => mergeDangerous(cur, fill.urgency));
       const q = fill.one_question;
       setQuestion(
         q && typeof q === 'object' && Array.isArray((q as AiFillQuestion).options)
@@ -233,6 +252,7 @@ export function BrokenClient() {
       );
       setNeedsSorting(false);
       setAiFilled(true);
+      setAiReadText(text);
       setFillNote('Filled in below. Check it and change anything that is wrong.');
     } catch {
       setFillNote(AI_FILL_FALLBACK_MESSAGE);
@@ -246,6 +266,7 @@ export function BrokenClient() {
       if (!question) return;
       if (question.field === 'trade' && isInstaSolverTrade(option)) setTrade(option);
       if (question.field === 'place') setLocation(option.slice(0, LOCATION_MAX));
+      // The person's own tap on a chip — they may say "Not dangerous" here.
       if (question.field === 'urgency') setDangerous(option === 'dangerous');
       setQuestion(null);
     },
@@ -259,7 +280,11 @@ export function BrokenClient() {
     if (!question) return;
     if (question.field === 'trade') setTrade(FALLBACK_TRADE);
     if (question.field === 'place') {
-      setLocation((cur) => (cur.trim().length >= LOCATION_MIN ? cur : SKIPPED_PLACE_TEXT));
+      setLocation((cur) => {
+        if (cur.trim().length >= LOCATION_MIN) return cur;
+        lastFilledLocation.current = SKIPPED_PLACE_TEXT;
+        return SKIPPED_PLACE_TEXT;
+      });
     }
     setNeedsSorting(true);
     setQuestion(null);
@@ -281,10 +306,11 @@ export function BrokenClient() {
       // From the checkbox as it is NOW, never from the AI's reply.
       body.set('urgency', dangerous ? 'dangerous' : 'normal');
       if (trade) body.set('trade', trade);
-      if (needsSorting) body.set('needs_sorting', 'true');
+      // A question the AI asked and nobody answered is as unsure as a skip.
+      if (needsSorting || question) body.set('needs_sorting', 'true');
       if (aiFilled) {
         body.set('ai_filled', 'true');
-        if (aiText.trim()) body.set('reporter_words', aiText.trim());
+        if (aiReadText) body.set('reporter_words', aiReadText);
       }
       if (coords) {
         body.set('lat', String(coords.lat));
@@ -321,7 +347,7 @@ export function BrokenClient() {
     } finally {
       setSubmitting(false);
     }
-  }, [location, description, dangerous, coords, photo, trade, needsSorting, aiFilled, aiText]);
+  }, [location, description, dangerous, coords, photo, trade, needsSorting, question, aiFilled, aiReadText]);
 
   // ── Sent ──────────────────────────────────────────────────────────────────
   if (success) {

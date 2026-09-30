@@ -13,8 +13,11 @@
 //   - It never receives a photo. The body is JSON `{ text }` only; the photo
 //     stays in the browser until the person sends the report itself.
 //   - It writes nothing of its own. Places are READ from `resources` under
-//     the caller's own session (RLS `resources_select_institution` already
-//     limits that to their own college); the per-user cap is in memory
+//     the caller's own session, never service-role. What keeps them to the
+//     person's own college is the explicit `institution_id` filter below —
+//     NOT RLS: `resources` also has a permissive "any signed-in user may
+//     read" SELECT policy (supabase/SQL_FILE_INDEX.md, 2026-09-12), so
+//     `resources_select_institution` alone scopes nothing. The per-user cap is in memory
 //     (lib/instasolver/ai-fill.ts says why). The platform wrapper records
 //     each model call in `ai_model_usage`, like every other AI feature.
 //   - It never fails loudly. Any model error, timeout or malformed reply
@@ -130,14 +133,20 @@ export async function POST(request: NextRequest) {
   }
 
   // Places at the reporter's own college. A failure here is not fatal: the
-  // model simply works from the person's own words.
+  // model simply works from the person's own words. Most `resources` rows are
+  // equipment with no building or block, so only rows that name one are read,
+  // in a stable order — otherwise the row cap returns a random, partial list
+  // and real block chips are silently dropped.
   let knownPlaces: string[] = [];
   if (profile.institution_id) {
     try {
       const { data: rows, error: placesError } = await supabase
         .from('resources')
-        .select('name, building_number, block_number')
+        .select('building_number, block_number')
         .eq('institution_id', profile.institution_id)
+        .or('building_number.not.is.null,block_number.not.is.null')
+        .order('building_number', { ascending: true, nullsFirst: false })
+        .order('block_number', { ascending: true, nullsFirst: false })
         .limit(MAX_PLACE_ROWS);
       if (placesError) {
         console.warn('[instasolver/ai-fill] places read failed:', placesError.message);
