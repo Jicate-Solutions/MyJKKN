@@ -74,7 +74,6 @@
 -- have SELECT policies and nothing else, and INSERT/UPDATE/DELETE are revoked.
 -- ============================================================================
 
-BEGIN;
 
 -- ----------------------------------------------------------------------------
 -- 1. Tables
@@ -1422,4 +1421,4 @@ UPDATE public.custom_roles
        updated_at = now()
  WHERE role_key = 'hr_head';
 
-COMMIT;
+NOTIFY pgrst, 'reload schema';
