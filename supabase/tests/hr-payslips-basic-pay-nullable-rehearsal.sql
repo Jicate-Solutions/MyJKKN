@@ -33,7 +33,14 @@ INSERT INTO public.staff (id, profile_id, institution_id, role_key) VALUES
   ('cccccccc-0000-0000-0000-000000000003', NULL, 'aaaaaaaa-0000-0000-0000-000000000001', NULL);
 INSERT INTO public.hr_payroll_periods (id, hr_organization_id, institution_id, engine_type, period_year, period_month, total_calendar_days, working_days_count)
 VALUES ('dddddddd-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000001',
-        'aaaaaaaa-0000-0000-0000-000000000001', 'non_teaching', 2026, 8, 31, 22);
+        'aaaaaaaa-0000-0000-0000-000000000001', 'non_teaching', 2026, 8, 31, 22),
+       -- Two more months: the migration allows ONE current payslip per person
+       -- per month (uq_hr_payslips_one_current), so each role writes its own
+       -- month for the same people.
+       ('dddddddd-0000-0000-0000-000000000002', 'bbbbbbbb-0000-0000-0000-000000000001',
+        'aaaaaaaa-0000-0000-0000-000000000001', 'non_teaching', 2026, 9, 30, 22),
+       ('dddddddd-0000-0000-0000-000000000003', 'bbbbbbbb-0000-0000-0000-000000000001',
+        'aaaaaaaa-0000-0000-0000-000000000001', 'non_teaching', 2026, 10, 31, 22);
 
 -- ---------------------------------------------------------------------------
 -- BEFORE the migration: a payslip with no basic cannot be written at all.
@@ -155,6 +162,13 @@ DO $t$ BEGIN
   EXCEPTION WHEN check_violation THEN
     RAISE NOTICE 'PASS 5 a negative basic is still refused (23514)';
   END;
+  BEGIN
+    INSERT INTO public.hr_payslips (period_id, staff_id, engine_type, basic_pay, working_days_attended, gross_amount, total_deductions, net_amount, correction_type, reason)
+    VALUES ('dddddddd-0000-0000-0000-000000000001', 'cccccccc-0000-0000-0000-000000000002', 'non_teaching', NULL, 22, 30000, 135, 29865, 'initial', 'second press');
+    RAISE EXCEPTION 'FAIL 5b a second current payslip for the same person and month was accepted';
+  EXCEPTION WHEN unique_violation THEN
+    RAISE NOTICE 'PASS 5b a second current payslip for the same person and month is refused (23505, uq_hr_payslips_one_current)';
+  END;
   IF (SELECT count(*) FROM public.hr_payslips) <> 2 THEN
     RAISE EXCEPTION 'FAIL 6 super admin should see 2 payslips, sees %', (SELECT count(*) FROM public.hr_payslips);
   END IF;
@@ -167,7 +181,7 @@ SET ROLE authenticated;
 SELECT set_config('request.jwt.claims', json_build_object('sub', :adm, 'role', 'authenticated')::text, false);
 DO $t$ BEGIN
   INSERT INTO public.hr_payslips (period_id, staff_id, engine_type, basic_pay, working_days_attended, gross_amount, total_deductions, net_amount, correction_type, reason)
-  VALUES ('dddddddd-0000-0000-0000-000000000001', 'cccccccc-0000-0000-0000-000000000002', 'non_teaching', NULL, 22, 30000, 135, 29865, 'backdated', 'rehearsal admin');
+  VALUES ('dddddddd-0000-0000-0000-000000000002', 'cccccccc-0000-0000-0000-000000000002', 'non_teaching', NULL, 22, 30000, 135, 29865, 'backdated', 'rehearsal admin');
   RAISE NOTICE 'PASS 7 admin writes a payslip with basic NULL';
 END $t$;
 RESET ROLE;
@@ -177,7 +191,7 @@ SET ROLE authenticated;
 SELECT set_config('request.jwt.claims', json_build_object('sub', :hro, 'role', 'authenticated')::text, false);
 DO $t$ BEGIN
   INSERT INTO public.hr_payslips (period_id, staff_id, engine_type, basic_pay, working_days_attended, gross_amount, total_deductions, net_amount, correction_type, reason)
-  VALUES ('dddddddd-0000-0000-0000-000000000001', 'cccccccc-0000-0000-0000-000000000003', 'non_teaching', NULL, 22, 30000, 135, 29865, 'recovery', 'rehearsal hr');
+  VALUES ('dddddddd-0000-0000-0000-000000000002', 'cccccccc-0000-0000-0000-000000000003', 'non_teaching', NULL, 22, 30000, 135, 29865, 'recovery', 'rehearsal hr');
   RAISE NOTICE 'PASS 8 hr_officer writes a payslip with basic NULL';
 END $t$;
 RESET ROLE;
@@ -259,7 +273,7 @@ SELECT set_config('request.jwt.claims', json_build_object('sub', :sa, 'role', 'a
 DO $t$ DECLARE n int; BEGIN
   INSERT INTO public.hr_payslips (period_id, staff_id, engine_type, basic_pay, working_days_attended, gross_amount, total_deductions, net_amount,
                                   allowance_paid, pf_deduction, esi_deduction, tds_deduction, pt_deduction, correction_type, reason)
-  VALUES ('dddddddd-0000-0000-0000-000000000001', 'cccccccc-0000-0000-0000-000000000002', 'non_teaching', NULL, 22, 20000, 1613, 18387,
+  VALUES ('dddddddd-0000-0000-0000-000000000003', 'cccccccc-0000-0000-0000-000000000002', 'non_teaching', NULL, 22, 20000, 1613, 18387,
           2000, 1500, 113, 0, 0, 'adjustment', 'rehearsal breakdown');
   RAISE NOTICE 'PASS 16 super admin writes a payslip with the allowance and the four deductions one by one';
   BEGIN
