@@ -17,6 +17,15 @@
 //   - no offline queue in this lane (out of scope for this PR)
 //   - "dangerous" is a plain checkbox rather than a switch plus a confirm
 //     dialog, because the audience is everyone, not one trained walker
+//
+// "Fill it for me" (Director, 30 Sep 2026): one box at the top takes the
+// problem in ANY words, Tamil included. The AI (app/api/instasolver/ai-fill)
+// fills the kind of problem, the place, how urgent, and a clean English
+// description — every field stays editable. When it is unsure it asks ONE
+// question as tap-to-pick chips; skipping it still lets the report go, marked
+// for the estate office to sort. The photo is never sent to the AI. There is
+// no voice button: browser speech-to-text always asks for the microphone,
+// and phone keyboards already offer voice typing into the box.
 
 import { useCallback, useRef, useState } from 'react';
 import Link from 'next/link';
@@ -27,6 +36,7 @@ import {
   Loader2,
   MapPin,
   ShieldAlert,
+  Sparkles,
   Trash2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -36,6 +46,17 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { PHOTO_UNREADABLE, toJpeg } from '@/lib/instasolver/to-jpeg';
+import { DUE_IN_DAYS } from '@/lib/campus-walk/due-dates';
+import {
+  AI_FILL_FALLBACK_MESSAGE,
+  AI_FILL_LIMITS,
+  FALLBACK_TRADE,
+  INSTASOLVER_TRADES,
+  SKIPPED_PLACE_TEXT,
+  isInstaSolverTrade,
+  type AiFillQuestion,
+  type InstaSolverTrade
+} from '@/lib/instasolver/ai-fill';
 
 const LOCATION_MIN = 3;
 const LOCATION_MAX = 120;
@@ -65,7 +86,19 @@ function formatDue(iso: string | null): string {
   });
 }
 
+/** Chip label for an urgency answer — the wire value stays 'normal' | 'dangerous'. */
+function urgencyLabel(v: string): string {
+  return v === 'dangerous' ? 'Dangerous — someone could get hurt' : 'Not dangerous';
+}
+
 export function BrokenClient() {
+  const [aiText, setAiText] = useState('');
+  const [filling, setFilling] = useState(false);
+  const [fillNote, setFillNote] = useState<string | null>(null);
+  const [aiFilled, setAiFilled] = useState(false);
+  const [question, setQuestion] = useState<AiFillQuestion | null>(null);
+  const [needsSorting, setNeedsSorting] = useState(false);
+  const [trade, setTrade] = useState<InstaSolverTrade | null>(null);
   const [location, setLocation] = useState('');
   const [description, setDescription] = useState('');
   const [dangerous, setDangerous] = useState(false);
@@ -82,6 +115,12 @@ export function BrokenClient() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const resetForm = useCallback(() => {
+    setAiText('');
+    setFillNote(null);
+    setAiFilled(false);
+    setQuestion(null);
+    setNeedsSorting(false);
+    setTrade(null);
     setLocation('');
     setDescription('');
     setDangerous(false);
@@ -148,6 +187,84 @@ export function BrokenClient() {
     if (fileRef.current) fileRef.current.value = '';
   }, []);
 
+  // ── "Fill it for me" ──────────────────────────────────────────────────────
+  // Sends ONLY the typed text. Any failure — network, timeout, a reply that
+  // does not parse, the hourly cap — leaves the form as it was and says so in
+  // one line; the person fills it by hand exactly as before.
+  const fillForMe = useCallback(async () => {
+    const text = aiText.trim();
+    if (text.length < AI_FILL_LIMITS.inputMin) return;
+    setFilling(true);
+    setFillNote(null);
+    setError(null);
+    try {
+      const res = await fetch('/api/instasolver/ai-fill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      const json = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+      const fill =
+        json && json.success === true && json.fill && typeof json.fill === 'object'
+          ? (json.fill as Record<string, unknown>)
+          : null;
+      if (!res.ok || !fill) {
+        setFillNote(
+          res.status === 429 && typeof json?.error === 'string'
+            ? json.error
+            : AI_FILL_FALLBACK_MESSAGE
+        );
+        return;
+      }
+
+      if (isInstaSolverTrade(fill.trade)) setTrade(fill.trade);
+      if (typeof fill.place === 'string' && fill.place.trim()) {
+        setLocation(fill.place.slice(0, LOCATION_MAX));
+      }
+      if (typeof fill.description === 'string' && fill.description.trim()) {
+        setDescription(fill.description.slice(0, DESCRIPTION_MAX));
+      }
+      setDangerous(fill.urgency === 'dangerous');
+      const q = fill.one_question;
+      setQuestion(
+        q && typeof q === 'object' && Array.isArray((q as AiFillQuestion).options)
+          ? (q as AiFillQuestion)
+          : null
+      );
+      setNeedsSorting(false);
+      setAiFilled(true);
+      setFillNote('Filled in below. Check it and change anything that is wrong.');
+    } catch {
+      setFillNote(AI_FILL_FALLBACK_MESSAGE);
+    } finally {
+      setFilling(false);
+    }
+  }, [aiText]);
+
+  const answerQuestion = useCallback(
+    (option: string) => {
+      if (!question) return;
+      if (question.field === 'trade' && isInstaSolverTrade(option)) setTrade(option);
+      if (question.field === 'place') setLocation(option.slice(0, LOCATION_MAX));
+      if (question.field === 'urgency') setDangerous(option === 'dangerous');
+      setQuestion(null);
+    },
+    [question]
+  );
+
+  // Skipping still lets the report go: it is marked for the estate office to
+  // sort, and a missing kind or place gets a plain placeholder the person can
+  // still overwrite.
+  const skipQuestion = useCallback(() => {
+    if (!question) return;
+    if (question.field === 'trade') setTrade(FALLBACK_TRADE);
+    if (question.field === 'place') {
+      setLocation((cur) => (cur.trim().length >= LOCATION_MIN ? cur : SKIPPED_PLACE_TEXT));
+    }
+    setNeedsSorting(true);
+    setQuestion(null);
+  }, [question]);
+
   const locationOk = location.trim().length >= LOCATION_MIN && location.trim().length <= LOCATION_MAX;
   const descriptionOk =
     description.trim().length >= DESCRIPTION_MIN && description.trim().length <= DESCRIPTION_MAX;
@@ -161,6 +278,14 @@ export function BrokenClient() {
       body.set('location', location.trim());
       body.set('description', description.trim());
       body.set('dangerous', dangerous ? 'true' : 'false');
+      // From the checkbox as it is NOW, never from the AI's reply.
+      body.set('urgency', dangerous ? 'dangerous' : 'normal');
+      if (trade) body.set('trade', trade);
+      if (needsSorting) body.set('needs_sorting', 'true');
+      if (aiFilled) {
+        body.set('ai_filled', 'true');
+        if (aiText.trim()) body.set('reporter_words', aiText.trim());
+      }
       if (coords) {
         body.set('lat', String(coords.lat));
         body.set('lng', String(coords.lng));
@@ -196,7 +321,7 @@ export function BrokenClient() {
     } finally {
       setSubmitting(false);
     }
-  }, [location, description, dangerous, coords, photo]);
+  }, [location, description, dangerous, coords, photo, trade, needsSorting, aiFilled, aiText]);
 
   // ── Sent ──────────────────────────────────────────────────────────────────
   if (success) {
@@ -262,8 +387,92 @@ export function BrokenClient() {
   // ── Form ──────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-4 mt-4 max-w-2xl">
+      {/* Fill it for me */}
+      <Card>
+        <CardContent className="pt-6 space-y-3">
+          <Label htmlFor="ai-text" className="text-sm font-medium">
+            Tell us what&rsquo;s wrong (any language)
+          </Label>
+          <Textarea
+            id="ai-text"
+            value={aiText}
+            onChange={(e) => setAiText(e.target.value.slice(0, AI_FILL_LIMITS.inputMax))}
+            placeholder="The fan in the library, first floor, is making a burning smell."
+            rows={3}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full h-12"
+            onClick={() => void fillForMe()}
+            disabled={filling || aiText.trim().length < AI_FILL_LIMITS.inputMin}
+          >
+            {filling ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4 mr-2" />
+            )}
+            {filling ? 'Filling it in…' : 'Fill it for me'}
+          </Button>
+          {fillNote && <p className="text-xs text-muted-foreground">{fillNote}</p>}
+
+          {question && (
+            <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-2">
+              <p className="text-sm font-medium">{question.text}</p>
+              <div className="flex flex-wrap gap-2">
+                {question.options.map((opt) => (
+                  <Button
+                    key={opt}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-10"
+                    onClick={() => answerQuestion(opt)}
+                  >
+                    {question.field === 'urgency' ? urgencyLabel(opt) : opt}
+                  </Button>
+                ))}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-10"
+                  onClick={skipQuestion}
+                >
+                  Skip — let the estate office sort it
+                </Button>
+              </div>
+            </div>
+          )}
+          {needsSorting && !question && (
+            <p className="text-xs text-muted-foreground">
+              Skipped. The estate office will sort this one.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
       <Card>
         <CardContent className="pt-6 space-y-5">
+          {/* Kind of problem */}
+          <div>
+            <Label className="text-sm font-medium">What kind of problem? (optional)</Label>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {INSTASOLVER_TRADES.map((t) => (
+                <Button
+                  key={t}
+                  type="button"
+                  size="sm"
+                  variant={trade === t ? 'default' : 'outline'}
+                  aria-pressed={trade === t}
+                  onClick={() => setTrade(trade === t ? null : t)}
+                >
+                  {t}
+                </Button>
+              ))}
+            </div>
+          </div>
+
           {/* Where */}
           <div>
             <Label htmlFor="location" className="text-sm font-medium">
@@ -400,6 +609,12 @@ export function BrokenClient() {
               <p className="text-sm text-red-900 dark:text-red-200">{error}</p>
             </div>
           )}
+
+          <p className="text-sm text-muted-foreground">
+            {dangerous
+              ? 'Dangerous reports are due today.'
+              : `Usually fixed in about ${DUE_IN_DAYS.symptom} days.`}
+          </p>
 
           <Button className="w-full h-12" onClick={() => void submit()} disabled={!canSubmit}>
             {submitting ? (

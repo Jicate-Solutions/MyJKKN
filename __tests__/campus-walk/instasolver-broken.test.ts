@@ -493,3 +493,69 @@ describe('InstaSolver broken intake — refusals are explicit (rule #27)', () =>
     expect(body.success).toBe(false);
   });
 });
+
+// ── "Fill it for me" fields (Director, 30 Sep 2026) ─────────────────────────
+// All optional. The trade is stored, never routed; a skipped AI question is a
+// `needs_sorting` flag for the estate office; the person's own words are kept
+// beside the AI's English rewrite.
+describe('InstaSolver broken intake — the Fill it for me fields', () => {
+  it('stores a known trade as the category and in metadata', async () => {
+    await postForm({
+      ...VALID,
+      trade: 'Plumbing & water',
+      ai_filled: 'true',
+      reporter_words: 'tap odanju pochu',
+    });
+
+    const input = createWalkTask.mock.calls[0][1];
+    expect(input.category).toBe('Plumbing & water');
+    expect(input.extraMetadata).toMatchObject({
+      trade: 'Plumbing & water',
+      ai_filled: true,
+      reporter_words: 'tap odanju pochu',
+    });
+    expect(input.extraMetadata.needs_sorting).toBeUndefined();
+  });
+
+  it('a skipped question files the report flagged for the estate office to sort', async () => {
+    const res = await postForm({
+      ...VALID,
+      location: 'Place not given (estate office to sort)',
+      trade: 'Other',
+      needs_sorting: 'true',
+      ai_filled: 'true',
+    });
+
+    expect(res.status).toBe(200);
+    const input = createWalkTask.mock.calls[0][1];
+    expect(input.extraMetadata.needs_sorting).toBe(true);
+    expect(input.category).toBe('Other');
+    // No owner is supplied, so routing falls through to the EAO — unchanged.
+    expect(input.accountableProfileId).toBeUndefined();
+  });
+
+  it('drops an unknown trade instead of refusing the report', async () => {
+    const res = await postForm({ ...VALID, trade: 'Gardening' });
+
+    expect(res.status).toBe(200);
+    const input = createWalkTask.mock.calls[0][1];
+    expect(input.category).toBeUndefined();
+    expect(input.extraMetadata.trade).toBeUndefined();
+  });
+
+  it('urgency=dangerous marks the report unsafe; urgency=normal cannot clear a ticked box', async () => {
+    await postForm({ ...VALID, urgency: 'dangerous' });
+    expect(createWalkTask.mock.calls[0][1].isUnsafe).toBe(true);
+
+    await postForm({ ...VALID, dangerous: 'true', urgency: 'normal' });
+    expect(createWalkTask.mock.calls[1][1].isUnsafe).toBe(true);
+
+    await postForm({ ...VALID, urgency: 'normal' });
+    expect(createWalkTask.mock.calls[2][1].isUnsafe).toBe(false);
+  });
+
+  it('ignores reporter_words unless the form was AI-filled', async () => {
+    await postForm({ ...VALID, reporter_words: 'something' });
+    expect(createWalkTask.mock.calls[0][1].extraMetadata.reporter_words).toBeUndefined();
+  });
+});

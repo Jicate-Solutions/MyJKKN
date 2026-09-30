@@ -1,0 +1,274 @@
+// lib/instasolver/ai-fill.ts
+// ============================================================================
+// InstaSolver "Fill it for me" — the shared pieces behind
+// app/api/instasolver/ai-fill/route.ts and the broken-thing form.
+//
+// Director rulings, 30 Sep 2026: a person describes the problem in ANY words
+// (Tamil included); the AI picks the trade, the place and how urgent it is,
+// and when it is unsure it asks ONE question with tap-to-pick answers. If the
+// person skips that question the report still goes, flagged for the estate
+// office (EAO) to sort.
+//
+// Lives here, not in the route, because a Next.js route file may only export
+// its handlers — the trade list and the validator are needed by the client,
+// the ai-fill route, the broken route and the tests.
+//
+// NOTHING IN THIS FILE TOUCHES THE DATABASE. The per-user cap is in memory.
+// ============================================================================
+
+/**
+ * The 11 clean trades, built 2026-09-30 from the old InstaSolver site's
+ * categories (clean_groups only — no personal data travelled with it).
+ * 'Other' is last on purpose: it is what a skipped question falls back to.
+ * One label differs from that file: its "Lab & clinical equipment" is written
+ * "Learning-lab & clinical equipment" here, per the JKKN terminology standard
+ * (the blocking CI gate flags "lab" as a word, even inside "learning lab").
+ */
+export const INSTASOLVER_TRADES = [
+  'Electrical',
+  'Plumbing & water',
+  'Computers & printers',
+  'Internet & Wi-Fi',
+  'Civil & building',
+  'Furniture, doors & carpentry',
+  'AC, TV, audio & xerox',
+  'Learning-lab & clinical equipment',
+  'Cleaning, pests & waste',
+  'Security & CCTV',
+  'Other'
+] as const;
+
+export type InstaSolverTrade = (typeof INSTASOLVER_TRADES)[number];
+
+export const FALLBACK_TRADE: InstaSolverTrade = 'Other';
+
+export function isInstaSolverTrade(v: unknown): v is InstaSolverTrade {
+  return typeof v === 'string' && (INSTASOLVER_TRADES as readonly string[]).includes(v);
+}
+
+export type AiFillUrgency = 'normal' | 'dangerous';
+export type AiFillQuestionField = 'trade' | 'place' | 'urgency';
+
+/** The same limits the broken-thing form and route enforce. */
+export const AI_FILL_LIMITS = {
+  inputMin: 3,
+  inputMax: 1000,
+  placeMax: 120,
+  descriptionMax: 500,
+  titleMax: 120,
+  questionMax: 120,
+  optionMax: 60,
+  optionsMin: 2,
+  optionsMax: 5
+} as const;
+
+/** What the person sees in place of a filled form when anything goes wrong. */
+export const AI_FILL_FALLBACK_MESSAGE = "Couldn't fill it — please pick below.";
+
+/** Put in "Where is it?" when the person skipped and no place was found. */
+export const SKIPPED_PLACE_TEXT = 'Place not given (estate office to sort)';
+
+export interface AiFillQuestion {
+  field: AiFillQuestionField;
+  text: string;
+  options: string[];
+}
+
+export interface AiFillResult {
+  trade: InstaSolverTrade;
+  /** Empty string when the AI could not tell. */
+  place: string;
+  urgency: AiFillUrgency;
+  title: string;
+  description: string;
+  /** 0..1 */
+  confidence: number;
+  one_question: AiFillQuestion | null;
+}
+
+function clampText(v: unknown, max: number): string {
+  if (typeof v !== 'string') return '';
+  const t = v.replace(/\s+/g, ' ').trim();
+  return t.length > max ? t.slice(0, max).trimEnd() : t;
+}
+
+/**
+ * Validate a question's shape and its options. Options for a trade question
+ * must be real trades; options for an urgency question must be the two
+ * urgency values; options for a place question must come from the known
+ * places when there are any (so a chip never names a block that does not
+ * exist), and are free text only when the college has no places recorded.
+ * Returns null when the question is not usable — the form then simply fills
+ * without asking.
+ */
+function parseQuestion(raw: unknown, knownPlaces: readonly string[]): AiFillQuestion | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const q = raw as Record<string, unknown>;
+  const field = q.field;
+  if (field !== 'trade' && field !== 'place' && field !== 'urgency') return null;
+  const text = clampText(q.text, AI_FILL_LIMITS.questionMax);
+  if (text.length < 3) return null;
+  if (!Array.isArray(q.options)) return null;
+
+  const seen = new Set<string>();
+  let options: string[] = [];
+  for (const o of q.options) {
+    const opt = clampText(o, AI_FILL_LIMITS.optionMax);
+    if (!opt || seen.has(opt.toLowerCase())) continue;
+    seen.add(opt.toLowerCase());
+    options.push(opt);
+  }
+
+  if (field === 'trade') {
+    options = options.filter((o) => isInstaSolverTrade(o));
+  } else if (field === 'urgency') {
+    options = options.filter((o) => o === 'normal' || o === 'dangerous');
+  } else if (knownPlaces.length > 0) {
+    const byLower = new Map(knownPlaces.map((p) => [p.toLowerCase(), p]));
+    options = options
+      .map((o) => byLower.get(o.toLowerCase()))
+      .filter((o): o is string => typeof o === 'string');
+  }
+
+  options = options.slice(0, AI_FILL_LIMITS.optionsMax);
+  if (options.length < AI_FILL_LIMITS.optionsMin) return null;
+  return { field, text, options };
+}
+
+/**
+ * Strict parse of the model's reply. Accepts the JSON object alone or inside
+ * a ```json fence; anything else, or any required field of the wrong type,
+ * returns null and the caller answers with the plain-form fallback.
+ */
+export function parseAiFill(
+  text: string,
+  knownPlaces: readonly string[] = []
+): AiFillResult | null {
+  const stripped = text
+    .trim()
+    .replace(/^```(?:json)?/i, '')
+    .replace(/```$/, '')
+    .trim();
+  const match = stripped.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+
+  let obj: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(match[0]);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    obj = parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+
+  if (!isInstaSolverTrade(obj.trade)) return null;
+  if (obj.urgency !== 'normal' && obj.urgency !== 'dangerous') return null;
+  const confidence = typeof obj.confidence === 'number' ? obj.confidence : Number.NaN;
+  if (!Number.isFinite(confidence)) return null;
+
+  const description = clampText(obj.description, AI_FILL_LIMITS.descriptionMax);
+  if (description.length < 3) return null;
+
+  return {
+    trade: obj.trade,
+    place: clampText(obj.place, AI_FILL_LIMITS.placeMax),
+    urgency: obj.urgency,
+    title: clampText(obj.title, AI_FILL_LIMITS.titleMax),
+    description,
+    confidence: Math.min(1, Math.max(0, confidence)),
+    one_question: parseQuestion(obj.one_question, knownPlaces)
+  };
+}
+
+/** One place label from a resources row: "Building Main · Block A". */
+export function placeLabel(row: {
+  name?: string | null;
+  building_number?: string | null;
+  block_number?: string | null;
+  floor_number?: string | null;
+  room_number?: string | null;
+}): string {
+  const part = (label: string, v: string | null | undefined) => {
+    const t = (v ?? '').trim();
+    if (!t) return null;
+    // "Block A" and "Main Building" already say what they are; "A" does not.
+    return new RegExp(`\\b${label}\\b`, 'i').test(t) ? t : `${label} ${t}`;
+  };
+  return [part('Building', row.building_number), part('Block', row.block_number)]
+    .filter((p): p is string => Boolean(p))
+    .join(' · ');
+}
+
+/**
+ * Distinct building/block labels for the prompt and for place chips. Room and
+ * floor are dropped on purpose: a campus has thousands of rooms, and the
+ * question the Director named is "Which block is this in?".
+ */
+export function distinctPlaces(
+  rows: ReadonlyArray<Parameters<typeof placeLabel>[0]>,
+  cap = 60
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const r of rows) {
+    const label = placeLabel(r);
+    if (!label || seen.has(label.toLowerCase())) continue;
+    seen.add(label.toLowerCase());
+    out.push(label);
+    if (out.length >= cap) break;
+  }
+  return out;
+}
+
+export function buildAiFillSystemPrompt(knownPlaces: readonly string[]): string {
+  const placeBlock =
+    knownPlaces.length > 0
+      ? `Known places at this person's college (use one of these exactly when the text points to it):\n${knownPlaces
+          .map((p) => `- ${p}`)
+          .join('\n')}`
+      : 'No list of places is available for this college; take the place from the text.';
+
+  return `You help people at JKKN, an Indian group of colleges, report something broken on campus. The person may write in English, Tamil, Tamil written in English letters (Tanglish), or a mix. Understand all of them. ALWAYS answer in English.
+
+Read the person's text and reply with ONLY one JSON object, no prose, no code fence, with exactly these keys:
+- "trade": exactly one of ${INSTASOLVER_TRADES.map((t) => JSON.stringify(t)).join(', ')}
+- "place": where the problem is, in short English (max 120 characters), or "" if the text does not say
+- "urgency": "dangerous" ONLY if someone could get hurt (exposed or sparking wire, fire or smoke, gas smell, water near electrics, a broken stair or railing, something about to fall); otherwise "normal"
+- "title": one short English line (max 80 characters)
+- "description": the problem restated clearly in English (max 400 characters). Keep every concrete detail. Never invent details that are not in the text.
+- "confidence": a number from 0 to 1 — how sure you are of trade, place AND urgency together
+- "one_question": null, OR — only when you are genuinely unsure of ONE thing — an object {"field": "trade" | "place" | "urgency", "text": a short English question, "options": 2 to 5 short answers the person can tap}. For "trade" the options must be trade names from the list above. For "urgency" the options must be "normal" and "dangerous". For "place" the options should be places from the known list when there is one. Ask at most one question, and ask about the single thing you are least sure of.
+
+${placeBlock}`;
+}
+
+// ── Per-user cap (in memory) ───────────────────────────────────────────────
+// A spend control, not a security boundary: it lives in one server instance's
+// memory, so on serverless it limits a burst, not a day. Chosen because the
+// only durable counter (instasolver_report_ledger) counts FILED reports — a
+// fill that wrote there would eat the reporter's 10-a-day report slots.
+export const AI_FILL_LIMIT_PER_WINDOW = 15;
+export const AI_FILL_WINDOW_MS = 60 * 60 * 1000;
+
+const fillLog = new Map<string, number[]>();
+
+/**
+ * Record one fill attempt for `userId` and say whether it is allowed. A
+ * refused attempt is not recorded, so waiting frees a slot on schedule.
+ */
+export function takeAiFillSlot(userId: string, nowMs: number = Date.now()): boolean {
+  const since = nowMs - AI_FILL_WINDOW_MS;
+  const recent = (fillLog.get(userId) ?? []).filter((t) => t > since);
+  if (recent.length >= AI_FILL_LIMIT_PER_WINDOW) {
+    fillLog.set(userId, recent);
+    return false;
+  }
+  recent.push(nowMs);
+  fillLog.set(userId, recent);
+  return true;
+}
+
+/** Tests only. */
+export function resetAiFillSlots(): void {
+  fillLog.clear();
+}
