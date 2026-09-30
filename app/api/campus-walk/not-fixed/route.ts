@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
 
   const { data: taskData, error: taskErr } = await admin
     .from('project_tasks')
-    .select('id, title, status_key, owner_staff_id, completed_at, due_date, metadata')
+    .select('id, title, status_key, owner_staff_id, completed_at, due_date, updated_at, metadata')
     .eq('id', taskId)
     .maybeSingle();
 
@@ -107,6 +107,7 @@ export async function POST(request: NextRequest) {
     owner_staff_id: string | null;
     completed_at: string | null;
     due_date: string | null;
+    updated_at?: string | null;
     metadata: Record<string, any> | null;
   };
   const metadata: Record<string, any> = { ...((task.metadata ?? {}) as Record<string, any>) };

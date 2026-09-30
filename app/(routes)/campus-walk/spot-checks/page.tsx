@@ -39,9 +39,9 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageHeader } from '@/components/page-header';
 import { Card, CardContent } from '@/components/ui/card';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { isCampusWalkReporter } from '@/lib/campus-walk/reporters';
 import { HEAD_ALERT_AT_NOT_FIXED, reporterNotFixedCount } from '@/lib/campus-walk/reopen';
 import {
+  institutionOfTask,
   resolveSpotCheckViewer,
   viewerMayCheck,
   type SpotCheck,
@@ -120,7 +120,7 @@ async function loadPending(admin: Admin, viewer: SpotCheckViewer): Promise<any[]
 
   return rows.filter((r) => {
     const sc = ((r.metadata ?? {}) as Record<string, any>).spot_check as SpotCheck | undefined;
-    return sc?.state === 'pending' && viewerMayCheck(viewer, sc);
+    return sc?.state === 'pending' && viewerMayCheck(viewer, sc, r.metadata);
   });
 }
 
@@ -128,11 +128,15 @@ async function loadPending(admin: Admin, viewer: SpotCheckViewer): Promise<any[]
 async function loadFailedTwice(admin: Admin, viewer: SpotCheckViewer): Promise<any[]> {
   const out: any[] = [];
   for (const institutionId of viewer.headOfInstitutionIds) {
+    // The job's college is institutionOfTask — metadata.institution_id, else
+    // the reporter's own — the same rule that picked who the "Failed N times"
+    // bell went to (reopen.ts). Matching only institution_id here let a job
+    // bell the head and then not appear on this page.
     const { data, error } = await admin
       .from('project_tasks')
       .select(COLUMNS)
       .eq('metadata->>source', 'campus-walk')
-      .eq('metadata->>institution_id', institutionId)
+      .or(`metadata->>institution_id.eq.${institutionId},metadata->>reporter_institution_id.eq.${institutionId}`)
       .not('status_key', 'in', CLOSED)
       .not('metadata->reopens', 'is', null)
       .order('due_date', { ascending: true })
@@ -142,7 +146,9 @@ async function loadFailedTwice(admin: Admin, viewer: SpotCheckViewer): Promise<a
       continue;
     }
     for (const r of data ?? []) {
-      if (reporterNotFixedCount((r as any).metadata) >= HEAD_ALERT_AT_NOT_FIXED) out.push(r);
+      const m = (r as any).metadata;
+      if (institutionOfTask(m) !== institutionId) continue;
+      if (reporterNotFixedCount(m) >= HEAD_ALERT_AT_NOT_FIXED) out.push(r);
     }
   }
   return out;
@@ -167,7 +173,7 @@ export default async function SpotChecksPage() {
   }
 
   const admin = createServiceRoleClient();
-  const viewer = await resolveSpotCheckViewer(admin as any, user.id, await isCampusWalkReporter(user.email));
+  const viewer = await resolveSpotCheckViewer(admin as any, user.id);
 
   if (!viewer.isDirector && viewer.headOfInstitutionIds.length === 0) {
     return (

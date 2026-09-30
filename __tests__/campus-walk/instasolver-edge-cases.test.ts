@@ -48,32 +48,33 @@ import {
   describeOverlap,
   findOpenReportToJoin,
   normaliseLocation,
+  sharesEnoughWords,
   JOIN_MIN_OVERLAP,
   type OpenReportCandidate,
 } from '@/lib/campus-walk/duplicates';
 import {
   SPOT_CHECK_ONE_IN,
   isSpotCheckPick,
+  rollSpotCheck,
   spotCheckerFor,
   viewerMayCheck,
   type SpotCheck,
 } from '@/lib/campus-walk/spot-check';
 import { reopenCampusWalkTask, reporterNotFixedCount } from '@/lib/campus-walk/reopen';
 import { closeCampusWalkTask } from '@/lib/campus-walk/closure';
-import { joinedReporterIdsOf, reportStatusOf } from '@/lib/campus-walk/my-reports';
+import {
+  joinedReportPhotoPaths,
+  joinedReporterIdsOf,
+  mergeJoinedReports,
+  reportStatusOf,
+} from '@/lib/campus-walk/my-reports';
 import { routeAccountable } from '@/lib/services/campus-walk/campus-walk-service';
 
 const DAY = 86_400_000;
 
-/** A task id the fake-fix guard picks, and one it does not. */
-function pickedId(): string {
-  for (let i = 0; i < 1000; i++) if (isSpotCheckPick(`task-${i}`)) return `task-${i}`;
-  throw new Error('no picked id in 1000');
-}
-function unpickedId(): string {
-  for (let i = 0; i < 1000; i++) if (!isSpotCheckPick(`task-${i}`)) return `task-${i}`;
-  throw new Error('no unpicked id in 1000');
-}
+/** The 1-in-10 die, fixed: always picked / never picked. */
+const PICK = () => true;
+const NO_PICK = () => false;
 
 function bellsIn(category: string) {
   return createBellNotification.mock.calls.filter((c) => (c[1] as any)?.category === category);
@@ -134,6 +135,18 @@ describe('ruling 2 — which open report a new one joins', () => {
   it('keeps a different fault in the same room apart', () => {
     expect(describeOverlap('fan broken', 'light broken')).toBeLessThan(JOIN_MIN_OVERLAP);
     expect(ask({ description: 'the light is broken' }, [{ ...base, description: 'fan broken' }])).toBeNull();
+  });
+
+  it('needs two shared words, not one — a single common word never decides (repair round)', () => {
+    // Both reviewers' examples: one shared word scored 1.00 and joined.
+    expect(sharesEnoughWords('AC not working', 'AC leaking water')).toBe(false);
+    expect(sharesEnoughWords('Light not working', 'Light switch gives electric shock')).toBe(false);
+    expect(sharesEnoughWords('Fan not working', 'Fan making loud noise and sparks')).toBe(false);
+    expect(sharesEnoughWords('Broken', 'Broken chair')).toBe(false);
+    expect(ask({ description: 'AC not working' }, [{ ...base, description: 'AC leaking water' }])).toBeNull();
+    // Still joins the same fault said twice.
+    expect(sharesEnoughWords('Light not working', 'light not working properly')).toBe(true);
+    expect(sharesEnoughWords('tap leaking', 'The tap is leaking all day')).toBe(true);
   });
 
   it('never joins a closed, cancelled or archived job — a recurrence is a new report', () => {
@@ -198,6 +211,83 @@ describe('ruling 2 — writing the join', () => {
     expect(res.ok).toBe(false);
     expect(bellsIn('instasolver:report-joined')).toHaveLength(0);
   });
+
+  it('two people joining at once both land: the second re-reads and appends to what the first wrote', async () => {
+    let first = true;
+    fake = makeFakeDb((q) => {
+      if (q.table === 'project_tasks' && q.op === 'update') {
+        if (first) {
+          first = false;
+          return { data: [] }; // another joiner got in first: updated_at moved
+        }
+        return { data: [{ id: 'open-1' }] };
+      }
+      if (q.table === 'project_tasks' && q.op === 'select') {
+        return {
+          data: {
+            status_key: 'in_progress',
+            updated_at: 'v2',
+            metadata: {
+              source: 'campus-walk',
+              additional_reports: [{ reporter_id: 'first-joiner' }, { reporter_id: 'racing-joiner' }],
+            },
+          },
+        };
+      }
+      return { data: null };
+    });
+    const { joinOpenReport } = await import('@/lib/campus-walk/join-report');
+    const res = await joinOpenReport(fake.db as any, { ...openJob, updated_at: 'v1' }, entry, 'owner-1');
+    expect(res.ok).toBe(true);
+    const [miss, landed] = updates();
+    expect(filterOf(miss, 'updated_at')).toBe('v1');
+    expect(filterOf(landed, 'updated_at')).toBe('v2');
+    expect(filterOf(landed, 'status_key')).toBe('in_progress');
+    expect(landed.payload.metadata.additional_reports.map((r: any) => r.reporter_id)).toEqual([
+      'first-joiner',
+      'racing-joiner',
+      'learner-2',
+    ]);
+    expect(bellsIn('instasolver:report-joined')).toHaveLength(1);
+  });
+
+  it('does not join a job that was closed while it retried', async () => {
+    fake = makeFakeDb((q) => {
+      if (q.table === 'project_tasks' && q.op === 'update') return { data: [] };
+      if (q.table === 'project_tasks' && q.op === 'select') {
+        return { data: { status_key: 'done', updated_at: 'v2', metadata: {} } };
+      }
+      return { data: null };
+    });
+    const { joinOpenReport } = await import('@/lib/campus-walk/join-report');
+    const res = await joinOpenReport(fake.db as any, { ...openJob, updated_at: 'v1' }, entry, 'owner-1');
+    expect(res.ok).toBe(false);
+    expect(updates()).toHaveLength(1);
+  });
+});
+
+describe('joined reports survive a whole-metadata write, and their photos purge', () => {
+  it('puts back joins that landed after the read, once each, keeping our own fields', () => {
+    const mine = { fix: { note: 'done' }, additional_reports: [{ reporter_id: 'a', at: '1' }] };
+    const fresh = { additional_reports: [{ reporter_id: 'a', at: '1' }, { reporter_id: 'b', at: '2' }] };
+    const merged = mergeJoinedReports(mine, fresh);
+    expect(merged.additional_reports.map((r: any) => r.reporter_id)).toEqual(['a', 'b']);
+    expect(merged.fix).toEqual({ note: 'done' });
+    expect(mergeJoinedReports(mine, {})).toBe(mine);
+  });
+
+  it('lists the joined reports’ photos for the retention purge', () => {
+    expect(
+      joinedReportPhotoPaths({
+        additional_reports: [
+          { photo_storage_path: 'u/1.jpg' },
+          { photo_storage_path: null },
+          { photo_storage_path: 'u/1.jpg' },
+          { photo_storage_path: 'u/2.jpg' },
+        ],
+      })
+    ).toEqual(['u/1.jpg', 'u/2.jpg']);
+  });
 });
 
 describe('ruling 2 — joined reporters are counted once and shown', () => {
@@ -214,14 +304,19 @@ describe('ruling 2 — joined reporters are counted once and shown', () => {
 // ── (3) the fake-fix guard ──────────────────────────────────────────────────
 
 describe('ruling 3 — which closures are spot checked', () => {
-  it('picks the same task every time, and about 1 in 10 overall', () => {
-    const id = pickedId();
-    expect(isSpotCheckPick(id)).toBe(true);
-    expect(isSpotCheckPick(id)).toBe(true);
+  it('rolls about 1 in 10, at random — not from the task id the fixer can see', () => {
     let picked = 0;
-    for (let i = 0; i < 5000; i++) if (isSpotCheckPick(`00000000-0000-4000-8000-${String(i).padStart(12, '0')}`)) picked++;
+    for (let i = 0; i < 5000; i++) if (rollSpotCheck()) picked++;
     expect(picked / 5000).toBeGreaterThan(1 / SPOT_CHECK_ONE_IN - 0.02);
     expect(picked / 5000).toBeLessThan(1 / SPOT_CHECK_ONE_IN + 0.02);
+    // The same metadata is not a fixed answer: both outcomes show up.
+    const outcomes = new Set(Array.from({ length: 200 }, () => isSpotCheckPick({ source: 'campus-walk' })));
+    expect(outcomes).toEqual(new Set([true, false]));
+  });
+
+  it('always looks again at a job whose last spot check failed', () => {
+    expect(isSpotCheckPick({ spot_check: { state: 'failed' } }, NO_PICK)).toBe(true);
+    expect(isSpotCheckPick({ spot_check: { state: 'passed' } }, NO_PICK)).toBe(false);
   });
 
   it('sends InstaSolver jobs to the college head and the Director’s own walk jobs to him', () => {
@@ -242,6 +337,23 @@ describe('ruling 3 — which closures are spot checked', () => {
     expect(viewerMayCheck(director, head)).toBe(false);
     expect(viewerMayCheck(director, dir)).toBe(true);
     expect(viewerMayCheck(principal, dir)).toBe(false);
+  });
+
+  it('never lets the person who sent the fix photo decide — on the check or on the job', () => {
+    const head: SpotCheck = {
+      state: 'pending',
+      checker: 'college_head',
+      institution_id: 'inst-1',
+      picked_at: 'x',
+      fixer_profile_id: 'p',
+    };
+    const principal = { profileId: 'p', isDirector: true, headOfInstitutionIds: ['inst-1'] };
+    expect(viewerMayCheck(principal, head)).toBe(false);
+    expect(viewerMayCheck(principal, { ...head, checker: 'director', institution_id: null })).toBe(false);
+    // An older check without fixer_profile_id falls back to the job's own fix record.
+    const { fixer_profile_id: _drop, ...old } = head;
+    expect(viewerMayCheck(principal, old, { fix: { submitted_by_profile_id: 'p' } })).toBe(false);
+    expect(viewerMayCheck(principal, old, { fix: { submitted_by_profile_id: 'someone-else' } })).toBe(true);
   });
 });
 
@@ -272,10 +384,10 @@ function fixedTask(id: string, extra: Record<string, any> = {}, status = 'review
 
 describe('ruling 3 — the pick is written with the closure', () => {
   it('writes a pending spot check in the SAME update that closes a picked job, and bells the college head', async () => {
-    const id = pickedId();
-    const res = await closeCampusWalkTask(fake.db as any, fixedTask(id), {
+    const res = await closeCampusWalkTask(fake.db as any, fixedTask('task-1'), {
       decidedByProfileId: 'fixer-1',
       auto: true,
+      spotCheckRoll: PICK,
     });
 
     expect(res.ok).toBe(true);
@@ -286,6 +398,7 @@ describe('ruling 3 — the pick is written with the closure', () => {
       state: 'pending',
       checker: 'college_head',
       institution_id: 'inst-1',
+      fixer_profile_id: 'fixer-1',
     });
     const bell = bellsIn('campus-walk:spot-check');
     expect(bell).toHaveLength(1);
@@ -294,18 +407,26 @@ describe('ruling 3 — the pick is written with the closure', () => {
   });
 
   it('bells the Director for a job he raised on his walk', async () => {
-    const id = pickedId();
-    await closeCampusWalkTask(fake.db as any, fixedTask(id, { front_door: undefined }), {
+    await closeCampusWalkTask(fake.db as any, fixedTask('task-1', { front_door: undefined }), {
       decidedByProfileId: 'fixer-1',
       auto: true,
+      spotCheckRoll: PICK,
     });
     expect(updates()[0].payload.metadata.spot_check.checker).toBe('director');
     expect((bellsIn('campus-walk:spot-check')[0][1] as any).recipientIds).toEqual(['director-1']);
   });
 
   it('never picks an unpicked job, and never a manager’s approval', async () => {
-    await closeCampusWalkTask(fake.db as any, fixedTask(unpickedId()), { decidedByProfileId: 'fixer-1', auto: true });
-    await closeCampusWalkTask(fake.db as any, fixedTask(pickedId()), { decidedByProfileId: 'manager-1', auto: false });
+    await closeCampusWalkTask(fake.db as any, fixedTask('task-1'), {
+      decidedByProfileId: 'fixer-1',
+      auto: true,
+      spotCheckRoll: NO_PICK,
+    });
+    await closeCampusWalkTask(fake.db as any, fixedTask('task-2'), {
+      decidedByProfileId: 'manager-1',
+      auto: false,
+      spotCheckRoll: PICK,
+    });
     for (const u of updates()) expect(u.payload.metadata.spot_check).toBeUndefined();
     expect(bellsIn('campus-walk:spot-check')).toHaveLength(0);
   });
@@ -313,16 +434,80 @@ describe('ruling 3 — the pick is written with the closure', () => {
   it('tells everyone who joined the report that it is fixed — once, not the reporter twice', async () => {
     await closeCampusWalkTask(
       fake.db as any,
-      fixedTask(unpickedId(), {
+      fixedTask('task-1', {
         additional_reports: [{ reporter_id: 'joiner-1' }, { reporter_id: 'learner-1' }, { reporter_id: 'joiner-2' }],
       }),
-      { decidedByProfileId: 'fixer-1', auto: true }
+      { decidedByProfileId: 'fixer-1', auto: true, spotCheckRoll: NO_PICK }
     );
     const bells = bellsIn('instasolver:reported-fixed');
     expect(bells).toHaveLength(2);
     const joined = bells.find((c) => (c[1] as any).metadata?.joined === true)![1] as any;
     expect(joined.recipientIds).toEqual(['joiner-1', 'joiner-2']);
     expect(joined.idempotencyKey).toMatch(/:joined$/);
+  });
+
+  it('never asks the fixer to check their own work: a principal who fixed it passes the check up to the Director', async () => {
+    const res = await closeCampusWalkTask(
+      fake.db as any,
+      fixedTask('task-1', { fix: { submitted_by_profile_id: 'principal-1', attachment_id: 'att-9', approval: {} } }),
+      { decidedByProfileId: 'principal-1', auto: true, spotCheckRoll: PICK }
+    );
+    expect(res.ok).toBe(true);
+    expect(updates()[0].payload.metadata.spot_check).toMatchObject({
+      checker: 'director',
+      institution_id: null,
+      fixer_profile_id: 'principal-1',
+      escalated_from_fixer: true,
+    });
+    const [bell] = bellsIn('campus-walk:spot-check');
+    expect((bell[1] as any).recipientIds).toEqual(['director-1']);
+  });
+
+  it('bells the Director list that also gates the buttons (resolveDirectors), minus the fixer', async () => {
+    resolveDirectors.mockResolvedValue({ ids: ['director-1', 'fixer-1'], source: 'director' });
+    await closeCampusWalkTask(fake.db as any, fixedTask('task-1', { front_door: undefined }), {
+      decidedByProfileId: 'fixer-1',
+      auto: true,
+      spotCheckRoll: PICK,
+    });
+    expect((bellsIn('campus-walk:spot-check')[0][1] as any).recipientIds).toEqual(['director-1']);
+  });
+
+  it('keeps a report that joined between the read and the close, and tells that person', async () => {
+    let missed = false;
+    fake = makeFakeDb((q) => {
+      if (q.table === 'project_tasks' && q.op === 'update') {
+        if (!missed) {
+          missed = true;
+          return { data: [] }; // a join landed: updated_at moved
+        }
+        return { data: [{ id: 'task-1', updated_at: 'v3' }] };
+      }
+      if (q.table === 'project_tasks' && q.op === 'select') {
+        return {
+          data: {
+            status_key: 'review',
+            updated_at: 'v2',
+            metadata: { additional_reports: [{ reporter_id: 'late-joiner', at: 't1' }] },
+          },
+        };
+      }
+      return respond(q);
+    });
+    const res = await closeCampusWalkTask(
+      fake.db as any,
+      { ...fixedTask('task-1'), updated_at: 'v1' },
+      { decidedByProfileId: 'fixer-1', auto: true, spotCheckRoll: NO_PICK }
+    );
+    expect(res.ok).toBe(true);
+    const [first, second] = updates();
+    expect(filterOf(first, 'updated_at')).toBe('v1');
+    expect(filterOf(second, 'updated_at')).toBe('v2');
+    expect(filterOf(second, 'status_key')).toBe('review');
+    expect(second.payload.metadata.additional_reports.map((r: any) => r.reporter_id)).toEqual(['late-joiner']);
+    expect(second.payload.metadata.fix.approval.state).toBe('approved');
+    const joined = bellsIn('instasolver:reported-fixed').find((c) => (c[1] as any).metadata?.joined === true)!;
+    expect((joined[1] as any).recipientIds).toEqual(['late-joiner']);
   });
 });
 
@@ -437,6 +622,32 @@ describe('app/api/campus-walk/spot-check — the checker’s two buttons', () =>
     expect(updates()).toHaveLength(0);
   });
 
+  it('refuses the person who sent the fix photo, even when they are the college head', async () => {
+    taskRow = closedTask({
+      spot_check: {
+        state: 'pending',
+        checker: 'college_head',
+        institution_id: 'inst-1',
+        picked_at: 'x',
+        fixer_profile_id: 'principal-1',
+      },
+    });
+    const res = await post({ taskId: 'task-7', verdict: 'looks_fixed' });
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toMatch(/You sent the fix photo/);
+    expect(updates()).toHaveLength(0);
+  });
+
+  it('decides "the Director" by the same list the bell used — a Campus Walk reporter alone is not enough', async () => {
+    taskRow = closedTask({
+      spot_check: { state: 'pending', checker: 'director', institution_id: null, picked_at: 'x' },
+    });
+    getUser.mockResolvedValue({ data: { user: { id: 'walk-reporter-1', email: 'w@jkkn.ac.in' } } });
+    isCampusWalkReporter.mockResolvedValue(true);
+    const res = await post({ taskId: 'task-7', verdict: 'looks_fixed' });
+    expect(res.status).toBe(403);
+  });
+
   it('refuses a job that was not picked', async () => {
     taskRow = closedTask();
     const res = await post({ taskId: 'task-7', verdict: 'looks_fixed' });
@@ -451,6 +662,12 @@ describe('app/api/campus-walk/spot-check — the checker’s two buttons', () =>
     expect(filterOf(upd, 'status_key')).toBe('done');
     expect(upd.payload.status_key).toBeUndefined();
     expect(upd.payload.metadata.spot_check).toMatchObject({ state: 'passed', decided_by_profile_id: 'principal-1' });
+  });
+
+  it('"Looks fixed" does not overwrite a newer closure (compare-and-set on updated_at)', async () => {
+    taskRow = { ...taskRow, updated_at: 'v5' };
+    await post({ taskId: 'task-7', verdict: 'looks_fixed' });
+    expect(filterOf(updates()[0], 'updated_at')).toBe('v5');
   });
 
   it('"Not fixed" reopens the SAME job with a fresh due date', async () => {

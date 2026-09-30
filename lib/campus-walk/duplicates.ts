@@ -276,7 +276,10 @@ export function findLikelyDuplicate(input: DuplicateCheckInput): DuplicateCheckR
 //     "Room 101" and "Room 102" must stay two jobs;
 //   · the job is still OPEN (not done, cancelled or archived);
 //   · the job was filed within the last JOIN_WINDOW_DAYS (14) days;
-//   · the two descriptions are similar: describeOverlap() >= JOIN_MIN_OVERLAP.
+//   · the two descriptions are similar: describeOverlap() >= JOIN_MIN_OVERLAP
+//     AND they share at least two meaningful words (sharesEnoughWords), unless
+//     both are the same single word. One shared word is not enough: "AC not
+//     working" is just {ac}, and must not swallow "AC leaking water".
 //
 // THE THRESHOLD. describeOverlap() is the overlap coefficient of the two
 // descriptions' meaningful words: |shared| / |smaller set|, after dropping
@@ -291,6 +294,8 @@ export function findLikelyDuplicate(input: DuplicateCheckInput): DuplicateCheckR
 
 export const JOIN_WINDOW_DAYS = 14;
 export const JOIN_MIN_OVERLAP = 0.6;
+/** And at least this many meaningful words in common — see sharesEnoughWords. */
+export const JOIN_MIN_SHARED_WORDS = 2;
 
 /** Status keys that mean the job is finished — never joined. */
 export const JOIN_CLOSED_STATUSES = ['done', 'cancelled', 'archived'] as const;
@@ -328,6 +333,23 @@ function stem(word: string): string {
 
 function meaningfulWords(text: string): Set<string> {
   return new Set(words(text).filter((w) => !FILLER_WORDS.has(w)).map(stem));
+}
+
+/**
+ * Whether two descriptions share enough meaningful words to be one fault:
+ * at least JOIN_MIN_SHARED_WORDS of them, unless BOTH come down to the same
+ * single word ("Light not working" / "light not working properly").
+ * The overlap coefficient alone let one shared word decide — "AC not working"
+ * ({ac}) joined "AC leaking water", and "Light not working" joined "Light
+ * switch gives electric shock" (repair round, 1 Oct).
+ */
+export function sharesEnoughWords(a: string, b: string): boolean {
+  const wa = meaningfulWords(a);
+  const wb = meaningfulWords(b);
+  let shared = 0;
+  for (const w of wa) if (wb.has(w)) shared += 1;
+  if (shared >= JOIN_MIN_SHARED_WORDS) return true;
+  return wa.size === 1 && wb.size === 1 && shared === 1;
 }
 
 /** Overlap coefficient of two descriptions' meaningful words, 0..1. */
@@ -382,6 +404,7 @@ export function findOpenReportToJoin(input: {
     if (!c.location || normaliseLocation(c.location) !== place) continue;
     const overlap = describeOverlap(input.description, c.description ?? '');
     if (overlap < JOIN_MIN_OVERLAP) continue;
+    if (!sharesEnoughWords(input.description, c.description ?? '')) continue;
     if (
       !best ||
       overlap > best.overlap ||

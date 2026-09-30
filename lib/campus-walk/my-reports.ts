@@ -60,6 +60,42 @@ export function joinedReporterIdsOf(metadata: Record<string, any> | null | undef
   return out;
 }
 
+/** How many joined reports one task keeps — same cap as the QR-sticker door. */
+export const MAX_JOINED_REPORTS = 50;
+
+function joinKey(entry: any): string {
+  return `${entry?.reporter_id ?? ''}|${entry?.at ?? ''}|${entry?.photo_storage_path ?? ''}`;
+}
+
+/**
+ * `mine` with every joined report that is in `fresh` but not in `mine` put
+ * back. Used when a whole-metadata write finds the row changed under it: a
+ * join that landed in between must survive the write (repair round, 1 Oct).
+ * Order is kept (mine first, then the late arrivals), capped at the last 50.
+ */
+export function mergeJoinedReports(
+  mine: Record<string, any>,
+  fresh: Record<string, any> | null | undefined
+): Record<string, any> {
+  const ours = Array.isArray(mine.additional_reports) ? (mine.additional_reports as any[]) : [];
+  const theirs = Array.isArray((fresh ?? {}).additional_reports) ? ((fresh as any).additional_reports as any[]) : [];
+  const seen = new Set(ours.map(joinKey));
+  const late = theirs.filter((e) => !seen.has(joinKey(e)));
+  if (late.length === 0) return mine;
+  return { ...mine, additional_reports: [...ours, ...late].slice(-MAX_JOINED_REPORTS) };
+}
+
+/** Storage paths of the photos people attached when they joined the report. */
+export function joinedReportPhotoPaths(metadata: Record<string, any> | null | undefined): string[] {
+  const list = Array.isArray((metadata ?? {}).additional_reports) ? (metadata as any).additional_reports : [];
+  const out: string[] = [];
+  for (const entry of list) {
+    const p = entry?.photo_storage_path;
+    if (typeof p === 'string' && p && !out.includes(p)) out.push(p);
+  }
+  return out;
+}
+
 /** The "Not fixed" button shows only on a job fixed within the window. */
 export function canSayNotFixed(
   row: { status_key: string; completed_at: string | null },

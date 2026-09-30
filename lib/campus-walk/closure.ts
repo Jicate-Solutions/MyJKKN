@@ -21,14 +21,18 @@
  * The update only lands if status_key is still what the caller read. A second
  * tap on a corridor connection finds zero rows, re-reads, and reports the
  * closure that already stands instead of stamping it twice and ringing every
- * bell again.
+ * bell again. When the caller passes updated_at, the write also checks that,
+ * and a report that JOINED since the caller read the job is put back before
+ * the write lands (join-report.ts updateTaskKeepingJoins) — so the joiner is
+ * still told it was fixed.
  *
  * ── 2026-09-30 INTERVIEW RULINGS 2 AND 3 ───────────────────────────────────
  *   · (2) people who JOINED an open report (metadata.additional_reports, see
  *     lib/campus-walk/join-report.ts) are told when it is fixed, too.
- *   · (3) 1 in 10 jobs closed by the fixer's photo is picked for a spot check
- *     (lib/campus-walk/spot-check.ts); the pick is written in the same update
- *     as the closure and the checker is belled after it.
+ *   · (3) 1 in 10 jobs closed by the fixer's photo is picked, at random, for a
+ *     spot check (lib/campus-walk/spot-check.ts); the checker — never the
+ *     fixer — is decided first, written in the same update as the closure, and
+ *     belled after it.
  *
  * ── D10 ─────────────────────────────────────────────────────────────────────
  * No bell names who closed the job or who reported it. createdBy is always the
@@ -43,11 +47,13 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createBellNotification } from '@/lib/services/meetings/meeting-trigger-service';
 import { NOT_FIXED_WINDOW_DAYS, joinedReporterIdsOf } from '@/lib/campus-walk/my-reports';
-import { resolveDirectors, validateTargeting } from '@/lib/services/director-desk/handover-chase-service';
+import { updateTaskKeepingJoins } from '@/lib/campus-walk/join-report';
 import {
   SPOT_CHECKS_URL,
+  checkerForClose,
+  isSpotCheckPick,
   pendingSpotCheck,
-  resolveCollegeHeadIds,
+  type SpotCheck,
   type SpotChecker,
 } from '@/lib/campus-walk/spot-check';
 
@@ -62,6 +68,12 @@ export interface ClosableTask {
   title: string | null;
   /** The status_key as the caller last saw it — the compare-and-set version. */
   status_key: string;
+  /**
+   * updated_at as the caller last saw it. When given, the close also
+   * compare-and-sets on it and puts back any report that JOINED in between
+   * (lib/campus-walk/join-report.ts updateTaskKeepingJoins).
+   */
+  updated_at?: string | null;
   owner_staff_id: string | null;
   completed_at?: string | null;
   metadata: Record<string, any> | null;
@@ -75,6 +87,8 @@ export interface CloseOptions {
   /** A manager's note on approval. Never set on the photo path. */
   note?: string | null;
   now?: Date;
+  /** The 1-in-10 die (tests pass a fixed one). Defaults to crypto.randomInt. */
+  spotCheckRoll?: () => boolean;
 }
 
 export type CloseResult =
@@ -201,20 +215,38 @@ export async function closeCampusWalkTask(
   };
 
   // ── Ruling 3: the fake-fix guard (lib/campus-walk/spot-check.ts) ──────────
-  // Only a job closed by the fixer's own photo. Written in the SAME update as
-  // the closure, so a job can never be closed-and-picked by halves.
-  const spotCheck = opts.auto ? pendingSpotCheck(task.id, metadata, nowIso) : null;
-  if (spotCheck) metadata.spot_check = spotCheck;
+  // Only a job closed by the fixer's own photo. The checker is decided BEFORE
+  // the write — never the fixer (a college head who sent the photo passes it up
+  // to the Director) — and written in the SAME update as the closure, so a job
+  // can never be closed-and-picked by halves.
+  let fixerProfileId: string | null = null;
+  let fixerLookupFailed = false;
+  try {
+    fixerProfileId = await resolveFixerProfileId(admin, task, metadata);
+  } catch (e: any) {
+    fixerLookupFailed = true;
+    console.error('[campus-walk/closure] fixer lookup failed:', e?.message ?? e);
+  }
 
-  const { data: updatedRows, error: updateErr } = await admin
-    .from('project_tasks')
-    .update({ status_key: 'done', completed_at: nowIso, metadata })
-    .eq('id', task.id)
-    .eq('status_key', task.status_key)
-    .select('id');
+  let spotCheck: SpotCheck | null = null;
+  let spotCheckRecipients: string[] = [];
+  if (opts.auto && isSpotCheckPick(metadata, opts.spotCheckRoll)) {
+    const who = await checkerForClose(admin, metadata, fixerProfileId);
+    spotCheck = pendingSpotCheck(metadata, nowIso, who, fixerProfileId);
+    spotCheckRecipients = who.recipients;
+    metadata.spot_check = spotCheck;
+  }
 
-  if (updateErr) {
-    console.error('[campus-walk/closure] close write failed:', updateErr.message);
+  const written = await updateTaskKeepingJoins(admin, {
+    taskId: task.id,
+    expectStatus: task.status_key,
+    updatedAt: task.updated_at ?? null,
+    patch: { status_key: 'done', completed_at: nowIso },
+    metadata,
+  });
+
+  if (written.ok === false && written.code === 'error') {
+    console.error('[campus-walk/closure] close write failed:', written.error);
     return {
       ok: false,
       code: 'decision_not_saved',
@@ -223,7 +255,7 @@ export async function closeCampusWalkTask(
     };
   }
 
-  if ((updatedRows ?? []).length === 0) {
+  if (written.ok === false) {
     // Somebody — most likely this same request, a moment ago — got there
     // first. Report the closure that stands rather than an error for work that
     // already succeeded.
@@ -252,14 +284,17 @@ export async function closeCampusWalkTask(
     };
   }
 
+  // Joins that landed while we were writing are in here — they hear it too.
+  Object.assign(metadata, written.metadata);
+
   const shortTitle = String(task.title ?? 'Campus job').slice(0, 100);
 
   // ── The fixer (skipped when the fixer is the one who closed it) ───────────
   let fixerNotified: boolean | null = null;
-  let fixerProfileId: string | null = null;
   try {
-    fixerProfileId = await resolveFixerProfileId(admin, task, metadata);
-    if (!fixerProfileId) {
+    if (fixerLookupFailed) {
+      fixerNotified = false;
+    } else if (!fixerProfileId) {
       fixerNotified = false;
       console.error(`[campus-walk/closure] job closed but no fixer to tell (task ${task.id})`);
     } else if (fixerProfileId !== opts.decidedByProfileId) {
@@ -346,15 +381,7 @@ export async function closeCampusWalkTask(
   if (spotCheck) {
     spotCheckNotified = false;
     try {
-      let checkers: string[] = [];
-      if (spotCheck.checker === 'director') {
-        const director = await resolveDirectors(admin);
-        const check = validateTargeting(director.ids);
-        checkers = check.ok ? check.userIds : [];
-      } else {
-        checkers = await resolveCollegeHeadIds(admin, spotCheck.institution_id);
-      }
-      checkers = checkers.filter((id) => id !== fixerProfileId);
+      const checkers = spotCheckRecipients.filter((id) => id !== fixerProfileId);
       if (checkers.length === 0) {
         console.error(`[campus-walk/closure] picked for a spot check but nobody to tell (task ${task.id})`);
       } else {

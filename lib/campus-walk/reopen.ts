@@ -26,7 +26,9 @@
  * checker's reopen marks it 'failed'.
  *
  * ── COMPARE-AND-SET, FAIL SOFT ──────────────────────────────────────────────
- * The write only lands while status_key is still 'done'. The bells after it
+ * The write only lands while status_key is still 'done' — and, when the caller
+ * read it, while updated_at is unchanged, so a job reopened and closed again in
+ * between is not overwritten with the older copy. The bells after it
  * never turn a saved reopen into an error.
  */
 
@@ -53,6 +55,8 @@ export interface ReopenableTask {
   title: string | null;
   owner_staff_id: string | null;
   completed_at: string | null;
+  /** When given, the reopen also compare-and-sets on it (a close-reopen-close in between must not be overwritten). */
+  updated_at?: string | null;
   metadata: Record<string, any> | null;
 }
 
@@ -159,7 +163,7 @@ export async function reopenCampusWalkTask(
   // what changes the reminders' keys (lib/campus-walk/chase-up.ts).
   metadata.campus_walk_chase = { ...priorChase, rungs_sent: {}, round };
 
-  const { data: updatedRows, error: updateErr } = await admin
+  let reopenWrite = admin
     .from('project_tasks')
     .update({
       status_key: REOPEN_STATUS,
@@ -170,8 +174,9 @@ export async function reopenCampusWalkTask(
       metadata,
     })
     .eq('id', task.id)
-    .eq('status_key', 'done')
-    .select('id');
+    .eq('status_key', 'done');
+  if (task.updated_at) reopenWrite = reopenWrite.eq('updated_at', task.updated_at);
+  const { data: updatedRows, error: updateErr } = await reopenWrite.select('id');
 
   if (updateErr) {
     console.error('[campus-walk/reopen] reopen write failed:', updateErr.message);

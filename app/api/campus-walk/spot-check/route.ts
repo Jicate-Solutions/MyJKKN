@@ -13,11 +13,11 @@
 // (20260528000000_pm_projects_foundation.sql:842, 847-848), so this route is
 // the whole boundary. Before the service-role client writes anything it checks:
 //   · the task is a Campus Walk job with a PENDING spot check;
-//   · the caller is that check's checker — the Director (the Campus Walk D2
-//     setting, lib/campus-walk/reporters.ts) for a 'director' check, a
+//   · the caller is that check's checker — the Director (resolveDirectors, the
+//     same list the spot-check bell goes to) for a 'director' check, a
 //     principal of the job's college for a 'college_head' check
 //     (lib/campus-walk/spot-check.ts `viewerMayCheck`, the same rule the page
-//     uses to list them).
+//     uses to list them) — and never the person who sent the fix photo.
 //
 // ── NO SILENT OUTCOMES (rule #27) ───────────────────────────────────────────
 // Every refusal is { success: false, code, error } in words. Nothing redirects.
@@ -28,7 +28,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { isCampusWalkReporter } from '@/lib/campus-walk/reporters';
 import { REOPEN_STATUS, reopenCampusWalkTask } from '@/lib/campus-walk/reopen';
 import {
   resolveSpotCheckViewer,
@@ -74,7 +73,7 @@ export async function POST(request: NextRequest) {
 
   const { data: taskData, error: taskErr } = await admin
     .from('project_tasks')
-    .select('id, title, status_key, owner_staff_id, completed_at, metadata')
+    .select('id, title, status_key, owner_staff_id, completed_at, updated_at, metadata')
     .eq('id', taskId)
     .maybeSingle();
   if (taskErr) {
@@ -90,6 +89,7 @@ export async function POST(request: NextRequest) {
     status_key: string;
     owner_staff_id: string | null;
     completed_at: string | null;
+    updated_at?: string | null;
     metadata: Record<string, any> | null;
   };
   const metadata: Record<string, any> = { ...((task.metadata ?? {}) as Record<string, any>) };
@@ -103,16 +103,15 @@ export async function POST(request: NextRequest) {
   }
 
   // ── Only this check's checker ─────────────────────────────────────────────
-  const viewer = await resolveSpotCheckViewer(
-    admin as any,
-    user.id,
-    await isCampusWalkReporter(user.email)
-  );
-  if (!viewerMayCheck(viewer, spotCheck)) {
+  const viewer = await resolveSpotCheckViewer(admin as any, user.id);
+  if (!viewerMayCheck(viewer, spotCheck, metadata)) {
+    const fixer = spotCheck.fixer_profile_id ?? metadata.fix?.submitted_by_profile_id ?? null;
     return fail(
-      spotCheck.checker === 'director'
-        ? 'Only the Director checks this job — he raised it himself.'
-        : 'Only the principal of the college this job belongs to can check it.',
+      fixer === user.id
+        ? 'You sent the fix photo for this job, so somebody else checks it.'
+        : spotCheck.checker === 'director'
+          ? 'Only the Director checks this job.'
+          : 'Only the principal of the college this job belongs to can check it.',
       403,
       'not_checker'
     );
@@ -146,12 +145,15 @@ export async function POST(request: NextRequest) {
       decided_by_profile_id: user.id,
       note: note || null,
     };
-    const { data: rows, error: updErr } = await admin
+    // updated_at too: a job reopened and closed again since this read is a
+    // different closure, and the older copy must not overwrite it.
+    let passWrite = admin
       .from('project_tasks')
       .update({ metadata })
       .eq('id', taskId)
-      .eq('status_key', 'done')
-      .select('id');
+      .eq('status_key', 'done');
+    if (task.updated_at) passWrite = passWrite.eq('updated_at', task.updated_at);
+    const { data: rows, error: updErr } = await passWrite.select('id');
     if (updErr) {
       console.error('[campus-walk/spot-check] pass write failed:', updErr.message);
       return fail('We could not save that just now. Nothing was changed — please try again.', 502, 'not_saved');

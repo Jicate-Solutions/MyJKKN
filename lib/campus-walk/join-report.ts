@@ -34,9 +34,10 @@ import {
   findOpenReportToJoin,
   type OpenReportCandidate,
 } from '@/lib/campus-walk/duplicates';
+import { MAX_JOINED_REPORTS, mergeJoinedReports } from '@/lib/campus-walk/my-reports';
 
 /** How many extra reports one task keeps — same cap as the QR-sticker door. */
-export const MAX_JOINED_REPORTS = 50;
+export { MAX_JOINED_REPORTS };
 
 /** A campus-ops backlog for one college over 14 days is tens of rows. */
 const CANDIDATE_LIMIT = 200;
@@ -47,6 +48,8 @@ export interface JoinableTask {
   status_key: string;
   owner_staff_id: string | null;
   due_date: string | null;
+  /** The compare-and-set version (bumped by the updated_at trigger on every write). */
+  updated_at?: string | null;
   metadata: Record<string, any> | null;
 }
 
@@ -73,7 +76,7 @@ export async function findJoinableReport(
   try {
     const { data, error } = await admin
       .from('project_tasks')
-      .select('id, title, description, status_key, owner_staff_id, due_date, created_at, metadata')
+      .select('id, title, description, status_key, owner_staff_id, due_date, created_at, updated_at, metadata')
       .eq('metadata->>source', 'campus-walk')
       .eq('metadata->>institution_id', report.institutionId)
       .gte('created_at', since)
@@ -112,6 +115,7 @@ export async function findJoinableReport(
           status_key: row.status_key,
           owner_staff_id: row.owner_staff_id ?? null,
           due_date: row.due_date ?? null,
+          updated_at: row.updated_at ?? null,
           metadata: row.metadata ?? null,
         }
       : null;
@@ -121,9 +125,20 @@ export async function findJoinableReport(
   }
 }
 
+/** How many times a write re-reads and tries again when the row moved under it. */
+export const JOIN_WRITE_ATTEMPTS = 3;
+
 /**
- * Add this report to the open job. Compare-and-set on status_key, so a job
- * that was closed a moment ago is not joined — the caller files a new one.
+ * Add this report to the open job.
+ *
+ * Compare-and-set on BOTH status_key and updated_at (repair round, 1 Oct).
+ * status_key alone let two people who reported the same leak seconds apart
+ * both land — and the second write, carrying the metadata it read before the
+ * first, erased the first joiner. project_tasks.updated_at is bumped by the
+ * trg_project_tasks_updated_at BEFORE UPDATE trigger
+ * (20260528000000_pm_projects_foundation.sql), so any write in between makes
+ * this one miss; it then re-reads the row and appends to what is there now.
+ * A job that closed in the meantime is not joined — the caller files a new one.
  * `ok: true` only when the join landed; the owner is then belled.
  */
 export async function joinOpenReport(
@@ -132,26 +147,64 @@ export async function joinOpenReport(
   entry: JoinEntry,
   ownerProfileId: string | null
 ): Promise<{ ok: boolean }> {
-  const meta = { ...((task.metadata ?? {}) as Record<string, any>) };
-  const previous = Array.isArray(meta.additional_reports) ? (meta.additional_reports as unknown[]) : [];
-  meta.additional_reports = [...previous, entry].slice(-MAX_JOINED_REPORTS);
+  let current: { status_key: string; updated_at: string | null; metadata: Record<string, any> | null } = {
+    status_key: task.status_key,
+    updated_at: task.updated_at ?? null,
+    metadata: task.metadata,
+  };
 
+  let landed = false;
   try {
-    const { data, error } = await admin
-      .from('project_tasks')
-      .update({ metadata: meta })
-      .eq('id', task.id)
-      .eq('status_key', task.status_key)
-      .select('id');
-    if (error || (data ?? []).length === 0) {
-      console.error(
-        `[campus-walk/join-report] join did not land (task ${task.id}) — filing a new job:`,
-        error?.message ?? 'status changed'
-      );
-      return { ok: false };
+    for (let attempt = 1; attempt <= JOIN_WRITE_ATTEMPTS && !landed; attempt++) {
+      if ((JOIN_CLOSED_STATUSES as readonly string[]).includes(current.status_key)) {
+        console.error(`[campus-walk/join-report] job closed before the join landed (task ${task.id}) — filing a new job`);
+        return { ok: false };
+      }
+      const meta = { ...((current.metadata ?? {}) as Record<string, any>) };
+      const previous = Array.isArray(meta.additional_reports) ? (meta.additional_reports as unknown[]) : [];
+      meta.additional_reports = [...previous, entry].slice(-MAX_JOINED_REPORTS);
+
+      let q = admin
+        .from('project_tasks')
+        .update({ metadata: meta })
+        .eq('id', task.id)
+        .eq('status_key', current.status_key);
+      // A row read without updated_at (never, from findJoinableReport) falls
+      // back to the status-only guard rather than refusing to join.
+      if (current.updated_at) q = q.eq('updated_at', current.updated_at);
+      const { data, error } = await q.select('id');
+      if (error) {
+        console.error(`[campus-walk/join-report] join write failed (task ${task.id}) — filing a new job:`, error.message);
+        return { ok: false };
+      }
+      if ((data ?? []).length > 0) {
+        landed = true;
+        break;
+      }
+      if (!current.updated_at) break;
+
+      // The row moved. Re-read it and append to what is there NOW.
+      const { data: fresh, error: readErr } = await admin
+        .from('project_tasks')
+        .select('status_key, updated_at, metadata')
+        .eq('id', task.id)
+        .maybeSingle();
+      if (readErr || !fresh) {
+        console.error(`[campus-walk/join-report] re-read failed (task ${task.id}) — filing a new job:`, readErr?.message ?? 'gone');
+        return { ok: false };
+      }
+      current = {
+        status_key: fresh.status_key as string,
+        updated_at: (fresh.updated_at as string | null) ?? null,
+        metadata: (fresh.metadata as Record<string, any> | null) ?? null,
+      };
     }
   } catch (e: any) {
     console.error('[campus-walk/join-report] join threw — filing a new job:', e?.message ?? e);
+    return { ok: false };
+  }
+  if (!landed) {
+    console.error(`[campus-walk/join-report] join did not land (task ${task.id}) — filing a new job`);
     return { ok: false };
   }
 
@@ -173,4 +226,59 @@ export async function joinOpenReport(
     }
   }
   return { ok: true };
+}
+
+export type GuardedWriteResult =
+  | { ok: true; updatedAt: string | null; metadata: Record<string, any> }
+  | { ok: false; code: 'error' | 'raced'; error: string };
+
+/**
+ * A whole-metadata write on an OPEN job that must not erase a join that landed
+ * after the caller read the row (repair round, 1 Oct — the fixer's photo step
+ * read the job before its upload, and a join during the upload was wiped).
+ *
+ * Compare-and-set on status_key (as before) AND updated_at. On a miss with the
+ * status unchanged, it re-reads, puts back any joined reports that arrived
+ * (mergeJoinedReports), and tries again. Other fields stay the caller's —
+ * exactly what the unguarded write did. With no updatedAt (an old caller) it is
+ * the plain status_key compare-and-set.
+ */
+export async function updateTaskKeepingJoins(
+  admin: SupabaseClient,
+  opts: {
+    taskId: string;
+    expectStatus: string | null;
+    updatedAt: string | null | undefined;
+    patch: Record<string, unknown>;
+    metadata: Record<string, any>;
+  }
+): Promise<GuardedWriteResult> {
+  let metadata = opts.metadata;
+  let updatedAt = opts.updatedAt ?? null;
+  for (let attempt = 1; attempt <= JOIN_WRITE_ATTEMPTS; attempt++) {
+    let q = admin
+      .from('project_tasks')
+      .update({ ...opts.patch, metadata })
+      .eq('id', opts.taskId);
+    if (opts.expectStatus !== null) q = q.eq('status_key', opts.expectStatus);
+    if (updatedAt) q = q.eq('updated_at', updatedAt);
+    const { data, error } = await q.select('id, updated_at');
+    if (error) return { ok: false, code: 'error', error: error.message };
+    const rows = (data ?? []) as Array<{ id: string; updated_at?: string | null }>;
+    if (rows.length > 0) return { ok: true, updatedAt: rows[0]?.updated_at ?? null, metadata };
+    if (!updatedAt) return { ok: false, code: 'raced', error: 'status changed' };
+
+    const { data: fresh, error: readErr } = await admin
+      .from('project_tasks')
+      .select('status_key, updated_at, metadata')
+      .eq('id', opts.taskId)
+      .maybeSingle();
+    if (readErr) return { ok: false, code: 'error', error: readErr.message };
+    if (!fresh || (opts.expectStatus !== null && fresh.status_key !== opts.expectStatus)) {
+      return { ok: false, code: 'raced', error: 'status changed' };
+    }
+    metadata = mergeJoinedReports(metadata, (fresh.metadata as Record<string, any> | null) ?? null);
+    updatedAt = (fresh.updated_at as string | null) ?? null;
+  }
+  return { ok: false, code: 'raced', error: 'the job kept changing' };
 }
