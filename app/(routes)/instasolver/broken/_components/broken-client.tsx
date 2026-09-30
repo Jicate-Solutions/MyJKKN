@@ -10,17 +10,16 @@
 // (app/(routes)/campus-walk/_components/walk-client.tsx) on purpose: the same
 // amber G4 notice, the same big touch targets, the same brand primitives. The
 // differences are deliberate:
-//   - the photo is OPTIONAL here. The G4 gate is NOT optional though: an
-//     attached photo goes through the same blocking "no people in frame"
-//     AlertDialog the capture screen uses, because G4 is locked as "enforced
-//     in the capture UI, non-negotiable" and a banner is not enforcement — it
-//     is a notice you can scroll past. Optional-photo only means the dialog
-//     never appears when no photo is attached.
+//   - the photo is OPTIONAL, can come from the camera OR the gallery, and is
+//     attached as soon as it is picked. The "no people in frame" confirm step
+//     was removed on the Director's instruction (30 Sep 2026: make filing easy).
+//     The server still strips camera/location metadata from every photo.
 //   - no offline queue in this lane (out of scope for this PR)
 //   - "dangerous" is a plain checkbox rather than a switch plus a confirm
 //     dialog, because the audience is everyone, not one trained walker
 
 import { useCallback, useRef, useState } from 'react';
+import Link from 'next/link';
 import {
   AlertCircle,
   Camera,
@@ -28,31 +27,20 @@ import {
   Loader2,
   MapPin,
   ShieldAlert,
-  Trash2,
-  Users
+  Trash2
 } from 'lucide-react';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle
-} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { PHOTO_UNREADABLE, toJpeg } from '@/lib/instasolver/to-jpeg';
 
 const LOCATION_MIN = 3;
 const LOCATION_MAX = 120;
-const DESCRIPTION_MIN = 10;
+const DESCRIPTION_MIN = 3;
 const DESCRIPTION_MAX = 500;
-const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
 
 interface SuccessState {
   /** Null when routing resolved nobody — then `notice` carries the truth. */
@@ -83,11 +71,7 @@ export function BrokenClient() {
   const [dangerous, setDangerous] = useState(false);
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
-  // G4: a photo the reporter has taken but not yet confirmed is free of
-  // people. It is NOT attached to the report while it sits here.
-  const [pendingPhoto, setPendingPhoto] = useState<{ file: File; previewUrl: string } | null>(
-    null
-  );
+  const [preparingPhoto, setPreparingPhoto] = useState(false);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(false);
   const [locationNote, setLocationNote] = useState<string | null>(null);
@@ -104,10 +88,6 @@ export function BrokenClient() {
     setPhoto(null);
     setPhotoPreview((url) => {
       if (url) URL.revokeObjectURL(url);
-      return null;
-    });
-    setPendingPhoto((pending) => {
-      if (pending) URL.revokeObjectURL(pending.previewUrl);
       return null;
     });
     setCoords(null);
@@ -138,41 +118,25 @@ export function BrokenClient() {
     );
   }, []);
 
-  const onPickPhoto = useCallback((file: File | null) => {
+  // Any picked image (gallery or camera, any format the phone can open) is
+  // re-encoded to a JPEG here and attached straight away.
+  const onPickPhoto = useCallback(async (file: File | null) => {
     setError(null);
+    if (fileRef.current) fileRef.current.value = '';
     if (!file) return;
-    if (file.size > MAX_PHOTO_BYTES) {
-      setError('That photo is bigger than 10 MB. Take a smaller one, or send without a photo.');
-      if (fileRef.current) fileRef.current.value = '';
-      return;
-    }
-    // Straight into the G4 gate — never onto the report. Only confirmNoPeople
-    // attaches it.
-    setPendingPhoto({ file, previewUrl: URL.createObjectURL(file) });
-  }, []);
-
-  /** G4 gate passed: the reporter states nobody is recognisable in the frame. */
-  const confirmNoPeople = useCallback(() => {
-    setPendingPhoto((pending) => {
-      if (!pending) return null;
-      setPhoto(pending.file);
+    setPreparingPhoto(true);
+    try {
+      const ready = await toJpeg(file);
+      setPhoto(ready);
       setPhotoPreview((old) => {
         if (old) URL.revokeObjectURL(old);
-        return pending.previewUrl;
+        return URL.createObjectURL(ready);
       });
-      if (fileRef.current) fileRef.current.value = '';
-      return null;
-    });
-  }, []);
-
-  /** G4 gate refused: discard the bytes and say why, per the capture screen. */
-  const retakeForPeople = useCallback(() => {
-    setPendingPhoto((pending) => {
-      if (pending) URL.revokeObjectURL(pending.previewUrl);
-      if (fileRef.current) fileRef.current.value = '';
-      return null;
-    });
-    setError('Photo discarded. Retake it so no one is recognisable — background people included.');
+    } catch {
+      setError(PHOTO_UNREADABLE);
+    } finally {
+      setPreparingPhoto(false);
+    }
   }, []);
 
   const clearPhoto = useCallback(() => {
@@ -187,7 +151,7 @@ export function BrokenClient() {
   const locationOk = location.trim().length >= LOCATION_MIN && location.trim().length <= LOCATION_MAX;
   const descriptionOk =
     description.trim().length >= DESCRIPTION_MIN && description.trim().length <= DESCRIPTION_MAX;
-  const canSubmit = locationOk && descriptionOk && !submitting;
+  const canSubmit = locationOk && descriptionOk && !submitting && !preparingPhoto;
 
   const submit = useCallback(async () => {
     setError(null);
@@ -284,6 +248,10 @@ export function BrokenClient() {
           </CardContent>
         </Card>
 
+        <Button asChild className="w-full h-12">
+          <Link href="/instasolver/my-reports">See my reports</Link>
+        </Button>
+
         <Button className="w-full h-12" variant="outline" onClick={resetForm}>
           Report another
         </Button>
@@ -348,11 +316,6 @@ export function BrokenClient() {
               rows={4}
               className="mt-1.5"
             />
-            <p className="text-xs text-muted-foreground mt-1">
-              {description.trim().length < DESCRIPTION_MIN
-                ? `At least ${DESCRIPTION_MIN} characters.`
-                : `${description.length} of ${DESCRIPTION_MAX} characters.`}
-            </p>
           </div>
 
           {/* Dangerous */}
@@ -382,8 +345,7 @@ export function BrokenClient() {
                   This is dangerous (exposed wire, fire risk, someone could get hurt)
                 </Label>
                 <p className="text-xs text-muted-foreground">
-                  Tick this only if someone could be harmed. Dangerous reports are due the same
-                  day and someone is called straight away.
+                  Due today, and someone is called straight away.
                 </p>
               </div>
             </div>
@@ -393,24 +355,12 @@ export function BrokenClient() {
           <div>
             <Label className="text-sm font-medium">Add a photo (optional)</Label>
 
-            <Card className="mt-2 border-amber-300 bg-amber-50 dark:bg-amber-950/20">
-              <CardContent className="flex items-start gap-3 py-3">
-                <Users className="h-5 w-5 text-amber-700 mt-0.5 shrink-0" />
-                <p className="text-sm text-amber-900 dark:text-amber-200">
-                  Photograph the <strong>condition</strong> only. If anyone is recognisable in
-                  frame &mdash; including in the background &mdash; take it again. You&rsquo;ll be
-                  asked to confirm this before the photo is attached.
-                </p>
-              </CardContent>
-            </Card>
-
             <input
               ref={fileRef}
               type="file"
-              accept="image/jpeg"
-              capture="environment"
+              accept="image/*"
               className="hidden"
-              onChange={(e) => onPickPhoto(e.target.files?.[0] ?? null)}
+              onChange={(e) => void onPickPhoto(e.target.files?.[0] ?? null)}
             />
 
             {photoPreview ? (
@@ -432,14 +382,16 @@ export function BrokenClient() {
                 variant="outline"
                 className="w-full h-12 mt-3"
                 onClick={() => fileRef.current?.click()}
+                disabled={preparingPhoto}
               >
-                <Camera className="h-4 w-4 mr-2" />
-                Add a photo
+                {preparingPhoto ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Camera className="h-4 w-4 mr-2" />
+                )}
+                {preparingPhoto ? 'Getting the photo ready…' : 'Add a photo'}
               </Button>
             )}
-            <p className="text-xs text-muted-foreground mt-1.5">
-              JPEG only, up to 10 MB. Camera and location details are removed before it is saved.
-            </p>
           </div>
 
           {error && (
@@ -457,53 +409,8 @@ export function BrokenClient() {
             )}
             Send report
           </Button>
-          <p className="text-xs text-muted-foreground text-center">
-            You can send up to 10 reports in any 24 hours.
-          </p>
         </CardContent>
       </Card>
-
-      {/* ── G4 gate — a real modal, not a policy note ─────────────────────────
-          Guardrail G4 is locked "enforced in the capture UI, non-negotiable",
-          and the Campus Walk capture screen enforces it exactly this way
-          (walk-client.tsx). A banner is not enforcement: it is a sentence you
-          can scroll past while the bytes upload anyway. The same AlertDialog
-          primitives are used here rather than a copy of that screen's
-          component, because the gate is inline local state there and there is
-          nothing importable to reuse.
-
-          Not dismissible by backdrop click or Escape (AlertDialog default with
-          a no-op onOpenChange); one of the two explicit buttons is the only way
-          out, so a photo is never attached without an answer. The server still
-          strips and fail-closes on every byte — that is the other half of G4,
-          not a substitute for this half. */}
-      <AlertDialog open={pendingPhoto !== null} onOpenChange={() => {}}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Check the photo before it&rsquo;s added</AlertDialogTitle>
-            <AlertDialogDescription>
-              This photo must show the broken thing only. If anyone is recognisable &mdash; even
-              in the background &mdash; retake it.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {pendingPhoto && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={pendingPhoto.previewUrl}
-              alt="The photo you just picked"
-              className="w-full rounded border"
-            />
-          )}
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={retakeForPeople}>
-              People are in it &mdash; retake
-            </AlertDialogCancel>
-            <AlertDialogAction onClick={confirmNoPeople}>
-              No people &mdash; use this photo
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
