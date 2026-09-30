@@ -9,26 +9,28 @@
  * it only FLAGS (sla_breached_at). It never notifies anyone and never
  * escalates. This file does both, for campus-walk tasks specifically.
  *
- * The ladder (D5, locked): counted in whole days past `due_date`, using the
- * same `daysPastDue` arithmetic imported below —
- *   day 1  -> reminder                 (the Accountable, alone)
- *   day 2  -> reminder                 (the Accountable, alone — repeat)
- *   day 3  -> escalate                 (the Accountable's department head,
- *                                        alongside the Accountable — this is
- *                                        the org-accountability step, not a
- *                                        third copy of the same nudge)
- *   day 5  -> escalate                 (the Director)
- * The brief's four-item ladder names a recipient for two of its four rungs
- * ("the Accountable", "the Director") and leaves the other two as bare
- * "reminder". Read literally, three of four rungs would all nudge the exact
- * same single person and the ladder would have no actual escalation shape.
- * This file instead treats day 3 as the point where the department head (the
- * same "second door" app/api/campus-walk/fix/route.ts already names as who a
- * locked-out person should go to) is pulled in — reusing an escalation
- * contact this codebase already established for this exact task type, rather
- * than inventing a new one. Flagged plainly in the PR/report so it can be
- * corrected if the Director's intent was literally three reminders to one
- * person.
+ * The ladder (Director ruling, 30 Sep 2026 — replaces the D5 reminders):
+ * counted in whole days past `due_date`, using the same `daysPastDue`
+ * arithmetic imported below, a job nobody has touched climbs BY ITSELF —
+ *   day 1  -> escalate_boss       the fixer's boss: their department head,
+ *                                 else their reporting manager
+ *                                 (hr_staff_details.reports_to_staff_id), else
+ *                                 the estate office (the CAMPUS-OPS project
+ *                                 owner). The fixer is on the same message.
+ *   day 3  -> escalate_principal  the college's principal(s), found from
+ *                                 metadata.institution_id. The fixer and the
+ *                                 boss are on the same message.
+ *   day 7  -> reached_director    NO per-job message. The job is marked, and
+ *                                 lib/campus-walk/director-digest.ts lists it
+ *                                 in the Director's ONE 8 am summary, grouped
+ *                                 by college.
+ * Every climb message ends with one line naming everyone it went to, so each
+ * person knows who else was told. The wording is plain and courteous: it
+ * names the job and the place, never blames anyone.
+ *
+ * A job already marked with the old D5 day-3 rung (`escalate_accountable`,
+ * which went to the same department head / CAMPUS-OPS owner) counts as
+ * having had its day-1 climb, so the boss is not told twice.
  *
  * WHO IS "THE ACCOUNTABLE": project_task_assignees.role='accountable',
  * falling back to project_tasks.owner_staff_id — the identical fallback order
@@ -60,10 +62,9 @@
  * read-back on the idempotency key rather than silently under-recording a
  * rung that, in fact, already went out.
  *
- * ATTRIBUTION (D10): every message here talks about "this Management walk
- * item" — never the observer, and the Director's rung never names the
- * Accountable either. Escalation is a fact about a due date, not a complaint
- * about a person.
+ * ATTRIBUTION (D10): no message here ever names who REPORTED the job — the
+ * observer stays out of it. Escalation is a fact about a due date, not a
+ * complaint about a person.
  *
  * FAIL SOFT, PROCESS EVERY TASK: one task's exception is caught, recorded in
  * `errors`, and the sweep continues. A metadata-write failure after a
@@ -73,7 +74,7 @@
  * duplicate next run regardless.
  *
  * RULING 1 (Director) — THE DIRECTOR'S OWN CLOCK:
- * The four rungs above deliberately skip a task in `review` — awaiting the
+ * The ladder rungs above deliberately skip a task in `review` — awaiting the
  * Director's approve/send-back decision is not the fixer's fault, and none of
  * `due_date`, `is_blocked`, or `rungs_sent` should ever read as the fixer
  * being late for it. But that same skip meant nothing ever chased the ONE
@@ -85,7 +86,7 @@
  * object) the moment it moves a task into `review` — reused rather than a new
  * column, because that route is the only writer of this state and the only
  * place the wait genuinely starts. Two full days waiting
- * (`REVIEW_WAIT_THRESHOLD_DAYS = 2`) pages the Director, and — unlike the four
+ * (`REVIEW_WAIT_THRESHOLD_DAYS = 2`) pages the Director, and — unlike the ladder
  * due-date rungs, which fire each AT MOST ONCE ever — this one may
  * legitimately need to recur if he keeps not looking. It repeats on a BOUNDED
  * cadence (`REVIEW_WAIT_REPEAT_DAYS = 3`, capped at `REVIEW_WAIT_MAX_WAVES`
@@ -168,33 +169,49 @@ const REVIEW_WAIT_MAX_WAVES = 10;
  *  'archived', distinct from 'active'. */
 const TERMINAL_STATUS_KEYS = ['review', 'done', 'cancelled', 'archived'];
 
-type RungKey =
-  | 'reminder_1'
-  | 'reminder_2'
-  | 'escalate_accountable'
-  | 'escalate_director'
-  | 'review_wait_director';
+/** The three steps of the ladder, in climbing order. */
+export type LadderRungKey = 'escalate_boss' | 'escalate_principal' | 'reached_director';
 
-interface RungCopy {
-  title: string;
-  body: string;
-}
+type RungKey = LadderRungKey | 'review_wait_director';
 
-interface RungDef {
-  key: RungKey;
-  /** Minimum whole days past due_date before this rung is eligible. */
-  atDay: number;
-  category: string;
-  /** `/campus-walk/fix?task=<id>` is only used for rungs whose recipients are
-   *  verified-reachable by that page's own access gate (resolveAccess in
-   *  app/api/campus-walk/fix/route.ts grants the assignee, the task owner, and
-   *  the department head — exactly reminder_1/2/escalate_accountable's
-   *  audience). escalate_director's audience (the Director) has no such
-   *  guarantee, so it links to the generic '/projects' board instead — the
-   *  same fallback campus-walk-service.ts already uses for every notification
-   *  it sends. */
-  url: (taskId: string) => string;
-  copy: (task: ChaseableTask, daysOverdue: number) => RungCopy;
+/**
+ * Director ruling, 30 Sep 2026. `atDay` is whole days past `due_date`.
+ * `reached_director` never sends a message of its own — see the file header
+ * and lib/campus-walk/director-digest.ts.
+ */
+export const LADDER: ReadonlyArray<{ key: LadderRungKey; atDay: number }> = [
+  { key: 'escalate_boss', atDay: 1 },
+  { key: 'escalate_principal', atDay: 3 },
+  { key: 'reached_director', atDay: 7 }
+];
+
+/**
+ * A rung from the old D5 ladder that already told the same people, so the
+ * new rung counts as done. The old day-3 `escalate_accountable` went to the
+ * department head (or the CAMPUS-OPS owner) and the fixer — exactly the
+ * day-1 boss climb.
+ */
+const LEGACY_EQUIVALENT: Partial<Record<LadderRungKey, string>> = {
+  escalate_boss: 'escalate_accountable'
+};
+
+/**
+ * Which rungs this job has newly reached: at or past their day, and not yet
+ * recorded in `rungs_sent` for the current round. A job found several days
+ * late (a missed run, or the first run after deploy) gets every step it has
+ * reached, in order, in one pass — nothing is skipped for good.
+ */
+export function rungsDue(
+  daysOverdue: number,
+  rungsSent: Record<string, unknown> | null | undefined
+): LadderRungKey[] {
+  const sent = rungsSent ?? {};
+  return LADDER.filter((r) => {
+    if (daysOverdue < r.atDay) return false;
+    if (sent[r.key]) return false;
+    const legacy = LEGACY_EQUIVALENT[r.key];
+    return !(legacy && sent[legacy]);
+  }).map((r) => r.key);
 }
 
 interface ChaseableTask {
@@ -215,60 +232,94 @@ function pluralDays(n: number): string {
   return `${n} day${n === 1 ? '' : 's'}`;
 }
 
-const RUNGS: RungDef[] = [
-  {
-    key: 'reminder_1',
-    atDay: 1,
-    category: 'campus-walk:chase-reminder',
-    url: (taskId) => `/campus-walk/fix?task=${taskId}`,
-    copy: (task, daysOverdue) => ({
-      title: `Reminder: ${truncate(task.title, 90)}`,
-      body:
-        `This ${attributionOf(task)} item is now ${pluralDays(daysOverdue)} past its due date ` +
-        `(${task.due_date}). Please action it, or mark it "blocked" if something is holding ` +
-        `you up — an unexplained delay is not the same as one with a reason on record.`
-    })
-  },
-  {
-    key: 'reminder_2',
-    atDay: 2,
-    category: 'campus-walk:chase-reminder',
-    url: (taskId) => `/campus-walk/fix?task=${taskId}`,
-    copy: (task, daysOverdue) => ({
-      title: `Second reminder: ${truncate(task.title, 90)}`,
-      body:
-        `Still open. This ${attributionOf(task)} item is ${pluralDays(daysOverdue)} past its due ` +
-        `date. Please action it today, or record what is blocking you so the deadline ` +
-        `reflects what is actually happening.`
-    })
-  },
-  {
-    key: 'escalate_accountable',
-    atDay: 3,
-    category: 'campus-walk:chase-escalated',
-    url: (taskId) => `/campus-walk/fix?task=${taskId}`,
-    copy: (task, daysOverdue) => ({
-      title: `Needs attention (${pluralDays(daysOverdue)} overdue): ${truncate(task.title, 80)}`,
-      body:
-        `"${truncate(task.title, 150)}" (a ${attributionOf(task)} item, due ${task.due_date}) has had ` +
-        `two reminders and is still open ${pluralDays(daysOverdue)} past due. Flagging to the ` +
-        `department in case something is blocking it that has not been resolved yet.`
-    })
-  },
-  {
-    key: 'escalate_director',
-    atDay: 5,
-    category: 'campus-walk:chase-director',
-    url: () => '/projects',
-    copy: (task, daysOverdue) => ({
-      title: `Director attention (${pluralDays(daysOverdue)} overdue): ${truncate(task.title, 80)}`,
-      body:
-        `A ${attributionOf(task)} item ("${truncate(task.title, 150)}", due ${task.due_date}) has been ` +
-        `open ${pluralDays(daysOverdue)} past due despite reminders and department-level ` +
-        `escalation. It may need your attention to unblock.`
-    })
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** '2026-09-21' -> '21 Sep 2026'. Anything unparseable is shown as given. */
+export function friendlyDate(iso: string | null | undefined): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? '');
+  if (!m) return String(iso ?? '');
+  const month = MONTHS[Number(m[2]) - 1];
+  return month ? `${Number(m[3])} ${month} ${m[1]}` : String(iso);
+}
+
+/**
+ * Where the job is, from what each front door records: InstaSolver's
+ * `location`, a routine check's `resource_place`. A Campus Walk capture has
+ * neither — its title already says where — so this returns null rather than
+ * printing an empty "at".
+ */
+export function placeOf(metadata: Record<string, any> | null | undefined): string | null {
+  const m = metadata ?? {};
+  for (const key of ['location', 'resource_place']) {
+    const v = m[key];
+    if (typeof v === 'string' && v.trim()) return v.trim();
   }
-];
+  return null;
+}
+
+/** `"Tap leaking" at Block A` — the place is left out when the title already says it. */
+export function jobLabel(title: string, place: string | null): string {
+  const t = truncate(title, 150);
+  if (!place || t.toLowerCase().includes(place.toLowerCase())) return `"${t}"`;
+  return `"${t}" at ${truncate(place, 80)}`;
+}
+
+/** One person a climb message went to, as the "who else was told" line names them. */
+export interface ToldPerson {
+  name: string | null;
+  role: string;
+}
+
+/** "This message went to: Priya (responsible for the job) and R. Kumar (department head)." */
+export function toldLine(people: ToldPerson[]): string {
+  const parts = people.map((p) => (p.name ? `${p.name} (${p.role})` : `the ${p.role}`));
+  if (parts.length === 0) return '';
+  const joined =
+    parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+  return `This message went to: ${joined}.`;
+}
+
+const PAUSE_HINT =
+  `If something outside anyone's hands is holding it up, tap "I can't fix this yet" on the job and these messages will pause.`;
+
+/**
+ * The words of a climb message. One message goes to everyone on a rung, so it
+ * is written about the job, never at a person: it names the job and the
+ * place, says plainly how late it is and who now knows, and blames nobody.
+ */
+export function climbMessage(
+  rung: 'escalate_boss' | 'escalate_principal',
+  ctx: {
+    title: string;
+    place: string | null;
+    dueDate: string;
+    daysOverdue: number;
+    /** e.g. 'the department head'; null when no boss could be found. */
+    bossLabel: string | null;
+    told: ToldPerson[];
+  }
+): { title: string; body: string } {
+  const job = jobLabel(ctx.title, ctx.place);
+  const late = pluralDays(ctx.daysOverdue);
+  const shared =
+    rung === 'escalate_boss'
+      ? ctx.bossLabel
+        ? `We have shared it with ${ctx.bossLabel} in case a hand is needed to get it done.`
+        : ''
+      : 'We have now shared it with the college principal, so the college can help with whatever is in the way.';
+  const body = [
+    `${job} was due on ${friendlyDate(ctx.dueDate)} and is still open, ${late} later.`,
+    shared,
+    PAUSE_HINT,
+    toldLine(ctx.told)
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return {
+    title: `Still open, ${late} past due: ${truncate(ctx.title, 80)}`,
+    body
+  };
+}
 
 /**
  * The idempotency key for one rung of one ROUND of a task.
@@ -315,19 +366,6 @@ interface StaffLite {
   profileId: string | null;
   isActive: boolean;
   departmentId: string | null;
-}
-
-/**
- * How the item reached MyJKKN, for the chase messages — `metadata.attribution`.
- *
- * A CHANNEL, never a person (D10). Hardcoding "Management walk" told a
- * department head the Director had personally walked past their corridor even
- * when a learner had sent the report in through InstaSolver, which changes how
- * the reminder reads and who they think is watching.
- */
-function attributionOf(task: ChaseableTask): string {
-  const raw = (task.metadata ?? {}).attribution;
-  return typeof raw === 'string' && raw.trim() ? raw.trim() : 'Management walk';
 }
 
 /** Ruling 2's audit record — appended to `metadata.campus_walk_chase.reassignment_history`. */
@@ -379,6 +417,46 @@ async function resolveProjectOwnerProfile(
   return data.profile_id as string;
 }
 
+/** Who the day-1 climb goes to, and how the messages name them. */
+export interface Boss {
+  id: string;
+  /** For the "this message went to" line. */
+  role: 'department head' | 'reporting manager' | 'estate office';
+  /** For the sentence "We have shared it with …". */
+  label: string;
+}
+
+/**
+ * The fixer's boss, in the ruling's order: their department head, else their
+ * reporting manager, else the estate office — the CAMPUS-OPS project owner,
+ * the same "second door" app/api/campus-walk/fix/route.ts's resolveContact()
+ * falls back to. Never the fixer themselves (a department head who is also the
+ * fixer climbs to the next person), never an inactive profile.
+ */
+export function resolveBoss(opts: {
+  accountableProfileId: string | null;
+  accountableStaffId: string | null;
+  departmentId: string | null;
+  deptHeadByDept: Map<string, string>;
+  managerProfileByStaff: Map<string, string>;
+  profileActive: Map<string, boolean>;
+  projectOwnerProfileId: string | null;
+}): Boss | null {
+  const usable = (id: string | null | undefined): id is string =>
+    Boolean(id) && id !== opts.accountableProfileId && opts.profileActive.get(id as string) !== false;
+
+  const head = opts.departmentId ? opts.deptHeadByDept.get(opts.departmentId) : null;
+  if (usable(head)) return { id: head, role: 'department head', label: 'the department head' };
+
+  const manager = opts.accountableStaffId ? opts.managerProfileByStaff.get(opts.accountableStaffId) : null;
+  if (usable(manager)) return { id: manager, role: 'reporting manager', label: 'the reporting manager' };
+
+  if (usable(opts.projectOwnerProfileId)) {
+    return { id: opts.projectOwnerProfileId, role: 'estate office', label: 'the estate office' };
+  }
+  return null;
+}
+
 /**
  * Resolve, in bulk, everything every task's rungs need: the Accountable's
  * staff row, their department's head, and active-status for every profile
@@ -391,7 +469,9 @@ async function resolveProjectOwnerProfile(
  */
 async function bulkResolve(
   db: SupabaseClient,
-  tasks: ChaseableTask[]
+  tasks: ChaseableTask[],
+  /** Profiles that may be named in a message but are not otherwise looked up (the CAMPUS-OPS owner). */
+  extraProfileIds: string[] = []
 ): Promise<{
   accountableStaffIdByTask: Map<string, string>;
   staffById: Map<string, StaffLite>;
@@ -400,6 +480,12 @@ async function bulkResolve(
    *  owner_staff_id / project_task_assignees.staff_id on reassignment. */
   headStaffIdByProfile: Map<string, string>;
   profileActive: Map<string, boolean>;
+  /** staff.id -> their active reporting manager's profiles.id. */
+  managerProfileByStaff: Map<string, string>;
+  /** institution_id -> active principal(s), oldest record first. */
+  principalsByInstitution: Map<string, Array<{ id: string; name: string | null }>>;
+  /** profiles.id -> full name, for the "this message went to" line. */
+  nameByProfile: Map<string, string>;
 }> {
   const taskIds = tasks.map((t) => t.id);
   const accountableStaffIdByTask = new Map<string, string>();
@@ -476,26 +562,104 @@ async function bulkResolve(
     }
   }
 
-  const profileIdsToCheck = new Set<string>();
+  // The day-1 boss when the department has no head on record: the fixer's
+  // reporting manager, hr_staff_details.reports_to_staff_id — the same column
+  // lib/services/hr/memo-service.ts reads for its supervisor copy. Active
+  // managers only.
+  const managerProfileByStaff = new Map<string, string>();
+  const activeStaffIds = [...staffById.entries()].filter(([, s]) => s.isActive).map(([id]) => id);
+  if (activeStaffIds.length > 0) {
+    const { data: details } = await db
+      .from('hr_staff_details')
+      .select('staff_id, reports_to_staff_id')
+      .in('staff_id', activeStaffIds);
+    const managerIdByStaff = new Map<string, string>();
+    for (const d of (details ?? []) as any[]) {
+      if (d.staff_id && d.reports_to_staff_id && d.reports_to_staff_id !== d.staff_id) {
+        managerIdByStaff.set(d.staff_id, d.reports_to_staff_id);
+      }
+    }
+    if (managerIdByStaff.size > 0) {
+      const { data: managers } = await db
+        .from('staff')
+        .select('id, profile_id, is_active')
+        .in('id', [...new Set(managerIdByStaff.values())]);
+      const managerProfile = new Map<string, string>();
+      for (const m of (managers ?? []) as any[]) {
+        if (m.profile_id && m.is_active !== false) managerProfile.set(m.id, m.profile_id);
+      }
+      for (const [staffId, managerId] of managerIdByStaff) {
+        const p = managerProfile.get(managerId);
+        if (p) managerProfileByStaff.set(staffId, p);
+      }
+    }
+  }
+
+  // The day-3 step: each college's principal(s), from metadata.institution_id
+  // (CAMPUS-OPS itself carries no institution — campus-walk-service.ts stores
+  // the college on the task). Same query and order as the meetings engine's
+  // resolveRecipients (lib/services/meetings/meeting-trigger-service.ts), but
+  // deliberately WITHOUT its super-admin fallback: that would page the
+  // Director once per job, which the 30 Sep ruling forbids.
+  const principalsByInstitution = new Map<string, Array<{ id: string; name: string | null }>>();
+  const institutionIds = [
+    ...new Set(
+      tasks
+        .map((t) => (t.metadata ?? {}).institution_id)
+        .filter((v): v is string => typeof v === 'string' && v.length > 0)
+    )
+  ];
+  if (institutionIds.length > 0) {
+    const { data: principals } = await db
+      .from('profiles')
+      .select('id, full_name, institution_id')
+      .in('institution_id', institutionIds)
+      .eq('role', 'principal')
+      .eq('is_active', true)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
+    for (const p of (principals ?? []) as any[]) {
+      if (!p.id || !p.institution_id) continue;
+      const list = principalsByInstitution.get(p.institution_id) ?? [];
+      list.push({ id: p.id, name: p.full_name ?? null });
+      principalsByInstitution.set(p.institution_id, list);
+    }
+  }
+
+  const profileIdsToCheck = new Set<string>(extraProfileIds.filter(Boolean));
   for (const s of staffById.values()) {
     if (s.profileId) profileIdsToCheck.add(s.profileId);
   }
   for (const headId of deptHeadByDept.values()) {
     profileIdsToCheck.add(headId);
   }
+  for (const managerId of managerProfileByStaff.values()) {
+    profileIdsToCheck.add(managerId);
+  }
 
   const profileActive = new Map<string, boolean>();
+  const nameByProfile = new Map<string, string>();
   if (profileIdsToCheck.size > 0) {
     const { data: profileRows } = await db
       .from('profiles')
-      .select('id, is_active')
+      .select('id, is_active, full_name')
       .in('id', [...profileIdsToCheck]);
     for (const p of (profileRows ?? []) as any[]) {
       profileActive.set(p.id, p.is_active !== false);
+      if (typeof p.full_name === 'string' && p.full_name.trim()) nameByProfile.set(p.id, p.full_name.trim());
     }
   }
 
-  return { accountableStaffIdByTask, staffById, deptHeadByDept, headStaffIdByProfile, profileActive };
+  return {
+    accountableStaffIdByTask,
+    staffById,
+    deptHeadByDept,
+    headStaffIdByProfile,
+    profileActive,
+    managerProfileByStaff,
+    principalsByInstitution,
+    nameByProfile
+  };
 }
 
 /**
@@ -568,6 +732,7 @@ async function reassignDepartedAccountable(
   opts: {
     taskId: string;
     taskTitle: string;
+    place: string | null;
     dueDate: string;
     departedStaffId: string;
     departedDepartmentId: string | null;
@@ -583,6 +748,7 @@ async function reassignDepartedAccountable(
   const {
     taskId,
     taskTitle,
+    place,
     dueDate,
     departedStaffId,
     departedDepartmentId,
@@ -629,9 +795,9 @@ async function reassignDepartedAccountable(
           recipientIds: check.userIds,
           title: `Needs a new owner: ${truncate(taskTitle, 80)}`,
           body:
-            `A Management walk item ("${truncate(taskTitle, 150)}", due ${dueDate}) can no longer be ` +
-            `chased automatically — the person responsible for it is no longer an active team member, and no ` +
-            `department head or Campus Operations owner could be found to hand it to. It needs a manual reassignment.`,
+            `${jobLabel(taskTitle, place)}, due on ${friendlyDate(dueDate)}, needs someone new to look after it. ` +
+            `The person it was given to has left, and we could not find a department head or a Campus ` +
+            `Operations owner to pass it to. Please choose who should take it on.`,
           url: '/projects',
           category: 'campus-walk:reassign-failed',
           metadata: { task_id: taskId, source: CAMPUS_WALK_SOURCE, reason: 'accountable_inactive_no_target' },
@@ -705,10 +871,9 @@ async function reassignDepartedAccountable(
     if (directorCheck.ok) {
       const sendResult = await sendRung(db, {
         recipientIds: directorCheck.userIds,
-        title: `Reassigned — owner no longer active: ${truncate(taskTitle, 70)}`,
+        title: `Passed to a new owner: ${truncate(taskTitle, 70)}`,
         body:
-          `A Management walk item ("${truncate(taskTitle, 150)}") was assigned to someone who is no ` +
-          `longer an active team member. It has been automatically reassigned to ${
+          `${jobLabel(taskTitle, place)} was with someone who has since left, so it has been passed to ${
             toRole === 'department_head' ? 'the department head' : 'the Campus Operations owner'
           } to keep it moving.`,
         url: '/projects',
@@ -726,10 +891,10 @@ async function reassignDepartedAccountable(
   try {
     const sendResult = await sendRung(db, {
       recipientIds: [newProfileId],
-      title: `You have inherited a Management walk item: ${truncate(taskTitle, 70)}`,
+      title: `A job has been passed to you: ${truncate(taskTitle, 70)}`,
       body:
-        `"${truncate(taskTitle, 150)}" (due ${dueDate}) has been reassigned to you because its previous ` +
-        `owner is no longer an active team member. Please action it, or mark it "blocked" if something is holding you up.`,
+        `${jobLabel(taskTitle, place)}, due on ${friendlyDate(dueDate)}, has been passed to you because the ` +
+        `person who had it has left. Thank you for taking it on. ${PAUSE_HINT}`,
       url: `/campus-walk/fix?task=${taskId}`,
       category: 'campus-walk:reassigned',
       metadata: { task_id: taskId, source: CAMPUS_WALK_SOURCE, to_role: toRole },
@@ -879,11 +1044,10 @@ async function chaseReviewWaitDirector(
       const idempotencyKey = `campus-walk-chase:review_wait_director:${task.id}:${wave}`;
       const sendResult = await sendRung(db, {
         recipientIds: check.userIds,
-        title: `Awaiting your decision (${pluralDays(daysWaiting)}): ${truncate(task.title, 80)}`,
+        title: `Waiting for your look (${pluralDays(daysWaiting)}): ${truncate(task.title, 80)}`,
         body:
-          `A Management walk item ("${truncate(task.title, 150)}") has had a fix photo submitted and has ` +
-          `been waiting ${pluralDays(daysWaiting)} for your approve/send-back decision. The person who ` +
-          `fixed it is done — this one is on your desk.`,
+          `${jobLabel(task.title, placeOf(task.metadata))} has a fix photo and has been waiting ` +
+          `${pluralDays(daysWaiting)} for you to approve it or send it back.`,
         url: '/campus-walk/review',
         category: 'campus-walk:review-wait-director',
         metadata: { task_id: task.id, source: CAMPUS_WALK_SOURCE, days_waiting: daysWaiting, wave },
@@ -947,10 +1111,9 @@ export async function runCampusWalkChaseUp(
     processed: 0,
     notifications_sent: 0,
     rungs: {
-      reminder_1: 0,
-      reminder_2: 0,
-      escalate_accountable: 0,
-      escalate_director: 0,
+      escalate_boss: 0,
+      escalate_principal: 0,
+      reached_director: 0,
       review_wait_director: 0
     },
     review_wait_scanned: 0,
@@ -1032,10 +1195,18 @@ export async function runCampusWalkChaseUp(
     return result;
   }
 
-  const { accountableStaffIdByTask, staffById, deptHeadByDept, headStaffIdByProfile, profileActive } =
-    await bulkResolve(db, tasks);
-
   const projectOwnerProfileId = await resolveProjectOwnerProfile(db, project.ownerStaffId);
+
+  const {
+    accountableStaffIdByTask,
+    staffById,
+    deptHeadByDept,
+    headStaffIdByProfile,
+    profileActive,
+    managerProfileByStaff,
+    principalsByInstitution,
+    nameByProfile
+  } = await bulkResolve(db, tasks, projectOwnerProfileId ? [projectOwnerProfileId] : []);
 
   for (const task of tasks) {
     try {
@@ -1049,12 +1220,13 @@ export async function runCampusWalkChaseUp(
 
       const metadata = (task.metadata ?? {}) as Record<string, any>;
       const priorChase = (metadata.campus_walk_chase ?? {}) as {
-        rungs_sent?: Partial<Record<RungKey, string>>;
+        rungs_sent?: Record<string, string>;
         reassignment_history?: ReassignmentRecord[];
         /** Bumped by a reporter's "Not fixed" — see chaseRungIdempotencyKey. */
         round?: number;
       };
-      const rungsSent: Partial<Record<RungKey, string>> = { ...(priorChase.rungs_sent ?? {}) };
+      const rungsSent: Record<string, string> = { ...(priorChase.rungs_sent ?? {}) };
+      const place = placeOf(metadata);
 
       let accountableStaffId = accountableStaffIdByTask.get(task.id) ?? task.owner_staff_id ?? null;
       let accountableStaff = accountableStaffId ? staffById.get(accountableStaffId) ?? null : null;
@@ -1076,6 +1248,7 @@ export async function runCampusWalkChaseUp(
         const outcome = await reassignDepartedAccountable(db, {
           taskId: task.id,
           taskTitle: task.title,
+          place,
           dueDate: task.due_date,
           departedStaffId: accountableStaffId,
           departedDepartmentId: accountableStaff.departmentId,
@@ -1120,60 +1293,103 @@ export async function runCampusWalkChaseUp(
             : null
           : null;
 
-      const deptHeadId = accountableStaff?.departmentId
-        ? deptHeadByDept.get(accountableStaff.departmentId) ?? null
-        : null;
-      const deptHeadActive = deptHeadId ? profileActive.get(deptHeadId) !== false : false;
-      const escalationContactProfileId = deptHeadId && deptHeadActive ? deptHeadId : projectOwnerProfileId;
+      const boss = resolveBoss({
+        accountableProfileId,
+        accountableStaffId,
+        departmentId: accountableStaff?.departmentId ?? null,
+        deptHeadByDept,
+        managerProfileByStaff,
+        profileActive,
+        projectOwnerProfileId
+      });
+
+      const fixerTold: ToldPerson[] = accountableProfileId
+        ? [{ name: nameByProfile.get(accountableProfileId) ?? null, role: 'responsible for the job' }]
+        : [];
+      const bossTold: ToldPerson[] = boss ? [{ name: nameByProfile.get(boss.id) ?? null, role: boss.role }] : [];
 
       let metadataChanged = reassignmentAttempted;
 
-      for (const rung of RUNGS) {
-        if (daysOverdue < rung.atDay) break; // RUNGS is ascending by atDay
-        if (rungsSent[rung.key]) continue; // already sent, ever — see file header
+      for (const rungKey of rungsDue(daysOverdue, rungsSent)) {
+        if (rungKey === 'reached_director') {
+          // No message of its own: the Director hears about it ONCE, in the
+          // 8 am summary (lib/campus-walk/director-digest.ts), which lists
+          // every job whose marker landed since the previous summary.
+          rungsSent.reached_director = nowIso;
+          metadataChanged = true;
+          result.rungs.reached_director++;
+          continue;
+        }
 
         let recipients: string[] = [];
-        if (rung.key === 'reminder_1' || rung.key === 'reminder_2') {
-          recipients = accountableProfileId ? [accountableProfileId] : [];
-        } else if (rung.key === 'escalate_accountable') {
-          recipients = [accountableProfileId, escalationContactProfileId].filter(
+        let told: ToldPerson[] = [];
+        let url = `/campus-walk/fix?task=${task.id}`;
+
+        if (rungKey === 'escalate_boss') {
+          recipients = [accountableProfileId, boss?.id ?? null].filter((id): id is string => Boolean(id));
+          told = [...fixerTold, ...bossTold];
+        } else {
+          const institutionId =
+            typeof metadata.institution_id === 'string' && metadata.institution_id ? metadata.institution_id : null;
+          const principals = institutionId ? principalsByInstitution.get(institutionId) ?? [] : [];
+          if (principals.length === 0) {
+            // Retried every run (a principal may be recorded later). The job
+            // still reaches the Director at day 7 regardless.
+            result.errors.push(
+              `task ${task.id} (escalate_principal): no active principal on record for ${
+                institutionId ? `college ${institutionId}` : 'this job — its college is not recorded'
+              }`
+            );
+            continue;
+          }
+          recipients = [...principals.map((p) => p.id), accountableProfileId, boss?.id ?? null].filter(
             (id): id is string => Boolean(id)
           );
-        } else if (rung.key === 'escalate_director') {
-          recipients = director.ids;
+          told = [...principals.map((p) => ({ name: p.name, role: 'principal' })), ...fixerTold, ...bossTold];
+          // The fix screen opens only for the fixer and their department
+          // head; a principal lands on the Campus Operations board instead.
+          url = `/projects/${project.id}`;
         }
 
         const check = validateTargeting(recipients);
         if (!check.ok) {
-          result.errors.push(`task ${task.id} (${rung.key}): no resolvable recipient — ${check.reason}`);
+          result.errors.push(`task ${task.id} (${rungKey}): no resolvable recipient — ${check.reason}`);
           continue;
         }
 
-        const copy = rung.copy(task, daysOverdue);
-        const idempotencyKey = chaseRungIdempotencyKey(rung.key, task.id, priorChase.round);
+        const copy = climbMessage(rungKey, {
+          title: task.title,
+          place,
+          dueDate: task.due_date,
+          daysOverdue,
+          bossLabel: boss?.label ?? null,
+          told
+        });
+        const idempotencyKey = chaseRungIdempotencyKey(rungKey, task.id, priorChase.round);
 
         const sendResult = await sendRung(db, {
           recipientIds: check.userIds,
           title: copy.title,
           body: copy.body,
-          url: rung.url(task.id),
-          category: rung.category,
+          url,
+          category: rungKey === 'escalate_boss' ? 'campus-walk:chase-boss' : 'campus-walk:chase-principal',
           metadata: {
             task_id: task.id,
             source: CAMPUS_WALK_SOURCE,
-            rung: rung.key,
-            days_overdue: daysOverdue
+            rung: rungKey,
+            days_overdue: daysOverdue,
+            boss_role: boss?.role ?? null
           },
           idempotencyKey
         });
 
         if (sendResult.sent) {
-          rungsSent[rung.key] = sendResult.notifiedAt ?? nowIso;
+          rungsSent[rungKey] = sendResult.notifiedAt ?? nowIso;
           metadataChanged = true;
-          result.rungs[rung.key]++;
+          result.rungs[rungKey]++;
           result.notifications_sent++;
         } else {
-          result.errors.push(`task ${task.id} (${rung.key}): notification send failed`);
+          result.errors.push(`task ${task.id} (${rungKey}): notification send failed`);
         }
       }
 
