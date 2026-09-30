@@ -11717,3 +11717,30 @@ CREATE POLICY hr_leave_type_deletions_select ON public.hr_leave_type_deletions
 
 REVOKE ALL ON public.hr_leave_type_deletions FROM anon, authenticated;
 GRANT SELECT ON public.hr_leave_type_deletions TO authenticated;
+
+
+-- ============================================================================
+-- HR staff harness, lane A — leave deadline enforcement
+-- Updated: 2026-10-01 - mirrors supabase/migrations/20270613101117_hr_leave_deadline_enforcement.sql
+-- ============================================================================
+-- Read: whoever can see the request or claim can see its escalation history —
+-- the EXISTS runs hla_select / hcoc_select as the caller (the hde_select
+-- pattern of hr_decision_emails). Write: nobody through the API; the service
+-- role writes through the functions below.
+DROP POLICY IF EXISTS hldn_select ON public.hr_leave_deadline_nudges;
+CREATE POLICY hldn_select ON public.hr_leave_deadline_nudges
+  FOR SELECT TO authenticated
+  USING (
+    (leave_application_id IS NOT NULL AND EXISTS (
+      SELECT 1 FROM public.hr_leave_applications a
+      WHERE a.id = hr_leave_deadline_nudges.leave_application_id))
+    OR
+    (comp_off_credit_id IS NOT NULL AND EXISTS (
+      SELECT 1 FROM public.hr_comp_off_credits c
+      WHERE c.id = hr_leave_deadline_nudges.comp_off_credit_id))
+  );
+
+REVOKE ALL ON public.hr_leave_deadline_nudges FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.hr_leave_deadline_nudges TO authenticated;
+GRANT ALL ON public.hr_leave_deadline_nudges TO service_role;
+

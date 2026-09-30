@@ -111,11 +111,12 @@ function useEngagementProxies() {
 
       const [totalRes, pendingRes, approvedRes, rejectedRes, backlogRes] = await Promise.all([
         baseCount(),
-        baseCount().eq('status', 'pending'),
+        // 'escalated' is still awaiting a decision — it has only overrun its step's limit.
+        baseCount().in('status', ['pending', 'escalated']),
         baseCount().eq('status', 'approved'),
         baseCount().eq('status', 'rejected'),
         // Already started, still awaiting a decision — the control gap.
-        baseCount().eq('status', 'pending').lt('start_date', today),
+        baseCount().in('status', ['pending', 'escalated']).lt('start_date', today),
       ]);
 
       for (const res of [totalRes, pendingRes, approvedRes, rejectedRes, backlogRes]) {
