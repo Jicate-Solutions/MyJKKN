@@ -12267,3 +12267,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_intake_match_rules_title_institution
   ON public.hr_intake_match_rules (cvviz_job_title_norm, institution_id);
 CREATE INDEX IF NOT EXISTS idx_hr_intake_match_rules_job
   ON public.hr_intake_match_rules (job_id);
+
+-- Updated: 2026-10-09 - 20271009090000: the Director's own ratings at sign-off, beside the committee's.
+ALTER TABLE public.hr_performance_reviews
+  ADD COLUMN IF NOT EXISTS director_review_jsonb jsonb;

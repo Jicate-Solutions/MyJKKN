@@ -34,6 +34,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { TeamPerson } from '@/lib/hr/appraisal-team-board';
 import {
+  type AppraisalRatingMap,
+  directorOverrides,
   deriveAppraisalScore,
   parseRatings,
   resolveAreas,
@@ -99,6 +101,13 @@ export interface HRPerformanceReview {
   self_appraisal_jsonb: Record<string, unknown> | null;
   supervisor_review_jsonb: Record<string, unknown> | null;
   sedc_review_jsonb: Record<string, unknown> | null;
+  /**
+   * 30 Sep 2026: the Director's own ratings for the areas he changed at
+   * sign-off ({ ratings, reason, set_by, set_at }). Beside the committee's,
+   * never over them. Written by the named Director list only (the database
+   * guard refuses everyone else). Absent on older rows.
+   */
+  director_review_jsonb?: Record<string, unknown> | null;
   final_score: number | null;
   final_remarks: string | null;
   status: ReviewStatus;
@@ -197,6 +206,7 @@ export function lockBlockedMessage(pending: number, departments: readonly string
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
+
 
 export class PerformanceReviewService {
   // -----------------------------------------------------------------------
@@ -650,17 +660,31 @@ export class PerformanceReviewService {
     args: {
       final_remarks: string;
       approver_profile_id: string;
+      /**
+       * 30 Sep 2026: the Director may change a rating at sign-off. Only the
+       * areas that differ from the committee's are recorded, beside the
+       * committee's, with the reason. The database refuses this from anyone
+       * not on the Director list.
+       */
+      director_ratings?: AppraisalRatingMap;
+      director_reason?: string;
     },
   ): Promise<HRPerformanceReview> {
     const current = await this.requireReview(supabase, reviewId);
     assertTransition(current.status, 'final_approved');
 
-    // The approved ratings ARE the committee's normalised ratings. The
-    // Director's decision at this step is approve or send back, so nothing is
-    // re-rated here and no tier's payload is written over by another.
+    // The approved ratings are the committee's normalised ratings, with the
+    // Director's changes laid over them (30 Sep). The committee's payload is
+    // never written over.
     const policy = await this.getPolicyForStaff(supabase, current.staff_id);
     const areas = resolveAreas();
-    const ratings = parseRatings(current.sedc_review_jsonb, areas);
+    const committee = parseRatings(current.sedc_review_jsonb, areas);
+    const overrides = directorOverrides(committee, args.director_ratings, areas);
+    const overridden = Object.keys(overrides).length > 0;
+    if (overridden && (args.director_reason ?? '').trim().length < 10) {
+      throw new Error('Say why you changed a rating (at least 10 characters). It is recorded beside the committee\'s.');
+    }
+    const ratings: AppraisalRatingMap = { ...committee, ...overrides };
     const derived = deriveAppraisalScore(ratings, areas, resolveRatingPoints(policy), policy);
     if (derived === null) {
       throw new Error(
@@ -676,6 +700,16 @@ export class PerformanceReviewService {
         status: 'final_approved',
         final_approved_at: new Date().toISOString(),
         final_approved_by: args.approver_profile_id,
+        ...(overridden
+          ? {
+              director_review_jsonb: {
+                ratings: overrides,
+                reason: (args.director_reason ?? '').trim(),
+                set_by: args.approver_profile_id,
+                set_at: new Date().toISOString(),
+              },
+            }
+          : {}),
       })
       .eq('id', reviewId)
       .select('*')
