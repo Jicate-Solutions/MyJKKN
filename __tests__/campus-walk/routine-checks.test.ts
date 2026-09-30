@@ -30,9 +30,14 @@ vi.mock('@/lib/services/meetings/meeting-trigger-service', () => ({
   createBellNotification: (...a: unknown[]) => createBellNotification(...a)
 }));
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
+  SEEDED_ROUTINE_CHECK_TEXTS,
   addDays,
   advanceNextDate,
+  campusWalkJobPath,
+  isSeededSchedule,
   isScheduleDue,
   pickRoutineOwner,
   problemConversionMetadata,
@@ -47,7 +52,7 @@ import {
 
 interface Q {
   table: string;
-  op: 'select' | 'update' | 'insert';
+  op: 'select' | 'update' | 'insert' | 'delete';
   filters: Array<[string, string, unknown]>;
   payload?: unknown;
 }
@@ -66,9 +71,13 @@ function fakeDb(handler: Handler) {
       limit: () => b,
       eq: (c: string, v: unknown) => (q.filters.push(['eq', c, v]), b),
       lte: (c: string, v: unknown) => (q.filters.push(['lte', c, v]), b),
+      gte: (c: string, v: unknown) => (q.filters.push(['gte', c, v]), b),
+      neq: (c: string, v: unknown) => (q.filters.push(['neq', c, v]), b),
+      is: (c: string, v: unknown) => (q.filters.push(['is', c, v]), b),
       in: (c: string, v: unknown) => (q.filters.push(['in', c, v]), b),
       update: (p: unknown) => ((q.op = 'update'), (q.payload = p), b),
       insert: (p: unknown) => ((q.op = 'insert'), (q.payload = p), b),
+      delete: () => ((q.op = 'delete'), b),
       maybeSingle: run,
       single: run,
       then: (res: any, rej: any) => run().then(res, rej)
@@ -91,7 +100,7 @@ const schedule = {
   frequency_days: 30,
   next_maintenance_date: '2026-10-01',
   assigned_to_user_id: null,
-  description: 'Monthly PC + UPS test.'
+  description: SEEDED_ROUTINE_CHECK_TEXTS[0]
 };
 const resource = {
   id: 'res-1',
@@ -250,8 +259,9 @@ describe('idempotency — one job per schedule per due date', () => {
   });
 
   it('stops at the per-run cap and reports what is left', async () => {
-    const many = Array.from({ length: 5 }, (_, i) => ({ ...schedule, id: `sch-${i}` }));
-    const { db } = world({ schedulesSelect: () => ({ data: many }) });
+    const many = Array.from({ length: 5 }, (_, i) => ({ ...schedule, id: `sch-${i}`, resource_id: `res-${i}` }));
+    const items = many.map((m) => ({ ...resource, id: m.resource_id }));
+    const { db } = world({ schedulesSelect: () => ({ data: many }), resources: () => ({ data: items }) });
     const r = await runRoutineChecks(db, { now: TODAY_NOW, cap: 2 });
     expect(r.created).toBe(2);
     expect(r.left_for_next_run).toBe(3);
@@ -308,16 +318,19 @@ describe('owner fallback — caretaker → EAO → principal', () => {
     ).toEqual({ profileId: null, via: 'nobody' });
   });
 
-  it('a person named on the schedule itself comes before the caretaker', () => {
-    expect(
-      pickRoutineOwner({
-        scheduleAssigneeProfileId: 'sched',
-        caretakerProfileIds: ['care'],
-        eaoProfileIds: ['eao'],
-        principalProfileIds: ['prin'],
-        profilesWithActiveStaff: all
-      }).via
-    ).toBe('schedule');
+  it('a person named on the schedule row is ignored — anyone can write that row (repair round)', async () => {
+    const { db } = world({
+      schedulesSelect: () => ({ data: [{ ...schedule, assigned_to_user_id: 'prof-anybody' }] }),
+      personnel: () => ({
+        data: [
+          { profile_id: 'prof-caretaker', is_active: true },
+          { profile_id: 'prof-anybody', is_active: true }
+        ]
+      })
+    });
+    await runRoutineChecks(db, { now: TODAY_NOW });
+    expect(createWalkTask.mock.calls[0][1].accountableProfileId).toBe('prof-caretaker');
+    expect(createWalkTask.mock.calls[0][1].extraMetadata.routine_check_owner_via).toBe('caretaker');
   });
 
   it('the cron hands the job to the EAO when the caretaker has left', async () => {
@@ -411,5 +424,197 @@ describe('Found a problem turns the check into a normal repair job', () => {
     expect(
       routineCheckState({ status_key: 'todo', metadata: { source: 'other', routine_check: true } })
     ).toBe('not_routine');
+  });
+});
+
+// ─── Repair round, 1 Oct 2026 (reviewer findings on #4145) ───────────────────
+
+describe('only the seed’s own schedules become jobs (schedules are writable by any signed-in user)', () => {
+  it('the five texts in the lib are exactly the five texts the migration writes', () => {
+    const sql = readFileSync(
+      join(process.cwd(), 'supabase/migrations/20270620090000_campus_walk_routine_check_schedules.sql'),
+      'utf8'
+    );
+    const inSql = [...sql.matchAll(/^\s*'(Monthly [^']+)'\s*$/gm)].map((m) => m[1]);
+    expect(inSql).toEqual([...SEEDED_ROUTINE_CHECK_TEXTS]);
+  });
+
+  it('recognises a seeded row and refuses anything else', () => {
+    expect(isSeededSchedule(schedule)).toBe(true);
+    expect(isSeededSchedule({ ...schedule, description: 'Please call me' })).toBe(false);
+    expect(isSeededSchedule({ ...schedule, maintenance_type: 'corrective' })).toBe(false);
+    expect(isSeededSchedule({ ...schedule, frequency_days: 1 })).toBe(false);
+  });
+
+  it('asks the database for seeded rows only, so planted rows cannot fill the scan window', async () => {
+    const { db, calls } = world();
+    await runRoutineChecks(db, { now: TODAY_NOW });
+    const read = calls.find((q) => q.table === 'resource_maintenance_schedules' && q.op === 'select')!;
+    expect(has(read, 'maintenance_type', 'preventive')).toBe(true);
+    expect(read.filters.some(([op, c, v]) => op === 'in' && c === 'description' && (v as string[]).length === 5)).toBe(
+      true
+    );
+    expect(read.filters.some(([op, c]) => op === 'gte' && c === 'frequency_days')).toBe(true);
+  });
+
+  it('skips and counts a row that is not the seed’s, creating nothing and sending no bell', async () => {
+    const { db } = world({
+      schedulesSelect: () => ({ data: [{ ...schedule, description: 'Click this link' }] })
+    });
+    const r = await runRoutineChecks(db, { now: TODAY_NOW });
+    expect(r.created).toBe(0);
+    expect(r.skipped_not_seeded).toBe(1);
+    expect(createWalkTask).not.toHaveBeenCalled();
+    expect(createBellNotification).not.toHaveBeenCalled();
+  });
+
+  it('creates at most one job per item per run', async () => {
+    const { db } = world({
+      schedulesSelect: () => ({ data: [schedule, { ...schedule, id: 'sch-2' }] })
+    });
+    const r = await runRoutineChecks(db, { now: TODAY_NOW });
+    expect(r.created).toBe(1);
+    expect(r.skipped_duplicate_item).toBe(1);
+  });
+});
+
+describe('links for a routine check open the check screen until it is answered', () => {
+  it('the new job carries open_path to the check screen', async () => {
+    const { db, calls } = world();
+    await runRoutineChecks(db, { now: TODAY_NOW });
+    const write = calls.find((q) => q.table === 'project_tasks' && q.op === 'update')!;
+    expect((write.payload as any).metadata.open_path).toBe('/campus-walk/check?task=task-1');
+  });
+
+  it('Found a problem switches open_path to the fix screen', () => {
+    const after = problemConversionMetadata(
+      { source: 'campus-walk', routine_check: true, open_path: '/campus-walk/check?task=t9' },
+      { result: 'problem' },
+      null,
+      't9'
+    );
+    expect(after.open_path).toBe('/campus-walk/fix?task=t9');
+    expect(campusWalkJobPath('t9', after)).toBe('/campus-walk/fix?task=t9');
+  });
+
+  it('campusWalkJobPath: unanswered check → check screen; repair or ordinary job → fix screen', () => {
+    expect(campusWalkJobPath('t1', { source: 'campus-walk', routine_check: true })).toBe('/campus-walk/check?task=t1');
+    expect(
+      campusWalkJobPath('t1', { source: 'campus-walk', routine_check: true, routine_check_outcome: { result: 'problem' } })
+    ).toBe('/campus-walk/fix?task=t1');
+    expect(campusWalkJobPath('t1', { source: 'campus-walk' })).toBe('/campus-walk/fix?task=t1');
+    expect(campusWalkJobPath('t1', { open_path: 'https://evil.example/' })).toBe('/campus-walk/fix?task=t1');
+  });
+
+  it('a check whose repair photo is awaiting approval cannot be answered with All OK', () => {
+    const m = { source: 'campus-walk', routine_check: true };
+    expect(routineCheckState({ status_key: 'review', metadata: m })).toBe('in_repair');
+    expect(routineCheckState({ status_key: 'todo', metadata: { ...m, fix: { submitted_at: '2026-10-01' } } })).toBe(
+      'in_repair'
+    );
+  });
+});
+
+describe('the check route: one answer wins, and a photo cannot be reused', () => {
+  const task = {
+    id: 'task-1',
+    project_id: 'proj-1',
+    title: 'Routine check: PC',
+    description: 'x',
+    due_date: '2026-10-12',
+    status_key: 'todo',
+    owner_staff_id: 'st-1',
+    metadata: { source: 'campus-walk', routine_check: true, routine_check_log_id: 'log-1', routine_check_schedule_id: 'sch-1' }
+  };
+
+  async function callRoute(action: 'all_ok' | 'problem', handler: Handler) {
+    vi.resetModules();
+    const { db, calls } = fakeDb(handler);
+    const admin = {
+      from: db.from,
+      storage: { from: () => ({ upload: async () => ({ error: null }) }) }
+    };
+    vi.doMock('@/lib/supabase/server', () => ({
+      createClient: async () => ({ auth: { getUser: async () => ({ data: { user: { id: 'u1' } } }) } }),
+      createServiceRoleClient: () => admin
+    }));
+    vi.doMock('@/lib/services/pde/jpeg-metadata', () => ({
+      isJpegMagic: () => true,
+      stripJpegMetadata: (b: Uint8Array) => b,
+      scanJpegForMetadata: () => ({ ok: true })
+    }));
+    vi.doMock('@/lib/campus-walk/routine-checks', async (orig) => ({
+      ...(await (orig as any)()),
+      resolveCheckAccess: async () => ({
+        allowed: true,
+        task,
+        via: 'assignee',
+        callerStaffId: 'st-1',
+        callerName: 'A',
+        accountableStaffId: 'st-1'
+      }),
+      accountableProfileOf: async () => 'prof-1'
+    }));
+    const svc = await import('@/lib/services/campus-walk/campus-walk-service');
+    (svc.routeAccountable as any).mockResolvedValue?.({ dueDate: '2026-10-03' });
+    const { POST } = await import('@/app/api/campus-walk/check/route');
+    const form = new FormData();
+    form.set('task_id', 'task-1');
+    form.set('action', action);
+    if (action === 'problem') form.set('note', 'UPS dead');
+    form.set('photo', new Blob([new Uint8Array(2048)], { type: 'image/jpeg' }));
+    const res = await POST({ formData: async () => form } as any);
+    vi.doUnmock('@/lib/supabase/server');
+    vi.doUnmock('@/lib/services/pde/jpeg-metadata');
+    vi.doUnmock('@/lib/campus-walk/routine-checks');
+    return { res, json: await res.json(), calls };
+  }
+
+  const baseHandler =
+    (over: { closeRows?: unknown[]; reused?: unknown[] }): Handler =>
+    (q) => {
+      if (q.table === 'project_task_attachments') {
+        return q.op === 'insert' ? { data: { id: 'att-new' } } : { data: [] };
+      }
+      if (q.table === 'project_tasks' && q.op === 'select') return { data: over.reused ?? [] };
+      if (q.table === 'project_tasks' && q.op === 'update') return { data: over.closeRows ?? [{ id: 'task-1' }] };
+      return { data: null };
+    };
+
+  it('All OK that loses the race gets 409, removes its photo row, and writes no log or schedule', async () => {
+    const { res, json, calls } = await callRoute('all_ok', baseHandler({ closeRows: [] }));
+    expect(res.status).toBe(409);
+    expect(json.code).toBe('already_answered');
+    const close = calls.find((q) => q.table === 'project_tasks' && q.op === 'update')!;
+    expect(has(close, 'status_key', 'todo')).toBe(true);
+    expect(close.filters.some(([op, c, v]) => op === 'is' && c === 'metadata->routine_check_outcome' && v === null)).toBe(
+      true
+    );
+    expect(calls.some((q) => q.table === 'project_task_attachments' && q.op === 'delete')).toBe(true);
+    expect(calls.some((q) => q.table === 'resource_maintenance_logs')).toBe(false);
+    expect(calls.some((q) => q.table === 'resource_maintenance_schedules')).toBe(false);
+  });
+
+  it('Found a problem that loses the race gets 409 and raises no repair log or bell', async () => {
+    const { res, json, calls } = await callRoute('problem', baseHandler({ closeRows: [] }));
+    expect(res.status).toBe(409);
+    expect(json.code).toBe('already_answered');
+    expect(calls.some((q) => q.table === 'resource_maintenance_logs')).toBe(false);
+    expect(createBellNotification).not.toHaveBeenCalled();
+  });
+
+  it('All OK refuses a photo already used to close another check', async () => {
+    const { res, json, calls } = await callRoute('all_ok', baseHandler({ reused: [{ id: 'task-other' }] }));
+    expect(res.status).toBe(409);
+    expect(json.code).toBe('photo_reused');
+    expect(calls.some((q) => q.table === 'project_tasks' && q.op === 'update')).toBe(false);
+  });
+
+  it('All OK that wins records the photo fingerprint and closes the job', async () => {
+    const { res, calls } = await callRoute('all_ok', baseHandler({}));
+    expect(res.status).toBe(200);
+    const close = calls.find((q) => q.table === 'project_tasks' && q.op === 'update')!;
+    expect((close.payload as any).status_key).toBe('done');
+    expect(typeof (close.payload as any).metadata.routine_check_outcome.photo_sha).toBe('string');
   });
 });

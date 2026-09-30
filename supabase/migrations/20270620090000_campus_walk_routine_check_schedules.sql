@@ -35,6 +35,11 @@
 -- R4 starts a week after the others so the first month's jobs arrive in two
 -- smaller batches instead of one.
 --
+-- First due date = the date in INDIA on the day this runs (the database's
+-- CURRENT_DATE is UTC). The daily job acts ONLY on rows carrying one of the
+-- five texts below (lib/campus-walk/routine-checks.ts SEEDED_ROUTINE_CHECK_TEXTS;
+-- a unit test keeps them identical) — change a text here and there together.
+--
 -- Owner is NOT stored here (assigned_to_user_id stays NULL): the daily job
 -- resolves caretaker → estate office (EAO) → principal at the moment it
 -- creates each job, so a caretaker change is honoured automatically.
@@ -48,7 +53,7 @@
 INSERT INTO public.resource_maintenance_schedules
   (resource_id, maintenance_type, frequency_days, next_maintenance_date, is_active,
    reminder_days_before, description)
-SELECT r.id, 'preventive', 30, CURRENT_DATE, true, 0,
+SELECT r.id, 'preventive', 30, (now() AT TIME ZONE 'Asia/Kolkata')::date, true, 0,
        'Monthly PC + UPS test: switch on each computer, check it boots, keyboard, mouse and screen work, and the UPS keeps it running when mains power is switched off.'
 FROM public.resources r
 JOIN public.resource_parent_categories pc ON pc.id = r.parent_category_id
@@ -65,8 +70,8 @@ WHERE lower(btrim(pc.name)) = 'it & digital resources'
 INSERT INTO public.resource_maintenance_schedules
   (resource_id, maintenance_type, frequency_days, next_maintenance_date, is_active,
    reminder_days_before, description)
-SELECT r.id, 'preventive', 30, CURRENT_DATE, true, 0,
-       'Monthly computer lab PC + UPS test: switch on every computer, check it boots, keyboard, mouse and screen work, and each UPS keeps its computers running when mains power is switched off.'
+SELECT r.id, 'preventive', 30, (now() AT TIME ZONE 'Asia/Kolkata')::date, true, 0,
+       'Monthly PC + UPS test for the whole room: switch on every computer, check it boots, keyboard, mouse and screen work, and each UPS keeps its computers running when mains power is switched off.'
 FROM public.resources r
 JOIN public.resource_parent_categories pc ON pc.id = r.parent_category_id
 JOIN public.resource_sub_categories sc ON sc.id = r.subcategory_id
@@ -82,7 +87,7 @@ WHERE lower(btrim(pc.name)) = 'laboratories'
 INSERT INTO public.resource_maintenance_schedules
   (resource_id, maintenance_type, frequency_days, next_maintenance_date, is_active,
    reminder_days_before, description)
-SELECT r.id, 'preventive', 30, CURRENT_DATE, true, 0,
+SELECT r.id, 'preventive', 30, (now() AT TIME ZONE 'Asia/Kolkata')::date, true, 0,
        'Monthly printer check: print a test page, check the toner level and that a spare toner or refill is in stock.'
 FROM public.resources r
 JOIN public.resource_parent_categories pc ON pc.id = r.parent_category_id
@@ -99,8 +104,8 @@ WHERE lower(btrim(pc.name)) = 'it & digital resources'
 INSERT INTO public.resource_maintenance_schedules
   (resource_id, maintenance_type, frequency_days, next_maintenance_date, is_active,
    reminder_days_before, description)
-SELECT r.id, 'preventive', 30, CURRENT_DATE + 7, true, 0,
-       'Monthly lab check: fans, lights and power sockets work; taps and drains do not leak; lab equipment switches on and responds.'
+SELECT r.id, 'preventive', 30, (now() AT TIME ZONE 'Asia/Kolkata')::date + 7, true, 0,
+       'Monthly room check: fans, lights and power sockets work; taps and drains do not leak; the equipment switches on and responds.'
 FROM public.resources r
 JOIN public.resource_parent_categories pc ON pc.id = r.parent_category_id
 LEFT JOIN public.resource_sub_categories sc ON sc.id = r.subcategory_id
@@ -116,7 +121,7 @@ WHERE lower(btrim(pc.name)) = 'laboratories'
 INSERT INTO public.resource_maintenance_schedules
   (resource_id, maintenance_type, frequency_days, next_maintenance_date, is_active,
    reminder_days_before, description)
-SELECT r.id, 'preventive', 30, CURRENT_DATE, true, 0,
+SELECT r.id, 'preventive', 30, (now() AT TIME ZONE 'Asia/Kolkata')::date, true, 0,
        'Monthly hostel check: every fan and light works, taps and flushes do not leak.'
 FROM public.resources r
 JOIN public.resource_sub_categories sc ON sc.id = r.subcategory_id

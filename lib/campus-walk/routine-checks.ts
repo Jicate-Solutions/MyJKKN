@@ -45,6 +45,60 @@ const DUE_SCAN_LIMIT = 400;
 
 export const ROUTINE_CHECK_FRONT_DOOR = 'routine_check';
 
+/**
+ * The only "what to check" texts the daily job acts on — the five rules the
+ * seed migration writes (supabase/migrations/20270620090000_campus_walk_
+ * routine_check_schedules.sql; a unit test keeps the two in step).
+ *
+ * resource_maintenance_schedules is writable by ANY signed-in user (RLS
+ * `auth.uid() IS NOT NULL`, supabase/setup/03_policies.sql), and a schedule
+ * row now turns into a job and a bell. So a row whose text is not one of
+ * these — a row someone typed on the maintenance screen, or a row planted to
+ * send a message — is skipped and counted, never turned into a job. Full
+ * closure needs that table's insert/update policy tightened (a separate PR).
+ */
+export const SEEDED_ROUTINE_CHECK_TEXTS: readonly string[] = [
+  'Monthly PC + UPS test: switch on each computer, check it boots, keyboard, mouse and screen work, and the UPS keeps it running when mains power is switched off.',
+  'Monthly PC + UPS test for the whole room: switch on every computer, check it boots, keyboard, mouse and screen work, and each UPS keeps its computers running when mains power is switched off.',
+  'Monthly printer check: print a test page, check the toner level and that a spare toner or refill is in stock.',
+  'Monthly room check: fans, lights and power sockets work; taps and drains do not leak; the equipment switches on and responds.',
+  'Monthly hostel check: every fan and light works, taps and flushes do not leak.'
+];
+
+/** A seeded schedule repeats no more often than this (the seed says 30). */
+export const MIN_ROUTINE_CHECK_FREQUENCY_DAYS = 28;
+
+/**
+ * Is this schedule one the seed wrote: preventive, one of the five texts, and
+ * monthly or slower? A row edited to repeat every day would otherwise send a
+ * job every morning.
+ */
+export function isSeededSchedule(s: {
+  maintenance_type?: string | null;
+  description?: string | null;
+  frequency_days?: number | null;
+}): boolean {
+  return (
+    s.maintenance_type === 'preventive' &&
+    SEEDED_ROUTINE_CHECK_TEXTS.includes((s.description ?? '').trim()) &&
+    Number(s.frequency_days ?? 0) >= MIN_ROUTINE_CHECK_FREQUENCY_DAYS
+  );
+}
+
+/**
+ * Where a Campus Walk job should be opened. A routine check still waiting for
+ * its answer opens on the check screen (All OK / Found a problem); everything
+ * else — including a check turned into a repair — opens on the fix screen.
+ * The job also carries this as `metadata.open_path`; the overdue ladder
+ * (lib/campus-walk/chase-up.ts, draft #4160) can read either.
+ */
+export function campusWalkJobPath(taskId: string, metadata: Record<string, any> | null | undefined): string {
+  const m = metadata ?? {};
+  if (typeof m.open_path === 'string' && m.open_path.startsWith('/campus-walk/')) return m.open_path;
+  if (m.routine_check === true && !m.routine_check_outcome) return `/campus-walk/check?task=${taskId}`;
+  return `/campus-walk/fix?task=${taskId}`;
+}
+
 const EAO_ROLE = 'executive_admin_officer';
 const EAO_FALLBACK_EMAIL = 'eao@jkkn.ac.in';
 
@@ -86,8 +140,6 @@ export function routineCheckKey(scheduleId: string, dueOn: string): string {
 }
 
 export interface OwnerCandidates {
-  /** A person named on the schedule itself (maintenance screen). */
-  scheduleAssigneeProfileId?: string | null;
   /** The item's caretaker(s) from Resource Management, in order. */
   caretakerProfileIds: Array<string | null | undefined>;
   /** Executive Admin Officer(s) — the estate office. */
@@ -100,21 +152,22 @@ export interface OwnerCandidates {
 
 export interface OwnerChoice {
   profileId: string | null;
-  via: 'schedule' | 'caretaker' | 'eao' | 'principal' | 'nobody';
+  via: 'caretaker' | 'eao' | 'principal' | 'nobody';
 }
 
 /**
- * The owner ruling in one place: schedule assignee, then caretaker, then EAO,
- * then principal. A person without an active staff record is skipped — a job
- * given to them would be silently re-routed by the lane anyway.
+ * The owner ruling in one place: caretaker, then EAO, then principal. A person
+ * without an active staff record is skipped — a job given to them would be
+ * silently re-routed by the lane anyway.
+ *
+ * A person named on the schedule row (`assigned_to_user_id`) is deliberately
+ * NOT used: any signed-in user can write that row, so honouring it would let
+ * anyone send a job and a bell to any staff member (repair round, 1 Oct).
  */
 export function pickRoutineOwner(c: OwnerCandidates): OwnerChoice {
   const usable = (id: string | null | undefined): id is string =>
     Boolean(id) && c.profilesWithActiveStaff.has(id as string);
 
-  if (usable(c.scheduleAssigneeProfileId)) {
-    return { profileId: c.scheduleAssigneeProfileId, via: 'schedule' };
-  }
   const caretaker = c.caretakerProfileIds.find(usable);
   if (caretaker) return { profileId: caretaker, via: 'caretaker' };
   const eao = c.eaoProfileIds.find(usable);
@@ -193,11 +246,15 @@ export function validateOutcome(
 export function routineCheckState(task: {
   status_key: string;
   metadata: Record<string, any> | null;
-}): 'open' | 'not_routine' | 'answered' | 'closed' {
+}): 'open' | 'not_routine' | 'answered' | 'in_repair' | 'closed' {
   const m = task.metadata ?? {};
   if (m.source !== 'campus-walk' || m.routine_check !== true) return 'not_routine';
   if (m.routine_check_outcome) return 'answered';
   if (['done', 'cancelled', 'archived'].includes(task.status_key)) return 'closed';
+  // A fix photo was already sent from the fix screen (e.g. after an overdue
+  // reminder linked there): the job is waiting for approval, and All OK must
+  // not overwrite it.
+  if (task.status_key === 'review' || m.fix?.submitted_at || m.fix?.approval) return 'in_repair';
   return 'open';
 }
 
@@ -209,10 +266,14 @@ export function routineCheckState(task: {
 export function problemConversionMetadata(
   metadata: Record<string, any>,
   outcome: Record<string, unknown>,
-  photoStoragePath: string | null
+  photoStoragePath: string | null,
+  taskId?: string
 ): Record<string, any> {
+  const { open_path: _checkPath, ...rest } = metadata;
   return {
-    ...metadata,
+    ...rest,
+    // From now on this is a repair: reminders and links open the fix screen.
+    ...(taskId ? { open_path: `/campus-walk/fix?task=${taskId}` } : {}),
     kind: 'symptom',
     attribution: 'Routine check — problem found',
     routine_check_outcome: outcome,
@@ -307,6 +368,10 @@ export interface RoutineCheckRunReport {
   skipped_already_created: number;
   skipped_claimed_elsewhere: number;
   skipped_missing_item: number;
+  /** Due rows the query returned that still fail isSeededSchedule — expected 0; never acted on. */
+  skipped_not_seeded: number;
+  /** A second due schedule for an item that already got a job in this run. */
+  skipped_duplicate_item: number;
   failed: number;
   logs_written: number;
   left_for_next_run: number;
@@ -347,6 +412,8 @@ export async function runRoutineChecks(
     skipped_already_created: 0,
     skipped_claimed_elsewhere: 0,
     skipped_missing_item: 0,
+    skipped_not_seeded: 0,
+    skipped_duplicate_item: 0,
     failed: 0,
     logs_written: 0,
     left_for_next_run: 0,
@@ -360,6 +427,11 @@ export async function runRoutineChecks(
       'id, resource_id, maintenance_type, frequency_days, next_maintenance_date, assigned_to_user_id, description'
     )
     .eq('is_active', true)
+    // Filter in the query too, so rows that are not the seed's cannot fill
+    // the scan window and starve the real checks.
+    .eq('maintenance_type', 'preventive')
+    .in('description', SEEDED_ROUTINE_CHECK_TEXTS as string[])
+    .gte('frequency_days', MIN_ROUTINE_CHECK_FREQUENCY_DAYS)
     .lte('next_maintenance_date', today)
     .order('next_maintenance_date', { ascending: true })
     .order('id', { ascending: true })
@@ -369,8 +441,11 @@ export async function runRoutineChecks(
     report.errors.push(`schedules: ${dueErr.message}`);
     return report;
   }
-  const schedules = (dueRows ?? []) as ScheduleRow[];
-  report.due_found = schedules.length;
+  const allDue = (dueRows ?? []) as ScheduleRow[];
+  report.due_found = allDue.length;
+  // Only the seed's own rows become jobs (see SEEDED_ROUTINE_CHECK_TEXTS).
+  const schedules = allDue.filter(isSeededSchedule);
+  report.skipped_not_seeded = allDue.length - schedules.length;
   if (schedules.length === 0) return report;
 
   // Items, places and caretakers for every due schedule, in one read.
@@ -397,17 +472,23 @@ export async function runRoutineChecks(
   const allCandidates = [
     ...caretakerMap.values(),
     ...eaoIds,
-    ...[...principals.values()].flat(),
-    ...schedules.map((s) => s.assigned_to_user_id).filter(Boolean)
+    ...[...principals.values()].flat()
   ] as string[];
   const withStaff = await activeStaffProfiles(db, allCandidates);
 
+  const itemsDoneThisRun = new Set<string>();
   for (let i = 0; i < schedules.length; i++) {
     const s = schedules[i];
     if (report.created >= cap) {
       report.left_for_next_run = schedules.length - i;
       break;
     }
+    // One job per item per run, however many rows point at it.
+    if (itemsDoneThisRun.has(s.resource_id)) {
+      report.skipped_duplicate_item++;
+      continue;
+    }
+    itemsDoneThisRun.add(s.resource_id);
 
     const dueOn = s.next_maintenance_date;
     const key = routineCheckKey(s.id, dueOn);
@@ -454,7 +535,6 @@ export async function runRoutineChecks(
       .filter(Boolean)
       .map((id: string) => caretakerMap.get(id) ?? id);
     const owner = pickRoutineOwner({
-      scheduleAssigneeProfileId: s.assigned_to_user_id,
       caretakerProfileIds: caretakers,
       eaoProfileIds: eaoIds,
       principalProfileIds: principals.get(resource.institution_id) ?? [],
@@ -540,7 +620,9 @@ export async function runRoutineChecks(
     const metadata = {
       ...(((taskRow as any)?.metadata as Record<string, unknown>) ?? {}),
       attribution: 'Routine check',
-      routine_check_log_id: logId
+      routine_check_log_id: logId,
+      // Reminders and links for an unanswered check open the check screen.
+      open_path: `/campus-walk/check?task=${created.taskId}`
     };
     const { error: dueErr2 } = await db
       .from('project_tasks')

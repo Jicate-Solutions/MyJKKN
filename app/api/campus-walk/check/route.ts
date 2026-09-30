@@ -17,6 +17,12 @@
 //            same owner, and from then on it is closed through the fix screen
 //            with the normal photo + approval.
 //
+// Both writes are CONDITIONAL (same status, no recorded answer yet): a double
+// tap, or All OK racing Found a problem, lands exactly one answer; the loser
+// gets 409 and its photo row is removed. All OK also refuses a photo already
+// used to close another check, and a job whose repair photo is awaiting
+// approval (sent from the fix screen) cannot be answered here.
+//
 // metadata.fix is never written here: the scoreboard reads fix.approval as a
 // VERIFIED closure, and an All OK answer is not a repair.
 //
@@ -155,6 +161,13 @@ export async function POST(request: NextRequest) {
   if (state === 'closed') {
     return fail(409, 'not_open', 'This routine check is closed, so it cannot be answered.');
   }
+  if (state === 'in_repair') {
+    return fail(
+      409,
+      'in_repair',
+      'A repair photo has already been sent for this job and is waiting for approval, so it cannot be answered here.'
+    );
+  }
   if (state !== 'open') {
     return fail(400, 'wrong_lane', 'This screen only answers routine checks.');
   }
@@ -169,10 +182,37 @@ export async function POST(request: NextRequest) {
 
   let storagePath: string | null = null;
   let attachmentId: string | null = null;
+  let attachmentCreated = false;
+  let photoSha: string | null = null;
   if (hasPhoto) {
     const stored = await storePhoto(admin, taskId, photo as Blob);
     if (stored.ok === false) return stored.res;
     storagePath = stored.storagePath;
+    photoSha = stored.sha;
+
+    // All OK has no approval step, so its photo is the only proof. The same
+    // photo (after our re-encode) closing a different check is refused.
+    if (action === 'all_ok') {
+      const { data: reused, error: reuseErr } = await admin
+        .from('project_tasks')
+        .select('id')
+        .eq('metadata->routine_check_outcome->>photo_sha', stored.sha)
+        .neq('id', taskId)
+        .limit(1);
+      if (reuseErr) {
+        console.error('[campus-walk/check] photo reuse lookup failed:', reuseErr.message);
+        return fail(502, 'lookup_failed', 'We could not check the photo just now. Please try again.', {
+          retryable: true
+        });
+      }
+      if ((reused ?? []).length > 0) {
+        return fail(
+          409,
+          'photo_reused',
+          'This exact photo was already used to close another check. Please take a new photo of this item today.'
+        );
+      }
+    }
 
     const { existing, version } = await nextAttachmentVersion(admin, taskId, storagePath);
     if (existing) {
@@ -205,8 +245,18 @@ export async function POST(request: NextRequest) {
         );
       }
       attachmentId = att.id as string;
+      attachmentCreated = true;
     }
   }
+
+  /** A lost race must not leave the losing tap's photo behind as a "final report". */
+  async function dropOwnAttachment() {
+    if (!attachmentCreated || !attachmentId) return;
+    const { error } = await admin.from('project_task_attachments').delete().eq('id', attachmentId);
+    if (error) console.error('[campus-walk/check] attachment cleanup failed:', error.message);
+  }
+  const lostRace = () =>
+    fail(409, 'already_answered', 'Someone answered this routine check a moment ago, so your answer was not saved.');
 
   const outcome = {
     result: action,
@@ -217,12 +267,15 @@ export async function POST(request: NextRequest) {
     via: access.via,
     note: note || null,
     attachment_id: attachmentId,
-    storage_path: storagePath
+    storage_path: storagePath,
+    photo_sha: photoSha
   };
 
   // ── All OK: done, logged, schedule stamped ────────────────────────────────
   if (action === 'all_ok') {
-    const { error } = await admin
+    // Conditional: lands only if nobody answered (and nothing moved the job)
+    // since we read it — two overlapping answers cannot both win.
+    const { data: closedRows, error } = await admin
       .from('project_tasks')
       .update({
         status_key: 'done',
@@ -230,12 +283,19 @@ export async function POST(request: NextRequest) {
         is_blocked: false,
         metadata: { ...metadata, routine_check_outcome: outcome }
       })
-      .eq('id', taskId);
+      .eq('id', taskId)
+      .eq('status_key', task.status_key)
+      .is('metadata->routine_check_outcome', null)
+      .select('id');
     if (error) {
       console.error('[campus-walk/check] all_ok update failed:', error.message);
       return fail(502, 'not_saved', 'Your photo is saved but the check could not be closed. Tap All OK again.', {
         retryable: true
       });
+    }
+    if (!closedRows || closedRows.length === 0) {
+      await dropOwnAttachment();
+      return lostRace();
     }
 
     if (logId) {
@@ -280,21 +340,28 @@ export async function POST(request: NextRequest) {
   const place = typeof metadata.resource_place === 'string' ? metadata.resource_place : '';
   const repairTitle = `Repair: ${itemName}${place ? ` (${place})` : ''} — ${note}`.slice(0, 300);
 
-  const { error: convErr } = await admin
+  const { data: convRows, error: convErr } = await admin
     .from('project_tasks')
     .update({
       title: repairTitle,
       description: `Found during a routine check: ${note}\n\n${task.description ?? ''}`.trim(),
       due_date: repairDue,
       status_key: 'todo',
-      metadata: problemConversionMetadata(metadata, outcome, storagePath)
+      metadata: problemConversionMetadata(metadata, outcome, storagePath, taskId)
     })
-    .eq('id', taskId);
+    .eq('id', taskId)
+    .eq('status_key', task.status_key)
+    .is('metadata->routine_check_outcome', null)
+    .select('id');
   if (convErr) {
     console.error('[campus-walk/check] problem conversion failed:', convErr.message);
     return fail(502, 'not_saved', 'We could not record the problem just now. Nothing was lost — please try again.', {
       retryable: true
     });
+  }
+  if (!convRows || convRows.length === 0) {
+    await dropOwnAttachment();
+    return lostRace();
   }
 
   if (logId) {

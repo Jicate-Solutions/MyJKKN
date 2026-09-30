@@ -157,6 +157,23 @@ export default async function RoutineCheckPage({ searchParams }: PageProps) {
     );
   }
 
+  if (state === 'in_repair') {
+    return (
+      <Shell>
+        <InfoCard
+          icon={<Wrench className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />}
+          heading="A repair photo is already waiting for approval"
+          reason="This job was answered from the fix screen, so there is nothing to answer here."
+          action={
+            <Button asChild className="h-11">
+              <Link href={`/campus-walk/fix?task=${task.id}`}>Open the repair job</Link>
+            </Button>
+          }
+        />
+      </Shell>
+    );
+  }
+
   if (state === 'closed') {
     return (
       <Shell>

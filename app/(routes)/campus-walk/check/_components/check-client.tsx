@@ -5,7 +5,9 @@
  *
  * The person holding the phone is a lab assistant, an electrician or a
  * caretaker standing next to the item. Two big buttons:
- *   · All OK — needs ONE photo (camera or gallery). Closes the job.
+ *   · All OK — needs ONE photo taken now with the camera. Closes the job.
+ *     (The input asks for the camera, like the fix screen; the server also
+ *     refuses a photo already used to close another check.)
  *   · Found a problem — one line saying what is wrong, photo optional. The job
  *     becomes an ordinary repair for the same person.
  *
@@ -143,6 +145,7 @@ export function CheckClient({ ticket }: { ticket: CheckTicket }) {
             ref={fileRef}
             type="file"
             accept="image/*"
+            capture="environment"
             className="hidden"
             onChange={(e) => void onPick(e)}
           />
@@ -157,7 +160,7 @@ export function CheckClient({ ticket }: { ticket: CheckTicket }) {
             disabled={preparing || sending}
           >
             {preparing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
-            {photo ? 'Change the photo' : 'Add a photo (camera or gallery)'}
+            {photo ? 'Change the photo' : 'Take a photo'}
           </Button>
 
           {mode === 'problem' ? (
