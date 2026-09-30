@@ -247,8 +247,39 @@ export class PerformanceReviewService {
       .eq('id', staffId)
       .maybeSingle();
     if (error) throw error;
-    const institutionId = (data as { institution_id: string | null } | null)?.institution_id ?? null;
+    let institutionId = (data as { institution_id: string | null } | null)?.institution_id ?? null;
+
+    // The live read rule on staff shows a person their OWN row only when they
+    // hold staff.view, which faculty and heads usually do not (30 Sep 2026,
+    // #4139). A hidden row looks exactly like a missing one, so when nothing
+    // came back and the id is the caller's own record, take the college from
+    // the "my record" helpers every signed-in user may call.
+    if (!data) {
+      const own = await this.ownInstitutionFor(supabase, staffId);
+      if (own !== undefined) institutionId = own;
+    }
     return this.getPolicy(supabase, institutionId);
+  }
+
+  /**
+   * The caller's own college when `staffId` is one of their own staff records;
+   * undefined when it is somebody else's (or the helpers are unavailable), so
+   * the caller keeps its own fallback.
+   */
+  private static async ownInstitutionFor(
+    supabase: SupabaseClient,
+    staffId: string,
+  ): Promise<string | null | undefined> {
+    const rpc = (supabase as unknown as {
+      rpc: (fn: string) => Promise<{ data: string[] | null; error: unknown }>;
+    }).rpc.bind(supabase);
+    const [mine, institutions] = await Promise.all([
+      rpc('fn_my_staff_ids'),
+      rpc('fn_my_staff_institution_ids'),
+    ]);
+    if (mine.error || institutions.error) return undefined;
+    if (!(mine.data ?? []).includes(staffId)) return undefined;
+    return institutions.data?.[0] ?? null;
   }
 
   // -----------------------------------------------------------------------

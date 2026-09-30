@@ -40,11 +40,16 @@ function fakeClient(opts: {
   personRow?: { institution_id: string | null } | null;
   review?: Record<string, unknown>;
   policy?: Record<string, unknown> | null;
+  /** The caller's own staff ids and colleges, as fn_my_staff_ids / fn_my_staff_institution_ids answer. */
+  myStaffIds?: string[];
+  myInstitutionIds?: string[];
 }) {
   const fake: Fake = { rpcArgs: [], staffLookups: [], update: null };
   const client = {
-    rpc: async (_name: string, args: Record<string, unknown>) => {
-      fake.rpcArgs.push(args);
+    rpc: async (name: string, args?: Record<string, unknown>) => {
+      if (name === 'fn_my_staff_ids') return { data: opts.myStaffIds ?? [], error: null };
+      if (name === 'fn_my_staff_institution_ids') return { data: opts.myInstitutionIds ?? [], error: null };
+      fake.rpcArgs.push(args ?? {});
       return { data: opts.policy ?? null, error: null };
     },
     from: (table: string) => {
@@ -100,6 +105,28 @@ describe('reading the settings', () => {
 
   it('for a person with no college, falls back to the group value', async () => {
     const { client, fake } = fakeClient({ personRow: { institution_id: null }, policy: {} });
+    await PerformanceReviewService.getPolicyForStaff(client, 'staff-9');
+    expect(fake.rpcArgs[0]?.p_scope_id).toBeNull();
+  });
+
+  it('when the row is hidden by the read rule but it is the caller’s OWN record, uses the caller’s own college', async () => {
+    const { client, fake } = fakeClient({
+      personRow: null,
+      myStaffIds: ['staff-9'],
+      myInstitutionIds: ['college-c'],
+      policy: {},
+    });
+    await PerformanceReviewService.getPolicyForStaff(client, 'staff-9');
+    expect(fake.rpcArgs[0]?.p_scope_id).toBe('college-c');
+  });
+
+  it('when the row is hidden and it is somebody else’s record, still falls back to the group value', async () => {
+    const { client, fake } = fakeClient({
+      personRow: null,
+      myStaffIds: ['staff-1'],
+      myInstitutionIds: ['college-c'],
+      policy: {},
+    });
     await PerformanceReviewService.getPolicyForStaff(client, 'staff-9');
     expect(fake.rpcArgs[0]?.p_scope_id).toBeNull();
   });
