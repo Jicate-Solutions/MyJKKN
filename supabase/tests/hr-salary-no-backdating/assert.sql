@@ -114,6 +114,15 @@ SELECT t.check('structure: no past-date door left: neither body mentions allow_p
 SELECT t.check('structure: both the function and the guard ask fn_is_the_director()',
   (SELECT prosrc LIKE '%fn_is_the_director()%' FROM pg_proc WHERE proname = 'fn_hr_set_staff_salary')
   AND (SELECT prosrc LIKE '%fn_is_the_director()%' FROM pg_proc WHERE proname = 'hr_staff_salaries_guard_writes'));
+-- The 00:00-05:30 India window (UTC is still on the previous day). There is no
+-- faked clock, so the rule is pinned two ways: both bodies compute "today"
+-- with exactly this expression, and the expression gives India's date for a
+-- fixed instant inside that window.
+SELECT t.check('today in India: both bodies use (now() AT TIME ZONE ''Asia/Kolkata'')::date, and 19:00 UTC on 30 Sep is 1 Oct there',
+  (SELECT prosrc LIKE '%(now() AT TIME ZONE ''Asia/Kolkata'')::date%' FROM pg_proc WHERE proname = 'fn_hr_set_staff_salary')
+  AND (SELECT prosrc LIKE '%(now() AT TIME ZONE ''Asia/Kolkata'')::date%' FROM pg_proc WHERE proname = 'hr_staff_salaries_guard_writes')
+  AND ('2026-09-30 19:00:00+00'::timestamptz AT TIME ZONE 'Asia/Kolkata')::date = DATE '2026-10-01'
+  AND ('2026-09-30 18:29:00+00'::timestamptz AT TIME ZONE 'Asia/Kolkata')::date = DATE '2026-09-30');
 SELECT t.check('grants: anon cannot execute fn_hr_set_staff_salary',
   NOT has_function_privilege('anon', (SELECT oid FROM pg_proc WHERE proname = 'fn_hr_set_staff_salary'), 'EXECUTE'));
 SELECT t.check('grants: PUBLIC holds no EXECUTE on fn_hr_set_staff_salary',
