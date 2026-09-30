@@ -29,7 +29,6 @@ const ROW = {
 } as StaffSalaryDirectoryRow;
 
 const PAYLOAD = {
-  ruleSource: 'group',
   ruleUpdatedAt: null,
   suggestion: {
     verdict: 'suggested',
@@ -39,7 +38,8 @@ const PAYLOAD = {
     bandMin: 20000,
     bandMax: 30000,
     currentMonthlyPay: 21000,
-    extrasEligible: [],
+    aboveBandBy: null,
+    departmentName: 'Dept X',
     reasons: [],
   },
 };

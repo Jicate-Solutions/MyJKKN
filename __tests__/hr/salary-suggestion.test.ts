@@ -1,29 +1,34 @@
 /**
  * The salary suggestion engine (lib/hr/salary-suggestion.ts).
  *
- * Every verdict, and the rulings it follows: the rule starts blank and a blank
- * rule suggests nothing; 0 recorded experience is "not recorded", never a
- * fresher; a doctorate is eligible-only and never in the figure; the cap; never
- * a pay cut; rounding; absent keys.
+ * The Director's rulings (29 Sep 2026, evening): the amount per year at JKKN is
+ * set PER DEPARTMENT and an empty department gets no suggestion; years before
+ * JKKN count at HALF the department's amount, only when recorded (0 recorded is
+ * "not recorded", never a fresher); a doctorate adds NOTHING; no cap — a figure
+ * above the band top carries a warning. Also: never a pay cut; rounding in
+ * paise; absent keys are "not set".
  *
- * Job titles here are neutral fixture strings.
+ * Job titles and departments here are neutral fixture strings.
  *
  * Run: npx vitest run __tests__/hr/salary-suggestion.test.ts
  */
 import { describe, expect, it } from 'vitest';
 import {
-  hasDoctorate,
+  departmentRate,
+  formatRupees,
   isSalarySuggestionRuleEmpty,
   parseSalarySuggestionRule,
   suggestSalary,
   wholeYearsBetween,
   type SalarySuggestion,
-  type SalarySuggestionRule,
+  type SuggestionDepartment,
   type SuggestionPerson,
 } from '@/lib/hr/salary-suggestion';
 import type { PayBandPolicy } from '@/lib/hr/pay-band-check';
 
 const TODAY = '2026-09-29';
+const DEPT_X = 'abcdef12-1111-4111-8111-111111111111';
+const DEPT_Y = '22222222-2222-4222-8222-222222222222';
 
 const BAND: PayBandPolicy = {
   rungs: [
@@ -40,15 +45,22 @@ function person(over: Partial<SuggestionPerson> = {}): SuggestionPerson {
     dateOfJoining: '2020-06-15', // 6 whole years on TODAY
     experienceYears: 0,
     hasExtendedProfile: false,
-    qualifications: [],
-    researchPapers: 0,
     currentMonthlyPay: 21000,
     ...over,
   };
 }
 
-function run(p: Partial<SuggestionPerson>, rule: SalarySuggestionRule | null, band: PayBandPolicy | null = BAND) {
-  return suggestSalary({ person: person(p), band, rule, today: TODAY });
+function dept(perYearAtJkkn: number | null, over: Partial<SuggestionDepartment> = {}): SuggestionDepartment {
+  return { id: DEPT_X, name: 'Dept X', perYearAtJkkn, ...over };
+}
+
+function run(
+  p: Partial<SuggestionPerson>,
+  d: SuggestionDepartment,
+  band: PayBandPolicy | null = BAND,
+  roundTo: number | null = null
+) {
+  return suggestSalary({ person: person(p), band, department: d, roundTo, today: TODAY });
 }
 
 function line(s: SalarySuggestion, label: string) {
@@ -58,322 +70,230 @@ function line(s: SalarySuggestion, label: string) {
 }
 
 function sumOfLines(s: SalarySuggestion): number {
-  return s.lines.reduce((sum, l) => sum + (l.amount ?? 0), 0);
+  return Math.round(s.lines.reduce((sum, l) => sum + (l.amount ?? 0), 0) * 100) / 100;
 }
 
-describe('rule not set — no figure, ever', () => {
-  it('with no rule at all: shows the band and current pay, suggests nothing', () => {
-    const s = run({}, null);
+describe('the rule is read per department', () => {
+  const RULE = parseSalarySuggestionRule({
+    per_year_by_department: { [DEPT_X]: 500, [DEPT_Y]: 0 },
+    round_to: 500,
+  });
+
+  it('looks up each department on its own', () => {
+    expect(departmentRate(RULE, DEPT_X)).toBe(500);
+    expect(departmentRate(RULE, DEPT_Y)).toBe(0); // a deliberate 0 is an amount
+  });
+
+  it('an EMPTY department has no amount (null, never 0)', () => {
+    expect(departmentRate(RULE, '33333333-3333-4333-8333-333333333333')).toBeNull();
+    expect(departmentRate(RULE, null)).toBeNull();
+    expect(departmentRate(null, DEPT_X)).toBeNull();
+  });
+
+  it('finds a lower-case key whatever case the id is asked in, as Postgres does', () => {
+    expect(departmentRate(RULE, DEPT_X.toUpperCase())).toBe(500);
+  });
+
+  it('drops keys that are not lower-case department ids, and amounts that are not numbers', () => {
+    const r = parseSalarySuggestionRule({
+      per_year_by_department: { 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA': 500, 'not-an-id': 500, [DEPT_Y]: '500' },
+    });
+    expect(isSalarySuggestionRuleEmpty(r)).toBe(true);
+  });
+
+  it('the old single amount for everybody is not read at all', () => {
+    expect(isSalarySuggestionRuleEmpty(parseSalarySuggestionRule({ per_year_at_jkkn: 500 }))).toBe(true);
+  });
+});
+
+describe('an empty department, or no department: no figure', () => {
+  it('the Director left the department empty: "not set", plain, band still shown', () => {
+    const s = run({}, dept(null));
     expect(s.verdict).toBe('rule_not_set');
     expect(s.suggested).toBeNull();
     expect(s.computed).toBeNull();
     expect(s.lines).toEqual([]);
     expect(s.bandMin).toBe(20000);
-    expect(s.bandMax).toBe(30000);
     expect(s.currentMonthlyPay).toBe(21000);
-    expect(s.reasons[0].code).toBe('rule_not_set');
+    expect(s.reasons[0].code).toBe('department_amount_not_set');
+    expect(s.reasons[0].text).toContain('the Dept X department');
+    expect(s.departmentName).toBe('Dept X');
   });
 
-  it('with a rule that holds only rounding and cap settings: still not set', () => {
-    expect(run({}, { round_to: 500, cap_at_band_max: false, prior_counts: true }).verdict).toBe('rule_not_set');
-  });
-
-  it('with blank strings saved in the JSON: still not set (blank is absent, not 0)', () => {
-    const rule = parseSalarySuggestionRule({ per_year_at_jkkn: '', per_year_prior: '  ', extras: [] });
-    expect(rule).toEqual({});
-    expect(isSalarySuggestionRuleEmpty(rule)).toBe(true);
-    expect(run({}, rule).verdict).toBe('rule_not_set');
-  });
-
-  it('says so about a missing band too, without inventing one', () => {
-    const s = run({}, null, null);
-    expect(s.verdict).toBe('rule_not_set');
-    expect(s.bandMin).toBeNull();
-    expect(s.reasons.map((r) => r.code)).toEqual(['rule_not_set', 'college_has_no_band']);
-  });
-});
-
-describe('no band', () => {
-  const rule = { per_year_at_jkkn: 500 };
-
-  it('when the college has no band', () => {
-    const s = run({}, rule, null);
-    expect(s.verdict).toBe('no_band');
+  it('no department recorded on the person: cannot suggest, and says why', () => {
+    const s = run({}, { id: null, name: null, perYearAtJkkn: null });
+    expect(s.verdict).toBe('cannot_suggest');
+    expect(s.reasons[0].code).toBe('no_department');
     expect(s.suggested).toBeNull();
-    expect(s.reasons[0].code).toBe('college_has_no_band');
-  });
-
-  it('when no job title is recorded', () => {
-    const s = run({ designation: '  ' }, rule);
-    expect(s.verdict).toBe('no_band');
-    expect(s.reasons[0].code).toBe('no_job_title');
-  });
-
-  it('when the band does not cover the job title', () => {
-    const s = run({ designation: 'Gardener' }, rule);
-    expect(s.verdict).toBe('no_band');
-    expect(s.reasons[0].code).toBe('job_title_not_on_band');
   });
 });
 
-describe('a suggestion', () => {
-  it('starts at the band floor and adds whole years at JKKN', () => {
-    const s = run({}, { per_year_at_jkkn: 500 });
-    expect(s.verdict).toBe('suggested');
-    expect(line(s, 'Band floor for Office Assistant').amount).toBe(20000);
-    expect(line(s, 'Years at JKKN').amount).toBe(3000);
-    expect(line(s, 'Years at JKKN').note).toContain('6 whole years');
-    expect(s.suggested).toBe(23000);
-    expect(s.reasons[0].code).toBe('suggested_raise');
-    expect(s.reasons[0].text).toContain('₹2,000 more');
-    expect(sumOfLines(s)).toBe(s.suggested);
-  });
-
-  it('counts a year only once its anniversary is reached', () => {
-    expect(wholeYearsBetween('2020-09-30', TODAY)).toBe(5);
-    expect(wholeYearsBetween('2020-09-29', TODAY)).toBe(6);
-    expect(wholeYearsBetween('2026-10-01', TODAY)).toBeNull();
-  });
-
-  it('works out a first salary when none is recorded', () => {
-    const s = run({ currentMonthlyPay: null }, { per_year_at_jkkn: 500 });
+describe('years at JKKN at the department amount', () => {
+  it('band floor + whole years × the department amount, rounded to ₹100', () => {
+    const s = run({ currentMonthlyPay: 20000 }, dept(500));
+    expect(line(s, 'Years at JKKN').amount).toBe(3000); // 6 × 500
+    expect(line(s, 'Years at JKKN').note).toContain('the Dept X department');
     expect(s.verdict).toBe('suggested');
     expect(s.suggested).toBe(23000);
-    expect(s.reasons[0].code).toBe('suggested_first_salary');
+    expect(sumOfLines(s)).toBe(23000);
   });
 
-  it('a job title on a single rung starts at that rung', () => {
-    const s = run({ designation: 'typist', currentMonthlyPay: 5000 }, { per_year_at_jkkn: 50 }, BAND);
-    expect(s.bandMin).toBe(6500);
-    expect(s.bandMax).toBe(6500);
-    // 6500 + 300 rounds to 6800, above the one-rung band -> capped at 6500.
-    expect(s.suggested).toBe(6500);
+  it('two departments with different amounts give two different figures for the same person', () => {
+    const x = run({ currentMonthlyPay: 20000 }, dept(500));
+    const y = run({ currentMonthlyPay: 20000 }, dept(800, { id: DEPT_Y, name: 'Dept Y' }));
+    expect(x.suggested).toBe(23000);
+    expect(y.suggested).toBe(24800);
+  });
+
+  it('a deliberate 0 counts years as nothing, and is not "not set"', () => {
+    const s = run({ currentMonthlyPay: 19000 }, dept(0));
+    expect(s.verdict).toBe('suggested');
+    expect(line(s, 'Years at JKKN').amount).toBe(0);
+    expect(s.suggested).toBe(20000);
+  });
+
+  it('no joining date, or one in the future: cannot suggest', () => {
+    expect(run({ dateOfJoining: null }, dept(500)).reasons[0].code).toBe('no_joining_date');
+    expect(run({ dateOfJoining: '2027-01-01' }, dept(500)).reasons[0].code).toBe('joining_date_in_future');
   });
 });
 
-describe('prior experience — only when actually recorded', () => {
-  const rule = { per_year_at_jkkn: 500, prior_counts: true, per_year_prior: 200 };
+describe('years before JKKN at HALF the department amount, only when recorded', () => {
+  it('counts (total − years at JKKN) × half the amount', () => {
+    // 12 total, 6 at JKKN → 6 before; half of 500 = 250 → 1,500.
+    const s = run({ experienceYears: 12, hasExtendedProfile: true, currentMonthlyPay: 20000 }, dept(500));
+    const prior = line(s, 'Years before JKKN');
+    expect(prior.amount).toBe(1500);
+    expect(prior.note).toContain('half');
+    expect(prior.note).toContain('₹250 a year');
+    expect(s.suggested).toBe(24500); // 20,000 + 3,000 + 1,500
+    expect(sumOfLines(s)).toBe(24500);
+  });
 
-  it('is NOT counted when the extended profile is off, whatever the number says', () => {
-    const s = run({ hasExtendedProfile: false, experienceYears: 12 }, rule);
-    expect(line(s, 'Prior experience')).toEqual({
-      label: 'Prior experience',
-      amount: null,
-      note: 'Not recorded, not counted.',
+  it('an odd amount halves to paise, and the lines still add up after rounding', () => {
+    // half of 333 = 166.50; 6 × 166.50 = 999; 6 × 333 = 1,998; raw 22,997 → 23,000.
+    const s = run({ experienceYears: 12, hasExtendedProfile: true, currentMonthlyPay: 20000 }, dept(333));
+    expect(line(s, 'Years before JKKN').amount).toBe(999);
+    expect(line(s, 'Years before JKKN').note).toContain('₹166.50 a year');
+    expect(s.suggested).toBe(23000);
+    expect(sumOfLines(s)).toBe(23000);
+  });
+
+  it('0 recorded is "not recorded", never a fresher', () => {
+    const s = run({ experienceYears: 0, hasExtendedProfile: true }, dept(500));
+    expect(line(s, 'Years before JKKN')).toMatchObject({ amount: null, note: 'Not recorded, not counted.' });
+  });
+
+  it('a figure with the extended profile switched off is "not recorded"', () => {
+    const s = run({ experienceYears: 12, hasExtendedProfile: false }, dept(500));
+    expect(line(s, 'Years before JKKN').amount).toBeNull();
+  });
+
+  it('a total not more than the years at JKKN adds nothing', () => {
+    const s = run({ experienceYears: 5, hasExtendedProfile: true }, dept(500));
+    expect(line(s, 'Years before JKKN').amount).toBeNull();
+  });
+});
+
+describe('a doctorate adds NOTHING', () => {
+  it('there is no doctorate line and no extra of any kind in the result', () => {
+    const s = run({ currentMonthlyPay: 20000 }, dept(500));
+    expect(s.lines.map((l) => l.label)).toEqual(['Band floor for Office Assistant', 'Years at JKKN', 'Years before JKKN']);
+    expect(JSON.stringify(s)).not.toMatch(/doctor|ph\.?d|extras/i);
+  });
+
+  it('extras in a stored rule are ignored entirely', () => {
+    const r = parseSalarySuggestionRule({
+      per_year_by_department: { [DEPT_X]: 500 },
+      extras: [{ label: 'Doctorate', source: 'doctorate', amount: 3000 }],
     });
-  });
-
-  it('treats 0 as "not recorded", never as a fresher', () => {
-    const s = run({ hasExtendedProfile: true, experienceYears: 0 }, rule);
-    const l = line(s, 'Prior experience');
-    expect(l.amount).toBeNull();
-    expect(l.note).toBe('Not recorded, not counted.');
-    expect(JSON.stringify(s)).not.toMatch(/fresher|no experience/i);
-  });
-
-  it('counts total years less the years at JKKN when recorded and the rule counts it', () => {
-    const s = run({ hasExtendedProfile: true, experienceYears: 10 }, rule);
-    expect(line(s, 'Prior experience').amount).toBe(800); // (10 - 6) x 200
-    expect(s.suggested).toBe(23800);
-  });
-
-  it('counts nothing earlier when the recorded total is not above the years at JKKN', () => {
-    const s = run({ hasExtendedProfile: true, experienceYears: 6 }, rule);
-    expect(line(s, 'Prior experience').amount).toBeNull();
-    expect(line(s, 'Prior experience').note).toContain('not more than the 6 years at JKKN');
-  });
-
-  it('is recorded but not counted when the rule does not count it', () => {
-    const s = run({ hasExtendedProfile: true, experienceYears: 10 }, { per_year_at_jkkn: 500, per_year_prior: 200 });
-    expect(line(s, 'Prior experience').amount).toBeNull();
-    expect(line(s, 'Prior experience').note).toContain('does not count experience before JKKN');
-  });
-
-  it('is not counted when the rule counts it but sets no amount (absent key)', () => {
-    const s = run({ hasExtendedProfile: true, experienceYears: 10 }, { per_year_at_jkkn: 500, prior_counts: true });
-    expect(line(s, 'Prior experience').amount).toBeNull();
-    expect(line(s, 'Prior experience').note).toContain('sets no amount');
+    expect(r).toEqual({ per_year_by_department: { [DEPT_X]: 500 } });
   });
 });
 
-describe('extras', () => {
-  const doctorate = { label: 'Doctorate', source: 'doctorate', amount: 5000 };
-
-  it('a doctorate is listed as eligible and NOT added to the figure', () => {
-    const s = run(
-      { qualifications: [{ degree: 'Ph.D', institution: 'X', year: '2015' }] },
-      { per_year_at_jkkn: 500, extras: [doctorate] }
-    );
-    expect(s.extrasEligible).toEqual([{ label: 'Doctorate', amount: 5000, needsDirectorApproval: true }]);
-    expect(line(s, 'Doctorate').amount).toBeNull();
-    expect(line(s, 'Doctorate').note).toContain("needs the Director's approval");
-    expect(s.suggested).toBe(23000);
-    expect(s.reasons.map((r) => r.code)).toContain('extras_need_approval');
-  });
-
-  it('a doctorate needs approval even when the rule says it does not', () => {
-    const s = run(
-      { qualifications: [{ degree: 'PhD' }] },
-      { per_year_at_jkkn: 500, extras: [{ ...doctorate, needs_approval: false }] }
-    );
-    expect(s.suggested).toBe(23000);
-    expect(s.extrasEligible).toHaveLength(1);
-  });
-
-  it('reads a doctorate only when one is awarded', () => {
-    expect(hasDoctorate([{ degree: 'Ph.D.' }])).toBe(true);
-    expect(hasDoctorate([{ degree: 'Doctor of Philosophy' }])).toBe(true);
-    expect(hasDoctorate(['D.Sc'])).toBe(true);
-    expect(hasDoctorate([{ degree: 'Pharm.D' }])).toBe(false);
-    expect(hasDoctorate([{ degree: 'M.Phil' }])).toBe(false);
-    expect(hasDoctorate([{ degree: 'Ph.D', specialization: 'pursuing' }])).toBe(false);
-    expect(hasDoctorate([])).toBe(false);
-    expect(hasDoctorate(null)).toBe(false);
-  });
-
-  it('a person without a doctorate is not eligible', () => {
-    const s = run({ qualifications: [{ degree: 'M.A' }] }, { per_year_at_jkkn: 500, extras: [doctorate] });
-    expect(s.extrasEligible).toEqual([]);
-    expect(line(s, 'Doctorate').note).toContain('No doctorate recorded');
-  });
-
-  it('research papers without approval ARE added once the least number is reached', () => {
-    const rule = {
-      per_year_at_jkkn: 500,
-      extras: [{ label: 'Research', source: 'research_papers', amount: 1000, min_count: 3 }],
-    };
-    expect(run({ researchPapers: 3 }, rule).suggested).toBe(24000);
-    expect(line(run({ researchPapers: 2 }, rule), 'Research').amount).toBeNull();
-    expect(line(run({ researchPapers: 0 }, rule), 'Research').note).toBe(
-      'No research papers recorded. Not counted.'
-    );
-  });
-
-  it('research papers marked as needing approval are eligible, not added', () => {
-    const s = run(
-      { researchPapers: 5 },
-      {
-        per_year_at_jkkn: 500,
-        extras: [{ label: 'Research', source: 'research_papers', amount: 1000, needs_approval: true }],
-      }
-    );
-    expect(s.suggested).toBe(23000);
-    expect(s.extrasEligible).toEqual([{ label: 'Research', amount: 1000, needsDirectorApproval: true }]);
-  });
-
-  it('an item it cannot read, or with no amount, is shown and not counted', () => {
-    const s = run(
-      {},
-      {
-        per_year_at_jkkn: 500,
-        extras: [
-          { label: 'Mystery', source: 'shoe_size', amount: 9999 },
-          { label: 'Unpriced', source: 'doctorate', amount: null },
-        ],
-      }
-    );
-    expect(line(s, 'Mystery').amount).toBeNull();
-    expect(line(s, 'Mystery').note).toContain('does not say what to check');
-    expect(line(s, 'Unpriced').note).toContain('sets no amount');
-    expect(s.suggested).toBe(23000);
-  });
-});
-
-describe('cap and rounding', () => {
-  it('caps at the band maximum by default and says so', () => {
-    const s = run({}, { per_year_at_jkkn: 5000 }); // 20000 + 30000
-    expect(s.suggested).toBe(30000);
-    expect(line(s, 'Capped at the band maximum').amount).toBe(-20000);
-    expect(sumOfLines(s)).toBe(30000);
-  });
-
-  it('does not cap when the rule says not to', () => {
-    expect(run({}, { per_year_at_jkkn: 5000, cap_at_band_max: false }).suggested).toBe(50000);
-  });
-
-  it('rounds to the nearest 100 by default', () => {
-    const s = run({}, { per_year_at_jkkn: 333 }); // 20000 + 1998
-    expect(s.suggested).toBe(22000);
-    expect(line(s, 'Rounded to the nearest ₹100').amount).toBe(2);
-    expect(sumOfLines(s)).toBe(22000);
-  });
-
-  it('rounds to the rule\'s step, down as well as up', () => {
-    const s = run({ currentMonthlyPay: 20500 }, { per_year_at_jkkn: 233, round_to: 1000 }); // 20000 + 1398
-    expect(s.suggested).toBe(21000);
-    expect(line(s, 'Rounded to the nearest ₹1,000').amount).toBe(-398);
-  });
-});
-
-describe('never a pay cut', () => {
-  it('says plainly when current pay is already above the figure, and suggests nothing', () => {
-    const s = run({ currentMonthlyPay: 26000 }, { per_year_at_jkkn: 500 });
-    expect(s.verdict).toBe('cannot_suggest');
-    expect(s.suggested).toBeNull();
-    expect(s.computed).toBe(23000);
-    expect(s.reasons[0].code).toBe('current_pay_already_above');
-    expect(s.reasons[0].text).toContain('Current pay is already above this');
-    expect(s.reasons[0].text).toContain('never a pay cut');
-  });
-
-  it('suggests nothing when the figure equals current pay', () => {
-    const s = run({ currentMonthlyPay: 23000 }, { per_year_at_jkkn: 500 });
-    expect(s.verdict).toBe('cannot_suggest');
-    expect(s.reasons[0].code).toBe('current_pay_already_equal');
-  });
-});
-
-describe('cannot suggest', () => {
-  it('without a date of joining when the rule pays per year at JKKN', () => {
-    const s = run({ dateOfJoining: null }, { per_year_at_jkkn: 500 });
-    expect(s.verdict).toBe('cannot_suggest');
-    expect(s.suggested).toBeNull();
-    expect(s.reasons[0].code).toBe('no_joining_date');
-  });
-
-  it('with a date of joining after today', () => {
-    const s = run({ dateOfJoining: '2027-01-01' }, { per_year_at_jkkn: 500 });
-    expect(s.verdict).toBe('cannot_suggest');
-    expect(s.reasons[0].code).toBe('joining_date_in_future');
-  });
-
-  it('a missing date does not block a rule that does not pay per year at JKKN', () => {
-    const s = run(
-      { dateOfJoining: null, researchPapers: 4 },
-      { extras: [{ label: 'Research', source: 'research_papers', amount: 1500 }] }
-    );
+describe('no cap: above the band top is kept, with a warning', () => {
+  it('a figure over the top stays, and says by how much', () => {
+    // 6 × 2,000 = 12,000 on a 20,000 floor = 32,000, top 30,000.
+    const s = run({ currentMonthlyPay: 21000 }, dept(2000));
     expect(s.verdict).toBe('suggested');
-    expect(line(s, 'Years at JKKN').note).toContain('sets no amount');
-    expect(s.suggested).toBe(21500);
+    expect(s.suggested).toBe(32000);
+    expect(s.aboveBandBy).toBe(2000);
+    const warn = s.reasons.find((r) => r.code === 'above_band_top');
+    expect(warn?.text).toContain('Above the band top by ₹2,000');
+    expect(s.lines.some((l) => /cap/i.test(l.label))).toBe(false);
+    expect(sumOfLines(s)).toBe(32000);
+  });
+
+  it('at or under the top: no warning', () => {
+    const s = run({ currentMonthlyPay: 20000 }, dept(500));
+    expect(s.aboveBandBy).toBeNull();
+    expect(s.reasons.some((r) => r.code === 'above_band_top')).toBe(false);
+  });
+
+  it('the warning stays even when current pay is already higher (no suggestion)', () => {
+    const s = run({ currentMonthlyPay: 40000 }, dept(2000));
+    expect(s.verdict).toBe('cannot_suggest');
+    expect(s.aboveBandBy).toBe(2000);
   });
 });
 
-describe('reading the stored rule', () => {
-  it('reads plain numbers only — a numeric string, a negative and a zero step are all dropped', () => {
-    expect(
-      parseSalarySuggestionRule({ per_year_at_jkkn: 500, per_year_prior: -1, round_to: 0, prior_counts: 'yes' })
-    ).toEqual({ per_year_at_jkkn: 500 });
-    expect(parseSalarySuggestionRule({ per_year_at_jkkn: '500' })).toEqual({});
+describe('the band floor when no qualification is recorded', () => {
+  it('uses the lowest rung for the job title and says so', () => {
+    const s = run({ currentMonthlyPay: 20000 }, dept(500));
+    const floor = line(s, 'Band floor for Office Assistant');
+    expect(floor.amount).toBe(20000);
+    expect(floor.note).toContain('No qualification is recorded');
   });
 
-  it('does not unwrap { value: {...} }: a wrapped rule is "not set", as the database reads it', () => {
-    const rule = parseSalarySuggestionRule({ value: { per_year_at_jkkn: 500 } });
-    expect(rule).toEqual({});
-    expect(isSalarySuggestionRuleEmpty(rule)).toBe(true);
+  it('a single-rung title has no such note', () => {
+    const s = run({ designation: 'Typist', currentMonthlyPay: 5000 }, dept(100));
+    expect(line(s, 'Band floor for Typist').note).not.toContain('qualification');
   });
 
-  it('keeps a deliberate 0 as a set amount', () => {
-    const rule = parseSalarySuggestionRule({ per_year_at_jkkn: 0 });
-    expect(rule).toEqual({ per_year_at_jkkn: 0 });
-    expect(isSalarySuggestionRuleEmpty(rule)).toBe(false);
+  it('a college with no band: no figure', () => {
+    expect(run({}, dept(500), null).verdict).toBe('no_band');
+  });
+});
+
+describe('rounding and never a pay cut', () => {
+  it('rounds to the rule step, with a line, in whole paise', () => {
+    const s = run({ currentMonthlyPay: 20000 }, dept(510), BAND, 500);
+    // 20,000 + 3,060 = 23,060 → 23,000 (nearest 500).
+    const r = line(s, 'Rounded to the nearest ₹500');
+    expect(r.amount).toBe(-60);
+    expect(s.suggested).toBe(23000);
   });
 
-  it('returns null for something that is not a rule', () => {
-    expect(parseSalarySuggestionRule(null)).toBeNull();
-    expect(parseSalarySuggestionRule([1, 2])).toBeNull();
+  it('a sum that is already a whole step adds no rounding line (no float noise)', () => {
+    // 0.1-style amounts: 6 × 16.7 = 100.2 → with rate 16.7 the raw is 20,100.2 → 20,100.
+    const s = run({ currentMonthlyPay: 20000 }, dept(16.7));
+    expect(s.suggested).toBe(20100);
+    expect(line(s, 'Rounded to the nearest ₹100').amount).toBe(-0.2);
+    const exact = run({ currentMonthlyPay: 20000 }, dept(50));
+    expect(exact.lines.some((l) => l.label.startsWith('Rounded'))).toBe(false);
   });
 
-  it('refuses a malformed today rather than guessing the date', () => {
-    expect(() => suggestSalary({ person: person(), band: BAND, rule: { per_year_at_jkkn: 1 }, today: 'soon' })).toThrow();
+  it('current pay at or above the figure: no suggestion, never a cut', () => {
+    expect(run({ currentMonthlyPay: 23000 }, dept(500)).reasons[0].code).toBe('current_pay_already_equal');
+    expect(run({ currentMonthlyPay: 25000 }, dept(500)).reasons[0].code).toBe('current_pay_already_above');
+  });
+
+  it('no salary yet: a first salary is suggested', () => {
+    const s = run({ currentMonthlyPay: null }, dept(500));
+    expect(s.reasons[0].code).toBe('suggested_first_salary');
+    expect(s.suggested).toBe(23000);
+  });
+});
+
+describe('helpers', () => {
+  it('whole years count on the anniversary', () => {
+    expect(wholeYearsBetween('2020-09-30', '2026-09-29')).toBe(5);
+    expect(wholeYearsBetween('2020-09-29', '2026-09-29')).toBe(6);
+  });
+
+  it('rupees show paise only when there are any', () => {
+    expect(formatRupees(20000)).toBe('₹20,000');
+    expect(formatRupees(166.5)).toBe('₹166.50');
+    expect(formatRupees(-60)).toBe('−₹60');
   });
 });

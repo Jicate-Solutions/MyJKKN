@@ -11,9 +11,10 @@
 // college passes role_has_institution_access() for the CALLER. The client
 // passed in MUST be the caller's own session client — never a service-role one.
 //
-// The raw rule never leaves the server: the route returns the worked-out
-// suggestion (its lines, figure and reasons) for one person the caller may
-// already see on Employee Salaries, not the rule itself.
+// The rule never leaves the database whole: the function hands back only the
+// amount for THIS person's department (and the rounding step), and the route
+// returns the worked-out suggestion (its lines, figure and reasons) for one
+// person the caller may already see on Employee Salaries, not the rule itself.
 //
 // READ ONLY. Nothing here writes; a figure reaches a salary only through the
 // Edit Salary dialog, saved by a person.
@@ -23,11 +24,7 @@ import 'server-only';
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { parsePayBandPolicy } from '@/lib/services/hr/pay-bands/pay-band-policy-service';
-import {
-  parseSalarySuggestionRule,
-  suggestSalary,
-  type SalarySuggestion,
-} from '@/lib/hr/salary-suggestion';
+import { suggestSalary, type SalarySuggestion } from '@/lib/hr/salary-suggestion';
 
 export const SALARY_SUGGESTION_RPC = 'hr_salary_suggestion_inputs' as const;
 
@@ -39,29 +36,32 @@ export class SalarySuggestionAccessError extends Error {}
 /** No such person in the caller's colleges (or not on the HR roster): 404. */
 export class SalarySuggestionNotFoundError extends Error {}
 
-export type SalarySuggestionRuleSource = 'college' | 'group' | null;
-
 /** The route's response body. */
 export interface SalarySuggestionResponse {
   suggestion: SalarySuggestion;
-  /** Whether the rule applied is the college's own or the group-wide one. */
-  ruleSource: SalarySuggestionRuleSource;
+  /** When the Director last changed the amounts. null = never published. */
   ruleUpdatedAt: string | null;
 }
 
-interface InputsRow {
+/**
+ * One row of hr_salary_suggestion_inputs(). The rule arrives already reduced
+ * to THIS person's department: `rule_rate` (rupees per year at JKKN, null when
+ * the Director left the department empty) and `rule_round_to` — never the
+ * other departments' amounts.
+ */
+export interface SalarySuggestionInputsRow {
   staff_uuid: string;
   institution_id: string;
+  department_id: string | null;
+  department_name: string | null;
   designation: string | null;
   date_of_joining: string | null;
   experience_years: number | null;
   has_extended_profile: boolean | null;
-  qualifications: unknown;
-  research_papers: number | null;
   monthly_gross: number | string | null;
   band: unknown;
-  rule: unknown;
-  rule_source: string | null;
+  rule_rate: number | string | null;
+  rule_round_to: number | string | null;
   rule_updated_at: string | null;
 }
 
@@ -83,24 +83,25 @@ function toNumber(value: number | string | null | undefined): number | null {
 }
 
 /** Pure: one RPC row → the suggestion. Exported so it is testable without a database. */
-export function suggestionFromRow(row: InputsRow, today: string): SalarySuggestionResponse {
+export function suggestionFromRow(row: SalarySuggestionInputsRow, today: string): SalarySuggestionResponse {
   const suggestion = suggestSalary({
     person: {
       designation: row.designation,
       dateOfJoining: row.date_of_joining,
       experienceYears: toNumber(row.experience_years),
       hasExtendedProfile: row.has_extended_profile === true,
-      qualifications: row.qualifications,
-      researchPapers: toNumber(row.research_papers),
       currentMonthlyPay: toNumber(row.monthly_gross),
     },
     band: parsePayBandPolicy(row.band),
-    rule: parseSalarySuggestionRule(row.rule),
+    department: {
+      id: row.department_id ?? null,
+      name: row.department_name ?? null,
+      perYearAtJkkn: toNumber(row.rule_rate),
+    },
+    roundTo: toNumber(row.rule_round_to),
     today,
   });
-  const source: SalarySuggestionRuleSource =
-    row.rule_source === 'college' || row.rule_source === 'group' ? row.rule_source : null;
-  return { suggestion, ruleSource: source, ruleUpdatedAt: row.rule_updated_at ?? null };
+  return { suggestion, ruleUpdatedAt: row.rule_updated_at ?? null };
 }
 
 export const SalarySuggestionService = {
@@ -114,7 +115,7 @@ export const SalarySuggestionService = {
       if (error.code === INSUFFICIENT_PRIVILEGE) throw new SalarySuggestionAccessError(error.message);
       throw new Error(error.message);
     }
-    const rows = (data ?? []) as InputsRow[];
+    const rows = (data ?? []) as SalarySuggestionInputsRow[];
     if (rows.length !== 1) {
       throw new SalarySuggestionNotFoundError(
         'This person is not on the HR roster of a college you can see.'

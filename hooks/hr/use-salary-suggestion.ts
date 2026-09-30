@@ -27,7 +27,6 @@ export const SALARY_SUGGESTION_KEYS = {
 /** The route's response. Declared here so this file imports nothing server-side. */
 export interface SalarySuggestionPayload {
   suggestion: SalarySuggestion;
-  ruleSource: 'college' | 'group' | null;
   ruleUpdatedAt: string | null;
 }
 

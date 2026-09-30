@@ -3,7 +3,7 @@
 /**
  * The Director's salary suggestion rule, for its editor — read and saved
  * through /api/hr/payroll/salary-suggestion-rule, never from the browser.
- * The route admits super admins only.
+ * The route lets super admins look and only the Director list change it.
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -12,15 +12,15 @@ export const SALARY_SUGGESTION_RULE_KEYS = {
   all: ['hr', 'salary-suggestion-rule'] as const,
 };
 
-export interface RuleInstitution {
+export interface RuleDepartment {
   id: string;
   name: string;
+  institutionId: string;
+  institutionName: string;
 }
 
 export interface RuleRow {
   id: string;
-  scopeType: 'global' | 'institution';
-  scopeId: string | null;
   value: unknown;
   draftValue: unknown;
   publicationState: string;
@@ -28,13 +28,14 @@ export interface RuleRow {
 }
 
 export interface RuleListPayload {
-  institutions: RuleInstitution[];
-  rows: RuleRow[];
+  departments: RuleDepartment[];
+  /** The one group-wide row, or null before the first save. */
+  row: RuleRow | null;
+  /** True only for someone on the Director list. Everybody else looks only. */
+  canEdit: boolean;
 }
 
 export interface SaveRulePayload {
-  /** 'group' or a college id. */
-  scope: string;
   action: 'save_draft' | 'publish';
   rule: unknown;
   reason: string;

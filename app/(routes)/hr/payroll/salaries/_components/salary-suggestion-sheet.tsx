@@ -21,10 +21,12 @@
  * into the dialog.
  *
  * The figure is worked out on the server (GET /api/hr/payroll/salary-suggestions)
- * from the college's pay band and the Director's rule. Every step is a line
- * here, so the figure is never a number without a reason. When the rule has
- * not been set there is no figure at all — the panel says so and, for a super
- * admin, links to the rule editor.
+ * from the college's pay band and the Director's amount for the person's
+ * DEPARTMENT. Every step is a line here, so the figure is never a number
+ * without a reason. When the Director has left the department empty there is
+ * no figure at all — the panel says so plainly and, for a super admin, links
+ * to the department amounts page. A figure above the top of the band is kept
+ * (no cap) and shown with a red "above band by ₹X" warning.
  */
 
 import Link from 'next/link';
@@ -69,7 +71,7 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   /** Holds hr.payroll.salary.manage — may open the Edit Salary dialog. */
   canManage: boolean;
-  /** May open the rule editor, which is super-admin only. */
+  /** May open the department amounts page (super admins; only the Director may change it). */
   canEditRule: boolean;
   /** Opens the Edit Salary dialog for this person with the figure filled in. Saves nothing. */
   onUseFigure: (row: StaffSalaryDirectoryRow, monthlyGross: number) => void;
@@ -101,7 +103,7 @@ export function SalarySuggestionSheet({ row, onOpenChange, canManage, canEditRul
             Suggested salary
           </SheetTitle>
           <SheetDescription>
-            {`${row?.person_name ?? ''} — worked out from the pay band and the Director's rule.`}
+            {`${row?.person_name ?? ''} — worked out from the pay band and the Director's amount for their department.`}
           </SheetDescription>
           <div className='flex flex-wrap gap-1.5 pt-1'>
             <Badge variant='outline' className='font-normal'>
@@ -136,21 +138,22 @@ export function SalarySuggestionSheet({ row, onOpenChange, canManage, canEditRul
               {s.verdict === 'rule_not_set' && (
                 <Alert data-testid='rule-not-set'>
                   <Settings2 className='h-4 w-4' />
-                  <AlertTitle>The suggestion rule is not set yet</AlertTitle>
+                  <AlertTitle>No amount is set for this department</AlertTitle>
                   <AlertDescription>
-                    <p>
-                      The Director decides how much a year at JKKN, a year of earlier experience
-                      and other things are worth. Until he sets that, no figure is suggested.
-                    </p>
+                    {s.reasons
+                      .filter((r) => r.code === 'department_amount_not_set')
+                      .map((r) => (
+                        <p key={r.code}>{r.text}</p>
+                      ))}
                     {canEditRule ? (
                       <Link
                         href={SALARY_SUGGESTION_RULE_EDITOR}
                         className='mt-1 inline-block font-medium underline'
                       >
-                        Set the rule
+                        See the department amounts
                       </Link>
                     ) : (
-                      <p className='mt-1'>Only a super admin can set it.</p>
+                      <p className='mt-1'>Only the Director can set it.</p>
                     )}
                   </AlertDescription>
                 </Alert>
@@ -171,6 +174,20 @@ export function SalarySuggestionSheet({ row, onOpenChange, canManage, canEditRul
                 </div>
               )}
 
+              {s.aboveBandBy !== null && (
+                <Alert variant='destructive' data-testid='above-band'>
+                  <AlertTriangle className='h-4 w-4' />
+                  <AlertTitle>Above band by {formatRupees(s.aboveBandBy)}</AlertTitle>
+                  <AlertDescription>
+                    {s.reasons
+                      .filter((r) => r.code === 'above_band_top')
+                      .map((r) => (
+                        <p key={r.code}>{r.text}</p>
+                      ))}
+                  </AlertDescription>
+                </Alert>
+              )}
+
               {(s.verdict === 'no_band' || s.verdict === 'cannot_suggest') && (
                 <Alert
                   className='border-amber-500/50 text-amber-900 dark:text-amber-200 [&>svg]:text-amber-600 dark:[&>svg]:text-amber-400'
@@ -180,7 +197,7 @@ export function SalarySuggestionSheet({ row, onOpenChange, canManage, canEditRul
                   <AlertTitle>No figure suggested</AlertTitle>
                   <AlertDescription>
                     {s.reasons
-                      .filter((r) => r.code !== 'extras_need_approval')
+                      .filter((r) => r.code !== 'above_band_top')
                       .map((r) => (
                         <p key={r.code}>{r.text}</p>
                       ))}
@@ -198,17 +215,12 @@ export function SalarySuggestionSheet({ row, onOpenChange, canManage, canEditRul
                   }
                 />
                 <Fact label='Pay band for this job title' value={bandText(s)} />
-                {data?.ruleSource && (
-                  <Fact
-                    label='Rule used'
-                    value={data.ruleSource === 'college' ? "This college's own" : 'Group-wide'}
-                  />
-                )}
+                <Fact label='Department' value={s.departmentName ?? 'Not recorded'} />
               </div>
 
               {s.verdict === 'rule_not_set' &&
                 s.reasons
-                  .filter((r) => r.code !== 'rule_not_set')
+                  .filter((r) => r.code !== 'department_amount_not_set')
                   .map((r) => (
                     <p key={r.code} className='text-xs text-muted-foreground'>
                       {r.text}
@@ -250,25 +262,6 @@ export function SalarySuggestionSheet({ row, onOpenChange, canManage, canEditRul
                 </div>
               )}
 
-              {s.extrasEligible.length > 0 && (
-                <div
-                  className='rounded-lg border border-amber-500/50 bg-amber-500/5 p-3'
-                  data-testid='extras-eligible'
-                >
-                  <p className='text-sm font-medium'>Eligible — needs the Director&apos;s approval</p>
-                  <ul className='mt-1 space-y-0.5 text-sm'>
-                    {s.extrasEligible.map((e) => (
-                      <li key={e.label} className='flex justify-between gap-3 tabular-nums'>
-                        <span>{e.label}</span>
-                        <span>{formatRupees(e.amount)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  <p className='mt-1 text-xs text-muted-foreground'>
-                    Not included in the figure. He approves each case himself.
-                  </p>
-                </div>
-              )}
             </>
           )}
         </div>

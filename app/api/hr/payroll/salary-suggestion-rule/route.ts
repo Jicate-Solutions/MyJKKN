@@ -1,18 +1,22 @@
 export const dynamic = 'force-dynamic';
 
 /**
- * /api/hr/payroll/salary-suggestion-rule — the Director's salary suggestion rule.
+ * /api/hr/payroll/salary-suggestion-rule — the Director's per-department amounts.
  *
- *   GET  → the HR colleges and every stored row of the rule (group-wide and per
- *          college, published value and pending draft), for the editor.
- *   POST → save a draft or publish, for one college or group-wide, with a
- *          mandatory reason that goes to hr_policy_audit_log.
+ *   GET  → every active department at an HR college, the one group-wide row of
+ *          the rule (published value and pending draft), and `canEdit`.
+ *   POST → save a draft or publish, with a mandatory reason that goes to
+ *          hr_policy_audit_log.
  *
- * SUPER ADMINS ONLY, like the Pay Scales editor: the rule holds rupee amounts
- * that decide what the system suggests for everybody. Checked with
- * is_super_admin() (the profile flag), never a role name. Everything is read and
- * written with the caller's own session client, so the table's write policy and
- * the audit log's insert policy (is_super_admin()) still apply underneath.
+ * WHO. Looking: super admins (checked with is_super_admin(), the profile flag,
+ * never a role name) — the amounts decide what the system suggests for
+ * everybody. Changing: ONLY the Director list (fn_is_the_director(), #4121;
+ * the Director's ruling of 30 Sep 2026). Another super admin gets the page
+ * read-only (`canEdit: false`) and a 403 on POST. Both checks are strict: only
+ * a boolean true passes, and a failed check is a refusal, never a pass.
+ * Everything is read and written with the caller's own session client, so the
+ * table's policies and this PR's database guard (20270512090000, section 4)
+ * still apply underneath.
  *
  * Saving the rule changes NOBODY's pay. It only changes what the Suggest panel
  * on Employee Salaries works out.
@@ -31,24 +35,29 @@ import {
   SalarySuggestionRuleService,
 } from '@/lib/services/hr/pay-bands/salary-suggestion-rule-service';
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-async function refuseUnlessSuperAdmin(auth: AuthContext): Promise<NextResponse | null> {
+async function isSuperAdmin(auth: AuthContext): Promise<boolean> {
   const { data } = await auth.supabase.rpc('is_super_admin');
-  if (data === true) return null;
-  return NextResponse.json(
-    { error: 'Only a super administrator can see or change the salary suggestion rule.' },
-    { status: 403 },
-  );
+  return data === true;
 }
 
 export const GET = withAuth(
   async (_request, auth) => {
     await connection();
-    const refused = await refuseUnlessSuperAdmin(auth);
-    if (refused) return refused;
+    if (!(await isSuperAdmin(auth))) {
+      return NextResponse.json(
+        { error: 'Only a super administrator can see the salary suggestion amounts.' },
+        { status: 403 },
+      );
+    }
+    // Before #4121 is applied the check fails: the page is then read-only.
+    let canEdit = false;
     try {
-      return NextResponse.json(await SalarySuggestionRuleService.list(auth.supabase));
+      canEdit = await SalarySuggestionRuleService.isTheDirector(auth.supabase);
+    } catch (err: unknown) {
+      console.warn('[HR Salary Suggestion Rule] Director check failed; page read-only:', err);
+    }
+    try {
+      return NextResponse.json({ ...(await SalarySuggestionRuleService.list(auth.supabase)), canEdit });
     } catch (err: unknown) {
       console.error('[HR Salary Suggestion Rule] read error:', err);
       return NextResponse.json(
@@ -63,15 +72,25 @@ export const GET = withAuth(
 export const POST = withAuth(
   async (request, auth) => {
     await connection();
-    const refused = await refuseUnlessSuperAdmin(auth);
-    if (refused) return refused;
+    let director: boolean;
+    try {
+      director = await SalarySuggestionRuleService.isTheDirector(auth.supabase);
+    } catch (err: unknown) {
+      console.error('[HR Salary Suggestion Rule] Director check error:', err);
+      return NextResponse.json(
+        { error: 'Could not confirm that you are on the Director list, so nothing was saved.' },
+        { status: 500 },
+      );
+    }
+    if (!director) {
+      return NextResponse.json(
+        { error: 'Only the Director can change the salary suggestion amounts. Nothing was saved.' },
+        { status: 403 },
+      );
+    }
 
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-    const scope = body?.scope;
     const action = body?.action;
-    if (scope !== 'group' && !(typeof scope === 'string' && UUID.test(scope))) {
-      return NextResponse.json({ error: 'Say which college, or group-wide.' }, { status: 400 });
-    }
     if (action !== 'save_draft' && action !== 'publish') {
       return NextResponse.json({ error: 'Say whether to save a draft or publish.' }, { status: 400 });
     }
@@ -103,7 +122,6 @@ export const POST = withAuth(
 
     try {
       const result = await SalarySuggestionRuleService.save(auth.supabase, {
-        scopeId: scope === 'group' ? null : (scope as string),
         publish: action === 'publish',
         rule: body.rule,
         reason: typeof body.reason === 'string' ? body.reason : '',

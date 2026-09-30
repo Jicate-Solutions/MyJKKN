@@ -1,140 +1,102 @@
 /**
- * The salary suggestion rule editor's save path: a blank box is saved as an
- * ABSENT key, never 0 — the rule's whole contract is "absent = not set".
+ * The salary suggestion settings page's save path: one box per department, and
+ * a blank box is saved as an ABSENT key, never 0 — "absent = no suggestion for
+ * that department".
  *
- * formToRule is what the editor sends; ruleForStorage is what the server
- * stores whatever the browser sent. Both are pure, so no browser is needed.
+ * formToRule is what the page sends; ruleForStorage is what the server stores
+ * whatever the browser sent. Both are pure, so no browser is needed.
  *
  * Run: npx vitest run __tests__/hr/salary-suggestion-rule-form.test.ts
  */
 import { describe, it, expect } from 'vitest';
 import {
   EMPTY_RULE_FORM,
-  blankExtra,
   formToRule,
   ruleForStorage,
   ruleToForm,
   type RuleForm,
 } from '@/lib/hr/salary-suggestion-rule-form';
-import { isSalarySuggestionRuleEmpty, parseSalarySuggestionRule } from '@/lib/hr/salary-suggestion';
+import { departmentRate, parseSalarySuggestionRule } from '@/lib/hr/salary-suggestion';
+
+const X = 'abcdef12-1111-4111-8111-111111111111';
+const Y = '22222222-2222-4222-8222-222222222222';
 
 function form(over: Partial<RuleForm>): RuleForm {
-  return { ...EMPTY_RULE_FORM, extras: [], ...over };
+  return { ...EMPTY_RULE_FORM, byDepartment: {}, ...over };
 }
 
-describe('the editor: blank boxes are saved as absent, not 0', () => {
+describe('the page: blank boxes are saved as absent, not 0', () => {
   it('an untouched form carries no amount at all', () => {
     const { rule, errors } = formToRule(form({}));
     expect(errors).toEqual([]);
-    expect('per_year_at_jkkn' in rule).toBe(false);
-    expect('per_year_prior' in rule).toBe(false);
-    expect('round_to' in rule).toBe(false);
-    expect('extras' in rule).toBe(false);
-    expect(isSalarySuggestionRuleEmpty(rule)).toBe(true);
+    expect(rule).toEqual({});
   });
 
-  it('whitespace-only boxes are blank too', () => {
-    const { rule } = formToRule(form({ perYearAtJkkn: '   ', perYearPrior: ' ', roundTo: '' }));
-    expect('per_year_at_jkkn' in rule).toBe(false);
-    expect('per_year_prior' in rule).toBe(false);
-  });
-
-  it('a 0 typed on purpose is kept as 0', () => {
-    const { rule } = formToRule(form({ perYearAtJkkn: '0' }));
-    expect(rule.per_year_at_jkkn).toBe(0);
-    expect(isSalarySuggestionRuleEmpty(rule)).toBe(false);
-  });
-
-  it('reads rupees typed with commas or a ₹ sign', () => {
-    const { rule, errors } = formToRule(form({ perYearAtJkkn: '₹1,500', perYearPrior: '750' }));
+  it('only filled departments are saved; a blank box is left out', () => {
+    const { rule, errors } = formToRule(form({ byDepartment: { [X]: '500', [Y]: '  ' } }));
     expect(errors).toEqual([]);
-    expect(rule.per_year_at_jkkn).toBe(1500);
-    expect(rule.per_year_prior).toBe(750);
+    expect(rule).toEqual({ per_year_by_department: { [X]: 500 } });
+    expect(departmentRate(rule, Y)).toBeNull();
   });
 
-  it('refuses a figure that is not a number, or is negative, instead of guessing', () => {
-    expect(formToRule(form({ perYearAtJkkn: 'abc' })).errors).toHaveLength(1);
-    expect(formToRule(form({ perYearPrior: '-5' })).errors).toHaveLength(1);
-    expect(formToRule(form({ roundTo: '0' })).errors).toHaveLength(1);
+  it('a typed 0 is kept as 0 (a year adds nothing there), unlike a blank', () => {
+    const { rule } = formToRule(form({ byDepartment: { [X]: '0' } }));
+    expect(rule.per_year_by_department).toEqual({ [X]: 0 });
   });
 
-  it('an extra with a blank amount is kept WITHOUT an amount key', () => {
-    const { rule } = formToRule(
-      form({ extras: [{ ...blankExtra(), label: 'Doctorate', source: 'doctorate', amount: '' }] })
-    );
-    expect(rule.extras).toHaveLength(1);
-    expect('amount' in (rule.extras as object[])[0]).toBe(false);
+  it('commas, spaces and the rupee sign are ignored; paise are kept', () => {
+    const { rule } = formToRule(form({ byDepartment: { [X]: '₹1,250.50' } }));
+    expect(rule.per_year_by_department?.[X]).toBe(1250.5);
   });
 
-  it('a doctorate always needs the Director’s approval, whatever the switch says', () => {
-    const { rule } = formToRule(
-      form({
-        extras: [{ ...blankExtra(), label: 'Doctorate', source: 'doctorate', amount: '3000', needsApproval: false }],
-      })
-    );
-    expect(rule.extras?.[0].needs_approval).toBe(true);
-  });
-
-  it('research papers keep the least number only when it is a whole number of 1 or more', () => {
-    const ok = formToRule(
-      form({ extras: [{ ...blankExtra(), label: 'Papers', source: 'research_papers', amount: '500', minCount: '3', needsApproval: false }] })
-    );
-    expect(ok.rule.extras?.[0]).toMatchObject({ source: 'research_papers', amount: 500, min_count: 3, needs_approval: false });
-    const bad = formToRule(
-      form({ extras: [{ ...blankExtra(), label: 'Papers', source: 'research_papers', amount: '500', minCount: '0.5' }] })
-    );
-    expect(bad.errors).toHaveLength(1);
-  });
-
-  it('an unnamed item with an amount is an error; an unnamed empty one is dropped', () => {
-    expect(formToRule(form({ extras: [{ ...blankExtra(), amount: '100' }] })).errors).toHaveLength(1);
-    const dropped = formToRule(form({ extras: [blankExtra()] }));
-    expect(dropped.errors).toEqual([]);
-    expect('extras' in dropped.rule).toBe(false);
-  });
-
-  it('round-trips: what is stored comes back into the same boxes', () => {
-    const f = form({
-      perYearAtJkkn: '500',
-      priorCounts: true,
-      perYearPrior: '',
-      extras: [{ label: 'Doctorate', source: 'doctorate', amount: '3000', minCount: '', needsApproval: true }],
+  it('a negative or non-number amount is an error naming the department, not a blank', () => {
+    const { errors } = formToRule(form({ byDepartment: { [X]: '-5', [Y]: 'abc' } }), {
+      [X]: 'Physics (College A)',
     });
-    const back = ruleToForm(ruleForStorage(formToRule(f).rule));
-    expect(back.perYearAtJkkn).toBe('500');
-    expect(back.perYearPrior).toBe('');
-    expect(back.priorCounts).toBe(true);
-    expect(back.extras[0]).toMatchObject({ label: 'Doctorate', amount: '3000', needsApproval: true });
+    expect(errors).toEqual([
+      'The amount for Physics (College A) must be a number of rupees, 0 or more.',
+      'The amount for a department must be a number of rupees, 0 or more.',
+    ]);
+  });
+
+  it('round to: blank is the ₹100 default, 0 is an error', () => {
+    expect(formToRule(form({ roundTo: '' })).rule.round_to).toBeUndefined();
+    expect(formToRule(form({ roundTo: '500' })).rule.round_to).toBe(500);
+    expect(formToRule(form({ roundTo: '0' })).errors[0]).toContain('more than 0');
+  });
+
+  it('upper-case ids from the browser are stored lower-case, as Postgres looks them up', () => {
+    const { rule } = formToRule(form({ byDepartment: { [X.toUpperCase()]: '500' } }));
+    expect(Object.keys(rule.per_year_by_department ?? {})).toEqual([X]);
+  });
+
+  it('a stored rule round-trips through the boxes', () => {
+    const stored = { per_year_by_department: { [X]: 500, [Y]: 0 }, round_to: 500 };
+    const back = formToRule(ruleToForm(stored)).rule;
+    expect(back).toEqual(stored);
   });
 });
 
 describe('the server: what is stored, whatever the browser sent', () => {
-  it('a rule with no rupee amount is stored as {} — so a college row cannot hide the group-wide rule', () => {
-    expect(ruleForStorage({ prior_counts: true, cap_at_band_max: false, round_to: 500 })).toEqual({});
-    expect(ruleForStorage({ extras: [{ label: 'Doctorate', source: 'doctorate' }] })).toEqual({});
+  it('keeps only real department amounts', () => {
+    expect(
+      ruleForStorage({
+        per_year_by_department: { [X]: 500, [Y]: '300', 'not-an-id': 5 },
+        per_year_at_jkkn: 900,
+        extras: [{ label: 'Doctorate', amount: 3000 }],
+        cap_at_band_max: true,
+      })
+    ).toEqual({ per_year_by_department: { [X]: 500 } });
   });
 
-  it('drops negatives, junk and unknown keys; keeps a deliberate 0', () => {
-    const stored = ruleForStorage({
-      per_year_at_jkkn: -10,
-      per_year_prior: 0,
-      surprise: 'x',
-      round_to: 'nope',
-    });
-    expect(stored).toEqual({ per_year_prior: 0 });
+  it('a rule with no department amount at all is stored as {} — the round-to box alone is not a rule', () => {
+    expect(ruleForStorage({ round_to: 500 })).toEqual({});
+    expect(ruleForStorage({})).toEqual({});
+    expect(ruleForStorage('nonsense')).toEqual({});
   });
 
-  it('stores an extra with no amount without an amount key, and forces approval on a doctorate', () => {
-    const stored = ruleForStorage({
-      per_year_at_jkkn: 100,
-      extras: [
-        { label: 'Doctorate', source: 'doctorate', amount: 3000, needs_approval: false },
-        { label: 'Papers', source: 'research_papers' },
-      ],
-    });
-    expect(stored.extras?.[0]).toMatchObject({ amount: 3000, needs_approval: true });
-    expect('amount' in (stored.extras as object[])[1]).toBe(false);
-    // And the suggestion reads the stored row back the same way.
-    expect(parseSalarySuggestionRule(stored)?.extras?.[1].amount).toBeNull();
+  it('what is stored reads back the same through the suggestion parser', () => {
+    const stored = ruleForStorage({ per_year_by_department: { [X]: 250 }, round_to: 1000 });
+    expect(parseSalarySuggestionRule(stored)).toEqual(stored);
   });
 });

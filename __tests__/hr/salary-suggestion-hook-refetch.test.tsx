@@ -22,7 +22,7 @@ afterEach(() => {
 
 describe('useSalarySuggestion', () => {
   it('asks the server again every time the panel is reopened, even inside the app-wide fresh window', async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ suggestion: {}, ruleSource: null, ruleUpdatedAt: null })));
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ suggestion: {}, ruleUpdatedAt: null })));
     vi.stubGlobal('fetch', fetchMock);
     // The same default the app's provider sets (providers/query-client-provider.tsx).
     const client = new QueryClient({ defaultOptions: { queries: { staleTime: 5 * 60 * 1000, retry: false } } });

@@ -5,9 +5,10 @@
  * The stand-in answers hr_salary_suggestion_inputs() the way the rehearsed
  * migration does (supabase/tests/hr-salary-suggestion/run.sh, throwaway
  * PostgreSQL 16, helpers copied verbatim): RAISE 42501 without the key, and the
- * person only when their college is in the caller's scope. Its
- * `platform_policies` table hands back every rule to anyone — so if the service
- * ever read the table instead, `tablesRead` would say so.
+ * person only when their college is in the caller's scope, carrying only the
+ * amount for THEIR department. Its `platform_policies` table hands back every
+ * rule to anyone — so if the service ever read the table instead, `tablesRead`
+ * would say so.
  *
  * No role name appears: the stand-in answers from held keys and a college scope.
  *
@@ -32,11 +33,13 @@ let hasSessionCookie = true;
 const rpcCalls: Array<{ fn: string; args?: Record<string, unknown> }> = [];
 const tablesRead: string[] = [];
 
-const PEOPLE: Record<string, { institution_id: string; rule: unknown; rule_source?: 'college' | 'group' }> = {
-  [PERSON_A]: { institution_id: A, rule: { per_year_at_jkkn: 500 } },
-  [PERSON_B]: { institution_id: B, rule: { per_year_at_jkkn: 900 } },
-  // College C has no rule of its own: the migration hands back the group-wide one.
-  [PERSON_C]: { institution_id: C, rule: { per_year_at_jkkn: 700 }, rule_source: 'group' },
+// What hr_salary_suggestion_inputs() returns for each person: their own
+// department's amount only (rule_rate), never the rule row.
+const PEOPLE: Record<string, { institution_id: string; department: string; rate: number | null }> = {
+  [PERSON_A]: { institution_id: A, department: 'Dept A', rate: 500 },
+  [PERSON_B]: { institution_id: B, department: 'Dept B', rate: 900 },
+  // The Director left Dept C empty: no amount comes back.
+  [PERSON_C]: { institution_id: C, department: 'Dept C', rate: null },
 };
 
 function inputsRpc(args?: Record<string, unknown>) {
@@ -55,16 +58,17 @@ function inputsRpc(args?: Record<string, unknown>) {
       {
         staff_uuid: id,
         institution_id: p.institution_id,
+        department_id: `dept-of-${id}`,
+        department_name: p.department,
         designation: 'Office Assistant',
         date_of_joining: '2020-06-15',
         experience_years: 0,
         has_extended_profile: false,
-        qualifications: [],
-        research_papers: 0,
         monthly_gross: '21000.00',
         band: { pay_matrix: [{ designation: 'Office Assistant', basic_pay: 20000 }, { designation: 'Office Assistant', basic_pay: 30000 }] },
-        rule: p.rule,
-        rule_source: p.rule_source ?? 'college',
+        // numeric arrives over PostgREST as a string
+        rule_rate: p.rate === null ? null : String(p.rate),
+        rule_round_to: null,
         rule_updated_at: '2026-09-29T00:00:00Z',
       },
     ],
@@ -148,9 +152,12 @@ describe('Salary suggestion route: what each caller gets', () => {
     expect(body.suggestion.verdict).toBe('suggested');
     expect(body.suggestion.bandMin).toBe(20000);
     expect(body.suggestion.currentMonthlyPay).toBe(21000);
-    expect(body.ruleSource).toBe('college');
+    expect(body.suggestion.departmentName).toBe('Dept A');
+    // 6 whole years × ₹500 for Dept A.
+    expect(body.suggestion.lines.find((l: { label: string }) => l.label === 'Years at JKKN').amount).toBe(3000);
     // The raw rule is not sent; only the worked-out suggestion.
     expect(body.rule).toBeUndefined();
+    expect(body.rule_rate).toBeUndefined();
     expect(tablesRead).not.toContain('platform_policies');
     expect(rpcCalls).toContainEqual({ fn: 'hr_salary_suggestion_inputs', args: { p_staff_id: PERSON_A } });
   });
@@ -182,8 +189,8 @@ describe('Salary suggestion route: what each caller gets', () => {
   });
 });
 
-describe('Salary suggestion route: a college with no rule of its own', () => {
-  it('INTENDED: a holder scoped to that one college sees the group-wide amounts in the lines — it is the effective rule there', async () => {
+describe('Salary suggestion route: a department the Director left empty', () => {
+  it('says so plainly and offers no figure', async () => {
     heldKeys = [REQUIRED_KEY];
     scope = [C];
 
@@ -191,23 +198,20 @@ describe('Salary suggestion route: a college with no rule of its own', () => {
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.ruleSource).toBe('group');
-    const years = body.suggestion.lines.find((l: { label: string }) => l.label === 'Years at JKKN');
-    expect(years.note).toContain('₹700 a year');
-    expect(years.amount % 700).toBe(0);
-    expect(years.amount).toBeGreaterThan(0);
-    // The group-wide row itself is still never sent.
-    expect(body.rule).toBeUndefined();
+    expect(body.suggestion.verdict).toBe('rule_not_set');
+    expect(body.suggestion.suggested).toBeNull();
+    expect(body.suggestion.reasons[0].text).toContain('the Dept C department');
+    // No other department's amount is in the answer.
+    expect(JSON.stringify(body)).not.toMatch(/500|900/);
   });
 
-  it('but not for a college outside their scope', async () => {
+  it('and a college outside the caller\'s scope is still a 404', async () => {
     heldKeys = [REQUIRED_KEY];
     scope = [A];
 
     const res = await call(PERSON_C);
 
     expect(res.status).toBe(404);
-    expect(JSON.stringify(await res.json())).not.toMatch(/700/);
   });
 });
 

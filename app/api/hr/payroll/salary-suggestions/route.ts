@@ -19,13 +19,12 @@ export const dynamic = 'force-dynamic';
  * allowApiKey: false — an API key skips withAuth's permission check, and this is
  * a browser screen's data, not an integration endpoint.
  *
- * A COLLEGE WITH NO RULE OF ITS OWN uses the group-wide rule — for everyone who
- * may see that college's people, a holder scoped to one college included — and
- * the worked-out lines show the group-wide amounts. That is intended: the
- * group-wide rule IS the effective rule for that college. What comes back is
- * its effect on one person the caller may already see; the group-wide row
- * itself is never returned. Pinned by __tests__/hr/salary-suggestion-route-
- * permission-gate.test.ts and by run.sh ("own-scope holder + grant to C").
+ * ONE DEPARTMENT'S AMOUNT, NOTHING MORE. The Director sets an amount per year
+ * at JKKN for each department (ruling of 29 Sep 2026). The database hands back
+ * only the amount for the person's own department; the route returns the
+ * worked-out lines for one person the caller may already see. The rule row
+ * itself, and every other department's amount, is never returned. Pinned by
+ * __tests__/hr/salary-suggestion-route-permission-gate.test.ts and by run.sh.
  *
  * READ ONLY. There is no POST, PUT, PATCH or DELETE here.
  */

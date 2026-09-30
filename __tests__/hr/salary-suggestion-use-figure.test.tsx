@@ -78,7 +78,6 @@ const ROW: StaffSalaryDirectoryRow = {
 
 function suggested(figure: number): SalarySuggestionPayload {
   return {
-    ruleSource: 'group',
     ruleUpdatedAt: null,
     suggestion: {
       verdict: 'suggested',
@@ -88,7 +87,8 @@ function suggested(figure: number): SalarySuggestionPayload {
       bandMin: 20000,
       bandMax: 30000,
       currentMonthlyPay: 21000,
-      extrasEligible: [],
+      aboveBandBy: null,
+      departmentName: 'Dept X',
       reasons: [],
     },
   };
@@ -114,7 +114,6 @@ afterEach(() => {
 
 function ruleNotSet(): SalarySuggestionPayload {
   return {
-    ruleSource: null,
     ruleUpdatedAt: null,
     suggestion: {
       verdict: 'rule_not_set',
@@ -124,8 +123,9 @@ function ruleNotSet(): SalarySuggestionPayload {
       bandMin: 20000,
       bandMax: 30000,
       currentMonthlyPay: 21000,
-      extrasEligible: [],
-      reasons: [{ code: 'rule_not_set', text: 'not set' }],
+      aboveBandBy: null,
+      departmentName: 'Dept X',
+      reasons: [{ code: 'department_amount_not_set', text: 'not set' }],
     },
   };
 }
@@ -196,24 +196,42 @@ describe('the Suggest panel', () => {
     expect(onUseFigure).not.toHaveBeenCalled();
   });
 
-  it('tells someone who is not a super admin that a super admin sets the rule', () => {
+  it('tells someone who is not a super admin that only the Director sets the amount', () => {
     suggestion = ruleNotSet();
     render(<SalarySuggestionSheet row={ROW} onOpenChange={() => {}} canManage canEditRule={false} onUseFigure={vi.fn()} />);
-    expect(screen.getByText('Only a super admin can set it.')).toBeInTheDocument();
-    expect(screen.queryByText(/Only the Director can set it/)).toBeNull();
-    expect(screen.queryByRole('link', { name: 'Set the rule' })).toBeNull();
+    expect(screen.getByText('Only the Director can set it.')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'See the department amounts' })).toBeNull();
   });
 
-  it('offers no figure at all when the rule is not set, and links a super admin to the rule', () => {
+  it('offers no figure at all when the department is empty, and links a super admin to the amounts', () => {
     suggestion = ruleNotSet();
     render(<SalarySuggestionSheet row={ROW} onOpenChange={() => {}} canManage canEditRule onUseFigure={vi.fn()} />);
     expect(screen.getByTestId('rule-not-set')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Set the rule' })).toHaveAttribute(
+    expect(screen.getByText('No amount is set for this department')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'See the department amounts' })).toHaveAttribute(
       'href',
       '/hr/admin/policies/salary-suggestion'
     );
     expect(screen.queryByRole('button', { name: 'Use this figure' })).toBeNull();
     expect(screen.queryByTestId('suggested-figure')).toBeNull();
+  });
+
+  it('shows a red "above band by" warning and still offers the figure (no cap)', () => {
+    const payload = suggested(32000);
+    payload.suggestion.aboveBandBy = 2000;
+    payload.suggestion.reasons = [{ code: 'above_band_top', text: 'Above the band top by ₹2,000.' }];
+    suggestion = payload;
+    render(<SalarySuggestionSheet row={ROW} onOpenChange={() => {}} canManage canEditRule={false} onUseFigure={vi.fn()} />);
+    expect(screen.getByTestId('above-band')).toHaveTextContent('Above band by ₹2,000');
+    expect(screen.getByTestId('suggested-figure')).toHaveTextContent('₹32,000');
+    expect(screen.getByRole('button', { name: 'Use this figure' })).toBeEnabled();
+  });
+
+  it('shows no warning when the figure is inside the band', () => {
+    suggestion = suggested(24500);
+    render(<SalarySuggestionSheet row={ROW} onOpenChange={() => {}} canManage canEditRule={false} onUseFigure={vi.fn()} />);
+    expect(screen.queryByTestId('above-band')).toBeNull();
+    expect(screen.getByText('Dept X')).toBeInTheDocument();
   });
 });
 

@@ -3,24 +3,25 @@
 // The Director's salary suggestion rule — read and saved on the SERVER.
 // ============================================================================
 //
-// The rule is the `hr.salary_suggestion_rule` policy in platform_policies: one
-// row per college (scope_type 'institution') and one group-wide row
-// (scope_type 'global', scope_id NULL) that applies to every college without
-// its own. It holds rupee amounts, so the editor never reads it from the
-// browser (PR #4111 locks the key at the database; its guard test fails a
-// client file that names the key and reads the table).
+// The rule is the `hr.salary_suggestion_rule` policy in platform_policies:
+// ONE group-wide row (scope_type 'global', scope_id NULL) holding an amount
+// per year at JKKN for each department (the Director's ruling of 29 Sep 2026:
+// "the Director fills every department on one settings page; empty = no
+// suggestion"). It holds rupee amounts, so the page never reads it from the
+// browser (PR #4111 locks the key at the database).
 //
-// Called only from /api/hr/payroll/salary-suggestion-rule, which admits super
-// admins only, with the CALLER's session client: the table's own write policy
-// (is_super_admin() OR is_admin()) and hr_policy_audit_log's insert policy
-// (is_super_admin()) still apply.
+// Called only from /api/hr/payroll/salary-suggestion-rule, with the CALLER's
+// session client, so the table's own policies still apply: #4111 lets only
+// admins read a group-wide pay row and only super admins write one, and this
+// PR's migration (20270512090000, section 4) refuses every write to this key
+// unless the caller is on the Director list (fn_is_the_director(), #4121).
 //
 // DRAFT → PUBLISH, with a mandatory reason, logged to hr_policy_audit_log —
 // the same lifecycle as the other HR policy editors (PolicyEditorShell). Two
 // differences, both because this key starts with NO rows:
 //   - the first save CREATES the row. A first "Save draft" stores the rule in
 //     draft_value with value '{}' and publication_state 'draft_only', so the
-//     suggestion keeps reading "rule not set" until it is published;
+//     suggestion keeps reading "not set" until it is published;
 //   - a failed audit insert is REPORTED, not swallowed.
 // ============================================================================
 
@@ -35,16 +36,18 @@ export const POLICIES_TABLE = 'platform_policies' as const;
 export const AUDIT_LOG_TABLE = 'hr_policy_audit_log' as const;
 /** Is PR #4111's protection of this key live? See 20270512090000, section 3. */
 export const RULE_LOCK_RPC = 'fn_hr_salary_rule_lock_present' as const;
+/** Is the caller on the Director list? #4121's function (20270520090000). */
+export const DIRECTOR_RPC = 'fn_is_the_director' as const;
 
-export interface RuleInstitution {
+export interface RuleDepartment {
   id: string;
   name: string;
+  institutionId: string;
+  institutionName: string;
 }
 
 export interface RuleRow {
   id: string;
-  scopeType: 'global' | 'institution';
-  scopeId: string | null;
   value: unknown;
   draftValue: unknown;
   publicationState: string;
@@ -52,13 +55,13 @@ export interface RuleRow {
 }
 
 export interface RuleListResponse {
-  institutions: RuleInstitution[];
-  rows: RuleRow[];
+  /** Every active department at a college in the HR module, college by college. */
+  departments: RuleDepartment[];
+  /** The one group-wide row, or null before the first save. */
+  row: RuleRow | null;
 }
 
 export interface SaveRuleInput {
-  /** null = group-wide. */
-  scopeId: string | null;
   publish: boolean;
   rule: unknown;
   reason: string;
@@ -88,8 +91,6 @@ interface RawRow {
 function shape(r: RawRow): RuleRow {
   return {
     id: r.id,
-    scopeType: r.scope_type === 'global' ? 'global' : 'institution',
-    scopeId: r.scope_id,
     value: r.value,
     draftValue: r.draft_value,
     publicationState: r.publication_state ?? 'published',
@@ -97,7 +98,7 @@ function shape(r: RawRow): RuleRow {
   };
 }
 
-async function listInstitutions(supabase: SupabaseClient): Promise<RuleInstitution[]> {
+async function listInstitutions(supabase: SupabaseClient): Promise<Array<{ id: string; name: string }>> {
   // Only institutions that are IN the HR module, as the other HR policy editors
   // offer them. The !inner embed is the intended row-drop here.
   const { data, error } = await supabase
@@ -108,7 +109,7 @@ async function listInstitutions(supabase: SupabaseClient): Promise<RuleInstituti
     .order('name', { ascending: true });
   if (error) throw new Error(`Failed to load colleges: ${error.message}`);
   const seen = new Set<string>();
-  const out: RuleInstitution[] = [];
+  const out: Array<{ id: string; name: string }> = [];
   for (const r of (data ?? []) as Array<{ id: string; name: string }>) {
     if (seen.has(r.id)) continue;
     seen.add(r.id);
@@ -117,15 +118,37 @@ async function listInstitutions(supabase: SupabaseClient): Promise<RuleInstituti
   return out;
 }
 
-async function listRows(supabase: SupabaseClient): Promise<RuleRow[]> {
+async function listDepartments(supabase: SupabaseClient): Promise<RuleDepartment[]> {
+  const colleges = await listInstitutions(supabase);
+  if (colleges.length === 0) return [];
+  const collegeName = new Map(colleges.map((c) => [c.id, c.name]));
+  const { data, error } = await supabase
+    .from('departments')
+    .select('id, department_name, institution_id')
+    .in('institution_id', colleges.map((c) => c.id))
+    .eq('is_active', true)
+    .order('department_name', { ascending: true });
+  if (error) throw new Error(`Failed to load departments: ${error.message}`);
+  return ((data ?? []) as Array<{ id: string; department_name: string; institution_id: string }>)
+    .map((d) => ({
+      id: d.id.toLowerCase(),
+      name: d.department_name,
+      institutionId: d.institution_id,
+      institutionName: collegeName.get(d.institution_id) ?? '',
+    }))
+    .sort((a, b) => a.institutionName.localeCompare(b.institutionName) || a.name.localeCompare(b.name));
+}
+
+async function findRow(supabase: SupabaseClient): Promise<RawRow | null> {
   const { data, error } = await supabase
     .from(POLICIES_TABLE)
     .select(ROW_COLUMNS)
-    .eq('policy_key', SALARY_SUGGESTION_RULE_KEY);
+    .eq('policy_key', SALARY_SUGGESTION_RULE_KEY)
+    .eq('scope_type', 'global')
+    .is('scope_id', null)
+    .maybeSingle();
   if (error) throw new Error(`Failed to load the rule: ${error.message}`);
-  return ((data ?? []) as RawRow[])
-    .filter((r) => r.scope_type === 'global' || r.scope_type === 'institution')
-    .map(shape);
+  return (data as RawRow | null) ?? null;
 }
 
 export const SalarySuggestionRuleService = {
@@ -140,34 +163,36 @@ export const SalarySuggestionRuleService = {
     return data === true;
   },
 
+  /**
+   * True only when the caller is on the Director list (strictly `true`).
+   * Throws when the check itself fails — for example before #4121 is applied —
+   * and the caller must then refuse, never assume.
+   */
+  async isTheDirector(supabase: SupabaseClient): Promise<boolean> {
+    const { data, error } = await supabase.rpc(DIRECTOR_RPC);
+    if (error) throw new Error(`Could not check the Director list: ${error.message}`);
+    return data === true;
+  },
+
   async list(supabase: SupabaseClient): Promise<RuleListResponse> {
-    const [institutions, rows] = await Promise.all([listInstitutions(supabase), listRows(supabase)]);
-    return { institutions, rows };
+    const [departments, row] = await Promise.all([listDepartments(supabase), findRow(supabase)]);
+    return { departments, row: row ? shape(row) : null };
   },
 
   async save(supabase: SupabaseClient, input: SaveRuleInput): Promise<SaveRuleResult> {
     const reason = input.reason.trim();
     if (reason.length < 5) throw new RuleInputError('Give a reason of at least 5 characters.');
 
-    if (input.scopeId !== null) {
-      const institutions = await listInstitutions(supabase);
-      if (!institutions.some((i) => i.id === input.scopeId)) {
-        throw new RuleInputError('That college is not in the HR module.');
-      }
+    const rule: SalarySuggestionRule = ruleForStorage(input.rule);
+    const known = new Set((await listDepartments(supabase)).map((d) => d.id));
+    const unknown = Object.keys(rule.per_year_by_department ?? {}).filter((id) => !known.has(id));
+    if (unknown.length > 0) {
+      throw new RuleInputError(
+        `${unknown.length === 1 ? 'One amount is' : `${unknown.length} amounts are`} for a department that is not an active department of a college in the HR module. Nothing was saved.`
+      );
     }
 
-    const rule: SalarySuggestionRule = ruleForStorage(input.rule);
-    const scopeType = input.scopeId === null ? 'global' : 'institution';
-
-    let find = supabase
-      .from(POLICIES_TABLE)
-      .select(ROW_COLUMNS)
-      .eq('policy_key', SALARY_SUGGESTION_RULE_KEY)
-      .eq('scope_type', scopeType);
-    find = input.scopeId === null ? find.is('scope_id', null) : find.eq('scope_id', input.scopeId);
-    const { data: existing, error: findErr } = await find.maybeSingle();
-    if (findErr) throw new Error(`Failed to load the rule: ${findErr.message}`);
-
+    const existing = await findRow(supabase);
     const now = new Date().toISOString();
     let saved: RawRow;
     if (existing) {
@@ -175,13 +200,12 @@ export const SalarySuggestionRuleService = {
         ? { value: rule, draft_value: null, publication_state: 'published' }
         : {
             draft_value: rule,
-            publication_state:
-              (existing as RawRow).publication_state === 'draft_only' ? 'draft_only' : 'draft_pending',
+            publication_state: existing.publication_state === 'draft_only' ? 'draft_only' : 'draft_pending',
           };
       const { data, error } = await supabase
         .from(POLICIES_TABLE)
         .update({ ...payload, updated_by: input.userId, updated_at: now } as never)
-        .eq('id', (existing as RawRow).id)
+        .eq('id', existing.id)
         .select(ROW_COLUMNS)
         .single();
       if (error) throw new Error(`Failed to save the rule: ${error.message}`);
@@ -191,16 +215,16 @@ export const SalarySuggestionRuleService = {
         .from(POLICIES_TABLE)
         .insert({
           policy_key: SALARY_SUGGESTION_RULE_KEY,
-          scope_type: scopeType,
-          scope_id: input.scopeId,
-          // A first draft is not in force: '{}' reads "rule not set" until published.
+          scope_type: 'global',
+          scope_id: null,
+          // A first draft is not in force: '{}' reads "not set" until published.
           value: input.publish ? rule : {},
           draft_value: input.publish ? null : rule,
           publication_state: input.publish ? 'published' : 'draft_only',
           classification: 'major',
           data_type: 'object',
           description:
-            "The Director's rule for suggesting a revised salary: rupees per year at JKKN, per year before JKKN, and extras. Reference only; it changes nobody's pay.",
+            "The Director's rule for suggesting a revised salary: rupees per year at JKKN for each department (years before JKKN count at half). Reference only; it changes nobody's pay.",
           updated_by: input.userId,
         } as never)
         .select(ROW_COLUMNS)
@@ -212,10 +236,10 @@ export const SalarySuggestionRuleService = {
     const { error: auditErr } = await supabase.from(AUDIT_LOG_TABLE).insert({
       policy_id: saved.id,
       policy_key: SALARY_SUGGESTION_RULE_KEY,
-      scope_type: scopeType,
-      scope_id: input.scopeId,
+      scope_type: 'global',
+      scope_id: null,
       action: input.publish ? 'publish' : 'edit_draft',
-      old_value: existing ? ((existing as RawRow).value ?? null) : null,
+      old_value: existing ? (existing.value ?? null) : null,
       new_value: rule,
       reason,
       edited_by: input.userId,
