@@ -105,15 +105,30 @@ export default function HrSelfAppraisalPage() {
       setError(null);
       try {
         // 1. Resolve the staff row for the logged-in user.
+        //    Through the "my own record" helpers, never a direct read of the
+        //    staff table: the live read rule on staff shows a person their OWN
+        //    row only when they hold staff.view, which faculty and heads usually
+        //    do not. The direct read then came back empty and this page told
+        //    linked people "no staff record linked" (30 Sep 2026, #4139).
         const { data: auth } = await supabase.auth.getUser();
         if (!auth?.user) throw new Error('You are not signed in.');
-        const { data: staff, error: staffErr } = await supabase
-          .from('staff')
-          .select('id, institution_id')
-          .eq('profile_id', auth.user.id)
-          .maybeSingle();
+        const [{ data: myStaffIds, error: staffErr }, { data: myInstitutionIds, error: instErr }] =
+          await Promise.all([
+            supabase.rpc('fn_my_staff_ids'),
+            // Not in the generated types yet (20270330090000); same helper family.
+            (supabase as unknown as { rpc: (fn: string) => Promise<{ data: string[] | null; error: unknown }> })
+              .rpc('fn_my_staff_institution_ids'),
+          ]);
         if (staffErr) throw staffErr;
-        if (!staff) throw new Error('No staff record linked to your account.');
+        if (instErr) throw instErr;
+        const staff = myStaffIds?.[0]
+          ? { id: myStaffIds[0], institution_id: myInstitutionIds?.[0] ?? null }
+          : null;
+        if (!staff) {
+          throw new Error(
+            'No active team-member record is linked to your login. Ask HR to link your record to this account.',
+          );
+        }
         if (cancelled) return;
         setStaffId(staff.id);
 
