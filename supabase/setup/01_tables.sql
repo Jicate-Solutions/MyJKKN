@@ -11126,7 +11126,7 @@ COMMENT ON TABLE public.sign_out_notices IS
   'An admin signed this person out of all devices; shown once after their next sign-in (Director ruling 2026-10-02). Written by the service role only.';
 -- ============================================================================
 -- Updated: 2026-10-01 - HR staff harness (duties R9 onboarding, A3 regularisation):
--- hr_duty_notices notice ledger (one row per notice, ever). Migration 20270523090000_hr_duty_notices_onboarding_regularization.sql
+-- hr_duty_notices notice ledger (one row per notice, ever). Migration 20270613101133_hr_duty_notices_onboarding_regularization.sql
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS public.hr_duty_notices (
   id                 uuid        PRIMARY KEY DEFAULT gen_random_uuid(),

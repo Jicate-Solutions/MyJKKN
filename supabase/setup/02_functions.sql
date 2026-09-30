@@ -76630,7 +76630,7 @@ REVOKE EXECUTE ON FUNCTION public.fn_revoke_user_sessions(uuid) FROM anon, PUBLI
 GRANT  EXECUTE ON FUNCTION public.fn_revoke_user_sessions(uuid) TO authenticated;
 -- ============================================================================
 -- Updated: 2026-10-01 - HR staff harness (duties R9 onboarding, A3 regularisation):
--- fn_hr_role_holder_ids + fn_hr_permission_holder_ids (service role only). Migration 20270523090000_hr_duty_notices_onboarding_regularization.sql
+-- fn_hr_role_holder_ids + fn_hr_permission_holder_ids (service role only). Migration 20270613101133_hr_duty_notices_onboarding_regularization.sql
 -- ============================================================================
 CREATE OR REPLACE FUNCTION public.fn_hr_role_holder_ids(
   p_role_keys      text[],
