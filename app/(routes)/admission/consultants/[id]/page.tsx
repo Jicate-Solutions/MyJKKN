@@ -70,6 +70,11 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CommissionStructureTab } from './_components/commission-structure-tab';
 import { PromiseRatesTab } from './_components/promise-rates-tab';
+import {
+  ReferrerReferralsPanel,
+  useLinkedReferrer,
+  type LinkedReferrer,
+} from './_components/referrer-referrals-panel';
 import { format } from 'date-fns';
 import {
   DropdownMenu,
@@ -293,6 +298,17 @@ function ConsultantDetailContent() {
     queryFn: () => ConsultantService.getConsultantPortalDashboard(consultantId),
     enabled: !!consultantId && isValidId
   });
+
+  // A row that stands for a team member / learner referrer: its referrals are on
+  // learners_profiles, so counts and the Referrals tab come from there.
+  const linkedReferrer: LinkedReferrer | null = consultant?.staff_id
+    ? { type: 'internal', id: consultant.staff_id }
+    : consultant?.learner_referrer_id
+      ? { type: 'student', id: consultant.learner_referrer_id }
+      : null;
+  const { data: linkedData } = useLinkedReferrer(linkedReferrer);
+  const linkedTotal = linkedData?.referrals.length ?? 0;
+  const linkedEnrolled = linkedData?.referrals.filter((r) => r.enrolled).length ?? 0;
 
   // Fetch this consultant's referrals (lead attributions).
   //
@@ -555,10 +571,10 @@ function ConsultantDetailContent() {
                   source of truth — see ConsultantService.getConsultantPortalDashboard).
                   Use ?? not || so a legitimate 0 is preserved instead of falling
                   back to a possibly-stale cached counter. */}
-              {stats?.stats?.total_leads ?? consultant.total_leads_referred ?? 0}
+              {linkedReferrer ? linkedTotal : (stats?.stats?.total_leads ?? consultant.total_leads_referred ?? 0)}
             </div>
             <p className="text-xs text-muted-foreground">
-              {consultant.total_conversions || 0} enrolled
+              {linkedReferrer ? linkedEnrolled : (consultant.total_conversions || 0)} enrolled
             </p>
           </CardContent>
         </Card>
@@ -570,7 +586,9 @@ function ConsultantDetailContent() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {consultant.conversion_rate?.toFixed(1) || 0}%
+              {linkedReferrer
+                ? (linkedTotal > 0 ? ((linkedEnrolled / linkedTotal) * 100).toFixed(1) : 0)
+                : (consultant.conversion_rate?.toFixed(1) || 0)}%
             </div>
             <p className="text-xs text-muted-foreground">
               Referral to enrollment
@@ -631,6 +649,34 @@ function ConsultantDetailContent() {
           {/* The same essential fields for every consultant type; a blank one reads
               "Not provided" instead of disappearing, so what is missing is visible. */}
           <div className="grid gap-4 md:grid-cols-2">
+            {/* Who the referrer is in JKKN — team member or learner. */}
+            {linkedReferrer && (
+              <Card className="md:col-span-2">
+                <CardHeader>
+                  <CardTitle className="text-base">
+                    {linkedReferrer.type === 'internal' ? 'Team Member Information' : 'Learner Information'}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-x-8 gap-y-3 md:grid-cols-2">
+                  {linkedReferrer.type === 'internal' ? (
+                    <>
+                      <DetailRow label="Designation" value={linkedData?.profile.detail} />
+                      <DetailRow label="Staff ID" value={linkedData?.profile.code} />
+                      <DetailRow label="Institution" value={linkedData?.profile.institution} />
+                      <DetailRow label="Department" value={linkedData?.profile.department} />
+                    </>
+                  ) : (
+                    <>
+                      <DetailRow label="Roll Number" value={linkedData?.profile.code} />
+                      <DetailRow label="Institution" value={linkedData?.profile.institution} />
+                      <DetailRow label="Department" value={linkedData?.profile.department} />
+                      <DetailRow label="Programme" value={linkedData?.profile.program} />
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
             {/* Contact Information */}
             <Card>
               <CardHeader>
@@ -749,6 +795,10 @@ function ConsultantDetailContent() {
         </TabsContent>
 
         <TabsContent value="referrals" className="mt-4">
+          {linkedReferrer ? (
+            <ReferrerReferralsPanel linked={linkedReferrer} />
+          ) : (
+          <>
           {/* Status stat cards — same idiom as the page summary cards above;
               clicking a card applies it as a table filter */}
           {referrals.length > 0 && (
@@ -896,6 +946,8 @@ function ConsultantDetailContent() {
               )}
             </CardContent>
           </Card>
+          </>
+          )}
         </TabsContent>
 
         <TabsContent value="commissions" className="mt-4">

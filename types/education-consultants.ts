@@ -118,6 +118,11 @@ export interface EducationConsultant {
   total_commission_earned: number;
   pending_commission: number;
 
+  // Set when this row stands for a team member / learner referrer (created by
+  // fn_ensure_referrer_consultant); their referrals are on learners_profiles.
+  staff_id?: string | null;
+  learner_referrer_id?: string | null;
+
   // Timestamps
   onboarded_at: string | null;
   created_at: string;
