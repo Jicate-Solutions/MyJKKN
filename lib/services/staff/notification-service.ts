@@ -212,6 +212,97 @@ export class StaffNotificationService {
   }
 
   /**
+   * leave_escalated → one person, one overdue request (HR staff harness,
+   * 2026-10-01). The title and message are built by buildEscalationNotices in
+   * lib/hr/leave/deadline-harness.ts, which words the approver's and the next
+   * level's versions differently. Deep-links to the request itself, so the
+   * notice opens the item rather than a count.
+   */
+  static async notifyLeaveEscalated(
+    supabase: SupabaseClient,
+    applicationId: string,
+    userId: string,
+    title: string,
+    message: string,
+    metadata: Record<string, unknown> = {}
+  ): Promise<number> {
+    return this.dispatch(supabase, {
+      title,
+      message,
+      userIds: [userId],
+      eventType: 'leave_escalated',
+      url: `/hr/leave/${applicationId}`,
+      metadata: { reference_id: applicationId, ...metadata },
+    });
+  }
+
+  /**
+   * leave_escalated, folded: one person had more overdue requests in a run than
+   * the per-person cap, and this single notice stands in for the rest.
+   */
+  static async notifyLeaveEscalationOverflow(
+    supabase: SupabaseClient,
+    userId: string,
+    moreCount: number
+  ): Promise<number> {
+    return this.dispatch(supabase, {
+      title: 'More leave requests are overdue',
+      message: `${moreCount} more leave request${moreCount === 1 ? ' is' : 's are'} overdue for a decision. Open Approvals to see them oldest first.`,
+      userIds: [userId],
+      eventType: 'leave_escalated',
+      url: '/hr/leave/approvals',
+      metadata: { overflow_count: moreCount },
+    });
+  }
+
+  /**
+   * comp_off_expiry_nudge → the approvers of an undecided comp-off claim, 7 and
+   * 2 days before its credit expires. After expiry the nightly job rejects the
+   * claim and it cannot be approved, so this is the last chance to decide it.
+   */
+  static async notifyCompOffExpiryNudge(
+    supabase: SupabaseClient,
+    creditId: string,
+    approverUserIds: string[],
+    claimantName: string,
+    workedDate: string,
+    expiresOn: string,
+    daysLeft: number
+  ): Promise<number> {
+    const when = daysLeft === 0 ? 'today' : daysLeft === 1 ? 'tomorrow' : `in ${daysLeft} days`;
+    return this.dispatch(supabase, {
+      title: `Comp-off claim expires ${when}`,
+      message: `${claimantName}'s comp-off claim for ${workedDate} is still undecided and its credit expires on ${expiresOn}. After that it is closed automatically and cannot be approved.`,
+      userIds: approverUserIds,
+      eventType: 'comp_off_expiry_nudge',
+      url: '/hr/leave/approvals?tab=comp-off',
+      metadata: { reference_id: creditId, expires_on: expiresOn, days_left: daysLeft },
+    });
+  }
+
+  /**
+   * comp_off_lapsed → the claimant, after the nightly job closed their claim
+   * because nobody decided it before the credit expired. Until now that
+   * happened silently.
+   */
+  static async notifyCompOffLapsed(
+    supabase: SupabaseClient,
+    creditId: string,
+    claimantUserId: string,
+    workedDate: string,
+    expiresOn: string
+  ): Promise<number> {
+    return this.dispatch(supabase, {
+      title: 'Your comp-off claim was closed',
+      message: `Your comp-off claim for ${workedDate} was not decided before its credit expired on ${expiresOn}, so it was closed automatically. If you think this is wrong, please speak to HR.`,
+      userIds: [claimantUserId],
+      eventType: 'comp_off_lapsed',
+      url: '/hr/leave/compensatory-off',
+      metadata: { reference_id: creditId, expires_on: expiresOn },
+    });
+  }
+
+  /**
    * eligibility_submitted → notify everyone on the current step of an
    * eligibility request for a gated leave type (2026-09-21).
    *

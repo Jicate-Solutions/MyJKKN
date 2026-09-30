@@ -73,6 +73,9 @@ export function LeaveRequestDetail({
   // Falls back to the raw id when the server lookup failed — an id is ugly but
   // it is still an answer, and it is what a support ticket needs.
   const applicantName = app.applicant?.name ?? app.employee_id;
+  // 'escalated' is still undecided (a step overran its limit), so it can still
+  // be withdrawn — LeaveService.withdrawApplication already accepts both.
+  const isOpen = app.status === 'pending' || app.status === 'escalated';
   const appliedByName = app.applied_by
     ? (app.chain_names?.people?.[app.applied_by] ?? app.applied_by)
     : '—';
@@ -163,11 +166,11 @@ export function LeaveRequestDetail({
         <ApprovalChainTimeline app={app} />
       </div>
 
-      {(app.status === 'pending' || (app.status === 'approved' && !app.superseded_by)) && (
+      {(isOpen || (app.status === 'approved' && !app.superseded_by)) && (
         <>
           <Separator />
           <div className="flex flex-wrap gap-2">
-            {app.status === 'pending' && (
+            {isOpen && (
               <Button
                 variant="outline"
                 size="sm"
