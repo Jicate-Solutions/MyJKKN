@@ -219,7 +219,9 @@ export function ReviewDecisionPanel({
                   <td className="py-2 pr-4"><RatingBadge rating={sedcRatings[a]} /></td>
                   {hasRecordedDirector && (
                     <td className="py-2 pr-4" data-testid={`director-rating-${a}`}>
-                      <RatingBadge rating={recordedDirector[a]} />
+                      {recordedDirector[a]
+                        ? <RatingBadge rating={recordedDirector[a]} />
+                        : <span className="text-xs text-muted-foreground">as the committee</span>}
                     </td>
                   )}
                 </tr>

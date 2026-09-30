@@ -321,6 +321,8 @@ describe('Director step (sedc_reviewed)', () => {
     } as never));
     expect(screen.getByText('Director')).toBeInTheDocument();
     expect(screen.getByTestId('director-rating-service')).toHaveTextContent('Meets');
+    // Areas he did not change are not "Not rated": they stand as the committee rated them.
+    expect(screen.getByTestId('director-rating-teaching')).toHaveTextContent('as the committee');
   });
 
   it('a signed-off appraisal reads back the Director’s change, his reason and the laid-over result, with nothing to click', () => {
