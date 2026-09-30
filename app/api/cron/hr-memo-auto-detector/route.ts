@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
 // Director notes
 //   * Schedule: the AI-routine dispatcher, routine 'hr-memo-auto-detector'
 //     (ai_routine_schedules; day/time at /admin/ai-routines). Seeded DISABLED
-//     by migration 20270526090000 — not a vercel.json cron.
+//     by migration 20270613101223 — not a vercel.json cron.
 //   * Switch: platform_policies 'hr.memo_auto_detector' → { "mode": ... }
 //       off     — no work at all
 //       dry_run — seeded value: previews what it WOULD create and send in one

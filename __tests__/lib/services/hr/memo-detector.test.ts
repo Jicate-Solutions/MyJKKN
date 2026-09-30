@@ -467,11 +467,11 @@ describe('nudge windows (pure)', () => {
 });
 
 // ---------------------------------------------------------------------------
-describe('migration 20270526090000 seeds the detector switched off', () => {
+describe('migration 20270613101223 seeds the detector switched off', () => {
   const sql = readFileSync(
     join(
       process.cwd(),
-      'supabase/migrations/20270526090000_hr_memo_detector_schedule_disabled_with_dry_run.sql',
+      'supabase/migrations/20270613101223_hr_memo_detector_schedule_disabled_with_dry_run.sql',
     ),
     'utf8',
   ).replace(/--[^\n]*/g, '');

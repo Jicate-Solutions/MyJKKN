@@ -2,7 +2,7 @@
  * HR memo detector — switch + acknowledgement-nudge rules (pure, no I/O).
  *
  * The switch lives in ONE platform_policies row, `hr.memo_auto_detector`
- * (global scope), seeded by migration 20270526090000 with mode 'dry_run':
+ * (global scope), seeded by migration 20270613101223 with mode 'dry_run':
  *
  *   mode 'off'     — the run does no work at all (reads this row, returns).
  *   mode 'dry_run' — detects and previews; records ONE hr_memo_detector_runs

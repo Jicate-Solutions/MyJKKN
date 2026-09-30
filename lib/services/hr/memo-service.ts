@@ -13,7 +13,7 @@
  *
  * The whole detector is behind platform_policies 'hr.memo_auto_detector'
  * (off | dry_run | live) — see memo-detector-rules.ts and migration
- * 20270526090000 for how a super admin switches it on.
+ * 20270613101223 for how a super admin switches it on.
  *
  * Policy source: `fn_get_hr_memo_triggers()` RPC — never read the policy table
  * directly. M6a seed not required at deploy; fn returns safe defaults.

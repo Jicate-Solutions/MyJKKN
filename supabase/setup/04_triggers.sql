@@ -2870,7 +2870,7 @@ CREATE TRIGGER trg_hlb_reject_unfunded
 
 -- =====================================================================
 -- Updated: 2026-10-01 - HR memo detector run log + acknowledgement nudges
--- Migration: 20270526090000_hr_memo_detector_schedule_disabled_with_dry_run.sql
+-- Migration: 20270613101223_hr_memo_detector_schedule_disabled_with_dry_run.sql
 -- =====================================================================
 DROP TRIGGER IF EXISTS trg_hr_memo_nudges_updated_at ON public.hr_memo_nudges;
 CREATE TRIGGER trg_hr_memo_nudges_updated_at

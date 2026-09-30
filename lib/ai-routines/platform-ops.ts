@@ -442,7 +442,7 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "configKnobs": "platform_policies 'hr.memo_auto_detector' = { mode: off | dry_run | live, staff_reminder_after_days: 3, hod_notice_after_days: 3, nudge_max_age_days: 30 }. Seeded dry_run. Trigger thresholds come from fn_get_hr_memo_triggers. Day/time editable at /admin/ai-routines.",
     "sideEffects": "mode live: writes hr_memo_eligibility_events, hr_memos, hr_memo_state_transitions and hr_memo_nudges, and SENDS in-app notices (bell + web push; no WhatsApp). mode dry_run: writes ONE hr_memo_detector_runs row describing what it would do, and nothing else. mode off: nothing.",
     "safeToManualTrigger": false,
-    "notes": "Schedule row seeded DISABLED by migration 20270526090000; the header of that migration has the exact statements to enable it. Auth: Bearer ONLY. ?dry_run=1 forces a preview of a live detector. IST math: 02:00 UTC = 07:30 IST (minute_of_day 450)."
+    "notes": "Schedule row seeded DISABLED by migration 20270613101223; the header of that migration has the exact statements to enable it. Auth: Bearer ONLY. ?dry_run=1 forces a preview of a live detector. IST math: 02:00 UTC = 07:30 IST (minute_of_day 450)."
   },
   {
     "id": "hr-policy-promote-detector",
