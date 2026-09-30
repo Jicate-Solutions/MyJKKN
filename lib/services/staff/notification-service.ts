@@ -303,4 +303,201 @@ export class StaffNotificationService {
       metadata: { reference_id: candidateId, step_name: stepName, checklist_name: checklistName },
     });
   }
+
+  // ---------------------------------------------------------------------------
+  // HR staff harness (2026-10-01) — duty R9, the onboarding checklist.
+  // Recipients are the step's OWNERS (pinned person, or holders of the step's
+  // role), not the joiner. Every message names the joiner, the step and the
+  // joining date, and links to the candidate page where the step is ticked.
+  // ---------------------------------------------------------------------------
+
+  /** onboarding_step_turn → a step has become its owner's turn. */
+  static async notifyOnboardingStepTurn(
+    supabase: SupabaseClient,
+    candidateId: string,
+    ownerUserIds: string[],
+    args: {
+      candidateName: string;
+      roleTitle: string;
+      stepName: string;
+      stepNumber: number;
+      stepCount: number;
+      joiningDate: string | null;
+      previousStepName?: string | null;
+    }
+  ): Promise<number> {
+    const joining = args.joiningDate ? ` Joining date: ${args.joiningDate}.` : '';
+    const after = args.previousStepName ? ` "${args.previousStepName}" is done, so` : '';
+    return this.dispatch(supabase, {
+      title: `Onboarding step ${args.stepNumber} of ${args.stepCount} is yours`,
+      message: `${args.candidateName} (${args.roleTitle}):${after} "${args.stepName}" is now with you.${joining} Tick it on the candidate page when it is done.`,
+      userIds: ownerUserIds,
+      eventType: 'onboarding_step_turn',
+      url: `/hr/recruitment/candidates/${candidateId}`,
+      metadata: {
+        reference_id: candidateId,
+        step_name: args.stepName,
+        step_number: args.stepNumber,
+        joining_date: args.joiningDate,
+      },
+    });
+  }
+
+  /** onboarding_step_reminder → one reminder to the step's owner(s). */
+  static async notifyOnboardingStepReminder(
+    supabase: SupabaseClient,
+    candidateId: string,
+    ownerUserIds: string[],
+    args: {
+      candidateName: string;
+      roleTitle: string;
+      stepName: string;
+      stepNumber: number;
+      stepCount: number;
+      joiningDate: string | null;
+      reason: 'held_too_long' | 'joining_soon';
+      workingDaysHeld?: number;
+    }
+  ): Promise<number> {
+    const why =
+      args.reason === 'joining_soon'
+        ? `${args.candidateName} joins on ${args.joiningDate} and this step is still open.`
+        : `This step has been with you for ${args.workingDaysHeld ?? 'more than 2'} working days.`;
+    return this.dispatch(supabase, {
+      title: `Reminder: onboarding step ${args.stepNumber} of ${args.stepCount} for ${args.candidateName}`,
+      message: `"${args.stepName}" for ${args.candidateName} (${args.roleTitle}). ${why} Tick it on the candidate page once it is done.`,
+      userIds: ownerUserIds,
+      eventType: 'onboarding_step_reminder',
+      url: `/hr/recruitment/candidates/${candidateId}`,
+      metadata: {
+        reference_id: candidateId,
+        step_name: args.stepName,
+        step_number: args.stepNumber,
+        joining_date: args.joiningDate,
+        reason: args.reason,
+      },
+    });
+  }
+
+  /** onboarding_joining_passed → one notice to the HR head. */
+  static async notifyOnboardingJoiningPassed(
+    supabase: SupabaseClient,
+    candidateId: string,
+    hrHeadUserIds: string[],
+    args: {
+      candidateName: string;
+      roleTitle: string;
+      joiningDate: string;
+      openSteps: string[];
+    }
+  ): Promise<number> {
+    const list = args.openSteps.slice(0, 5).map((s) => `"${s}"`).join(', ');
+    const more = args.openSteps.length > 5 ? ` and ${args.openSteps.length - 5} more` : '';
+    return this.dispatch(supabase, {
+      title: `Joining date passed with onboarding open: ${args.candidateName}`,
+      message: `${args.candidateName} (${args.roleTitle}) was due to join on ${args.joiningDate}. ${args.openSteps.length} onboarding step(s) are still open: ${list}${more}. The team member record cannot be created until every step is done.`,
+      userIds: hrHeadUserIds,
+      eventType: 'onboarding_joining_passed',
+      url: `/hr/recruitment/candidates/${candidateId}`,
+      metadata: {
+        reference_id: candidateId,
+        joining_date: args.joiningDate,
+        open_steps: args.openSteps,
+      },
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // HR staff harness (2026-10-01) — duty A3, attendance regularisation.
+  // Approvers are the holders of hr.attendance.regularize_approve /
+  // hr.attendance.approve_team — the same keys the approvals screen and its
+  // RLS read. The requester is the staff member the request is for.
+  // ---------------------------------------------------------------------------
+
+  /** regularization_submitted → the approvers. */
+  static async notifyRegularizationSubmitted(
+    supabase: SupabaseClient,
+    regularizationId: string,
+    approverUserIds: string[],
+    args: { staffName: string; forDate: string; reason: string; waitingDays: number }
+  ): Promise<number> {
+    const waiting =
+      args.waitingDays >= 1 ? ` It has been waiting ${args.waitingDays} day(s).` : '';
+    return this.dispatch(supabase, {
+      title: 'Attendance Regularisation Awaiting Approval',
+      message: `${args.staffName} asked to correct their attendance for ${args.forDate}. Reason: ${args.reason}.${waiting} Please approve or reject it.`,
+      userIds: approverUserIds,
+      eventType: 'regularization_submitted',
+      url: '/hr/attendance/regularize/approvals',
+      metadata: { reference_id: regularizationId, staff_name: args.staffName, for_date: args.forDate },
+    });
+  }
+
+  /** regularization_reminder → the approvers, once. */
+  static async notifyRegularizationReminder(
+    supabase: SupabaseClient,
+    regularizationId: string,
+    approverUserIds: string[],
+    args: { staffName: string; forDate: string; reason: string; waitingDays: number }
+  ): Promise<number> {
+    return this.dispatch(supabase, {
+      title: 'Reminder: Attendance Regularisation Still Waiting',
+      message: `${args.staffName}'s request to correct ${args.forDate} has waited ${args.waitingDays} day(s). Reason: ${args.reason}. Once the month is closed it cannot be approved without reopening the month.`,
+      userIds: approverUserIds,
+      eventType: 'regularization_reminder',
+      url: '/hr/attendance/regularize/approvals',
+      metadata: { reference_id: regularizationId, staff_name: args.staffName, for_date: args.forDate },
+    });
+  }
+
+  /** regularization_hr_head → the HR head, once. */
+  static async notifyRegularizationHrHead(
+    supabase: SupabaseClient,
+    regularizationId: string,
+    hrHeadUserIds: string[],
+    args: { staffName: string; forDate: string; waitingDays: number; monthClosed: boolean }
+  ): Promise<number> {
+    const month = args.monthClosed
+      ? ' Its month is already closed, so it can only be approved after the month is reopened.'
+      : ' Decide it before the month is closed, or it will need the month reopened.';
+    return this.dispatch(supabase, {
+      title: 'Attendance Regularisation Undecided for Days',
+      message: `${args.staffName}'s request to correct ${args.forDate} has had no decision for ${args.waitingDays} day(s).${month}`,
+      userIds: hrHeadUserIds,
+      eventType: 'regularization_hr_head',
+      url: '/hr/attendance/regularize/approvals',
+      metadata: {
+        reference_id: regularizationId,
+        staff_name: args.staffName,
+        for_date: args.forDate,
+        month_closed: args.monthClosed,
+      },
+    });
+  }
+
+  /** regularization_approved | regularization_rejected → the requester. */
+  static async notifyRegularizationDecided(
+    supabase: SupabaseClient,
+    regularizationId: string,
+    requesterUserId: string,
+    args: { forDate: string; approved: boolean; rejectionReason?: string | null }
+  ): Promise<number> {
+    const reason = args.rejectionReason ? ` Reason: ${args.rejectionReason}` : '';
+    return this.dispatch(supabase, {
+      title: args.approved
+        ? 'Attendance Regularisation Approved'
+        : 'Attendance Regularisation Rejected',
+      message: args.approved
+        ? `Your request to correct your attendance for ${args.forDate} was approved. The day now shows as regularised in My Attendance.`
+        : `Your request to correct your attendance for ${args.forDate} was rejected.${reason}`,
+      userIds: [requesterUserId],
+      eventType: args.approved ? 'regularization_approved' : 'regularization_rejected',
+      url: '/hr/attendance',
+      metadata: {
+        reference_id: regularizationId,
+        for_date: args.forDate,
+        rejection_reason: args.rejectionReason ?? undefined,
+      },
+    });
+  }
 }

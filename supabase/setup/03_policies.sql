@@ -11640,3 +11640,15 @@ CREATE POLICY sign_out_notices_update_own ON public.sign_out_notices
   FOR UPDATE TO authenticated
   USING (user_id = (SELECT auth.uid()))
   WITH CHECK (user_id = (SELECT auth.uid()));
+
+-- ============================================================================
+-- Updated: 2026-10-01 - HR staff harness (duties R9 onboarding, A3 regularisation):
+-- hr_duty_notices read policy (service role is the only writer). Migration 20270523090000_hr_duty_notices_onboarding_regularization.sql
+-- ============================================================================
+DROP POLICY IF EXISTS hr_duty_notices_select ON public.hr_duty_notices;
+CREATE POLICY hr_duty_notices_select ON public.hr_duty_notices
+  FOR SELECT TO authenticated USING (
+    (SELECT is_super_admin()) OR (SELECT is_admin())
+    OR (SELECT auth.uid()) = ANY (recipient_user_ids)
+  );
+
