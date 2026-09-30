@@ -429,6 +429,22 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "notes": "Auth: Bearer or ?secret=. IST math: 07:00 UTC = 12:30 IST (minute_of_day 750)."
   },
   {
+    "id": "hr-duty-notices",
+    "name": "HR duty notices — onboarding steps + regularisation requests",
+    "category": "platform-ops",
+    "type": "cron",
+    "schedule": "Mon–Sat · 10:07 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/hr/duty-notices",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based reminder windows; no model involved.",
+    "whatItDoes": "HR harness duties R9 and A3. Onboarding: one reminder to a step's owner when they have held it for more than 2 working days, or when the joiner's expected joining date is 3 days away or closer with the step still open; one notice to the HR head once the joining date has passed with steps open. Regularisation: sends any 'awaiting approval' notice the browser missed, one reminder to the approvers after 48 hours pending, one notice to the HR head after 4 days pending, and any missed approved/rejected notice to the requester (last 14 days).",
+    "configKnobs": "platform_policies hr.onboarding.step_reminder_after_working_days (2), hr.onboarding.joining_soon_days (3), hr.regularization.reminder_after_hours (48), hr.regularization.hr_head_notice_after_days (4). Day/time editable at /admin/ai-routines.",
+    "sideEffects": "SENDS in-app notifications (notifications + user_notifications). Records every notice in hr_duty_notices, whose UNIQUE key makes each one fire at most once; people on approved leave today are skipped and reached on a later run.",
+    "safeToManualTrigger": false,
+    "notes": "Auth: Bearer only. Seeded by 20270523090000 (minute_of_day 607, days {1..6} — never Sunday, never at night). Marked not-safe because it messages people; a repeat run itself sends nothing new, since the ledger refuses repeats."
+  },
+  {
     "id": "hr-policy-promote-detector",
     "name": "HR policy promotion detector (weekly)",
     "category": "platform-ops",

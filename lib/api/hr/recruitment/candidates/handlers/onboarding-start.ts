@@ -1,11 +1,12 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextResponse, connection } from 'next/server';
+import { NextResponse, after, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { RecruitmentService } from '@/lib/services/hr/recruitment-service';
 import { StaffNotificationService } from '@/lib/services/staff/notification-service';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { notifyOnboardingStepTurn } from '@/lib/services/hr/duty-notices/dispatch';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -241,6 +242,17 @@ export async function POST(
         console.warn('[hr/onboarding/start] onboarding_step_pending notification failed:', notifyErr);
       }
     })();
+
+    // HR staff harness (2026-10-01), duty R9: the notice above goes to the
+    // JOINER. The person who has to do step 1 is its owner (pinned person, or
+    // holders of its role) — tell them it is theirs. Once (hr_duty_notices).
+    after(async () => {
+      try {
+        await notifyOnboardingStepTurn(createServiceRoleClient(), id, 0, null);
+      } catch (notifyErr) {
+        console.warn('[hr/onboarding/start] first-step owner notice failed:', notifyErr);
+      }
+    });
 
     return NextResponse.json({ data: updated });
   } catch (err) {
