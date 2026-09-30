@@ -59,7 +59,11 @@ function skipped(staff_id: string, name: string): LopPreviewResult['rows'][numbe
     total_deductions: 0,
     net_pay: 0,
     basic_pay: null,
-    deductions_not_worked_out: [],
+    allowance_paid: 0,
+    pf: 0,
+    esi: 0,
+    pf_exempt: false,
+    esi_exempt: false,
   };
 }
 
@@ -226,11 +230,11 @@ describe('absence preview — a refusal reads as a refusal', () => {
   });
 });
 
-describe('absence preview — basic comes from what HR recorded, never a guess (ruling 2026-09-30)', () => {
-  it('prints a recorded basic as a figure, and "basic not recorded" where there is none', () => {
+describe('absence preview — pay, PF and allowance as HR recorded them (rulings 2026-09-30)', () => {
+  it('prints "basic not recorded", the PF HR typed, and "not eligible" where HR said so', () => {
     preview = result([
-      { ...payableRow('s1', 'Priya D'), basic_pay: 12000 },
-      { ...payableRow('s2', 'Arun M'), basic_pay: null, deductions_not_worked_out: ['PF'] },
+      { ...payableRow('s1', 'Priya D'), basic_pay: 12000, pf: 1800, esi: 0, esi_exempt: true },
+      { ...payableRow('s2', 'Arun M'), basic_pay: null, pf: 0, pf_exempt: true, esi_exempt: true },
     ]);
     render(<PayrollLopPreviewPage params={resolvedParams('p1')} />);
 
@@ -239,8 +243,26 @@ describe('absence preview — basic comes from what HR recorded, never a guess (
     expect(screen.getAllByTestId('basic-not-recorded')).toHaveLength(1);
     expect(screen.getByText('basic not recorded')).toBeTruthy();
     expect(screen.getByText(/₹12,000/)).toBeTruthy();
-    // The provident fund is worked out from basic: say it was not worked out.
-    expect(screen.getAllByText('PF not worked out: basic not recorded')).toHaveLength(1);
+
+    const notes = screen.getAllByTestId('statutory-note').map((n) => n.textContent);
+    expect(notes).toEqual([
+      'PF ₹1,800 · No ESI (not eligible)',
+      'No PF (not eligible) · No ESI (not eligible)',
+    ]);
+    // PF is never described as "not worked out" any more.
+    expect(screen.queryByText(/not worked out/)).toBeNull();
+  });
+
+  it('says how much allowance is inside the month’s pay', () => {
+    preview = result([
+      { ...payableRow('s1', 'Priya D'), full_gross: 20000, allowance_paid: 2000 },
+      payableRow('s2', 'Arun M'),
+    ]);
+    render(<PayrollLopPreviewPage params={resolvedParams('p1')} />);
+
+    const notes = screen.getAllByTestId('allowance-note');
+    expect(notes).toHaveLength(1);
+    expect(notes[0].textContent).toBe('incl. allowance ₹2,000 paid');
   });
 
   it('a skipped person is listed with the reason, not silently dropped', () => {

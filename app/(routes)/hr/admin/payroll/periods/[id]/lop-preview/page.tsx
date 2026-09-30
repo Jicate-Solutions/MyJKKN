@@ -15,10 +15,10 @@
  * this screen shows is what a real run would produce — not a second
  * implementation that can drift away from it.
  *
- * Pay comes from each person's current monthly gross (ruling 2026-09-30). The
- * Basic column prints the RECORDED basic, or the words "basic not recorded" —
- * never a figure worked out from the gross — and says when the provident fund
- * could not be worked out for want of one.
+ * Pay comes from each person's monthly gross in force for the month, plus the
+ * allowance (rulings 2026-09-30). The Basic column prints the words "basic not
+ * recorded", never a figure worked out from the gross. Under net pay: the PF
+ * HR typed on the salary and the ESI, or "not eligible" where HR's flag is off.
  */
 
 import { use } from 'react';
@@ -51,7 +51,7 @@ import {
   LopPreviewRequestError,
   usePayrollLopPreview,
 } from '@/hooks/hr/payroll/use-payroll-lop-preview';
-import { BASIC_NOT_RECORDED, PF_NOT_WORKED_OUT } from '@/lib/hr/payroll/lop-engine';
+import { BASIC_NOT_RECORDED } from '@/lib/hr/payroll/lop-engine';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -317,6 +317,14 @@ function LopPreviewContent({ id }: { id: string }) {
                       </TableCell>
                       <TableCell className="text-right tabular-nums text-muted-foreground">
                         {formatINR(r.full_gross)}
+                        {r.allowance_paid > 0 && (
+                          <span
+                            data-testid="allowance-note"
+                            className="block text-[11px]"
+                          >
+                            {`incl. allowance ${formatINR(r.allowance_paid)} paid`}
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {r.lop_amount > 0 ? (
@@ -329,11 +337,14 @@ function LopPreviewContent({ id }: { id: string }) {
                       </TableCell>
                       <TableCell className="text-right font-semibold tabular-nums">
                         {formatINR(r.net_pay)}
-                        {r.deductions_not_worked_out.includes('PF') && (
-                          <span className="block text-[11px] font-normal text-amber-700 dark:text-amber-400">
-                            {PF_NOT_WORKED_OUT}
-                          </span>
-                        )}
+                        <span
+                          data-testid="statutory-note"
+                          className="block text-[11px] font-normal text-muted-foreground"
+                        >
+                          {r.pf_exempt ? 'No PF (not eligible)' : `PF ${formatINR(r.pf)}`}
+                          {' · '}
+                          {r.esi_exempt ? 'No ESI (not eligible)' : `ESI ${formatINR(r.esi)}`}
+                        </span>
                       </TableCell>
                     </TableRow>
                   ))}

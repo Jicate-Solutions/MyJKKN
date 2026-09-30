@@ -3,7 +3,7 @@
 /**
  * PayslipTable — DataTable showing payslips for a payroll period.
  *
- * Columns: Employee ID | Employee Name | Basic Pay | Allowances (gross-basic) |
+ * Columns: Employee ID | Employee Name | Basic Pay | Allowances (as saved) |
  *          Gross | Deductions | Net Pay | Payment Mode
  *
  * Features:
@@ -13,11 +13,12 @@
  *   - Empty state when no payslips exist yet
  *   - Summary row with totals
  *
- * BASIC MAY BE "NOT RECORDED" (ruling 2026-09-30). Payslips take pay from the
- * monthly gross, and no per-person basic is recorded, so basic_pay is null.
- * The table prints the words, never a 0, and says the provident fund (worked
- * out from basic) was not worked out. Allowances (gross - basic) cannot be
- * shown either without a basic.
+ * BASIC MAY BE "NOT RECORDED" (rulings 2026-09-30). Payslips take pay from the
+ * monthly gross in force for the month, and no per-person basic is recorded, so
+ * basic_pay is null: the table prints the words, never a 0. The allowance paid
+ * and the PF / ESI / tax / professional tax taken off are saved on the slip
+ * one by one (20270523090000) and shown as saved: PF is the amount HR typed on
+ * the salary, or the amount typed in a manual override.
  */
 
 import { useMemo, useState } from 'react';
@@ -37,7 +38,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 import type { PayslipWithStaff } from '@/hooks/hr/payroll/use-payroll-payslips';
-import { BASIC_NOT_RECORDED, PF_NOT_WORKED_OUT } from '@/lib/hr/payroll/lop-engine';
+import { BASIC_NOT_RECORDED } from '@/lib/hr/payroll/lop-engine';
 
 // =====================================================================================
 // Helpers
@@ -61,10 +62,43 @@ function formatINR(amount: number): string {
 }
 
 /** PostgREST returns numeric as a string; null stays null ("not recorded"). */
-function basicOf(slip: PayslipWithStaff): number | null {
-  if (slip.basic_pay === null || slip.basic_pay === undefined) return null;
-  const n = Number(slip.basic_pay);
+function amountOrNull(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+function basicOf(slip: PayslipWithStaff): number | null {
+  return amountOrNull(slip.basic_pay);
+}
+
+/**
+ * The allowance on this slip: as saved, else gross minus a recorded basic (the
+ * old reading), else unknown. Never a guess.
+ */
+function allowanceOf(slip: PayslipWithStaff): number | null {
+  const saved = amountOrNull(slip.allowance_paid);
+  if (saved !== null) return saved;
+  const basic = basicOf(slip);
+  return basic === null ? null : Number(slip.gross_amount) - basic;
+}
+
+/** The four deductions as saved on the slip; null on a slip made before they were. */
+function breakdownOf(slip: PayslipWithStaff) {
+  const pf = amountOrNull(slip.pf_deduction);
+  const esi = amountOrNull(slip.esi_deduction);
+  const tds = amountOrNull(slip.tds_deduction);
+  const pt = amountOrNull(slip.pt_deduction);
+  if (pf === null && esi === null && tds === null && pt === null) return null;
+  return { pf, esi, tds, pt };
+}
+
+/** "PF ₹1,800 · ESI ₹0" — the two statutory deductions HR is asked about most. */
+function statutoryLine(slip: PayslipWithStaff): string | null {
+  const b = breakdownOf(slip);
+  if (!b) return null;
+  const part = (label: string, v: number | null) => (v === null ? `${label} —` : `${label} ${formatINR(v)}`);
+  return `${part('PF', b.pf)} · ${part('ESI', b.esi)}`;
 }
 
 const PAYMENT_MODE_LABELS: Record<string, string> = {
@@ -119,23 +153,33 @@ function exportPayslipsCSV(payslips: PayslipWithStaff[], periodLabel: string) {
     'Working Days',
     'Payment Mode',
     'Correction Type',
-    'Note',
+    'PF',
+    'ESI',
+    'Income Tax (TDS)',
+    'Professional Tax',
   ];
 
-  const rows = payslips.map((slip) => [
-    staffName(slip),
-    slip.staff?.designation ?? '',
-    basicOf(slip) === null ? BASIC_NOT_RECORDED : String(basicOf(slip)),
-    basicOf(slip) === null ? '' : (Number(slip.gross_amount) - (basicOf(slip) as number)).toString(),
-    slip.gross_amount.toString(),
-    slip.total_deductions.toString(),
-    slip.net_amount.toString(),
-    slip.lop_days.toString(),
-    slip.working_days_attended.toString(),
-    slip.payment_mode,
-    slip.correction_type,
-    basicOf(slip) === null ? PF_NOT_WORKED_OUT : '',
-  ]);
+  const cellOf = (v: number | null) => (v === null ? '' : String(v));
+  const rows = payslips.map((slip) => {
+    const b = breakdownOf(slip);
+    return [
+      staffName(slip),
+      slip.staff?.designation ?? '',
+      basicOf(slip) === null ? BASIC_NOT_RECORDED : String(basicOf(slip)),
+      cellOf(allowanceOf(slip)),
+      slip.gross_amount.toString(),
+      slip.total_deductions.toString(),
+      slip.net_amount.toString(),
+      slip.lop_days.toString(),
+      slip.working_days_attended.toString(),
+      slip.payment_mode,
+      slip.correction_type,
+      cellOf(b?.pf ?? null),
+      cellOf(b?.esi ?? null),
+      cellOf(b?.tds ?? null),
+      cellOf(b?.pt ?? null),
+    ];
+  });
 
   const csvContent = [
     headers.join(','),
@@ -281,20 +325,33 @@ export function PayslipTable({
   const totals = useMemo(() => {
     let totalBasic = 0;
     let basicMissing = false;
+    let totalAllowance = 0;
+    let allowanceMissing = false;
     let totalGross = 0;
     let totalDeductions = 0;
     let totalNet = 0;
     for (const slip of payslips) {
       const basic = basicOf(slip);
-      // One missing basic makes the basic total meaningless: a sum that
-      // quietly leaves people out reads as the whole payroll's basic.
+      // One missing figure makes its total meaningless: a sum that quietly
+      // leaves people out reads as the whole payroll's figure.
       if (basic === null) basicMissing = true;
       else totalBasic += basic;
+      const allowance = allowanceOf(slip);
+      if (allowance === null) allowanceMissing = true;
+      else totalAllowance += allowance;
       totalGross += slip.gross_amount;
       totalDeductions += slip.total_deductions;
       totalNet += slip.net_amount;
     }
-    return { totalBasic, basicMissing, totalGross, totalDeductions, totalNet };
+    return {
+      totalBasic,
+      basicMissing,
+      totalAllowance,
+      allowanceMissing,
+      totalGross,
+      totalDeductions,
+      totalNet,
+    };
   }, [payslips]);
 
   if (isLoading) {
@@ -312,7 +369,7 @@ export function PayslipTable({
             <FileSpreadsheet className="mx-auto h-10 w-10 text-muted-foreground/40 mb-3" />
             <p>No payslips generated for this period yet.</p>
             <p className="text-xs mt-1">
-              Use the &ldquo;Generate Payslips&rdquo; button after preparing the period.
+              Use the &ldquo;Make payslips&rdquo; button above once the period is prepared.
             </p>
           </div>
         </CardContent>
@@ -383,7 +440,8 @@ export function PayslipTable({
             <TableBody>
               {sorted.map((slip) => {
                 const basic = basicOf(slip);
-                const allowances = basic === null ? null : Number(slip.gross_amount) - basic;
+                const allowances = allowanceOf(slip);
+                const statutory = statutoryLine(slip);
                 return (
                   <TableRow key={slip.id}>
                     <TableCell className="font-medium text-sm">
@@ -418,9 +476,12 @@ export function PayslipTable({
                     </TableCell>
                     <TableCell className="text-right text-sm tabular-nums text-red-700 dark:text-red-400">
                       {formatINR(slip.total_deductions)}
-                      {basic === null && (
-                        <span className="block text-[11px] font-normal text-amber-700 dark:text-amber-400">
-                          {PF_NOT_WORKED_OUT}
+                      {statutory && (
+                        <span
+                          data-testid="statutory-line"
+                          className="block text-[11px] font-normal text-muted-foreground"
+                        >
+                          {statutory}
                         </span>
                       )}
                     </TableCell>
@@ -456,7 +517,7 @@ export function PayslipTable({
                   {totals.basicMissing ? '—' : formatINR(totals.totalBasic)}
                 </TableCell>
                 <TableCell className="text-right text-sm tabular-nums">
-                  {totals.basicMissing ? '—' : formatINR(totals.totalGross - totals.totalBasic)}
+                  {totals.allowanceMissing ? '—' : formatINR(totals.totalAllowance)}
                 </TableCell>
                 <TableCell className="text-right text-sm tabular-nums">
                   {formatINR(totals.totalGross)}
@@ -512,10 +573,13 @@ export function PayslipTable({
                   <span className="text-muted-foreground">Basic </span>
                   {basicOf(slip) === null ? (
                     <span className="italic text-amber-700 dark:text-amber-400">
-                      {BASIC_NOT_RECORDED} · {PF_NOT_WORKED_OUT}
+                      {BASIC_NOT_RECORDED}
                     </span>
                   ) : (
                     <span className="tabular-nums">{formatINR(basicOf(slip) as number)}</span>
+                  )}
+                  {statutoryLine(slip) && (
+                    <span className="text-muted-foreground"> · {statutoryLine(slip)}</span>
                   )}
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">

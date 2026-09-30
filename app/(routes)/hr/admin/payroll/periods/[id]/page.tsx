@@ -44,6 +44,7 @@ import { PayslipTable } from '@/features/hr/payroll/payslip-table';
 import { usePayrollPeriodRealtime } from '@/features/hr/payroll/use-payroll-period-realtime';
 import { usePayrollPayslips, type PayslipWithStaff } from '@/hooks/hr/payroll/use-payroll-payslips';
 import { PayslipOverrideDialog } from '@/features/hr/payroll/payslip-override-dialog';
+import { PayslipRunPanel } from '@/features/hr/payroll/payslip-run-panel';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -199,6 +200,15 @@ function PayrollPeriodDetailContent({ id }: { id: string }) {
         </CardContent>
       </Card>
 
+      {/* Make the payslips, and what the last run said (kept on the period) */}
+      {period.status !== 'draft' && (
+        <PayslipRunPanel
+          period={period}
+          payslipCount={payslips.length}
+          payslipsLoading={payslipsLoading}
+        />
+      )}
+
       {/* Payslips table — visible once period is at least 'prepared' */}
       {period.status !== 'draft' && (
         <PayslipTable
@@ -219,6 +229,12 @@ function PayrollPeriodDetailContent({ id }: { id: string }) {
           staffName={`${overrideSlip.staff?.first_name ?? ''} ${overrideSlip.staff?.last_name ?? ''}`.trim()}
           currentGross={overrideSlip.gross_amount}
           currentDeductions={overrideSlip.total_deductions}
+          current={{
+            pf: overrideSlip.pf_deduction ?? null,
+            esi: overrideSlip.esi_deduction ?? null,
+            tds: overrideSlip.tds_deduction ?? null,
+            pt: overrideSlip.pt_deduction ?? null,
+          }}
         />
       )}
 

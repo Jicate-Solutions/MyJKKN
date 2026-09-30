@@ -1,13 +1,16 @@
 // @vitest-environment jsdom
 
 /**
- * The payslip table prints "basic not recorded" rather than a number
- * (Director ruling, 2026-09-30).
+ * The payslip table (Director rulings, 2026-09-30):
+ *   - prints "basic not recorded" rather than a number: no per-person basic is
+ *     recorded, so hr_payslips.basic_pay is NULL;
+ *   - shows the allowance and the PF / ESI saved on the slip, as saved
+ *     (20270523090000) — PF is the amount HR typed, or the amount typed in a
+ *     manual override, and is never described as "not worked out".
  *
- * Payslips now take pay from each person's monthly gross, and no per-person
- * basic is recorded, so hr_payslips.basic_pay is NULL. Before this change the
- * table did `formatINR(slip.basic_pay)` and `gross - basic`, which would print
- * ₹0 as the basic and the whole gross as "allowances" — two invented figures.
+ * Before the basic change the table did `formatINR(slip.basic_pay)` and
+ * `gross - basic`, which would print ₹0 as the basic and the whole gross as
+ * "allowances" — two invented figures.
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -52,9 +55,9 @@ describe('PayslipTable — basic', () => {
 
     const cell = screen.getAllByTestId('basic-not-recorded')[0];
     expect(cell.textContent).toBe('basic not recorded');
-    expect(screen.getAllByText('PF not worked out: basic not recorded').length).toBeGreaterThan(0);
     // The gross is not passed off as allowances, and no ₹0 basic appears.
     expect(screen.queryByText('₹0')).toBeNull();
+    expect(screen.queryByText(/not worked out/)).toBeNull();
   });
 
   it('prints a recorded basic as a figure', () => {
@@ -85,5 +88,61 @@ describe('PayslipTable — basic', () => {
     // Basic and allowance totals are withheld, gross is still totalled.
     expect(within(footer).getAllByText('—')).toHaveLength(2);
     expect(within(footer).getByText('₹60,000')).toBeTruthy();
+  });
+});
+
+describe('PayslipTable — allowance and PF as saved on the slip', () => {
+  it('shows the allowance paid and the PF HR typed', () => {
+    render(
+      <PayslipTable
+        payslips={[
+          slip({
+            gross_amount: 20000,
+            allowance_paid: 2000,
+            pf_deduction: 1500,
+            esi_deduction: 113,
+            tds_deduction: 0,
+            pt_deduction: 0,
+            total_deductions: 1613,
+            net_amount: 18387,
+          }),
+        ]}
+        periodLabel="August 2026"
+      />,
+    );
+
+    const row = screen.getAllByTestId('statutory-line')[0];
+    expect(row.textContent).toBe('PF ₹1,500 · ESI ₹113');
+    const footer = document.querySelector('tfoot') as HTMLElement;
+    expect(within(footer).getByText('₹2,000')).toBeTruthy();
+    expect(screen.queryByText(/not worked out/)).toBeNull();
+  });
+
+  it('an adjustment slip with a PF typed by HR shows that PF, not "not worked out"', () => {
+    render(
+      <PayslipTable
+        payslips={[
+          slip({
+            correction_type: 'adjustment',
+            reason: 'PF corrected',
+            allowance_paid: 0,
+            pf_deduction: 2500,
+            esi_deduction: 0,
+            tds_deduction: 0,
+            pt_deduction: 135,
+            total_deductions: 2635,
+            net_amount: 27365,
+          }),
+        ]}
+        periodLabel="August 2026"
+      />,
+    );
+    expect(screen.getAllByTestId('statutory-line')[0].textContent).toBe('PF ₹2,500 · ESI ₹0');
+    expect(screen.queryByText(/not worked out/)).toBeNull();
+  });
+
+  it('a slip made before deductions were saved one by one shows no PF line at all (nothing guessed)', () => {
+    render(<PayslipTable payslips={[slip({})]} periodLabel="August 2026" />);
+    expect(screen.queryByTestId('statutory-line')).toBeNull();
   });
 });

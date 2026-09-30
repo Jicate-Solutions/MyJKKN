@@ -7,7 +7,11 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse, connection } from 'next/server';
 import { withAuth } from '@/lib/auth/with-auth';
-import { PayslipGenerator } from '@/lib/services/hr/payroll/payslip-generator';
+import {
+  PayslipGenerator,
+  PayslipOverrideRefusal,
+  type PayslipDeductionOverrides,
+} from '@/lib/services/hr/payroll/payslip-generator';
 
 export const GET = withAuth(async (_request, auth, context) => {
   await connection();
@@ -43,11 +47,8 @@ export const PATCH = withAuth(async (request, auth, context) => {
     const { slipId } = await context!.params!;
     const body = await request.json();
 
-    const { pf, esi, tds, pt, reason } = body as {
-      pf?: number;
-      esi?: number;
-      tds?: number;
-      pt?: number;
+    // A field left out, null or '' means UNCHANGED — never 0.
+    const { pf, esi, tds, pt, reason } = body as PayslipDeductionOverrides & {
       reason: string;
     };
 
@@ -70,6 +71,9 @@ export const PATCH = withAuth(async (request, auth, context) => {
       message: 'Deduction override applied — new adjustment payslip created',
     });
   } catch (err) {
+    if (err instanceof PayslipOverrideRefusal) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error('[payslips/[slipId]] PATCH error', err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Unknown error' },

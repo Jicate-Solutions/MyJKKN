@@ -1,5 +1,16 @@
 'use client';
 
+/**
+ * Manual deduction override for one payslip.
+ *
+ * A FIELD LEFT BLANK KEEPS ITS AMOUNT (W12 review, 30 Sep 2026). Each box shows
+ * the amount the slip already carries; only what is typed changes. The server
+ * applies the same rule (PayslipGenerator.overrideDeductions →
+ * resolveDeductionOverrides), so what this dialog previews is what is saved.
+ * A slip made before deductions were saved one by one has nothing to keep, so
+ * every box must then be filled in.
+ */
+
 import { useState } from 'react';
 import {
   Dialog,
@@ -15,6 +26,8 @@ import { Loader2 } from 'lucide-react';
 import { useOverridePayslipDeductions } from '@/hooks/hr/payroll/use-payroll-payslips';
 import { toast } from 'sonner';
 
+type DeductionKey = 'pf' | 'esi' | 'tds' | 'pt';
+
 interface PayslipOverrideDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -23,7 +36,16 @@ interface PayslipOverrideDialogProps {
   staffName: string;
   currentGross: number;
   currentDeductions: number;
+  /** The slip's saved amounts; null where the slip has none saved. */
+  current?: Partial<Record<DeductionKey, number | null>>;
 }
+
+const FIELDS: { key: DeductionKey; label: string }[] = [
+  { key: 'pf', label: 'PF (₹)' },
+  { key: 'esi', label: 'ESI (₹)' },
+  { key: 'tds', label: 'TDS (₹)' },
+  { key: 'pt', label: 'Prof. Tax (₹)' },
+];
 
 export function PayslipOverrideDialog({
   open,
@@ -33,17 +55,24 @@ export function PayslipOverrideDialog({
   staffName,
   currentGross,
   currentDeductions,
+  current = {},
 }: PayslipOverrideDialogProps) {
-  const [pf, setPf] = useState('');
-  const [esi, setEsi] = useState('');
-  const [tds, setTds] = useState('');
-  const [pt, setPt] = useState('');
+  const [typed, setTyped] = useState<Record<DeductionKey, string>>({ pf: '', esi: '', tds: '', pt: '' });
   const [reason, setReason] = useState('');
 
   const override = useOverridePayslipDeductions();
 
-  const totalOverride = (Number(pf) || 0) + (Number(esi) || 0) + (Number(tds) || 0) + (Number(pt) || 0);
-  const newNet = currentGross - totalOverride;
+  const saved = (k: DeductionKey): number | null => {
+    const v = current[k];
+    return v === null || v === undefined || !Number.isFinite(Number(v)) ? null : Number(v);
+  };
+
+  // The amount each deduction will have: what was typed, else what is saved.
+  const next = FIELDS.map(({ key }) => (typed[key].trim() === '' ? saved(key) : Number(typed[key])));
+  const nothingToKeep = next.some((v) => v === null);
+  const anyTyped = FIELDS.some(({ key }) => typed[key].trim() !== '');
+  const newTotal = next.reduce<number>((t, v) => t + (v ?? 0), 0);
+  const newNet = currentGross - newTotal;
 
   function handleSubmit() {
     if (!reason.trim()) {
@@ -51,21 +80,23 @@ export function PayslipOverrideDialog({
       return;
     }
 
+    const value = (k: DeductionKey) => (typed[k].trim() === '' ? undefined : Number(typed[k]));
     override.mutate(
       {
         periodId,
         slipId,
-        pf: pf ? Number(pf) : undefined,
-        esi: esi ? Number(esi) : undefined,
-        tds: tds ? Number(tds) : undefined,
-        pt: pt ? Number(pt) : undefined,
+        pf: value('pf'),
+        esi: value('esi'),
+        tds: value('tds'),
+        pt: value('pt'),
         reason: reason.trim(),
       },
       {
         onSuccess: () => {
           toast.success('Deduction override applied');
           onOpenChange(false);
-          setPf(''); setEsi(''); setTds(''); setPt(''); setReason('');
+          setTyped({ pf: '', esi: '', tds: '', pt: '' });
+          setReason('');
         },
         onError: (err) => toast.error(err.message),
       },
@@ -91,34 +122,51 @@ export function PayslipOverrideDialog({
             </div>
           </div>
 
+          <p className="text-xs text-muted-foreground">
+            Type only the amounts you want to change. A box left empty keeps the amount shown in it.
+          </p>
+
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="pf">PF (₹)</Label>
-              <Input id="pf" type="number" min="0" value={pf} onChange={(e) => setPf(e.target.value)} placeholder="Auto" />
-            </div>
-            <div>
-              <Label htmlFor="esi">ESI (₹)</Label>
-              <Input id="esi" type="number" min="0" value={esi} onChange={(e) => setEsi(e.target.value)} placeholder="Auto" />
-            </div>
-            <div>
-              <Label htmlFor="tds">TDS (₹)</Label>
-              <Input id="tds" type="number" min="0" value={tds} onChange={(e) => setTds(e.target.value)} placeholder="Auto" />
-            </div>
-            <div>
-              <Label htmlFor="pt">Prof. Tax (₹)</Label>
-              <Input id="pt" type="number" min="0" value={pt} onChange={(e) => setPt(e.target.value)} placeholder="Auto" />
-            </div>
+            {FIELDS.map(({ key, label }) => {
+              const s = saved(key);
+              return (
+                <div key={key}>
+                  <Label htmlFor={key}>{label}</Label>
+                  <Input
+                    id={key}
+                    type="number"
+                    min="0"
+                    value={typed[key]}
+                    onChange={(e) => setTyped((t) => ({ ...t, [key]: e.target.value }))}
+                    placeholder={s === null ? 'Required' : `Keep ₹${s.toLocaleString('en-IN')}`}
+                  />
+                </div>
+              );
+            })}
           </div>
 
-          {totalOverride > 0 && (
+          {anyTyped && nothingToKeep && (
+            <div className="rounded-md border border-amber-700/30 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-400/30 dark:bg-amber-950/30 dark:text-amber-100">
+              This payslip was made before deductions were saved one by one, so there is nothing to
+              keep. Fill in all four amounts.
+            </div>
+          )}
+
+          {anyTyped && !nothingToKeep && (
             <div className="rounded-md bg-blue-50 dark:bg-blue-950/30 p-3 text-sm">
               <div className="flex justify-between font-medium">
                 <span>New Total Deductions</span>
-                <span>₹{totalOverride.toLocaleString('en-IN')}</span>
+                <span>₹{newTotal.toLocaleString('en-IN')}</span>
               </div>
               <div className="flex justify-between mt-1">
                 <span>New Net Pay</span>
-                <span className="font-bold text-green-700 dark:text-green-400">
+                <span
+                  className={
+                    newNet < 0
+                      ? 'font-bold text-red-700 dark:text-red-400'
+                      : 'font-bold text-green-700 dark:text-green-400'
+                  }
+                >
                   ₹{newNet.toLocaleString('en-IN')}
                 </span>
               </div>

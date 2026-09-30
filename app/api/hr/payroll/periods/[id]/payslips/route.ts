@@ -49,6 +49,11 @@ export const GET = withAuth(async (_request, auth, context) => {
         gross_amount,
         total_deductions,
         net_amount,
+        allowance_paid,
+        pf_deduction,
+        esi_deduction,
+        tds_deduction,
+        pt_deduction,
         payment_mode,
         correction_type,
         reason,
@@ -78,8 +83,20 @@ export const GET = withAuth(async (_request, auth, context) => {
 
 // ── POST — generate payslips (T4.4) ───────────────────────────
 
-import { PayslipGenerator } from '@/lib/services/hr/payroll/payslip-generator';
+import {
+  PayrollPermissionError,
+  PayslipGenerator,
+} from '@/lib/services/hr/payroll/payslip-generator';
 
+/**
+ * Needs hr.payroll.manage to reach, and — since payslips take pay from
+ * hr_staff_salaries (2026-09-30) — hr.payroll.salary.view (or super admin) to
+ * run; hr.payroll.institution.view and hr.attendance.period.view as before. A
+ * missing one is a 403 with the message as written, not a 500.
+ *
+ * The response carries the run's warnings and the people left off; they are
+ * also kept on the period (hr_payroll_periods.generation_notes).
+ */
 export const POST = withAuth(async (_request, auth, context) => {
   await connection();
   try {
@@ -96,6 +113,9 @@ export const POST = withAuth(async (_request, auth, context) => {
           : 'No active staff found for this institution',
     });
   } catch (err) {
+    if (err instanceof PayrollPermissionError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error('[hr/payroll/periods/[id]/payslips] POST error', err);
     const status = err instanceof Error && err.message.includes('must be') ? 400 : 500;
     return NextResponse.json(

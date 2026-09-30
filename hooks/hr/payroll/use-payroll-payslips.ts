@@ -65,15 +65,29 @@ export function usePayrollPayslips(periodId: string | undefined) {
 // Mutation — generate payslips (T4.4 stub — calls API route)
 // =====================================================================================
 
+/** What the generate route returns: the run's result, warnings included. */
+export interface GeneratePayslipsResponse {
+  message: string;
+  data: {
+    generated: number;
+    skipped: number;
+    errors: { staff_id: string; name: string; reason: string }[];
+    totals: { gross: number; deductions: number; net: number };
+    warnings: string[];
+    lopDays: number;
+  };
+}
+
 /**
  * Triggers payslip generation via the API route (T4.4 live).
  * Uses API route because generation is a multi-step server operation.
+ * The response's warnings are also kept on the period (generation_notes).
  */
 export function useGeneratePayslips() {
   const qc = useQueryClient();
 
   return useMutation<
-    { message: string },
+    GeneratePayslipsResponse,
     Error,
     { periodId: string }
   >({
