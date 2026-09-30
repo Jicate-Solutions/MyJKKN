@@ -2845,3 +2845,15 @@ DROP TRIGGER IF EXISTS zzz_grievance_scrub_anonymous_filer ON public.grievance_t
 CREATE TRIGGER zzz_grievance_scrub_anonymous_filer
   BEFORE INSERT OR UPDATE ON public.grievance_tickets
   FOR EACH ROW EXECUTE FUNCTION public.fn_grievance_scrub_anonymous_filer();
+
+-- Updated: 2026-10-01 - one ICC rule for every door (BEFORE INSERT, fires before
+-- trg_grievance_route_on_create by name) + ICC column guard (BEFORE UPDATE)
+DROP TRIGGER IF EXISTS trg_grievance_icc_route_on_create ON public.grievance_tickets;
+CREATE TRIGGER trg_grievance_icc_route_on_create
+  BEFORE INSERT ON public.grievance_tickets
+  FOR EACH ROW EXECUTE FUNCTION public.fn_grievance_icc_route_on_create();
+
+DROP TRIGGER IF EXISTS trg_grievance_icc_column_guard ON public.grievance_tickets;
+CREATE TRIGGER trg_grievance_icc_column_guard
+  BEFORE UPDATE ON public.grievance_tickets
+  FOR EACH ROW EXECUTE FUNCTION public.fn_grievance_icc_column_guard();

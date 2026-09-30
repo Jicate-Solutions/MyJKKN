@@ -11563,20 +11563,16 @@ CREATE POLICY grievance_anonymous_messages_insert ON public.grievance_anonymous_
 -- A filer inserting a new ICC-only row can name an assignee — but it is her
 -- own complaint she is choosing to send.
 --
--- KNOWN, ACCEPTED — the assignee can reclassify the row. Postgres ORs the
--- WITH CHECK clauses of permissive UPDATE policies, and substrate v2's
--- grievance_tickets_update WITH CHECK still offers `raised_by_id = auth.uid()`
--- and `(is_icc_only = false AND assigned_to = auth.uid())`. So an assignee
--- admitted by the USING below can, on a NAMED row, set raised_by_id to herself
--- and reassign; and on any row set is_icc_only = false (keeping herself as
--- assignee) and so expose it to every holder of grievance.tickets.view at that
--- college. On an ANONYMOUS row the first path is closed by section 1's scrub,
--- which nulls raised_by_id before the WITH CHECK runs. The assignees this admits are
--- the superior-route person, the ICC chair and the Director-policy person —
--- people already trusted with the complaint's confidentiality. Not closed
--- here; a column guard would be a trigger of its own — follow-up F1 in
--- docs/INSTASOLVER-MODULE-SPEC.md, pinned by the "KNOWN GAP" assertion in
--- supabase/tests/grievance/20_privacy.sql.
+-- The WITH CHECK below pins assigned_to to herself, but that pin ALONE does
+-- not hold: Postgres ORs the WITH CHECK clauses of permissive UPDATE policies,
+-- and substrate v2's grievance_tickets_update WITH CHECK still offers
+-- `raised_by_id = auth.uid()` and `(is_icc_only = false AND assigned_to =
+-- auth.uid())`. Through those an assignee admitted by the USING below could
+-- set is_icc_only = false (exposing the complaint to every holder of
+-- grievance.tickets.view at the college), reassign it, or on a named row make
+-- herself the raiser. Section 8's column guard is what closes that; the
+-- rehearsal (supabase/tests/grievance/20_privacy.sql) proves each path is
+-- refused.
 DROP POLICY IF EXISTS grievance_tickets_select_icc_routed_assignee ON public.grievance_tickets;
 CREATE POLICY grievance_tickets_select_icc_routed_assignee ON public.grievance_tickets
   FOR SELECT TO authenticated

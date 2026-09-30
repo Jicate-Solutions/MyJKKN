@@ -25,6 +25,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { GrievanceService } from '@/lib/services/grievance/grievance-service';
+import { isIccOnlyCategory } from '@/lib/instasolver/complaint';
 import { useAuth } from '@/hooks/use-auth';
 import type {
   GrievancePriority, RaisedByType, GrievanceCategory,
@@ -106,12 +107,11 @@ export default function NewGrievancePage() {
         // Anonymous means no filer on the row — not even the person typing.
         filed_by: !isAnonymous ? profile?.id ?? null : null,
         is_emergency: !!selectedCategory?.is_emergency,
-        // Deliberately NOT InstaSolver's isIccOnlyCategory (harassment AND
-        // ragging): ruling 2 without ruling 3 would leave a Ragging complaint
-        // ICC-only and unassigned where nobody holds icc_member. This form has
-        // no committee-reader check or superior-route fallback yet — follow-up
-        // F3 in docs/INSTASOLVER-MODULE-SPEC.md. Until then, main's rule.
-        is_icc_only: (selectedCategory?.name ?? '').toLowerCase().includes('sexual harassment'),
+        // The one ICC rule every door uses (harassment, ragging, ICC). The
+        // database applies it too and, when nobody at the college can read
+        // the complaint as the committee, sends it to the superior-route
+        // person (trg_grievance_icc_route_on_create, migration 20270624093700).
+        is_icc_only: isIccOnlyCategory(selectedCategory?.name),
         sla_hours: slaHours,
         sla_deadline: slaDeadline,
       });

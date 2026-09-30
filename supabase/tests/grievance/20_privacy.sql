@@ -273,19 +273,42 @@ DO $$ BEGIN
   UPDATE grievance_tickets SET assigned_to = 'b0000000-0000-0000-0000-000000000004' WHERE id = 'd1000000-0000-0000-0000-000000000011';
   RAISE EXCEPTION 'FAIL: the raiser reassigned her own ICC-only complaint';
 EXCEPTION WHEN insufficient_privilege THEN NULL; END $$;
--- KNOWN, ACCEPTED GAP, pinned so any change to it is seen (follow-up:
--- docs/INSTASOLVER-MODULE-SPEC.md, "Follow-ups"). The assignee admitted by
--- grievance_tickets_update_icc_routed_assignee can take the row off ICC-only:
--- v2's WITH CHECK arm (is_icc_only = false AND assigned_to = auth.uid()) is
--- OR'd with this PR's. When the column-guard trigger lands, this assertion
--- must flip to "refused".
+-- Postgres ORs the WITH CHECK clauses of permissive UPDATE policies, so the
+-- assignee policy's own pin does not hold by itself: v2's arms
+-- (is_icc_only = false AND assigned_to = auth.uid()), (is_icc_only = false AND
+-- edit permission) and (raised_by_id = auth.uid()) would each admit the new
+-- row. Section 8's column guard refuses all three. (With section 8 removed,
+-- each of these three UPDATEs succeeds — that is the reviewers' claim, proven.)
 SELECT as_user('b0000000-0000-0000-0000-000000000005');    -- Plain Assignee of d…011
-UPDATE grievance_tickets SET is_icc_only = false WHERE id = 'd1000000-0000-0000-0000-000000000011';
+DO $$ BEGIN
+  UPDATE grievance_tickets SET is_icc_only = false WHERE id = 'd1000000-0000-0000-0000-000000000011';
+  RAISE EXCEPTION 'FAIL: the ICC-only assignee took the complaint off ICC-only (keeping herself as assignee)';
+EXCEPTION WHEN insufficient_privilege THEN NULL; END $$;
+DO $$ BEGIN
+  UPDATE grievance_tickets SET raised_by_id = 'b0000000-0000-0000-0000-000000000005' WHERE id = 'd1000000-0000-0000-0000-000000000011';
+  RAISE EXCEPTION 'FAIL: the ICC-only assignee made herself the raiser of a named complaint';
+EXCEPTION WHEN insufficient_privilege THEN NULL; END $$;
 RESET ROLE;
-SELECT t_ok((SELECT is_icc_only = false AND assigned_to = 'b0000000-0000-0000-0000-000000000005'
+INSERT INTO grievance_tickets (id, institution_id, ticket_number, category_id, subject, description, raised_by_type,
+  raised_by_id, is_icc_only, assigned_to, sla_deadline)
+VALUES ('d1000000-0000-0000-0000-000000000014', '11000000-0000-0000-0000-000000000001', 'x', 'c1000000-0000-0000-0000-000000000001',
+   'ICC to a handler', 'Assigned by hand to someone holding edit', 'staff', 'b0000000-0000-0000-0000-000000000004', true,
+   'b0000000-0000-0000-0000-000000000002', now() + interval '3 days');
+SET ROLE authenticated;
+SELECT as_user('b0000000-0000-0000-0000-000000000002');    -- Handler H: assignee of d…014, holds grievance.tickets.edit
+DO $$ BEGIN
+  UPDATE grievance_tickets SET is_icc_only = false, assigned_to = 'b0000000-0000-0000-0000-000000000003'
+   WHERE id = 'd1000000-0000-0000-0000-000000000014';
+  RAISE EXCEPTION 'FAIL: an assignee holding edit took an ICC-only complaint off ICC-only and handed it on';
+EXCEPTION WHEN insufficient_privilege THEN NULL; END $$;
+UPDATE grievance_tickets SET status = 'in_progress' WHERE id = 'd1000000-0000-0000-0000-000000000014';
+RESET ROLE;
+SELECT t_ok((SELECT is_icc_only AND assigned_to = 'b0000000-0000-0000-0000-000000000002' AND status = 'in_progress'
+               FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000014'),
+            'the guard leaves the assignee working the complaint (status moved), and nothing else changed');
+SELECT t_ok((SELECT is_icc_only AND raised_by_id = 'b0000000-0000-0000-0000-000000000004'
                FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000011'),
-            'KNOWN GAP (follow-up): the ICC-only assignee can reclassify the row to not ICC-only, keeping herself as assignee');
-UPDATE grievance_tickets SET is_icc_only = true WHERE id = 'd1000000-0000-0000-0000-000000000011';
+            'd…011 is still ICC-only and still names its raiser');
 
 -- ----------------------------------------------- 8. is there a committee member who can read it?
 INSERT INTO custom_roles (role_key, role_name) VALUES ('icc_member', 'ICC member');
@@ -321,6 +344,133 @@ SELECT t_ok((SELECT count(*) FROM grievance_tickets WHERE id = 'd1000000-0000-00
             'the reader the check counted can open the unassigned ICC-only complaint');
 RESET ROLE;
 
+-- ----------------------------------------------- 10. one ICC rule for every door
+-- The fixture list below is ALSO read by __tests__/grievance/icc-rule-parity.test.ts,
+-- which checks isIccOnlyCategory gives the same answers. Keep the markers.
+-- icc-rule-fixtures:begin
+CREATE TEMP TABLE icc_rule_fixtures (name text, expected boolean);
+INSERT INTO icc_rule_fixtures VALUES
+  ('Sexual Harassment (ICC)', true),
+  ('Sexual harassment', true),
+  ('Harassment', true),
+  ('Ragging', true),
+  ('Anti-ragging', true),
+  ('ICC complaint', true),
+  ('Complaint to the icc', true),
+  ('Other', false),
+  ('Accident', false),
+  ('Account access', false),
+  ('ICCU equipment', false),
+  ('Hostel mess', false),
+  ('Academic', false),
+  ('', false);
+-- icc-rule-fixtures:end
+SELECT t_ok(NOT EXISTS (SELECT 1 FROM icc_rule_fixtures
+                         WHERE fn_grievance_is_icc_only_category(name) IS DISTINCT FROM expected),
+            'fn_grievance_is_icc_only_category answers every fixture name as expected');
+SELECT t_ok(fn_grievance_is_icc_only_category(NULL) = false, 'a missing category name is not ICC-only');
+
+-- The route-on-create trigger must fire before #4079's, or a HOD is assigned first.
+SELECT t_ok((SELECT array_agg(tgname::text ORDER BY tgname COLLATE "C") FROM pg_trigger
+              WHERE tgrelid = 'public.grievance_tickets'::regclass AND NOT tgisinternal
+                AND tgname IN ('trg_grievance_icc_route_on_create', 'trg_grievance_route_on_create'))
+            = ARRAY['trg_grievance_icc_route_on_create', 'trg_grievance_route_on_create'],
+            'the ICC trigger fires before route-on-create');
+
+INSERT INTO grievance_categories (id, institution_id, name, default_sla_hours, default_assignee_role) VALUES
+  ('c1000000-0000-0000-0000-000000000011', '11000000-0000-0000-0000-000000000001', 'Ragging', 24, 'hod'),
+  ('c1000000-0000-0000-0000-000000000012', '11000000-0000-0000-0000-000000000002', 'Ragging', 24, 'hod');
+-- College 1 has a reader (Other O, icc_member, from section 8). College 2 has none
+-- (the icc_member there is inactive and the grant was revoked).
+-- The Joint MD (b…001) is the superior-route person; 05_preseed's policy names
+-- a profile this rehearsal does not have, so it starts out "unusable".
+SET ROLE authenticated;
+SELECT as_user('b0000000-0000-0000-0000-000000000003');    -- Filer F, filing named, as the /accreditation form does
+INSERT INTO grievance_tickets (id, institution_id, ticket_number, category_id, subject, description, raised_by_type,
+  raised_by_id, filed_by, is_icc_only, sla_deadline)
+VALUES
+  ('d1000000-0000-0000-0000-000000000020', '11000000-0000-0000-0000-000000000001', 'x', 'c1000000-0000-0000-0000-000000000011',
+   'Ragging at college 1', 'Seniors in the hostel', 'staff', 'b0000000-0000-0000-0000-000000000003',
+   'b0000000-0000-0000-0000-000000000003', false, now() + interval '1 day'),
+  ('d1000000-0000-0000-0000-000000000021', '11000000-0000-0000-0000-000000000002', 'x', 'c1000000-0000-0000-0000-000000000012',
+   'Ragging at college 2', 'No policy yet', 'staff', 'b0000000-0000-0000-0000-000000000003',
+   'b0000000-0000-0000-0000-000000000003', false, now() + interval '1 day');
+RESET ROLE;
+SELECT t_ok((SELECT is_icc_only AND assigned_to IS NULL
+                    AND metadata -> 'auto_route' ->> 'reason' = 'icc_only_not_auto_routed'
+                    AND NOT (metadata ? 'icc_no_committee')
+               FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000020'),
+            'a Ragging complaint the form sent as NOT ICC-only is ICC-only, left for the committee that can read it, and route-on-create saw it as ICC-only (no HOD)');
+SELECT t_ok((SELECT is_icc_only AND assigned_to IS NULL AND (metadata ->> 'route_pending_policy') = 'true'
+                    AND (metadata ->> 'icc_no_committee') = 'true'
+               FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000021'),
+            'no reader and an unusable superior-route profile: unassigned, stamped route_pending_policy (fail closed)');
+
+UPDATE platform_policies SET value = to_jsonb('b0000000-0000-0000-0000-000000000001'::text)
+ WHERE policy_key = 'instasolver.complaint.superior_route_to';
+SET ROLE authenticated;
+SELECT as_user('b0000000-0000-0000-0000-000000000003');
+INSERT INTO grievance_tickets (id, institution_id, ticket_number, category_id, subject, description, raised_by_type,
+  is_anonymous, anonymous_token, filed_by, sla_deadline)
+VALUES ('d1000000-0000-0000-0000-000000000022', '11000000-0000-0000-0000-000000000002', 'x', 'c1000000-0000-0000-0000-000000000012',
+   'Anonymous ragging, college 2', 'Nobody on the committee here', 'staff', true,
+   'anon_icc_route_token_22222222222222222', 'b0000000-0000-0000-0000-000000000003', now() + interval '1 day');
+SELECT as_user('b0000000-0000-0000-0000-000000000004');    -- Other O: the ONLY reader at college 1, filing himself
+INSERT INTO grievance_tickets (id, institution_id, ticket_number, category_id, subject, description, raised_by_type,
+  raised_by_id, sla_deadline)
+VALUES ('d1000000-0000-0000-0000-000000000023', '11000000-0000-0000-0000-000000000001', 'x', 'c1000000-0000-0000-0000-000000000011',
+   'Ragging, the only reader files', 'He must not be its only reader', 'staff', 'b0000000-0000-0000-0000-000000000004',
+   now() + interval '1 day');
+SELECT as_user('b0000000-0000-0000-0000-000000000001');    -- the superior-route person opens both
+SELECT t_ok((SELECT count(*) FROM grievance_tickets WHERE id IN ('d1000000-0000-0000-0000-000000000022',
+                                                                 'd1000000-0000-0000-0000-000000000023')) = 2,
+            'the superior-route person can open the ICC-only complaints the database sent her');
+SELECT as_user('b0000000-0000-0000-0000-000000000002');    -- Handler H at college 1, holds grievance.tickets.view
+SELECT t_ok((SELECT count(*) FROM grievance_tickets WHERE id IN ('d1000000-0000-0000-0000-000000000020',
+                                                                 'd1000000-0000-0000-0000-000000000023')) = 0,
+            'an ordinary handler at the college cannot open a Ragging complaint any more');
+RESET ROLE;
+SELECT t_ok((SELECT is_icc_only AND assigned_to = 'b0000000-0000-0000-0000-000000000001'
+                    AND metadata ->> 'routing' = 'icc_no_committee' AND raised_by_id IS NULL AND filed_by IS NULL
+               FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000022'),
+            'anonymous Ragging with no reader goes to the superior-route person, and still stores no filer');
+SELECT t_ok((SELECT is_icc_only AND assigned_to = 'b0000000-0000-0000-0000-000000000001'
+               FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000023'),
+            'the filer does not count as the reader of his own complaint');
+
+-- Doors that decide for themselves are left alone: a row that already has an
+-- assignee, or that InstaSolver stamped icc_no_committee (its own route_pending_policy).
+INSERT INTO grievance_tickets (id, institution_id, ticket_number, category_id, subject, description, raised_by_type,
+  metadata, sla_deadline)
+VALUES ('d1000000-0000-0000-0000-000000000024', '11000000-0000-0000-0000-000000000002', 'x', 'c1000000-0000-0000-0000-000000000012',
+   'InstaSolver pending', 'Its own decision', 'staff', '{"icc_no_committee": true, "route_pending_policy": true}',
+   now() + interval '1 day');
+SELECT t_ok((SELECT is_icc_only AND assigned_to IS NULL
+               FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000024'),
+            'a row InstaSolver already decided (icc_no_committee) is marked ICC-only but not re-routed');
+INSERT INTO grievance_tickets (id, institution_id, ticket_number, category_id, subject, description, raised_by_type,
+  sla_deadline)
+VALUES ('d1000000-0000-0000-0000-000000000025', '11000000-0000-0000-0000-000000000002', 'x', 'c1000000-0000-0000-0000-000000000002',
+   'Old category name', 'Harassment by its seeded name', 'staff', now() + interval '1 day');
+SELECT t_ok((SELECT is_icc_only FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000025'),
+            'the seeded "Sexual Harassment (ICC)" type is ICC-only whatever the writer sent');
+SELECT t_ok((SELECT NOT is_icc_only FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000003'),
+            'an ordinary type stays an ordinary complaint');
+
+-- Who MAY still reassign an ICC-only complaint: the committee, an admin, the service role.
+SET ROLE authenticated;
+SELECT as_user('b0000000-0000-0000-0000-000000000004');    -- Other O: icc_member with access to college 1
+UPDATE grievance_tickets SET assigned_to = 'b0000000-0000-0000-0000-000000000004' WHERE id = 'd1000000-0000-0000-0000-000000000014';
+RESET ROLE;
+SELECT t_ok((SELECT assigned_to = 'b0000000-0000-0000-0000-000000000004' FROM grievance_tickets
+              WHERE id = 'd1000000-0000-0000-0000-000000000014'),
+            'the college''s committee member can reassign an ICC-only complaint');
+SELECT as_user(NULL);                                       -- no request identity: the service role / escalation run
+UPDATE grievance_tickets SET assigned_to = 'b0000000-0000-0000-0000-000000000001' WHERE id = 'd1000000-0000-0000-0000-000000000014';
+SELECT t_ok((SELECT assigned_to = 'b0000000-0000-0000-0000-000000000001' FROM grievance_tickets
+              WHERE id = 'd1000000-0000-0000-0000-000000000014'),
+            'the service role (SLA escalation) can still reassign an ICC-only complaint');
+
 -- ----------------------------------------------- 9. grants
 SELECT t_ok(NOT has_function_privilege('anon', 'public.fn_grievance_track_conversation(text)', 'EXECUTE'), 'anon cannot execute the conversation');
 SELECT t_ok(NOT has_function_privilege('anon', 'public.fn_grievance_track_answer(text, text)', 'EXECUTE'), 'anon cannot execute the answer');
@@ -329,5 +479,8 @@ SELECT t_ok(NOT has_function_privilege('authenticated', 'public.fn_grievance_tic
 SELECT t_ok((SELECT relrowsecurity FROM pg_class WHERE oid = 'public.grievance_anonymous_messages'::regclass), 'RLS is on for the messages table');
 SELECT t_ok(NOT has_function_privilege('authenticated', 'public.fn_grievance_icc_reader_exists(uuid, uuid)', 'EXECUTE'), 'the reader check is service-role only');
 SELECT t_ok(NOT has_function_privilege('anon', 'public.fn_grievance_icc_reader_exists(uuid, uuid)', 'EXECUTE'), 'anon cannot execute the reader check');
+SELECT t_ok(NOT has_function_privilege('authenticated', 'public.fn_grievance_icc_route_on_create()', 'EXECUTE'), 'the ICC route trigger function is not callable');
+SELECT t_ok(NOT has_function_privilege('authenticated', 'public.fn_grievance_icc_column_guard()', 'EXECUTE'), 'the ICC column guard function is not callable');
+SELECT t_ok(NOT has_function_privilege('anon', 'public.fn_grievance_is_icc_only_category(text)', 'EXECUTE'), 'anon cannot execute the ICC rule');
 
 SELECT 'GRIEVANCE PRIVACY SCENARIOS PASSED';

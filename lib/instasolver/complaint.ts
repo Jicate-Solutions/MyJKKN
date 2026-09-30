@@ -13,8 +13,9 @@
 //       Director's ruling of 30 Sep 2026.)
 //
 // Rulings of 30 Sep 2026 also implemented here and in the route: anonymous
-// stores no filer; harassment and ragging are ICC-only; with no active ICC
-// committee they go privately to the same superior-route person; the form
+// stores no filer; harassment and ragging are ICC-only; when nobody at the
+// college can read them as the committee they go privately to the same
+// superior-route person; the form
 // shows the type's answer window.
 //
 // It lives outside app/api/instasolver/complaint/route.ts because Next.js
@@ -331,15 +332,23 @@ export function answerWindowSentence(category: ComplaintCategory | null): string
 // ============================================================================
 
 /**
- * Whether a complaint of this type is ICC-only.
+ * Whether a complaint of this type is ICC-only — the ONE rule every door uses.
  *
  * grievance_categories has no flag for it, so the NAME decides. Every college's
  * seeded types (20260422_grievance_module_a6a_seeds.sql,
  * 20261230090100_grievance_categories_schools_offices.sql) are named
  * 'Sexual Harassment (ICC)' and 'Ragging'; the match also catches a college
  * that renamed them ('Harassment', 'Anti-ragging', 'ICC complaint').
+ *
+ * The database applies the SAME rule to every insert, whoever the writer
+ * (fn_grievance_is_icc_only_category + trg_grievance_icc_route_on_create,
+ * migration 20270624093700), and sends an ICC-only complaint nobody at the
+ * college can read to the superior-route person. The InstaSolver route and the
+ * /accreditation form call this so the row they send already says so.
+ * __tests__/grievance/icc-rule-parity.test.ts fails if the two copies drift.
  */
-const ICC_CATEGORY_RE = /harass|ragging|\bicc\b/i;
+export const ICC_CATEGORY_PATTERN = 'harass|ragging|\\bicc\\b';
+const ICC_CATEGORY_RE = new RegExp(ICC_CATEGORY_PATTERN, 'i');
 
 export function isIccOnlyCategory(name: string | null | undefined): boolean {
   return ICC_CATEGORY_RE.test(name ?? '');

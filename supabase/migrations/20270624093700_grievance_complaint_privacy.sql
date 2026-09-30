@@ -53,9 +53,19 @@
 --   6. fn_grievance_icc_reader_exists(institution, exclude): whether at least
 --      one real person can read that college's ICC-only complaints through the
 --      committee branch of grievance_tickets_select (an icc_member holder with
---      access to the college). A committee ROW is not that proof. InstaSolver
---      asks this before leaving a harassment or ragging complaint unassigned
---      for the committee. Service role only.
+--      access to the college). A committee ROW is not that proof. Asked before
+--      a harassment or ragging complaint is left unassigned for the committee
+--      (by the InstaSolver route and by 7). Service role only.
+--   7. ONE ICC rule for every door. A BEFORE INSERT trigger marks harassment,
+--      ragging and ICC categories ICC-only whoever writes the row (the
+--      /accreditation form, the Learners Council board, InstaSolver, a direct
+--      insert), and sends an unassigned one to the superior-route person when
+--      nobody at the college can read it as the committee (6). Same rule as
+--      isIccOnlyCategory in lib/instasolver/complaint.ts. New rows only —
+--      existing tickets are NOT reclassified.
+--   8. A BEFORE UPDATE guard: on an ICC-only row only the committee, an admin
+--      or the service role may change is_icc_only, assigned_to or raised_by_id.
+--      This closes the gap section 5's assignee policy left open.
 --
 -- CORRECTING THE RECORD in 20261213100000_instasolver_substrate_v2.sql (that
 -- file is applied and is deliberately NOT edited — touching it re-runs its
@@ -488,20 +498,16 @@ GRANT  EXECUTE ON FUNCTION public.fn_grievance_track_rate(text, integer, text) T
 -- A filer inserting a new ICC-only row can name an assignee — but it is her
 -- own complaint she is choosing to send.
 --
--- KNOWN, ACCEPTED — the assignee can reclassify the row. Postgres ORs the
--- WITH CHECK clauses of permissive UPDATE policies, and substrate v2's
--- grievance_tickets_update WITH CHECK still offers `raised_by_id = auth.uid()`
--- and `(is_icc_only = false AND assigned_to = auth.uid())`. So an assignee
--- admitted by the USING below can, on a NAMED row, set raised_by_id to herself
--- and reassign; and on any row set is_icc_only = false (keeping herself as
--- assignee) and so expose it to every holder of grievance.tickets.view at that
--- college. On an ANONYMOUS row the first path is closed by section 1's scrub,
--- which nulls raised_by_id before the WITH CHECK runs. The assignees this admits are
--- the superior-route person, the ICC chair and the Director-policy person —
--- people already trusted with the complaint's confidentiality. Not closed
--- here; a column guard would be a trigger of its own — follow-up F1 in
--- docs/INSTASOLVER-MODULE-SPEC.md, pinned by the "KNOWN GAP" assertion in
--- supabase/tests/grievance/20_privacy.sql.
+-- The WITH CHECK below pins assigned_to to herself, but that pin ALONE does
+-- not hold: Postgres ORs the WITH CHECK clauses of permissive UPDATE policies,
+-- and substrate v2's grievance_tickets_update WITH CHECK still offers
+-- `raised_by_id = auth.uid()` and `(is_icc_only = false AND assigned_to =
+-- auth.uid())`. Through those an assignee admitted by the USING below could
+-- set is_icc_only = false (exposing the complaint to every holder of
+-- grievance.tickets.view at the college), reassign it, or on a named row make
+-- herself the raiser. Section 8's column guard is what closes that; the
+-- rehearsal (supabase/tests/grievance/20_privacy.sql) proves each path is
+-- refused.
 DROP POLICY IF EXISTS grievance_tickets_select_icc_routed_assignee ON public.grievance_tickets;
 CREATE POLICY grievance_tickets_select_icc_routed_assignee ON public.grievance_tickets
   FOR SELECT TO authenticated
@@ -578,3 +584,175 @@ GRANT  EXECUTE ON FUNCTION public.fn_grievance_icc_reader_exists(uuid, uuid) TO 
 
 COMMENT ON FUNCTION public.fn_grievance_icc_reader_exists(uuid, uuid) IS
   'True when at least one usable icc_member holder (other than p_exclude) can read ICC-only grievance tickets of p_institution_id through the committee branch of grievance_tickets_select. Institution access deliberately under-approximated (own college, active user_institution_access grant, a role with institution_scope = all, super admin; no CAS sibling arm): a false negative only sends the complaint to the superior-route person. Called by the InstaSolver complaint route with the service-role client.';
+
+-- ---------------------------------------------------------------------
+-- 7) One ICC rule for every door, with the reader check behind it
+-- ---------------------------------------------------------------------
+-- Rulings 2 and 3 (30 Sep 2026): harassment and ragging are ICC-only; when
+-- nobody at the college can read them as the committee, they go privately to
+-- the superior-route person (platform policy
+-- instasolver.complaint.superior_route_to). The InstaSolver route already did
+-- both; the /accreditation form and the Learners Council board did neither.
+-- Doing it here reaches every writer, including a direct PostgREST insert.
+--
+-- The rule. MUST stay the same as ICC_CATEGORY_PATTERN in
+-- lib/instasolver/complaint.ts (the JavaScript \b is \y here — in a Postgres
+-- regex \b is a backspace). __tests__/grievance/icc-rule-parity.test.ts
+-- fails if the two drift; the same fixture names are asserted in both.
+CREATE OR REPLACE FUNCTION public.fn_grievance_is_icc_only_category(p_name text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public
+AS $$
+  SELECT COALESCE(p_name, '') ~* 'harass|ragging|\yicc\y'
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_is_icc_only_category(text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_grievance_is_icc_only_category(text) TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.fn_grievance_is_icc_only_category(text) IS
+  'Whether a grievance category of this name is ICC-only (harassment, ragging, ICC). Same rule as isIccOnlyCategory in lib/instasolver/complaint.ts; a parity test keeps them equal. Director ruling 2, 30 Sep 2026.';
+
+-- BEFORE INSERT. Named trg_grievance_icc_* so it fires BEFORE
+-- trg_grievance_route_on_create (#4079): Postgres fires same-event triggers in
+-- name order, and route-on-create would otherwise hand a named Ragging
+-- complaint to a HOD before it became ICC-only — and the assignee policy in
+-- section 5 would then let that HOD read it.
+--   (a) is_icc_only becomes true when the category name matches the rule.
+--       Never set back to false: a writer's own true stands.
+--   (b) An ICC-only row that arrives with no assignee, at a college where no
+--       usable icc_member other than the person filing can read it
+--       (fn_grievance_icc_reader_exists, section 6), is assigned to the
+--       superior-route person. When that policy is unset or names an unusable
+--       profile (or the filer herself), the row stays unassigned and is stamped
+--       route_pending_policy — the same fail-closed answer the InstaSolver
+--       route gives.
+-- auth.uid() is the person filing on the browser doors (/accreditation, the
+-- Learners Council board). It is used for the exclusion only and stored
+-- nowhere. The InstaSolver route writes with the service role and makes this
+-- decision itself (it stamps icc_no_committee), so (b) skips its rows.
+-- The superior-route person is NOT sent a bell by this (route-on-create's
+-- notice fires only for its own assignments) — the same as the InstaSolver
+-- route today; the dashboard work item reaches her.
+CREATE OR REPLACE FUNCTION public.fn_grievance_icc_route_on_create()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_filer uuid := auth.uid();
+  v_name  text;
+  v_raw   jsonb;
+  v_to    uuid;
+BEGIN
+  IF NOT COALESCE(NEW.is_icc_only, false) THEN
+    SELECT c.name INTO v_name FROM public.grievance_categories c WHERE c.id = NEW.category_id;
+    IF public.fn_grievance_is_icc_only_category(v_name) THEN
+      NEW.is_icc_only := true;
+    END IF;
+  END IF;
+
+  IF NOT COALESCE(NEW.is_icc_only, false)
+     OR NEW.assigned_to IS NOT NULL
+     OR COALESCE(NEW.metadata ? 'icc_no_committee', false) THEN
+    RETURN NEW;
+  END IF;
+
+  IF public.fn_grievance_icc_reader_exists(NEW.institution_id, v_filer) THEN
+    RETURN NEW;
+  END IF;
+
+  NEW.metadata := COALESCE(NEW.metadata, '{}'::jsonb) || jsonb_build_object('icc_no_committee', true);
+
+  v_raw := public.fn_get_policy('instasolver.complaint.superior_route_to', NULL);
+  BEGIN
+    v_to := CASE WHEN jsonb_typeof(v_raw) = 'string' THEN btrim(v_raw #>> '{}')::uuid
+                 WHEN jsonb_typeof(v_raw) = 'object' THEN btrim(COALESCE(v_raw ->> 'profile_id', v_raw ->> 'id'))::uuid
+                 ELSE NULL END;
+  EXCEPTION WHEN invalid_text_representation THEN
+    v_to := NULL;
+  END;
+
+  IF v_to IS NOT NULL
+     AND public.fn_grievance_profile_unusable(v_to, array_remove(ARRAY[v_filer], NULL)) IS NULL THEN
+    NEW.assigned_to := v_to;
+    NEW.assigned_at := now();
+    NEW.metadata := NEW.metadata || jsonb_build_object('routing', 'icc_no_committee');
+  ELSE
+    NEW.metadata := NEW.metadata || jsonb_build_object('route_pending_policy', true);
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_icc_route_on_create() FROM anon, authenticated, PUBLIC;
+
+COMMENT ON FUNCTION public.fn_grievance_icc_route_on_create() IS
+  'BEFORE INSERT on grievance_tickets, before trg_grievance_route_on_create. Marks harassment / ragging / ICC categories ICC-only for every writer, and sends an unassigned ICC-only complaint to the instasolver.complaint.superior_route_to profile when no usable icc_member other than the filer can read it (else stamps route_pending_policy). Director rulings 2 and 3, 30 Sep 2026.';
+
+DROP TRIGGER IF EXISTS trg_grievance_icc_route_on_create ON public.grievance_tickets;
+CREATE TRIGGER trg_grievance_icc_route_on_create
+  BEFORE INSERT ON public.grievance_tickets
+  FOR EACH ROW EXECUTE FUNCTION public.fn_grievance_icc_route_on_create();
+
+-- ---------------------------------------------------------------------
+-- 8) Nobody but the committee or an admin takes a row off ICC-only
+-- ---------------------------------------------------------------------
+-- Postgres ORs the WITH CHECK clauses of permissive UPDATE policies. Section
+-- 5's assignee policy pins assigned_to to herself, but substrate v2's
+-- grievance_tickets_update WITH CHECK also offers
+-- `(is_icc_only = false AND assigned_to = auth.uid())` and
+-- `raised_by_id = auth.uid()`. So without this guard the assignee of an
+-- ICC-only row could set is_icc_only = false and expose the complaint to every
+-- grievance.tickets.view holder at the college, and (holding
+-- grievance.tickets.edit) reassign it; on a named row she could also make
+-- herself the raiser. RLS decides WHICH rows; only a trigger can decide which
+-- columns. On a row that WAS ICC-only, is_icc_only, assigned_to and
+-- raised_by_id may change only for:
+--   * no request identity — the service role (SLA escalation, InstaSolver's
+--     server code, the tracking-page rating) and migrations;
+--   * a super admin or admin;
+--   * an icc_member with access to that college (the committee — the same
+--     test as substrate v2's committee branch).
+-- Status, notes, resolution and the rest are untouched: the assignee still
+-- works the complaint. The raiser is also held by
+-- fn_grievance_raiser_update_guard (substrate v2).
+CREATE OR REPLACE FUNCTION public.fn_grievance_icc_column_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT COALESCE(OLD.is_icc_only, false) THEN
+    RETURN NEW;
+  END IF;
+  IF NEW.is_icc_only IS NOT DISTINCT FROM OLD.is_icc_only
+     AND NEW.assigned_to IS NOT DISTINCT FROM OLD.assigned_to
+     AND NEW.raised_by_id IS NOT DISTINCT FROM OLD.raised_by_id THEN
+    RETURN NEW;
+  END IF;
+  IF auth.uid() IS NULL OR public.is_super_admin() OR public.is_admin() THEN
+    RETURN NEW;
+  END IF;
+  IF public.role_has_institution_access(OLD.institution_id)
+     AND EXISTS (SELECT 1
+                   FROM public.user_roles ur
+                   JOIN public.custom_roles cr ON cr.id = ur.role_id
+                  WHERE ur.user_id = auth.uid()
+                    AND cr.role_key = 'icc_member') THEN
+    RETURN NEW;
+  END IF;
+  RAISE EXCEPTION 'Only the college''s ICC committee or an administrator can reassign this complaint or change who may read it.'
+    USING ERRCODE = 'insufficient_privilege';
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_icc_column_guard() FROM anon, authenticated, PUBLIC;
+
+COMMENT ON FUNCTION public.fn_grievance_icc_column_guard() IS
+  'BEFORE UPDATE on grievance_tickets. On a row that was ICC-only, is_icc_only, assigned_to and raised_by_id change only for the service role (no request identity), a super admin / admin, or an icc_member with access to the college. Closes the OR''d-WITH-CHECK gap between grievance_tickets_update (substrate v2) and grievance_tickets_update_icc_routed_assignee.';
+
+DROP TRIGGER IF EXISTS trg_grievance_icc_column_guard ON public.grievance_tickets;
+CREATE TRIGGER trg_grievance_icc_column_guard
+  BEFORE UPDATE ON public.grievance_tickets
+  FOR EACH ROW EXECUTE FUNCTION public.fn_grievance_icc_column_guard();
