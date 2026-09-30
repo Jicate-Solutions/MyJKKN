@@ -35,6 +35,7 @@ const getUserById = vi.fn();
 const adminSignOut = vi.fn();
 const setSession = vi.fn();
 let lastLinkEmail: string | null;
+let callerSignInEmail: string;
 
 const profiles: Record<string, Record<string, unknown>> = {
   [DEV]: { id: DEV, email: 'dev.one@jkkn.ac.in', full_name: 'Dev One', role: 'super_admin', is_super_admin: true },
@@ -67,12 +68,12 @@ vi.mock('@/lib/auth/preview-session', () => ({
   mintPreviewToken: async () => 'preview-token',
   writePreviewAudit: async () => {},
   PREVIEW_COOKIE_NAME: 'sb-preview-session',
-  canUseWriteMode: () => false,
+  canUseWriteMode: (email: string | null | undefined) => email === 'director@jkkn.ac.in',
 }));
 vi.mock('@supabase/ssr', () => ({
   createServerClient: () => ({
     auth: {
-      getUser: async () => ({ data: { user: { id: DEV } }, error: null }),
+      getUser: async () => ({ data: { user: { id: DEV, email: callerSignInEmail } }, error: null }),
       setSession,
     },
     from: () => {
@@ -108,11 +109,11 @@ vi.mock('@supabase/supabase-js', () => ({
 
 import { POST } from '@/app/api/users/permissions-audit/preview/start/route';
 
-function start(targetUserId: string) {
+function start(targetUserId: string, mode: 'read' | 'write' = 'read') {
   return POST(
     new NextRequest('http://localhost/api/users/permissions-audit/preview/start', {
       method: 'POST',
-      body: JSON.stringify({ targetUserId, mode: 'read' }),
+      body: JSON.stringify({ targetUserId, mode }),
     }),
   );
 }
@@ -125,6 +126,8 @@ beforeEach(() => {
   listError = null;
   listQuery = [];
   lastLinkEmail = null;
+  callerSignInEmail = 'dev.one@jkkn.ac.in';
+  profiles[DEV].email = 'dev.one@jkkn.ac.in';
   generateLink.mockReset().mockImplementation(async ({ email }: { email: string }) => {
     lastLinkEmail = email;
     return { data: { properties: { hashed_token: 'h' } }, error: null };
@@ -242,5 +245,32 @@ describe('preview/start mints the session for the SIGN-IN account, never profile
     const res = await start(HOD);
     expect(res.status).toBe(404);
     expect(generateLink).not.toHaveBeenCalled();
+  });
+});
+
+describe('preview/start decides write mode by the SIGN-IN email, never profiles.email', () => {
+  it('refuses write mode to a super admin whose PROFILE email is the Director\'s but whose sign-in email is not', async () => {
+    profiles[DEV].email = 'director@jkkn.ac.in'; // editable by its owner
+    callerSignInEmail = 'dev.one@jkkn.ac.in'; // auth.users, not editable
+    const res = await start(HOD, 'write');
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toMatch(/Write-mode preview is restricted/);
+    expect(generateLink).not.toHaveBeenCalled();
+  });
+
+  it('allows write mode when the sign-in email is allowed, whatever the profile email says', async () => {
+    profiles[DEV].email = 'something.else@jkkn.ac.in';
+    callerSignInEmail = 'director@jkkn.ac.in';
+    const res = await start(HOD, 'write');
+    expect(res.status).toBe(200);
+    expect((await res.json()).mode).toBe('write');
+  });
+
+  it('read mode never depends on either email', async () => {
+    profiles[DEV].email = 'director@jkkn.ac.in';
+    callerSignInEmail = 'dev.one@jkkn.ac.in';
+    const res = await start(HOD, 'read');
+    expect(res.status).toBe(200);
+    expect((await res.json()).mode).toBe('read');
   });
 });

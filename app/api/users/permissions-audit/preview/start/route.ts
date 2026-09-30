@@ -35,10 +35,10 @@ import { isOnTheDirectorList } from '@/lib/auth/the-director-list';
 //       Director could change who counts as the Director — #4121 review)
 //   6b. After minting, the session's user id must equal the target's id
 //
-// Known, NOT fixed here (#4121 round 3 note): canUseWriteMode() below is
-// given callerProfile.email, which the caller can edit on their own profile.
-// A super admin who sets their profile email to an allowed address gets
-// write-mode previews. Separate from the Director list; flagged for review.
+//   3c. The write-mode gate and the originator claim use the caller's SIGN-IN
+//       email (auth.getUser), never profiles.email, which its owner can edit.
+//       Before this, a super admin who set their profile email to an allowed
+//       address got write-mode previews (#4121 round 3 note, now closed).
 //   4. Back up the caller's sb-*-auth-token.* cookies → PREVIEW_ADMIN_BACKUP
 //   5. Generate a magic-link session for the target via service-role
 //   6. Exchange the hashed_token for a real access_token + refresh_token
@@ -144,7 +144,10 @@ export async function POST(request: NextRequest) {
 
     // Step 5 — mode gate
     const isWriteRequested = requestedMode === 'write';
-    if (isWriteRequested && !canUseWriteMode(callerProfile.email)) {
+    // The sign-in email comes from the session (auth.users), which the caller
+    // cannot edit; profiles.email is theirs to change.
+    const callerSignInEmail = user.email ?? null;
+    if (isWriteRequested && !canUseWriteMode(callerSignInEmail)) {
       return NextResponse.json(
         {
           error: `Write-mode preview is restricted to the director and the MyJKKN lead developer. You may preview in read-only mode.`,
@@ -288,7 +291,7 @@ export async function POST(request: NextRequest) {
     const previewToken = await mintPreviewToken({
       targetUserId: target.id,
       originatorId: callerProfile.id,
-      originatorEmail: callerProfile.email ?? '',
+      originatorEmail: callerSignInEmail ?? '',
       mode: effectiveMode,
       sessionId,
     });
