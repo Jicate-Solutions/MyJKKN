@@ -479,9 +479,9 @@ export default function HrPerformanceReviewCycleDetailPage() {
                         </td>
                         <td className="py-2 pr-4">
                           <SuperAdminOnly>
-                          {(r.status === 'supervisor_reviewed' || r.status === 'sedc_reviewed') && (
+                          {(r.status === 'supervisor_reviewed' || r.status === 'sedc_reviewed' || r.status === 'final_approved') && (
                             <Button variant="outline" size="sm" onClick={() => setSelected(r)}>
-                              {r.status === 'sedc_reviewed' ? 'Sign off' : 'Committee review'}
+                              {r.status === 'sedc_reviewed' ? 'Sign off' : r.status === 'final_approved' ? 'View sign-off' : 'Committee review'}
                             </Button>
                           )}
                           </SuperAdminOnly>

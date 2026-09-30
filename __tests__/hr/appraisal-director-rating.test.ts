@@ -113,6 +113,35 @@ describe('sign-off', () => {
     expect(fake.update?.final_score).not.toBe(deriveAppraisalScore(sedc.ratings as never, areas, resolveRatingPoints(null), null));
   });
 
+  it('refuses a Below in Collegiality without a written example when the college asks for one, and keeps the example beside the change', async () => {
+    const asksForExample = async () => ({ data: { collegiality_below_requires_example: true }, error: null });
+    const first = client(review);
+    first.c.rpc = asksForExample;
+    await expect(
+      PerformanceReviewService.finalApprove(first.c, 'r1', {
+        final_remarks: 'ok',
+        approver_profile_id: 'dir-1',
+        director_ratings: { collegiality: 'below' },
+        director_reason: 'Two complaints about shared duties this term.',
+      }),
+    ).rejects.toThrow(/written example/);
+    expect(first.fake.update).toBeNull();
+
+    const second = client(review);
+    second.c.rpc = asksForExample;
+    await PerformanceReviewService.finalApprove(second.c, 'r1', {
+      final_remarks: 'ok',
+      approver_profile_id: 'dir-1',
+      director_ratings: { collegiality: 'below' },
+      director_reason: 'Two complaints about shared duties this term.',
+      director_collegiality_example: 'Missed three of four departmental duties and left the load to colleagues.',
+    });
+    expect(second.fake.update?.director_review_jsonb).toMatchObject({
+      ratings: { collegiality: 'below' },
+      collegiality_example: 'Missed three of four departmental duties and left the load to colleagues.',
+    });
+  });
+
   it('refuses a change without a reason of at least 10 characters', async () => {
     const { c, fake } = client(review);
     await expect(

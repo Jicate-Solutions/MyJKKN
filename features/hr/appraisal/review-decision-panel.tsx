@@ -27,6 +27,7 @@ import {
   missingAreas,
   parseCollegialityExample,
   parseDirectorRatings,
+  parseDirectorReason,
   parseRatings,
   parseSentBackReason,
   resolveAreas,
@@ -57,6 +58,10 @@ export function ReviewDecisionPanel({
   const areas = useMemo(() => resolveAreas(), []);
   const isCommitteeStep = review.status === 'supervisor_reviewed';
   const isDirectorStep = review.status === 'sedc_reviewed';
+  // 1 Oct: a signed-off appraisal opens read-only, so the Director's recorded
+  // change and his reason can be read back beside the committee's (blind
+  // review: the change was written but no screen could show it).
+  const isClosed = review.status === 'final_approved';
 
   const selfRatings = parseRatings(review.self_appraisal_jsonb, areas);
   const supRatings = parseRatings(review.supervisor_review_jsonb, areas);
@@ -64,6 +69,7 @@ export function ReviewDecisionPanel({
   // 30 Sep: the Director's changes as recorded beside the committee's (read-only for everyone).
   const recordedDirector = parseDirectorRatings(review.director_review_jsonb, areas);
   const hasRecordedDirector = Object.keys(recordedDirector).length > 0;
+  const recordedReason = parseDirectorReason(review.director_review_jsonb);
 
   // Committee starts from the supervisor's ratings — normalising means
   // adjusting what the department said, not starting from a blank sheet.
@@ -82,7 +88,13 @@ export function ReviewDecisionPanel({
   const [directorReason, setDirectorReason] = useState('');
   const changedAreas = areas.filter((a) => directorRatings[a] && directorRatings[a] !== sedcRatings[a]);
 
-  const approvedRatings = isDirectorStep ? { ...sedcRatings, ...directorRatings } : ratings;
+  // What the sign-off approves (or approved): the committee's ratings with
+  // the Director's changes laid over. Once closed, the recorded changes.
+  const approvedRatings = isDirectorStep
+    ? { ...sedcRatings, ...directorRatings }
+    : isClosed
+      ? { ...sedcRatings, ...recordedDirector }
+      : ratings;
   const previewScore = deriveAppraisalScore(
     approvedRatings, areas, resolveRatingPoints(policy), policy,
   );
@@ -123,6 +135,12 @@ export function ReviewDecisionPanel({
       toast.error('Say why you changed a rating (at least 10 characters). It is recorded beside the committee\'s.');
       return;
     }
+    // The same rule the committee lives by: a Below in Collegiality needs a
+    // written example, whoever gives it (blind review, 1 Oct).
+    if (changedAreas.length > 0 && collegialityExampleMissing(approvedRatings, example, policy)) {
+      toast.error('A Below in Collegiality needs a written example.');
+      return;
+    }
     setBusy(true);
     try {
       // The service re-reads the person's own college rule for the stored
@@ -132,6 +150,8 @@ export function ReviewDecisionPanel({
         approver_profile_id: approverProfileId,
         director_ratings: changedAreas.length > 0 ? directorRatings : undefined,
         director_reason: changedAreas.length > 0 ? directorReason : undefined,
+        director_collegiality_example:
+          changedAreas.includes('collegiality') && approvedRatings.collegiality === 'below' ? example : undefined,
       });
       toast.success('Appraisal approved and closed.');
       onDone(updated);
@@ -160,7 +180,7 @@ export function ReviewDecisionPanel({
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
         <CardTitle className="text-base">
-          {isDirectorStep ? 'Director sign-off' : 'Committee review'}
+          {isClosed ? 'Signed off' : isDirectorStep ? 'Director sign-off' : 'Committee review'}
         </CardTitle>
         <Button variant="outline" size="sm" onClick={onClose}>
           <ArrowLeft className="h-4 w-4" />
@@ -207,6 +227,21 @@ export function ReviewDecisionPanel({
             </tbody>
           </table>
         </div>
+
+        {hasRecordedDirector && (
+          <div className="rounded-md border p-3 text-sm" data-testid="director-change-note">
+            <p className="font-semibold">
+              The Director changed {Object.keys(recordedDirector).map((a) => AREA_LABELS[a as keyof typeof AREA_LABELS]).join(', ')}
+            </p>
+            <p className="mt-1 text-muted-foreground">{recordedReason || 'No reason was recorded.'}</p>
+          </div>
+        )}
+        {isClosed && review.final_remarks && (
+          <div className="rounded-md border p-3 text-sm" data-testid="final-remarks">
+            <p className="font-semibold">The Director&rsquo;s remarks</p>
+            <p className="mt-1 text-muted-foreground">{review.final_remarks}</p>
+          </div>
+        )}
 
         {/* What the person wrote, readable — the table above shows only bands. */}
         <details className="rounded-md border border-border p-3">
@@ -273,6 +308,7 @@ export function ReviewDecisionPanel({
           </div>
         )}
 
+        {!isClosed && (
         <div className="border-t pt-4">
           <Label htmlFor="decision-notes">
             {isDirectorStep ? 'Your remarks' : 'Normalisation notes'}
@@ -290,6 +326,7 @@ export function ReviewDecisionPanel({
             }
           />
         </div>
+        )}
 
         {/* What the ratings become for promotion — stated, not hidden. */}
         <div className="rounded-md border border-border bg-muted/30 p-3 text-xs">
@@ -301,6 +338,9 @@ export function ReviewDecisionPanel({
               ? 'Every area must be rated before this can be approved.'
               : `Promotion reads this as ${previewScore} out of 100. That number exists only to ` +
                 'order candidates; it is not the appraisal result and is not shown to the team member.'}
+            {isClosed && review.final_score !== null && review.final_score !== previewScore && (
+              <> The stored score is {review.final_score}.</>
+            )}
           </p>
           {blocked && (
             <p className="mt-2 font-medium text-amber-700 dark:text-amber-300">
@@ -311,6 +351,7 @@ export function ReviewDecisionPanel({
           )}
         </div>
 
+        {!isClosed && (
         <div className="flex flex-wrap gap-2 border-t pt-4">
           {isCommitteeStep && (
             <Button onClick={submitCommittee} disabled={busy}>
@@ -339,6 +380,7 @@ export function ReviewDecisionPanel({
             </p>
           )}
         </div>
+        )}
       </CardContent>
     </Card>
   );

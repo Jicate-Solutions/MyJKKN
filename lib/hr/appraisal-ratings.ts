@@ -413,3 +413,10 @@ export function parseDirectorRatings(
   return parseRatings(payload ?? null, areas);
 }
 
+/** The reason the Director recorded with his change, or null. */
+export function parseDirectorReason(
+  payload: Record<string, unknown> | null | undefined,
+): string | null {
+  const r = payload?.reason;
+  return typeof r === 'string' && r.trim() !== '' ? r.trim() : null;
+}

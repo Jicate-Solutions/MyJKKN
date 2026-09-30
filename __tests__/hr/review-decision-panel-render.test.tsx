@@ -273,6 +273,7 @@ describe('Director step (sedc_reviewed)', () => {
       approver_profile_id: 'director-1',
       director_ratings: { teaching: 'exceeds', research: 'meets', service: 'meets', collegiality: 'meets' },
       director_reason: 'The service record shows the committee work was shared.',
+      director_collegiality_example: undefined,
     });
     await vi.waitFor(() => expect(onDone).toHaveBeenCalled());
   });
@@ -286,6 +287,29 @@ describe('Director step (sedc_reviewed)', () => {
       approver_profile_id: 'director-1',
       director_ratings: undefined,
       director_reason: undefined,
+      director_collegiality_example: undefined,
+    });
+  });
+
+  it('a Below in Collegiality by the Director needs a written example, like the committee’s', async () => {
+    renderPanel(review, { policy: { collegiality_below_requires_example: true } });
+    const coll = screen.getByRole('radiogroup', { name: 'Collegiality' });
+    fireEvent.click(within(coll).getByLabelText('Below expectations'));
+    fireEvent.change(screen.getByLabelText(/Why you changed this rating/), {
+      target: { value: 'Two complaints about shared duties this term.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Approve and close/ }));
+    expect(toastFns.error).toHaveBeenCalledWith('A Below in Collegiality needs a written example.');
+    expect(svc.finalApprove).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText(/example/i), {
+      target: { value: 'Missed three of four departmental duties and left the load to colleagues.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Approve and close/ }));
+    await vi.waitFor(() => expect(svc.finalApprove).toHaveBeenCalledTimes(1));
+    expect(svc.finalApprove.mock.calls[0][2]).toMatchObject({
+      director_ratings: expect.objectContaining({ collegiality: 'below' }),
+      director_collegiality_example: 'Missed three of four departmental duties and left the load to colleagues.',
     });
   });
 
@@ -297,6 +321,27 @@ describe('Director step (sedc_reviewed)', () => {
     } as never));
     expect(screen.getByText('Director')).toBeInTheDocument();
     expect(screen.getByTestId('director-rating-service')).toHaveTextContent('Meets');
+  });
+
+  it('a signed-off appraisal reads back the Director’s change, his reason and the laid-over result, with nothing to click', () => {
+    renderPanel(appraisal({
+      ...review,
+      status: 'final_approved',
+      final_score: 62.5,
+      final_remarks: 'Signed off with one change.',
+      director_review_jsonb: { ratings: { service: 'meets' }, reason: 'Shared committee work', set_by: 'director-1', set_at: '2026-09-30T12:00:00Z' },
+    } as never));
+    expect(screen.getByText('Signed off')).toBeInTheDocument();
+    const note = screen.getByTestId('director-change-note');
+    expect(note).toHaveTextContent('The Director changed Service');
+    expect(note).toHaveTextContent('Shared committee work');
+    expect(screen.getByTestId('final-remarks')).toHaveTextContent('Signed off with one change.');
+    // Committee: 1 Exceeds, 2 Meets, 1 Below (service below). Laid over: service → meets.
+    expect(screen.getByText('1 Exceeds, 3 Meets')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Approve and close/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Send back/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Back to list/ })).toBeInTheDocument();
   });
 
   it('previews the promotion score from the committee ratings', () => {
