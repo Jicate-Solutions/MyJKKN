@@ -31,6 +31,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createBellNotification } from '@/lib/services/meetings/meeting-trigger-service';
+import { dueDateFor } from '@/lib/campus-walk/due-dates';
 import {
   sendUrgentConditionAlert,
   type UrgentAlertOutcome
@@ -38,18 +39,9 @@ import {
 
 const CAMPUS_OPS_PROJECT_CODE = 'CAMPUS-OPS';
 
-/**
- * Due-date policy (Director ruling, locked 2026-08-19 — supersedes the D6 draft
- * numbers). D6: an unsafe condition is due the SAME DAY it is spotted, never
- * queued behind a dusty sill — a 0-day offset, not "tomorrow". A normal symptom
- * (one action, e.g. "clean this toilet") gets 2 days. A system gap (no SOP, an
- * audit finding — broader work) gets 7 days.
- */
-const DUE_IN_DAYS = {
-  unsafe: 0,
-  symptom: 2,
-  system_gap: 7
-} as const;
+// Due-date policy (Director ruling, locked 2026-08-19): DUE_IN_DAYS lives in
+// lib/campus-walk/due-dates.ts so a "Not fixed" reopen gets the same clock a
+// new report does (Director, 2026-09-30). See that file for the numbers.
 
 export type WalkKind = 'symptom' | 'system_gap';
 
@@ -434,8 +426,7 @@ export async function routeAccountable(
     }
   }
 
-  const dueInDays = params.isUnsafe ? DUE_IN_DAYS.unsafe : DUE_IN_DAYS[params.kind];
-  const dueDate = new Date(Date.now() + dueInDays * 86_400_000).toISOString().slice(0, 10);
+  const dueDate = dueDateFor(params.kind, Boolean(params.isUnsafe));
 
   // Whoever ends up Accountable — candidate or the EAO fallback above — must
   // not be penalised for being on sanctioned leave. Pause the clock and hand
