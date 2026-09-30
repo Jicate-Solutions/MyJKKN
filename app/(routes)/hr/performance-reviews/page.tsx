@@ -97,7 +97,7 @@ export default function HrSelfAppraisalPage() {
         const staff = myStaffIds?.[0] ? { id: myStaffIds[0] } : null;
         if (!staff) {
           throw new Error(
-            'No active staff record is linked to your login. Ask HR to link your staff record to this account.',
+            'No active team-member record is linked to your login. Ask HR to link your record to this account.',
           );
         }
         if (cancelled) return;
