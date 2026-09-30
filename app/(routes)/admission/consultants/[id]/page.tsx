@@ -661,7 +661,7 @@ function ConsultantDetailContent() {
                   {linkedReferrer.type === 'internal' ? (
                     <>
                       <DetailRow label="Designation" value={linkedData?.profile.detail} />
-                      <DetailRow label="Staff ID" value={linkedData?.profile.code} />
+                      <DetailRow label="Team Member ID" value={linkedData?.profile.code} />
                       <DetailRow label="Institution" value={linkedData?.profile.institution} />
                       <DetailRow label="Department" value={linkedData?.profile.department} />
                     </>

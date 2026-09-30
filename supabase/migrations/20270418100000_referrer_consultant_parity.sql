@@ -337,6 +337,10 @@ BEGIN
           OR user_has_permission('admission.consultants.view')) THEN
     RAISE EXCEPTION 'Not authorised to view the consultant directory';
   END IF;
+  -- Added 20270418100000: an institution filter must be one the caller may see.
+  IF p_institution_id IS NOT NULL AND NOT public.role_has_institution_access(p_institution_id) THEN
+    RAISE EXCEPTION 'FORBIDDEN_INSTITUTION: You do not have access to that institution.';
+  END IF;
 
   -- Every intake year that actually carries a consultant referral, newest first.
   -- Derived, never hardcoded: a new year appears here the day its first referral
@@ -416,3 +420,11 @@ BEGIN
   );
 END;
 $function$;
+
+-- Re-stated locks for the re-created functions (unchanged from their originals).
+REVOKE EXECUTE ON FUNCTION public.fn_consultant_rate_card_earnings(uuid, integer) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_consultant_rate_card_earnings(uuid, integer) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_consultant_first_year_fee_collection(uuid, integer) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_consultant_first_year_fee_collection(uuid, integer) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_consultant_directory(integer, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_consultant_directory(integer, uuid) TO authenticated;
