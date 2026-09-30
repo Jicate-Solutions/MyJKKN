@@ -291,6 +291,20 @@ describe('Director step (sedc_reviewed)', () => {
     });
   });
 
+  it('a committee Below in Collegiality is not re-asked of the Director when he changes another area', async () => {
+    renderPanel(appraisal({
+      ...review,
+      sedc_review_jsonb: { ratings: { teaching: 'meets', research: 'below', service: 'meets', collegiality: 'below' } },
+    } as never), { policy: { collegiality_below_requires_example: true } });
+    const research = screen.getByRole('radiogroup', { name: 'Research' });
+    fireEvent.click(within(research).getByLabelText('Meets expectations'));
+    fireEvent.change(screen.getByLabelText(/Why you changed this rating/), { target: { value: 'Two papers were accepted after the committee met.' } });
+    fireEvent.click(screen.getByRole('button', { name: /Approve and close/ }));
+    await vi.waitFor(() => expect(svc.finalApprove).toHaveBeenCalledTimes(1));
+    expect(toastFns.error).not.toHaveBeenCalledWith('A Below in Collegiality needs a written example.');
+    expect(svc.finalApprove.mock.calls[0][2].director_collegiality_example).toBeUndefined();
+  });
+
   it('a Below in Collegiality by the Director needs a written example, like the committee’s', async () => {
     renderPanel(review, { policy: { collegiality_below_requires_example: true } });
     const coll = screen.getByRole('radiogroup', { name: 'Collegiality' });
@@ -340,6 +354,7 @@ describe('Director step (sedc_reviewed)', () => {
     expect(screen.getByTestId('final-remarks')).toHaveTextContent('Signed off with one change.');
     // Committee: 1 Exceeds, 2 Meets, 1 Below (service below). Laid over: service → meets.
     expect(screen.getByText('1 Exceeds, 3 Meets')).toBeInTheDocument();
+    expect(screen.getByText(/The recorded promotion score is 62.5 out of 100\./)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Approve and close/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Send back/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument();
