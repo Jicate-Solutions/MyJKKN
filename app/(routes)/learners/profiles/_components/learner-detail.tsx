@@ -44,6 +44,7 @@ import { formatAdmissionYear } from '@/lib/utils/admission-year-format';
 import type { LearnerProfile } from '@/types/learner-profile';
 import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
 import { ViewOnMapLink } from '@/components/learners/view-on-map-link';
+import { PgDegreeDocuments } from '@/components/learners/pg-degree-documents';
 import { formatTwelfthGroup } from '@/lib/utils/mappings/enquiry-excel-mappings';
 import { useQuery } from '@tanstack/react-query';
 import { DegreeService } from '@/lib/services/organization/degree-service';
@@ -642,6 +643,19 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                               : 'Not entered'}
                           </p>
                         </div>
+                      </div>
+                      {/* Mark sheet + scorecard (2026-09-30). Expected, never blocking. */}
+                      <div className="space-y-2 pt-2">
+                        <h4 className="text-sm font-medium text-muted-foreground">Papers</h4>
+                        <PgDegreeDocuments
+                          learnerId={learner.id}
+                          canView={
+                            isSuperAdmin ||
+                            canAccess('admission_documents', 'manage') ||
+                            canAccess('admission_fees', 'read')
+                          }
+                          canUpload={isSuperAdmin || canAccess('admission_documents', 'manage')}
+                        />
                       </div>
                     </div>
                   </>

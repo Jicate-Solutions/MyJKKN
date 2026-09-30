@@ -28,6 +28,7 @@ import {
 } from '@/components/learners/last-school-field';
 import { useMemo } from 'react';
 import { cleanPreviousDegree, missingPreviousDegreeFields } from '@/lib/admission/previous-degree';
+import { PG_DEGREE_DOC_TYPES, type PgDegreeDocType } from '@/lib/admission/learner-documents';
 
 interface Props {
   lang: Language;
@@ -481,6 +482,9 @@ export function StepAcademicInformation({
               className="h-12"
             />
           </Field>
+          {(Object.keys(PG_DEGREE_DOC_TYPES) as PgDegreeDocType[]).map((dt) => (
+            <PgDocumentUpload key={dt} token={token} docType={dt} label={PG_DEGREE_DOC_TYPES[dt]} />
+          ))}
         </Section>
       )}
 
@@ -710,3 +714,46 @@ export function StepAcademicInformation({
     </form>
   );
 }
+
+// Mark sheet / scorecard upload for a postgraduate applicant (2026-09-30).
+// Optional here — a walk-in often does not carry the papers — and never blocks
+// Continue. Posts to /api/student-form/[token]/document, which writes for this
+// token's learner only.
+function PgDocumentUpload({ token, docType, label }: { token: string; docType: PgDegreeDocType; label: string }) {
+  const [state, setState] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle');
+  const [message, setMessage] = useState('');
+  const onFile = async (file: File | undefined) => {
+    if (!file) return;
+    setState('uploading');
+    setMessage('');
+    try {
+      const body = new FormData();
+      body.append('doc_type', docType);
+      body.append('file', file);
+      const res = await fetch(`/api/student-form/${encodeURIComponent(token)}/document`, { method: 'POST', body });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || 'Upload failed');
+      setState('done');
+      setMessage(`${file.name} uploaded`);
+    } catch (e) {
+      setState('error');
+      setMessage(e instanceof Error ? e.message : 'Upload failed');
+    }
+  };
+  return (
+    <Field label={`${label} (PDF, JPG or PNG, up to 5 MB)`}>
+      <Input
+        id={`pg-doc-${docType}`}
+        type="file"
+        accept="application/pdf,image/jpeg,image/png"
+        onChange={(e) => void onFile(e.target.files?.[0])}
+        disabled={state === 'uploading'}
+        className="h-12"
+      />
+      {state === 'uploading' && <p className="text-xs text-muted-foreground">Uploading…</p>}
+      {state === 'done' && <p className="text-xs text-emerald-700 dark:text-emerald-400">{message}</p>}
+      {state === 'error' && <p className="text-xs text-destructive">{message}</p>}
+    </Field>
+  );
+}
+
