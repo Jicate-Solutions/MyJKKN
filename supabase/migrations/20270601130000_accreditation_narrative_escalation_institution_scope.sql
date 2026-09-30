@@ -4,17 +4,25 @@
 -- ledger and every open PR; content unchanged.
 -- Re-checked 30 Sep against the LIVE catalog: fn_accreditation_narrative_reminders
 -- is still byte-identical (whitespace aside) to the body in 20260816040000, the
--- body this file was built on. 20260830010000 (the ceo / managing_director grant)
--- IS applied, so the containment below is now overdue rather than pre-emptive.
+-- body this file was built on.
+--
+-- WHAT THIS DOES TO LIVE TODAY (30 Sep; W12 desk review): live escalates to
+-- SUPER ADMINS ONLY (the 20260816040000 CROSS JOIN on is_super_admin). So on
+-- live this is a WIDENING, not a narrowing: it ADDS the holders of
+-- accreditation.naac.narrative.manage — ceo, managing_director and
+-- accreditation_officer for every college, and eao for their own college —
+-- about 247 → 323 notification rows a day on 30 Sep data. The institution
+-- scoping below is what keeps that widening from being cluster-wide for
+-- everybody. The figures further down are the author's 13 Aug readings.
 --
 -- ─── Stop chasing people about other colleges' NAAC narratives ───────────────
 -- 2026-08-13 — Director decision R2, taken 2026-08-13.
 --
 -- ⚠ NOT APPLIED TO ANY DATABASE. Director-gated apply, by hand.
 --
--- Ordered BEFORE 20260830010000 (the ceo/managing_director grant) deliberately:
--- the fan-out must already be correct at the moment anybody new receives the
--- key, not one migration later.
+-- (13 Aug:) Ordered BEFORE 20260830010000 (the ceo/managing_director grant)
+-- deliberately. That grant has since been applied, so on re-arming (30 Sep) this
+-- file now runs AFTER it; the holders it names already exist.
 --
 -- ══ WHAT IS ACTUALLY ON PRODUCTION RIGHT NOW ═════════════════════════════════
 --
@@ -143,6 +151,7 @@
 --   declined: had `principal` been granted the key (13 principals, scope 'own'),
 --   the unfixed fan would write 589 rows against these same 19 narratives and
 --   the fixed one writes 354 — 235 chases about other colleges, prevented.
+--   (All figures in this section were read on 13 Aug 2026.)
 --
 -- ══ DELIBERATELY NOT CHANGED ═════════════════════════════════════════════════
 --
