@@ -28,6 +28,7 @@ import {
 import {
   attachAnswersToQuestions,
   markObjectiveAnswer,
+  scoreRegions,
   type ObjectiveAnswerKey,
 } from '@/lib/services/pde-objective-marking';
 
@@ -180,6 +181,105 @@ describe('markObjectiveAnswer — MCQ and image tag are marked from the raw choi
 
   it('never marks free text — that stays with the examiner', () => {
     expect(markObjectiveAnswer(FREE_TEXT_KEY, textEnvelope('q-3'))).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// (1b) A learner-written image size must not widen a region (W12 review, #4131)
+// ---------------------------------------------------------------------------
+describe('scoreRegions — the reported image size cannot buy marks', () => {
+  // As ImageTagRegionAuthor saves it: fractions, tolerance_px 16.
+  const authored = [{ x: 0.7, y: 0.7, w: 0.1, h: 0.1, label: 'Lesion', tolerance_px: 16 }];
+
+  it('scores the shrunken-image probe 0 (it used to score 100)', () => {
+    expect(
+      scoreRegions({ x: 0, y: 0, imgWidth: 0.001, imgHeight: 0.001 }, authored).score,
+    ).toBe(0);
+    const key: ObjectiveAnswerKey = { ...IMAGE_KEY, expected_regions: authored };
+    expect(
+      markObjectiveAnswer(key, {
+        question_id: 'q-2',
+        click_point: { x: 0, y: 0, imgWidth: 0.001, imgHeight: 0.001 },
+        region_score: 100,
+      }),
+    ).toBe(0);
+  });
+
+  it('still gives an honest centre click 100 and honest near-misses the old pixel score', () => {
+    // 1200 x 800 image; region centre = (0.75 x 1200, 0.75 x 800) = (900, 600).
+    const at = (x: number, y: number) =>
+      scoreRegions({ x, y, imgWidth: 1200, imgHeight: 800 }, authored).score;
+    expect(at(900, 600)).toBe(100);
+    // Old formula: 1 - dist / (2 x 16). 8 px away -> 75; 32 px or more -> 0.
+    expect(at(908, 600)).toBe(75);
+    expect(at(900, 592)).toBe(75);
+    expect(at(932, 600)).toBe(0);
+  });
+
+  it('caps the tolerance at the region, however small the reported image', () => {
+    // A click at the far corner of the region's own box, on a shrunken image:
+    // the tolerance is capped at the region's size, so no free 100.
+    const s = scoreRegions({ x: 0.0008, y: 0.0008, imgWidth: 0.001, imgHeight: 0.001 }, authored).score;
+    expect(s).toBeLessThan(100);
+  });
+
+  it('uses the default tolerance for 0, negative or non-finite tolerance_px — never NaN, never a free 100', () => {
+    for (const bad of [0, -5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const regions = [{ x: 0.4, y: 0.4, w: 0.2, h: 0.2, tolerance_px: bad }];
+      const centre = scoreRegions({ x: 500, y: 500, imgWidth: 1000, imgHeight: 1000 }, regions).score;
+      const far = scoreRegions({ x: 50, y: 50, imgWidth: 1000, imgHeight: 1000 }, regions).score;
+      expect(centre).toBe(100);
+      expect(far).toBe(0);
+      // Default = region half-size: 50 px off a 200 px region -> 75.
+      expect(
+        scoreRegions({ x: 550, y: 500, imgWidth: 1000, imgHeight: 1000 }, regions).score,
+      ).toBe(75);
+    }
+  });
+
+  it('scores an image tag with no regions 0, like an MCQ with no key', () => {
+    expect(scoreRegions({ x: 1, y: 1, imgWidth: 10, imgHeight: 10 }, []).score).toBe(0);
+    expect(scoreRegions({ x: 1, y: 1, imgWidth: 10, imgHeight: 10 }, null).score).toBe(0);
+    const noKey: ObjectiveAnswerKey = { ...IMAGE_KEY, expected_regions: [] };
+    expect(markObjectiveAnswer(noKey, imageEnvelope('q-2', 500, 500, 100))).toBe(0);
+  });
+});
+
+describe('markObjectiveAnswer — MCQ key read as leniently as fn_pde_mark_objective', () => {
+  it('accepts is_correct written as text, as the SQL boolean cast does', () => {
+    for (const flag of ['true', 'TRUE', 't', 'yes', '1', 1]) {
+      const key: ObjectiveAnswerKey = {
+        ...MCQ_KEY,
+        correct_answer: null,
+        options: [
+          { id: 'opt-a', text: 'Aphthous ulcer' },
+          { id: 'opt-b', text: 'Oral lichen planus', is_correct: flag },
+        ],
+      };
+      expect(markObjectiveAnswer(key, mcqEnvelope('q-1', 'opt-b', false))).toBe(100);
+      expect(markObjectiveAnswer(key, mcqEnvelope('q-1', 'opt-a', true))).toBe(0);
+    }
+  });
+
+  it('does not treat false-ish text as correct', () => {
+    const key: ObjectiveAnswerKey = {
+      ...MCQ_KEY,
+      correct_answer: null,
+      options: [{ id: 'opt-a', is_correct: 'false' }, { id: 'opt-b', is_correct: 0 }],
+    };
+    expect(markObjectiveAnswer(key, mcqEnvelope('q-1', 'opt-a', true))).toBe(0);
+    expect(markObjectiveAnswer(key, mcqEnvelope('q-1', 'opt-b', true))).toBe(0);
+  });
+
+  it('matches numeric option ids by their text, as ->> does', () => {
+    const key: ObjectiveAnswerKey = {
+      ...MCQ_KEY,
+      correct_answer: null,
+      options: [{ id: 1, text: 'A' }, { id: 2, text: 'B', is_correct: true }],
+    };
+    expect(markObjectiveAnswer(key, { question_id: 'q-1', selected_option_id: '2' })).toBe(100);
+    expect(markObjectiveAnswer(key, { question_id: 'q-1', selected_option_id: 2 })).toBe(100);
+    expect(markObjectiveAnswer(key, { question_id: 'q-1', selected_option_id: '1' })).toBe(0);
   });
 });
 

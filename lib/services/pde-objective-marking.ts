@@ -12,6 +12,7 @@
 // The rules mirror what the learner was shown while answering:
 //   mcq_warmup — fn_pde_mark_objective (supabase/migrations/pde_answer_key_secdef_rpcs.sql)
 //   image_tag  — scoreRegions below, shared with /api/pde/clinical-reasoning/mark-image-tag
+//                (hardened against a learner-reported image size; see scoreRegions)
 // =============================================================================
 
 import type { PdeAnswer, PdeQuestion } from '@/lib/services/pde-osce-scoring';
@@ -32,29 +33,43 @@ export interface Region {
   tolerance_px?: number;
 }
 
-// Ported verbatim from the former client-side localFallbackScore so scoring is
-// unchanged, only relocated server-side. Regions are FRACTIONS of the natural
-// image dimensions; the click arrives in natural pixels.
+// Regions are FRACTIONS of the natural image; the click arrives in natural
+// pixels together with the image size the learner's browser reported. That
+// size is learner-written, so nothing here may let it widen a region: the
+// comparison runs in fraction space, and the pixel tolerance is converted with
+// the reported size but CAPPED at the region's own width / height. Shrinking
+// the reported image can therefore never stretch the tolerance past the region
+// itself — `{x:0, y:0, imgWidth:0.001, imgHeight:0.001}` used to score 100.
+//
+// For an honest click (true image size, tolerance within the cap) the result
+// is identical to the old pixel formula: 1 - distance / (2 x tolerance).
+// With no usable tolerance_px (absent, 0, negative, non-finite) the tolerance
+// is the region's half-width / half-height.
+//
+// Mirrored (without the cap) in fn_pde_score_clinical_answer's image_tag arm.
 export function scoreRegions(
   pt: ClickPoint,
   regions: Region[] | null | undefined,
 ): { score: number; matched_label?: string } {
   if (!regions || regions.length === 0) {
-    // No expected regions defined → award full credit (faculty must define).
-    return { score: 100 };
+    // No answer key → not markable in the learner's favour, same as an MCQ
+    // with no correct option. Faculty must define a region.
+    return { score: 0 };
   }
+  const fx = pt.x / pt.imgWidth;
+  const fy = pt.y / pt.imgHeight;
   let best = 0;
   let matched: string | undefined;
   for (const r of regions) {
-    const rw = r.w * pt.imgWidth;
-    const rh = r.h * pt.imgHeight;
-    const cx = r.x * pt.imgWidth + rw / 2;
-    const cy = r.y * pt.imgHeight + rh / 2;
-    const dx = pt.x - cx;
-    const dy = pt.y - cy;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    const tol = r.tolerance_px ?? Math.max(rw, rh) / 2;
-    const s = Math.max(0, Math.min(100, (1 - dist / (tol * 2)) * 100));
+    if (![r.x, r.y, r.w, r.h].every(isFiniteNumber) || r.w <= 0 || r.h <= 0) continue;
+    const tolPx =
+      isFiniteNumber(r.tolerance_px) && r.tolerance_px > 0 ? r.tolerance_px : null;
+    const tx = tolPx === null ? r.w / 2 : Math.min(tolPx / pt.imgWidth, r.w);
+    const ty = tolPx === null ? r.h / 2 : Math.min(tolPx / pt.imgHeight, r.h);
+    const dx = (fx - (r.x + r.w / 2)) / tx;
+    const dy = (fy - (r.y + r.h / 2)) / ty;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    const s = Math.max(0, Math.min(100, (1 - d / 2) * 100));
     if (s > best) {
       best = s;
       matched = r.label;
@@ -65,6 +80,27 @@ export function scoreRegions(
 
 function isFiniteNumber(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);
+}
+
+/**
+ * `(elem->>'is_correct')::boolean IS TRUE`, as fn_pde_mark_objective reads it:
+ * JSON true, and the text forms Postgres casts to true ('true', 't', 'yes',
+ * 'y', 'on', '1', any case, trimmed) including the number 1. Postgres also
+ * accepts unambiguous prefixes such as 'tr'; those are not mirrored.
+ */
+function pgBoolIsTrue(v: unknown): boolean {
+  if (v === true || v === 1) return true;
+  return (
+    typeof v === 'string' &&
+    ['true', 't', 'yes', 'y', 'on', '1'].includes(v.trim().toLowerCase())
+  );
+}
+
+/** `elem->>'id'` / a text parameter: strings as-is, numbers as their text. */
+function asIdText(v: unknown): string | null {
+  if (typeof v === 'string') return v;
+  if (isFiniteNumber(v)) return String(v);
+  return null;
 }
 
 /** The answer-key columns of a pde_assessment_questions row. */
@@ -86,17 +122,17 @@ export function markObjectiveAnswer(
   envelope: Record<string, unknown>,
 ): number | undefined {
   if (key.question_type === 'mcq_warmup') {
-    const picked = envelope.selected_option_id;
-    if (typeof picked !== 'string' || picked.length === 0) return undefined;
+    const picked = asIdText(envelope.selected_option_id);
+    if (picked === null || picked.length === 0) return undefined;
     let correctId: string | null =
       typeof key.correct_answer === 'string' && key.correct_answer !== ''
         ? key.correct_answer
         : null;
     if (correctId === null && Array.isArray(key.options)) {
       const hit = key.options.find(
-        (o) => o && typeof o === 'object' && (o as Record<string, unknown>).is_correct === true,
+        (o) => o && typeof o === 'object' && pgBoolIsTrue((o as Record<string, unknown>).is_correct),
       ) as Record<string, unknown> | undefined;
-      correctId = typeof hit?.id === 'string' ? hit.id : null;
+      correctId = asIdText(hit?.id);
     }
     return correctId !== null && picked === correctId ? 100 : 0;
   }
