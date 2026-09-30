@@ -901,6 +901,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admission/consultants/commission-approvals",
+            "label": "Commission Approvals",
+            "iconName": "Users",
+            "children": []
+          },
+          {
+            "path": "/admission/consultants/commission-payments",
+            "label": "Commission Payments",
+            "iconName": "Users",
+            "children": []
+          },
+          {
             "path": "/admission/consultants/commissions",
             "label": "Commissions",
             "iconName": "Users",
@@ -3191,6 +3203,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "Program Eligibility",
             "iconName": "FileText",
             "children": []
+          },
+          {
+            "path": "/campus-living/settings/vacate-checklist",
+            "label": "Vacate Checklist",
+            "iconName": "LogOut",
+            "children": []
           }
         ]
       },
@@ -3204,7 +3222,14 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/campus-living/vacate-requests",
         "label": "Vacate Requests",
         "iconName": "LogOut",
-        "children": []
+        "children": [
+          {
+            "path": "/campus-living/vacate-requests/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/campus-living/visitors",

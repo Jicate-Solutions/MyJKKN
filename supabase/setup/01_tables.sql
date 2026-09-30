@@ -10660,3 +10660,101 @@ CREATE INDEX IF NOT EXISTS hr_salary_revision_outcomes_staff_idx
 
 COMMENT ON TABLE public.hr_salary_revision_outcomes IS
   'What the person whose pay it is may know: the new monthly pay and the day it starts. Written only at the Director''s yes (ruling 5). Nothing about who asked, why, or any refusal.';
+
+-- ============================================================================
+-- 2026-09-30 hostel vacate: dynamic checklist table + request columns
+-- (source of truth: supabase/migrations/20260930240000_hostel_vacate_bill_gate_dynamic_checklist.sql)
+-- ============================================================================
+-- ─── 1. Master checklist (one global list) ─────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.hostel_vacate_checklist_items (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  item_label          text NOT NULL CHECK (char_length(btrim(item_label)) BETWEEN 3 AND 200),
+  description         text CHECK (description IS NULL OR char_length(description) <= 1000),
+  is_required         boolean NOT NULL DEFAULT true,
+  -- NULL = applies to every vacate reason
+  applies_to_reasons  public.vacate_reason_enum[],
+  sort_order          integer NOT NULL DEFAULT 100,
+  is_active           boolean NOT NULL DEFAULT true,
+  created_by          uuid REFERENCES auth.users(id),
+  updated_by          uuid REFERENCES auth.users(id),
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.hostel_vacate_checklist_items ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.hostel_vacate_checklist_items FROM anon;
+
+CREATE INDEX IF NOT EXISTS idx_hvci_active_sort
+  ON public.hostel_vacate_checklist_items (is_active, sort_order);
+CREATE INDEX IF NOT EXISTS idx_hvci_created_by ON public.hostel_vacate_checklist_items (created_by);
+CREATE INDEX IF NOT EXISTS idx_hvci_updated_by ON public.hostel_vacate_checklist_items (updated_by);
+
+DROP TRIGGER IF EXISTS tr_hvci_updated_at ON public.hostel_vacate_checklist_items;
+CREATE TRIGGER tr_hvci_updated_at BEFORE UPDATE ON public.hostel_vacate_checklist_items
+  FOR EACH ROW EXECUTE FUNCTION public.set_hostel_vacate_updated_at();
+
+DROP POLICY IF EXISTS hvci_select ON public.hostel_vacate_checklist_items;
+CREATE POLICY hvci_select ON public.hostel_vacate_checklist_items FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (SELECT public.user_has_permission('campus_living.vacate_checklist.manage'))
+    OR (SELECT public.user_has_permission('campus_living.vacate_requests.view'))
+  );
+
+DROP POLICY IF EXISTS hvci_insert ON public.hostel_vacate_checklist_items;
+CREATE POLICY hvci_insert ON public.hostel_vacate_checklist_items FOR INSERT TO authenticated
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (SELECT public.user_has_permission('campus_living.vacate_checklist.manage'))
+  );
+
+DROP POLICY IF EXISTS hvci_update ON public.hostel_vacate_checklist_items;
+CREATE POLICY hvci_update ON public.hostel_vacate_checklist_items FOR UPDATE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (SELECT public.user_has_permission('campus_living.vacate_checklist.manage'))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (SELECT public.user_has_permission('campus_living.vacate_checklist.manage'))
+  );
+
+-- No DELETE policy: items are deactivated, never deleted, so a request's
+-- frozen copy keeps a valid checklist_item_id.
+
+-- Seed = the six items that used to be hard-coded (now editable).
+INSERT INTO public.hostel_vacate_checklist_items (item_label, is_required, sort_order)
+SELECT v.item_label, v.is_required, v.sort_order
+FROM (VALUES
+  ('Mess dues cleared',                          true,  10),
+  ('Library dues cleared',                       true,  20),
+  ('Room / furniture damage assessment',         true,  30),
+  ('Deposit refund processed by Accounts',       true,  40),
+  ('Room keys returned',                         true,  50),
+  ('Hostel ID card returned',                    false, 60)
+) AS v(item_label, is_required, sort_order)
+WHERE NOT EXISTS (SELECT 1 FROM public.hostel_vacate_checklist_items);
+
+-- ─── 2. Request-side columns ───────────────────────────────────────────────
+ALTER TABLE public.hostel_clearance_items
+  ADD COLUMN IF NOT EXISTS checklist_item_id uuid
+    REFERENCES public.hostel_vacate_checklist_items(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_hci_checklist_item ON public.hostel_clearance_items (checklist_item_id);
+
+ALTER TABLE public.hostel_vacate_requests
+  ADD COLUMN IF NOT EXISTS room_snapshot          jsonb,
+  ADD COLUMN IF NOT EXISTS bills_snapshot         jsonb,
+  ADD COLUMN IF NOT EXISTS outstanding_at_approval numeric,
+  ADD COLUMN IF NOT EXISTS approved_by            uuid REFERENCES auth.users(id),
+  ADD COLUMN IF NOT EXISTS approved_at            timestamptz,
+  ADD COLUMN IF NOT EXISTS approval_remarks       text;
+CREATE INDEX IF NOT EXISTS idx_hvr_approved_by ON public.hostel_vacate_requests (approved_by);
+
+-- One open request per allocation.
+CREATE UNIQUE INDEX IF NOT EXISTS hvr_one_open_per_allocation
+  ON public.hostel_vacate_requests (allocation_id)
+  WHERE status IN ('draft', 'pending_parent', 'pending_warden', 'pending_chief', 'pending_dues', 'approved');
+

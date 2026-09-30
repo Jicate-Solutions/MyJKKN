@@ -2218,11 +2218,15 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.vacate_requests.view_own', label: 'View Own Vacate Requests (Student / Resident)' },
       { key: 'campus_living.vacate_requests.submit', label: 'Submit Own Vacate Request' },
       { key: 'campus_living.vacate_requests.submit_on_behalf', label: 'Submit Vacate Request on Behalf of Student' },
-      { key: 'campus_living.vacate_requests.approve_warden', label: 'Warden Approve Vacate Request' },
-      { key: 'campus_living.vacate_requests.approve_chief', label: 'Chief Warden Approve Vacate Request' },
-      { key: 'campus_living.vacate_requests.mark_clearance', label: 'Mark Dues Clearance Items' },
-      { key: 'campus_living.vacate_requests.finalize', label: 'Finalize Vacate (trigger hostel_allocations.vacate)' },
+      // 2026-09-30: flow is now draft -> warden (bill gate + checklist) -> auto-vacate.
+      // approve_warden = approve/reject (approval vacates the bed); mark_clearance = tick checklist items.
+      // approve_chief / finalize belong to the retired chief + dues stages and gate nothing new.
+      { key: 'campus_living.vacate_requests.approve_warden', label: 'Warden Approve / Reject Vacate Request (approval auto-vacates)' },
+      { key: 'campus_living.vacate_requests.approve_chief', label: 'Chief Warden Approve Vacate Request (retired stage)' },
+      { key: 'campus_living.vacate_requests.mark_clearance', label: 'Tick Vacate Clearance Checklist Items' },
+      { key: 'campus_living.vacate_requests.finalize', label: 'Finalize Vacate (retired stage)' },
       { key: 'campus_living.vacate_requests.cancel', label: 'Cancel Vacate Request (Admin / Hostel Office)' },
+      { key: 'campus_living.vacate_checklist.manage', label: 'Manage Vacate Checklist Items (settings)' },
 
       // Wardens
       { key: 'campus_living.wardens.view', label: 'View Wardens' },

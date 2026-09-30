@@ -11407,3 +11407,107 @@ GRANT SELECT ON public.hr_salary_revision_requests, public.hr_salary_revision_co
 GRANT ALL ON public.hr_salary_revision_requests, public.hr_salary_revision_comments,
             public.hr_salary_revision_decision_notes, public.hr_salary_revision_outcomes
   TO service_role;
+
+-- ============================================================================
+-- 2026-09-30 hostel vacate: block-aware SELECT, RPC-only writes
+-- (source of truth: supabase/migrations/20260930240000_hostel_vacate_bill_gate_dynamic_checklist.sql)
+-- ============================================================================
+-- ─── 4. RLS on the vacate tables ───────────────────────────────────────────
+-- SELECT becomes block-aware (wardens own a block, not an institution).
+-- INSERT/UPDATE by staff go through the RPCs below, so the direct paths shrink
+-- to admin (+ the submitter editing their own draft).
+DROP POLICY IF EXISTS hvr_select_permission ON public.hostel_vacate_requests;
+CREATE POLICY hvr_select_permission ON public.hostel_vacate_requests FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('campus_living.vacate_requests.view'))
+        AND public.fn_cl_vacate_scope_ok(institution_id, allocation_id))
+    OR ((SELECT public.user_has_permission('campus_living.vacate_requests.view_own'))
+        AND (submitted_by_id = (SELECT auth.uid()) OR learner_id = (SELECT auth.uid())))
+  );
+
+DROP POLICY IF EXISTS hvr_insert_permission ON public.hostel_vacate_requests;
+CREATE POLICY hvr_insert_permission ON public.hostel_vacate_requests FOR INSERT TO authenticated
+  WITH CHECK ((SELECT public.is_super_admin()) OR (SELECT public.is_admin()));
+
+DROP POLICY IF EXISTS hvr_update_permission ON public.hostel_vacate_requests;
+CREATE POLICY hvr_update_permission ON public.hostel_vacate_requests FOR UPDATE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (submitted_by_id = (SELECT auth.uid()) AND status = 'draft')
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (submitted_by_id = (SELECT auth.uid()) AND status = 'draft')
+  );
+
+DROP POLICY IF EXISTS hci_select_permission ON public.hostel_clearance_items;
+CREATE POLICY hci_select_permission ON public.hostel_clearance_items FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR EXISTS (
+      SELECT 1 FROM public.hostel_vacate_requests r
+       WHERE r.id = hostel_clearance_items.vacate_request_id
+         AND (
+           ((SELECT public.user_has_permission('campus_living.vacate_requests.view'))
+             AND public.fn_cl_vacate_scope_ok(r.institution_id, r.allocation_id))
+           OR ((SELECT public.user_has_permission('campus_living.vacate_requests.view_own'))
+             AND (r.submitted_by_id = (SELECT auth.uid()) OR r.learner_id = (SELECT auth.uid())))
+         )
+    )
+  );
+
+DROP POLICY IF EXISTS hci_insert_permission ON public.hostel_clearance_items;
+CREATE POLICY hci_insert_permission ON public.hostel_clearance_items FOR INSERT TO authenticated
+  WITH CHECK ((SELECT public.is_super_admin()) OR (SELECT public.is_admin()));
+
+DROP POLICY IF EXISTS hci_update_permission ON public.hostel_clearance_items;
+CREATE POLICY hci_update_permission ON public.hostel_clearance_items FOR UPDATE TO authenticated
+  USING ((SELECT public.is_super_admin()) OR (SELECT public.is_admin()))
+  WITH CHECK ((SELECT public.is_super_admin()) OR (SELECT public.is_admin()));
+
+DROP POLICY IF EXISTS hvd_select_permission ON public.hostel_vacate_documents;
+CREATE POLICY hvd_select_permission ON public.hostel_vacate_documents FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR EXISTS (
+      SELECT 1 FROM public.hostel_vacate_requests r
+       WHERE r.id = hostel_vacate_documents.vacate_request_id
+         AND (
+           ((SELECT public.user_has_permission('campus_living.vacate_requests.view'))
+             AND public.fn_cl_vacate_scope_ok(r.institution_id, r.allocation_id))
+           OR ((SELECT public.user_has_permission('campus_living.vacate_requests.view_own'))
+             AND (r.submitted_by_id = (SELECT auth.uid()) OR r.learner_id = (SELECT auth.uid())))
+         )
+    )
+  );
+
+DROP POLICY IF EXISTS hvd_insert_permission ON public.hostel_vacate_documents;
+CREATE POLICY hvd_insert_permission ON public.hostel_vacate_documents FOR INSERT TO authenticated
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR EXISTS (
+      SELECT 1 FROM public.hostel_vacate_requests r
+       WHERE r.id = hostel_vacate_documents.vacate_request_id
+         AND r.status = 'draft'
+         AND r.submitted_by_id = (SELECT auth.uid())
+    )
+  );
+
+-- Allow deleting master vacate checklist items.
+-- Safe for requests already in flight: hostel_clearance_items keeps its own copy
+-- of label / required flag, and checklist_item_id is ON DELETE SET NULL, so a
+-- deleted master item only detaches from the history.
+DROP POLICY IF EXISTS hvci_delete ON public.hostel_vacate_checklist_items;
+CREATE POLICY hvci_delete ON public.hostel_vacate_checklist_items FOR DELETE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (SELECT public.user_has_permission('campus_living.vacate_checklist.manage'))
+  );
