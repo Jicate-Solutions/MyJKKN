@@ -1130,6 +1130,11 @@ export const PERMISSION_CATEGORIES = [
       // anyone), so THAT is what is gated, and the RLS + the review function
       // both demand this key.
       { key: 'hr.staff_photo.review', label: 'Approve Team Member Photographs' },
+      // HR staff harness (20270613101207): the desk-level late counts —
+      // fn_hr_duty_desk_summary(). Desks only, never a person's numbers; the
+      // Director (fn_is_the_director) and super admins see them without it.
+      // Meant for the HR head; switch it on in Role Management.
+      { key: 'hr.harness.desks.view', label: 'View HR Desk Late Counts' },
       { key: 'hr.attendance.view_all', label: 'View Attendance for Everyone' },
       { key: 'hr.attendance.approve_team', label: 'Approve Attendance for Own Team' },
       { key: 'hr.attendance.regularize_approve', label: 'Approve Attendance Regularization Requests' },
