@@ -10997,12 +10997,47 @@ GRANT EXECUTE ON FUNCTION fn_notification_is_for_user(JSONB, UUID) TO authentica
 -- 20260424_bos_align_institutions_id_and_drop_expert_fk.sql).
 -- ============================================================================
 
--- Resolution priority: user-override > institution-override > role-override > global default
-CREATE OR REPLACE FUNCTION fn_get_policy(p_key TEXT, p_scope_id UUID DEFAULT NULL)
-RETURNS JSONB
-LANGUAGE SQL STABLE SECURITY DEFINER
-SET search_path = public, pg_temp
-AS $$
+-- Resolution priority: user > cohort(scope_id) > institution > role > cohort(default) > global
+-- Updated: 2026-09-29 - Mirror of 20270506090000_hr_pay_policies_readable_only_with_salary_view.sql
+--   (FILE ONLY, not applied). plpgsql so it can RAISE: for the pay keys hr.pay_scales,
+--   hr.allowances_and_increments and hr.salary_suggestion_rule a signed-in non-admin needs hr.payroll.salary.view AND
+--   access to the college passed as p_scope_id, and gets that college's row only;
+--   otherwise 42501. (Round 2, 2026-09-29: college scoping added.) The SELECT is the 20260731180000 body, which also
+--   brings this mirror up to date with cohort scope. Callers with no signed-in user
+--   (service role, cron) are unaffected; anon has no EXECUTE.
+CREATE OR REPLACE FUNCTION public.fn_get_policy(p_key text, p_scope_id uuid DEFAULT NULL::uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $function$
+BEGIN
+  -- Added 2026-09-29 (20270506090000): pay keys follow the pay-row rule.
+  -- The key is tested first so no other key pays for the permission lookup.
+  IF p_key IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule') THEN
+    IF auth.uid() IS NOT NULL
+       AND NOT (public.is_super_admin() OR public.is_admin())
+    THEN
+      IF NOT public.user_has_permission('hr.payroll.salary.view')
+         OR p_scope_id IS NULL
+         OR NOT public.role_has_institution_access(p_scope_id)
+      THEN
+        RAISE EXCEPTION 'You do not have access to the pay policy % for this college (it needs hr.payroll.salary.view and access to the college).', p_key
+          USING ERRCODE = '42501';
+      END IF;
+      -- A key holder reads their college's own row only: group-wide pay rows
+      -- stay admin-only, exactly as in the table rule.
+      RETURN (
+        SELECT pp.value FROM platform_policies pp
+        WHERE pp.policy_key = p_key AND pp.is_active = true
+          AND pp.scope_type = 'institution' AND pp.scope_id = p_scope_id
+        LIMIT 1
+      );
+    END IF;
+  END IF;
+
+  RETURN (
   SELECT value FROM platform_policies
   WHERE policy_key = p_key AND is_active = true
     AND (
@@ -11015,16 +11050,25 @@ AS $$
             )
           ))
       OR (scope_type='user' AND scope_id=auth.uid())
+      -- cohort scope: the caller passes the batch's cohorts.id as p_scope_id.
+      OR (scope_type='cohort' AND scope_id=p_scope_id)
+      -- ...falling back to the programme-wide cohort default.
+      OR (scope_type='cohort' AND scope_id IS NULL)
     )
   ORDER BY
-    CASE scope_type
-      WHEN 'user' THEN 1
-      WHEN 'institution' THEN 2
-      WHEN 'role' THEN 3
-      WHEN 'global' THEN 4
+    CASE
+      WHEN scope_type = 'user'                                  THEN 1
+      WHEN scope_type = 'cohort' AND scope_id IS NOT NULL        THEN 2
+      WHEN scope_type = 'institution'                            THEN 3
+      WHEN scope_type = 'role'                                   THEN 4
+      WHEN scope_type = 'cohort' AND scope_id IS NULL            THEN 5
+      WHEN scope_type = 'global'                                 THEN 6
+      ELSE 99
     END
-  LIMIT 1;
-$$;
+  LIMIT 1
+  );
+END;
+$function$;
 
 CREATE OR REPLACE FUNCTION fn_get_policy_int(p_key TEXT, p_default INT, p_scope_id UUID DEFAULT NULL)
 RETURNS INT
@@ -73028,3 +73072,210 @@ AS $$
 $$;
 REVOKE ALL ON FUNCTION public.fn_learner_bill_year_visible(uuid, date) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_learner_bill_year_visible(uuid, date) TO authenticated, service_role;
+
+-- ============================================================================
+-- Payroll: prepare stage + compensation-policy read
+-- Updated: 2026-09-29 - Mirror of 20270506090000_hr_pay_policies_readable_only_with_salary_view.sql
+--   (FILE ONLY, not applied). fn_prepare_payroll_period is 20260629000000's body with the
+--   pay matrix read directly as the owner instead of through the gated fn_get_policy (it
+--   was missing from this file before). hr_compensation_policies is new: the Pay Scales /
+--   Allowances / Motivation Fund editors' read, scoped per college.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.fn_prepare_payroll_period(
+  p_period_id uuid,
+  p_comment text DEFAULT NULL
+)
+RETURNS public.hr_payroll_periods
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, extensions
+AS $$
+DECLARE
+  v_period public.hr_payroll_periods;
+  v_caller_role text;
+  v_pay_matrix jsonb;
+  v_dedn jsonb;
+  v_period_start date;
+  v_period_end date;
+  v_total_days int;
+  v_working_days int;
+BEGIN
+  -- Load period (row-lock for the transaction)
+  SELECT * INTO v_period
+  FROM public.hr_payroll_periods
+  WHERE id = p_period_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Payroll period not found: %', p_period_id
+      USING ERRCODE = 'P0002';
+  END IF;
+
+  -- Status guard: must be 'draft'
+  IF v_period.status <> 'draft' THEN
+    RAISE EXCEPTION 'Payroll period % is in status %, expected draft for fn_prepare_payroll_period',
+      p_period_id, v_period.status
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Role guard
+  v_caller_role := public.fn_get_caller_role_key();
+
+  IF NOT (
+    public.is_super_admin()
+    OR public.is_admin()
+    OR (v_caller_role IS NOT NULL AND v_caller_role IN ('hr_officer','hr_admin','hr_manager','director'))
+  ) THEN
+    RAISE EXCEPTION 'Caller role % not authorized to prepare a payroll period (need hr_officer/hr_admin/hr_manager/director/admin)',
+      COALESCE(v_caller_role, '<none>')
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Snapshot pay matrix from platform_policies (global scope; per-institution
+  -- override resolves via fn_get_policy's resolution priority)
+  -- Updated 2026-09-29: read directly as the function's owner, not through
+  -- fn_get_policy, whose pay-key gate (PR #4111) would refuse the role-name
+  -- preparers. Same SELECT as fn_get_policy, key and scope substituted.
+  v_pay_matrix := (
+  SELECT value FROM platform_policies
+  WHERE policy_key = 'hr.pay_scales' AND is_active = true
+    AND (
+      (scope_type='institution' AND scope_id=v_period.institution_id)
+      OR (scope_type='global' AND scope_id IS NULL)
+      OR (scope_type='role' AND scope_id IN (
+            SELECT cr.id FROM custom_roles cr WHERE EXISTS (
+              SELECT 1 FROM user_roles ur JOIN profiles p ON p.id=ur.user_id
+              WHERE ur.role_id=cr.id AND p.id=auth.uid()
+            )
+          ))
+      OR (scope_type='user' AND scope_id=auth.uid())
+      -- cohort scope: the caller passes the batch's cohorts.id as p_scope_id.
+      OR (scope_type='cohort' AND scope_id=v_period.institution_id)
+      -- ...falling back to the programme-wide cohort default.
+      OR (scope_type='cohort' AND scope_id IS NULL)
+    )
+  ORDER BY
+    CASE
+      WHEN scope_type = 'user'                                  THEN 1
+      WHEN scope_type = 'cohort' AND scope_id IS NOT NULL        THEN 2
+      WHEN scope_type = 'institution'                            THEN 3
+      WHEN scope_type = 'role'                                   THEN 4
+      WHEN scope_type = 'cohort' AND scope_id IS NULL            THEN 5
+      WHEN scope_type = 'global'                                 THEN 6
+      ELSE 99
+    END
+  LIMIT 1
+  );
+
+  -- Snapshot deduction rates (5 policy keys nested into one jsonb)
+  v_dedn := jsonb_build_object(
+    'tds_slabs',          public.fn_get_policy('hr.payroll.tds_slabs',          v_period.institution_id),
+    'pf_rate',            public.fn_get_policy('hr.payroll.pf_rate',            v_period.institution_id),
+    'esi_rate',           public.fn_get_policy('hr.payroll.esi_rate',           v_period.institution_id),
+    'professional_tax',   public.fn_get_policy('hr.payroll.professional_tax',   v_period.institution_id),
+    'standard_deduction', public.fn_get_policy('hr.payroll.standard_deduction', v_period.institution_id)
+  );
+
+  -- Compute period bounds
+  v_period_start := make_date(v_period.period_year, v_period.period_month, 1);
+  v_period_end := (v_period_start + interval '1 month - 1 day')::date;
+  v_total_days := (v_period_end - v_period_start) + 1;
+
+  -- Working days = total calendar days
+  --                MINUS Sundays in the range
+  --                MINUS approved institution holidays (institution_leaves) that fall in-range
+  WITH all_days AS (
+    SELECT generate_series(v_period_start, v_period_end, interval '1 day')::date AS d
+  ),
+  non_sundays AS (
+    SELECT d FROM all_days WHERE extract(dow from d) <> 0  -- Sunday = 0
+  ),
+  holidays_in_range AS (
+    -- institution_leaves rows scoped to this institution + approved + overlapping the period
+    SELECT DISTINCT d
+    FROM non_sundays
+    WHERE EXISTS (
+      SELECT 1 FROM public.institution_leaves il
+      WHERE il.institution_id = v_period.institution_id
+        AND il.status = 'approved'
+        AND il.scope_level = 'institution'  -- only institution-wide holidays subtract
+        AND non_sundays.d BETWEEN il.start_date AND il.end_date
+    )
+  )
+  SELECT (SELECT count(*) FROM non_sundays) - (SELECT count(*) FROM holidays_in_range)
+  INTO v_working_days;
+
+  -- Defensive floor: at least 1 working day so divisor never zero
+  v_working_days := GREATEST(v_working_days, 1);
+
+  -- Update period
+  UPDATE public.hr_payroll_periods
+  SET
+    status = 'prepared',
+    prepared_at = now(),
+    prepared_by = auth.uid(),
+    pay_matrix_snapshot = v_pay_matrix,
+    deduction_rates_snapshot = v_dedn,
+    working_days_count = v_working_days,
+    total_calendar_days = v_total_days
+  WHERE id = p_period_id
+  RETURNING * INTO v_period;
+
+  -- Audit row
+  INSERT INTO public.hr_payroll_period_approvals (period_id, stage, approver_id, comment)
+  VALUES (p_period_id, 'prepared', auth.uid(), p_comment);
+
+  RETURN v_period;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_prepare_payroll_period(uuid, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_prepare_payroll_period(uuid, text) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.hr_compensation_policies(p_key text)
+RETURNS TABLE(
+  institution_id  uuid,
+  has_row         boolean,
+  policy_value    jsonb,
+  description     text,
+  updated_at      timestamptz,
+  updated_by      uuid
+)
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_admin boolean;
+BEGIN
+  IF p_key IS NULL
+     OR p_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.motivation_fund')
+  THEN
+    RAISE EXCEPTION 'Not a compensation policy key: %', p_key
+      USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+
+  v_admin := public.is_super_admin() OR public.is_admin();
+  IF NOT (v_admin OR public.user_has_permission('hr.payroll.salary.view')) THEN
+    RAISE EXCEPTION 'hr.payroll.salary.view is required to see compensation policies.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  RETURN QUERY
+  SELECT i.id,
+         pp.id IS NOT NULL,
+         pp.value,
+         pp.description,
+         pp.updated_at,
+         pp.updated_by
+    FROM public.institutions i
+    LEFT JOIN public.platform_policies pp
+      ON pp.policy_key = p_key
+     AND pp.scope_type = 'institution'
+     AND pp.scope_id = i.id
+   WHERE v_admin OR public.role_has_institution_access(i.id)
+   ORDER BY i.id;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.hr_compensation_policies(text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.hr_compensation_policies(text) TO authenticated;
