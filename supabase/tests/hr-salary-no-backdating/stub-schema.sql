@@ -2,9 +2,11 @@
 -- 20270521090000_hr_salary_no_backdating.sql and main's real helpers depend on.
 --
 -- Only what the helpers READ is modelled. The helpers themselves
--- (is_super_admin, user_has_permission(text), fn_my_staff_ids), the salary table
--- and its RLS, and main's newest fn_hr_set_staff_salary are loaded VERBATIM from
--- the repo by run.sh, not written here.
+-- (is_super_admin, is_admin, user_has_permission(text), fn_my_staff_ids), the
+-- salary table and its RLS, main's newest fn_hr_set_staff_salary, the
+-- platform_policies table and the Director list (#4121, which defines
+-- fn_is_the_director) are loaded VERBATIM from the repo by run.sh, not written
+-- here.
 --
 -- Two things here are stand-ins, stated plainly:
 --   * public.set_updated_at() is referenced by the salary table's trigger but
@@ -42,10 +44,27 @@ CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
   )::uuid
 $$;
 GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated, service_role;
+-- auth.role(): Supabase's own definition. The Director-list guard (#4121) reads it.
+CREATE OR REPLACE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$
+  SELECT coalesce(
+    nullif(current_setting('request.jwt.claim.role', true), ''),
+    (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role')
+  )::text
+$$;
+GRANT EXECUTE ON FUNCTION auth.role() TO anon, authenticated, service_role;
+-- auth.users: only the columns the Director list's seed reads (#4121 looks the
+-- Director up by confirmed login email, not by profiles.email).
+CREATE TABLE auth.users (
+  id                 uuid PRIMARY KEY,
+  email              text,
+  email_confirmed_at timestamptz,
+  deleted_at         timestamptz
+);
 
 -- What the helpers read.
 CREATE TABLE public.profiles (
   id                uuid PRIMARY KEY,
+  email             text,
   is_super_admin    boolean NOT NULL DEFAULT false,
   is_active         boolean NOT NULL DEFAULT true,
   is_login_disabled boolean NOT NULL DEFAULT false,

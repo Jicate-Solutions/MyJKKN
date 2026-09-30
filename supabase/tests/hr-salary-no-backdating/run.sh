@@ -5,10 +5,18 @@
 #   bash supabase/tests/hr-salary-no-backdating/run.sh
 #   MIG=/path/to/mutated.sql bash supabase/tests/hr-salary-no-backdating/run.sh   # mutation runs
 #
+# The migration depends on 20270520090000_the_director_list.sql (Draft #4121,
+# fn_is_the_director). Until #4121 merges, that file is read from its branch:
+#   DIRECTOR_MIG=/path/to/file   use this copy instead
+#   DIRECTOR_REF=<git ref>       default jicate/feat/hr-who-is-the-director
+# Once the file exists in this checkout, the checkout's copy is used.
+#
 # Order: Supabase-like roles and default grants -> main's real helpers loaded
 # VERBATIM from the migrations folder -> the salary table, its RLS and main's
-# newest fn_hr_set_staff_salary (the state production is in today) -> THIS
-# migration, applied TWICE -> seed -> assert.sql as every relevant role.
+# newest fn_hr_set_staff_salary (the state production is in today) -> people ->
+# the precondition check (THIS migration must refuse to run without the
+# Director list) -> the Director list migration -> THIS migration, applied
+# TWICE -> seed -> assert.sql as every relevant role.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -36,19 +44,39 @@ extract() {
                      p && ($0 ~ /^\$\$;/ || $0 ~ /^\$function\$;/) { exit }' "$1"
 }
 
+# The Director list migration (#4121), verbatim.
+DIR_FILE="$M/20270520090000_the_director_list.sql"
+if [ -n "${DIRECTOR_MIG:-}" ]; then
+  cp "$DIRECTOR_MIG" "$WORK/director.sql"
+elif [ -f "$DIR_FILE" ]; then
+  cp "$DIR_FILE" "$WORK/director.sql"
+else
+  git -C "$ROOT" show "${DIRECTOR_REF:-jicate/feat/hr-who-is-the-director}:supabase/migrations/20270520090000_the_director_list.sql" > "$WORK/director.sql"
+fi
+grep -q 'CREATE OR REPLACE FUNCTION public.fn_is_the_director()' "$WORK/director.sql" \
+  || { echo "Director list migration not found"; exit 2; }
+
 echo "== postgres: $("${PSQL[@]}" -Atc 'show server_version')"
 echo "== migration under test: ${MIG#$ROOT/}"
+echo "== Director list from: ${DIRECTOR_MIG:-$( [ -f "$DIR_FILE" ] && echo "${DIR_FILE#$ROOT/}" || echo "${DIRECTOR_REF:-jicate/feat/hr-who-is-the-director} ($(git -C "$ROOT" rev-parse --short "${DIRECTOR_REF:-jicate/feat/hr-who-is-the-director}"))" )}"
 
 "${PSQL[@]}" -f "$HERE/stub-schema.sql"
 
 # main's real helpers, verbatim
 {
   extract "$M/20251210_optimize_rls_policies.sql" 'CREATE OR REPLACE FUNCTION is_super_admin()'
+  extract "$ROOT/supabase/setup/02_functions.sql" 'CREATE OR REPLACE FUNCTION public.is_admin(user_id uuid DEFAULT auth.uid())'
   extract "$M/20260927020000_user_has_permission_guard_is_active.sql" 'CREATE OR REPLACE FUNCTION public.user_has_permission(permission_name text)'
   extract "$M/20260801002600_hr_leave_rls_permission_retrofit.sql" 'CREATE OR REPLACE FUNCTION public.fn_my_staff_ids()'
 } > "$WORK/helpers.sql"
-grep -c '^CREATE OR REPLACE FUNCTION' "$WORK/helpers.sql" | grep -qx 3 || { echo "helper extraction failed"; exit 2; }
+grep -c '^CREATE OR REPLACE FUNCTION' "$WORK/helpers.sql" | grep -qx 4 || { echo "helper extraction failed"; exit 2; }
 "${PSQL[@]}" -f "$WORK/helpers.sql"
+
+# platform_policies (the Director list lives there): table + RLS, verbatim
+# (the same line range #4121's own rehearsal loads).
+sed -n '14,58p' "$M/20260429000002_platform_policies_substrate.sql" > "$WORK/platform_policies.sql"
+grep -q 'CREATE TABLE IF NOT EXISTS platform_policies' "$WORK/platform_policies.sql" || { echo "platform_policies extraction failed"; exit 2; }
+"${PSQL[@]}" -f "$WORK/platform_policies.sql"
 
 # The salary table, its RLS and the salary grant to hr_head: the real files.
 "${PSQL[@]}" -f "$M/20260821191000_hr_staff_salaries.sql"
@@ -70,38 +98,68 @@ SQL
 "${PSQL[@]}" -f "$WORK/before.sql"
 "${PSQL[@]}" -Atc "select 'before: fn_hr_set_staff_salary args = ' || pronargs from pg_proc where proname = 'fn_hr_set_staff_salary'"
 
+# People. Profiles and logins first: the Director list seeds itself from the
+# confirmed login whose email is director@jkkn.ac.in when it runs.
+"${PSQL[@]}" <<'SQL'
+INSERT INTO public.profiles (id, email, is_super_admin, role) VALUES
+  ('00000000-0000-0000-0000-0000000000c1', 'hr.head@jkkn.ac.in',         false, 'hr_head'),     -- HR head
+  ('00000000-0000-0000-0000-0000000000c2', 'test.superadmin@jkkn.ac.in', true,  'super_admin'), -- super admin, NOT on the Director list
+  ('00000000-0000-0000-0000-0000000000c3', 'blank@jkkn.ac.in',           false, NULL),          -- signed in, no role, no staff row
+  ('00000000-0000-0000-0000-0000000000c5', 'director@jkkn.ac.in',        true,  'super_admin'); -- the Director (on the list)
+-- 0...c4 is a signed-in user with no profile at all.
+-- Every profile has a confirmed login with the same email.
+INSERT INTO auth.users (id, email, email_confirmed_at) SELECT id, email, now() FROM public.profiles;
+INSERT INTO public.user_roles VALUES ('00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000a1');
+SQL
+
+# Precondition: without the Director list, THIS migration must refuse to run.
+if "${PSQL[@]}" -f "$MIG" > "$WORK/pre.out" 2>&1; then
+  echo "PRECONDITION FAIL: the migration ran without fn_is_the_director()"; exit 1
+fi
+grep -q 'needs public.fn_is_the_director()' "$WORK/pre.out" \
+  || { echo "PRECONDITION FAIL: unexpected error:"; cat "$WORK/pre.out"; exit 1; }
+"${PSQL[@]}" -Atc "select 'precondition: refused without the Director list; fn_hr_set_staff_salary args still = ' || pronargs from pg_proc where proname = 'fn_hr_set_staff_salary'"
+
+"${PSQL[@]}" -f "$WORK/director.sql"
+"${PSQL[@]}" -Atc "select 'Director list = ' || value::text from platform_policies where policy_key = 'platform.the_director_profile_ids'"
+
 # THE MIGRATION, twice.
 "${PSQL[@]}" -f "$MIG"
 "${PSQL[@]}" -f "$MIG"
 echo "== migration applied twice"
 
-# Production has older rows with no start date (orchestrator's read, 30 Sep).
-# The repo declares the column NOT NULL; production evidently does not enforce it.
+# UNVERIFIED drift: the orchestrator's read of production (2026-09-30) saw older
+# rows with no start date, while the repo declares the column NOT NULL. Whether
+# production enforces NOT NULL was not checked; the rehearsal allows NULL so the
+# no-start case can be tested.
 "${PSQL[@]}" -c "ALTER TABLE public.hr_staff_salaries ALTER COLUMN effective_from DROP NOT NULL"
 
-# Seed, as the owner (the trigger does not stop the owner, so history can be laid down).
+# Seed salaries, as the owner (the trigger does not stop the owner, so history
+# can be laid down).
 "${PSQL[@]}" <<'SQL'
 INSERT INTO public.hr_organizations VALUES ('00000000-0000-0000-0000-0000000000b1');
 INSERT INTO public.staff (id)
-  SELECT ('00000000-0000-0000-0000-000000000' || lpad(n::text, 3, '0'))::uuid FROM generate_series(1, 25) n;
-INSERT INTO public.profiles (id, is_super_admin, role) VALUES
-  ('00000000-0000-0000-0000-0000000000c1', false, 'hr_head'),   -- HR head
-  ('00000000-0000-0000-0000-0000000000c2', true,  NULL),        -- super admin
-  ('00000000-0000-0000-0000-0000000000c3', false, NULL);        -- signed in, no role, no staff row
--- 0...c4 has no profile at all.
-INSERT INTO public.user_roles VALUES ('00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000a1');
+  SELECT ('00000000-0000-0000-0000-000000000' || lpad(n::text, 3, '0'))::uuid FROM generate_series(1, 40) n;
 
--- Existing salaries (today in India):
---  staff 10: started 29 days ago, 7000 = what t.call sends (identical re-upload)
---  staff 11: started 29 days ago  (superseded from today; direct edit refused)
---  staff 12: NO start recorded    (superseded from today; direct edit refused)
---  staff 13: starts in 10 days    (direct edit allowed; moving it to the past refused)
-INSERT INTO public.hr_staff_salaries (staff_id, hr_organization_id, monthly_gross, effective_from)
-VALUES
-  ('00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-0000000000b1', 7000, (now() AT TIME ZONE 'Asia/Kolkata')::date - 29),
-  ('00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-0000000000b1', 6000, (now() AT TIME ZONE 'Asia/Kolkata')::date - 29),
-  ('00000000-0000-0000-0000-000000000012', '00000000-0000-0000-0000-0000000000b1', 6000, NULL),
-  ('00000000-0000-0000-0000-000000000013', '00000000-0000-0000-0000-0000000000b1', 8000, (now() AT TIME ZONE 'Asia/Kolkata')::date + 10);
+-- Existing salaries (today in India = T):
+--  staff 10: started T-29, 7000 = what t.call sends (identical re-upload)
+--  staff 11: started T-29  (superseded from today; direct edit refused)
+--  staff 12: NO start      (superseded from today; direct edit refused)
+--  staff 13: starts T+10   (direct edit allowed; moving it to the past refused)
+--  staff 22: A (T-180, 40000) superseded by B (T-29, 50000, in force): the revive attack
+--  staff 23: in force with NO start recorded: the Director files history against it
+--  staff 25: one row, for the staff-delete cascade
+INSERT INTO public.hr_staff_salaries (id, staff_id, hr_organization_id, monthly_gross, effective_from) VALUES
+  ('00000000-0000-0000-0000-00000000a010', '00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-0000000000b1', 7000, (now() AT TIME ZONE 'Asia/Kolkata')::date - 29),
+  ('00000000-0000-0000-0000-00000000a011', '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-0000000000b1', 6000, (now() AT TIME ZONE 'Asia/Kolkata')::date - 29),
+  ('00000000-0000-0000-0000-00000000a012', '00000000-0000-0000-0000-000000000012', '00000000-0000-0000-0000-0000000000b1', 6000, NULL),
+  ('00000000-0000-0000-0000-00000000a013', '00000000-0000-0000-0000-000000000013', '00000000-0000-0000-0000-0000000000b1', 8000, (now() AT TIME ZONE 'Asia/Kolkata')::date + 10),
+  ('00000000-0000-0000-0000-00000000b022', '00000000-0000-0000-0000-000000000022', '00000000-0000-0000-0000-0000000000b1', 50000, (now() AT TIME ZONE 'Asia/Kolkata')::date - 29),
+  ('00000000-0000-0000-0000-00000000a023', '00000000-0000-0000-0000-000000000023', '00000000-0000-0000-0000-0000000000b1', 9000, NULL),
+  ('00000000-0000-0000-0000-00000000a025', '00000000-0000-0000-0000-000000000025', '00000000-0000-0000-0000-0000000000b1', 5000, (now() AT TIME ZONE 'Asia/Kolkata')::date - 5);
+INSERT INTO public.hr_staff_salaries (id, staff_id, hr_organization_id, monthly_gross, effective_from, superseded_by) VALUES
+  ('00000000-0000-0000-0000-00000000a022', '00000000-0000-0000-0000-000000000022', '00000000-0000-0000-0000-0000000000b1', 40000, (now() AT TIME ZONE 'Asia/Kolkata')::date - 180,
+   '00000000-0000-0000-0000-00000000b022');
 SQL
 
 "${PSQL[@]}" -Atc "select 'hr_head holds hr.payroll.salary.manage via the table migration: ' || (permissions->>'hr.payroll.salary.manage') from custom_roles where role_key = 'hr_head'"
