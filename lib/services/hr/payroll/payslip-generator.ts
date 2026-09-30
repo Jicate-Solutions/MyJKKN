@@ -367,6 +367,39 @@ export class PayslipOverrideRefusal extends Error {
   }
 }
 
+/**
+ * The run or the override lost a race, or there is nothing left to do: the
+ * period already has payslips, or someone else changed this payslip a moment
+ * ago. Not a fault. A route answers 409 with the message as written.
+ *
+ * The database is what makes this safe (uq_hr_payslips_one_current,
+ * 20270523090000): the app's "no payslips yet" check can pass for two presses
+ * at once, but only one batch insert can land.
+ */
+export class PayslipRunConflict extends Error {
+  readonly status = 409;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'PayslipRunConflict';
+  }
+}
+
+/** Postgres unique_violation: another run (or override) got there first. */
+function isUniqueViolation(err: { code?: string } | null | undefined): boolean {
+  return err?.code === '23505';
+}
+
+/** "This period already has 12 payslips" — the count read fresh, or none if unreadable. */
+export function alreadyHasPayslipsMessage(count: number | null, raced: boolean): string {
+  const head = count && count > 0
+    ? `This period already has ${count} payslips`
+    : 'This period already has payslips';
+  return raced
+    ? `${head}: another run made them a moment ago. Nothing was made twice. Reload the period to see them.`
+    : `${head}, so nothing new was made. Reload the period to see them.`;
+}
+
 /** What HR typed in the override dialog. Blank (undefined / null / '') = unchanged. */
 export type PayslipDeductionOverrides = Partial<
   Record<'pf' | 'esi' | 'tds' | 'pt', number | string | null | undefined>
@@ -478,8 +511,10 @@ export class PayslipGenerator {
       .eq('period_id', periodId)
       .is('superseded_by', null);
 
+    // A fast, friendly refusal only. It cannot stop two presses at once (both
+    // can read 0 here); the unique index does, at the insert in persist().
     if ((existingCount ?? 0) > 0) {
-      throw new Error(`Period already has ${existingCount} active payslips. Delete or supersede them first.`);
+      throw new PayslipRunConflict(alreadyHasPayslipsMessage(existingCount ?? null, false));
     }
 
     const built = await this.buildRun(supabase, period);
@@ -833,6 +868,10 @@ export class PayslipGenerator {
         esi_deduction: capped.esi,
         tds_deduction: capped.tds,
         pt_deduction: capped.pt,
+        // HR's flags, kept so the period table can say "No PF (not
+        // eligible)" rather than a bare 0 that also means "no amount typed".
+        pf_exempt: pay.pfExempt,
+        esi_exempt: pay.esiExempt,
         payment_mode: 'neft',
         correction_type: 'initial',
       });
@@ -934,6 +973,17 @@ export class PayslipGenerator {
         .from('hr_payslips')
         .insert(payslipInserts);
 
+      // One statement, so it lands whole or not at all. A unique violation
+      // means another run for this period landed first
+      // (uq_hr_payslips_one_current): nothing of this run was written.
+      if (isUniqueViolation(insertErr)) {
+        const { count: nowCount } = await (supabase as any)
+          .from('hr_payslips')
+          .select('id', { count: 'exact', head: true })
+          .eq('period_id', periodId)
+          .is('superseded_by', null);
+        throw new PayslipRunConflict(alreadyHasPayslipsMessage(nowCount ?? null, true));
+      }
       if (insertErr) throw new Error(`Failed to insert payslips: ${insertErr.message}`);
     }
 
@@ -956,7 +1006,7 @@ export class PayslipGenerator {
       warnings: result.warnings,
       skipped_people: result.errors,
     };
-    const { error: notesErr } = await (supabase as any)
+    const { data: notesRows, error: notesErr } = await (supabase as any)
       .from('hr_payroll_periods')
       .update({
         generation_notes: notes,
@@ -969,13 +1019,20 @@ export class PayslipGenerator {
             }
           : {}),
       })
-      .eq('id', periodId);
+      .eq('id', periodId)
+      // Row rules can refuse an update WITHOUT an error: zero rows change and
+      // PostgREST says nothing. Ask for the ids back so that is visible.
+      .select('id');
 
     // The payslips are already written, so this must not turn a good run into
     // an error. It is said instead, in the response HR reads.
     if (notesErr) {
       result.warnings.push(
         `The payslips were made, but this run's notes and totals could not be saved on the period (${notesErr.message}). Keep this message; the period page will not show it later.`,
+      );
+    } else if (!Array.isArray(notesRows) || notesRows.length === 0) {
+      result.warnings.push(
+        'The payslips were made, but this account is not allowed to update the period, so this run\'s notes and totals were not saved on it. Keep this message; the period page will not show it later.',
       );
     }
   }
@@ -1103,13 +1160,27 @@ export class PayslipGenerator {
    * deductions saved one by one (20270523090000). A slip made before those
    * were saved has no amounts to keep, so every field must then be filled in:
    * refused, never guessed.
+   *
+   * ORDER: CLAIM, INSERT, LINK (round 3, 30 Sep). The database allows ONE
+   * current slip per person per period (uq_hr_payslips_one_current), so the
+   * adjustment cannot be inserted while the original is still current:
+   *   1. claim the original by pointing it at itself, only if it is still
+   *      current. Zero rows back = someone else changed it first: 409, and
+   *      nothing is written. Two overrides at once cannot both win.
+   *   2. insert the adjustment as the current slip. If that fails, the claim
+   *      is undone, so the person is never left with no current slip.
+   *   3. point the original at the adjustment (the audit chain).
+   *
+   * NOT CHANGED HERE (pre-existing): the override does not look at the
+   * period's status, so a slip in a period past HR's stage can still be
+   * changed by anyone with hr.payroll.manage.
    */
   static async overrideDeductions(
     supabase: SupabaseClient,
     slipId: string,
     overrides: PayslipDeductionOverrides,
     reason: string,
-  ): Promise<{ newSlipId: string }> {
+  ): Promise<{ newSlipId: string; warning?: string }> {
     if (!reason || reason.trim().length === 0) {
       throw new PayslipOverrideRefusal('Manual override requires a reason for audit trail');
     }
@@ -1133,8 +1204,9 @@ export class PayslipGenerator {
       },
       overrides,
     );
-    const newTotalDeductions = next.pf + next.esi + next.tds + next.pt;
-    const newNetAmount = Number(existing.gross_amount) - newTotalDeductions;
+    // Paise, the way the run keeps PF: 0.1 + 0.2 must not become 0.30000000000000004.
+    const newTotalDeductions = round2Money(next.pf + next.esi + next.tds + next.pt);
+    const newNetAmount = round2Money(Number(existing.gross_amount) - newTotalDeductions);
     if (newNetAmount < 0) {
       throw new PayslipOverrideRefusal(
         `These deductions (₹${newTotalDeductions}) are more than this month's pay (₹${Number(existing.gross_amount)}). Net pay cannot go below zero.`,
@@ -1143,7 +1215,21 @@ export class PayslipGenerator {
 
     const newSlipId = crypto.randomUUID();
 
-    // Insert the adjustment payslip
+    // 1. CLAIM: only if it is still the current slip.
+    const { data: claimed, error: claimErr } = await (supabase as any)
+      .from('hr_payslips')
+      .update({ superseded_by: slipId })
+      .eq('id', slipId)
+      .is('superseded_by', null)
+      .select('id');
+    if (claimErr) throw new Error(`Failed to change the payslip: ${claimErr.message}`);
+    if (!Array.isArray(claimed) || claimed.length === 0) {
+      throw new PayslipRunConflict(
+        'Someone else changed this payslip a moment ago, so your change was not saved. Reload the period and try again.',
+      );
+    }
+
+    // 2. INSERT the adjustment as the current slip.
     const { error: insertErr } = await (supabase as any)
       .from('hr_payslips')
       .insert({
@@ -1163,18 +1249,41 @@ export class PayslipGenerator {
         esi_deduction: next.esi,
         tds_deduction: next.tds,
         pt_deduction: next.pt,
+        pf_exempt: existing.pf_exempt ?? null,
+        esi_exempt: existing.esi_exempt ?? null,
         payment_mode: existing.payment_mode,
         correction_type: 'adjustment',
         reason,
       });
 
-    if (insertErr) throw new Error(`Failed to create adjustment payslip: ${insertErr.message}`);
+    if (insertErr) {
+      // Undo the claim, so the original is current again.
+      await (supabase as any)
+        .from('hr_payslips')
+        .update({ superseded_by: null })
+        .eq('id', slipId)
+        .eq('superseded_by', slipId);
+      if (isUniqueViolation(insertErr)) {
+        throw new PayslipRunConflict(
+          'This person already has another current payslip for this period, so your change was not saved. Reload the period and try again.',
+        );
+      }
+      throw new Error(`Failed to create adjustment payslip: ${insertErr.message}`);
+    }
 
-    // Supersede the original
-    await (supabase as any)
+    // 3. LINK the original to the adjustment. The adjustment is already the
+    //    current slip; a failure here loses only the audit link, so it is said,
+    //    not turned into an error that would suggest nothing was saved.
+    let warning: string | undefined;
+    const { data: linked, error: linkErr } = await (supabase as any)
       .from('hr_payslips')
       .update({ superseded_by: newSlipId })
-      .eq('id', slipId);
+      .eq('id', slipId)
+      .select('id');
+    if (linkErr || !Array.isArray(linked) || linked.length === 0) {
+      warning = `The change was saved, but the old payslip could not be linked to the new one${linkErr ? ` (${linkErr.message})` : ''}. Tell the HR administrator; the pay is right.`;
+      console.error('[hr/payroll/override] link to the adjustment failed', { slipId, newSlipId, linkErr });
+    }
 
     // Update period aggregates (re-sum from non-superseded payslips)
     const { data: activeSlips } = await (supabase as any)
@@ -1203,6 +1312,6 @@ export class PayslipGenerator {
         .eq('id', existing.period_id);
     }
 
-    return { newSlipId };
+    return warning ? { newSlipId, warning } : { newSlipId };
   }
 }

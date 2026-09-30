@@ -10,6 +10,7 @@ import { withAuth } from '@/lib/auth/with-auth';
 import {
   PayslipGenerator,
   PayslipOverrideRefusal,
+  PayslipRunConflict,
   type PayslipDeductionOverrides,
 } from '@/lib/services/hr/payroll/payslip-generator';
 
@@ -68,10 +69,11 @@ export const PATCH = withAuth(async (request, auth, context) => {
 
     return NextResponse.json({
       data: result,
-      message: 'Deduction override applied — new adjustment payslip created',
+      message: result.warning ?? 'Deduction override applied — new adjustment payslip created',
     });
   } catch (err) {
-    if (err instanceof PayslipOverrideRefusal) {
+    // 400 for what was typed; 409 when someone else changed the slip first.
+    if (err instanceof PayslipOverrideRefusal || err instanceof PayslipRunConflict) {
       return NextResponse.json({ error: err.message }, { status: err.status });
     }
     console.error('[payslips/[slipId]] PATCH error', err);

@@ -189,6 +189,13 @@ export interface HRPayslip {
   esi_deduction?: number | null;
   tds_deduction?: number | null;
   pt_deduction?: number | null;
+  /**
+   * HR's eligibility flags as they stood when the slip was made (20270523090000).
+   * true = not eligible, so the table can say "No PF (not eligible)" instead of a
+   * bare 0 that also means "no amount typed". null on older slips.
+   */
+  pf_exempt?: boolean | null;
+  esi_exempt?: boolean | null;
   payment_mode: PayrollPaymentMode;
   bank_file_batch_id: string | null;
   cheque_roll_batch_id: string | null;

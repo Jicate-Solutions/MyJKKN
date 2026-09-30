@@ -10527,8 +10527,9 @@ ALTER TABLE public.billing_bill_cancel_approval_flows ENABLE ROW LEVEL SECURITY;
 -- pay from hr_staff_salaries.monthly_gross in force for the month; no
 -- per-person basic is recorded, so basic_pay allows NULL ("basic not
 -- recorded"); the allowance and the four deductions are saved one by one (so a
--- manual override can leave a blank field unchanged); a run keeps its notes on
--- the period. CHECK (basic_pay >= 0), RLS and grants are unchanged.
+-- manual override can leave a blank field unchanged); HR's PF/ESI eligibility
+-- is kept on the slip; a run keeps its notes on the period; one current payslip
+-- per person per period. CHECK (basic_pay >= 0), RLS and grants are unchanged.
 ALTER TABLE public.hr_payslips
   ALTER COLUMN basic_pay DROP NOT NULL;
 ALTER TABLE public.hr_payslips
@@ -10536,7 +10537,22 @@ ALTER TABLE public.hr_payslips
   ADD COLUMN IF NOT EXISTS pf_deduction   numeric CHECK (pf_deduction >= 0),
   ADD COLUMN IF NOT EXISTS esi_deduction  numeric CHECK (esi_deduction >= 0),
   ADD COLUMN IF NOT EXISTS tds_deduction  numeric CHECK (tds_deduction >= 0),
-  ADD COLUMN IF NOT EXISTS pt_deduction   numeric CHECK (pt_deduction >= 0);
+  ADD COLUMN IF NOT EXISTS pt_deduction   numeric CHECK (pt_deduction >= 0),
+  ADD COLUMN IF NOT EXISTS pf_exempt      boolean,
+  ADD COLUMN IF NOT EXISTS esi_exempt     boolean;
+-- One current payslip per person per period (a second run fails as a whole,
+-- 23505); a payslip replaces at most one other. Replaces the old
+-- uq_hr_payslips_period_staff_supersede, which never bound NULLs and blocked a
+-- manual override's claim-first order. The migration counts violating rows
+-- first and stops in words.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_payslips_one_current
+  ON public.hr_payslips (period_id, staff_id)
+  WHERE superseded_by IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_payslips_one_successor
+  ON public.hr_payslips (superseded_by)
+  WHERE superseded_by IS NOT NULL AND superseded_by <> id;
+ALTER TABLE public.hr_payslips
+  DROP CONSTRAINT IF EXISTS uq_hr_payslips_period_staff_supersede;
 ALTER TABLE public.hr_payroll_periods
   ADD COLUMN IF NOT EXISTS generation_notes jsonb;
 COMMENT ON COLUMN public.hr_payslips.basic_pay IS
@@ -10551,5 +10567,9 @@ COMMENT ON COLUMN public.hr_payslips.tds_deduction IS
   'Income tax (TDS) taken off. NULL on slips made before 20270523090000.';
 COMMENT ON COLUMN public.hr_payslips.pt_deduction IS
   'Professional tax taken off. NULL on slips made before 20270523090000.';
+COMMENT ON COLUMN public.hr_payslips.pf_exempt IS
+  'HR marked this person not eligible for PF (hr_staff_salaries.eligible_for_pf off) when the slip was made. Shown as "No PF (not eligible)". NULL on slips made before 20270523090000.';
+COMMENT ON COLUMN public.hr_payslips.esi_exempt IS
+  'HR marked this person not eligible for ESI when the slip was made. Shown as "No ESI (not eligible)". NULL on slips made before 20270523090000.';
 COMMENT ON COLUMN public.hr_payroll_periods.generation_notes IS
   'The last payslip run''s notes: {generated_at, generated, skipped, warnings[], skipped_people[{staff_id,name,reason}]}. Shown on the period page. NULL = no run yet. 20270523090000.';

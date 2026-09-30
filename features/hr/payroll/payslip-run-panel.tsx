@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/card';
 
 import { useGeneratePayslips } from '@/hooks/hr/payroll/use-payroll-payslips';
+import { usePermissions } from '@/hooks/use-permissions';
 import type { HRPayrollPeriod, PayslipRunNotes } from '@/types/hr-payroll';
 
 interface PayslipRunPanelProps {
@@ -40,10 +41,15 @@ interface PayslipRunPanelProps {
 
 export function PayslipRunPanel({ period, payslipCount, payslipsLoading }: PayslipRunPanelProps) {
   const generate = useGeneratePayslips();
+  // The run needs hr.payroll.manage on the server (403 otherwise). Principals,
+  // accounts and the CAO hold only hr.payroll.view: no button for them, rather
+  // than a button that fails after the click (reviewer, 30 Sep).
+  const { hasAnyPermission: canManage } = usePermissions(['hr.payroll.manage']);
   const [fresh, setFresh] = useState<PayslipRunNotes | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
 
-  const canGenerate = period.status === 'prepared' && !payslipsLoading && payslipCount === 0;
+  const canGenerate =
+    canManage && period.status === 'prepared' && !payslipsLoading && payslipCount === 0;
   const notes = fresh ?? period.generation_notes ?? null;
 
   function handleGenerate() {
@@ -115,8 +121,8 @@ export function PayslipRunPanel({ period, payslipCount, payslipsLoading }: Paysl
             <AlertTitle>Check these before paying</AlertTitle>
             <AlertDescription>
               <ul className="ml-4 list-disc space-y-1">
-                {notes.warnings.map((w) => (
-                  <li key={w}>{w}</li>
+                {notes.warnings.map((w, i) => (
+                  <li key={`${i}-${w}`}>{w}</li>
                 ))}
               </ul>
             </AlertDescription>

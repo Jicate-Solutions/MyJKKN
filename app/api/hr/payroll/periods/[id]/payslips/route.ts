@@ -86,6 +86,7 @@ export const GET = withAuth(async (_request, auth, context) => {
 import {
   PayrollPermissionError,
   PayslipGenerator,
+  PayslipRunConflict,
 } from '@/lib/services/hr/payroll/payslip-generator';
 
 /**
@@ -93,6 +94,10 @@ import {
  * hr_staff_salaries (2026-09-30) — hr.payroll.salary.view (or super admin) to
  * run; hr.payroll.institution.view and hr.attendance.period.view as before. A
  * missing one is a 403 with the message as written, not a 500.
+ *
+ * A period that already has payslips — including one made by a second press a
+ * moment ago, which the database refuses (uq_hr_payslips_one_current) — is a
+ * 409: "This period already has N payslips", never a 500.
  *
  * The response carries the run's warnings and the people left off; they are
  * also kept on the period (hr_payroll_periods.generation_notes).
@@ -113,7 +118,7 @@ export const POST = withAuth(async (_request, auth, context) => {
           : 'No active staff found for this institution',
     });
   } catch (err) {
-    if (err instanceof PayrollPermissionError) {
+    if (err instanceof PayrollPermissionError || err instanceof PayslipRunConflict) {
       return NextResponse.json({ error: err.message }, { status: err.status });
     }
     console.error('[hr/payroll/periods/[id]/payslips] POST error', err);

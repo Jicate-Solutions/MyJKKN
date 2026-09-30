@@ -93,12 +93,18 @@ function breakdownOf(slip: PayslipWithStaff) {
   return { pf, esi, tds, pt };
 }
 
-/** "PF ₹1,800 · ESI ₹0" — the two statutory deductions HR is asked about most. */
+/**
+ * "PF ₹1,800 · ESI ₹0" — the two statutory deductions HR is asked about most.
+ * A person HR marked not eligible reads "No PF (not eligible)", never a bare
+ * ₹0: a 0 also means "no amount typed", and the reader cannot tell the two
+ * apart (reviewer, 30 Sep). Older slips carry no flag and print the amount.
+ */
 function statutoryLine(slip: PayslipWithStaff): string | null {
   const b = breakdownOf(slip);
   if (!b) return null;
-  const part = (label: string, v: number | null) => (v === null ? `${label} —` : `${label} ${formatINR(v)}`);
-  return `${part('PF', b.pf)} · ${part('ESI', b.esi)}`;
+  const part = (label: string, v: number | null, exempt: boolean) =>
+    exempt ? `No ${label} (not eligible)` : v === null ? `${label} —` : `${label} ${formatINR(v)}`;
+  return `${part('PF', b.pf, slip.pf_exempt === true)} · ${part('ESI', b.esi, slip.esi_exempt === true)}`;
 }
 
 const PAYMENT_MODE_LABELS: Record<string, string> = {
@@ -174,8 +180,8 @@ function exportPayslipsCSV(payslips: PayslipWithStaff[], periodLabel: string) {
       slip.working_days_attended.toString(),
       slip.payment_mode,
       slip.correction_type,
-      cellOf(b?.pf ?? null),
-      cellOf(b?.esi ?? null),
+      slip.pf_exempt === true ? 'Not eligible' : cellOf(b?.pf ?? null),
+      slip.esi_exempt === true ? 'Not eligible' : cellOf(b?.esi ?? null),
       cellOf(b?.tds ?? null),
       cellOf(b?.pt ?? null),
     ];

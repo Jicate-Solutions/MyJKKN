@@ -89128,6 +89128,8 @@ export type Database = {
           period_id: string
           pf_deduction: number | null
           pt_deduction: number | null
+          pf_exempt: boolean | null
+          esi_exempt: boolean | null
           reason: string | null
           staff_id: string
           superseded_by: string | null
@@ -89154,6 +89156,8 @@ export type Database = {
           period_id: string
           pf_deduction?: number | null
           pt_deduction?: number | null
+          pf_exempt?: boolean | null
+          esi_exempt?: boolean | null
           reason?: string | null
           staff_id: string
           superseded_by?: string | null
@@ -89180,6 +89184,8 @@ export type Database = {
           period_id?: string
           pf_deduction?: number | null
           pt_deduction?: number | null
+          pf_exempt?: boolean | null
+          esi_exempt?: boolean | null
           reason?: string | null
           staff_id?: string
           superseded_by?: string | null

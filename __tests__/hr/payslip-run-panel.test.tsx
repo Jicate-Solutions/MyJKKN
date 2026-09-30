@@ -13,6 +13,13 @@ import type { ReactNode } from 'react';
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
+// The button is for hr.payroll.manage holders only (server refuses others with
+// 403). Flip this to see the panel as a viewer such as a principal or the CAO.
+const perms = { canManage: true };
+vi.mock('@/hooks/use-permissions', () => ({
+  usePermissions: () => ({ hasAnyPermission: perms.canManage, isSuperAdmin: false, isLoading: false }),
+}));
+
 import { PayslipRunPanel } from '@/features/hr/payroll/payslip-run-panel';
 import type { HRPayrollPeriod } from '@/types/hr-payroll';
 
@@ -35,7 +42,21 @@ afterEach(() => {
 });
 
 describe('PayslipRunPanel', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    perms.canManage = true;
+  });
+
+  it('shows no "Make payslips" button to someone without hr.payroll.manage', () => {
+    perms.canManage = false;
+    render(wrap(<PayslipRunPanel period={PERIOD} payslipCount={0} payslipsLoading={false} />));
+    expect(screen.queryByTestId('generate-payslips')).toBeNull();
+  });
+
+  it('shows the button to a payroll manager on a prepared period with no payslips yet', () => {
+    render(wrap(<PayslipRunPanel period={PERIOD} payslipCount={0} payslipsLoading={false} />));
+    expect(screen.getByTestId('generate-payslips')).toBeTruthy();
+  });
 
   it('shows the notes KEPT on the period, after a reload, with every person left off', () => {
     render(

@@ -11,7 +11,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { generate, overrideDeductions, PayrollPermissionError, PayslipOverrideRefusal } = vi.hoisted(() => {
+const { generate, overrideDeductions, PayrollPermissionError, PayslipOverrideRefusal, PayslipRunConflict } = vi.hoisted(() => {
   class PayrollPermissionError extends Error {
     readonly status = 403;
     constructor(
@@ -24,11 +24,15 @@ const { generate, overrideDeductions, PayrollPermissionError, PayslipOverrideRef
   class PayslipOverrideRefusal extends Error {
     readonly status = 400;
   }
+  class PayslipRunConflict extends Error {
+    readonly status = 409;
+  }
   return {
     generate: vi.fn(async (..._args: unknown[]): Promise<unknown> => ({})),
     overrideDeductions: vi.fn(async (..._args: unknown[]): Promise<unknown> => ({ newSlipId: 'n' })),
     PayrollPermissionError,
     PayslipOverrideRefusal,
+    PayslipRunConflict,
   };
 });
 
@@ -48,6 +52,7 @@ vi.mock('@/lib/services/hr/payroll/payslip-generator', () => ({
   PayslipGenerator: { generate, overrideDeductions },
   PayrollPermissionError,
   PayslipOverrideRefusal,
+  PayslipRunConflict,
 }));
 
 const { POST } = await import('@/app/api/hr/payroll/periods/[id]/payslips/route');
@@ -71,6 +76,13 @@ describe('generate payslips — status codes', () => {
     const res = await post();
     expect(res.status).toBe(403);
     expect((await res.json()).error).toContain('hr.payroll.salary.view');
+  });
+
+  it('a period that already has payslips (or a second press that lost the race) is 409, in plain words', async () => {
+    generate.mockRejectedValueOnce(new PayslipRunConflict('This period already has 12 payslips, so nothing new was made. Reload the period to see them.'));
+    const res = await post();
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain('already has 12 payslips');
   });
 
   it('a real fault is still 500', async () => {

@@ -850,7 +850,8 @@ export class SalaryRegisterService {
       }
     }
 
-    // 5. Salaries. superseded_by IS NULL = the currently effective row.
+    // 5. Salaries. The row in force FOR THE MONTH is picked by effective_from
+    //    (lib/hr/payroll/salary-in-force.ts), the same rule the payslip uses.
     // THE BANDS ARE LOADED WITH throwOnDenied. A slab read that RLS empties looks
     // exactly like "TDS is switched off", and the two demand opposite outcomes:
     // one generates a register with no tax on it, the other must not generate at

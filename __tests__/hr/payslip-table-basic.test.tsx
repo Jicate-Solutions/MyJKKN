@@ -50,6 +50,19 @@ function slip(over: Partial<PayslipWithStaff>): PayslipWithStaff {
 }
 
 describe('PayslipTable — basic', () => {
+  it('says "No PF (not eligible)" for a person HR marked not eligible, never a bare ₹0', () => {
+    render(
+      <PayslipTable
+        payslips={[slip({ pf_deduction: 0, esi_deduction: 0, tds_deduction: 0, pt_deduction: 0, pf_exempt: true, esi_exempt: false })]}
+        periodLabel="Aug 2026"
+      />,
+    );
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('No PF (not eligible)');
+    expect(text).toContain('ESI ₹0');
+    expect(text).not.toContain('PF ₹0');
+  });
+
   it('prints "basic not recorded" and no invented allowance where none is recorded', () => {
     render(<PayslipTable payslips={[slip({})]} periodLabel="August 2026" />);
 
