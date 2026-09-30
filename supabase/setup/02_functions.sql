@@ -49014,6 +49014,51 @@ COMMENT ON FUNCTION public.hr_staff_salary_directory() IS
   'Every active staff member with their salary in force, or NULL where none is recorded. Gated on hr.payroll.salary.view; raises rather than returning [] so an empty list never means "denied".';
 
 -- ===========================================================================
+-- hr_pay_band_policies() (2026-09-29)
+-- Source: 20270416120000_hr_pay_band_policies_rpc.sql (PR #4103, Pay Band Check)
+-- ===========================================================================
+-- Updated: 2026-09-29 - The pay bands (hr.pay_scales rows of platform_policies)
+-- for the colleges the caller can access. Same two checks as
+-- hr_staff_salary_directory() above: RAISE without hr.payroll.salary.view, then
+-- role_has_institution_access(scope_id) per row, judged on the caller's
+-- auth.uid(). platform_policies' own SELECT policy admits anyone signed in, so
+-- this function, not the table, is what scopes the bands.
+CREATE OR REPLACE FUNCTION public.hr_pay_band_policies()
+RETURNS TABLE(
+  institution_id  uuid,
+  band            jsonb,
+  band_updated_at timestamptz
+)
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NOT public.user_has_permission('hr.payroll.salary.view') THEN
+    RAISE EXCEPTION 'hr.payroll.salary.view is required to see pay bands.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  RETURN QUERY
+  SELECT pp.scope_id,
+         pp.value,
+         pp.updated_at
+    FROM public.platform_policies pp
+   WHERE pp.policy_key = 'hr.pay_scales'
+     AND pp.scope_type = 'institution'
+     AND pp.scope_id IS NOT NULL
+     AND public.role_has_institution_access(pp.scope_id)
+   ORDER BY pp.scope_id;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.hr_pay_band_policies() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.hr_pay_band_policies() TO authenticated;
+
+COMMENT ON FUNCTION public.hr_pay_band_policies() IS
+  'Pay bands (hr.pay_scales) for the colleges the caller can access. Gated on hr.payroll.salary.view and scoped by role_has_institution_access, as hr_staff_salary_directory() is; raises rather than returning [] when the key is missing.';
+
+-- ===========================================================================
 -- bank account RPCs (2026-08-21)
 -- Source: 20260821250000_fn_hr_set_staff_bank_account_and_directory.sql
 -- ===========================================================================

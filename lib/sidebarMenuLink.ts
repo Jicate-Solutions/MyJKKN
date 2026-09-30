@@ -522,6 +522,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // hr_manager holds, quietly opening tax configuration to a wider audience than
   // the salaries it is derived from.
   '/hr/payroll/tds-slabs': 'hr.payroll.salary.view',
+  // Pay against the band. Same key as Employee Salaries for the same reason the
+  // TDS bands share it: this page shows what every person earns, so it cannot be
+  // narrower, and there is nothing here that is not already on that screen. An
+  // entry is mandatory rather than tidy — longest-prefix resolution would
+  // otherwise hand it to '/hr/payroll' -> 'hr.payroll.institution.view', which
+  // hr_manager holds, and publish everybody's pay to a wider audience.
+  '/hr/payroll/pay-band-check': 'hr.payroll.salary.view',
   // WHERE THE MONEY LANDS. A third key again, not a reuse of the salary one:
   // the amount and the destination are separate decisions, and the destination
   // is the field a change to redirects real money.
@@ -3727,6 +3734,10 @@ export function GetPages(pathname: string): MenuGroup[] {
             // configuration FOR that screen, and the TDS column there is derived
             // from them rather than stored per person.
             { href: '/hr/payroll/tds-slabs', label: 'TDS Bands', active: pathname.startsWith('/hr/payroll/tds-slabs') },
+            // Reads the salary and the pay-scale policy together and reports who
+            // sits outside their band. Immediately after the two screens it
+            // derives from, and on the same key as the salaries it reads.
+            { href: '/hr/payroll/pay-band-check', label: 'Pay Band Check', active: pathname.startsWith('/hr/payroll/pay-band-check') },
             // Gates on hr.payroll.bank.view — hr_head alone, plus the Super
             // Administrator via is_super_admin().
             { href: '/hr/payroll/bank-accounts', label: 'Bank Accounts', active: pathname.startsWith('/hr/payroll/bank-accounts') },
