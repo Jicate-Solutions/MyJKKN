@@ -118,6 +118,12 @@ const NAV_EXCLUDE = new Set<string>([
   '/startup-studio',
   '/okr/admin',
 
+  // Retired redirect stubs (2027-04) — the page body is just
+  // redirect('/academic/leave-onduty/...'), kept only so old bookmarks/links
+  // don't 404. No chip should point at them.
+  '/learners/leave-onduty/settings',
+  '/learners/leave-onduty/apply-bulk',
+
   // ────────────────────────────────────────────────────────────
   // 2026-06-10 admin-cluster relocation — admission (counselors +
   // policies). These super-admin config pages moved out of /admin/*

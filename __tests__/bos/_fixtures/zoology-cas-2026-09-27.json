@@ -1,0 +1,702 @@
+[
+ {
+  "id": "35bd3ae3-dcc0-4bbc-868e-73842774bf78",
+  "course_code": "24PZOC01",
+  "course_name": "STRUCTURE AND FUNCTION OF INVERTEBRATES",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "8b366bc9-16e4-41d2-b5b6-42190d0ea63c",
+  "course_code": "24PZOC02",
+  "course_name": "COMPARATIVE ANATOMY OF VERTEBRATES",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "ARTS",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "df8dcc58-865a-48c6-b5d7-b24165c8e103",
+  "course_code": "24PZOC03",
+  "course_name": "CELL AND MOLECULAR BIOLOGY",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "ARTS",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "98beb298-07fd-4558-bea6-515defcad555",
+  "course_code": "24PZOC04",
+  "course_name": "DEVELOPMENTAL BIOLOGY",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "c6f1c3a8-649d-44ce-abcf-b0b61e30b18a",
+  "course_code": "24PZOC05",
+  "course_name": "GENETICS",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "98fca75b-6936-4f6d-a134-b84c8fdbfd55",
+  "course_code": "24PZOC06",
+  "course_name": "EVOLUTION",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "ARTS",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "9457c176-66a1-48f1-85e9-a7691a1dbae7",
+  "course_code": "24PZOC07",
+  "course_name": "ANIMAL PHYSIOLOGY",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "0d2782b9-c8f9-4c50-83be-fb05da95c8ca",
+  "course_code": "24PZOC08",
+  "course_name": "IMMUNOLOGY ",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Science",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "55b6016b-e704-4854-9613-5ff1beab41c5",
+  "course_code": "24PZOC09",
+  "course_name": "ECOLOGY",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "1c50f778-678f-4b81-8408-b0ecf75a0b34",
+  "course_code": "24PZOCP02",
+  "course_name": "CORE LAB-II-CELL BIOLOGY AND DEVELOPMENTAL BIOLOGY",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "a4ae1325-160d-40f2-8d62-f5ba51ebe0fb",
+  "course_code": "24PZOCP03",
+  "course_name": "CORE LAB COURSE-III-GENETICS, EVOLUTION AND ANIMAL PHYSIOLOGY",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": null,
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "0a86308d-5db5-4846-933f-568ba1092965",
+  "course_code": "24PZOCP04",
+  "course_name": "CORE LAB COURSE-IV-IMMUNOLOGY & ECOLOGY",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "ARTS",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "4c2ce75b-b937-42c3-9bfa-37652d9e76b4",
+  "course_code": "24PZOE01",
+  "course_name": "MOLECULES THEIR INTERACTION TO  BIOLOGY",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "ARTS",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "42881a45-4989-4d29-a3ba-027bc054cb0b",
+  "course_code": "24PZOE02",
+  "course_name": "MICROBIOLOGY",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "8f6c1650-58ec-4c14-893c-95eaf4760ff6",
+  "course_code": "24PZOE03",
+  "course_name": "BIOSTATISTICS",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "5d47b111-d9db-4517-9de8-523d839b7951",
+  "course_code": "24PZOE05",
+  "course_name": "ELECTIVE-III-ECONOMIC ENTOMOLOGY",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": null,
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "847d5934-2b57-473b-905f-a0ab81231a04",
+  "course_code": "24PZOE06",
+  "course_name": "MEDICAL PARASITOLOGY",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "be034ac8-0eab-4ac2-9dfa-42de98715c6d",
+  "course_code": "24PZOE07",
+  "course_name": "RESEARCH METHODOLOGY",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "faa44348-46f2-42a7-9f9a-bb4646f771a0",
+  "stream": "Arts ",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "1c11697a-6d12-4418-8067-befa9b72142c",
+  "course_code": "24PZOE08",
+  "course_name": "BIOETHICS & BIOSATETY",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "ARTS",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "def97be2-4698-4ebc-b65d-91c5f0676cf5",
+  "course_code": "24PZOE09",
+  "course_name": "MEDICAL LABORATORY TECHNIQUES",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "cb4251d4-50fb-47fb-b3b6-654039a1ff6b",
+  "course_code": "24PZOE10",
+  "course_name": "ELECTIVE-VI-AQUACULTURE",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "science",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "e10c5eb6-8a4c-4f11-afdf-d4e52a192820",
+  "course_code": "24PZOED1",
+  "course_name": "POULTRY FARMING",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "faa44348-46f2-42a7-9f9a-bb4646f771a0",
+  "stream": "ARTS",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "019824c0-126b-4d66-84d2-48ff2f8435f0",
+  "course_code": "24PZOED2",
+  "course_name": "EDC-I-APICULTURE",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Science",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "d476db8e-7286-41ae-9212-2d07cbf67034",
+  "course_code": "24PZOED3",
+  "course_name": "DAIRY FARMING",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "ARTS",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "bbb5166a-cc89-48cf-810e-dbbedc336ff9",
+  "course_code": "24PZOED4",
+  "course_name": "VERMICULTURE",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": null,
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "bb0865fc-3072-4e0d-8cac-bb330fda43b6",
+  "course_code": "24PZOP01",
+  "course_name": "CORE LAB-I-INVERTEBRATES AND VERTEBRATES",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": null,
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "623cca3e-1ed0-472d-8534-394ec1d13861",
+  "course_code": "24PZOSEC1",
+  "course_name": "SKILL ENHANCEMENT COURSE-ANIMAL BEHAVIOUR",
+  "board_id": "dcabe2a0-eb16-41aa-876d-2ae5988c4b14",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Science",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "e59f3441-4c5e-49ea-8faa-3d8915cc9441",
+  "course_code": "24UZOA01",
+  "course_name": "ALLIED ZOOLOGY I",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "ARTS",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "40cd7c35-895f-4324-8628-aedeb4cac139",
+  "course_code": "24UZOAP01",
+  "course_name": "ALLIED ZOOLOGY LAB COURSE-I",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "SCIENCE",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "6f74819b-4233-4703-ae76-e6e77e494e57",
+  "course_code": "24UZOC01",
+  "course_name": "INVERTEBRATA-I",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "054cb76c-7a7d-4d79-80bd-4821b6e6f0b8",
+  "course_code": "24UZOC02",
+  "course_name": "INVERTEBRATA-II",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "25b6fd08-d78a-4ce2-8b10-3fcef4b5895d",
+  "course_code": "24UZOC03",
+  "course_name": "CHORDATA ",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "6ca3bea2-72af-4f80-96a6-457ce435baaa",
+  "course_code": "24UZOC04",
+  "course_name": "CELL BIOLOGY",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": null,
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "f9feb5b7-bc3e-46b2-bc21-8ebb898a5b37",
+  "course_code": "24UZOC05",
+  "course_name": "GENETICS",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "ARTS",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "4e979b73-e226-46d0-8549-027298f86bbc",
+  "course_code": "24UZOC06",
+  "course_name": "DEVELOPMENTAL BIOLOGY",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "16f8efd4-7bfd-49ec-ae4b-3c8825c73aeb",
+  "course_code": "24UZOC07",
+  "course_name": "EVOLUTIONARY BIOLOGY",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "SCIENCE",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "1a7794e1-439e-40f5-9616-0e32e2ce0dc2",
+  "course_code": "24UZOC07",
+  "course_name": "EVOLUTIONARY BIOLOGY",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "SCIENCE",
+  "is_latest": false,
+  "is_archived": false
+ },
+ {
+  "id": "3d3fba07-f727-483a-8e61-c682e2ac46ea",
+  "course_code": "24UZOC08",
+  "course_name": "ANIMAL PHYSIOLOGY",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "SCIENCE",
+  "is_latest": false,
+  "is_archived": false
+ },
+ {
+  "id": "b032ba0e-fa57-4695-bf8e-2851721f351c",
+  "course_code": "24UZOC08",
+  "course_name": "ANIMAL PHYSIOLOGY",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "SCIENCE",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "5cf92e90-9eed-4bca-aa7d-ef535b7fb71c",
+  "course_code": "24UZOC09",
+  "course_name": "ENVIRONMENTAL BIOLOGY",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": false,
+  "is_archived": false
+ },
+ {
+  "id": "7570fad2-54f8-4e31-96b7-1aec7eb7541c",
+  "course_code": "24UZOC09",
+  "course_name": "ENVIRONMENTAL BIOLOGY",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "9adfb827-a2e1-4e8d-b484-3a96f3751d3a",
+  "course_code": "24UZOC10",
+  "course_name": "ANIMAL BIOTECHNOLOGY",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": false,
+  "is_archived": false
+ },
+ {
+  "id": "696b3ee5-36b8-4310-98b1-36a96a0ea13c",
+  "course_code": "24UZOC10",
+  "course_name": "ANIMAL BIOTECHNOLOGY",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "7654d0ab-2a85-4044-8929-ba0274bff804",
+  "course_code": "24UZOC11",
+  "course_name": "MICROBIOLOGY",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "48f194bd-047d-4383-99f5-5800ea2ffe5c",
+  "course_code": "24UZOC11",
+  "course_name": "MICROBIOLOGY",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": false,
+  "is_archived": false
+ },
+ {
+  "id": "3c090a7e-d84c-47d8-bf63-c0c27e096e4c",
+  "course_code": "24UZOC12",
+  "course_name": "IMMUNOLOGY",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "SCIENCE",
+  "is_latest": false,
+  "is_archived": false
+ },
+ {
+  "id": "f93abc21-f750-4094-bf28-2558ab8d399f",
+  "course_code": "24UZOC12",
+  "course_name": "IMMUNOLOGY",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "SCIENCE",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "a549eecb-9155-4f84-81fe-0e55c75cf50c",
+  "course_code": "24UZOCP01",
+  "course_name": "CORE LAB-I-INVERTEBRATA AND CHORDATA",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "5077130d-880f-4593-b336-63d1361931b2",
+  "course_code": "24UZOCP03",
+  "course_name": "EVOLUTIONARY BIOLOGY,  ANIMAL  PHYSIOLOGY, ENVIRONMENTAL BIOLOGY AND MLT",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "SCIENCE",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "0fe0b7f3-db68-4cf1-87bf-a36efa084da3",
+  "course_code": "24UZOCP03",
+  "course_name": "EVOLUTIONARY BIOLOGY,  ANIMAL  PHYSIOLOGY, ENVIRONMENTAL BIOLOGY AND MLT",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "SCIENCE",
+  "is_latest": false,
+  "is_archived": false
+ },
+ {
+  "id": "159b2d9a-5b9b-4a25-95d4-a96d3065cc3a",
+  "course_code": "24UZOCP04",
+  "course_name": "ANIMAL BIOTECHNOLOGY MICROBIOLOGY AND IMMUNOLOGY",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Science",
+  "is_latest": false,
+  "is_archived": false
+ },
+ {
+  "id": "420d5946-5cdf-4a78-90c7-4191ce7e06cb",
+  "course_code": "24UZOCP04",
+  "course_name": "ANIMAL BIOTECHNOLOGY MICROBIOLOGY AND IMMUNOLOGY",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Science",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "6545744d-8d99-4a69-82c9-8f9063a1bc6d",
+  "course_code": "24UZOE01",
+  "course_name": "AGRICULTURAL ENTOMOLOGY",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Science",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "09550cdf-83df-4645-8e64-1d5e95a673c2",
+  "course_code": "24UZOE01",
+  "course_name": "AGRICULTURAL ENTOMOLOGY",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Science",
+  "is_latest": false,
+  "is_archived": false
+ },
+ {
+  "id": "56d865e4-3e42-434d-82fe-e40df9996e92",
+  "course_code": "24UZOE02",
+  "course_name": "MEDICAL LABORATORY TECHNIQUES",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": false,
+  "is_archived": false
+ },
+ {
+  "id": "438fb15e-0515-4d4c-8d26-fcca3f659a2f",
+  "course_code": "24UZOE02",
+  "course_name": "MEDICAL LABORATORY TECHNIQUES",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "c6f9e3b2-ccda-4503-a1cf-be4d10df97dc",
+  "course_code": "24UZOFC1",
+  "course_name": "FOUNDATION COURSE-ECONOMIC ZOOLOGY",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": null,
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "c87eff5e-6d9e-4343-b165-223d30bf572d",
+  "course_code": "24UZOGE01",
+  "course_name": "GENERIC ELECTIVE ZOOLOGY-I",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "SCIENCE",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "6aacc636-f1f6-4a9b-b65f-2086bdac8dd9",
+  "course_code": "24UZOGE02",
+  "course_name": "GENERIC ELECTIVE ZOOLOGY-II",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "05acaed1-6489-47dd-8208-3b7b1301b8c3",
+  "course_code": "24UZOGEP01",
+  "course_name": "GENERIC ELECTIVE ZOOLOGY  PRACTICAL",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "SCIENCE",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "dd792900-4793-407c-888c-009cce961fea",
+  "course_code": "24UZONM1",
+  "course_name": "NME-I-ANIMAL BEHAVIOR",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": null,
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "266b100f-2270-43bf-9d8a-3a69cbd55a91",
+  "course_code": "24UZONM2",
+  "course_name": "NME-I-SERICULTURE",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "ARTS",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "3341058d-1446-490b-bd11-195e4f74edb6",
+  "course_code": "24UZONM3",
+  "course_name": "WILDLIFE CONSERVATION AND MANAGEMENT",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "7476a710-a64b-440c-ac64-cabf66757b54",
+  "course_code": "24UZONM4",
+  "course_name": "NME-II-APICULTURE",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": null,
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "52a4859f-730d-4a24-9561-d2aef6132cce",
+  "course_code": "24UZOPCS1",
+  "course_name": "EMPLOYABILITY READINESS",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "SCIENCE",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "ca357184-b905-4bd7-89a8-9003ea007de9",
+  "course_code": "24UZOS02",
+  "course_name": "AQUARIUM KEEPING",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": null,
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "04bfc9c7-a15e-44a8-904c-af9dabe8a6e1",
+  "course_code": "24UZOS03",
+  "course_name": "BIOCOMPSITING FOR ENTREPRENEURSHIP",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "Arts",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "06d8399a-a042-4827-8359-77dd09425fb2",
+  "course_code": "24UZOS04",
+  "course_name": "ZOOLOGICAL CONCEPTS IN INDIAN KNOWLEDGE SYSTEMS",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "SCIENCE",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "ace7bfe4-20cd-4218-80e2-1b1a0cb231f5",
+  "course_code": "24UZOS05",
+  "course_name": "FOOD, NUTRITION AND HEALTH",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "SCIENCE",
+  "is_latest": true,
+  "is_archived": false
+ },
+ {
+  "id": "b22e41e7-41e4-4733-89cb-a59915b1aba2",
+  "course_code": "24UZOS06",
+  "course_name": "SKILL ENHANCEMENT COURSE-SEC-V-ORNAMENTAL FISH FARMING AND MANAGEMENT",
+  "board_id": "892a3578-5598-412f-827c-4f01e4f16b01",
+  "regulation_id": "4dc273c5-3b38-425c-886b-eff19c4dfdb7",
+  "stream": "ARTS",
+  "is_latest": true,
+  "is_archived": false
+ }
+]

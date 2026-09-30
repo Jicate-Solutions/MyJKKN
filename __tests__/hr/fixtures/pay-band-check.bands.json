@@ -1,0 +1,51 @@
+{
+  "_why": "The two real pay bands, and the job titles the tests match against. Copied cell for cell from the pay_matrix values seeded by supabase/migrations/20260605_hr_compensation_seeds.sql — Engineering is institution 5de4fba1-4564-41ed-8c73-5d948b74b843, Dental is e8fbe8aa-c44e-41aa-a44b-39dab2c8b9a5. Tests that ran against invented figures would prove only that the arithmetic is self-consistent.",
+  "_why_json": "These strings are the pay band's OWN job titles. Renaming them to learner-centered language would falsify a salary band, so they cannot be edited to satisfy the JKKN terminology gate — and that gate does not scan data files. Same decision, for the same reason, as lib/hr/pay-scales/jkkn-reference-ladders.data.json in PR #4080.",
+
+  "titles": {
+    "assistantProfessor": "Assistant Professor",
+    "associateProfessor": "Associate Professor",
+    "professor": "Professor",
+    "labInstructor": "Lab Instructor",
+    "librarian": "Librarian",
+    "typist": "Typist",
+    "physicalEducator": "Physical Educator",
+    "busDriver": "Bus Driver"
+  },
+
+  "qualifications": {
+    "meCse": "M.E (CSE/IT)",
+    "meMech": "M.E (Mech/EEE/ECE)",
+    "beMsc": "B.E./M.Sc./MCA",
+    "mba": "MBA/M.Phil",
+    "diploma": "Diploma",
+    "beMscShort": "B.E./M.Sc",
+    "notOnTheBand": "Ph.D (Physics)"
+  },
+
+  "engineering": {
+    "rungs": [
+      { "designation": "Assistant Professor", "qualification": "M.E (CSE/IT)", "basicPay": 20000 },
+      { "designation": "Assistant Professor", "qualification": "M.E (Mech/EEE/ECE)", "basicPay": 18000 },
+      { "designation": "Assistant Professor", "qualification": "B.E./M.Sc./MCA", "basicPay": 13000 },
+      { "designation": "Assistant Professor", "qualification": "MBA/M.Phil", "basicPay": 14000 },
+      { "designation": "Associate Professor", "qualification": null, "basicPay": 31000 },
+      { "designation": "Professor", "qualification": null, "basicPay": 40000 },
+      { "designation": "Lab Instructor", "qualification": "Diploma", "basicPay": 8000 },
+      { "designation": "Lab Instructor", "qualification": "B.E./M.Sc", "basicPay": 11000 },
+      { "designation": "Librarian", "qualification": null, "basicPay": 12000 },
+      { "designation": "Typist", "qualification": null, "basicPay": 6500 },
+      { "designation": "Physical Educator", "qualification": null, "basicPay": 12000 }
+    ],
+    "guaranteedMinimum": 15000
+  },
+
+  "dental": {
+    "rungs": [
+      { "designation": "Professor", "qualification": null, "basicPay": 100000 },
+      { "designation": "Associate Professor", "qualification": null, "basicPay": 75000 },
+      { "designation": "Assistant Professor", "qualification": null, "basicPay": 30000 }
+    ],
+    "guaranteedMinimum": 15000
+  }
+}

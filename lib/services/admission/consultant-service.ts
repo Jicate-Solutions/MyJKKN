@@ -929,7 +929,8 @@ export class ConsultantService {
     const { data, error } = await (supabase as any)
       .from('commission_rate_card_payments')
       .select(
-        `*, group:commission_rate_card_groups!inner(id, name, card:commission_rate_cards!inner(academic_year))`
+        `*, group:commission_rate_card_groups!inner(id, name, card:commission_rate_cards!inner(academic_year)),
+         payment_request:commission_payment_requests(id, request_number)`
       )
       // Line payments and recoveries only. The !inner join already excludes
       // advances, which carry no group — they are listed on their own, because a

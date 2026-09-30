@@ -28,7 +28,7 @@ import { createHash } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 import { sendWebPushNotifications, type PushResult } from '@/lib/notifications/web-push';
-import { resolveTargetLearners, type TargetLearnerRow } from './drive-targeting';
+import { entryMiss, resolveTargetLearners, type TargetLearnerRow } from './drive-targeting';
 import type { CdcDrive } from '@/types/cdc';
 
 export const CDC_WILLINGNESS_NOTIFICATION_TYPE = 'cdc.drive.willingness_open';
@@ -378,11 +378,11 @@ export async function diagnoseLearnerNotification(
   }
   const entry = (drive.institution_semesters ?? []).find((e) => e.institution_id === info.institution_id);
   const learnerProgramId = (learner.program_id as string | null) ?? null;
-  if (entry && entry.program_ids && entry.program_ids.length > 0 && (!learnerProgramId || !entry.program_ids.includes(learnerProgramId))) {
-    return { ...common, verdict: 'not_eligible_program', explanation: `Learner's program is not one of the ${entry.program_ids.length} program(s) the drive targets for this institution.` };
+  const miss = entry ? entryMiss(entry, learnerProgramId, semester_order) : 'semester';
+  if (entry && miss === 'program') {
+    return { ...common, verdict: 'not_eligible_program', explanation: `Learner's program is not one of the ${entry.program_ids?.length ?? 0} program(s) the drive targets for this institution.` };
   }
-  const semOk = entry && (entry.semester_orders.length === 0 || (semester_order != null && entry.semester_orders.includes(semester_order)));
-  if (!semOk) {
+  if (miss === 'semester') {
     return { ...common, verdict: 'not_eligible_semester', explanation: `Learner is in semester ${semester_order ?? 'unknown'}; the drive targets ${entry && entry.semester_orders.length ? 'semester ' + entry.semester_orders.join(', ') : 'no semesters'} for this institution.` };
   }
   if (!['active', 'graduated'].includes(info.lifecycle_status ?? '')) {

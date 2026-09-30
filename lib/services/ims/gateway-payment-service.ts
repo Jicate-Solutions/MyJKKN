@@ -159,7 +159,8 @@ export class ImsGatewayPaymentService {
    * matches nothing because of it is NOT an error — it is the guard doing its job —
    * so it is reported separately from a rejection.
    */
-  private static async writeRow(
+  /** @internal Shared with ImsPosDevicePaymentService (same table, same rule). */
+  static async writeRow(
 
     service: any,
     id: string,
@@ -196,7 +197,8 @@ export class ImsGatewayPaymentService {
    * prefill note in createPaymentSession for what they are used for — and, just as
    * importantly, what they are NOT written to.
    */
-  private static async assertStoreAccess(
+  /** @internal Shared with ImsPosDevicePaymentService. */
+  static async assertStoreAccess(
 
     supabase: any,
     storeId: string,
@@ -272,7 +274,8 @@ export class ImsGatewayPaymentService {
    * This is the whole point of the route taking `lines` rather than an amount: a
    * browser can ask to buy item X, but it cannot say what X costs.
    */
-  private static async priceServerSide(
+  /** @internal Shared with ImsPosDevicePaymentService. */
+  static async priceServerSide(
      
     supabase: any,
     storeId: string,
@@ -630,6 +633,13 @@ export class ImsGatewayPaymentService {
 
     if (!row) throw new Error('Payment not found');
 
+    // A terminal push must be withdrawn FROM THE DEVICE, which only
+    // ImsPosDevicePaymentService.cancel knows how to do. Marking it cancelled here
+    // would leave a live amount on the terminal that the customer can still pay.
+    if (row.method === 'pos_dqr') {
+      return { cancelled: false, reason: 'wrong_instrument' };
+    }
+
     // Already resolved. Never walk a terminal row backwards — least of all a paid
     // one, where 'cancelled' would contradict money we hold.
     if (!['initiated', 'expired'].includes(row.status)) {
@@ -870,7 +880,8 @@ export class ImsGatewayPaymentService {
    * cashier from auth.uid(), and the RPC's own guard refuses payments outside the
    * caller's institutions.
    */
-  private static async finalize(row: any, sessionClient: any): Promise<any> {
+  /** @internal Shared with ImsPosDevicePaymentService. */
+  static async finalize(row: any, sessionClient: any): Promise<any> {
     const service = createServiceRoleClient() as any;
 
     const { data: result, error: rpcError } = await sessionClient.rpc(

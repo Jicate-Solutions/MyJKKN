@@ -146,6 +146,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "CalendarOff",
         "children": [
           {
+            "path": "/academic/leave-onduty/apply-bulk",
+            "label": "Apply Bulk",
+            "iconName": "CalendarOff",
+            "children": []
+          },
+          {
             "path": "/academic/leave-onduty/approvals",
             "label": "Approvals",
             "iconName": "CalendarOff",
@@ -2028,6 +2034,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/billing/bill-cancellations",
+        "label": "Bill Cancellations",
+        "iconName": "Wallet",
+        "children": []
       },
       {
         "path": "/billing/categories",
@@ -3962,6 +3974,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/health/surveys",
+        "label": "Surveys",
+        "iconName": "Heart",
+        "children": []
+      },
+      {
         "path": "/health/training",
         "label": "Training",
         "iconName": "Heart",
@@ -5100,6 +5118,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "Settings",
         "children": [
           {
+            "path": "/ims/settings/pos-devices",
+            "label": "Pos Devices",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/ims/settings/stores",
             "label": "Stores",
             "iconName": "FileText",
@@ -5439,9 +5463,21 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/learners/leave-onduty/apply-bulk",
+            "label": "Apply Bulk",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
             "path": "/learners/leave-onduty/my-applications",
             "label": "My Applications",
             "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/learners/leave-onduty/settings",
+            "label": "Settings",
+            "iconName": "Settings",
             "children": []
           }
         ]

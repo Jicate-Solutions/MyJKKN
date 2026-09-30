@@ -1465,6 +1465,7 @@ CREATE POLICY "bills_select_scoped" ON billing_student_bills
                     SELECT id FROM billing_categories WHERE visible_to_learners
                 )
             )
+            AND fn_learner_bill_year_visible(academic_year_id)
         )
     );
 
@@ -1486,6 +1487,8 @@ CREATE POLICY "Students can view their own bills" ON billing_student_bills
                 SELECT id FROM billing_categories WHERE visible_to_learners
             )
         )
+        -- Updated: 2026-09-29 - advance-year window (past + current + ONE next AY).
+        AND fn_learner_bill_year_visible(academic_year_id)
     );
 
 CREATE POLICY "bills_insert_admin" ON billing_student_bills
@@ -7248,6 +7251,94 @@ CREATE POLICY platform_policies_social_attr_update ON public.platform_policies
     AND user_has_permission('social.attribution.edit')
   );
 
+-- ── Pay rows readable only with the salary key ──────────────────────────────
+-- Updated: 2026-09-29 - Mirror of 20270506090000_hr_pay_policies_readable_only_with_salary_view.sql
+--   (FILE ONLY, not applied). platform_policies_select is `auth.uid() IS NOT NULL`,
+--   so every signed-in account could read every college's pay matrix. These
+--   RESTRICTIVE policies are ANDed with every permissive SELECT policy: for the three
+--   pay keys (hr.pay_scales, hr.allowances_and_increments, hr.salary_suggestion_rule)
+--   a row needs admin, or hr.payroll.salary.view AND a college row
+--   (scope_type 'institution') of a college the caller can access
+--   (role_has_institution_access). Group-wide (NULL scope) pay rows are admin-only.
+--   Every other key is unchanged.
+-- Updated: 2026-09-29 - round 2 (W12 review): college scoping added.
+-- Updated: 2026-09-29 - hr.salary_suggestion_rule added to the locked keys.
+DROP POLICY IF EXISTS platform_policies_pay_keys_restricted ON public.platform_policies;
+CREATE POLICY platform_policies_pay_keys_restricted ON public.platform_policies
+  AS RESTRICTIVE
+  FOR SELECT
+  TO authenticated, anon
+  USING (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule')
+    OR (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (
+      scope_type = 'institution'
+      AND scope_id IS NOT NULL
+      AND (SELECT public.user_has_permission('hr.payroll.salary.view'))
+      AND public.role_has_institution_access(scope_id)
+    )
+  );
+
+DROP POLICY IF EXISTS hr_policy_audit_log_pay_keys_restricted ON public.hr_policy_audit_log;
+CREATE POLICY hr_policy_audit_log_pay_keys_restricted ON public.hr_policy_audit_log
+  AS RESTRICTIVE
+  FOR SELECT
+  TO authenticated, anon
+  USING (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule')
+    OR (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (
+      scope_type = 'institution'
+      AND scope_id IS NOT NULL
+      AND (SELECT public.user_has_permission('hr.payroll.salary.view'))
+      AND public.role_has_institution_access(scope_id)
+    )
+  );
+
+-- ── Compensation keys writable only by a super admin ────────────────────────
+-- Updated: 2026-09-29 - Mirror of 20270506090000 section 6 (FILE ONLY, not applied).
+--   platform_policies_insert / _update / _delete are `is_super_admin() OR is_admin()`,
+--   so an admin could change the pay matrix straight through PostgREST, skipping the
+--   super-admin-only editors and the hr_policy_audit_log row. These RESTRICTIVE
+--   policies let hr.pay_scales, hr.allowances_and_increments, hr.salary_suggestion_rule
+--   and hr.motivation_fund rows be written only by is_super_admin(). Every other key is
+--   unchanged. TO authenticated, anon: the service role (BYPASSRLS) is unaffected.
+DROP POLICY IF EXISTS platform_policies_pay_keys_insert_super_admin_only ON public.platform_policies;
+CREATE POLICY platform_policies_pay_keys_insert_super_admin_only ON public.platform_policies
+  AS RESTRICTIVE
+  FOR INSERT
+  TO authenticated, anon
+  WITH CHECK (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule', 'hr.motivation_fund')
+    OR (SELECT public.is_super_admin())
+  );
+
+DROP POLICY IF EXISTS platform_policies_pay_keys_update_super_admin_only ON public.platform_policies;
+CREATE POLICY platform_policies_pay_keys_update_super_admin_only ON public.platform_policies
+  AS RESTRICTIVE
+  FOR UPDATE
+  TO authenticated, anon
+  USING (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule', 'hr.motivation_fund')
+    OR (SELECT public.is_super_admin())
+  )
+  WITH CHECK (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule', 'hr.motivation_fund')
+    OR (SELECT public.is_super_admin())
+  );
+
+DROP POLICY IF EXISTS platform_policies_pay_keys_delete_super_admin_only ON public.platform_policies;
+CREATE POLICY platform_policies_pay_keys_delete_super_admin_only ON public.platform_policies
+  AS RESTRICTIVE
+  FOR DELETE
+  TO authenticated, anon
+  USING (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule', 'hr.motivation_fund')
+    OR (SELECT public.is_super_admin())
+  );
+
 -- =====================================================================
 -- Global Calendar module (Phase 1) — mirror of 20260623100000_calendar_module_tables.sql
 -- =====================================================================
@@ -11166,3 +11257,78 @@ CREATE POLICY learner_activation_failures_select
 
 REVOKE ALL    ON public.learner_activation_failures FROM anon, PUBLIC;
 GRANT  SELECT ON public.learner_activation_failures TO authenticated;
+
+-- =====================================================================
+-- Updated: 2026-09-24 - Adoption loop E: adoption_reminders RLS (super admins read; no direct writes)
+-- Source of truth for apply: supabase/migrations/20270324090000_adoption_daily_ask_and_remind.sql
+-- Spec: specs/2026-09-16-adoption-loop.md rulings 2, 6, 9, 10
+-- =====================================================================
+-- Read: super admins only (who was reminded is per-person data, ruling 7).
+-- No INSERT/UPDATE/DELETE policy on purpose — rows come only from
+-- fn_adoption_remind_core (SECURITY DEFINER).
+DROP POLICY IF EXISTS "adoption_reminders_select_super_admin" ON public.adoption_reminders;
+CREATE POLICY "adoption_reminders_select_super_admin" ON public.adoption_reminders
+  FOR SELECT TO authenticated USING ((SELECT is_super_admin()));
+
+-- ============================================================================
+-- Bill cancel request flow — SELECT-only RLS; flows writable by super admin
+-- Migration: 20260928100000_bill_cancel_request_flow.sql
+-- ============================================================================
+-- ---------------------------------------------------------------------------
+-- 3. RLS -- SELECT-only everywhere except flows (super admin writes). Every
+--    request/decision write goes through the RPCs below, so the history cannot
+--    be edited by whoever it incriminates.
+-- ---------------------------------------------------------------------------
+DROP POLICY IF EXISTS billing_bill_cancel_requests_select ON public.billing_bill_cancel_requests;
+CREATE POLICY billing_bill_cancel_requests_select
+  ON public.billing_bill_cancel_requests FOR SELECT TO authenticated
+  USING (
+    (SELECT is_super_admin())
+    OR requested_by = (SELECT auth.uid())
+    OR (
+      ((SELECT user_has_permission('billing.schedule.view'))
+        OR (SELECT user_has_permission('billing.schedule.cancel.request')))
+      AND role_has_institution_access(institution_id)
+    )
+    OR public.fn_is_bill_cancel_approver(institution_id)
+  );
+
+DROP POLICY IF EXISTS billing_bill_cancel_actions_select ON public.billing_bill_cancel_request_actions;
+CREATE POLICY billing_bill_cancel_actions_select
+  ON public.billing_bill_cancel_request_actions FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.billing_bill_cancel_requests r
+      WHERE r.id = billing_bill_cancel_request_actions.request_id
+        AND (
+          (SELECT is_super_admin())
+          OR r.requested_by = (SELECT auth.uid())
+          OR (
+            ((SELECT user_has_permission('billing.schedule.view'))
+              OR (SELECT user_has_permission('billing.schedule.cancel.request')))
+            AND role_has_institution_access(r.institution_id)
+          )
+          OR public.fn_is_bill_cancel_approver(r.institution_id)
+        )
+    )
+  );
+
+DROP POLICY IF EXISTS billing_bill_cancel_flows_select ON public.billing_bill_cancel_approval_flows;
+CREATE POLICY billing_bill_cancel_flows_select
+  ON public.billing_bill_cancel_approval_flows FOR SELECT TO authenticated
+  USING (
+    (SELECT is_super_admin())
+    OR (SELECT user_has_permission('billing.schedule.view'))
+    OR (SELECT user_has_permission('billing.schedule.cancel.request'))
+    OR (SELECT public.fn_is_bill_cancel_approver(NULL))
+  );
+
+DROP POLICY IF EXISTS billing_bill_cancel_flows_write ON public.billing_bill_cancel_approval_flows;
+CREATE POLICY billing_bill_cancel_flows_write
+  ON public.billing_bill_cancel_approval_flows FOR ALL TO authenticated
+  USING ((SELECT is_super_admin()))
+  WITH CHECK ((SELECT is_super_admin()));
+
+GRANT SELECT ON public.billing_bill_cancel_requests TO authenticated;
+GRANT SELECT ON public.billing_bill_cancel_request_actions TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.billing_bill_cancel_approval_flows TO authenticated;
