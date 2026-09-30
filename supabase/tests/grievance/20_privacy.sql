@@ -39,6 +39,18 @@ SELECT t_ok((SELECT count(*) FROM grievance_history WHERE ticket_id IN ('d100000
             'backfill: the de-named history rows are kept, only the actor is removed');
 SELECT t_ok((SELECT performed_by = 'b0000000-0000-0000-0000-000000000002' FROM grievance_history WHERE action = 'commented'),
             'backfill: a handler''s history row on the same ticket is left alone');
+SELECT t_ok((SELECT count(*) FROM grievance_history WHERE ticket_id IN ('d1000000-0000-0000-0000-000000000001',
+                                                                     'd1000000-0000-0000-0000-000000000005')
+                                                   AND action IN ('raised_by_id', 'raised_by_name', 'raised_by_email', 'filed_by')) = 4,
+            'backfill: the stand-in history trigger logged the scrub''s own field changes (so the next check is not vacuous)');
+SELECT t_ok(NOT EXISTS (SELECT 1 FROM grievance_history
+                         WHERE ticket_id IN ('d1000000-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000005')
+                           AND (   strpos(lower(coalesce(old_value, '') || ' ' || coalesce(new_value, '')), 'b0000000-0000-0000-0000-000000000003') > 0
+                                OR strpos(lower(coalesce(old_value, '') || ' ' || coalesce(new_value, '')), 'filer f') > 0
+                                OR strpos(lower(coalesce(old_value, '') || ' ' || coalesce(new_value, '')), 'filer_f@jkkn.ac.in') > 0)),
+            'backfill: no grievance_history old_value / new_value on her anonymous tickets carries the filer''s id, name or email');
+SELECT t_ok((SELECT old_value = 'open' AND new_value = 'in_progress' FROM grievance_history WHERE action = 'status changed'),
+            'backfill: a handler''s field-level history values that do not name the filer are kept');
 
 -- ----------------------------------------------- 2. anonymous never stores the filer
 INSERT INTO grievance_tickets (id, institution_id, ticket_number, category_id, subject, description, raised_by_type,

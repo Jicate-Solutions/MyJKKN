@@ -151,18 +151,66 @@ BEGIN
   END IF;
 END $$;
 
--- The emission trigger (emit_grievance_evidence_on_resolve) is AFTER UPDATE OF
--- status with a WHEN guard, so this UPDATE emits no accreditation evidence.
-UPDATE public.grievance_tickets
-   SET raised_by_id = NULL,
-       raised_by_name = NULL,
-       raised_by_email = NULL,
-       raised_by_phone = NULL,
-       filed_by = NULL
- WHERE COALESCE(is_anonymous, false)
-   AND (raised_by_id IS NOT NULL OR raised_by_name IS NOT NULL
-        OR raised_by_email IS NOT NULL OR raised_by_phone IS NOT NULL
-        OR filed_by IS NOT NULL);
+-- The ticket scrub, one anonymous ticket at a time. The emission trigger
+-- (emit_grievance_evidence_on_resolve) is AFTER UPDATE OF status with a WHEN
+-- guard, so this UPDATE emits no accreditation evidence.
+--
+-- grievance_history.old_value / new_value (text) are cleared too, whatever
+-- wrote them. The filer's id, name, email and phone are taken from the ticket
+-- BEFORE it is scrubbed; after the scrub, any history row on that ticket whose
+-- old_value or new_value contains one of them loses that value. This covers
+-- (a) field-level rows an earlier edit left, and (b) rows a live-only history
+-- trigger on grievance_tickets writes for THIS scrub UPDATE (it would record
+-- the filer's id or name as old_value): AFTER ROW triggers fire at the end of
+-- the UPDATE statement, so their rows exist when the redaction runs. It does
+-- not depend on knowing what that trigger is (live pg_trigger was never read
+-- from this repo). Matching is strpos, not LIKE: emails and phones may carry
+-- '_' or '%'. Deliberate over-reach, as with comments: a handler's value that
+-- happens to contain the filer's name is cleared too. The `action` column
+-- (NOT NULL) is left as it is.
+DO $$
+DECLARE
+  r      record;
+  v_vals text[];
+BEGIN
+  FOR r IN
+    SELECT id, raised_by_id, raised_by_name, raised_by_email, raised_by_phone, filed_by
+      FROM public.grievance_tickets
+     WHERE COALESCE(is_anonymous, false)
+       AND (raised_by_id IS NOT NULL OR raised_by_name IS NOT NULL
+            OR raised_by_email IS NOT NULL OR raised_by_phone IS NOT NULL
+            OR filed_by IS NOT NULL)
+  LOOP
+    UPDATE public.grievance_tickets
+       SET raised_by_id = NULL,
+           raised_by_name = NULL,
+           raised_by_email = NULL,
+           raised_by_phone = NULL,
+           filed_by = NULL
+     WHERE id = r.id;
+
+    IF to_regclass('public.grievance_history') IS NOT NULL THEN
+      v_vals := array_remove(ARRAY[
+        lower(r.raised_by_id::text),
+        lower(nullif(btrim(r.raised_by_name), '')),
+        lower(nullif(btrim(r.raised_by_email), '')),
+        lower(nullif(btrim(r.raised_by_phone), '')),
+        lower(r.filed_by::text)
+      ], NULL);
+      UPDATE public.grievance_history h
+         SET old_value = CASE WHEN EXISTS (SELECT 1 FROM unnest(v_vals) v
+                                            WHERE strpos(lower(h.old_value), v) > 0)
+                              THEN NULL ELSE h.old_value END,
+             new_value = CASE WHEN EXISTS (SELECT 1 FROM unnest(v_vals) v
+                                            WHERE strpos(lower(h.new_value), v) > 0)
+                              THEN NULL ELSE h.new_value END
+       WHERE h.ticket_id = r.id
+         AND EXISTS (SELECT 1 FROM unnest(v_vals) v
+                      WHERE strpos(lower(coalesce(h.old_value, '')), v) > 0
+                         OR strpos(lower(coalesce(h.new_value, '')), v) > 0);
+    END IF;
+  END LOOP;
+END $$;
 
 -- ---------------------------------------------------------------------
 -- 2) Description: at least 3 characters (was 10)
