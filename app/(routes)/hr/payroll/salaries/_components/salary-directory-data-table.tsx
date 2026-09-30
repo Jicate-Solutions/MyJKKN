@@ -9,22 +9,20 @@
  * independent sources for one list is how a card comes to advertise a total the
  * table cannot show.
  *
- * The toolbar's bulk action is DOWNLOAD, not write. Salaries differ per person,
- * so "set 200 people to one number" is not a real operation — what is real is
- * exporting those 200 pre-filled, typing the amounts in Excel, and bringing them
- * back through Import salaries.
+ * NO BULK WRITE, NO BULK TEMPLATE (2026-09-30). The Director removed the salary
+ * Excel import; every salary is created or edited one person at a time, and
+ * only by the Director list (canEdit, asked of the database by the page). The
+ * table's own read-only export stays.
  *
  * DataTable re-runs fetchDataFn whenever its identity changes, so `rows` and
  * `filters` in the deps are what make a filter change repaint the table.
  */
 
 import { useCallback, useMemo } from 'react';
-import { Download } from 'lucide-react';
 
 import { DataTable, type DataFetchParams } from '@/components/data-table/data-table';
 import type { ExportableData } from '@/components/data-table/utils/export-utils';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import type { StaffSalaryDirectoryRow } from '@/lib/services/hr/payroll/staff-salary-service';
 
 import { useTdsSlabs } from '@/hooks/hr/use-tds-slabs';
@@ -58,20 +56,18 @@ const EXPORT_COLUMNS: Array<{ key: string; label: string; width: number }> = [
 interface Props {
   rows: StaffSalaryDirectoryRow[];
   filters: SalaryFilterState;
-  canManage: boolean;
+  /** On the Director list (asked of the database). Only they may change pay. */
+  canEdit: boolean;
   onEdit: (row: StaffSalaryDirectoryRow) => void;
   onViewHistory: (row: StaffSalaryDirectoryRow) => void;
-  /** Hands the selected rows (or the filtered set) to the template writer. */
-  onBulkTemplate: (rows: StaffSalaryDirectoryRow[], resetSelection: () => void) => void;
 }
 
 export function SalaryDirectoryDataTable({
   rows,
   filters,
-  canManage,
+  canEdit,
   onEdit,
   onViewHistory,
-  onBulkTemplate,
 }: Props) {
   // The bands drive the derived TDS column. Fetched here rather than threaded
   // down from the page because the columns are the only consumer, and the query
@@ -79,15 +75,9 @@ export function SalaryDirectoryDataTable({
   const { data: tdsSlabs } = useTdsSlabs();
 
   const columns = useMemo(
-    () => getSalaryColumns({ onEdit, onViewHistory, canManage, tdsSlabs: tdsSlabs ?? [] }),
-    [canManage, onEdit, onViewHistory, tdsSlabs]
+    () => getSalaryColumns({ onEdit, onViewHistory, canEdit, tdsSlabs: tdsSlabs ?? [] }),
+    [canEdit, onEdit, onViewHistory, tdsSlabs]
   );
-
-  const byId = useMemo(() => {
-    const m = new Map<string, StaffSalaryDirectoryRow>();
-    for (const r of rows) m.set(r.staff_uuid, r);
-    return m;
-  }, [rows]);
 
   const fetchData = useCallback(
     async (params: DataFetchParams) => {
@@ -152,7 +142,7 @@ export function SalaryDirectoryDataTable({
     (r: StaffSalaryDirectoryRow) => (
       <button
         type='button'
-        onClick={() => (canManage ? onEdit(r) : onViewHistory(r))}
+        onClick={() => (canEdit ? onEdit(r) : onViewHistory(r))}
         className='w-full space-y-2 rounded-md border p-3 text-left'
       >
         <div className='flex items-start justify-between gap-2'>
@@ -182,50 +172,7 @@ export function SalaryDirectoryDataTable({
         </div>
       </button>
     ),
-    [canManage, onEdit, onViewHistory]
-  );
-
-  /**
-   * allSelectedIds carries ids across pages, so the export covers a selection
-   * made over several pages — resolving them through `byId` rather than using
-   * `selectedRows`, which only holds the current page.
-   */
-  const renderToolbarContent = useCallback(
-    ({
-      allSelectedIds,
-      totalSelectedCount,
-      resetSelection,
-    }: {
-      selectedRows: StaffSalaryDirectoryRow[];
-      allSelectedIds: (string | number)[];
-      totalSelectedCount: number;
-      resetSelection: () => void;
-    }) => {
-      if (!canManage || totalSelectedCount === 0) return null;
-
-      return (
-        <div className='flex items-center gap-2'>
-          <span className='hidden text-sm text-muted-foreground sm:inline'>
-            {totalSelectedCount} selected
-          </span>
-          <Button
-            size='sm'
-            variant='outline'
-            className='h-8'
-            onClick={() => {
-              const picked = allSelectedIds
-                .map((id) => byId.get(String(id)))
-                .filter(Boolean) as StaffSalaryDirectoryRow[];
-              onBulkTemplate(picked, resetSelection);
-            }}
-          >
-            <Download className='mr-2 h-3.5 w-3.5' />
-            Bulk edit template
-          </Button>
-        </div>
-      );
-    },
-    [byId, canManage, onBulkTemplate]
+    [canEdit, onEdit, onViewHistory]
   );
 
   return (
@@ -233,7 +180,6 @@ export function SalaryDirectoryDataTable({
       fetchDataFn={fetchData as never}
       getColumns={() => columns as never}
       renderMobileRow={renderMobileRow as never}
-      renderToolbarContent={renderToolbarContent as never}
       idField='staff_uuid'
       exportConfig={{
         entityName: 'employee-salaries',
@@ -275,7 +221,7 @@ export function SalaryDirectoryDataTable({
         enableColumnFilters: false,
         enableColumnVisibility: true,
         enableColumnResizing: true,
-        enableRowSelection: canManage,
+        enableRowSelection: false,
         enableExport: true,
         columnResizingTableId: 'hr-payroll-employee-salaries',
       }}

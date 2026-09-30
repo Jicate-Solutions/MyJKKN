@@ -2807,16 +2807,18 @@ CREATE TRIGGER trg_log_bill_cancel_activity
   FOR EACH ROW EXECUTE FUNCTION public._fn_log_bill_cancel_activity();
 
 -- ============================================================================
--- hr_staff_salaries: no salary change may start in the past (2026-09-30)
+-- hr_staff_salaries: only the Director list writes pay; no past start (2026-09-30)
 -- Migration: 20270521090000_hr_salary_no_backdating.sql
--- Function: public.hr_staff_salaries_refuse_past_start() in 02_functions.sql.
--- API callers (anon, authenticated, service_role) may not insert a salary that
--- starts before today (Asia/Kolkata), edit one already started, change which
--- row is in force (superseded_by) or delete a salary row. fn_hr_set_staff_salary
--- is the only way to replace the row in force, and the Director's history import
--- (fn_is_the_director) the only way to a past start.
+-- Function: public.hr_staff_salaries_guard_writes() in 02_functions.sql.
+-- API callers (anon, authenticated, service_role): anon is refused; a signed-in
+-- caller must be on the Director list (fn_is_the_director); nobody may insert a
+-- salary that starts before today (Asia/Kolkata) or has no start, edit one
+-- already started, change which row is in force (superseded_by) or delete a
+-- salary row. fn_hr_set_staff_salary is the only way to replace the row in
+-- force. The database owner (migrations, cascades, the approvals job running
+-- SECURITY DEFINER) is not an API caller.
 -- ============================================================================
-DROP TRIGGER IF EXISTS trg_hr_staff_salaries_refuse_past_start ON public.hr_staff_salaries;
-CREATE TRIGGER trg_hr_staff_salaries_refuse_past_start
+DROP TRIGGER IF EXISTS trg_hr_staff_salaries_guard_writes ON public.hr_staff_salaries;
+CREATE TRIGGER trg_hr_staff_salaries_guard_writes
   BEFORE INSERT OR UPDATE OR DELETE ON public.hr_staff_salaries
-  FOR EACH ROW EXECUTE FUNCTION public.hr_staff_salaries_refuse_past_start();
+  FOR EACH ROW EXECUTE FUNCTION public.hr_staff_salaries_guard_writes();

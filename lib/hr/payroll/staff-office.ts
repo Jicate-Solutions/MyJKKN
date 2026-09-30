@@ -225,7 +225,15 @@ export async function saveStaffOffice(
   office: OfficeValues,
   initialPayerOrgId: string | null,
   /** Edit: the salary values the form was pre-filled with; null = none on record. */
-  initialSalary: OfficeSalaryValues | null = null
+  initialSalary: OfficeSalaryValues | null = null,
+  /**
+   * 2026-09-30: only the Director list may change a salary (Director ruling,
+   * 30 Sep 08:59). False = the salary part is never sent, whatever the form
+   * holds; payer and bank account are still saved. Defaults to false so a
+   * caller that does not ask can never write pay. The database refuses the
+   * write for anyone else anyway (20270521090000).
+   */
+  canWriteSalary = false
 ): Promise<OfficeSaveResult> {
   const failures: string[] = [];
   let savedAny = false;
@@ -245,7 +253,7 @@ export async function saveStaffOffice(
     initialSalary,
     payer !== (initialPayerOrgId ?? '')
   );
-  if (isSalaryEntered(office.salary) && salaryPlan.send) {
+  if (canWriteSalary && isSalaryEntered(office.salary) && salaryPlan.send) {
     const s = office.salary;
     try {
       await StaffSalaryService.setSalary(supabase, {

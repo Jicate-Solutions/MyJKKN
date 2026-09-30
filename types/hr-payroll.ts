@@ -172,32 +172,10 @@ export interface HRPayslip {
   created_at: string;
 }
 
-// ---------------------------------------------------------------------------
-// Salary import (2026-08-21) — POST /api/hr/payroll/salaries/import
-// ---------------------------------------------------------------------------
-// The dry run and the commit return the SAME shape, so the preview the user
-// approves is literally the verdict the commit acts on. `written` and
-// `failures` are the only fields a dry run leaves empty.
-
-import type { SalaryUploadValidation } from '@/lib/hr/payroll/validate-salary-upload';
-
-export interface SalaryImportResponse {
-  success: boolean;
-  dry_run: boolean;
-  sheet_name: string;
-  effective_from: string;
-  parser_warnings: string[];
-  validation: SalaryUploadValidation;
-  written: number;
-  failures: Array<{ employee_code: string; message: string }>;
-  /**
-   * Rows that start before today, for a caller who is not on the Director
-   * list (2026-09-30). The preview lists them; the real run refuses them by name.
-   */
-  past_date_refusals?: Array<{ employee_code: string; effective_from: string; message: string }>;
-  message?: string;
-  error?: string;
-}
+// Salary import (2026-08-21) — REMOVED 2026-09-30 by the Director's ruling:
+// every salary is created or edited on the Employee Salaries screen, one person
+// at a time, by the Director list only. The route, its dialog, the template and
+// the sheet parser were deleted with it.
 
 // =====================================================================================
 // Salary Register (2026-08-30) — hr_salary_register_runs / hr_salary_register_lines

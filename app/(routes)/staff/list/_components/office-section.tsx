@@ -7,10 +7,14 @@
 // parent's react-hook-form; saving happens in staff-form.tsx via
 // saveStaffOffice() after the staff row is written. Shown only to super admin
 // and holders of hr.payroll.salary.manage (HR Head) — the parent gates it.
+// Updated: 2026-09-30 - the SALARY part is read-only unless the signed-in
+// person is on the Director list (Director ruling of 30 Sep 08:59: only the
+// Director may change a salary; the HR head can only look). Payer and bank
+// account are unchanged. The parent also never sends the salary for them.
 // ============================================
 
 import type { UseFormReturn } from 'react-hook-form';
-import { Building2, IndianRupee, Landmark, Info } from 'lucide-react';
+import { Building2, IndianRupee, Landmark, Info, Lock } from 'lucide-react';
 import {
   FormControl,
   FormField,
@@ -39,6 +43,11 @@ interface OfficeSectionProps {
   isEditing: boolean;
   /** Edit only: the current payer / salary / bank could not be read. */
   loadFailed?: boolean;
+  /**
+   * On the Director list (asked of the database). Everyone else sees the salary
+   * fields read-only. Defaults to false: a missing answer never opens them.
+   */
+  canEditSalary?: boolean;
 }
 
 const ELIGIBILITY: Array<{ name: string; label: string }> = [
@@ -54,7 +63,8 @@ export function OfficeSection({
   form,
   categoryExcludedFromHr,
   isEditing,
-  loadFailed
+  loadFailed,
+  canEditSalary = false
 }: OfficeSectionProps) {
   const { data: payrollOrgs = [], isLoading: orgsLoading } = usePayrollOrganizations();
   const pfOn = form.watch('office.salary.eligible_for_pf');
@@ -121,10 +131,13 @@ export function OfficeSection({
       <Alert>
         <Info className='h-4 w-4' />
         <AlertDescription>
-          Optional. Anything filled here is saved to Payroll Organisation, Employee
-          Salaries and Bank Accounts right after the staff record is saved.
+          Optional. Anything filled here is saved to Payroll Organisation
+          {canEditSalary ? ', Employee Salaries' : ''} and Bank Accounts right after the
+          staff record is saved.
           {isEditing &&
-            ' Changing the salary or bank account records a new entry and keeps the old one as history.'}
+            (canEditSalary
+              ? ' Changing the salary or bank account records a new entry and keeps the old one as history.'
+              : ' Changing the bank account records a new entry and keeps the old one as history.')}
         </AlertDescription>
       </Alert>
 
@@ -190,6 +203,18 @@ export function OfficeSection({
         <h2 className='flex items-center gap-2 text-lg font-semibold'>
           <IndianRupee className='h-5 w-5' /> Salary
         </h2>
+        {!canEditSalary && (
+          <Alert data-testid='staff-salary-read-only-note'>
+            <Lock className='h-4 w-4' />
+            <AlertDescription>
+              Only the Director can change a salary. The figures below are shown for reference
+              and are not saved from this form.
+            </AlertDescription>
+          </Alert>
+        )}
+        {/* A disabled fieldset disables every input, select, switch and
+            textarea inside it at once, so no field can be missed. */}
+        <fieldset disabled={!canEditSalary} className='space-y-4 disabled:opacity-80'>
         <div className='grid gap-4 md:grid-cols-3'>
           {text('office.salary.monthly_gross', 'Monthly Gross (₹)', 'e.g. 35000', 'number')}
           {select('office.salary.salary_structure', 'Salary Structure', SALARY_STRUCTURES)}
@@ -199,7 +224,9 @@ export function OfficeSection({
             // past), and a `min` would make the browser block the WHOLE staff
             // form's submit. saveStaffOffice moves an untouched past date to
             // the 1st of next month instead (salaryWritePlan).
-            hint: 'Today or later. If an old date is left here, the change starts on the 1st of next month.'
+            hint: canEditSalary
+              ? 'Today or later. If an old date is left here, the change starts on the 1st of next month.'
+              : undefined
           })}
           {select('office.salary.overtime_level', 'Overtime Level', OVERTIME_LEVELS)}
           {text('office.salary.overtime_amount', 'Overtime Amount (₹)', '0', 'number')}
@@ -243,6 +270,7 @@ export function OfficeSection({
             </FormItem>
           )}
         />
+        </fieldset>
       </div>
 
       {/* Bank account */}

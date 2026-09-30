@@ -15,8 +15,8 @@
 # VERBATIM from the migrations folder -> the salary table, its RLS and main's
 # newest fn_hr_set_staff_salary (the state production is in today) -> people ->
 # the precondition check (THIS migration must refuse to run without the
-# Director list) -> the Director list migration -> THIS migration, applied
-# TWICE -> seed -> assert.sql as every relevant role.
+# Director list) -> the Director list migration (+ isvarya@) -> THIS migration,
+# applied TWICE -> seed -> assert.sql as every relevant role.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -105,7 +105,9 @@ INSERT INTO public.profiles (id, email, is_super_admin, role) VALUES
   ('00000000-0000-0000-0000-0000000000c1', 'hr.head@jkkn.ac.in',         false, 'hr_head'),     -- HR head
   ('00000000-0000-0000-0000-0000000000c2', 'test.superadmin@jkkn.ac.in', true,  'super_admin'), -- super admin, NOT on the Director list
   ('00000000-0000-0000-0000-0000000000c3', 'blank@jkkn.ac.in',           false, NULL),          -- signed in, no role, no staff row
-  ('00000000-0000-0000-0000-0000000000c5', 'director@jkkn.ac.in',        true,  'super_admin'); -- the Director (on the list)
+  ('00000000-0000-0000-0000-0000000000c5', 'director@jkkn.ac.in',        true,  'super_admin'), -- the Director (on the list)
+  ('00000000-0000-0000-0000-0000000000c6', 'isvarya@jkkn.ac.in',         true,  'super_admin'), -- Isvarya (on the list; a super admin per memory, not verified here)
+  ('00000000-0000-0000-0000-0000000000c7', 'listed.plain@jkkn.ac.in',    false, NULL);          -- on the list, but no super admin and no HR keys
 -- 0...c4 is a signed-in user with no profile at all.
 -- Every profile has a confirmed login with the same email.
 INSERT INTO auth.users (id, email, email_confirmed_at) SELECT id, email, now() FROM public.profiles;
@@ -121,6 +123,20 @@ grep -q 'needs public.fn_is_the_director()' "$WORK/pre.out" \
 "${PSQL[@]}" -Atc "select 'precondition: refused without the Director list; fn_hr_set_staff_salary args still = ' || pronargs from pg_proc where proname = 'fn_hr_set_staff_salary'"
 
 "${PSQL[@]}" -f "$WORK/director.sql"
+# The 08:59 ruling names TWO accounts (director@ and isvarya@). #4121's seed may
+# carry only director@ until its own rework lands, so the rehearsal adds
+# isvarya@ (and c7, a listed account with no super admin / HR keys) as the SQL
+# console would: an owner session with no signed-in user, which #4121's guard
+# allows. Nothing is removed from the list.
+"${PSQL[@]}" <<'SQL'
+SELECT set_config('request.jwt.claims', '', false);
+UPDATE public.platform_policies
+   SET value = (SELECT jsonb_agg(DISTINCT x ORDER BY x) FROM (
+                  SELECT jsonb_array_elements_text(value) AS x
+                  UNION SELECT '00000000-0000-0000-0000-0000000000c6'
+                  UNION SELECT '00000000-0000-0000-0000-0000000000c7') ids)
+ WHERE policy_key = 'platform.the_director_profile_ids';
+SQL
 "${PSQL[@]}" -Atc "select 'Director list = ' || value::text from platform_policies where policy_key = 'platform.the_director_profile_ids'"
 
 # THE MIGRATION, twice.
@@ -134,7 +150,7 @@ echo "== migration applied twice"
 # no-start case can be tested.
 "${PSQL[@]}" -c "ALTER TABLE public.hr_staff_salaries ALTER COLUMN effective_from DROP NOT NULL"
 
-# Seed salaries, as the owner (the trigger does not stop the owner, so history
+# Seed salaries, as the owner (the guard does not stop the owner, so history
 # can be laid down).
 "${PSQL[@]}" <<'SQL'
 INSERT INTO public.hr_organizations VALUES ('00000000-0000-0000-0000-0000000000b1');
@@ -142,12 +158,11 @@ INSERT INTO public.staff (id)
   SELECT ('00000000-0000-0000-0000-000000000' || lpad(n::text, 3, '0'))::uuid FROM generate_series(1, 40) n;
 
 -- Existing salaries (today in India = T):
---  staff 10: started T-29, 7000 = what t.call sends (identical re-upload)
+--  staff 10: started T-29, 7000 = what t.call sends (identical save)
 --  staff 11: started T-29  (superseded from today; direct edit refused)
 --  staff 12: NO start      (superseded from today; direct edit refused)
 --  staff 13: starts T+10   (direct edit allowed; moving it to the past refused)
 --  staff 22: A (T-180, 40000) superseded by B (T-29, 50000, in force): the revive attack
---  staff 23: in force with NO start recorded: the Director files history against it
 --  staff 25: one row, for the staff-delete cascade
 INSERT INTO public.hr_staff_salaries (id, staff_id, hr_organization_id, monthly_gross, effective_from) VALUES
   ('00000000-0000-0000-0000-00000000a010', '00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-0000000000b1', 7000, (now() AT TIME ZONE 'Asia/Kolkata')::date - 29),
@@ -155,7 +170,6 @@ INSERT INTO public.hr_staff_salaries (id, staff_id, hr_organization_id, monthly_
   ('00000000-0000-0000-0000-00000000a012', '00000000-0000-0000-0000-000000000012', '00000000-0000-0000-0000-0000000000b1', 6000, NULL),
   ('00000000-0000-0000-0000-00000000a013', '00000000-0000-0000-0000-000000000013', '00000000-0000-0000-0000-0000000000b1', 8000, (now() AT TIME ZONE 'Asia/Kolkata')::date + 10),
   ('00000000-0000-0000-0000-00000000b022', '00000000-0000-0000-0000-000000000022', '00000000-0000-0000-0000-0000000000b1', 50000, (now() AT TIME ZONE 'Asia/Kolkata')::date - 29),
-  ('00000000-0000-0000-0000-00000000a023', '00000000-0000-0000-0000-000000000023', '00000000-0000-0000-0000-0000000000b1', 9000, NULL),
   ('00000000-0000-0000-0000-00000000a025', '00000000-0000-0000-0000-000000000025', '00000000-0000-0000-0000-0000000000b1', 5000, (now() AT TIME ZONE 'Asia/Kolkata')::date - 5);
 INSERT INTO public.hr_staff_salaries (id, staff_id, hr_organization_id, monthly_gross, effective_from, superseded_by) VALUES
   ('00000000-0000-0000-0000-00000000a022', '00000000-0000-0000-0000-000000000022', '00000000-0000-0000-0000-0000000000b1', 40000, (now() AT TIME ZONE 'Asia/Kolkata')::date - 180,

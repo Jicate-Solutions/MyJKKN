@@ -3,7 +3,15 @@
 /**
  * Employee Salaries — WHAT EACH PERSON EARNS.
  *
- * SUPER ADMIN AND HR HEAD ONLY (2026-08-21). hr.payroll.salary.view/.manage were
+ * WHO MAY CHANGE A SALARY (2026-09-30): ONLY THE DIRECTOR LIST (director@ and
+ * isvarya@; fn_is_the_director(), Draft #4121). The HR head can only look. The
+ * Director ruled the same day that the salary Excel import is REMOVED: every
+ * salary is created or edited here, one person at a time. The Edit/Record
+ * buttons and the dialog appear only when the DATABASE says the signed-in
+ * person is on the list (useCanEditSalaries); fn_hr_set_staff_salary and the
+ * table guard (20270521090000) refuse everyone else whatever this page shows.
+ *
+ * WHO MAY SEE (2026-08-21, unchanged). hr.payroll.salary.view/.manage were
  * revoked from hr_admin and hr_manager in
  * 20260821230000_hr_salary_keys_super_admin_and_hr_head_only.sql, so the denial
  * is enforced in Postgres — by hr_staff_salaries' RLS and by
@@ -34,16 +42,14 @@
  * deliberate exception — see `stats` below.
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import toast from 'react-hot-toast';
 import {
   Banknote,
-  Download,
   Loader2,
+  Lock,
   RefreshCw,
   ShieldAlert,
-  Upload,
   UserCheck,
   Users,
   Wallet,
@@ -72,19 +78,17 @@ import {
 import { getErrorMessage } from '@/lib/utils';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
+  useCanEditSalaries,
   useStaffSalaryDirectory,
   useStaffSalaryHistory,
 } from '@/hooks/hr/use-staff-salaries';
 import type { StaffSalaryDirectoryRow } from '@/lib/services/hr/payroll/staff-salary-service';
 
 import { SalaryDirectoryDataTable } from './_components/salary-directory-data-table';
-import { SalaryImportDialog } from './_components/salary-import-dialog';
 import { EditSalaryDialog } from './_components/edit-salary-dialog';
-import { downloadSalaryTemplate } from './_components/salary-template-export';
 import {
   DEFAULT_SALARY_FILTERS,
   SalaryFilters,
-  matchesSalaryFilters,
   type SalaryFilterState,
 } from './_components/salary-filters';
 
@@ -113,16 +117,6 @@ function formatDate(iso: string | null): string {
     month: 'short',
     year: 'numeric',
   });
-}
-
-/** Today in IST as yyyy-MM-dd, for the download filename. */
-function todayIST(): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Kolkata',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
 }
 
 /** One person's supersede chain, newest first. */
@@ -225,20 +219,17 @@ export default function EmployeeSalariesPage() {
   // short-circuits for a super admin.
   const { canAccess, isLoading: permsLoading } = usePermissions();
   const canView = canAccess('hr.payroll.salary', 'view');
-  const canManage = canAccess('hr.payroll.salary', 'manage');
+  // Not hr.payroll.salary.manage any more (2026-09-30): only the Director list
+  // may change a salary. Asked of the database; false while loading.
+  const { canEdit } = useCanEditSalaries();
 
   const { data: rows, isLoading, error, refetch, isFetching } = useStaffSalaryDirectory();
 
   const [filters, setFilters] = useState<SalaryFilterState>(DEFAULT_SALARY_FILTERS);
-  const [importOpen, setImportOpen] = useState(false);
   const [editRow, setEditRow] = useState<StaffSalaryDirectoryRow | null>(null);
   const [historyRow, setHistoryRow] = useState<StaffSalaryDirectoryRow | null>(null);
 
   const list = useMemo(() => rows ?? [], [rows]);
-  const inScope = useMemo(
-    () => list.filter((r) => matchesSalaryFilters(r, filters)),
-    [filters, list]
-  );
 
   /**
    * THE CARDS COUNT THE ACTIVE ROSTER, not every row the RPC returned.
@@ -267,31 +258,6 @@ export default function EmployeeSalariesPage() {
       annual: monthly * 12,
     };
   }, [list]);
-
-  const handleTemplate = useCallback(
-    (picked: StaffSalaryDirectoryRow[], resetSelection?: () => void) => {
-      if (picked.length === 0) {
-        toast.error('No employees to export.');
-        return;
-      }
-      try {
-        const res = downloadSalaryTemplate(picked, todayIST());
-        toast.success(`${res.rowCount} employee(s) exported to ${res.fileName}`);
-        if (res.missingCode > 0) {
-          // These rows cannot come back through the importer: it matches on the
-          // employee code and there is nothing to match on.
-          toast.error(
-            `${res.missingCode} row(s) have no Employee ID and will not re-import. ` +
-            'Add a staff ID for them first.'
-          );
-        }
-        resetSelection?.();
-      } catch (err) {
-        toast.error(getErrorMessage(err));
-      }
-    },
-    []
-  );
 
   // Denial is enforced by RLS and the RPC; this only explains it.
   if (!permsLoading && !canView) {
@@ -344,23 +310,6 @@ export default function EmployeeSalariesPage() {
             <RefreshCw className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-          {canManage && (
-            <>
-              <Button
-                variant='outline'
-                size='sm'
-                onClick={() => handleTemplate(inScope)}
-                disabled={inScope.length === 0}
-              >
-                <Download className='mr-2 h-4 w-4' />
-                Bulk edit template ({inScope.length})
-              </Button>
-              <Button size='sm' onClick={() => setImportOpen(true)}>
-                <Upload className='mr-2 h-4 w-4' />
-                Import salaries
-              </Button>
-            </>
-          )}
         </div>
       </div>
 
@@ -370,13 +319,22 @@ export default function EmployeeSalariesPage() {
         </Alert>
       )}
 
-      {canManage && stats.awaiting > 0 && (
+      {!canEdit && (
+        <Alert className='mb-4' data-testid='salary-read-only-note'>
+          <Lock className='h-4 w-4' />
+          <AlertDescription>
+            Only the Director can change a salary. You can look at every figure and its history
+            here, but not change it.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {canEdit && stats.awaiting > 0 && (
         <Alert className='mb-4'>
           <Banknote className='h-4 w-4' />
           <AlertDescription>
             <span className='font-medium'>{stats.awaiting} employees have no salary recorded.</span>{' '}
-            Download the bulk edit template, fill in the Basic Salary column in Excel, then bring
-            it back through Import salaries — or set one person at a time from the row menu.
+            Record one person at a time from the row menu.
             {stats.noPayer > 0 && (
               <>
                 {' '}
@@ -447,24 +405,19 @@ export default function EmployeeSalariesPage() {
           <SalaryDirectoryDataTable
             rows={list}
             filters={filters}
-            canManage={canManage}
+            canEdit={canEdit}
             onEdit={setEditRow}
             onViewHistory={setHistoryRow}
-            onBulkTemplate={handleTemplate}
           />
         </>
       )}
 
-      <SalaryImportDialog
-        open={importOpen}
-        onOpenChange={setImportOpen}
-        onImportComplete={() => refetch()}
-      />
-
-      <EditSalaryDialog
-        row={editRow}
-        onOpenChange={(open) => { if (!open) setEditRow(null); }}
-      />
+      {canEdit && (
+        <EditSalaryDialog
+          row={editRow}
+          onOpenChange={(open) => { if (!open) setEditRow(null); }}
+        />
+      )}
 
       <SalaryHistorySheet
         row={historyRow}
