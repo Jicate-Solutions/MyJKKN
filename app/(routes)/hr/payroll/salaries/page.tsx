@@ -333,7 +333,7 @@ export default function EmployeeSalariesPage() {
         <Alert className='mb-4'>
           <Banknote className='h-4 w-4' />
           <AlertDescription>
-            <span className='font-medium'>{stats.awaiting} employees have no salary recorded.</span>{' '}
+            <span className='font-medium'>{stats.awaiting} {stats.awaiting === 1 ? 'employee has' : 'employees have'} no salary recorded.</span>{' '}
             Record one person at a time from the row menu.
             {stats.noPayer > 0 && (
               <>

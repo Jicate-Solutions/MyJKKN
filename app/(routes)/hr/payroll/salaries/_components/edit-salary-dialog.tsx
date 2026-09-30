@@ -543,14 +543,12 @@ export function EditSalaryDialog({ row, onOpenChange }: Props) {
             />
           </div>
 
+        <DialogFooter className='items-center'>
           {unchanged && row?.salary_id && (
-            <p className='text-xs text-muted-foreground'>
+            <p className='mr-auto text-xs text-muted-foreground' data-testid='nothing-changed'>
               Nothing has changed from the figure in force, so there is nothing to save.
             </p>
           )}
-        </div>
-
-        <DialogFooter>
           <Button variant='outline' onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={handleSave} disabled={!canSubmit}>
             {setSalary.isPending && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
