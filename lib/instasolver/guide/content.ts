@@ -63,7 +63,7 @@ const filerSections: GuideSection[] = [
         action: "Pick **what kind** of problem it is.",
         detail:
           "Something is broken, I have a complaint, or we need to buy something.",
-        tip: "Not sure? Pick the closest. It can be moved later, and nothing is lost.",
+        tip: "Not sure? Pick the closest one.",
       },
     ],
   },
@@ -120,7 +120,7 @@ const filerSections: GuideSection[] = [
       {
         action: "Purchases go through **Procurement**.",
         detail:
-          "If you can raise purchase requests, the card takes you straight there. If not, ask your HOD or office to raise it in Procurement.",
+          "If you can raise purchase requests, the card takes you straight there. If not, ask your Store Administrator or the Procurement team — they can raise it for you.",
       },
     ],
   },

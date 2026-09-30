@@ -23,7 +23,15 @@
 // boolean: the client never sees a permission check it could be tricked into
 // re-deciding. When the viewer cannot raise one, the card still renders with an
 // explicit next step rather than vanishing or dead-ending (rule #27 — a refusal
-// is spoken, never silent).
+// is spoken, never silent). That next step names the people who really hold
+// procurement.request_create — the Store Administrator and the Procurement team
+// (migrations 20260801001000 and 20260816000000). A HOD does not hold it, so
+// "ask your HOD" would have sent people to someone who cannot raise it either.
+//
+// The "My complaints" follow-up button shows only when its page is in this
+// build (lib/instasolver/follow-up-links.ts reads the route manifest that
+// `npm run build` regenerates), so the front door never links to a not-found
+// page while PR #4144 is unmerged.
 //
 // That branch ORs the key check with `hasDbAdminBypass`. `user_has_permission()`
 // bypasses only `is_super_admin = true`, while the database's own `is_admin()`
@@ -45,6 +53,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { PageHeader } from '@/components/page-header';
 import { Card, CardContent } from '@/components/ui/card';
 import { hasDbAdminBypass } from '@/lib/navigation/permission-filter';
+import { hasMyComplaintsPage } from '@/lib/instasolver/follow-up-links';
 import { createClient } from '@/lib/supabase/server';
 import { ChooserClient } from './_components/chooser-client';
 
@@ -75,8 +84,8 @@ export default async function InstaSolverPage() {
   }
 
   // Purchase branch. A failed RPC or a failed profile read is treated as
-  // "cannot raise" — fail closed, and the card then shows the ask-your-HOD line,
-  // which is a true statement either way.
+  // "cannot raise" — fail closed, and the card then shows the ask-the-Store-
+  // Administrator-or-Procurement line, which is a true statement either way.
   const [{ data: holdsRequestCreate }, { data: profile }] = await Promise.all([
     supabase.rpc('user_has_permission', {
       permission_name: 'procurement.request_create'
@@ -101,7 +110,10 @@ export default async function InstaSolverPage() {
           description="Tell us what's wrong. It goes to the right person, and you'll see when it's fixed."
         />
       </div>
-      <ChooserClient canRaisePurchase={canRaisePurchase} />
+      <ChooserClient
+        canRaisePurchase={canRaisePurchase}
+        showMyComplaints={hasMyComplaintsPage()}
+      />
     </ContentLayout>
   );
 }
