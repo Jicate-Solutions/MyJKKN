@@ -121,7 +121,10 @@ export default function SalaryRevisionDetailPage() {
             {/* Below the tiles, not inside one: with a band warning too, the tile ran to seven lines (blind review, 1 Oct). */}
             <BandChangedNote changed={r.band_changed} />
 
-            <p className='text-sm font-medium'>{decisionSummary(r)}</p>
+            {/* A cancelled request carries its own note (name and date), so the generic sentence would say it a third time. */}
+            {!(r.status === 'cancelled' && r.cancel_note) && (
+              <p className='text-sm font-medium'>{decisionSummary(r)}</p>
+            )}
             <RequestNote text={r.cancel_note ?? r.apply_note} />
 
             <div className='rounded-md bg-muted/50 p-3 text-sm'>
