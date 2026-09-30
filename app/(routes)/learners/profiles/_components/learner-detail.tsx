@@ -108,6 +108,26 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
     enabled: !!learner.degree_id,
   });
   const isPG = degreeData?.degree_type === 'pg';
+  // A postgraduate profile still shows school-level marks when they were entered
+  // (Director ruling 2026-09-30) — hidden only when there is nothing to show.
+  const hasAny = (o: unknown) =>
+    !!o && typeof o === 'object' &&
+    Object.values(o as Record<string, unknown>).some((v) => v != null && String(v).trim() !== '' && typeof v !== 'object');
+  const hasTenth = hasAny(learner.tenth_marks);
+  // An old PG record typed its DEGREE into twelfth_marks (course_name + percentage,
+  // copied to previous_degree by 20270611090000); that is not a 12th-standard mark.
+  const twelfthIsLegacyPgDegree = isPG && !!(learner.twelfth_marks as any)?.course_name;
+  const hasTwelfth = hasAny(learner.twelfth_marks) && !twelfthIsLegacyPgDegree;
+  const hasEntrance = !!(learner.medical_cutoff_marks || learner.engineering_cutoff_marks
+    || learner.neet_roll_number || learner.neet_score);
+  const prevDegree = learner.previous_degree ?? {};
+  const prevDegreeMissing = [
+    !prevDegree.degree_name && 'degree',
+    !learner.last_school && 'college',
+    !prevDegree.university && 'university',
+    !prevDegree.year_of_passing && 'year of passing',
+    !prevDegree.score && 'marks',
+  ].filter(Boolean) as string[];
 
   const sections = [
     {
@@ -562,27 +582,64 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                   </div>
                 </div>
 
-                {/* PG-specific: Previous Qualification */}
-                {isPG && learner.twelfth_marks && (
+                {/* PG: the qualifying degree (previous_degree, 2026-09-30). Never
+                    falls back to twelfth_marks — that showed the 12th-standard
+                    percentage labelled as the degree percentage. */}
+                {isPG && (
                   <>
                     <Separator />
                     <div className="space-y-2">
-                      <h3 className="text-sm font-medium">Previous Qualification</h3>
-                      <div className="grid grid-cols-2 gap-4">
+                      <h3 className="text-sm font-medium">Previous Degree</h3>
+                      {prevDegreeMissing.length > 0 && (
+                        <p className="text-sm text-amber-700 dark:text-amber-400">
+                          Missing: {prevDegreeMissing.join(', ')}. Edit this profile to add them.
+                        </p>
+                      )}
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                         <div className="space-y-1">
                           <h4 className="text-sm font-medium text-muted-foreground">
-                            Previous Course / Degree
+                            Degree
+                          </h4>
+                          <p className="text-sm">{prevDegree.degree_name || 'Not entered'}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-medium text-muted-foreground">
+                            University
+                          </h4>
+                          <p className="text-sm">{prevDegree.university || 'Not entered'}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-medium text-muted-foreground">
+                            Year of Passing
+                          </h4>
+                          <p className="text-sm">{prevDegree.year_of_passing || 'Not entered'}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-medium text-muted-foreground">
+                            Degree Marks
                           </h4>
                           <p className="text-sm">
-                            {(learner.twelfth_marks as any).course_name || 'Not specified'}
+                            {prevDegree.score
+                              ? `${prevDegree.score}${prevDegree.score_type === 'cgpa' ? ' CGPA' : '%'}`
+                              : 'Not entered'}
                           </p>
                         </div>
                         <div className="space-y-1">
                           <h4 className="text-sm font-medium text-muted-foreground">
-                            Percentage
+                            Entrance Exam
+                          </h4>
+                          <p className="text-sm">{prevDegree.entrance_exam || 'Not entered'}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-medium text-muted-foreground">
+                            Entrance Score / Rank
                           </h4>
                           <p className="text-sm">
-                            {(learner.twelfth_marks as any).percentage || 'Not specified'}
+                            {prevDegree.entrance_score || prevDegree.entrance_rank
+                              ? [prevDegree.entrance_score && `Score ${prevDegree.entrance_score}`,
+                                 prevDegree.entrance_rank && `Rank ${prevDegree.entrance_rank}`]
+                                  .filter(Boolean).join(' · ')
+                              : 'Not entered'}
                           </p>
                         </div>
                       </div>
@@ -590,8 +647,8 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                   </>
                 )}
 
-                {/* UG-only: 10th Grade Marks */}
-                {!isPG && (
+                {/* 10th Grade Marks — always for UG; for PG only when entered */}
+                {(!isPG || hasTenth) && (
                   <>
                     <Separator />
                     <div className="space-y-2">
@@ -632,8 +689,8 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                   </>
                 )}
 
-                {/* UG-only: 12th Grade Marks */}
-                {!isPG && (
+                {/* 12th Grade Marks — always for UG; for PG only when entered */}
+                {(!isPG || hasTwelfth) && (
                   <>
                     <Separator />
                     <div className="space-y-2">
@@ -684,8 +741,8 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                   </>
                 )}
 
-                {/* UG-only: Entrance Exam Details */}
-                {!isPG && (
+                {/* School-level entrance details — always for UG; for PG only when entered */}
+                {(!isPG || hasEntrance) && (
                   <>
                     <Separator />
                     <div className="space-y-2">
