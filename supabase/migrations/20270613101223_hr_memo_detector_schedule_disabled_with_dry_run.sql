@@ -1,7 +1,7 @@
 -- =====================================================================
 -- HR memo detector: scheduled DISABLED, with a dry run and acknowledgement
 -- nudges (HR staff harness, lane F — duty card G3)
--- Migration: 20270526090000
+-- Migration: 20270613101223
 -- =====================================================================
 -- WHY: app/api/cron/hr-memo-auto-detector existed and said "configure via
 -- vercel.json", but nothing ever scheduled it (no vercel.json entry, no
@@ -96,7 +96,7 @@ CREATE INDEX IF NOT EXISTS idx_hr_memo_detector_runs_ran_at
   ON public.hr_memo_detector_runs (ran_at DESC);
 
 COMMENT ON TABLE public.hr_memo_detector_runs IS
-  'One row per hr-memo-auto-detector run (dry_run or live). details = {events, memos, nudges} the run created, or would have created in a dry run. Written by the cron (service role) only. Migration 20270526090000.';
+  'One row per hr-memo-auto-detector run (dry_run or live). details = {events, memos, nudges} the run created, or would have created in a dry run. Written by the cron (service role) only. Migration 20270613101223.';
 
 ALTER TABLE public.hr_memo_detector_runs ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.hr_memo_detector_runs FROM anon, PUBLIC;
@@ -127,7 +127,7 @@ CREATE TABLE IF NOT EXISTS public.hr_memo_nudges (
 );
 
 COMMENT ON TABLE public.hr_memo_nudges IS
-  'Acknowledgement nudges for hr_memos: at most ONE staff_reminder and ONE hod_notice per memo (UNIQUE memo_id, nudge_kind), claimed before sending. no_recipient = nobody could be resolved, recorded so it is visible and not retried. Written by the cron (service role) only. Migration 20270526090000.';
+  'Acknowledgement nudges for hr_memos: at most ONE staff_reminder and ONE hod_notice per memo (UNIQUE memo_id, nudge_kind), claimed before sending. no_recipient = nobody could be resolved, recorded so it is visible and not retried. Written by the cron (service role) only. Migration 20270613101223.';
 
 ALTER TABLE public.hr_memo_nudges ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.hr_memo_nudges FROM anon, PUBLIC;

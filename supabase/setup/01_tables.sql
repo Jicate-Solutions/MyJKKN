@@ -11126,7 +11126,7 @@ COMMENT ON TABLE public.sign_out_notices IS
   'An admin signed this person out of all devices; shown once after their next sign-in (Director ruling 2026-10-02). Written by the service role only.';
 -- =====================================================================
 -- Updated: 2026-10-01 - HR memo detector run log + acknowledgement nudges
--- Migration: 20270526090000_hr_memo_detector_schedule_disabled_with_dry_run.sql
+-- Migration: 20270613101223_hr_memo_detector_schedule_disabled_with_dry_run.sql
 -- =====================================================================
 CREATE TABLE IF NOT EXISTS public.hr_memo_detector_runs (
   id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -11150,7 +11150,7 @@ CREATE INDEX IF NOT EXISTS idx_hr_memo_detector_runs_ran_at
   ON public.hr_memo_detector_runs (ran_at DESC);
 
 COMMENT ON TABLE public.hr_memo_detector_runs IS
-  'One row per hr-memo-auto-detector run (dry_run or live). details = {events, memos, nudges} the run created, or would have created in a dry run. Written by the cron (service role) only. Migration 20270526090000.';
+  'One row per hr-memo-auto-detector run (dry_run or live). details = {events, memos, nudges} the run created, or would have created in a dry run. Written by the cron (service role) only. Migration 20270613101223.';
 
 CREATE TABLE IF NOT EXISTS public.hr_memo_nudges (
   id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -11168,5 +11168,5 @@ CREATE TABLE IF NOT EXISTS public.hr_memo_nudges (
 );
 
 COMMENT ON TABLE public.hr_memo_nudges IS
-  'Acknowledgement nudges for hr_memos: at most ONE staff_reminder and ONE hod_notice per memo (UNIQUE memo_id, nudge_kind), claimed before sending. no_recipient = nobody could be resolved, recorded so it is visible and not retried. Written by the cron (service role) only. Migration 20270526090000.';
+  'Acknowledgement nudges for hr_memos: at most ONE staff_reminder and ONE hod_notice per memo (UNIQUE memo_id, nudge_kind), claimed before sending. no_recipient = nobody could be resolved, recorded so it is visible and not retried. Written by the cron (service role) only. Migration 20270613101223.';
 
