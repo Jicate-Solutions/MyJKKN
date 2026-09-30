@@ -36,12 +36,16 @@ export type FilerUpdateOutcome = 'sent' | 'skipped' | 'not-sent';
 type SendBell = typeof createBellNotification;
 
 /**
- * @param admin a SERVICE-ROLE client: the filer's bell rows and the handler's
- *              name are written/read on the filer's behalf, not the handler's.
+ * @param admin a SERVICE-ROLE client, or a function that makes one: the filer's
+ *              bell rows and the handler's name are written/read on the filer's
+ *              behalf, not the handler's. Pass the function (e.g.
+ *              createServiceRoleClient) when the caller's write has already
+ *              committed: making the client can throw (missing key), and that
+ *              must land in the catch below, not fail the write.
  * @param sendBell injectable for tests; defaults to the live bell path.
  */
 export async function notifyFilerOfChange(
-  admin: SupabaseClient,
+  admin: SupabaseClient | (() => SupabaseClient),
   change: { before: FilerUpdateBefore | null; after: FilerUpdateAfter },
   sendBell: SendBell = createBellNotification
 ): Promise<FilerUpdateOutcome> {
@@ -51,9 +55,11 @@ export async function notifyFilerOfChange(
     // Cheap exits first, so an anonymous or unchanged ticket costs no query.
     if (!describeFilerUpdate(before, after, null)) return 'skipped';
 
+    const db = typeof admin === 'function' ? admin() : admin;
+
     let handlerName: string | null = null;
     if (after.assigned_to) {
-      const { data } = await admin
+      const { data } = await db
         .from('profiles')
         .select('full_name')
         .eq('id', after.assigned_to)
@@ -64,7 +70,7 @@ export async function notifyFilerOfChange(
     const message = describeFilerUpdate(before, after, handlerName);
     if (!message) return 'skipped';
 
-    const id = await sendBell(admin, {
+    const id = await sendBell(db, {
       recipientIds: [message.recipientId],
       createdBy: message.recipientId,
       title: message.title,
@@ -77,10 +83,9 @@ export async function notifyFilerOfChange(
         ticket_number: after.ticket_number,
         status: after.status,
       },
-      idempotencyKey: message.idempotencyKey,
     });
 
-    // null = already sent under this key, or the insert failed (logged inside).
+    // null = the insert failed (logged inside).
     return id ? 'sent' : 'not-sent';
   } catch (err) {
     logger.error(MODULE, 'Filer update could not be sent', err);

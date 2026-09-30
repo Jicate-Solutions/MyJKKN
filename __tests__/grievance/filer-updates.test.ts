@@ -64,7 +64,10 @@ describe('describeFilerUpdate — who is told, and what', () => {
 
   it('sends ONE message when a single write both assigns and moves the status', () => {
     const m = describeFilerUpdate({ status: 'open', assigned_to: null }, after(), 'Priya R');
-    expect(m!.idempotencyKey).toBe(`grievance-filer:${TICKET}:in_progress:${HANDLER}`);
+    expect(m).not.toBeNull();
+    // One message object, and it carries no dedup key that could swallow a
+    // later, genuinely new change (repair round, 1 Oct 2026).
+    expect(m).not.toHaveProperty('idempotencyKey');
   });
 
   it('says what was done on resolve', () => {
@@ -76,7 +79,6 @@ describe('describeFilerUpdate — who is told, and what', () => {
     expect(m!.body).toBe(
       'Your complaint GRV-20260930-0001 was resolved: The fan in room 204 was replaced.'
     );
-    expect(m!.idempotencyKey).toBe(`grievance-filer:${TICKET}:resolved`);
   });
 
   it('puts a plain status in words', () => {
@@ -121,20 +123,89 @@ describe('notifyFilerOfChange — the bell itself', () => {
     expect(opts.createdBy).toBe(FILER);
     expect(opts.url).toBe('/instasolver/my-complaints');
     expect(opts.body).toContain('Priya R');
-    expect(opts.idempotencyKey).toBe(`grievance-filer:${TICKET}:in_progress:${HANDLER}`);
+    expect(opts.idempotencyKey).toBeUndefined();
   });
 
-  it('is idempotent: a repeat of the same change reuses the same key', async () => {
-    const keys: string[] = [];
-    const send = vi.fn(async (_db: unknown, o: { idempotencyKey?: string }) => {
-      const first = !keys.includes(o.idempotencyKey!);
-      keys.push(o.idempotencyKey!);
-      return first ? 'notif-1' : null; // the DB unique index returns 23505 → null
+  it('a complaint resolved, reopened and resolved AGAIN tells the filer both times', async () => {
+    // "A message each time something changes": the second resolve carries new
+    // text and must not be swallowed as a duplicate of the first.
+    const send = vi.fn(async () => 'notif-x');
+    const first = {
+      before: { status: 'in_progress', assigned_to: HANDLER },
+      after: after({ status: 'resolved', resolution: 'Fan replaced.' }),
+    };
+    const reopened = {
+      before: { status: 'resolved', assigned_to: HANDLER },
+      after: after({ status: 'reopened', resolution: 'Fan replaced.' }),
+    };
+    const second = {
+      before: { status: 'reopened', assigned_to: HANDLER },
+      after: after({ status: 'resolved', resolution: 'Wiring fixed as well.' }),
+    };
+    for (const change of [first, reopened, second]) {
+      expect(await notifyFilerOfChange(adminWithHandler('Priya R'), change, send as never)).toBe(
+        'sent'
+      );
+    }
+    expect(send).toHaveBeenCalledTimes(3);
+    const bodies = send.mock.calls.map((c) => ((c as unknown[])[1] as { body: string }).body);
+    expect(bodies[2]).toContain('Wiring fixed as well.');
+    for (const c of send.mock.calls) {
+      expect(((c as unknown[])[1] as Record<string, unknown>).idempotencyKey).toBeUndefined();
+    }
+  });
+
+  it('a complaint handed BACK to an earlier handler tells the filer again', async () => {
+    const send = vi.fn(async () => 'notif-x');
+    await notifyFilerOfChange(
+      adminWithHandler('Priya R'),
+      { before: { status: 'in_progress', assigned_to: OTHER }, after: after() },
+      send as never
+    );
+    await notifyFilerOfChange(
+      adminWithHandler('Priya R'),
+      { before: { status: 'in_progress', assigned_to: OTHER }, after: after() },
+      send as never
+    );
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it('a repeat of the SAME state (double tap) sends nothing: before equals after', async () => {
+    const send = vi.fn(async () => 'notif-x');
+    const out = await notifyFilerOfChange(
+      adminWithHandler('Priya R'),
+      { before: { status: 'in_progress', assigned_to: HANDLER }, after: after() },
+      send as never
+    );
+    expect(out).toBe('skipped');
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('takes a client FACTORY and keeps a throwing factory inside its own catch', async () => {
+    const send = vi.fn(async () => 'notif-1');
+    const factory = vi.fn(() => {
+      throw new Error('SUPABASE_SERVICE_ROLE_KEY is not set');
     });
-    const change = { before: { status: 'open', assigned_to: null }, after: after() };
-    expect(await notifyFilerOfChange(adminWithHandler('Priya R'), change, send as never)).toBe('sent');
-    expect(await notifyFilerOfChange(adminWithHandler('Priya R'), change, send as never)).toBe('not-sent');
-    expect(new Set(keys).size).toBe(1);
+    await expect(
+      notifyFilerOfChange(
+        factory as never,
+        { before: { status: 'open', assigned_to: null }, after: after() },
+        send as never
+      )
+    ).resolves.toBe('not-sent');
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('does not even make the client for an anonymous complaint', async () => {
+    const factory = vi.fn(() => adminWithHandler('Priya R'));
+    const out = await notifyFilerOfChange(
+      factory as never,
+      { before: { status: 'open', assigned_to: null }, after: after({ is_anonymous: true }) },
+      vi.fn() as never
+    );
+    expect(out).toBe('skipped');
+    expect(factory).not.toHaveBeenCalled();
   });
 
   it('never calls the sender, or reads anything, for an anonymous complaint', async () => {

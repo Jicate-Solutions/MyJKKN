@@ -3,9 +3,12 @@
 // SERVER-ONLY read for /instasolver/my-complaints: the signed-in person's own
 // NON-anonymous complaints, newest first.
 //
-// WHY A SERVICE-ROLE READ. grievance_tickets RLS is written for handlers; a
-// learner may not be able to read back a ticket they filed. So the page reads
-// elevated — and the ownership rule lives HERE instead of in RLS:
+// WHY A SERVICE-ROLE READ. The ticket itself is readable under RLS
+// (grievance_tickets_select includes raised_by_id = auth.uid()), but the
+// handler's name comes from a profiles embed, and profiles RLS can hide
+// another person's row from a learner — which would blank the "Handled by"
+// line the Director asked for. So the page reads elevated, and the ownership
+// rule lives HERE instead of in RLS:
 //   · raised_by_id must equal the caller's auth user id, taken from the session
 //     by the page, never from the URL or the browser;
 //   · is_anonymous must be false. An anonymous filing KEEPS raised_by_id (see

@@ -6,10 +6,15 @@
 // (Director ruling, 30 Sep 2026: "the person who complained gets a message
 // each time something changes").
 //
-// AUTHORITY IS UNCHANGED. The update runs on the caller's own cookie session,
-// so grievance_tickets RLS decides exactly what it decided when this write ran
-// in the browser. Only the filer's bell is sent with the service-role client —
-// it writes a notification for somebody other than the caller.
+// AUTHORITY: the update runs on the caller's own cookie session, so
+// grievance_tickets RLS still decides who may write. One difference from the
+// old browser write: this action first READS the row under the caller's RLS
+// (to know what changed), and then asks the update to return the row. So the
+// caller needs the SELECT policy as well as the UPDATE policy. Today every
+// caller already needs SELECT to open the detail page this is used from, so in
+// practice nobody who could resolve before is refused now.
+// Only the filer's bell is sent with the service-role client — it writes a
+// notification for somebody other than the caller.
 //
 // A server action, not an API route: an app/api/.../[id]/route.ts would cost 2
 // of the ~34 routes left under Vercel's cap (scripts/ci/check-route-budget.sh).
@@ -101,7 +106,10 @@ export async function updateGrievanceStatusAction(
     return { success: false, error: 'You do not have permission to change this complaint.' };
   }
 
-  await notifyFilerOfChange(createServiceRoleClient(), {
+  // The function, not a client: making the service-role client can throw
+  // (missing key), and by now the write has committed. notifyFilerOfChange
+  // makes it inside its own try, so a lost bell never reads as a failed resolve.
+  await notifyFilerOfChange(createServiceRoleClient, {
     before: before as FilerUpdateBefore,
     after: after as FilerUpdateAfter,
   });

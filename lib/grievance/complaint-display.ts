@@ -100,8 +100,13 @@ export interface FilerUpdateMessage {
   recipientId: string;
   title: string;
   body: string;
-  /** One bell per ticket per new status (plus the handler, when that changed). */
-  idempotencyKey: string;
+  // No idempotency key, on purpose (repair round, 1 Oct 2026). A key of
+  // ticket + status silenced every REPEAT change: a complaint reopened and
+  // resolved again, or handed back to an earlier handler, sent no second bell,
+  // which breaks the ruling "a message each time something changes".
+  // grievance_tickets has no updated_at trigger, so there is no per-write value
+  // to key on. A no-op repeat (same status, same handler) is already stopped
+  // above by the before/after comparison, and neither write path retries.
 }
 
 export const FILER_UPDATE_URL = '/instasolver/my-complaints';
@@ -150,14 +155,9 @@ export function describeFilerUpdate(
     what = `is now ${statusInWords(after.status).toLowerCase()}.`;
   }
 
-  const key =
-    `grievance-filer:${after.id}:${after.status ?? 'none'}` +
-    (assignmentChanged ? `:${after.assigned_to}` : '');
-
   return {
     recipientId: after.raised_by_id,
     title: `Your complaint ${number}`,
     body: `Your complaint ${number} ${what}`,
-    idempotencyKey: key,
   };
 }

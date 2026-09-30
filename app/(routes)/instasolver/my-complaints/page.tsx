@@ -5,7 +5,8 @@
 // answer is due, and what was done.
 //
 // Read with the SERVICE-ROLE client after the session is established, because
-// grievance_tickets RLS may hide a learner's own ticket from them. The owner
+// the handler's name comes from profiles, which RLS may hide from a learner
+// (the ticket itself is readable: its SELECT policy covers the filer). The owner
 // filter (raised_by_id = this user, is_anonymous = false) lives in
 // lib/grievance/my-complaints.ts and is re-checked per row there.
 //
