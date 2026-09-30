@@ -109,7 +109,8 @@ describe('the salary Excel import is removed', () => {
       if (fs.existsSync(path.join(ROOT, d))) walk(path.join(ROOT, d));
     }
     expect(hits).toEqual([]);
-  });
+    // Walks every source folder; allow for a busy machine.
+  }, 60_000);
 
   it('the Employee Salaries page has no import, template or manage-key edit gate', () => {
     const page = fs.readFileSync(
