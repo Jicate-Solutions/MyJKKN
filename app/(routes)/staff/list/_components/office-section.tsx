@@ -132,8 +132,8 @@ export function OfficeSection({
         <Info className='h-4 w-4' />
         <AlertDescription>
           Optional. Anything filled here is saved to Payroll Organisation
-          {canEditSalary ? ', Employee Salaries' : ''} and Bank Accounts right after the
-          staff record is saved.
+          {canEditSalary ? ', Employee Salaries' : ''} and Bank Accounts right after this
+          record is saved.
           {isEditing &&
             (canEditSalary
               ? ' Changing the salary or bank account records a new entry and keeps the old one as history.'
