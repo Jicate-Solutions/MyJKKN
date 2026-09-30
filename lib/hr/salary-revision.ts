@@ -205,6 +205,9 @@ export function decisionSummary(row: Pick<SalaryRevisionRow,
       return 'The principal stopped it.';
     case 'waiting_principal':
       return 'Waiting for the principal to agree or stop it.';
+    case 'cancelled':
+      // 30 Sep: an approved raise whose person left before its start date.
+      return `Cancelled: the person left before the new pay was to start${row.starts_on ? ` on ${longDate(row.starts_on)}` : ''}.`;
     default:
       return 'Waiting for the Director’s yes or no.';
   }

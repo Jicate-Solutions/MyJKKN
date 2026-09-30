@@ -105,6 +105,10 @@ describe('words on screen', () => {
       .toBe('Approved at ₹52,500 a month from 1 October 2026 (asked: ₹50,000).');
     expect(decisionSummary({ status: 'applied', final_monthly_gross: 50000, asked_monthly_gross: 50000, starts_on: '2026-10-01' }))
       .toBe('Approved at ₹50,000 a month from 1 October 2026. It is now in the pay.');
+    expect(decisionSummary({ status: 'cancelled', final_monthly_gross: 34000, asked_monthly_gross: 34000, starts_on: '2026-10-01' }))
+      .toBe('Cancelled: the person left before the new pay was to start on 1 October 2026.');
+    expect(decisionSummary({ status: 'cancelled', final_monthly_gross: 34000, asked_monthly_gross: 34000, starts_on: null }))
+      .toBe('Cancelled: the person left before the new pay was to start.');
   });
   it('reads numeric strings and refuses junk', () => {
     expect(toAmount('52500.00')).toBe(52500);
