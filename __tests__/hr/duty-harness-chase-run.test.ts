@@ -35,8 +35,8 @@ const LADDER = parseLadder([
 
 const S3: DutyDefinition = {
   code: 'S3',
-  name: 'Review staff photos',
-  owningQueue: 'Staff photo review',
+  name: 'Review photos',
+  owningQueue: 'Photo review',
   ownerRule: 'permission',
   ownerPermissionKey: 'hr.staff_photo.review',
   dueHours: null,
@@ -289,7 +289,7 @@ describe('HR chase run — weekly lists', () => {
     const digest = w.sent.find((m) => m.idempotencyKey.startsWith('hr-duty:director-digest:'))!;
     const hrList = w.sent.find((m) => m.idempotencyKey.startsWith('hr-duty:hr-head-list:'))!;
     expect(digest.recipientIds).toEqual(['director-1']);
-    expect(digest.body).toContain('Staff photo review, Engineering: 2 late');
+    expect(digest.body).toContain('Photo review, Engineering: 2 late');
     // No item title, no person, no profile id in the Director's digest.
     expect(digest.body).not.toMatch(/Person late|Person b|owner-1|sup-1|subject-/);
     expect(JSON.stringify(digest.metadata)).not.toMatch(/owner-1|sup-1|subject-/);
