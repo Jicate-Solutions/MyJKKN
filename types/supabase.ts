@@ -212046,6 +212046,10 @@ export type Database = {
       }
       fn_my_sf100_goal: { Args: { p_enrollment_id: string }; Returns: Json }
       fn_my_staff_ids: { Args: never; Returns: string[] }
+      fn_my_staff_upload_context: {
+        Args: { p_staff_id: string }
+        Returns: { staff_code: string; institution_name: string }[]
+      }
       fn_my_upgrade_mess_categories: {
         Args: never
         Returns: {
