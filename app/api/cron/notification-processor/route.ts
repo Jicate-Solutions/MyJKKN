@@ -43,6 +43,7 @@ export async function GET(request: NextRequest) {
     bug_feedback_still_open_expired: 0,
     bug_feedback_still_open_closed: 0,
     bug_feedback_still_open_expired_unseen: 0,
+    bug_feedback_still_open_sent: 0,
     bug_feedback_reminders: 0,
     errors: [] as string[],
   };
@@ -246,6 +247,21 @@ export async function GET(request: NextRequest) {
         results.bug_feedback_still_open_closed = Number(silenceRes?.closed ?? 0);
         // Expired without ever being seen — closes nothing (Director, 27 Sep).
         results.bug_feedback_still_open_expired_unseen = Number(silenceRes?.expired_unseen ?? 0);
+      }
+
+      // Send the next queued "still happening?" prompts. A reporter holds at
+      // most 3 open ones and fn_bug_stale_prompt_send only tops each reporter up
+      // to that cap (one notice per reporter per day), so running it every hour
+      // sends nothing until a slot frees — answered, or expired just above.
+      // It had only ever been run by hand (16-17 Sep), leaving 183 queued;
+      // fn_bug_feedback_release_queued below releases fix_check prompts only.
+      const { data: staleRes, error: staleErr } = await svc.rpc('fn_bug_stale_prompt_send', { p_limit: 200 });
+      if (staleErr) {
+        results.errors.push(`Bug still-open send error: ${staleErr.message}`);
+      } else if (staleRes?.success === false) {
+        results.errors.push(`Bug still-open send refused: ${staleRes?.error ?? 'unknown'}`);
+      } else {
+        results.bug_feedback_still_open_sent = Number(staleRes?.sent ?? 0);
       }
 
       const { data: queuedReporters, error: queuedErr } = await svc
