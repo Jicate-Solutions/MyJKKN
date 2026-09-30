@@ -108,7 +108,7 @@ describe('anonymous filing when the per-category rule is missing', () => {
     if (!result.ok) return;
     expect(result.anonymousColumnPresent).toBe(false);
     expect(result.categories).toEqual([
-      { id: 'c1', name: 'Hostel', allow_anonymous: false, default_sla_hours: null },
+      { id: 'c1', name: 'Hostel', allow_anonymous: false, default_sla_hours: null, is_emergency: false },
     ]);
   });
 

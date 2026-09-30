@@ -11541,18 +11541,44 @@ CREATE POLICY grievance_anonymous_messages_insert ON public.grievance_anonymous_
     )
   );
 
--- Only when the route itself did the sending: metadata.routing is
--- 'icc_no_committee' (no active ICC committee at that college) or
--- 'superior_bypass' (about the filer's own HOD / principal / manager), and
--- only for the person it is assigned to. The existing ICC branches (committee
--- members, super admin, admin) are untouched and still apply.
+-- Substrate v2 demoted assigned_to for ICC-only rows ("a handler not on the
+-- committee should not read it merely because it was assigned to them"). That
+-- left two real assignees locked out of the complaint they were sent:
+--   * the superior-route person InstaSolver hands it to (route.ts), and
+--   * the ICC chair / Director-policy person SLA escalation assigns it to at
+--     level 3 (fn_grievance_level_target, 20270420090000), who need not hold
+--     icc_member.
+-- An earlier draft admitted only rows stamped metadata.routing =
+-- 'icc_no_committee' / 'superior_bypass'. That pin was never a control:
+-- grievance_tickets_insert admits any authenticated caller with any metadata,
+-- so a direct insert could forge it, and escalation never sets it.
+--
+-- Why letting the assignee read costs no confidentiality: on an EXISTING
+-- ICC-only row, assigned_to can only be written by someone who may already
+-- read and update that row — super admin, admin, an institution-scoped
+-- icc_member (substrate v2 grievance_tickets_update), the service-role
+-- escalation run, or the assignee herself, pinned to herself by the WITH
+-- CHECK below. The raiser cannot change it (fn_grievance_raiser_update_guard).
+-- So assignment is a decision a trusted reader made, and this honours it.
+-- A filer inserting a new ICC-only row can name an assignee — but it is her
+-- own complaint she is choosing to send.
+--
+-- KNOWN, ACCEPTED — the assignee can reclassify the row. Postgres ORs the
+-- WITH CHECK clauses of permissive UPDATE policies, and substrate v2's
+-- grievance_tickets_update WITH CHECK still offers `raised_by_id = auth.uid()`
+-- and `(is_icc_only = false AND assigned_to = auth.uid())`. So an assignee
+-- admitted by the USING below can set raised_by_id to herself and then
+-- reassign, or set is_icc_only = false and so expose the row to every holder
+-- of grievance.tickets.view at that college. The assignees this admits are
+-- the superior-route person, the ICC chair and the Director-policy person —
+-- people already trusted with the complaint's confidentiality. Not closed
+-- here; a column guard would be a trigger of its own.
 DROP POLICY IF EXISTS grievance_tickets_select_icc_routed_assignee ON public.grievance_tickets;
 CREATE POLICY grievance_tickets_select_icc_routed_assignee ON public.grievance_tickets
   FOR SELECT TO authenticated
   USING (
     is_icc_only = true
     AND assigned_to = (SELECT auth.uid())
-    AND (metadata ->> 'routing') IN ('icc_no_committee', 'superior_bypass')
   );
 
 DROP POLICY IF EXISTS grievance_tickets_update_icc_routed_assignee ON public.grievance_tickets;
@@ -11561,10 +11587,8 @@ CREATE POLICY grievance_tickets_update_icc_routed_assignee ON public.grievance_t
   USING (
     is_icc_only = true
     AND assigned_to = (SELECT auth.uid())
-    AND (metadata ->> 'routing') IN ('icc_no_committee', 'superior_bypass')
   )
   WITH CHECK (
     is_icc_only = true
     AND assigned_to = (SELECT auth.uid())
-    AND (metadata ->> 'routing') IN ('icc_no_committee', 'superior_bypass')
   );

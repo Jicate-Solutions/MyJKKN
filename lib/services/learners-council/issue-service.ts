@@ -55,6 +55,11 @@ export interface CreateLCIssueOptions {
    */
   isIccOnly?: boolean;
   /**
+   * Marks the ticket an emergency. The InstaSolver route passes the category's
+   * own is_emergency flag, as the /accreditation form does.
+   */
+  isEmergency?: boolean;
+  /**
    * The answer window in hours. Defaults to the board's flat 72. The
    * InstaSolver route passes the category's default_sla_hours so the
    * "Usually answered within N hours" it shows is the ticket's real deadline.
@@ -354,6 +359,7 @@ export class LCIssueService {
         : {}),
       ...(options.assignedTo ? { assigned_to: options.assignedTo, assigned_at: new Date().toISOString() } : {}),
       ...(options.isIccOnly ? { is_icc_only: true } : {}),
+      ...(options.isEmergency ? { is_emergency: true } : {}),
       sla_hours: slaHours, // Default 72h SLA for LC issues
       sla_deadline: new Date(Date.now() + slaHours * 60 * 60 * 1000).toISOString(),
       sla_status: 'on_track',

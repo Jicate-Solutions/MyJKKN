@@ -8,14 +8,24 @@
 --
 -- WHAT THIS FILE DOES
 --   1. Anonymous tickets keep NO trace of who filed them. A BEFORE INSERT OR
---      UPDATE trigger blanks raised_by_id / _name / _email / _phone whenever
---      is_anonymous is true — for every writer (InstaSolver, the Learners
---      Council board, the /accreditation form, anything later), not only the
---      ones the app changed. Existing anonymous rows are scrubbed below, and the
---      comments their filer wrote are de-named the same way.
+--      UPDATE trigger blanks raised_by_id / _name / _email / _phone AND
+--      filed_by (the person who typed it in — on the /accreditation form that
+--      is the staff member herself) whenever is_anonymous is true — for every
+--      writer (InstaSolver, the Learners Council board, the /accreditation
+--      form, anything later), not only the ones the app changed. Existing
+--      anonymous rows are scrubbed below, and the comments their filer wrote
+--      (as raised_by_id OR as filed_by) are de-named the same way.
 --      No sealed copy of the filer is kept anywhere: nothing in the system reads
 --      it (there is no abuse limit keyed on the filer), and a copy would be the
 --      one thing a handler could ask to have looked up.
+--      KNOWN CONSEQUENCE, accepted: SLA escalation (fn_grievance_level_target,
+--      20270420090000) excludes raised_by_id and filed_by from its targets.
+--      On an anonymous row both are NULL, so if the ICC chair or the
+--      Director-policy person filed anonymously, her own complaint can be
+--      escalated to her. Excluding her would need her id on the row, which is
+--      exactly what the ruling forbids. (The InstaSolver route does exclude
+--      the filer from the committee-reader check in 6 below — it knows who is
+--      filing at that moment and keeps it nowhere.)
 --   2. grievance_tickets_description_check: 10 characters -> 3 (after trimming).
 --      The constraint was LIVE but defined by no migration in this repo; it is
 --      now defined here, under the SAME NAME, because
@@ -29,13 +39,20 @@
 --        fn_grievance_track_conversation(token) -> the questions/answers + rating
 --        fn_grievance_track_answer(token, body) -> the filer answers, nameless
 --        fn_grievance_track_rate(token, rating, note) -> 1-5 stars once resolved
---   5. An ICC-only complaint that InstaSolver hands to the superior-route person
---      (no active ICC committee at that college, or a complaint about the
---      filer's own HOD / principal / manager) is readable by that assignee.
---      The ICC-only rules in substrate v2 demote assigned_to, so without this
---      the person it was sent to could not open it unless she is also a super
---      admin, an admin or an icc_member. Additive policies; the existing ones
---      are not touched.
+--   5. The person an ICC-only complaint is ASSIGNED to can open and act on it:
+--      the superior-route person InstaSolver hands it to (nobody at that
+--      college can read ICC-only complaints, or it is about the filer's own
+--      HOD / principal / manager), and the ICC chair or Director-policy person
+--      SLA escalation (#4079) assigns it to at level 3. This REVERSES substrate
+--      v2's demotion of assigned_to for ICC-only rows — see section 5 for why
+--      that costs no confidentiality. Additive policies; the existing ones are
+--      not touched.
+--   6. fn_grievance_icc_reader_exists(institution, exclude): whether at least
+--      one real person can read that college's ICC-only complaints through the
+--      committee branch of grievance_tickets_select (an icc_member holder with
+--      access to the college). A committee ROW is not that proof. InstaSolver
+--      asks this before leaving a harassment or ragging complaint unassigned
+--      for the committee. Service role only.
 --
 -- CORRECTING THE RECORD in 20261213100000_instasolver_substrate_v2.sql (that
 -- file is applied and is deliberately NOT edited — touching it re-runs its
@@ -55,9 +72,11 @@
 -- 1) Anonymous means no filer on the row
 -- ---------------------------------------------------------------------
 -- Not SECURITY DEFINER: it only rewrites the row being written.
--- Named trg_grievance_zz_* so it is the LAST BEFORE trigger to run (Postgres
--- fires same-event triggers in name order) — nothing after it can put a name
--- back.
+-- Named zzz_* so it is the LAST BEFORE trigger to run: Postgres fires
+-- same-event triggers in name order (byte order), and 'zzz_' sorts after every
+-- name starting with a letter, digit or underscore — including set_*, check_*,
+-- trg_* and update_* — so nothing after it can put a name back. (An earlier
+-- draft was trg_grievance_zz_*, which an update_* trigger would have followed.)
 CREATE OR REPLACE FUNCTION public.fn_grievance_scrub_anonymous_filer()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -69,6 +88,7 @@ BEGIN
     NEW.raised_by_name  := NULL;
     NEW.raised_by_email := NULL;
     NEW.raised_by_phone := NULL;
+    NEW.filed_by        := NULL;
   END IF;
   RETURN NEW;
 END;
@@ -76,15 +96,22 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_grievance_scrub_anonymous_filer() FROM anon, PUBLIC;
 
 COMMENT ON FUNCTION public.fn_grievance_scrub_anonymous_filer() IS
-  'BEFORE INSERT OR UPDATE on grievance_tickets: an anonymous ticket (is_anonymous = true) never stores raised_by_id, raised_by_name, raised_by_email or raised_by_phone. Director ruling 30 Sep 2026: anonymous must hide the filer from everyone handling the complaint. The filer follows it with the private tracking code only.';
+  'BEFORE INSERT OR UPDATE on grievance_tickets: an anonymous ticket (is_anonymous = true) never stores raised_by_id, raised_by_name, raised_by_email, raised_by_phone or filed_by. Director ruling 30 Sep 2026: anonymous must hide the filer from everyone handling the complaint. The filer follows it with the private tracking code only.';
 
 DROP TRIGGER IF EXISTS trg_grievance_zz_scrub_anonymous_filer ON public.grievance_tickets;
-CREATE TRIGGER trg_grievance_zz_scrub_anonymous_filer
+DROP TRIGGER IF EXISTS zzz_grievance_scrub_anonymous_filer ON public.grievance_tickets;
+CREATE TRIGGER zzz_grievance_scrub_anonymous_filer
   BEFORE INSERT OR UPDATE ON public.grievance_tickets
   FOR EACH ROW EXECUTE FUNCTION public.fn_grievance_scrub_anonymous_filer();
 
--- Backfill. Comments first, while the filer id is still on the ticket: a
+-- Backfill. Comments first, while the filer ids are still on the ticket: a
 -- comment the filer wrote on her own anonymous ticket carries her id and name.
+-- She may be on the row as raised_by_id (Learners Council, InstaSolver) or
+-- only as filed_by (the /accreditation form left raised_by_id NULL on an
+-- anonymous filing and wrote filed_by; she then commented through the filed_by
+-- branch of grievance_comments_insert). Both are de-named. Deliberate
+-- over-reach: a filed_by who also handled the ticket gets her handler comments
+-- de-named too — privacy over attribution.
 -- (grievance_comments is guarded: the rehearsal and fresh databases may not
 -- have it.)
 DO $$
@@ -96,8 +123,8 @@ BEGIN
       FROM public.grievance_tickets gt
      WHERE gt.id = c.ticket_id
        AND COALESCE(gt.is_anonymous, false)
-       AND gt.raised_by_id IS NOT NULL
-       AND c.author_id = gt.raised_by_id;
+       AND (gt.raised_by_id IS NOT NULL OR gt.filed_by IS NOT NULL)
+       AND c.author_id IN (gt.raised_by_id, gt.filed_by);
   END IF;
 END $$;
 
@@ -107,10 +134,12 @@ UPDATE public.grievance_tickets
    SET raised_by_id = NULL,
        raised_by_name = NULL,
        raised_by_email = NULL,
-       raised_by_phone = NULL
+       raised_by_phone = NULL,
+       filed_by = NULL
  WHERE COALESCE(is_anonymous, false)
    AND (raised_by_id IS NOT NULL OR raised_by_name IS NOT NULL
-        OR raised_by_email IS NOT NULL OR raised_by_phone IS NOT NULL);
+        OR raised_by_email IS NOT NULL OR raised_by_phone IS NOT NULL
+        OR filed_by IS NOT NULL);
 
 -- ---------------------------------------------------------------------
 -- 2) Description: at least 3 characters (was 10)
@@ -346,20 +375,46 @@ REVOKE EXECUTE ON FUNCTION public.fn_grievance_track_rate(text, integer, text) F
 GRANT  EXECUTE ON FUNCTION public.fn_grievance_track_rate(text, integer, text) TO authenticated, service_role;
 
 -- ---------------------------------------------------------------------
--- 5) The person InstaSolver sends an ICC-only complaint to can open it
+-- 5) The person an ICC-only complaint is assigned to can open it
 -- ---------------------------------------------------------------------
--- Only when the route itself did the sending: metadata.routing is
--- 'icc_no_committee' (no active ICC committee at that college) or
--- 'superior_bypass' (about the filer's own HOD / principal / manager), and
--- only for the person it is assigned to. The existing ICC branches (committee
--- members, super admin, admin) are untouched and still apply.
+-- Substrate v2 demoted assigned_to for ICC-only rows ("a handler not on the
+-- committee should not read it merely because it was assigned to them"). That
+-- left two real assignees locked out of the complaint they were sent:
+--   * the superior-route person InstaSolver hands it to (route.ts), and
+--   * the ICC chair / Director-policy person SLA escalation assigns it to at
+--     level 3 (fn_grievance_level_target, 20270420090000), who need not hold
+--     icc_member.
+-- An earlier draft admitted only rows stamped metadata.routing =
+-- 'icc_no_committee' / 'superior_bypass'. That pin was never a control:
+-- grievance_tickets_insert admits any authenticated caller with any metadata,
+-- so a direct insert could forge it, and escalation never sets it.
+--
+-- Why letting the assignee read costs no confidentiality: on an EXISTING
+-- ICC-only row, assigned_to can only be written by someone who may already
+-- read and update that row — super admin, admin, an institution-scoped
+-- icc_member (substrate v2 grievance_tickets_update), the service-role
+-- escalation run, or the assignee herself, pinned to herself by the WITH
+-- CHECK below. The raiser cannot change it (fn_grievance_raiser_update_guard).
+-- So assignment is a decision a trusted reader made, and this honours it.
+-- A filer inserting a new ICC-only row can name an assignee — but it is her
+-- own complaint she is choosing to send.
+--
+-- KNOWN, ACCEPTED — the assignee can reclassify the row. Postgres ORs the
+-- WITH CHECK clauses of permissive UPDATE policies, and substrate v2's
+-- grievance_tickets_update WITH CHECK still offers `raised_by_id = auth.uid()`
+-- and `(is_icc_only = false AND assigned_to = auth.uid())`. So an assignee
+-- admitted by the USING below can set raised_by_id to herself and then
+-- reassign, or set is_icc_only = false and so expose the row to every holder
+-- of grievance.tickets.view at that college. The assignees this admits are
+-- the superior-route person, the ICC chair and the Director-policy person —
+-- people already trusted with the complaint's confidentiality. Not closed
+-- here; a column guard would be a trigger of its own.
 DROP POLICY IF EXISTS grievance_tickets_select_icc_routed_assignee ON public.grievance_tickets;
 CREATE POLICY grievance_tickets_select_icc_routed_assignee ON public.grievance_tickets
   FOR SELECT TO authenticated
   USING (
     is_icc_only = true
     AND assigned_to = (SELECT auth.uid())
-    AND (metadata ->> 'routing') IN ('icc_no_committee', 'superior_bypass')
   );
 
 DROP POLICY IF EXISTS grievance_tickets_update_icc_routed_assignee ON public.grievance_tickets;
@@ -368,10 +423,65 @@ CREATE POLICY grievance_tickets_update_icc_routed_assignee ON public.grievance_t
   USING (
     is_icc_only = true
     AND assigned_to = (SELECT auth.uid())
-    AND (metadata ->> 'routing') IN ('icc_no_committee', 'superior_bypass')
   )
   WITH CHECK (
     is_icc_only = true
     AND assigned_to = (SELECT auth.uid())
-    AND (metadata ->> 'routing') IN ('icc_no_committee', 'superior_bypass')
   );
+
+-- ---------------------------------------------------------------------
+-- 6) Can anybody at this college actually read an ICC-only complaint?
+-- ---------------------------------------------------------------------
+-- The committee branch of grievance_tickets_select (substrate v2) admits a
+-- holder of custom_roles.role_key = 'icc_member' (via user_roles; is_active
+-- is NOT checked there, so it is not checked here) for whom
+-- role_has_institution_access(institution_id) is true. An
+-- accreditation_committees row proves none of that, and no migration seeds or
+-- assigns icc_member. InstaSolver calls this before leaving a harassment or
+-- ragging complaint unassigned for the committee; false (or an error) sends it
+-- privately to the superior-route person instead.
+--
+-- Institution access is UNDER-approximated on purpose — own college
+-- (profiles.institution_id), an active user_institution_access grant, any
+-- role with institution_scope = 'all', or profiles.is_super_admin. The CAS
+-- sibling arm of role_has_institution_access is left out. Missing a real
+-- reader only routes the complaint to the superior-route person, who can read
+-- it (section 5); counting a non-reader would strand it.
+--
+-- The holder must also be a usable profile (fn_grievance_profile_unusable,
+-- 20270420090000: active, login not disabled, not a test/placeholder), and
+-- not p_exclude — the person filing, whose own complaint must not wait on
+-- her alone.
+CREATE OR REPLACE FUNCTION public.fn_grievance_icc_reader_exists(p_institution_id uuid, p_exclude uuid DEFAULT NULL)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.user_roles ur
+    JOIN public.custom_roles cr ON cr.id = ur.role_id
+    JOIN public.profiles p ON p.id = ur.user_id
+    WHERE cr.role_key = 'icc_member'
+      AND public.fn_grievance_profile_unusable(ur.user_id, array_remove(ARRAY[p_exclude], NULL)) IS NULL
+      AND (
+        COALESCE(p.is_super_admin, false)
+        OR p.institution_id = p_institution_id
+        OR EXISTS (SELECT 1 FROM public.user_institution_access uia
+                    WHERE uia.user_id = ur.user_id
+                      AND uia.institution_id = p_institution_id
+                      AND uia.is_active = true)
+        OR EXISTS (SELECT 1 FROM public.user_roles ur2
+                     JOIN public.custom_roles cr2 ON cr2.id = ur2.role_id
+                    WHERE ur2.user_id = ur.user_id
+                      AND cr2.institution_scope = 'all')
+      )
+  )
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_icc_reader_exists(uuid, uuid) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_grievance_icc_reader_exists(uuid, uuid) TO service_role;
+
+COMMENT ON FUNCTION public.fn_grievance_icc_reader_exists(uuid, uuid) IS
+  'True when at least one usable icc_member holder (other than p_exclude) can read ICC-only grievance tickets of p_institution_id through the committee branch of grievance_tickets_select. Institution access deliberately under-approximated (own college, active user_institution_access grant, a role with institution_scope = all, super admin; no CAS sibling arm): a false negative only sends the complaint to the superior-route person. Called by the InstaSolver complaint route with the service-role client.';

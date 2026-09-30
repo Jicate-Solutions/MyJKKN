@@ -4,10 +4,12 @@
 //
 // The database is the first line: since migration
 // 20270624093700_grievance_complaint_privacy.sql an anonymous ticket is stored
-// with no raised_by_id / _name / _email / _phone at all, for every writer, and
-// the old rows were scrubbed. This helper is the second line, for every read a
-// handler or an external API makes: whatever a query happened to select, an
-// anonymous row leaves the server with those four columns empty.
+// with no raised_by_id / _name / _email / _phone and no filed_by at all, for
+// every writer, and the old rows were scrubbed. This helper is the second line,
+// for every read a handler or an external API makes: whatever a query happened
+// to select, an anonymous row leaves the server with those five columns empty.
+// filed_by is on the list because it names whoever TYPED the complaint in — on
+// the /accreditation form that is the staff member filing it herself.
 //
 // Server-safe and dependency-free on purpose: the b2a routes run with the
 // service-role client and must not import a module that builds a browser
@@ -20,6 +22,7 @@ export const FILER_IDENTITY_COLUMNS = [
   'raised_by_name',
   'raised_by_email',
   'raised_by_phone',
+  'filed_by',
 ] as const;
 
 /**

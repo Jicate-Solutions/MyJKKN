@@ -37,6 +37,20 @@ export interface GrievanceAnonymousMessage {
   created_at: string;
 }
 
+/**
+ * What createTicket hands back. A named ticket comes back as the row. An
+ * anonymous one comes back as its private tracking code ONLY: the database
+ * stores no filer on it (no raised_by_id, no filed_by — migration
+ * 20270624093700), so the person who filed it has no RLS path to read it back,
+ * and asking for the row would make PostgREST's RETURNING fail AFTER the insert
+ * succeeded — "could not create" for a complaint that was filed.
+ * A string discriminant, because tsconfig's strictNullChecks: false stops
+ * TypeScript narrowing a union on a boolean one.
+ */
+export type CreateTicketResult =
+  | { kind: 'named'; ticket: GrievanceTicket }
+  | { kind: 'anonymous'; trackingCode: string };
+
 export class GrievanceService {
   private static supabase = createClientSupabaseClient();
 
@@ -116,37 +130,48 @@ export class GrievanceService {
    * hr_public_holidays). Use GrievanceService.calculateSlaDeadline() if the
    * caller wants the business-hour deadline; otherwise pass any timestamptz.
    */
-  static async createTicket(input: CreateGrievanceInput): Promise<GrievanceTicket> {
+  static async createTicket(input: CreateGrievanceInput): Promise<CreateTicketResult> {
+    const anonymous = input.is_anonymous === true;
+    const trackingCode = anonymous ? `anon_${crypto.randomUUID()}` : null;
+    const row = {
+      institution_id: input.institution_id,
+      category_id: input.category_id,
+      subject: input.subject,
+      description: input.description,
+      priority: input.priority ?? 'medium',
+      status: 'open',
+      raised_by_type: input.raised_by_type,
+      // An anonymous ticket carries no filer at all (the database trigger
+      // blanks these too, for every writer).
+      raised_by_id: anonymous ? null : input.raised_by_id ?? null,
+      raised_by_name: anonymous ? null : input.raised_by_name ?? null,
+      raised_by_email: anonymous ? null : input.raised_by_email ?? null,
+      raised_by_phone: anonymous ? null : input.raised_by_phone ?? null,
+      is_anonymous: anonymous,
+      anonymous_token: trackingCode,
+      filed_by: anonymous ? null : input.filed_by ?? null,
+      is_emergency: input.is_emergency ?? false,
+      is_icc_only: input.is_icc_only ?? false,
+      sla_hours: input.sla_hours,
+      sla_deadline: input.sla_deadline,
+      metadata: input.metadata ?? {},
+    };
+
+    if (anonymous) {
+      // No .select(): nothing on the stored row lets the filer read it back.
+      const { error } = await (this.supabase as any).from('grievance_tickets').insert(row);
+      if (error) throw error;
+      return { kind: 'anonymous', trackingCode: trackingCode as string };
+    }
+
     const { data, error } = await (this.supabase as any)
       .from('grievance_tickets')
-      .insert({
-        institution_id: input.institution_id,
-        category_id: input.category_id,
-        subject: input.subject,
-        description: input.description,
-        priority: input.priority ?? 'medium',
-        status: 'open',
-        raised_by_type: input.raised_by_type,
-        raised_by_id: input.raised_by_id ?? null,
-        raised_by_name: input.raised_by_name ?? null,
-        raised_by_email: input.raised_by_email ?? null,
-        raised_by_phone: input.raised_by_phone ?? null,
-        is_anonymous: input.is_anonymous ?? false,
-        anonymous_token: input.is_anonymous
-          ? `anon_${crypto.randomUUID()}`
-          : null,
-        filed_by: input.filed_by ?? null,
-        is_emergency: input.is_emergency ?? false,
-        is_icc_only: input.is_icc_only ?? false,
-        sla_hours: input.sla_hours,
-        sla_deadline: input.sla_deadline,
-        metadata: input.metadata ?? {},
-      })
+      .insert(row)
       .select('id, ticket_number, category_id, institution_id, subject, priority, status, raised_by_type, raised_by_name, sla_deadline, sla_status, resolved_at, is_emergency, is_anonymous, escalation_level, created_at')
       .single();
 
     if (error) throw error;
-    return data as GrievanceTicket;
+    return { kind: 'named', ticket: data as GrievanceTicket };
   }
 
   static async updateStatus(

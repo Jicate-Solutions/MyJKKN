@@ -179,6 +179,13 @@ export interface ComplaintCategory {
    * and used as the ticket's deadline. Null when the college has not set one.
    */
   default_sla_hours?: number | null;
+  /**
+   * The college marked this type an emergency (grievance_categories
+   * .is_emergency). The ticket carries it, exactly as the /accreditation form
+   * sets it, so the same type is not an emergency in one place and ordinary in
+   * the other.
+   */
+  is_emergency?: boolean;
 }
 
 /**
@@ -236,7 +243,7 @@ export async function readComplaintCategories(
 ): Promise<ComplaintCategoriesResult> {
   const withColumn = await client
     .from('grievance_categories')
-    .select('id, name, allow_anonymous, default_sla_hours')
+    .select('id, name, allow_anonymous, default_sla_hours, is_emergency')
     .eq('institution_id', institutionId)
     .eq('is_active', true)
     .order('sort_order');
@@ -247,6 +254,7 @@ export async function readComplaintCategories(
       name: string;
       allow_anonymous: boolean | null;
       default_sla_hours: number | null;
+      is_emergency?: boolean | null;
     }>;
     if (rows.length === 0) return { ok: false, reason: 'empty' };
     return {
@@ -257,6 +265,7 @@ export async function readComplaintCategories(
         name: c.name,
         allow_anonymous: c.allow_anonymous === true,
         default_sla_hours: normaliseSlaHours(c.default_sla_hours),
+        is_emergency: c.is_emergency === true,
       })),
     };
   }
@@ -270,7 +279,7 @@ export async function readComplaintCategories(
   // category as not offering anonymous filing.
   const plain = await client
     .from('grievance_categories')
-    .select('id, name, default_sla_hours')
+    .select('id, name, default_sla_hours, is_emergency')
     .eq('institution_id', institutionId)
     .eq('is_active', true)
     .order('sort_order');
@@ -280,7 +289,12 @@ export async function readComplaintCategories(
     return { ok: false, reason: 'error' };
   }
 
-  const rows = (plain.data ?? []) as Array<{ id: string; name: string; default_sla_hours: number | null }>;
+  const rows = (plain.data ?? []) as Array<{
+    id: string;
+    name: string;
+    default_sla_hours: number | null;
+    is_emergency?: boolean | null;
+  }>;
   if (rows.length === 0) return { ok: false, reason: 'empty' };
   return {
     ok: true,
@@ -290,6 +304,7 @@ export async function readComplaintCategories(
       name: c.name,
       allow_anonymous: false,
       default_sla_hours: normaliseSlaHours(c.default_sla_hours),
+      is_emergency: c.is_emergency === true,
     })),
   };
 }
@@ -331,34 +346,41 @@ export function isIccOnlyCategory(name: string | null | undefined): boolean {
 }
 
 /**
- * Whether the college has an ACTIVE Internal Complaints Committee
- * (accreditation_committees.committee_type = 'icc'). Call with the service-role
- * client — the committee list is not something every filer can read.
+ * Whether somebody at the college can actually READ an ICC-only complaint left
+ * for the committee: at least one usable holder of the icc_member role with
+ * access to that college, other than the person filing
+ * (fn_grievance_icc_reader_exists, migration 20270624093700). That is exactly
+ * who the committee branch of grievance_tickets_select admits. An
+ * accreditation_committees row is NOT that proof — a college can have a
+ * committee on paper and nobody holding the role, and then the complaint would
+ * sit unassigned, readable only by a super admin or admin.
  *
- * 'unknown' when the read fails: the caller treats that like "no committee"
- * and sends the complaint privately to the superior-route person, because a
- * harassment complaint that silently waits for a committee that may not exist
- * is the outcome ruling 3 is there to prevent.
+ * Call with the service-role client (the function is granted to service_role
+ * only). 'unknown' when the call fails — including before the migration is
+ * applied, when the function does not exist yet: the caller treats that like
+ * "no reader" and sends the complaint privately to the superior-route person,
+ * because a harassment complaint that silently waits for a committee nobody can
+ * open is the outcome ruling 3 is there to prevent.
  */
-export async function hasActiveIccCommittee(
+export async function hasIccCommitteeReader(
   client: MinimalQueryClient,
-  institutionId: string
+  institutionId: string,
+  filerId: string | null
 ): Promise<'yes' | 'no' | 'unknown'> {
   try {
-    const { data, error } = await client
-      .from('accreditation_committees')
-      .select('id')
-      .eq('institution_id', institutionId)
-      .eq('committee_type', 'icc')
-      .eq('is_active', true)
-      .limit(1);
+    const { data, error } = await client.rpc('fn_grievance_icc_reader_exists', {
+      p_institution_id: institutionId,
+      p_exclude: filerId,
+    });
     if (error) {
-      console.error('[instasolver/complaint] ICC committee check failed:', error.message);
+      console.error('[instasolver/complaint] ICC reader check failed:', error.message);
       return 'unknown';
     }
-    return Array.isArray(data) && data.length > 0 ? 'yes' : 'no';
+    if (data === true) return 'yes';
+    if (data === false) return 'no';
+    return 'unknown';
   } catch (err) {
-    console.error('[instasolver/complaint] ICC committee check threw:', err);
+    console.error('[instasolver/complaint] ICC reader check threw:', err);
     return 'unknown';
   }
 }

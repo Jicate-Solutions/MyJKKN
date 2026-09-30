@@ -23,29 +23,47 @@ SELECT t_ok((SELECT author_id IS NULL AND author_name = 'Anonymous filer' FROM g
 SELECT t_ok((SELECT author_id = 'b0000000-0000-0000-0000-000000000002' AND author_name = 'Handler H' FROM grievance_comments
               WHERE content = 'Looking into it'),
             'backfill: a handler''s comment on the same ticket is left alone');
+SELECT t_ok((SELECT filed_by IS NULL AND raised_by_id IS NULL FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000005'),
+            'backfill: a legacy /accreditation anonymous ticket no longer carries filed_by');
+SELECT t_ok((SELECT author_id IS NULL AND author_name = 'Anonymous filer' FROM grievance_comments
+              WHERE content = 'Adding a date, from the form filer'),
+            'backfill: a comment the filed_by filer wrote on her anonymous ticket is de-named');
+SELECT t_ok((SELECT author_id = 'b0000000-0000-0000-0000-000000000002' AND author_name = 'Handler H' FROM grievance_comments
+              WHERE content = 'Handler on the accreditation one'),
+            'backfill: a handler''s comment on the /accreditation ticket is left alone');
 
 -- ----------------------------------------------- 2. anonymous never stores the filer
 INSERT INTO grievance_tickets (id, institution_id, ticket_number, category_id, subject, description, raised_by_type,
-  raised_by_id, raised_by_name, raised_by_email, raised_by_phone, is_anonymous, anonymous_token, sla_deadline)
+  raised_by_id, raised_by_name, raised_by_email, raised_by_phone, filed_by, is_anonymous, anonymous_token, sla_deadline)
 VALUES
   ('d1000000-0000-0000-0000-000000000002', '11000000-0000-0000-0000-000000000001', 'x', 'c1000000-0000-0000-0000-000000000001',
    'New anonymous', 'A new anonymous one', 'staff',
-   'b0000000-0000-0000-0000-000000000003', 'Filer F', 'filer@jkkn.ac.in', '99999', true, 'anon_new_token_1111111111111111111111', now() + interval '3 days'),
+   'b0000000-0000-0000-0000-000000000003', 'Filer F', 'filer@jkkn.ac.in', '99999', 'b0000000-0000-0000-0000-000000000003',
+   true, 'anon_new_token_1111111111111111111111', now() + interval '3 days'),
   ('d1000000-0000-0000-0000-000000000003', '11000000-0000-0000-0000-000000000001', 'x', 'c1000000-0000-0000-0000-000000000001',
    'Named one', 'Filed with a name', 'staff',
-   'b0000000-0000-0000-0000-000000000003', 'Filer F', 'filer@jkkn.ac.in', NULL, false, NULL, now() + interval '3 days');
+   'b0000000-0000-0000-0000-000000000003', 'Filer F', 'filer@jkkn.ac.in', NULL, 'b0000000-0000-0000-0000-000000000003',
+   false, NULL, now() + interval '3 days');
 
 SELECT t_ok((SELECT raised_by_id IS NULL AND raised_by_name IS NULL AND raised_by_email IS NULL AND raised_by_phone IS NULL
+                    AND filed_by IS NULL
                FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000002'),
-            'insert: an anonymous ticket is stored with no raised_by_* at all, whatever the writer sent');
+            'insert: an anonymous ticket is stored with no raised_by_* and no filed_by, whatever the writer sent');
 SELECT t_ok((SELECT raised_by_id = 'b0000000-0000-0000-0000-000000000003' AND raised_by_name = 'Filer F'
+                    AND filed_by = 'b0000000-0000-0000-0000-000000000003'
                FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000003'),
-            'insert: a named ticket keeps its filer');
+            'insert: a named ticket keeps its filer and filed_by');
 
-UPDATE grievance_tickets SET raised_by_id = 'b0000000-0000-0000-0000-000000000003', raised_by_name = 'Filer F'
+UPDATE grievance_tickets SET raised_by_id = 'b0000000-0000-0000-0000-000000000003', raised_by_name = 'Filer F',
+       filed_by = 'b0000000-0000-0000-0000-000000000003'
  WHERE id = 'd1000000-0000-0000-0000-000000000002';
-SELECT t_ok((SELECT raised_by_id IS NULL AND raised_by_name IS NULL FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000002'),
-            'update: a filer cannot be written back onto an anonymous ticket');
+SELECT t_ok((SELECT raised_by_id IS NULL AND raised_by_name IS NULL AND filed_by IS NULL
+               FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000002'),
+            'update: a filer (raised_by_* or filed_by) cannot be written back onto an anonymous ticket');
+SELECT t_ok((SELECT max(tgname COLLATE "C") FROM pg_trigger
+              WHERE tgrelid = 'public.grievance_tickets'::regclass AND NOT tgisinternal
+                AND (tgtype & 2) = 2) = 'zzz_grievance_scrub_anonymous_filer',
+            'the scrub is the last BEFORE trigger on grievance_tickets by name');
 
 -- ----------------------------------------------- 3. description: 3 characters, trimmed
 INSERT INTO grievance_tickets (institution_id, ticket_number, category_id, subject, description, raised_by_type, sla_deadline)
@@ -185,21 +203,68 @@ SET ROLE authenticated;
 SELECT as_user('b0000000-0000-0000-0000-000000000001');    -- the superior-route person, not an admin
 SELECT t_ok((SELECT count(*) FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000010') = 1,
             'the person InstaSolver routed an ICC-only complaint to can open it');
-SELECT t_ok((SELECT count(*) FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000012') = 0,
-            'the same person cannot open an ICC-only complaint merely assigned to her by hand');
+SELECT t_ok((SELECT count(*) FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000012') = 1,
+            'an ICC-only complaint assigned with no routing stamp (as SLA escalation assigns) opens for its assignee');
 UPDATE grievance_tickets SET status = 'in_progress' WHERE id = 'd1000000-0000-0000-0000-000000000010';
-SELECT as_user('b0000000-0000-0000-0000-000000000005');    -- a plain assignee of an ICC-only row
-SELECT t_ok((SELECT count(*) FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000011') = 0,
-            'a plain assignee of an ICC-only complaint still cannot open it (substrate v2 rule kept)');
+SELECT as_user('b0000000-0000-0000-0000-000000000005');    -- a plain assignee of an ICC-only row (e.g. the ICC chair)
+SELECT t_ok((SELECT count(*) FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000011') = 1,
+            'the assignee of an ICC-only complaint can open it (substrate v2 demotion reversed for the assignee)');
+SELECT t_ok((SELECT count(*) FROM grievance_tickets WHERE id IN ('d1000000-0000-0000-0000-000000000010',
+                                                                 'd1000000-0000-0000-0000-000000000012')) = 0,
+            'an ICC-only complaint assigned to somebody else stays closed to her');
+DO $$ BEGIN
+  UPDATE grievance_tickets SET assigned_to = 'b0000000-0000-0000-0000-000000000004'
+   WHERE id = 'd1000000-0000-0000-0000-000000000011';
+  RAISE EXCEPTION 'FAIL: the assignee handed an ICC-only complaint on through the assignee policy';
+EXCEPTION WHEN insufficient_privilege THEN NULL; END $$;
+SELECT as_user('b0000000-0000-0000-0000-000000000003');    -- Filer F: not the assignee, not the raiser, not icc_member
+SELECT t_ok((SELECT count(*) FROM grievance_tickets WHERE is_icc_only) = 0,
+            'somebody who is not the assignee, not the raiser and not on the committee opens no ICC-only complaint');
 RESET ROLE;
 SELECT t_ok((SELECT status = 'in_progress' FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000010'),
             'the routed assignee could act on it');
 
--- ----------------------------------------------- 8. grants
+-- ----------------------------------------------- 8. is there a committee member who can read it?
+INSERT INTO custom_roles (role_key, role_name) VALUES ('icc_member', 'ICC member');
+INSERT INTO profiles (id, email, full_name, role, is_active, institution_id) VALUES
+  ('b0000000-0000-0000-0000-000000000006', 'icc.gone@jkkn.ac.in', 'Left ICC', 'staff', false, '11000000-0000-0000-0000-000000000002');
+INSERT INTO user_roles (user_id, role_id) SELECT 'b0000000-0000-0000-0000-000000000006', id FROM custom_roles WHERE role_key = 'icc_member';
+SELECT t_ok(NOT fn_grievance_icc_reader_exists('11000000-0000-0000-0000-000000000002'),
+            'reader check: an inactive icc_member is nobody');
+SELECT t_ok(NOT fn_grievance_icc_reader_exists('11000000-0000-0000-0000-000000000001'),
+            'reader check: no icc_member at a college = no reader');
+INSERT INTO user_roles (user_id, role_id) SELECT 'b0000000-0000-0000-0000-000000000004', id FROM custom_roles WHERE role_key = 'icc_member';
+SELECT t_ok(fn_grievance_icc_reader_exists('11000000-0000-0000-0000-000000000001'),
+            'reader check: an active icc_member of that college is a reader');
+SELECT t_ok(NOT fn_grievance_icc_reader_exists('11000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000004'),
+            'reader check: the filer herself does not count');
+SELECT t_ok(NOT fn_grievance_icc_reader_exists('11000000-0000-0000-0000-000000000002'),
+            'reader check: an icc_member of ANOTHER college is not a reader here');
+INSERT INTO user_institution_access (user_id, institution_id) VALUES
+  ('b0000000-0000-0000-0000-000000000004', '11000000-0000-0000-0000-000000000002');
+SELECT t_ok(fn_grievance_icc_reader_exists('11000000-0000-0000-0000-000000000002'),
+            'reader check: an icc_member with an active access grant to the college is a reader');
+UPDATE user_institution_access SET is_active = false WHERE user_id = 'b0000000-0000-0000-0000-000000000004';
+SELECT t_ok(NOT fn_grievance_icc_reader_exists('11000000-0000-0000-0000-000000000002'),
+            'reader check: a revoked access grant does not count');
+-- the committee branch of the SELECT policy agrees: the college-1 icc_member reads college 1's ICC rows
+INSERT INTO grievance_tickets (id, institution_id, ticket_number, category_id, subject, description, raised_by_type,
+  is_icc_only, sla_deadline)
+VALUES ('d1000000-0000-0000-0000-000000000013', '11000000-0000-0000-0000-000000000001', 'x', 'c1000000-0000-0000-0000-000000000001',
+   'ICC for the committee', 'Left for the committee', 'staff', true, now() + interval '3 days');
+SET ROLE authenticated;
+SELECT as_user('b0000000-0000-0000-0000-000000000004');
+SELECT t_ok((SELECT count(*) FROM grievance_tickets WHERE id = 'd1000000-0000-0000-0000-000000000013') = 1,
+            'the reader the check counted can open the unassigned ICC-only complaint');
+RESET ROLE;
+
+-- ----------------------------------------------- 9. grants
 SELECT t_ok(NOT has_function_privilege('anon', 'public.fn_grievance_track_conversation(text)', 'EXECUTE'), 'anon cannot execute the conversation');
 SELECT t_ok(NOT has_function_privilege('anon', 'public.fn_grievance_track_answer(text, text)', 'EXECUTE'), 'anon cannot execute the answer');
 SELECT t_ok(NOT has_function_privilege('anon', 'public.fn_grievance_track_rate(text, integer, text)', 'EXECUTE'), 'anon cannot execute the rating');
 SELECT t_ok(NOT has_function_privilege('authenticated', 'public.fn_grievance_ticket_by_token(text)', 'EXECUTE'), 'the raw token lookup is service-role only');
 SELECT t_ok((SELECT relrowsecurity FROM pg_class WHERE oid = 'public.grievance_anonymous_messages'::regclass), 'RLS is on for the messages table');
+SELECT t_ok(NOT has_function_privilege('authenticated', 'public.fn_grievance_icc_reader_exists(uuid, uuid)', 'EXECUTE'), 'the reader check is service-role only');
+SELECT t_ok(NOT has_function_privilege('anon', 'public.fn_grievance_icc_reader_exists(uuid, uuid)', 'EXECUTE'), 'anon cannot execute the reader check');
 
 SELECT 'GRIEVANCE PRIVACY SCENARIOS PASSED';

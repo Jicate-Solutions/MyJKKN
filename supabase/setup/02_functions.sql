@@ -76002,6 +76002,7 @@ BEGIN
     NEW.raised_by_name  := NULL;
     NEW.raised_by_email := NULL;
     NEW.raised_by_phone := NULL;
+    NEW.filed_by        := NULL;
   END IF;
   RETURN NEW;
 END;
@@ -76009,7 +76010,7 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_grievance_scrub_anonymous_filer() FROM anon, PUBLIC;
 
 COMMENT ON FUNCTION public.fn_grievance_scrub_anonymous_filer() IS
-  'BEFORE INSERT OR UPDATE on grievance_tickets: an anonymous ticket (is_anonymous = true) never stores raised_by_id, raised_by_name, raised_by_email or raised_by_phone. Director ruling 30 Sep 2026: anonymous must hide the filer from everyone handling the complaint. The filer follows it with the private tracking code only.';
+  'BEFORE INSERT OR UPDATE on grievance_tickets: an anonymous ticket (is_anonymous = true) never stores raised_by_id, raised_by_name, raised_by_email, raised_by_phone or filed_by. Director ruling 30 Sep 2026: anonymous must hide the filer from everyone handling the complaint. The filer follows it with the private tracking code only.';
 
 -- Shared lookup: the same token rule as fn_track_issue_by_token (substrate v2).
 CREATE OR REPLACE FUNCTION public.fn_grievance_ticket_by_token(p_token text)
@@ -76171,3 +76172,60 @@ END;
 $$;
 REVOKE EXECUTE ON FUNCTION public.fn_grievance_track_rate(text, integer, text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_grievance_track_rate(text, integer, text) TO authenticated, service_role;
+
+-- ---------------------------------------------------------------------
+-- 6) Can anybody at this college actually read an ICC-only complaint?
+-- ---------------------------------------------------------------------
+-- The committee branch of grievance_tickets_select (substrate v2) admits a
+-- holder of custom_roles.role_key = 'icc_member' (via user_roles; is_active
+-- is NOT checked there, so it is not checked here) for whom
+-- role_has_institution_access(institution_id) is true. An
+-- accreditation_committees row proves none of that, and no migration seeds or
+-- assigns icc_member. InstaSolver calls this before leaving a harassment or
+-- ragging complaint unassigned for the committee; false (or an error) sends it
+-- privately to the superior-route person instead.
+--
+-- Institution access is UNDER-approximated on purpose — own college
+-- (profiles.institution_id), an active user_institution_access grant, any
+-- role with institution_scope = 'all', or profiles.is_super_admin. The CAS
+-- sibling arm of role_has_institution_access is left out. Missing a real
+-- reader only routes the complaint to the superior-route person, who can read
+-- it (section 5); counting a non-reader would strand it.
+--
+-- The holder must also be a usable profile (fn_grievance_profile_unusable,
+-- 20270420090000: active, login not disabled, not a test/placeholder), and
+-- not p_exclude — the person filing, whose own complaint must not wait on
+-- her alone.
+CREATE OR REPLACE FUNCTION public.fn_grievance_icc_reader_exists(p_institution_id uuid, p_exclude uuid DEFAULT NULL)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.user_roles ur
+    JOIN public.custom_roles cr ON cr.id = ur.role_id
+    JOIN public.profiles p ON p.id = ur.user_id
+    WHERE cr.role_key = 'icc_member'
+      AND public.fn_grievance_profile_unusable(ur.user_id, array_remove(ARRAY[p_exclude], NULL)) IS NULL
+      AND (
+        COALESCE(p.is_super_admin, false)
+        OR p.institution_id = p_institution_id
+        OR EXISTS (SELECT 1 FROM public.user_institution_access uia
+                    WHERE uia.user_id = ur.user_id
+                      AND uia.institution_id = p_institution_id
+                      AND uia.is_active = true)
+        OR EXISTS (SELECT 1 FROM public.user_roles ur2
+                     JOIN public.custom_roles cr2 ON cr2.id = ur2.role_id
+                    WHERE ur2.user_id = ur.user_id
+                      AND cr2.institution_scope = 'all')
+      )
+  )
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_icc_reader_exists(uuid, uuid) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_grievance_icc_reader_exists(uuid, uuid) TO service_role;
+
+COMMENT ON FUNCTION public.fn_grievance_icc_reader_exists(uuid, uuid) IS
+  'True when at least one usable icc_member holder (other than p_exclude) can read ICC-only grievance tickets of p_institution_id through the committee branch of grievance_tickets_select. Institution access deliberately under-approximated (own college, active user_institution_access grant, a role with institution_scope = all, super admin; no CAS sibling arm): a false negative only sends the complaint to the superior-route person. Called by the InstaSolver complaint route with the service-role client.';

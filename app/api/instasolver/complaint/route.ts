@@ -7,7 +7,8 @@
 // the filer's own head of department, principal or manager goes past them.
 // Rulings of 30 Sep 2026: an anonymous complaint stores no filer at all
 // (LCIssueService + a database trigger) · harassment and ragging are ICC-only ·
-// with no active ICC committee they go privately to the superior-route person ·
+// when nobody at the college can read them as the committee they go privately
+// to the superior-route person ·
 // the ticket's deadline is the type's own answer window.
 // The rules themselves live in lib/instasolver/complaint.ts; this file is the
 // door: authenticate, validate, write once, answer explicitly.
@@ -51,7 +52,7 @@ import { validateGrievanceDescription } from '@/lib/validations/grievance-ticket
 import {
   INSTASOLVER_SOURCE,
   confirmProfileExists,
-  hasActiveIccCommittee,
+  hasIccCommitteeReader,
   isIccOnlyCategory,
   mapRoleToRaisedByType,
   mintAnonymousToken,
@@ -184,14 +185,16 @@ export async function POST(request: NextRequest) {
 
   // ── Rulings 2 + 3 (30 Sep 2026): harassment and ragging stay with the ICC ─
   // ICC-only means that college's committee reads it and nobody else (the
-  // grievance_tickets RLS). With NO active ICC committee at the college, it
-  // goes privately to the superior-route person instead — same profile, same
-  // fail-closed rules as I8 below.
+  // grievance_tickets RLS: holders of the icc_member role with access to the
+  // college). When NOBODY other than the filer can read it that way — whether
+  // or not a committee exists on paper — it goes privately to the
+  // superior-route person instead, same profile, same fail-closed rules as I8
+  // below. The metadata key keeps its original name.
   const iccOnly = isIccOnlyCategory(category.name);
   const extraMetadata: Record<string, unknown> = {};
   let iccNeedsSuperior = false;
   if (iccOnly) {
-    const committee = await hasActiveIccCommittee(admin, institutionId);
+    const committee = await hasIccCommitteeReader(admin, institutionId, user.id);
     if (committee !== 'yes') {
       iccNeedsSuperior = true;
       extraMetadata.icc_no_committee = true;
@@ -222,9 +225,10 @@ export async function POST(request: NextRequest) {
 
     if (routeTo && routeToExists) {
       assignedTo = routeTo;
-      // 'icc_no_committee' / 'superior_bypass' is also what lets this assignee
-      // open an ICC-only ticket (policy grievance_tickets_*_icc_routed_assignee,
-      // migration 20270624093700). The filer's own tick wins the label.
+      // A label for people reading the ticket; the filer's own tick wins it.
+      // Being the assignee is what lets this person open an ICC-only ticket
+      // (policy grievance_tickets_*_icc_routed_assignee, migration
+      // 20270624093700) — the label is not consulted by RLS.
       extraMetadata.routing = aboutSuperior ? 'superior_bypass' : 'icc_no_committee';
     } else {
       if (routeTo && !routeToExists) {
@@ -261,6 +265,8 @@ export async function POST(request: NextRequest) {
         assignedTo,
         extraMetadata,
         isIccOnly: iccOnly,
+        // Same rule as the /accreditation form: the type's own emergency flag.
+        isEmergency: category.is_emergency === true,
         // Ruling 8: the window the form promised is the ticket's real deadline.
         ...(category.default_sla_hours ? { slaHours: category.default_sla_hours } : {}),
       }

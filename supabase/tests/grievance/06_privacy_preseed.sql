@@ -4,12 +4,23 @@
 --   * the LIVE 10-character description constraint (defined by no migration);
 --   * grievance_comments (production shape, types/supabase.ts);
 --   * one legacy anonymous ticket that still carries its filer, and a comment
---     that filer wrote on it — what the backfill must scrub.
+--     that filer wrote on it — what the backfill must scrub;
+--   * one legacy anonymous ticket from the /accreditation form: raised_by_id
+--     NULL, the filer only in filed_by, and a comment she wrote through the
+--     filed_by comment branch — what the backfill must also scrub;
+--   * custom_roles.institution_scope and user_institution_access (production
+--     shape, types/supabase.ts), which fn_grievance_icc_reader_exists reads.
 ALTER TABLE public.grievance_tickets
   ADD COLUMN IF NOT EXISTS satisfaction_rating integer,
   ADD COLUMN IF NOT EXISTS satisfaction_feedback text;
 ALTER TABLE public.grievance_tickets
   ADD CONSTRAINT grievance_tickets_description_check CHECK (char_length(description) >= 10);
+
+ALTER TABLE public.custom_roles ADD COLUMN IF NOT EXISTS institution_scope varchar(10) DEFAULT 'own';
+CREATE TABLE public.user_institution_access (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  institution_id uuid NOT NULL REFERENCES institutions(id), access_type text NOT NULL DEFAULT 'full',
+  is_active boolean NOT NULL DEFAULT true);
 
 CREATE TABLE public.grievance_comments (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -42,3 +53,12 @@ VALUES ('d1000000-0000-0000-0000-000000000001', '11000000-0000-0000-0000-0000000
 INSERT INTO grievance_comments (ticket_id, author_id, author_name, author_type, content) VALUES
   ('d1000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000003', 'Filer F', 'staff', 'More detail from me'),
   ('d1000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000002', 'Handler H', 'staff', 'Looking into it');
+
+INSERT INTO grievance_tickets (id, institution_id, ticket_number, category_id, subject, description, raised_by_type,
+  raised_by_id, filed_by, is_anonymous, anonymous_token, sla_deadline, status)
+VALUES ('d1000000-0000-0000-0000-000000000005', '11000000-0000-0000-0000-000000000001', 'x', 'c1000000-0000-0000-0000-000000000001',
+  'Legacy accreditation anonymous', 'Typed in on the accreditation form', 'staff',
+  NULL, 'b0000000-0000-0000-0000-000000000003', true, 'anon_legacy_accr_token_000000000000000', now() + interval '3 days', 'open');
+INSERT INTO grievance_comments (ticket_id, author_id, author_name, author_type, content) VALUES
+  ('d1000000-0000-0000-0000-000000000005', 'b0000000-0000-0000-0000-000000000003', 'Filer F', 'staff', 'Adding a date, from the form filer'),
+  ('d1000000-0000-0000-0000-000000000005', 'b0000000-0000-0000-0000-000000000002', 'Handler H', 'staff', 'Handler on the accreditation one');

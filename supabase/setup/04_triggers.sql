@@ -2841,6 +2841,7 @@ CREATE TRIGGER trg_grievance_notify_on_create
 -- Source of truth for apply: supabase/migrations/20270624093700_grievance_complaint_privacy.sql
 -- =====================================================================
 DROP TRIGGER IF EXISTS trg_grievance_zz_scrub_anonymous_filer ON public.grievance_tickets;
-CREATE TRIGGER trg_grievance_zz_scrub_anonymous_filer
+DROP TRIGGER IF EXISTS zzz_grievance_scrub_anonymous_filer ON public.grievance_tickets;
+CREATE TRIGGER zzz_grievance_scrub_anonymous_filer
   BEFORE INSERT OR UPDATE ON public.grievance_tickets
   FOR EACH ROW EXECUTE FUNCTION public.fn_grievance_scrub_anonymous_filer();

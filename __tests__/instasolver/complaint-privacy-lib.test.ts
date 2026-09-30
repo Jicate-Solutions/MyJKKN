@@ -1,16 +1,17 @@
 // __tests__/instasolver/complaint-privacy-lib.test.ts
 //
 // The pure rules behind the Director's rulings of 30 Sep 2026:
-//   lib/instasolver/complaint.ts        — which types are ICC-only, whether the
-//                                         college has a committee, the answer
-//                                         window shown above Send;
+//   lib/instasolver/complaint.ts        — which types are ICC-only, whether
+//                                         anybody at the college can read one
+//                                         as the committee, the answer window
+//                                         shown above Send;
 //   lib/grievance/track-conversation.ts — what the tracking page may show and
 //                                         send for questions and the rating.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   answerWindowSentence,
-  hasActiveIccCommittee,
+  hasIccCommitteeReader,
   isIccOnlyCategory,
   readComplaintCategories,
 } from '@/lib/instasolver/complaint';
@@ -44,26 +45,39 @@ describe('ICC-only types (ruling 2)', () => {
   });
 });
 
-describe('is there an active ICC committee? (ruling 3)', () => {
+describe('can anybody at the college read it as the committee? (ruling 3)', () => {
   function client(resp: { data?: unknown; error?: unknown } | 'throw') {
-    const chain: Record<string, unknown> = {};
-    for (const m of ['select', 'eq']) chain[m] = () => chain;
-    chain.limit = () => (resp === 'throw' ? Promise.reject(new Error('down')) : Promise.resolve(resp));
-    return { from: () => chain, rpc: () => Promise.resolve({ data: null, error: null }) };
+    const calls: Array<{ fn: string; args: Record<string, unknown> }> = [];
+    const c = {
+      from: () => {
+        throw new Error('the committee check must not read tables — a committee row is not a reader');
+      },
+      rpc: (fn: string, args: Record<string, unknown>) => {
+        calls.push({ fn, args });
+        return resp === 'throw' ? Promise.reject(new Error('down')) : Promise.resolve(resp);
+      },
+    };
+    return { c, calls };
   }
 
-  it('yes when one is active', async () => {
-    expect(await hasActiveIccCommittee(client({ data: [{ id: 'c' }], error: null }), 'i')).toBe('yes');
+  it('asks the database who can read, for this college, leaving the filer out', async () => {
+    const { c, calls } = client({ data: true, error: null });
+    expect(await hasIccCommitteeReader(c, 'inst', 'filer')).toBe('yes');
+    expect(calls).toEqual([
+      { fn: 'fn_grievance_icc_reader_exists', args: { p_institution_id: 'inst', p_exclude: 'filer' } },
+    ]);
   });
 
-  it('no when none is', async () => {
-    expect(await hasActiveIccCommittee(client({ data: [], error: null }), 'i')).toBe('no');
+  it('no when nobody can', async () => {
+    expect(await hasIccCommitteeReader(client({ data: false, error: null }).c, 'i', 'f')).toBe('no');
   });
 
-  it('unknown when the read fails or throws — never a quiet "yes"', async () => {
+  it('unknown when the call fails, throws or answers nonsense — never a quiet "yes"', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    expect(await hasActiveIccCommittee(client({ data: null, error: { message: 'x' } }), 'i')).toBe('unknown');
-    expect(await hasActiveIccCommittee(client('throw'), 'i')).toBe('unknown');
+    // e.g. before migration 20270624093700 is applied: the function does not exist
+    expect(await hasIccCommitteeReader(client({ data: null, error: { message: 'x', code: 'PGRST202' } }).c, 'i', 'f')).toBe('unknown');
+    expect(await hasIccCommitteeReader(client('throw').c, 'i', 'f')).toBe('unknown');
+    expect(await hasIccCommitteeReader(client({ data: null, error: null }).c, 'i', 'f')).toBe('unknown');
   });
 });
 

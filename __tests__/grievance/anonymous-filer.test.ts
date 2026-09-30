@@ -4,8 +4,9 @@
 // everyone handling it. The database stores no filer since migration
 // 20270624093700 (proved by supabase/tests/grievance/run-privacy.sh); these
 // tests prove the second line — no handler read or external API returns
-// raised_by_id / name / email / phone on an anonymous row, whatever the row
-// carries — and that the writers no longer send the filer id at all.
+// raised_by_id / name / email / phone or filed_by on an anonymous row,
+// whatever the row carries — and that the writers no longer send the filer id
+// at all.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -19,6 +20,8 @@ const ANON_ROW = {
   raised_by_name: 'Filer F',
   raised_by_email: 'filer@jkkn.ac.in',
   raised_by_phone: '99999',
+  // who typed it in — on the /accreditation form, the staff member herself
+  filed_by: FILER,
   raised_by_type: 'staff',
   subject: 'Anonymous one',
 };
@@ -28,14 +31,22 @@ const NAMED_ROW = { ...ANON_ROW, id: 't-named', is_anonymous: false };
 type Resp = { data?: unknown; error?: unknown; count?: number };
 let tableResponse: Resp = { data: null, error: null };
 const inserts: Array<{ table: string; row: Record<string, unknown> }> = [];
+/** Tables a .select() was chained on AFTER an .insert() — i.e. a RETURNING read. */
+const returningReads: string[] = [];
 
 function fakeClient() {
   return {
     from(table: string) {
       const chain: Record<string, unknown> = {};
-      for (const m of ['select', 'eq', 'order', 'limit', 'range']) chain[m] = () => chain;
+      let inserted = false;
+      for (const m of ['eq', 'order', 'limit', 'range']) chain[m] = () => chain;
+      chain.select = () => {
+        if (inserted) returningReads.push(table);
+        return chain;
+      };
       chain.insert = (row: Record<string, unknown>) => {
         inserts.push({ table, row });
+        inserted = true;
         return chain;
       };
       chain.maybeSingle = () =>
@@ -79,6 +90,7 @@ import { LCIssueService } from '@/lib/services/learners-council/issue-service';
 beforeEach(() => {
   tableResponse = { data: null, error: null };
   inserts.length = 0;
+  returningReads.length = 0;
 });
 
 function expectNoFiler(row: Record<string, unknown>) {
@@ -86,10 +98,11 @@ function expectNoFiler(row: Record<string, unknown>) {
   expect(row.raised_by_name).toBeNull();
   expect(row.raised_by_email).toBeNull();
   expect(row.raised_by_phone).toBeNull();
+  expect(row.filed_by ?? null).toBeNull(); // absent (never sent) or null
 }
 
 describe('redactAnonymousFiler', () => {
-  it('blanks all four filer columns on an anonymous row', () => {
+  it('blanks all five filer columns (raised_by_* and filed_by) on an anonymous row', () => {
     expectNoFiler(redactAnonymousFiler(ANON_ROW));
   });
 
@@ -195,5 +208,50 @@ describe('the writer no longer sends the filer on an anonymous complaint', () =>
     const row = inserts.find((i) => i.table === 'grievance_tickets')!.row;
     expect(row.sla_hours).toBe(72);
     expect(row).not.toHaveProperty('is_icc_only');
+  });
+});
+
+describe('the /accreditation form writer (GrievanceService.createTicket)', () => {
+  const input = {
+    institution_id: 'i1',
+    category_id: 'c1',
+    subject: 'Subject',
+    description: 'Something happened',
+    raised_by_type: 'staff' as const,
+    raised_by_id: FILER,
+    raised_by_name: 'Filer F',
+    raised_by_email: 'filer@jkkn.ac.in',
+    raised_by_phone: '99999',
+    filed_by: FILER,
+    sla_hours: 72,
+    sla_deadline: '2026-10-04T00:00:00Z',
+  };
+
+  it('anonymous: sends no filer — not even filed_by — and asks for no row back', async () => {
+    const res = await GrievanceService.createTicket({ ...input, is_anonymous: true } as never);
+    const row = inserts.at(-1)!.row;
+    expectNoFiler(row);
+    expect(row.is_anonymous).toBe(true);
+    expect(String(row.anonymous_token)).toMatch(/^anon_[0-9a-f-]{36}$/);
+    // Nothing on the stored row lets the filer read it back, so a RETURNING
+    // read would fail after the insert succeeded.
+    expect(returningReads).toEqual([]);
+    expect(res).toEqual({ kind: 'anonymous', trackingCode: row.anonymous_token });
+  });
+
+  it('anonymous: a failed insert is still an error, not a code for nothing', async () => {
+    tableResponse = { data: null, error: { message: 'denied' } };
+    await expect(GrievanceService.createTicket({ ...input, is_anonymous: true } as never)).rejects.toBeTruthy();
+  });
+
+  it('named: keeps the filer and filed_by, and reads the row back', async () => {
+    tableResponse = { data: { id: 't1', ticket_number: 'GRV-1' }, error: null };
+    const res = await GrievanceService.createTicket({ ...input, is_anonymous: false } as never);
+    const row = inserts.at(-1)!.row;
+    expect(row.raised_by_id).toBe(FILER);
+    expect(row.filed_by).toBe(FILER);
+    expect(row.anonymous_token).toBeNull();
+    expect(returningReads).toEqual(['grievance_tickets']);
+    expect(res).toEqual({ kind: 'named', ticket: { id: 't1', ticket_number: 'GRV-1' } });
   });
 });
