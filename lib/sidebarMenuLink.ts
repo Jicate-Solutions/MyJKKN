@@ -329,6 +329,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/instasolver/track/[token]': 'instasolver.view',
   // The reporter's own list — "fixed" / "Not fixed" (Director, 2026-09-30).
   '/instasolver/my-reports': 'instasolver.view',
+  // Spot checks (2026-09-30 interview, rulings 1 and 3) — for college heads
+  // and the Director, reached from their bells. instasolver.view (every
+  // login) because principals are not guaranteed projects.view; the page
+  // itself refuses everyone who is not a principal or the Director.
+  '/campus-walk/spot-checks': 'instasolver.view',
 
   // Profile
   '/profile': 'view_profile', // All users should be able to view their own profile

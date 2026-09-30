@@ -40,8 +40,24 @@ export function reportStatusOf(row: {
   if (row.status_key === 'archived') return 'closed';
   // Rows that were already waiting in the old approval queue on 2026-09-30.
   if (row.status_key === 'review') return 'being_checked';
-  if ((row.metadata ?? {}).fix?.approval?.reopened_by_reporter === true) return 'reopened';
+  const approval = (row.metadata ?? {}).fix?.approval;
+  if (approval?.reopened_by_reporter === true || approval?.reopened_by_spot_check === true) return 'reopened';
   return 'open';
+}
+
+/**
+ * Everyone who JOINED this report instead of filing a second one (ruling 2,
+ * 2026-09-30). metadata.additional_reports is the same array the QR-sticker
+ * door (#4146) writes, so both doors feed one list. De-duplicated, in order.
+ */
+export function joinedReporterIdsOf(metadata: Record<string, any> | null | undefined): string[] {
+  const list = Array.isArray((metadata ?? {}).additional_reports) ? (metadata as any).additional_reports : [];
+  const out: string[] = [];
+  for (const entry of list) {
+    const id = entry?.reporter_id;
+    if (typeof id === 'string' && id && !out.includes(id)) out.push(id);
+  }
+  return out;
 }
 
 /** The "Not fixed" button shows only on a job fixed within the window. */

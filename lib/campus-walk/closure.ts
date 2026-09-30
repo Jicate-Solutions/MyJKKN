@@ -23,6 +23,13 @@
  * closure that already stands instead of stamping it twice and ringing every
  * bell again.
  *
+ * ── 2026-09-30 INTERVIEW RULINGS 2 AND 3 ───────────────────────────────────
+ *   · (2) people who JOINED an open report (metadata.additional_reports, see
+ *     lib/campus-walk/join-report.ts) are told when it is fixed, too.
+ *   · (3) 1 in 10 jobs closed by the fixer's photo is picked for a spot check
+ *     (lib/campus-walk/spot-check.ts); the pick is written in the same update
+ *     as the closure and the checker is belled after it.
+ *
  * ── D10 ─────────────────────────────────────────────────────────────────────
  * No bell names who closed the job or who reported it. createdBy is always the
  * recipient themselves, so no other name can surface as "From:".
@@ -35,7 +42,14 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createBellNotification } from '@/lib/services/meetings/meeting-trigger-service';
-import { NOT_FIXED_WINDOW_DAYS } from '@/lib/campus-walk/my-reports';
+import { NOT_FIXED_WINDOW_DAYS, joinedReporterIdsOf } from '@/lib/campus-walk/my-reports';
+import { resolveDirectors, validateTargeting } from '@/lib/services/director-desk/handover-chase-service';
+import {
+  SPOT_CHECKS_URL,
+  pendingSpotCheck,
+  resolveCollegeHeadIds,
+  type SpotChecker,
+} from '@/lib/campus-walk/spot-check';
 
 /** The bell a reporter reads, and the page it opens. */
 export const MY_REPORTS_URL = '/instasolver/my-reports';
@@ -75,6 +89,10 @@ export type CloseResult =
       fixerNotified: boolean | null;
       /** true sent (or already sent) · false failed · null nobody to tell. */
       reporterNotified: boolean | null;
+      /** People who joined the report (ruling 2). Same meaning as reporterNotified. */
+      joinedNotified?: boolean | null;
+      /** Set when this closure was picked for a spot check (ruling 3). */
+      spotCheck?: { checker: SpotChecker; notified: boolean | null } | null;
     }
   | {
       ok: false;
@@ -181,6 +199,12 @@ export async function closeCampusWalkTask(
       previous_note: prior?.note ?? null,
     },
   };
+
+  // ── Ruling 3: the fake-fix guard (lib/campus-walk/spot-check.ts) ──────────
+  // Only a job closed by the fixer's own photo. Written in the SAME update as
+  // the closure, so a job can never be closed-and-picked by halves.
+  const spotCheck = opts.auto ? pendingSpotCheck(task.id, metadata, nowIso) : null;
+  if (spotCheck) metadata.spot_check = spotCheck;
 
   const { data: updatedRows, error: updateErr } = await admin
     .from('project_tasks')
@@ -292,6 +316,65 @@ export async function closeCampusWalkTask(
     }
   }
 
+  // ── Everyone who joined the report (ruling 2) ─────────────────────────────
+  // One bell to all of them, keyed per fix photo like the reporter's.
+  let joinedNotified: boolean | null = null;
+  const joined = joinedReporterIdsOf(metadata).filter(
+    (id) => id !== reporterId && id !== fixerProfileId && id !== opts.decidedByProfileId
+  );
+  if (joined.length > 0) {
+    try {
+      await createBellNotification(admin, {
+        recipientIds: joined,
+        createdBy: joined[0],
+        title: 'A problem you reported was fixed',
+        body: `“${shortTitle}” — which you also reported — has been marked fixed, with a photo of the finished work. See it on My reports.`,
+        url: MY_REPORTS_URL,
+        category: 'instasolver:reported-fixed',
+        metadata: { task_id: task.id, source: 'campus-walk', joined: true },
+        idempotencyKey: `${reporterFixedIdempotencyKey(task.id, metadata)}:joined`,
+      });
+      joinedNotified = true;
+    } catch (e: any) {
+      console.error('[campus-walk/closure] joined-reporter notification failed:', e?.message ?? e);
+      joinedNotified = false;
+    }
+  }
+
+  // ── The spot checker (ruling 3) ───────────────────────────────────────────
+  let spotCheckNotified: boolean | null = null;
+  if (spotCheck) {
+    spotCheckNotified = false;
+    try {
+      let checkers: string[] = [];
+      if (spotCheck.checker === 'director') {
+        const director = await resolveDirectors(admin);
+        const check = validateTargeting(director.ids);
+        checkers = check.ok ? check.userIds : [];
+      } else {
+        checkers = await resolveCollegeHeadIds(admin, spotCheck.institution_id);
+      }
+      checkers = checkers.filter((id) => id !== fixerProfileId);
+      if (checkers.length === 0) {
+        console.error(`[campus-walk/closure] picked for a spot check but nobody to tell (task ${task.id})`);
+      } else {
+        await createBellNotification(admin, {
+          recipientIds: checkers,
+          createdBy: checkers[0],
+          title: `Spot check — ${shortTitle}`,
+          body: `“${shortTitle}” was closed with a photo and picked for a spot check. Look at the before and after photos and say whether it looks fixed.`,
+          url: SPOT_CHECKS_URL,
+          category: 'campus-walk:spot-check',
+          metadata: { task_id: task.id, source: 'campus-walk', checker: spotCheck.checker },
+          idempotencyKey: `campus-walk-spot-check:${reporterFixedIdempotencyKey(task.id, metadata)}`,
+        });
+        spotCheckNotified = true;
+      }
+    } catch (e: any) {
+      console.error('[campus-walk/closure] spot-check notification failed:', e?.message ?? e);
+    }
+  }
+
   return {
     ok: true,
     already: false,
@@ -300,5 +383,7 @@ export async function closeCampusWalkTask(
     metadata,
     fixerNotified,
     reporterNotified,
+    joinedNotified,
+    spotCheck: spotCheck ? { checker: spotCheck.checker, notified: spotCheckNotified } : null,
   };
 }

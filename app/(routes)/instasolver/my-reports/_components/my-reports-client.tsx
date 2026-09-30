@@ -32,6 +32,8 @@ export interface MyReport {
   beforePhotoUrl: string | null;
   hasAfterPhoto: boolean;
   afterPhotoUrl: string | null;
+  /** The viewer added to somebody else's open report instead of filing a new one. */
+  joined: boolean;
   canSayNotFixed: boolean;
 }
 
@@ -128,6 +130,12 @@ function ReportCard({ report, windowDays }: { report: MyReport; windowDays: numb
           <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
             <MapPin className="h-4 w-4 shrink-0" aria-hidden="true" />
             {report.place}
+          </p>
+        )}
+
+        {report.joined && (
+          <p className="text-sm text-muted-foreground">
+            You added to this report — someone had already reported it. You will be told when it is fixed.
           </p>
         )}
 
