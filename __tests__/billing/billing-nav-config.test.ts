@@ -27,8 +27,9 @@ describe('Billing top navigation (AutoTabNav)', () => {
 
   it('mirrors the sidebar split, plus the orphaned Receipt Templates page', () => {
     const [colleges, transport, schools] = config().groups;
-    // 17 sidebar submenus + Receipt Templates, which has no other entry point.
-    expect(colleges.children).toHaveLength(18);
+    // 18 sidebar submenus (Bill Cancellations joined in dc2495ff05) + Receipt
+    // Templates, which has no other entry point.
+    expect(colleges.children).toHaveLength(19);
     expect(transport.children).toBeUndefined(); // single page, no tier-3
     expect(schools.children).toHaveLength(5);
   });
