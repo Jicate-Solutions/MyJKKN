@@ -26,6 +26,10 @@
       "schedule": "47 3 * * 1"
     },
     {
+      "path": "/api/cron/ims-pos-device-sweep?secret=${CRON_SECRET}",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/cdc-willingness-cycles?secret=${CRON_SECRET}",
       "schedule": "3,18,33,48 * * * *"
     },

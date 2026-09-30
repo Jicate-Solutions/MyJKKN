@@ -758,6 +758,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'learners.leave_onduty.view', label: 'View My Applications (Students)' },
       { key: 'learners.leave_onduty.edit', label: 'Edit My Applications (Students)' },
       { key: 'learners.leave_onduty.cancel', label: 'Cancel My Applications (Students)' },
+      { key: 'learners.leave_onduty.apply_bulk', label: 'Apply On-Duty for Learners in Bulk (Facilitator, own institution)' },
 
       // Learner Leave Types + Approval Flows (global settings, 2027-04)
       { key: 'learners.leave_types.view', label: 'View Learner Leave Types & Approval Flows' },
@@ -1589,6 +1590,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.consultants.analytics.view', label: 'View Consultant Analytics' },
       { key: 'admission.consultants.commissions.view', label: 'View Commissions' },
       { key: 'admission.consultants.commissions.manage', label: 'Manage Commissions & Payouts' },
+      { key: 'admission.consultants.commissions.configure', label: 'Configure Commission Payment Approvals' },
       { key: 'admission.consultants.referrals.view', label: 'View Referrals' },
       { key: 'admission.consultants.rewards.view', label: 'View Rewards' },
       { key: 'admission.consultants.rewards.manage', label: 'Manage Rewards Configuration' },
@@ -3029,6 +3031,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'ims.settings.stores.manage', label: 'Manage IMS Stores' },
       { key: 'ims.settings.suppliers.manage', label: 'Manage Suppliers' },
       { key: 'ims.settings.units.manage', label: 'Manage Units & Unit Conversions' },
+      { key: 'ims.settings.pos_devices.manage', label: 'Manage POS Payment Terminals' },
 
       // Store Kits (PR-K2, 2026-07-12) — per-group item kits at the central
       // store. Spec: specs/store-kit-entitlements-spec-2026-07-12.md.

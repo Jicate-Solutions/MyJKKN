@@ -1465,6 +1465,7 @@ CREATE POLICY "bills_select_scoped" ON billing_student_bills
                     SELECT id FROM billing_categories WHERE visible_to_learners
                 )
             )
+            AND fn_learner_bill_year_visible(academic_year_id)
         )
     );
 
@@ -1486,6 +1487,8 @@ CREATE POLICY "Students can view their own bills" ON billing_student_bills
                 SELECT id FROM billing_categories WHERE visible_to_learners
             )
         )
+        -- Updated: 2026-09-29 - advance-year window (past + current + ONE next AY).
+        AND fn_learner_bill_year_visible(academic_year_id)
     );
 
 CREATE POLICY "bills_insert_admin" ON billing_student_bills
@@ -7246,6 +7249,94 @@ CREATE POLICY platform_policies_social_attr_update ON public.platform_policies
   WITH CHECK (
     policy_key = 'ig.attribution_window_days'
     AND user_has_permission('social.attribution.edit')
+  );
+
+-- ── Pay rows readable only with the salary key ──────────────────────────────
+-- Updated: 2026-09-29 - Mirror of 20270506090000_hr_pay_policies_readable_only_with_salary_view.sql
+--   (FILE ONLY, not applied). platform_policies_select is `auth.uid() IS NOT NULL`,
+--   so every signed-in account could read every college's pay matrix. These
+--   RESTRICTIVE policies are ANDed with every permissive SELECT policy: for the three
+--   pay keys (hr.pay_scales, hr.allowances_and_increments, hr.salary_suggestion_rule)
+--   a row needs admin, or hr.payroll.salary.view AND a college row
+--   (scope_type 'institution') of a college the caller can access
+--   (role_has_institution_access). Group-wide (NULL scope) pay rows are admin-only.
+--   Every other key is unchanged.
+-- Updated: 2026-09-29 - round 2 (W12 review): college scoping added.
+-- Updated: 2026-09-29 - hr.salary_suggestion_rule added to the locked keys.
+DROP POLICY IF EXISTS platform_policies_pay_keys_restricted ON public.platform_policies;
+CREATE POLICY platform_policies_pay_keys_restricted ON public.platform_policies
+  AS RESTRICTIVE
+  FOR SELECT
+  TO authenticated, anon
+  USING (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule')
+    OR (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (
+      scope_type = 'institution'
+      AND scope_id IS NOT NULL
+      AND (SELECT public.user_has_permission('hr.payroll.salary.view'))
+      AND public.role_has_institution_access(scope_id)
+    )
+  );
+
+DROP POLICY IF EXISTS hr_policy_audit_log_pay_keys_restricted ON public.hr_policy_audit_log;
+CREATE POLICY hr_policy_audit_log_pay_keys_restricted ON public.hr_policy_audit_log
+  AS RESTRICTIVE
+  FOR SELECT
+  TO authenticated, anon
+  USING (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule')
+    OR (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (
+      scope_type = 'institution'
+      AND scope_id IS NOT NULL
+      AND (SELECT public.user_has_permission('hr.payroll.salary.view'))
+      AND public.role_has_institution_access(scope_id)
+    )
+  );
+
+-- ── Compensation keys writable only by a super admin ────────────────────────
+-- Updated: 2026-09-29 - Mirror of 20270506090000 section 6 (FILE ONLY, not applied).
+--   platform_policies_insert / _update / _delete are `is_super_admin() OR is_admin()`,
+--   so an admin could change the pay matrix straight through PostgREST, skipping the
+--   super-admin-only editors and the hr_policy_audit_log row. These RESTRICTIVE
+--   policies let hr.pay_scales, hr.allowances_and_increments, hr.salary_suggestion_rule
+--   and hr.motivation_fund rows be written only by is_super_admin(). Every other key is
+--   unchanged. TO authenticated, anon: the service role (BYPASSRLS) is unaffected.
+DROP POLICY IF EXISTS platform_policies_pay_keys_insert_super_admin_only ON public.platform_policies;
+CREATE POLICY platform_policies_pay_keys_insert_super_admin_only ON public.platform_policies
+  AS RESTRICTIVE
+  FOR INSERT
+  TO authenticated, anon
+  WITH CHECK (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule', 'hr.motivation_fund')
+    OR (SELECT public.is_super_admin())
+  );
+
+DROP POLICY IF EXISTS platform_policies_pay_keys_update_super_admin_only ON public.platform_policies;
+CREATE POLICY platform_policies_pay_keys_update_super_admin_only ON public.platform_policies
+  AS RESTRICTIVE
+  FOR UPDATE
+  TO authenticated, anon
+  USING (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule', 'hr.motivation_fund')
+    OR (SELECT public.is_super_admin())
+  )
+  WITH CHECK (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule', 'hr.motivation_fund')
+    OR (SELECT public.is_super_admin())
+  );
+
+DROP POLICY IF EXISTS platform_policies_pay_keys_delete_super_admin_only ON public.platform_policies;
+CREATE POLICY platform_policies_pay_keys_delete_super_admin_only ON public.platform_policies
+  AS RESTRICTIVE
+  FOR DELETE
+  TO authenticated, anon
+  USING (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule', 'hr.motivation_fund')
+    OR (SELECT public.is_super_admin())
   );
 
 -- =====================================================================

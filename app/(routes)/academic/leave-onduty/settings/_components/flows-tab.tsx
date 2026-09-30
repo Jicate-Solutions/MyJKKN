@@ -24,18 +24,31 @@ export function FlowsTab({ canManage }: { canManage: boolean }) {
   const [selectedTypeId, setSelectedTypeId] = useState<string | null>(null);
   const selectedType = leaveTypes?.find((t) => t.id === selectedTypeId) ?? null;
 
-  const { data: flows, isLoading: flowsLoading } = useLearnerLeaveFlows(selectedTypeId);
+  const { data: flows, isLoading: flowsLoading, error: flowsError } = useLearnerLeaveFlows(selectedTypeId);
   const { institutions } = useInstitutionsWithAccess();
   const [addingOverrideFor, setAddingOverrideFor] = useState('');
 
-  const overriddenInstitutionIds = new Set(
-    (flows ?? []).filter((f) => f.institution_id).map((f) => f.institution_id as string)
-  );
-  const availableInstitutions = (institutions ?? []).filter((i) => !overriddenInstitutionIds.has(i.id));
+  type FlowRes = 'day_scholar' | 'hostel';
+  const RES_LABEL: Record<FlowRes, string> = { day_scholar: 'Day Scholar', hostel: 'Hosteler' };
+  // A type serves the residencies it is open to; each gets its own chain.
+  const residencies: FlowRes[] =
+    selectedType?.residency === 'hostel'
+      ? ['hostel']
+      : selectedType?.residency === 'day_scholar'
+        ? ['day_scholar']
+        : ['day_scholar', 'hostel'];
 
-  const defaultFlow = flows?.find((f) => f.institution_id === null) ?? null;
-  const overrideFlows = flows?.filter((f) => f.institution_id !== null) ?? [];
-  const pendingInstitution = addingOverrideFor
+  const findFlow = (institutionId: string | null, res: FlowRes | null) =>
+    flows?.find((f) => f.institution_id === institutionId && f.flow_residency === res) ?? null;
+  // Flows saved before residency existed apply to everyone; keep them editable.
+  const legacyFlows = flows?.filter((f) => f.flow_residency === null) ?? [];
+  const overrideInstitutionIds = Array.from(
+    new Set((flows ?? []).filter((f) => f.institution_id).map((f) => f.institution_id as string))
+  );
+  const availableInstitutions = (institutions ?? []).filter(
+    (i) => !overrideInstitutionIds.includes(i.id)
+  );
+  const pendingInstitution = addingOverrideFor && !overrideInstitutionIds.includes(addingOverrideFor)
     ? institutions?.find((i) => i.id === addingOverrideFor) ?? null
     : null;
 
@@ -94,48 +107,86 @@ export function FlowsTab({ canManage }: { canManage: boolean }) {
 
         {selectedType && flowsLoading && <Skeleton className="h-48 w-full" />}
 
-        {selectedType && !flowsLoading && (
-          <>
-            <FlowStepEditor
-              key={`default-${selectedType.id}`}
-              leaveTypeId={selectedType.id}
-              institutionId={null}
-              title="Group Default"
-              description="Applies to every institution without its own override."
-              initialSteps={defaultFlow?.steps ?? []}
-              residency={selectedType.residency}
-              canManage={canManage}
-            />
+        {selectedType && flowsError && (
+          <Card>
+            <CardContent className="p-6 text-sm text-destructive">
+              {(flowsError as Error).message}
+            </CardContent>
+          </Card>
+        )}
 
-            {overrideFlows.map((flow) => (
+        {selectedType && !flowsLoading && !flowsError && (
+          <>
+            {residencies.map((res) => (
               <FlowStepEditor
-                key={flow.id}
+                key={`default-${selectedType.id}-${res}-${findFlow(null, res)?.id ?? 'new'}`}
                 leaveTypeId={selectedType.id}
-                institutionId={flow.institution_id}
-                title={flow.institution?.name ?? 'Institution override'}
-                description="Overrides the group default for this institution."
-                initialSteps={flow.steps}
-                residency={selectedType.residency}
+                institutionId={null}
+                flowResidency={res}
+                title={`Group Default — ${RES_LABEL[res]}`}
+                description={`Approval chain for ${RES_LABEL[res].toLowerCase()} learners in every institution without its own override.`}
+                initialSteps={findFlow(null, res)?.steps ?? []}
+                residency={res}
                 canManage={canManage}
-                isOverride
               />
             ))}
 
-            {pendingInstitution && (
+            {legacyFlows.map((flow) => (
               <FlowStepEditor
-                key={`pending-${pendingInstitution.id}`}
+                key={`legacy-${flow.id}`}
                 leaveTypeId={selectedType.id}
-                institutionId={pendingInstitution.id}
-                title={pendingInstitution.name}
-                description="New institution override — add steps and save."
-                initialSteps={[]}
+                institutionId={flow.institution_id}
+                flowResidency={null}
+                title={`${flow.institution?.name ?? 'Group Default'} — any residency`}
+                description="Older chain that applies to every learner. A residency-specific chain above takes priority."
+                initialSteps={flow.steps}
                 residency={selectedType.residency}
                 canManage={canManage}
-                isOverride
-                onSaved={() => setAddingOverrideFor('')}
-                onRemoved={() => setAddingOverrideFor('')}
+                isOverride={flow.institution_id !== null}
               />
+            ))}
+
+            {overrideInstitutionIds.flatMap((instId) =>
+              residencies.map((res) => {
+                const flow = findFlow(instId, res);
+                const instName =
+                  flow?.institution?.name ??
+                  flows?.find((f) => f.institution_id === instId)?.institution?.name ??
+                  'Institution override';
+                return (
+                  <FlowStepEditor
+                    key={`${instId}-${res}-${flow?.id ?? 'new'}`}
+                    leaveTypeId={selectedType.id}
+                    institutionId={instId}
+                    flowResidency={res}
+                    title={`${instName} — ${RES_LABEL[res]}`}
+                    description="Overrides the group default for this institution."
+                    initialSteps={flow?.steps ?? []}
+                    residency={res}
+                    canManage={canManage}
+                    isOverride
+                  />
+                );
+              })
             )}
+
+            {pendingInstitution &&
+              residencies.map((res) => (
+                <FlowStepEditor
+                  key={`pending-${pendingInstitution.id}-${res}`}
+                  leaveTypeId={selectedType.id}
+                  institutionId={pendingInstitution.id}
+                  flowResidency={res}
+                  title={`${pendingInstitution.name} — ${RES_LABEL[res]}`}
+                  description="New institution override — add steps and save."
+                  initialSteps={[]}
+                  residency={res}
+                  canManage={canManage}
+                  isOverride
+                  onSaved={() => setAddingOverrideFor('')}
+                  onRemoved={() => setAddingOverrideFor('')}
+                />
+              ))}
 
             {canManage && !pendingInstitution && availableInstitutions.length > 0 && (
               <Select value={addingOverrideFor} onValueChange={setAddingOverrideFor}>

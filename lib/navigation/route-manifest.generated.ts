@@ -146,6 +146,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "CalendarOff",
         "children": [
           {
+            "path": "/academic/leave-onduty/apply-bulk",
+            "label": "Apply Bulk",
+            "iconName": "CalendarOff",
+            "children": []
+          },
+          {
             "path": "/academic/leave-onduty/approvals",
             "label": "Approvals",
             "iconName": "CalendarOff",
@@ -5155,6 +5161,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "Settings",
         "children": [
           {
+            "path": "/ims/settings/pos-devices",
+            "label": "Pos Devices",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/ims/settings/stores",
             "label": "Stores",
             "iconName": "FileText",
@@ -5490,6 +5502,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/learners/leave-onduty/apply",
             "label": "Apply",
+            "iconName": "GraduationCap",
+            "children": []
+          },
+          {
+            "path": "/learners/leave-onduty/apply-bulk",
+            "label": "Apply Bulk",
             "iconName": "GraduationCap",
             "children": []
           },

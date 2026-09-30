@@ -116,6 +116,10 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['leave', 'absence', 'time off', 'leave request'],
     description: 'Manage leave requests and approvals'
   },
+  '/academic/leave-onduty/apply-bulk': {
+    keywords: ['bulk onduty', 'team onduty', 'event onduty', 'apply for learners', 'facilitator'],
+    description: 'Apply On-Duty for many learners at once (facilitator, own institution)'
+  },
   '/academic/leave-onduty/approvals': {
     keywords: ['approve leave', 'onduty approval', 'leave pending'],
     description: 'Approve or reject leave and on-duty requests'
