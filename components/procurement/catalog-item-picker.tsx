@@ -23,7 +23,7 @@ import type {
   DomainCtx,
   CatalogItem,
 } from '@/lib/services/procurement/domain-adapters/types';
-import { ChevronsUpDown } from 'lucide-react';
+import { ChevronsUpDown, Plus } from 'lucide-react';
 
 interface Props {
   domain: ProcurementDomain;
@@ -33,6 +33,11 @@ interface Props {
   onSelect: (item: CatalogItem) => void;
   placeholder?: string;
   disabled?: boolean;
+  /**
+   * When given, the list ends with "+ Add “<typed text>” as a new item" so one box
+   * handles both catalog items and items not stocked yet.
+   */
+  onCreateNew?: (name: string) => void;
 }
 
 /**
@@ -49,6 +54,7 @@ export function CatalogItemPicker({
   onSelect,
   placeholder = 'Search inventory…',
   disabled,
+  onCreateNew,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -83,7 +89,7 @@ export function CatalogItemPicker({
             {isFetching ? (
               <div className="p-3 text-sm text-muted-foreground">Searching…</div>
             ) : (
-              <CommandEmpty>No inventory items match.</CommandEmpty>
+              <CommandEmpty>{onCreateNew ? 'Not in the catalog.' : 'No inventory items match.'}</CommandEmpty>
             )}
             <CommandGroup>
               {items.map((it) => (
@@ -121,6 +127,32 @@ export function CatalogItemPicker({
             </CommandGroup>
           </CommandList>
         </Command>
+        {/* Outside the result list on purpose: it must show even while the search is
+            still running or has failed, which is exactly when an item isn't found. */}
+        {onCreateNew && (
+          <div className="border-t p-1">
+            {query.trim() ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onCreateNew(query.trim());
+                  setOpen(false);
+                  setQuery('');
+                }}
+                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+              >
+                <Plus className="h-4 w-4 shrink-0 text-primary" />
+                <span className="min-w-0 truncate">
+                  Add <b>“{query.trim()}”</b> as a new item
+                </span>
+              </button>
+            ) : (
+              <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                Not in the list? Type its name above to add it as a new item.
+              </p>
+            )}
+          </div>
+        )}
       </PopoverContent>
     </Popover>
   );

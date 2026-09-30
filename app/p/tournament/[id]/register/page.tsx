@@ -197,7 +197,11 @@ export default async function PublicRegisterPage({
         signedInName={signedInName}
         isLearner={isLearner}
         sections={sections}
-        participantOrgType={ev.participant_org_type === 'college' ? 'college' : 'school'}
+        participantOrgType={
+          ev.participant_org_type === 'college' || ev.participant_org_type === 'both'
+            ? ev.participant_org_type
+            : 'school'
+        }
       />
 
       <footer className="mt-8 text-center text-xs text-muted-foreground">JKKN Institutions · Tournament registration</footer>

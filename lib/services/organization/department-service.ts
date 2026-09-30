@@ -126,9 +126,6 @@ export class DepartmentService {
         .eq('id', id);
 
       if (error) throw error;
-
-      toast.success('Department deleted successfully');
-      return;
     } catch (error) {
       console.error('Error deleting department:', error);
       throw error;

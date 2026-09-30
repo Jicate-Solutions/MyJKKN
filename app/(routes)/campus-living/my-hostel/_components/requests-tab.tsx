@@ -20,6 +20,7 @@ import {
   DoorOpen,
   Loader2,
 } from 'lucide-react';
+import { usePermissions } from '@/hooks/use-permissions';
 import { HostelLeaveService } from '@/lib/services/campus-living/hostel-leave-service';
 import { GatePassService } from '@/lib/services/campus-living/gate-pass-service';
 import {
@@ -57,7 +58,7 @@ const vacateStatusVariant: Record<
 const vacateStatusLabel: Record<string, string> = {
   draft: 'Draft',
   pending_parent: 'Waiting for parent consent',
-  pending_warden: 'With warden',
+  pending_warden: 'With warden — bills & checklist',
   pending_chief: 'With chief warden',
   pending_dues: 'Dues clearance',
   approved: 'Approved — awaiting finalize',
@@ -141,6 +142,8 @@ export function RequestsTab({
   activeRequest,
   pastRequests,
 }: RequestsTabProps) {
+  const { permissions, isSuperAdmin } = usePermissions();
+
   // Own leave requests
   const { data: myLeaveRequests, isLoading: leaveLoading } = useQuery({
     queryKey: ['my-leave-requests', profileId],
@@ -207,13 +210,29 @@ export function RequestsTab({
             </Card>
           )}
 
-          {/* Request Vacate CTA — withdrawn 2026-08-10. The learner-side vacate
-              workflow is being rebuilt; until then `student` and `parent` no
-              longer hold campus_living.vacate_requests.submit, and the form at
-              /campus-living/my-hostel/vacate-request is closed by its own
-              RoutePermissionGuard layout. Residents vacate via the hostel
-              office. The two read-only blocks around this one are kept so any
-              request raised on their behalf stays visible. */}
+          {/* Request Vacate CTA — reopened 2026-09-30. The learner raises the
+              request; the warden then checks bills + the clearance checklist
+              and approval auto-vacates. Hidden while a request is open, and
+              for anyone without the submit key (the form's route guard also
+              enforces it). */}
+          {allocation && !activeRequest && (isSuperAdmin || !!permissions?.['campus_living.vacate_requests.submit']) && (
+            <Card>
+              <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
+                <div>
+                  <CardTitle className='text-base flex items-center gap-2'>
+                    <FileText className='h-4 w-4' />
+                    Vacate the Hostel
+                  </CardTitle>
+                  <CardDescription>
+                    Leaving the hostel? Raise a request — the warden clears your bills and checklist.
+                  </CardDescription>
+                </div>
+                <Button asChild size='sm' variant='outline'>
+                  <Link href='/campus-living/my-hostel/vacate-request'>Request Vacate</Link>
+                </Button>
+              </CardHeader>
+            </Card>
+          )}
 
           {/* Vacate request history */}
           {pastRequests.length > 0 && (

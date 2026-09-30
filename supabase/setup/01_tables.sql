@@ -10520,3 +10520,241 @@ REVOKE ALL ON SEQUENCE public.billing_bill_cancel_number_seq FROM anon, PUBLIC;
 ALTER TABLE public.billing_bill_cancel_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.billing_bill_cancel_request_actions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.billing_bill_cancel_approval_flows ENABLE ROW LEVEL SECURITY;
+
+
+-- ============================================================================
+-- Updated: 2026-09-29 - Salary revisions: ask -> principal's check -> the Director's yes or no
+-- The four tables and the one-open-request index. Copied from supabase/migrations/20270519090000_hr_salary_revision_requests.sql,
+-- which carries the full reasoning (the Director's 16 rulings of 29 Sep 2026).
+-- ============================================================================
+-- ----------------------------------------------------------------------------
+-- 1. Tables
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.hr_salary_revision_requests (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- The person whose pay it is.
+  staff_id               uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  -- Where they worked and in which department WHEN ASKED. Snapshots, so a
+  -- transfer does not move a request into another principal's list.
+  institution_id         uuid NOT NULL REFERENCES public.institutions(id),
+  department_id          uuid REFERENCES public.departments(id) ON DELETE SET NULL,
+
+  asked_by               uuid NOT NULL,
+  asked_as               text NOT NULL
+                           CHECK (asked_as IN ('director', 'hr_head', 'principal', 'hod')),
+  route                  text NOT NULL CHECK (route IN ('direct', 'via_principal')),
+  is_self                boolean NOT NULL DEFAULT false,
+  is_for_senior          boolean NOT NULL DEFAULT false,
+
+  current_monthly_gross  numeric(12,2) NOT NULL CHECK (current_monthly_gross > 0),
+  asked_monthly_gross    numeric(12,2) NOT NULL CHECK (asked_monthly_gross > 0),
+  is_cut                 boolean GENERATED ALWAYS AS (asked_monthly_gross < current_monthly_gross) STORED,
+  reason                 text NOT NULL
+                           CHECK (length(btrim(reason)) BETWEEN 1 AND 2000),
+
+  status                 text NOT NULL CHECK (status IN (
+                           'waiting_principal', 'waiting_director',
+                           'approved', 'applied', 'stopped', 'refused')),
+
+  principal_decided_by   uuid,
+  principal_decided_at   timestamptz,
+  director_decided_by    uuid,
+  director_decided_at    timestamptz,
+
+  final_monthly_gross    numeric(12,2) CHECK (final_monthly_gross > 0),
+  final_is_cut           boolean GENERATED ALWAYS AS (final_monthly_gross < current_monthly_gross) STORED,
+  starts_on              date,
+
+  applied_salary_id      uuid REFERENCES public.hr_staff_salaries(id),
+  applied_at             timestamptz,
+  -- Why an approved revision whose date has come could not be written yet.
+  apply_note             text,
+
+  created_at             timestamptz NOT NULL DEFAULT now(),
+  updated_at             timestamptz NOT NULL DEFAULT now(),
+
+  -- Only an HOD's request goes via the principal.
+  CONSTRAINT hr_srr_via_principal_is_hod
+    CHECK (route = 'direct' OR asked_as = 'hod'),
+  CONSTRAINT hr_srr_waiting_principal_route
+    CHECK (status <> 'waiting_principal' OR route = 'via_principal'),
+  -- A request that went via the principal left that step with a decision.
+  CONSTRAINT hr_srr_principal_decided
+    CHECK (route = 'direct' OR status = 'waiting_principal'
+           OR (principal_decided_by IS NOT NULL AND principal_decided_at IS NOT NULL)),
+  CONSTRAINT hr_srr_stopped_only_via_principal
+    CHECK (status <> 'stopped' OR route = 'via_principal'),
+  CONSTRAINT hr_srr_director_decided
+    CHECK (status NOT IN ('approved', 'applied', 'refused')
+           OR (director_decided_by IS NOT NULL AND director_decided_at IS NOT NULL)),
+  -- A yes always carries the figure and a start on the 1st of a month.
+  CONSTRAINT hr_srr_approved_has_figure_and_start
+    CHECK (status NOT IN ('approved', 'applied')
+           OR (final_monthly_gross IS NOT NULL AND starts_on IS NOT NULL
+               AND EXTRACT(DAY FROM starts_on) = 1)),
+  CONSTRAINT hr_srr_applied_has_salary
+    CHECK ((status = 'applied') = (applied_salary_id IS NOT NULL AND applied_at IS NOT NULL))
+);
+
+-- RULING 10: one open request per person. 'approved' counts as open: until the
+-- new pay is written, a second yes could be applied on top of the first.
+CREATE UNIQUE INDEX IF NOT EXISTS hr_salary_revision_requests_one_open
+  ON public.hr_salary_revision_requests (staff_id)
+  WHERE status IN ('waiting_principal', 'waiting_director', 'approved');
+
+CREATE INDEX IF NOT EXISTS hr_salary_revision_requests_status_idx
+  ON public.hr_salary_revision_requests (status, starts_on);
+CREATE INDEX IF NOT EXISTS hr_salary_revision_requests_institution_idx
+  ON public.hr_salary_revision_requests (institution_id);
+CREATE INDEX IF NOT EXISTS hr_salary_revision_requests_department_idx
+  ON public.hr_salary_revision_requests (department_id);
+CREATE INDEX IF NOT EXISTS hr_salary_revision_requests_asked_by_idx
+  ON public.hr_salary_revision_requests (asked_by);
+
+DROP TRIGGER IF EXISTS trg_hr_salary_revision_requests_updated_at ON public.hr_salary_revision_requests;
+CREATE TRIGGER trg_hr_salary_revision_requests_updated_at
+  BEFORE UPDATE ON public.hr_salary_revision_requests
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+COMMENT ON TABLE public.hr_salary_revision_requests IS
+  'A request to change one person''s monthly pay: asked by a principal, an HOD or the HR head; checked by the principal when an HOD asked; decided by the Director. The pay itself is written to hr_staff_salaries only on starts_on. See 20270519090000.';
+
+CREATE TABLE IF NOT EXISTS public.hr_salary_revision_comments (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_id  uuid NOT NULL REFERENCES public.hr_salary_revision_requests(id) ON DELETE CASCADE,
+  author_id   uuid NOT NULL,
+  body        text NOT NULL CHECK (length(btrim(body)) BETWEEN 1 AND 2000),
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS hr_salary_revision_comments_request_idx
+  ON public.hr_salary_revision_comments (request_id, created_at);
+
+COMMENT ON TABLE public.hr_salary_revision_comments IS
+  'Comments on a salary revision request, seen by whoever can see the request. Never by the person whose pay it is.';
+
+CREATE TABLE IF NOT EXISTS public.hr_salary_revision_decision_notes (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_id  uuid NOT NULL REFERENCES public.hr_salary_revision_requests(id) ON DELETE CASCADE,
+  kind        text NOT NULL CHECK (kind IN ('stopped', 'refused')),
+  reason      text NOT NULL CHECK (length(btrim(reason)) BETWEEN 1 AND 2000),
+  written_by  uuid NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_salary_revision_decision_notes_one UNIQUE (request_id, kind)
+);
+
+COMMENT ON TABLE public.hr_salary_revision_decision_notes IS
+  'Why a request was stopped (principal) or refused (Director). RULING 14: only the asker, the principal for an HOD''s request, and the Director see it — narrower than the request itself, hence its own table.';
+
+CREATE TABLE IF NOT EXISTS public.hr_salary_revision_outcomes (
+  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_id              uuid NOT NULL UNIQUE REFERENCES public.hr_salary_revision_requests(id) ON DELETE CASCADE,
+  staff_id                uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  previous_monthly_gross  numeric(12,2) NOT NULL,
+  new_monthly_gross       numeric(12,2) NOT NULL CHECK (new_monthly_gross > 0),
+  is_cut                  boolean GENERATED ALWAYS AS (new_monthly_gross < previous_monthly_gross) STORED,
+  starts_on               date NOT NULL CHECK (EXTRACT(DAY FROM starts_on) = 1),
+  created_at              timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS hr_salary_revision_outcomes_staff_idx
+  ON public.hr_salary_revision_outcomes (staff_id);
+
+COMMENT ON TABLE public.hr_salary_revision_outcomes IS
+  'What the person whose pay it is may know: the new monthly pay and the day it starts. Written only at the Director''s yes (ruling 5). Nothing about who asked, why, or any refusal.';
+
+-- ============================================================================
+-- 2026-09-30 hostel vacate: dynamic checklist table + request columns
+-- (source of truth: supabase/migrations/20260930240000_hostel_vacate_bill_gate_dynamic_checklist.sql)
+-- ============================================================================
+-- ─── 1. Master checklist (one global list) ─────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.hostel_vacate_checklist_items (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  item_label          text NOT NULL CHECK (char_length(btrim(item_label)) BETWEEN 3 AND 200),
+  description         text CHECK (description IS NULL OR char_length(description) <= 1000),
+  is_required         boolean NOT NULL DEFAULT true,
+  -- NULL = applies to every vacate reason
+  applies_to_reasons  public.vacate_reason_enum[],
+  sort_order          integer NOT NULL DEFAULT 100,
+  is_active           boolean NOT NULL DEFAULT true,
+  created_by          uuid REFERENCES auth.users(id),
+  updated_by          uuid REFERENCES auth.users(id),
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.hostel_vacate_checklist_items ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.hostel_vacate_checklist_items FROM anon;
+
+CREATE INDEX IF NOT EXISTS idx_hvci_active_sort
+  ON public.hostel_vacate_checklist_items (is_active, sort_order);
+CREATE INDEX IF NOT EXISTS idx_hvci_created_by ON public.hostel_vacate_checklist_items (created_by);
+CREATE INDEX IF NOT EXISTS idx_hvci_updated_by ON public.hostel_vacate_checklist_items (updated_by);
+
+DROP TRIGGER IF EXISTS tr_hvci_updated_at ON public.hostel_vacate_checklist_items;
+CREATE TRIGGER tr_hvci_updated_at BEFORE UPDATE ON public.hostel_vacate_checklist_items
+  FOR EACH ROW EXECUTE FUNCTION public.set_hostel_vacate_updated_at();
+
+DROP POLICY IF EXISTS hvci_select ON public.hostel_vacate_checklist_items;
+CREATE POLICY hvci_select ON public.hostel_vacate_checklist_items FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (SELECT public.user_has_permission('campus_living.vacate_checklist.manage'))
+    OR (SELECT public.user_has_permission('campus_living.vacate_requests.view'))
+  );
+
+DROP POLICY IF EXISTS hvci_insert ON public.hostel_vacate_checklist_items;
+CREATE POLICY hvci_insert ON public.hostel_vacate_checklist_items FOR INSERT TO authenticated
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (SELECT public.user_has_permission('campus_living.vacate_checklist.manage'))
+  );
+
+DROP POLICY IF EXISTS hvci_update ON public.hostel_vacate_checklist_items;
+CREATE POLICY hvci_update ON public.hostel_vacate_checklist_items FOR UPDATE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (SELECT public.user_has_permission('campus_living.vacate_checklist.manage'))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (SELECT public.user_has_permission('campus_living.vacate_checklist.manage'))
+  );
+
+-- No DELETE policy: items are deactivated, never deleted, so a request's
+-- frozen copy keeps a valid checklist_item_id.
+
+-- Seed = the six items that used to be hard-coded (now editable).
+INSERT INTO public.hostel_vacate_checklist_items (item_label, is_required, sort_order)
+SELECT v.item_label, v.is_required, v.sort_order
+FROM (VALUES
+  ('Mess dues cleared',                          true,  10),
+  ('Library dues cleared',                       true,  20),
+  ('Room / furniture damage assessment',         true,  30),
+  ('Deposit refund processed by Accounts',       true,  40),
+  ('Room keys returned',                         true,  50),
+  ('Hostel ID card returned',                    false, 60)
+) AS v(item_label, is_required, sort_order)
+WHERE NOT EXISTS (SELECT 1 FROM public.hostel_vacate_checklist_items);
+
+-- ─── 2. Request-side columns ───────────────────────────────────────────────
+ALTER TABLE public.hostel_clearance_items
+  ADD COLUMN IF NOT EXISTS checklist_item_id uuid
+    REFERENCES public.hostel_vacate_checklist_items(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_hci_checklist_item ON public.hostel_clearance_items (checklist_item_id);
+
+ALTER TABLE public.hostel_vacate_requests
+  ADD COLUMN IF NOT EXISTS room_snapshot          jsonb,
+  ADD COLUMN IF NOT EXISTS bills_snapshot         jsonb,
+  ADD COLUMN IF NOT EXISTS outstanding_at_approval numeric,
+  ADD COLUMN IF NOT EXISTS approved_by            uuid REFERENCES auth.users(id),
+  ADD COLUMN IF NOT EXISTS approved_at            timestamptz,
+  ADD COLUMN IF NOT EXISTS approval_remarks       text;
+CREATE INDEX IF NOT EXISTS idx_hvr_approved_by ON public.hostel_vacate_requests (approved_by);
+
+-- One open request per allocation.
+CREATE UNIQUE INDEX IF NOT EXISTS hvr_one_open_per_allocation
+  ON public.hostel_vacate_requests (allocation_id)
+  WHERE status IN ('draft', 'pending_parent', 'pending_warden', 'pending_chief', 'pending_dues', 'approved');
+

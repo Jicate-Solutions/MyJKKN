@@ -13,10 +13,11 @@ export type EventVisibility = 'public' | 'all_jkkn' | 'institution' | 'invited';
 /**
  * Which kind of organisation an EXTERNAL participant represents on the public
  * tournament registration form. 'school' shows "School / club" backed by the
- * school_master directory picker; 'college' shows "College" as free text.
+ * school_master directory picker; 'college' shows "College" as free text;
+ * 'both' lets the entrant say which they are, then shows the matching control.
  * Defaults to 'school' in the DB so existing tournaments are unaffected.
  */
-export type ParticipantOrgType = 'school' | 'college';
+export type ParticipantOrgType = 'school' | 'college' | 'both';
 
 export type EventStatus = 'draft' | 'planning' | 'preparation' | 'execution' | 'live' | 'post_event' | 'archived' | 'cancelled';
 

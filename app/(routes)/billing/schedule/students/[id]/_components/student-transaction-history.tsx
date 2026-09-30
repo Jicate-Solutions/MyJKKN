@@ -60,6 +60,8 @@ interface TransactionEvent {
   status: string;
   reference?: string;
   actors: TransactionActor[];
+  /** Bills a payment/discount was applied to, so the row names the fee category. */
+  lines?: { label: string; sub?: string; amount?: number }[];
   details?: any;
 }
 
@@ -125,9 +127,15 @@ export function StudentTransactionHistory({
 
     // Add bills
     summary.bills.forEach((bill) => {
-      const description = bill.bill_description
-        ? `Bill created: ${bill.bill_description}`
-        : 'Bill created';
+      const categoryName = bill.item_category?.category_name;
+      const description = [
+        'Bill created',
+        categoryName,
+        bill.bill_description
+      ]
+        .filter(Boolean)
+        .join(' — ')
+        .replace('Bill created — ', 'Bill created: ');
 
       transactions.push({
         id: `bill-${bill.id}`,
@@ -157,6 +165,11 @@ export function StudentTransactionHistory({
         status: 'completed',
         reference: receipt.receipt_number,
         actors: getReceiptActors(receipt),
+        lines: receipt.receipt_items?.map((item) => ({
+          label: item.bill?.item_category?.category_name ?? 'Unknown category',
+          sub: item.bill?.bill_description,
+          amount: item.amount_paid
+        })),
         details: receipt
       });
     });
@@ -169,6 +182,16 @@ export function StudentTransactionHistory({
         date: discount.effective_date,
         amount: discount.discount_amount,
         description: `${discount.discount_category} discount`,
+        lines: discount.bill
+          ? [
+              {
+                label:
+                  discount.bill.item_category?.category_name ??
+                  'Unknown category',
+                sub: discount.bill.bill_description
+              }
+            ]
+          : undefined,
         status: discount.approval_status,
         actors: discount.creator?.full_name
           ? [{ label: 'Applied by', name: discount.creator.full_name }]
@@ -479,6 +502,28 @@ export function StudentTransactionHistory({
                         {transaction.reference && (
                           <div className='text-xs font-mono text-muted-foreground'>
                             Ref: {transaction.reference}
+                          </div>
+                        )}
+                        {transaction.lines && transaction.lines.length > 0 && (
+                          <div className='mt-1 space-y-0.5 border-l-2 pl-2'>
+                            {transaction.lines.map((line, i) => (
+                              <div
+                                key={`${line.label}-${i}`}
+                                className='flex items-center gap-2 text-xs'
+                              >
+                                <span className='font-medium'>{line.label}</span>
+                                {line.sub && (
+                                  <span className='text-muted-foreground truncate'>
+                                    {line.sub}
+                                  </span>
+                                )}
+                                {line.amount != null && (
+                                  <span className='font-mono'>
+                                    {formatCurrency(line.amount)}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
                           </div>
                         )}
                       </div>
