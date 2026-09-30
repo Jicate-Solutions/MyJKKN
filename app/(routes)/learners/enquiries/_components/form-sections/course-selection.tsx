@@ -774,6 +774,9 @@ export function CourseSelectionSection({
                     programs.map((prog: Program) => (
                       <SelectItem key={prog.id} value={prog.id}>
                         {prog.program_name}
+                        {prog.department?.department_name
+                          ? ` — ${prog.department.department_name}`
+                          : ''}
                       </SelectItem>
                     ))
                   ) : (
