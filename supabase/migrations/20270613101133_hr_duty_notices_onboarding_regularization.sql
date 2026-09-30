@@ -65,6 +65,13 @@ CREATE INDEX IF NOT EXISTS hr_duty_notices_subject_idx
 
 ALTER TABLE public.hr_duty_notices ENABLE ROW LEVEL SECURITY;
 
+-- The anon key ships in every page; Supabase's default privileges grant it ALL on
+-- new tables. RLS already denies it, but the grant itself is removed so the table
+-- is closed at both layers. Signed-in users keep SELECT only (the policy below
+-- narrows it to their own rows); writes are the service role's alone.
+REVOKE ALL ON public.hr_duty_notices FROM anon;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.hr_duty_notices FROM authenticated;
+
 -- Read-only for people: admins see the whole ledger, anyone sees the rows that
 -- were addressed to them. No INSERT/UPDATE/DELETE policy — the service role
 -- (which bypasses RLS) is the only writer.
