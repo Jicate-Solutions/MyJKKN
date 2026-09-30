@@ -75278,4 +75278,1150 @@ END;
 $$;
 REVOKE EXECUTE ON FUNCTION public.fn_cl_vacate_cancel(uuid, text) FROM PUBLIC, anon;
 GRANT  EXECUTE ON FUNCTION public.fn_cl_vacate_cancel(uuid, text) TO authenticated, service_role;
+-- =====================================================================
+-- Updated: 2026-09-28 - Grievance: route on create, escalate on breach (policies + functions)
+-- Source of truth for apply: supabase/migrations/20270420090000_grievance_sla_escalation.sql
+-- =====================================================================
+-- ---------------------------------------------------------------------
+-- 2) Policies (seeded once; never overwrite a value someone has set)
+-- ---------------------------------------------------------------------
+INSERT INTO public.platform_policies
+  (policy_key, scope_type, scope_id, value, description, data_type,
+   classification, ui_category, is_system, is_active, publication_state)
+SELECT 'grievance.escalation.enabled', 'global', NULL, to_jsonb(true),
+  'Master switch for automatic grievance escalation. On: a complaint that passes its deadline unresolved moves up one level (HOD, then Principal, then Director), is reassigned to that person, who gets an in-app notice and a new deadline. Off: nothing is escalated (overdue tickets are still marked breached). Can be set per college.',
+  'boolean', 'major', 'accreditation', true, true, 'published'
+WHERE NOT EXISTS (SELECT 1 FROM public.platform_policies
+                   WHERE policy_key = 'grievance.escalation.enabled' AND scope_type = 'global' AND scope_id IS NULL);
 
+INSERT INTO public.platform_policies
+  (policy_key, scope_type, scope_id, value, description, data_type,
+   classification, ui_category, is_system, is_active, publication_state)
+SELECT v.k, 'global', NULL, to_jsonb(v.h), v.d, 'number', 'major', 'accreditation', true, true, 'published'
+FROM (VALUES
+  ('grievance.escalation.level1_hours', 48,
+   'Hours the HOD has to act on a grievance escalated to them before it moves up to the Principal. Clock hours from the moment of escalation.'),
+  ('grievance.escalation.level2_hours', 48,
+   'Hours the Principal has to act on a grievance escalated to them before it moves up to the Director level. Clock hours from the moment of escalation.'),
+  ('grievance.escalation.level3_hours', 72,
+   'Hours the Director level has to act on an escalated grievance. Level 3 is the top: when this passes the ticket stays with the Director level and is shown as overdue; nothing moves further.')
+) AS v(k, h, d)
+WHERE NOT EXISTS (SELECT 1 FROM public.platform_policies p
+                   WHERE p.policy_key = v.k AND p.scope_type = 'global' AND p.scope_id IS NULL);
+
+-- The Director level is a named person, not "the oldest super admin": the
+-- existing dashboard fallback (fn_resolve_dashboard_target) returns the oldest
+-- active super admin platform-wide, which is not the Director, and an ICC or
+-- anonymous complaint must never land on the wrong desk by accident. Seeded
+-- from the person the Director already chose to receive complaints that go
+-- past the chain (instasolver.complaint.superior_route_to). If that row is
+-- absent nothing is seeded, and level 3 reports "no Director set" instead.
+INSERT INTO public.platform_policies
+  (policy_key, scope_type, scope_id, value, description, data_type,
+   classification, ui_category, is_system, is_active, publication_state)
+SELECT 'grievance.escalation.director_profile_id', 'global', NULL, src.value,
+  'The profile id of the person who receives grievances escalated to the Director level (level 3), and every ICC-only, anonymous or about-my-superior complaint once it is overdue. Can be set per college. Empty or pointing at an inactive or test profile = the Director level is treated as empty and the escalation run reports it.',
+  'string', 'major', 'accreditation', true, true, 'published'
+FROM public.platform_policies src
+WHERE src.policy_key = 'instasolver.complaint.superior_route_to'
+  AND src.scope_type = 'global' AND src.scope_id IS NULL AND src.is_active
+  AND NOT EXISTS (SELECT 1 FROM public.platform_policies p
+                   WHERE p.policy_key = 'grievance.escalation.director_profile_id'
+                     AND p.scope_type = 'global' AND p.scope_id IS NULL)
+LIMIT 1;
+
+-- ---------------------------------------------------------------------
+-- 3) Who is a test / placeholder profile
+-- ---------------------------------------------------------------------
+-- Production has no is_test flag. Read 2026-09-28: 46 profiles match the rule
+-- below and every one is a test account ("TEST PRINCIPAL", "Test Super Admin",
+-- "TEST HOD", test33@ / testing420@ that carry real-looking names, *.local
+-- addresses). No real Principal, HOD or super admin matches it.
+CREATE OR REPLACE FUNCTION public.fn_grievance_is_placeholder_profile(p_full_name text, p_email text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public
+AS $$
+  SELECT COALESCE(p_full_name, '') ~* '\mtest'                          -- a name word starting with "test"
+      OR split_part(lower(COALESCE(p_email, '')), '@', 1) LIKE 'test%'  -- test.hod@, testprincipal@, test33@
+      OR lower(COALESCE(p_email, '')) LIKE '%.local'                   -- fresh-admin-…@test.local
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_is_placeholder_profile(text, text) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_grievance_is_placeholder_profile(text, text) TO service_role;
+
+-- NULL = usable; otherwise why not.
+CREATE OR REPLACE FUNCTION public.fn_grievance_profile_unusable(p_profile_id uuid, p_exclude uuid[] DEFAULT '{}'::uuid[])
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT CASE
+    WHEN p_profile_id IS NULL                              THEN 'nobody'
+    WHEN p_profile_id = ANY (COALESCE(p_exclude, '{}'))    THEN 'filed_this_ticket'
+    WHEN p.id IS NULL                                      THEN 'profile_missing'
+    WHEN NOT COALESCE(p.is_active, true)                   THEN 'inactive'
+    WHEN COALESCE(p.is_login_disabled, false)              THEN 'login_disabled'
+    WHEN public.fn_grievance_is_placeholder_profile(p.full_name, p.email) THEN 'test_or_placeholder'
+    ELSE NULL
+  END
+  FROM (SELECT 1) AS one
+  LEFT JOIN public.profiles p ON p.id = p_profile_id
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_profile_unusable(uuid, uuid[]) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_grievance_profile_unusable(uuid, uuid[]) TO service_role;
+
+-- ---------------------------------------------------------------------
+-- 4) Which tickets skip the HOD and Principal
+-- ---------------------------------------------------------------------
+-- about_superior: the Insta Solver route marks it (metadata.about_superior,
+-- and routing = 'superior_bypass' or route_pending_policy on older rows).
+CREATE OR REPLACE FUNCTION public.fn_grievance_sensitive_reason(p_t public.grievance_tickets)
+RETURNS text
+LANGUAGE sql
+STABLE
+SET search_path = public
+AS $$
+  SELECT CASE
+    WHEN COALESCE(p_t.is_icc_only, false)  THEN 'icc_only'
+    WHEN COALESCE(p_t.is_anonymous, false) THEN 'anonymous'
+    WHEN COALESCE(p_t.metadata ->> 'about_superior', '') = 'true'
+      OR COALESCE(p_t.metadata ->> 'routing', '') = 'superior_bypass'
+      OR COALESCE(p_t.metadata ? 'route_pending_policy', false)
+                                           THEN 'about_superior'
+    ELSE NULL
+  END
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_sensitive_reason(public.grievance_tickets) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_grievance_sensitive_reason(public.grievance_tickets) TO service_role;
+
+-- ---------------------------------------------------------------------
+-- 5) The person at one chain level for one ticket
+-- ---------------------------------------------------------------------
+-- Returns {level, role, to, via, reason}: `to` is a usable profile id, or NULL
+-- with `reason` saying why the level is empty. Level 0 is the college admin
+-- (create-time routing only). A level with MORE than one candidate and no
+-- designated person is EMPTY ("more_than_one_…"): the run never picks one of
+-- several people at random — set departments.head_of_department_id to fix it.
+CREATE OR REPLACE FUNCTION public.fn_grievance_level_target(p_t public.grievance_tickets, p_level integer)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_role      text := CASE p_level WHEN 0 THEN 'admin' WHEN 1 THEN 'hod' WHEN 2 THEN 'principal' WHEN 3 THEN 'director' END;
+  v_exclude   uuid[] := array_remove(ARRAY[p_t.raised_by_id, p_t.filed_by], NULL);
+  v_sensitive text := public.fn_grievance_sensitive_reason(p_t);
+  v_dept      uuid;
+  v_head      uuid;
+  v_why       text;
+  v_note      text := '';
+  v_ids       uuid[];
+  v_all       integer := 0;
+  v_raw       jsonb;
+  v_to        uuid;
+BEGIN
+  IF v_role IS NULL THEN
+    RETURN jsonb_build_object('level', p_level, 'role', NULL, 'to', NULL, 'reason', 'no_such_level');
+  END IF;
+
+  IF v_sensitive IS NOT NULL AND p_level < 3 THEN
+    RETURN jsonb_build_object('level', p_level, 'role', v_role, 'to', NULL,
+                              'reason', v_sensitive || '_skips_' || v_role);
+  END IF;
+
+  IF p_level = 3 THEN
+    -- ICC-only: the college's active ICC committee chair, when there is one.
+    IF COALESCE(p_t.is_icc_only, false) THEN
+      SELECT ac.chair_user_id INTO v_head
+      FROM public.accreditation_committees ac
+      WHERE ac.institution_id = p_t.institution_id
+        AND ac.committee_type = 'icc' AND ac.is_active
+        AND ac.chair_user_id IS NOT NULL
+      ORDER BY ac.formed_at DESC
+      LIMIT 1;
+      v_why := public.fn_grievance_profile_unusable(v_head, v_exclude);
+      IF v_why IS NULL THEN
+        RETURN jsonb_build_object('level', 3, 'role', 'director', 'to', v_head, 'via', 'icc_chair', 'reason', NULL);
+      END IF;
+      v_note := 'icc_chair_' || v_why || '; ';
+    END IF;
+
+    v_raw := public.fn_get_policy('grievance.escalation.director_profile_id', p_t.institution_id);
+    BEGIN
+      v_to := CASE WHEN jsonb_typeof(v_raw) = 'string' THEN (v_raw #>> '{}')::uuid
+                   WHEN jsonb_typeof(v_raw) = 'object' THEN COALESCE(v_raw ->> 'profile_id', v_raw ->> 'id')::uuid
+                   ELSE NULL END;
+    EXCEPTION WHEN invalid_text_representation THEN
+      v_to := NULL;
+    END;
+    IF v_to IS NULL THEN
+      RETURN jsonb_build_object('level', 3, 'role', 'director', 'to', NULL,
+        'reason', v_note || 'no_director_set (policy grievance.escalation.director_profile_id)');
+    END IF;
+    v_why := public.fn_grievance_profile_unusable(v_to, v_exclude);
+    IF v_why IS NULL THEN
+      RETURN jsonb_build_object('level', 3, 'role', 'director', 'to', v_to, 'via', 'director_policy', 'reason', NULL);
+    END IF;
+    RETURN jsonb_build_object('level', 3, 'role', 'director', 'to', NULL, 'reason', v_note || 'director_' || v_why);
+  END IF;
+
+  IF p_level = 1 THEN
+    v_dept := COALESCE(p_t.department_id,
+                       (SELECT pr.department_id FROM public.profiles pr WHERE pr.id = p_t.raised_by_id));
+    IF v_dept IS NULL THEN
+      RETURN jsonb_build_object('level', 1, 'role', 'hod', 'to', NULL, 'reason', 'no_department');
+    END IF;
+
+    -- The designated head first (the campus-walk precedent) ...
+    SELECT d.head_of_department_id INTO v_head FROM public.departments d WHERE d.id = v_dept;
+    IF v_head IS NOT NULL THEN
+      v_why := public.fn_grievance_profile_unusable(v_head, v_exclude);
+      IF v_why IS NULL THEN
+        RETURN jsonb_build_object('level', 1, 'role', 'hod', 'to', v_head, 'via', 'department_head', 'reason', NULL);
+      END IF;
+      v_note := 'department_head_' || v_why || '; ';
+    END IF;
+
+    -- ... else the one HOD-role holder in that department.
+    SELECT array_agg(p.id ORDER BY p.id) FILTER (WHERE public.fn_grievance_profile_unusable(p.id, v_exclude) IS NULL),
+           count(*)
+      INTO v_ids, v_all
+    FROM public.profiles p
+    WHERE p.department_id = v_dept
+      AND (p.role = 'hod' OR EXISTS (
+            SELECT 1 FROM public.user_roles ur JOIN public.custom_roles cr ON cr.id = ur.role_id
+            WHERE ur.user_id = p.id AND cr.role_key = 'hod' AND COALESCE(cr.is_active, true)));
+  ELSE
+    -- level 0 (college admin) or 2 (Principal): the one holder in the college
+    SELECT array_agg(p.id ORDER BY p.id) FILTER (WHERE public.fn_grievance_profile_unusable(p.id, v_exclude) IS NULL),
+           count(*)
+      INTO v_ids, v_all
+    FROM public.profiles p
+    WHERE p.institution_id = p_t.institution_id
+      AND (p.role = v_role OR EXISTS (
+            SELECT 1 FROM public.user_roles ur JOIN public.custom_roles cr ON cr.id = ur.role_id
+            WHERE ur.user_id = p.id AND cr.role_key = v_role AND COALESCE(cr.is_active, true)));
+  END IF;
+
+  IF COALESCE(array_length(v_ids, 1), 0) = 1 THEN
+    RETURN jsonb_build_object('level', p_level, 'role', v_role, 'to', v_ids[1], 'via', 'only_' || v_role, 'reason', NULL);
+  END IF;
+  IF COALESCE(array_length(v_ids, 1), 0) > 1 THEN
+    RETURN jsonb_build_object('level', p_level, 'role', v_role, 'to', NULL,
+      'reason', v_note || 'more_than_one_' || v_role || ':' || array_length(v_ids, 1));
+  END IF;
+  RETURN jsonb_build_object('level', p_level, 'role', v_role, 'to', NULL,
+    'reason', v_note || 'no_usable_' || v_role ||
+      CASE WHEN v_all > 0 THEN ' (' || v_all || ' found: test, inactive or the filer)' ELSE '' END);
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_level_target(public.grievance_tickets, integer) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_grievance_level_target(public.grievance_tickets, integer) TO service_role;
+
+-- ---------------------------------------------------------------------
+-- 6) One in-app notice (the existing notifications + user_notifications pair)
+-- ---------------------------------------------------------------------
+-- created_by = the recipient: notifications.created_by is NOT NULL and a
+-- machine has no profile; lib/campus-walk/chase-up.ts does the same.
+-- The body never carries the filer's name. Idempotent on p_key.
+CREATE OR REPLACE FUNCTION public.fn_grievance_notify(
+  p_t        public.grievance_tickets,
+  p_to       uuid,
+  p_kind     text,          -- 'assigned' | 'escalated'
+  p_level    integer,
+  p_deadline timestamptz,
+  p_key      text)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_nid   uuid;
+  v_title text;
+  v_body  text;
+  v_when  text := COALESCE(to_char(p_deadline AT TIME ZONE 'Asia/Kolkata', 'DD Mon YYYY, HH24:MI') || ' IST', 'as soon as you can');
+BEGIN
+  IF p_to IS NULL THEN RETURN NULL; END IF;
+
+  IF p_kind = 'escalated' THEN
+    v_title := 'Overdue complaint ' || p_t.ticket_number || ' has moved up to you';
+    v_body  := '"' || left(p_t.subject, 120) || '" passed its deadline without being resolved, so it is now yours to act on. Please respond by ' || v_when || '. Open this notice to see it.';
+  ELSE
+    v_title := 'New complaint ' || p_t.ticket_number || ' is yours to handle';
+    v_body  := '"' || left(p_t.subject, 120) || '" was filed and sent to you. Please respond by ' || v_when || '. Open this notice to see it.';
+  END IF;
+
+  INSERT INTO public.notifications
+    (title, body, url, created_by, targeting, priority, category, metadata,
+     requires_acknowledgment, expires_at, idempotency_key)
+  VALUES
+    (v_title, v_body,
+     '/accreditation/naac/grievance/' || p_t.id::text,
+     p_to,
+     jsonb_build_object('type', 'grievance_' || p_kind, 'ticket_id', p_t.id),
+     CASE WHEN p_kind = 'escalated' AND p_level >= 2 THEN 'urgent' ELSE 'high' END,
+     'grievance:' || p_kind,
+     jsonb_build_object('kind', 'grievance_' || p_kind, 'ticket_id', p_t.id,
+                        'ticket_number', p_t.ticket_number, 'level', p_level, 'source', 'grievance_escalation'),
+     false,
+     now() + interval '30 days',
+     p_key)
+  ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
+  RETURNING id INTO v_nid;
+
+  IF v_nid IS NOT NULL THEN
+    INSERT INTO public.user_notifications (user_id, notification_id)
+    VALUES (p_to, v_nid)
+    ON CONFLICT (notification_id, user_id) DO NOTHING;
+  END IF;
+  RETURN v_nid;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_notify(public.grievance_tickets, uuid, text, integer, timestamptz, text) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_grievance_notify(public.grievance_tickets, uuid, text, integer, timestamptz, text) TO service_role;
+
+-- ---------------------------------------------------------------------
+-- 7) Routing on create (BEFORE INSERT) + its notice (AFTER INSERT)
+-- ---------------------------------------------------------------------
+-- Fills assigned_to only when the insert left it empty. Never touches a
+-- sensitive ticket (ICC-only, anonymous, about-my-superior — the Insta Solver
+-- I8 route assigns those itself, or leaves them unassigned on purpose).
+-- A resolution error never loses the complaint: the ticket is saved
+-- unassigned and the error is recorded in metadata.auto_route.
+CREATE OR REPLACE FUNCTION public.fn_grievance_route_on_create()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_cat_role text;
+  v_levels   integer[];
+  v_lvl      integer;
+  v_res      jsonb;
+  v_skipped  jsonb := '[]'::jsonb;
+  v_sens     text;
+BEGIN
+  IF NEW.assigned_to IS NOT NULL THEN
+    RETURN NEW;
+  END IF;
+
+  v_sens := public.fn_grievance_sensitive_reason(NEW);
+  IF v_sens IS NOT NULL THEN
+    NEW.metadata := COALESCE(NEW.metadata, '{}'::jsonb) || jsonb_build_object('auto_route',
+      jsonb_build_object('assigned_to', NULL, 'level', NULL, 'at', now(),
+                         'reason', v_sens || '_not_auto_routed'));
+    RETURN NEW;
+  END IF;
+
+  BEGIN
+    SELECT lower(c.default_assignee_role) INTO v_cat_role
+    FROM public.grievance_categories c WHERE c.id = NEW.category_id;
+
+    v_levels := CASE v_cat_role
+                  WHEN 'hod'       THEN ARRAY[1, 2]
+                  WHEN 'principal' THEN ARRAY[2]
+                  ELSE                  ARRAY[0, 2]   -- 'admin', or not set
+                END;
+
+    FOREACH v_lvl IN ARRAY v_levels LOOP
+      v_res := public.fn_grievance_level_target(NEW, v_lvl);
+      IF v_res ->> 'to' IS NOT NULL THEN
+        NEW.assigned_to := (v_res ->> 'to')::uuid;
+        NEW.assigned_at := now();
+        NEW.metadata := COALESCE(NEW.metadata, '{}'::jsonb) || jsonb_build_object('auto_route',
+          jsonb_build_object('assigned_to', NEW.assigned_to, 'level', v_lvl, 'role', v_res ->> 'role',
+                             'via', v_res ->> 'via', 'category_role', v_cat_role, 'at', now(),
+                             'skipped', v_skipped));
+        RETURN NEW;
+      END IF;
+      v_skipped := v_skipped || jsonb_build_array(v_res);
+    END LOOP;
+
+    NEW.metadata := COALESCE(NEW.metadata, '{}'::jsonb) || jsonb_build_object('auto_route',
+      jsonb_build_object('assigned_to', NULL, 'level', NULL, 'category_role', v_cat_role,
+                         'at', now(), 'skipped', v_skipped));
+  EXCEPTION WHEN OTHERS THEN
+    NEW.metadata := COALESCE(NEW.metadata, '{}'::jsonb) || jsonb_build_object('auto_route',
+      jsonb_build_object('assigned_to', NULL, 'level', NULL, 'at', now(), 'error', SQLERRM));
+  END;
+  RETURN NEW;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_route_on_create() FROM anon, authenticated, PUBLIC;
+
+CREATE OR REPLACE FUNCTION public.fn_grievance_notify_on_create()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  BEGIN
+    PERFORM public.fn_grievance_notify(NEW, NEW.assigned_to, 'assigned',
+      COALESCE((NEW.metadata -> 'auto_route' ->> 'level')::integer, 0),
+      NEW.sla_deadline, 'grievance-assigned:' || NEW.id::text);
+  EXCEPTION WHEN OTHERS THEN
+    -- A failed notice must never lose the complaint; the dashboard work item
+    -- still reaches the assignee.
+    RAISE WARNING 'grievance % routed to % but the notice failed: %', NEW.ticket_number, NEW.assigned_to, SQLERRM;
+  END;
+  RETURN NULL;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_notify_on_create() FROM anon, authenticated, PUBLIC;
+
+-- ---------------------------------------------------------------------
+-- 8) The hourly run: stamp breaches, then escalate one level per breach
+-- ---------------------------------------------------------------------
+-- Scheduler only (service role, no signed-in person). p_dry_run = answer what
+-- WOULD happen, write nothing.
+CREATE OR REPLACE FUNCTION public.fn_grievance_escalation_tick(p_dry_run boolean DEFAULT false)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_dry        boolean := COALESCE(p_dry_run, false);
+  v_now        timestamptz := now();
+  v_enabled    boolean;
+  v_stamped    integer := 0;
+  v_escalated  integer := 0;
+  v_notified   integer := 0;
+  v_no_target  integer := 0;
+  v_lv_skipped integer := 0;
+  v_ceiling    integer := 0;
+  v_off        integer := 0;
+  v_nfail      integer := 0;
+  v_rows       jsonb := '[]'::jsonb;
+  v_t          public.grievance_tickets;
+  v_from       integer;
+  v_base       integer;
+  v_due        timestamptz;
+  v_lvl        integer;
+  v_res        jsonb;
+  v_skipped    jsonb;
+  v_to         uuid;
+  v_via        text;
+  v_hours      integer;
+  v_deadline   timestamptz;
+  v_event      jsonb;
+  v_nid        uuid;
+BEGIN
+  IF auth.uid() IS NOT NULL THEN
+    RAISE EXCEPTION 'the grievance escalation run is started by the scheduler, not by a person' USING ERRCODE = '42501';
+  END IF;
+
+  -- one run at a time: a manual run and the scheduled one cannot interleave
+  PERFORM pg_advisory_xact_lock(hashtext('grievance_escalation_tick'));
+
+  -- 1) Breach stamping — what the hourly route always did; not switchable.
+  IF v_dry THEN
+    SELECT count(*) INTO v_stamped
+    FROM public.grievance_tickets
+    WHERE status IN ('open', 'in_progress', 'pending_info', 'reopened')
+      AND resolved_at IS NULL AND withdrawn_at IS NULL
+      AND sla_breached_at IS NULL AND sla_deadline < v_now;
+  ELSE
+    UPDATE public.grievance_tickets
+       SET sla_breached_at = v_now, sla_status = 'breached'
+     WHERE status IN ('open', 'in_progress', 'pending_info', 'reopened')
+       AND resolved_at IS NULL AND withdrawn_at IS NULL
+       AND sla_breached_at IS NULL AND sla_deadline < v_now;
+    GET DIAGNOSTICS v_stamped = ROW_COUNT;
+  END IF;
+
+  v_enabled := COALESCE(public.fn_get_policy_bool('grievance.escalation.enabled', false), false);
+
+  -- 2) Escalation
+  FOR v_t IN
+    SELECT * FROM public.grievance_tickets
+    WHERE status IN ('open', 'in_progress', 'pending_info', 'reopened')
+      AND resolved_at IS NULL AND withdrawn_at IS NULL
+    ORDER BY created_at
+    FOR UPDATE SKIP LOCKED
+  LOOP
+    v_from := COALESCE(v_t.escalation_level, 0);
+    v_due  := CASE WHEN v_from = 0 THEN v_t.sla_deadline
+                   ELSE COALESCE(v_t.escalation_deadline, v_t.sla_deadline) END;
+    CONTINUE WHEN v_due IS NULL OR v_due >= v_now;   -- not overdue at its current level
+
+    IF NOT COALESCE(public.fn_get_policy_bool('grievance.escalation.enabled', false, v_t.institution_id), false) THEN
+      v_off := v_off + 1;
+      CONTINUE;
+    END IF;
+
+    IF v_from >= 3 THEN
+      v_ceiling := v_ceiling + 1;
+      v_rows := v_rows || jsonb_build_array(jsonb_build_object(
+        'ticket', v_t.ticket_number, 'from_level', v_from, 'outcome', 'at_ceiling'));
+      CONTINUE;
+    END IF;
+
+    -- Start above the create-time handler, while that person still holds it.
+    v_base := v_from;
+    IF v_t.assigned_to IS NOT NULL
+       AND (v_t.metadata -> 'auto_route' ->> 'assigned_to') = v_t.assigned_to::text
+       AND (v_t.metadata -> 'auto_route' ->> 'level') ~ '^[0-9]+$' THEN
+      v_base := GREATEST(v_base, (v_t.metadata -> 'auto_route' ->> 'level')::integer);
+    END IF;
+
+    v_skipped := '[]'::jsonb;
+    v_to := NULL;
+    v_lvl := v_base;
+    WHILE v_lvl < 3 LOOP
+      v_lvl := v_lvl + 1;
+      v_res := public.fn_grievance_level_target(v_t, v_lvl);
+      IF v_res ->> 'to' IS NOT NULL THEN
+        v_to := (v_res ->> 'to')::uuid;
+        v_via := v_res ->> 'via';
+        EXIT;
+      END IF;
+      v_skipped := v_skipped || jsonb_build_array(v_res);
+    END LOOP;
+
+    IF v_to IS NULL THEN
+      v_no_target := v_no_target + 1;
+      v_rows := v_rows || jsonb_build_array(jsonb_build_object(
+        'ticket', v_t.ticket_number, 'from_level', v_from, 'outcome', 'no_target', 'skipped', v_skipped));
+      -- Recorded once per level, not every hour.
+      IF NOT v_dry AND (v_t.metadata -> 'escalation_blocked' ->> 'from_level') IS DISTINCT FROM v_from::text THEN
+        UPDATE public.grievance_tickets
+           SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('escalation_blocked',
+                 jsonb_build_object('from_level', v_from, 'at', v_now, 'skipped', v_skipped))
+         WHERE id = v_t.id;
+      END IF;
+      CONTINUE;
+    END IF;
+
+    v_lv_skipped := v_lv_skipped + jsonb_array_length(v_skipped);
+    v_hours := GREATEST(COALESCE(public.fn_get_policy_int('grievance.escalation.level' || v_lvl || '_hours',
+                 CASE v_lvl WHEN 3 THEN 72 ELSE 48 END, v_t.institution_id), 48), 1);
+    v_deadline := v_now + make_interval(hours => v_hours);
+    v_event := jsonb_build_object(
+      'level', v_lvl, 'role', CASE v_lvl WHEN 1 THEN 'hod' WHEN 2 THEN 'principal' ELSE 'director' END,
+      'to', v_to, 'via', v_via, 'at', v_now, 'deadline', v_deadline,
+      'from_level', v_from, 'previous_assignee', v_t.assigned_to, 'skipped', v_skipped);
+    v_rows := v_rows || jsonb_build_array(jsonb_build_object(
+      'ticket', v_t.ticket_number, 'from_level', v_from, 'to_level', v_lvl, 'to', v_to,
+      'outcome', 'escalated', 'skipped', v_skipped));
+
+    IF NOT v_dry THEN
+      UPDATE public.grievance_tickets
+         SET escalation_level    = v_lvl,
+             assigned_to         = v_to,
+             assigned_at         = v_now,
+             escalated_at        = v_now,
+             escalation_deadline = v_deadline,
+             metadata = (COALESCE(metadata, '{}'::jsonb) - 'escalation_blocked')
+                        || jsonb_build_object('escalations',
+                             COALESCE(metadata -> 'escalations', '[]'::jsonb) || jsonb_build_array(v_event))
+       WHERE id = v_t.id;
+      -- A failed notice never undoes the escalation (or the rest of the run):
+      -- it is recorded on the event and counted as notify_failed.
+      BEGIN
+        v_nid := public.fn_grievance_notify(v_t, v_to, 'escalated', v_lvl, v_deadline,
+                   'grievance-escalated:' || v_t.id::text || ':L' || v_lvl || ':' ||
+                   floor(extract(epoch FROM v_due))::bigint::text);
+        IF v_nid IS NOT NULL THEN v_notified := v_notified + 1; END IF;
+      EXCEPTION WHEN OTHERS THEN
+        v_nfail := v_nfail + 1;
+        UPDATE public.grievance_tickets
+           SET metadata = jsonb_set(metadata, '{escalations,-1,notify_error}', to_jsonb(SQLERRM))
+         WHERE id = v_t.id;
+      END;
+    END IF;
+    v_escalated := v_escalated + 1;
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'success',           true,
+    'dry_run',           v_dry,
+    'enabled',           v_enabled,
+    'breached_stamped',  v_stamped,
+    'escalated',         v_escalated,
+    'notified',          v_notified,
+    'notify_failed',     v_nfail,
+    'skipped_no_target', v_no_target,
+    'levels_skipped',    v_lv_skipped,
+    'at_ceiling',        v_ceiling,
+    'switched_off',      v_off,
+    'tickets',           v_rows);
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_escalation_tick(boolean) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_grievance_escalation_tick(boolean) TO service_role;
+
+COMMENT ON FUNCTION public.fn_grievance_escalation_tick(boolean) IS
+  'Hourly (via /api/cron/grievance-sla-breach-check): stamps sla_breached_at on newly overdue tickets, then moves each ticket overdue at its current level up ONE chain level (HOD, Principal, Director), reassigning and notifying. Rules and safety limits: migration 20270420090000_grievance_sla_escalation.sql. Scheduler only.';
+
+-- ---------------------------------------------------------------------
+-- 9) fn_generate_unresolved_issue_items — the dead link
+-- ---------------------------------------------------------------------
+-- Body identical to production (20261213100000, compared 2026-09-28) except
+-- the work item's url: /grievances/<id> never existed; the ticket page is
+-- /accreditation/naac/grievance/<id>. The dedupe key is unchanged, so no work
+-- item is posted twice across the deploy.
+CREATE OR REPLACE FUNCTION public.fn_generate_unresolved_issue_items()
+RETURNS INT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $fn_issue$
+DECLARE
+  v_created INT := 0; v_griev RECORD; v_key TEXT; v_target UUID;
+  v_priority TEXT; v_hours_past_sla INT;
+  v_cfg JSONB;
+  v_category TEXT;
+  v_statuses TEXT[];
+  v_max_age_days INT;
+  v_batch_limit INT;
+  v_urgent_when_emergency BOOLEAN;
+  v_urgent_when_escalation_gte INT;
+  v_high_when_escalation_eq INT;
+  v_high_when_hours_past_sla_gt INT;
+  v_ttl_urgent_hours INT;
+  v_ttl_normal_hours INT;
+  v_fallback_to_director BOOLEAN;
+BEGIN
+  v_cfg := fn_get_generator_config('unresolved_issue', '{
+    "category": "dashboard:approval",
+    "statuses": ["open","assigned","in_progress","escalated"],
+    "max_age_days": 90,
+    "batch_limit": 50,
+    "trigger_conditions": ["sla_deadline_breached","escalation_level_gt_0","is_emergency"],
+    "filters": {"withdrawn_at_is_null": true, "resolved_at_is_null": true},
+    "priority_overrides": {
+      "urgent_when_is_emergency": true,
+      "urgent_when_escalation_gte": 2,
+      "high_when_escalation_eq": 1,
+      "high_when_hours_past_sla_gt": 24
+    },
+    "ttl_hours": {"urgent_or_escalation_gte_2": 4, "normal": 24},
+    "fallback_to_director": true
+  }'::jsonb);
+
+  v_category             := COALESCE(v_cfg->>'category', 'dashboard:approval');
+  v_statuses             := COALESCE(
+                              ARRAY(SELECT jsonb_array_elements_text(v_cfg->'statuses')),
+                              ARRAY['open','assigned','in_progress','escalated']
+                            );
+  v_max_age_days         := COALESCE((v_cfg->>'max_age_days')::INT, 90);
+  v_batch_limit          := COALESCE((v_cfg->>'batch_limit')::INT, 50);
+  v_urgent_when_emergency      := COALESCE((v_cfg->'priority_overrides'->>'urgent_when_is_emergency')::BOOLEAN, true);
+  v_urgent_when_escalation_gte := COALESCE((v_cfg->'priority_overrides'->>'urgent_when_escalation_gte')::INT, 2);
+  v_high_when_escalation_eq    := COALESCE((v_cfg->'priority_overrides'->>'high_when_escalation_eq')::INT, 1);
+  v_high_when_hours_past_sla_gt := COALESCE((v_cfg->'priority_overrides'->>'high_when_hours_past_sla_gt')::INT, 24);
+  v_ttl_urgent_hours     := COALESCE((v_cfg->'ttl_hours'->>'urgent_or_escalation_gte_2')::INT, 4);
+  v_ttl_normal_hours     := COALESCE((v_cfg->'ttl_hours'->>'normal')::INT, 24);
+  v_fallback_to_director := COALESCE((v_cfg->>'fallback_to_director')::BOOLEAN, true);
+
+  FOR v_griev IN
+    SELECT id, ticket_number, subject, description, institution_id,
+           priority, status, sla_deadline, sla_status, escalation_level,
+           is_emergency, assigned_to,
+           CASE WHEN sla_deadline IS NOT NULL
+                THEN EXTRACT(EPOCH FROM (NOW() - sla_deadline))/3600
+                ELSE 0 END AS hours_past_sla
+    FROM public.grievance_tickets
+    WHERE status = ANY(v_statuses)
+      AND created_at > NOW() - make_interval(days => v_max_age_days)
+      AND (sla_deadline < NOW() OR escalation_level > 0 OR is_emergency = TRUE)
+      AND withdrawn_at IS NULL
+      AND resolved_at IS NULL
+    ORDER BY escalation_level DESC NULLS LAST, sla_deadline ASC NULLS LAST
+    LIMIT v_batch_limit
+  LOOP
+    IF v_fallback_to_director THEN
+      v_target := COALESCE(v_griev.assigned_to, fn_resolve_dashboard_target(v_griev.institution_id));
+    ELSE
+      v_target := v_griev.assigned_to;
+    END IF;
+    IF v_target IS NULL THEN CONTINUE; END IF;
+    v_hours_past_sla := v_griev.hours_past_sla::INT;
+    v_priority := CASE
+      WHEN v_urgent_when_emergency AND v_griev.is_emergency THEN 'urgent'
+      WHEN v_griev.escalation_level >= v_urgent_when_escalation_gte THEN 'urgent'
+      WHEN v_griev.escalation_level = v_high_when_escalation_eq THEN 'high'
+      WHEN v_hours_past_sla > v_high_when_hours_past_sla_gt THEN 'high'
+      ELSE 'normal'
+    END;
+    -- Dedupe key is production's, unchanged: a new key would double-post
+    -- every open ticket for one day across the deploy window.
+    -- The url is the real ticket page (2026-09-28); /grievances/<id> never existed.
+    v_key := 'grievance_ticket:' || v_griev.id::text || ':' || CURRENT_DATE::text;
+    v_created := v_created + fn_create_dashboard_work_item(
+      v_category, v_priority,
+      'Grievance ' || v_griev.ticket_number || ' — ' || LEFT(v_griev.subject, 80),
+      LEFT(v_griev.description, 140) ||
+        CASE WHEN v_griev.escalation_level > 0 THEN ' | escalated L' || v_griev.escalation_level::text ELSE '' END ||
+        CASE WHEN v_griev.sla_deadline < NOW() THEN ' | SLA breached ' || v_hours_past_sla::text || 'h' ELSE '' END ||
+        CASE WHEN v_griev.assigned_to IS NULL THEN ' | UNASSIGNED, routed to Director' ELSE '' END,
+      jsonb_build_object(
+        'grievance_id',     v_griev.id,
+        'ticket_number',    v_griev.ticket_number,
+        'escalation_level', v_griev.escalation_level,
+        'sla_breached',     (v_griev.sla_deadline < NOW()),
+        'is_emergency',     v_griev.is_emergency,
+        'unassigned_fallback', v_griev.assigned_to IS NULL,
+        'url', '/accreditation/naac/grievance/' || v_griev.id::text
+      ),
+      v_target, v_key,
+      CASE
+        WHEN v_griev.is_emergency OR v_griev.escalation_level >= v_urgent_when_escalation_gte
+          THEN v_ttl_urgent_hours
+        ELSE v_ttl_normal_hours
+      END
+    );
+  END LOOP;
+  RETURN v_created;
+END $fn_issue$;
+
+REVOKE ALL ON FUNCTION public.fn_generate_unresolved_issue_items() FROM PUBLIC, anon, authenticated;
+
+
+-- =====================================================================
+-- Updated: 2026-10-01 - Grievance complaint privacy (functions)
+-- Source of truth for apply: supabase/migrations/20270624093700_grievance_complaint_privacy.sql
+-- =====================================================================
+CREATE OR REPLACE FUNCTION public.fn_grievance_scrub_anonymous_filer()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  IF COALESCE(NEW.is_anonymous, false) THEN
+    NEW.raised_by_id    := NULL;
+    NEW.raised_by_name  := NULL;
+    NEW.raised_by_email := NULL;
+    NEW.raised_by_phone := NULL;
+    NEW.filed_by        := NULL;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_scrub_anonymous_filer() FROM anon, PUBLIC;
+
+COMMENT ON FUNCTION public.fn_grievance_scrub_anonymous_filer() IS
+  'BEFORE INSERT OR UPDATE on grievance_tickets: an anonymous ticket (is_anonymous = true) never stores raised_by_id, raised_by_name, raised_by_email, raised_by_phone or filed_by. Director ruling 30 Sep 2026: anonymous must hide the filer from everyone handling the complaint. The filer follows it with the private tracking code only.';
+
+-- Shared lookup: the same token rule as fn_track_issue_by_token (substrate v2).
+CREATE OR REPLACE FUNCTION public.fn_grievance_ticket_by_token(p_token text)
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT gt.id
+  FROM public.grievance_tickets gt
+  WHERE gt.is_anonymous = true
+    AND gt.anonymous_token IS NOT NULL
+    AND gt.anonymous_token = p_token
+    AND p_token LIKE 'anon\_%'
+    AND length(COALESCE(p_token, '')) >= 20
+  LIMIT 1
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_ticket_by_token(text) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_grievance_ticket_by_token(text) TO service_role;
+
+-- ci:allow-secdef-authenticated the three fn_grievance_track_* functions are the anonymous filer's only door: the AUTHORITY is the private tracking code (122 to 192 bits of randomness, 'anon_' prefix, length >= 20), checked in every body through fn_grievance_ticket_by_token before anything is read or written. A signed-in caller without the code gets NULL / "No complaint matches this code"; they return no author id, no handler, no raised_by_* column, and write only an author-less answer or the rating on that one ticket.
+-- What the filer sees: the conversation and her rating. Never an author id,
+-- never the handler's name, never any raised_by_* column. NULL = no such code.
+CREATE OR REPLACE FUNCTION public.fn_grievance_track_conversation(p_token text)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_id  uuid;
+  v_t   public.grievance_tickets;
+  v_msg jsonb;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN NULL;
+  END IF;
+  v_id := public.fn_grievance_ticket_by_token(p_token);
+  IF v_id IS NULL THEN
+    RETURN NULL;
+  END IF;
+  SELECT * INTO v_t FROM public.grievance_tickets WHERE id = v_id;
+
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+           'id', m.id, 'direction', m.direction, 'body', m.body, 'created_at', m.created_at)
+           ORDER BY m.created_at, m.id), '[]'::jsonb)
+    INTO v_msg
+  FROM public.grievance_anonymous_messages m
+  WHERE m.ticket_id = v_id;
+
+  RETURN jsonb_build_object(
+    'messages', v_msg,
+    'can_answer', (v_t.status::text <> 'closed' AND v_t.withdrawn_at IS NULL
+                   AND EXISTS (SELECT 1 FROM public.grievance_anonymous_messages q
+                               WHERE q.ticket_id = v_id AND q.direction = 'question')),
+    'can_rate', (v_t.status::text IN ('resolved', 'closed')),
+    'satisfaction_rating', v_t.satisfaction_rating,
+    'satisfaction_feedback', v_t.satisfaction_feedback
+  );
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_track_conversation(text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_grievance_track_conversation(text) TO authenticated, service_role;
+
+-- The filer answers. Stored with author_id NULL — the signed-in caller's id is
+-- used for nothing and written nowhere.
+CREATE OR REPLACE FUNCTION public.fn_grievance_track_answer(p_token text, p_body text)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_id    uuid;
+  v_t     public.grievance_tickets;
+  v_body  text := btrim(COALESCE(p_body, ''));
+  v_count integer;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'You are not signed in. Sign in and try again.');
+  END IF;
+  v_id := public.fn_grievance_ticket_by_token(p_token);
+  IF v_id IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'No complaint matches this code.');
+  END IF;
+  SELECT * INTO v_t FROM public.grievance_tickets WHERE id = v_id;
+
+  IF v_t.status::text = 'closed' OR v_t.withdrawn_at IS NOT NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'This complaint is closed, so it cannot take new answers.');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.grievance_anonymous_messages
+                  WHERE ticket_id = v_id AND direction = 'question') THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Nobody has asked you anything on this complaint yet.');
+  END IF;
+  IF char_length(v_body) < 1 THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Please write your answer first.');
+  END IF;
+  IF char_length(v_body) > 2000 THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Please keep your answer to 2000 characters or fewer.');
+  END IF;
+
+  -- A flood guard, not a rule about the filer: at most 20 answers a day.
+  SELECT count(*) INTO v_count FROM public.grievance_anonymous_messages
+   WHERE ticket_id = v_id AND direction = 'answer' AND created_at > now() - interval '24 hours';
+  IF v_count >= 20 THEN
+    RETURN jsonb_build_object('success', false, 'error', 'You have sent a lot of answers today. Please wait until tomorrow.');
+  END IF;
+
+  INSERT INTO public.grievance_anonymous_messages (ticket_id, direction, body, author_id)
+  VALUES (v_id, 'answer', v_body, NULL);
+
+  RETURN jsonb_build_object('success', true);
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_track_answer(text, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_grievance_track_answer(text, text) TO authenticated, service_role;
+
+-- The filer rates the outcome, 1-5 stars and an optional note, once the
+-- complaint is resolved or closed. A later rating replaces the earlier one.
+-- The rating is the one write to grievance_tickets made while the anonymous
+-- filer's own session is the request identity (SECURITY DEFINER does not
+-- change auth.uid()). Any trigger that records auth.uid() as the actor — a
+-- live-only history or audit trigger, say — would write her id onto her own
+-- anonymous ticket. So the UPDATE runs with NO request identity (both places
+-- auth.uid() reads, transaction-local), restored straight after.
+CREATE OR REPLACE FUNCTION public.fn_grievance_track_rate(p_token text, p_rating integer, p_note text DEFAULT NULL)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_id   uuid;
+  v_t    public.grievance_tickets;
+  v_note text := NULLIF(btrim(COALESCE(p_note, '')), '');
+  v_sub    text;
+  v_claims text;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'You are not signed in. Sign in and try again.');
+  END IF;
+  v_id := public.fn_grievance_ticket_by_token(p_token);
+  IF v_id IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'No complaint matches this code.');
+  END IF;
+  SELECT * INTO v_t FROM public.grievance_tickets WHERE id = v_id;
+
+  IF v_t.status::text NOT IN ('resolved', 'closed') THEN
+    RETURN jsonb_build_object('success', false, 'error', 'You can rate this once it has been resolved.');
+  END IF;
+  IF p_rating IS NULL OR p_rating < 1 OR p_rating > 5 THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Please choose from 1 to 5 stars.');
+  END IF;
+  IF v_note IS NOT NULL AND char_length(v_note) > 1000 THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Please keep the note to 1000 characters or fewer.');
+  END IF;
+
+  v_sub    := current_setting('request.jwt.claim.sub', true);
+  v_claims := current_setting('request.jwt.claims', true);
+  PERFORM set_config('request.jwt.claim.sub', '', true);
+  -- '{}' rather than '': a reader that casts the claims to jsonb without
+  -- NULLIF must still parse them.
+  PERFORM set_config('request.jwt.claims', '{}', true);
+
+  UPDATE public.grievance_tickets
+     SET satisfaction_rating = p_rating,
+         satisfaction_feedback = v_note
+   WHERE id = v_id;
+
+  PERFORM set_config('request.jwt.claim.sub', COALESCE(v_sub, ''), true);
+  PERFORM set_config('request.jwt.claims', COALESCE(v_claims, '{}'), true);
+
+  RETURN jsonb_build_object('success', true);
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_track_rate(text, integer, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_grievance_track_rate(text, integer, text) TO authenticated, service_role;
+
+-- ---------------------------------------------------------------------
+-- 6) Can anybody at this college actually read an ICC-only complaint?
+-- ---------------------------------------------------------------------
+-- The committee branch of grievance_tickets_select (substrate v2) admits a
+-- holder of custom_roles.role_key = 'icc_member' (via user_roles; is_active
+-- is NOT checked there, so it is not checked here) for whom
+-- role_has_institution_access(institution_id) is true. An
+-- accreditation_committees row proves none of that, and no migration seeds or
+-- assigns icc_member. InstaSolver calls this before leaving a harassment or
+-- ragging complaint unassigned for the committee; false (or an error) sends it
+-- privately to the superior-route person instead.
+--
+-- Institution access is UNDER-approximated on purpose — own college
+-- (profiles.institution_id), an active user_institution_access grant, any
+-- role with institution_scope = 'all', or profiles.is_super_admin. The CAS
+-- sibling arm of role_has_institution_access is left out. Missing a real
+-- reader only routes the complaint to the superior-route person, who can read
+-- it (section 5); counting a non-reader would strand it.
+--
+-- The holder must also be a usable profile (fn_grievance_profile_unusable,
+-- 20270420090000: active, login not disabled, not a test/placeholder), and
+-- not p_exclude — the person filing, whose own complaint must not wait on
+-- her alone.
+CREATE OR REPLACE FUNCTION public.fn_grievance_icc_reader_exists(p_institution_id uuid, p_exclude uuid DEFAULT NULL)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.user_roles ur
+    JOIN public.custom_roles cr ON cr.id = ur.role_id
+    JOIN public.profiles p ON p.id = ur.user_id
+    WHERE cr.role_key = 'icc_member'
+      AND public.fn_grievance_profile_unusable(ur.user_id, array_remove(ARRAY[p_exclude], NULL)) IS NULL
+      AND (
+        COALESCE(p.is_super_admin, false)
+        OR p.institution_id = p_institution_id
+        OR EXISTS (SELECT 1 FROM public.user_institution_access uia
+                    WHERE uia.user_id = ur.user_id
+                      AND uia.institution_id = p_institution_id
+                      AND uia.is_active = true)
+        OR EXISTS (SELECT 1 FROM public.user_roles ur2
+                     JOIN public.custom_roles cr2 ON cr2.id = ur2.role_id
+                    WHERE ur2.user_id = ur.user_id
+                      AND cr2.institution_scope = 'all')
+      )
+  )
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_icc_reader_exists(uuid, uuid) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_grievance_icc_reader_exists(uuid, uuid) TO service_role;
+
+COMMENT ON FUNCTION public.fn_grievance_icc_reader_exists(uuid, uuid) IS
+  'True when at least one usable icc_member holder (other than p_exclude) can read ICC-only grievance tickets of p_institution_id through the committee branch of grievance_tickets_select. Institution access deliberately under-approximated (own college, active user_institution_access grant, a role with institution_scope = all, super admin; no CAS sibling arm): a false negative only sends the complaint to the superior-route person. Called by the InstaSolver complaint route with the service-role client.';
+
+-- Updated: 2026-10-01 - one ICC rule for every door + ICC column guard (repair round)
+-- ---------------------------------------------------------------------
+-- 7) One ICC rule for every door, with the reader check behind it
+-- ---------------------------------------------------------------------
+-- Rulings 2 and 3 (30 Sep 2026): harassment and ragging are ICC-only; when
+-- nobody at the college can read them as the committee, they go privately to
+-- the superior-route person (platform policy
+-- instasolver.complaint.superior_route_to). The InstaSolver route already did
+-- both; the /accreditation form and the Learners Council board did neither.
+-- Doing it here reaches every writer, including a direct PostgREST insert.
+--
+-- The rule. MUST stay the same as ICC_CATEGORY_PATTERN in
+-- lib/instasolver/complaint.ts (the JavaScript \b is \y here — in a Postgres
+-- regex \b is a backspace). __tests__/grievance/icc-rule-parity.test.ts
+-- fails if the two drift; the same fixture names are asserted in both.
+CREATE OR REPLACE FUNCTION public.fn_grievance_is_icc_only_category(p_name text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public
+AS $$
+  SELECT COALESCE(p_name, '') ~* 'harass|ragging|\yicc\y'
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_is_icc_only_category(text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_grievance_is_icc_only_category(text) TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.fn_grievance_is_icc_only_category(text) IS
+  'Whether a grievance category of this name is ICC-only (harassment, ragging, ICC). Same rule as isIccOnlyCategory in lib/instasolver/complaint.ts; a parity test keeps them equal. Director ruling 2, 30 Sep 2026.';
+
+-- BEFORE INSERT. Named trg_grievance_icc_* so it fires BEFORE
+-- trg_grievance_route_on_create (#4079): Postgres fires same-event triggers in
+-- name order, and route-on-create would otherwise hand a named Ragging
+-- complaint to a HOD before it became ICC-only — and the assignee policy in
+-- section 5 would then let that HOD read it.
+--   (a) is_icc_only becomes true when the category name matches the rule.
+--       Never set back to false: a writer's own true stands.
+--   (b) An ICC-only row that arrives with no assignee, at a college where no
+--       usable icc_member other than the person filing can read it
+--       (fn_grievance_icc_reader_exists, section 6), is assigned to the
+--       superior-route person. When that policy is unset or names an unusable
+--       profile (or the filer herself), the row stays unassigned and is stamped
+--       route_pending_policy — the same fail-closed answer the InstaSolver
+--       route gives.
+-- auth.uid() is the person filing on the browser doors (/accreditation, the
+-- Learners Council board). It is used for the exclusion only and stored
+-- nowhere. The InstaSolver route writes with the service role and makes this
+-- decision itself (it stamps icc_no_committee), so (b) skips its rows.
+-- The superior-route person is NOT sent a bell by this (route-on-create's
+-- notice fires only for its own assignments) — the same as the InstaSolver
+-- route today; the dashboard work item reaches her.
+CREATE OR REPLACE FUNCTION public.fn_grievance_icc_route_on_create()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_filer  uuid := auth.uid();
+  v_name   text;
+  v_raw    jsonb;
+  v_to     uuid;
+  v_reader boolean;
+BEGIN
+  IF NOT COALESCE(NEW.is_icc_only, false) THEN
+    SELECT c.name INTO v_name FROM public.grievance_categories c WHERE c.id = NEW.category_id;
+    IF public.fn_grievance_is_icc_only_category(v_name) THEN
+      NEW.is_icc_only := true;
+    END IF;
+  END IF;
+
+  IF NOT COALESCE(NEW.is_icc_only, false)
+     OR NEW.assigned_to IS NOT NULL
+     OR COALESCE(NEW.metadata ? 'icc_no_committee', false) THEN
+    RETURN NEW;
+  END IF;
+
+  -- The routing half never loses the complaint: an error in the reader check
+  -- counts as "no reader" (the superior-route person can read it), an error in
+  -- the policy read as "no policy" (route_pending_policy). The ICC-only marking
+  -- above is NOT wrapped — that rule must hold.
+  BEGIN
+    v_reader := public.fn_grievance_icc_reader_exists(NEW.institution_id, v_filer);
+  EXCEPTION WHEN OTHERS THEN
+    v_reader := false;
+    NEW.metadata := COALESCE(NEW.metadata, '{}'::jsonb) || jsonb_build_object('icc_committee_check_failed', true);
+  END;
+  IF v_reader THEN
+    RETURN NEW;
+  END IF;
+
+  NEW.metadata := COALESCE(NEW.metadata, '{}'::jsonb) || jsonb_build_object('icc_no_committee', true);
+
+  BEGIN
+    v_raw := public.fn_get_policy('instasolver.complaint.superior_route_to', NULL);
+    v_to := CASE WHEN jsonb_typeof(v_raw) = 'string' THEN btrim(v_raw #>> '{}')::uuid
+                 WHEN jsonb_typeof(v_raw) = 'object' THEN btrim(COALESCE(v_raw ->> 'profile_id', v_raw ->> 'id'))::uuid
+                 ELSE NULL END;
+    IF v_to IS NOT NULL
+       AND public.fn_grievance_profile_unusable(v_to, array_remove(ARRAY[v_filer], NULL)) IS NOT NULL THEN
+      v_to := NULL;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    v_to := NULL;
+  END;
+
+  IF v_to IS NOT NULL THEN
+    NEW.assigned_to := v_to;
+    NEW.assigned_at := now();
+    NEW.metadata := NEW.metadata || jsonb_build_object('routing', 'icc_no_committee');
+  ELSE
+    NEW.metadata := NEW.metadata || jsonb_build_object('route_pending_policy', true);
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_icc_route_on_create() FROM anon, authenticated, PUBLIC;
+
+COMMENT ON FUNCTION public.fn_grievance_icc_route_on_create() IS
+  'BEFORE INSERT on grievance_tickets, before trg_grievance_route_on_create. Marks harassment / ragging / ICC categories ICC-only for every writer, and sends an unassigned ICC-only complaint to the instasolver.complaint.superior_route_to profile when no usable icc_member other than the filer can read it (else stamps route_pending_policy). Director rulings 2 and 3, 30 Sep 2026.';
+
+
+-- ---------------------------------------------------------------------
+-- 8) Nobody but the committee or an admin takes a row off ICC-only
+-- ---------------------------------------------------------------------
+-- Postgres ORs the WITH CHECK clauses of permissive UPDATE policies. Section
+-- 5's assignee policy pins assigned_to to herself, but substrate v2's
+-- grievance_tickets_update WITH CHECK also offers
+-- `(is_icc_only = false AND assigned_to = auth.uid())` and
+-- `raised_by_id = auth.uid()`. So without this guard the assignee of an
+-- ICC-only row could set is_icc_only = false and expose the complaint to every
+-- grievance.tickets.view holder at the college, and (holding
+-- grievance.tickets.edit) reassign it; on a named row she could also make
+-- herself the raiser. RLS decides WHICH rows; only a trigger can decide which
+-- columns. On a row that WAS ICC-only, is_icc_only, assigned_to and
+-- raised_by_id may change only for:
+--   * no request identity — the service role (SLA escalation, InstaSolver's
+--     server code, the tracking-page rating) and migrations;
+--   * a super admin or admin;
+--   * an icc_member with access to that college (the committee — the same
+--     test as substrate v2's committee branch).
+-- Status, notes, resolution and the rest are untouched: the assignee still
+-- works the complaint. The raiser is also held by
+-- fn_grievance_raiser_update_guard (substrate v2).
+CREATE OR REPLACE FUNCTION public.fn_grievance_icc_column_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT COALESCE(OLD.is_icc_only, false) THEN
+    RETURN NEW;
+  END IF;
+  IF NEW.is_icc_only IS NOT DISTINCT FROM OLD.is_icc_only
+     AND NEW.assigned_to IS NOT DISTINCT FROM OLD.assigned_to
+     AND NEW.raised_by_id IS NOT DISTINCT FROM OLD.raised_by_id THEN
+    RETURN NEW;
+  END IF;
+  IF auth.uid() IS NULL OR public.is_super_admin() OR public.is_admin() THEN
+    RETURN NEW;
+  END IF;
+  IF public.role_has_institution_access(OLD.institution_id)
+     AND EXISTS (SELECT 1
+                   FROM public.user_roles ur
+                   JOIN public.custom_roles cr ON cr.id = ur.role_id
+                  WHERE ur.user_id = auth.uid()
+                    AND cr.role_key = 'icc_member') THEN
+    RETURN NEW;
+  END IF;
+  RAISE EXCEPTION 'Only the college''s ICC committee or an administrator can reassign this complaint or change who may read it.'
+    USING ERRCODE = 'insufficient_privilege';
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION public.fn_grievance_icc_column_guard() FROM anon, authenticated, PUBLIC;
+
+COMMENT ON FUNCTION public.fn_grievance_icc_column_guard() IS
+  'BEFORE UPDATE on grievance_tickets. On a row that was ICC-only, is_icc_only, assigned_to and raised_by_id change only for the service role (no request identity), a super admin / admin, or an icc_member with access to the college. Closes the OR''d-WITH-CHECK gap between grievance_tickets_update (substrate v2) and grievance_tickets_update_icc_routed_assignee.';

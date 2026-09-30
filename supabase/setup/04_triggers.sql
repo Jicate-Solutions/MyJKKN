@@ -2818,3 +2818,42 @@ CREATE TRIGGER trg_guard_salary_suggestion_rule_writes
   BEFORE INSERT OR UPDATE OR DELETE ON public.platform_policies
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_guard_salary_suggestion_rule_writes();
+-- =====================================================================
+-- Updated: 2026-09-28 - Grievance: route on create, escalate on breach (triggers)
+-- Source of truth for apply: supabase/migrations/20270420090000_grievance_sla_escalation.sql
+-- =====================================================================
+DROP TRIGGER IF EXISTS trg_grievance_route_on_create ON public.grievance_tickets;
+CREATE TRIGGER trg_grievance_route_on_create
+  BEFORE INSERT ON public.grievance_tickets
+  FOR EACH ROW EXECUTE FUNCTION public.fn_grievance_route_on_create();
+
+DROP TRIGGER IF EXISTS trg_grievance_notify_on_create ON public.grievance_tickets;
+CREATE TRIGGER trg_grievance_notify_on_create
+  AFTER INSERT ON public.grievance_tickets
+  FOR EACH ROW
+  WHEN (NEW.assigned_to IS NOT NULL
+        AND (NEW.metadata -> 'auto_route' ->> 'assigned_to') = NEW.assigned_to::text)
+  EXECUTE FUNCTION public.fn_grievance_notify_on_create();
+
+
+-- =====================================================================
+-- Updated: 2026-10-01 - Grievance complaint privacy (triggers)
+-- Source of truth for apply: supabase/migrations/20270624093700_grievance_complaint_privacy.sql
+-- =====================================================================
+DROP TRIGGER IF EXISTS trg_grievance_zz_scrub_anonymous_filer ON public.grievance_tickets;
+DROP TRIGGER IF EXISTS zzz_grievance_scrub_anonymous_filer ON public.grievance_tickets;
+CREATE TRIGGER zzz_grievance_scrub_anonymous_filer
+  BEFORE INSERT OR UPDATE ON public.grievance_tickets
+  FOR EACH ROW EXECUTE FUNCTION public.fn_grievance_scrub_anonymous_filer();
+
+-- Updated: 2026-10-01 - one ICC rule for every door (BEFORE INSERT, fires before
+-- trg_grievance_route_on_create by name) + ICC column guard (BEFORE UPDATE)
+DROP TRIGGER IF EXISTS trg_grievance_icc_route_on_create ON public.grievance_tickets;
+CREATE TRIGGER trg_grievance_icc_route_on_create
+  BEFORE INSERT ON public.grievance_tickets
+  FOR EACH ROW EXECUTE FUNCTION public.fn_grievance_icc_route_on_create();
+
+DROP TRIGGER IF EXISTS trg_grievance_icc_column_guard ON public.grievance_tickets;
+CREATE TRIGGER trg_grievance_icc_column_guard
+  BEFORE UPDATE ON public.grievance_tickets
+  FOR EACH ROW EXECUTE FUNCTION public.fn_grievance_icc_column_guard();

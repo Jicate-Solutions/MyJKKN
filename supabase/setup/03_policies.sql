@@ -11511,3 +11511,84 @@ CREATE POLICY hvci_delete ON public.hostel_vacate_checklist_items FOR DELETE TO 
     OR (SELECT public.is_admin())
     OR (SELECT public.user_has_permission('campus_living.vacate_checklist.manage'))
   );
+
+-- =====================================================================
+-- Updated: 2026-10-01 - Grievance complaint privacy (policies)
+-- Source of truth for apply: supabase/migrations/20270624093700_grievance_complaint_privacy.sql
+-- =====================================================================
+-- The parent read runs under the caller's own grievance_tickets RLS, so the
+-- ICC-only rules, institution scope and the rest are inherited exactly.
+DROP POLICY IF EXISTS grievance_anonymous_messages_select ON public.grievance_anonymous_messages;
+CREATE POLICY grievance_anonymous_messages_select ON public.grievance_anonymous_messages
+  FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.grievance_tickets gt WHERE gt.id = ticket_id));
+
+-- A handler may only ASK, only as herself, only on an anonymous ticket she can
+-- read, and not once it is closed or withdrawn. Answers go through the RPC.
+-- No UPDATE / DELETE policy: a message, once sent, stays as sent.
+DROP POLICY IF EXISTS grievance_anonymous_messages_insert ON public.grievance_anonymous_messages;
+CREATE POLICY grievance_anonymous_messages_insert ON public.grievance_anonymous_messages
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    direction = 'question'
+    AND author_id = (SELECT auth.uid())
+    AND EXISTS (
+      SELECT 1 FROM public.grievance_tickets gt
+      WHERE gt.id = ticket_id
+        AND COALESCE(gt.is_anonymous, false)
+        AND gt.status::text <> 'closed'
+        AND gt.withdrawn_at IS NULL
+    )
+  );
+
+-- Substrate v2 demoted assigned_to for ICC-only rows ("a handler not on the
+-- committee should not read it merely because it was assigned to them"). That
+-- left two real assignees locked out of the complaint they were sent:
+--   * the superior-route person InstaSolver hands it to (route.ts), and
+--   * the ICC chair / Director-policy person SLA escalation assigns it to at
+--     level 3 (fn_grievance_level_target, 20270420090000), who need not hold
+--     icc_member.
+-- An earlier draft admitted only rows stamped metadata.routing =
+-- 'icc_no_committee' / 'superior_bypass'. That pin was never a control:
+-- grievance_tickets_insert admits any authenticated caller with any metadata,
+-- so a direct insert could forge it, and escalation never sets it.
+--
+-- Why letting the assignee read costs no confidentiality: on an EXISTING
+-- ICC-only row, assigned_to can only be written by someone who may already
+-- read and update that row — super admin, admin, an institution-scoped
+-- icc_member (substrate v2 grievance_tickets_update), the service-role
+-- escalation run, or the assignee herself, pinned to herself by the WITH
+-- CHECK below. The raiser cannot change it (fn_grievance_raiser_update_guard).
+-- So assignment is a decision a trusted reader made, and this honours it.
+-- A filer inserting a new ICC-only row can name an assignee — but it is her
+-- own complaint she is choosing to send.
+--
+-- The WITH CHECK below pins assigned_to to herself, but that pin ALONE does
+-- not hold: Postgres ORs the WITH CHECK clauses of permissive UPDATE policies,
+-- and substrate v2's grievance_tickets_update WITH CHECK still offers
+-- `raised_by_id = auth.uid()` and `(is_icc_only = false AND assigned_to =
+-- auth.uid())`. Through those an assignee admitted by the USING below could
+-- set is_icc_only = false (exposing the complaint to every holder of
+-- grievance.tickets.view at the college), reassign it, or on a named row make
+-- herself the raiser. Section 8's column guard is what closes that; the
+-- rehearsal (supabase/tests/grievance/20_privacy.sql) proves each path is
+-- refused.
+DROP POLICY IF EXISTS grievance_tickets_select_icc_routed_assignee ON public.grievance_tickets;
+CREATE POLICY grievance_tickets_select_icc_routed_assignee ON public.grievance_tickets
+  FOR SELECT TO authenticated
+  USING (
+    is_icc_only = true
+    AND assigned_to = (SELECT auth.uid())
+  );
+
+DROP POLICY IF EXISTS grievance_tickets_update_icc_routed_assignee ON public.grievance_tickets;
+CREATE POLICY grievance_tickets_update_icc_routed_assignee ON public.grievance_tickets
+  FOR UPDATE TO authenticated
+  USING (
+    is_icc_only = true
+    AND assigned_to = (SELECT auth.uid())
+  )
+  WITH CHECK (
+    is_icc_only = true
+    AND assigned_to = (SELECT auth.uid())
+  );

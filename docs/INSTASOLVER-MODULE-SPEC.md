@@ -443,3 +443,15 @@ Per memory `feedback_implementation_pivot_vs_verdict_semantics.md` — this IS a
 - **B.2 wave** — `/issues/requirements/new` form needs the parent-category whitelist enforcement; super_admin UI at `/admin/issues/parent-allowed-categories` writes the `platform_policies` row.
 
 *Final lockset captured 2026-05-04 15:48 IST · all 6 Director questions resolved · B.2 wave unblocked.*
+
+---
+
+## Follow-ups
+
+Recorded 2026-10-01 from the blind review of PR #4156 (complaint privacy). F1 and F3 were closed in that PR's repair round; F2 is still open.
+
+| # | Gap | Fix wanted | Pinned by |
+|---|-----|-----------|-----------|
+| F1 | CLOSED in #4156 (repair round 1 Oct): the assignee of an ICC-only complaint could set `is_icc_only = false`, reassign, or on a named row make herself the raiser, because permissive UPDATE policies OR their WITH CHECKs. | `trg_grievance_icc_column_guard` (migration `20270624093700`, section 8): on an ICC-only row only the committee, an admin or the service role may change `is_icc_only`, `assigned_to` or `raised_by_id`. | `supabase/tests/grievance/20_privacy.sql` section 7 — the three paths are asserted refused (each succeeds with section 8 removed). |
+| F2 | `grievance_history_select` (`rls_initplan_wrap_sweep.sql`, ~line 2050) lets any profile whose legacy role is `admin`, `super_admin`, `staff`, `hod` or `principal` read the history of ANY ticket, ICC-only rows included, and names roles instead of `user_has_permission()`. The table is live but no migration or app code writes it. | Recreate the policy on the ticket's own read rule (`EXISTS (SELECT 1 FROM grievance_tickets gt WHERE gt.id = ticket_id)` under the caller's RLS). First find what writes the table (live `pg_trigger` on `grievance_tickets`). | — |
+| F3 | CLOSED in #4156 (repair round 1 Oct): the /accreditation form used its own "sexual harassment" substring and had no reader check. | One rule for every door: `isIccOnlyCategory` in the app and `fn_grievance_is_icc_only_category` + `trg_grievance_icc_route_on_create` in the database, which also sends an unassigned ICC-only complaint nobody at the college can read to the `instasolver.complaint.superior_route_to` profile. New rows only. | `__tests__/grievance/icc-rule-parity.test.ts`; `20_privacy.sql` section 10. |

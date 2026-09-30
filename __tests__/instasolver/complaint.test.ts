@@ -107,7 +107,9 @@ describe('anonymous filing when the per-category rule is missing', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.anonymousColumnPresent).toBe(false);
-    expect(result.categories).toEqual([{ id: 'c1', name: 'Hostel', allow_anonymous: false }]);
+    expect(result.categories).toEqual([
+      { id: 'c1', name: 'Hostel', allow_anonymous: false, default_sla_hours: null, is_emergency: false },
+    ]);
   });
 
   it('carries the rule through when the column is there', async () => {
@@ -253,6 +255,7 @@ describe('subject bounds', () => {
   it('refuses a title that is too short and accepts one that fits', () => {
     expect(validateSubject('hi')).not.toBeNull();
     expect(validateSubject('Broken fan in room 12')).toBeNull();
+    expect(validateSubject('Fan')).toBeNull();
   });
 
   it('refuses a title beyond the maximum', () => {

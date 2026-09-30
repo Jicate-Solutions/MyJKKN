@@ -45,6 +45,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { compressImage } from '@/lib/utils/compress-image';
 import { stripImageMetadata } from '@/lib/services/pde/strip-image-metadata';
+import { PHOTO_UNREADABLE } from '@/lib/instasolver/to-jpeg';
 
 // ── Types shared with the server component ──────────────────────────────────
 
@@ -229,11 +230,8 @@ export function FixClient({ ticket }: FixClientProps) {
           if (prev) URL.revokeObjectURL(prev);
           return URL.createObjectURL(ready);
         });
-      } catch (err: any) {
-        setSendError(
-          err?.message ??
-            'That photo could not be read on this phone. Please take it again with the camera.'
-        );
+      } catch {
+        setSendError(PHOTO_UNREADABLE);
       } finally {
         setPreparing(false);
       }
@@ -570,7 +568,6 @@ export function FixClient({ ticket }: FixClientProps) {
               ref={fileRef}
               type="file"
               accept="image/*"
-              capture="environment"
               className="hidden"
               onChange={(e) => void onPick(e)}
             />

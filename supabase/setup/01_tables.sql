@@ -10757,4 +10757,64 @@ CREATE INDEX IF NOT EXISTS idx_hvr_approved_by ON public.hostel_vacate_requests 
 CREATE UNIQUE INDEX IF NOT EXISTS hvr_one_open_per_allocation
   ON public.hostel_vacate_requests (allocation_id)
   WHERE status IN ('draft', 'pending_parent', 'pending_warden', 'pending_chief', 'pending_dues', 'approved');
+-- =====================================================================
+-- Updated: 2026-09-28 - Grievance: route on create, escalate on breach (columns)
+-- Source of truth for apply: supabase/migrations/20270420090000_grievance_sla_escalation.sql
+-- =====================================================================
+-- ---------------------------------------------------------------------
+-- 1) Two columns: when the ticket last moved up, and that level's own deadline
+-- ---------------------------------------------------------------------
+-- sla_deadline / sla_breached_at are left alone on purpose: they are the
+-- original SLA, the NAAC record, and update_grievance_sla_status recomputes
+-- sla_status from sla_deadline on every UPDATE.
+ALTER TABLE public.grievance_tickets
+  ADD COLUMN IF NOT EXISTS escalated_at        timestamptz,
+  ADD COLUMN IF NOT EXISTS escalation_deadline timestamptz;
 
+COMMENT ON COLUMN public.grievance_tickets.escalated_at IS
+  'When fn_grievance_escalation_tick last moved this ticket up the chain (HOD -> Principal -> Director). NULL = never escalated.';
+COMMENT ON COLUMN public.grievance_tickets.escalation_deadline IS
+  'The deadline of the CURRENT escalation level (now + grievance.escalation.level<N>_hours when it moved up). Passing it moves the ticket up one more level. sla_deadline stays the original SLA.';
+
+
+-- =====================================================================
+-- Updated: 2026-10-01 - Grievance complaint privacy (tables and constraints)
+-- Source of truth for apply: supabase/migrations/20270624093700_grievance_complaint_privacy.sql
+-- =====================================================================
+ALTER TABLE public.grievance_tickets DROP CONSTRAINT IF EXISTS grievance_tickets_description_check;
+ALTER TABLE public.grievance_tickets
+  ADD CONSTRAINT grievance_tickets_description_check
+  CHECK (char_length(btrim(description)) >= 3) NOT VALID;
+-- Every existing row met the old 10-character rule. Validated separately so a
+-- row that is 10 characters of mostly spaces cannot fail the whole migration.
+DO $$
+BEGIN
+  ALTER TABLE public.grievance_tickets VALIDATE CONSTRAINT grievance_tickets_description_check;
+EXCEPTION WHEN check_violation THEN
+  RAISE WARNING 'grievance_tickets_description_check left NOT VALID: an existing row has fewer than 3 non-space characters. New writes are still checked.';
+END $$;
+
+CREATE TABLE IF NOT EXISTS public.grievance_anonymous_messages (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  ticket_id   uuid NOT NULL REFERENCES public.grievance_tickets(id) ON DELETE CASCADE,
+  -- 'question' = a handler asks; 'answer' = the anonymous filer replies.
+  direction   text NOT NULL CHECK (direction IN ('question', 'answer')),
+  body        text NOT NULL CHECK (char_length(btrim(body)) BETWEEN 1 AND 2000),
+  -- The handler who asked. ALWAYS NULL on an answer: the filer is never named.
+  author_id   uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT grievance_anonymous_messages_answer_has_no_author
+    CHECK (direction = 'question' OR author_id IS NULL)
+);
+
+COMMENT ON TABLE public.grievance_anonymous_messages IS
+  'Questions a handler asks the anonymous filer of a grievance ticket, and her nameless answers. Handlers read and ask under RLS (whoever can read the ticket). The filer reads and answers only through fn_grievance_track_conversation / fn_grievance_track_answer with her private tracking code. Director ruling 30 Sep 2026.';
+
+CREATE INDEX IF NOT EXISTS idx_grievance_anonymous_messages_ticket
+  ON public.grievance_anonymous_messages (ticket_id, created_at);
+
+ALTER TABLE public.grievance_anonymous_messages ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.grievance_anonymous_messages FROM anon, PUBLIC;
+GRANT SELECT, INSERT ON TABLE public.grievance_anonymous_messages TO authenticated;
+GRANT ALL ON TABLE public.grievance_anonymous_messages TO service_role;

@@ -14,22 +14,31 @@ const descriptionCheckError = {
 };
 
 describe('validateGrievanceDescription', () => {
-  it('refuses the entry that caused BUG-01', () => {
-    expect(validateGrievanceDescription('Testing')).toContain(
+  it('mirrors the 3-character rule (Director ruling, 30 Sep 2026)', () => {
+    expect(GRIEVANCE_DESCRIPTION_MIN_LENGTH).toBe(3);
+  });
+
+  it('refuses an entry shorter than the rule', () => {
+    expect(validateGrievanceDescription('OK')).toContain(
       String(GRIEVANCE_DESCRIPTION_MIN_LENGTH)
     );
   });
 
-  it('accepts an entry that meets the length', () => {
-    expect(validateGrievanceDescription('Lift is broken')).toBeNull();
+  it('accepts the entry that caused BUG-01, now that the rule is 3', () => {
+    expect(validateGrievanceDescription('Testing')).toBeNull();
+    expect(validateGrievanceDescription('Fan')).toBeNull();
+  });
+
+  it('counts after trimming, as the database counts btrim(description)', () => {
+    expect(validateGrievanceDescription('   ab   ')).not.toBeNull();
   });
 
   it('counts code points the way char_length() does, not UTF-16 units', () => {
-    // Ten emoji are 20 UTF-16 units but only 10 characters to Postgres, so both
+    // Three emoji are 6 UTF-16 units but only 3 characters to Postgres, so both
     // sides must agree that this passes.
-    expect(validateGrievanceDescription('🙂'.repeat(10))).toBeNull();
-    // Nine emoji are 18 UTF-16 units — String.length alone would wrongly accept.
-    expect(validateGrievanceDescription('🙂'.repeat(9))).not.toBeNull();
+    expect(validateGrievanceDescription('🙂'.repeat(3))).toBeNull();
+    // Two emoji are 4 UTF-16 units — String.length alone would wrongly accept.
+    expect(validateGrievanceDescription('🙂'.repeat(2))).not.toBeNull();
   });
 });
 
@@ -43,7 +52,7 @@ describe('describeCheckConstraintViolation', () => {
 
   it('names the description field and never echoes the constraint', () => {
     const refusal = describeCheckConstraintViolation(descriptionCheckError, {
-      description: 'Testing',
+      description: 'OK',
     });
     expect(refusal).not.toBeNull();
     expect(refusal!.success).toBe(false);
@@ -62,7 +71,7 @@ describe('describeCheckConstraintViolation', () => {
   });
 
   it('does not repeat the length rule to someone who already met it', () => {
-    // Drift guard: if the database rule moves, "at least 10 characters" would be
+    // Drift guard: if the database rule moves, "at least 3 characters" would be
     // a dead end for an entry that is already longer than that.
     const refusal = describeCheckConstraintViolation(descriptionCheckError, {
       description: 'This description is comfortably longer than the mirrored rule.',

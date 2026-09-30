@@ -7,9 +7,16 @@
 //       team-member role, and parents. Not one door per persona.
 //   I7  a filing may be made without a name attached, and the person is handed
 //       a private code to follow it with.
-//   I8  a complaint about the filer's OWN head of department or manager is
-//       routed past them, to the profile named by the platform policy key
-//       below, and that head of department is not told.
+//   I8  a complaint about the filer's OWN head of department, principal or
+//       manager is routed past them, to the profile named by the platform
+//       policy key below, and that person is not told. (Principal added by the
+//       Director's ruling of 30 Sep 2026.)
+//
+// Rulings of 30 Sep 2026 also implemented here and in the route: anonymous
+// stores no filer; harassment and ragging are ICC-only; when nobody at the
+// college can read them as the committee they go privately to the same
+// superior-route person; the form
+// shows the type's answer window.
 //
 // It lives outside app/api/instasolver/complaint/route.ts because Next.js
 // type-checks App Router route modules against a fixed export shape — a named
@@ -52,7 +59,7 @@ export const INSTASOLVER_SOURCE = 'instasolver';
  */
 export const SUPERIOR_ROUTE_POLICY_KEY = 'instasolver.complaint.superior_route_to';
 
-export const SUBJECT_MIN_LENGTH = 5;
+export const SUBJECT_MIN_LENGTH = 3;
 export const SUBJECT_MAX_LENGTH = 120;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -167,6 +174,19 @@ export interface ComplaintCategory {
    * not make that promise.
    */
   allow_anonymous: boolean;
+  /**
+   * The category's answer window in hours (grievance_categories
+   * .default_sla_hours), shown above Send as "Usually answered within N hours"
+   * and used as the ticket's deadline. Null when the college has not set one.
+   */
+  default_sla_hours?: number | null;
+  /**
+   * The college marked this type an emergency (grievance_categories
+   * .is_emergency). The ticket carries it, exactly as the /accreditation form
+   * sets it, so the same type is not an emergency in one place and ordinary in
+   * the other.
+   */
+  is_emergency?: boolean;
 }
 
 /**
@@ -224,18 +244,30 @@ export async function readComplaintCategories(
 ): Promise<ComplaintCategoriesResult> {
   const withColumn = await client
     .from('grievance_categories')
-    .select('id, name, allow_anonymous')
+    .select('id, name, allow_anonymous, default_sla_hours, is_emergency')
     .eq('institution_id', institutionId)
     .eq('is_active', true)
     .order('sort_order');
 
   if (!withColumn.error) {
-    const rows = (withColumn.data ?? []) as Array<{ id: string; name: string; allow_anonymous: boolean | null }>;
+    const rows = (withColumn.data ?? []) as Array<{
+      id: string;
+      name: string;
+      allow_anonymous: boolean | null;
+      default_sla_hours: number | null;
+      is_emergency?: boolean | null;
+    }>;
     if (rows.length === 0) return { ok: false, reason: 'empty' };
     return {
       ok: true,
       anonymousColumnPresent: true,
-      categories: rows.map((c) => ({ id: c.id, name: c.name, allow_anonymous: c.allow_anonymous === true })),
+      categories: rows.map((c) => ({
+        id: c.id,
+        name: c.name,
+        allow_anonymous: c.allow_anonymous === true,
+        default_sla_hours: normaliseSlaHours(c.default_sla_hours),
+        is_emergency: c.is_emergency === true,
+      })),
     };
   }
 
@@ -248,7 +280,7 @@ export async function readComplaintCategories(
   // category as not offering anonymous filing.
   const plain = await client
     .from('grievance_categories')
-    .select('id, name')
+    .select('id, name, default_sla_hours, is_emergency')
     .eq('institution_id', institutionId)
     .eq('is_active', true)
     .order('sort_order');
@@ -258,13 +290,108 @@ export async function readComplaintCategories(
     return { ok: false, reason: 'error' };
   }
 
-  const rows = (plain.data ?? []) as Array<{ id: string; name: string }>;
+  const rows = (plain.data ?? []) as Array<{
+    id: string;
+    name: string;
+    default_sla_hours: number | null;
+    is_emergency?: boolean | null;
+  }>;
   if (rows.length === 0) return { ok: false, reason: 'empty' };
   return {
     ok: true,
     anonymousColumnPresent: false,
-    categories: rows.map((c) => ({ id: c.id, name: c.name, allow_anonymous: false })),
+    categories: rows.map((c) => ({
+      id: c.id,
+      name: c.name,
+      allow_anonymous: false,
+      default_sla_hours: normaliseSlaHours(c.default_sla_hours),
+      is_emergency: c.is_emergency === true,
+    })),
   };
+}
+
+/** A usable whole number of hours, or null. */
+function normaliseSlaHours(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+}
+
+/**
+ * The line shown above Send once a type is chosen (Director ruling 8, 30 Sep
+ * 2026). Null when the type has no answer window, so nothing is promised.
+ */
+export function answerWindowSentence(category: ComplaintCategory | null): string | null {
+  const hours = category?.default_sla_hours ?? null;
+  if (!hours) return null;
+  return `Usually answered within ${hours} ${hours === 1 ? 'hour' : 'hours'}`;
+}
+
+// ============================================================================
+// Harassment and ragging stay with the committee (Director rulings 2 and 3,
+// 30 Sep 2026).
+// ============================================================================
+
+/**
+ * Whether a complaint of this type is ICC-only — the ONE rule every door uses.
+ *
+ * grievance_categories has no flag for it, so the NAME decides. Every college's
+ * seeded types (20260422_grievance_module_a6a_seeds.sql,
+ * 20261230090100_grievance_categories_schools_offices.sql) are named
+ * 'Sexual Harassment (ICC)' and 'Ragging'; the match also catches a college
+ * that renamed them ('Harassment', 'Anti-ragging', 'ICC complaint').
+ *
+ * The database applies the SAME rule to every insert, whoever the writer
+ * (fn_grievance_is_icc_only_category + trg_grievance_icc_route_on_create,
+ * migration 20270624093700), and sends an ICC-only complaint nobody at the
+ * college can read to the superior-route person. The InstaSolver route and the
+ * /accreditation form call this so the row they send already says so.
+ * __tests__/grievance/icc-rule-parity.test.ts fails if the two copies drift.
+ */
+export const ICC_CATEGORY_PATTERN = 'harass|ragging|\\bicc\\b';
+const ICC_CATEGORY_RE = new RegExp(ICC_CATEGORY_PATTERN, 'i');
+
+export function isIccOnlyCategory(name: string | null | undefined): boolean {
+  return ICC_CATEGORY_RE.test(name ?? '');
+}
+
+/**
+ * Whether somebody at the college can actually READ an ICC-only complaint left
+ * for the committee: at least one usable holder of the icc_member role with
+ * access to that college, other than the person filing
+ * (fn_grievance_icc_reader_exists, migration 20270624093700). That is exactly
+ * who the committee branch of grievance_tickets_select admits. An
+ * accreditation_committees row is NOT that proof — a college can have a
+ * committee on paper and nobody holding the role, and then the complaint would
+ * sit unassigned, readable only by a super admin or admin.
+ *
+ * Call with the service-role client (the function is granted to service_role
+ * only). 'unknown' when the call fails — including before the migration is
+ * applied, when the function does not exist yet: the caller treats that like
+ * "no reader" and sends the complaint privately to the superior-route person,
+ * because a harassment complaint that silently waits for a committee nobody can
+ * open is the outcome ruling 3 is there to prevent.
+ */
+export async function hasIccCommitteeReader(
+  client: MinimalQueryClient,
+  institutionId: string,
+  filerId: string | null
+): Promise<'yes' | 'no' | 'unknown'> {
+  try {
+    const { data, error } = await client.rpc('fn_grievance_icc_reader_exists', {
+      p_institution_id: institutionId,
+      p_exclude: filerId,
+    });
+    if (error) {
+      console.error('[instasolver/complaint] ICC reader check failed:', error.message);
+      return 'unknown';
+    }
+    if (data === true) return 'yes';
+    if (data === false) return 'no';
+    return 'unknown';
+  } catch (err) {
+    console.error('[instasolver/complaint] ICC reader check threw:', err);
+    return 'unknown';
+  }
 }
 
 /**
