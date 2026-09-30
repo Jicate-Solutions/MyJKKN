@@ -11004,7 +11004,9 @@ LANGUAGE SQL STABLE SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
   SELECT value FROM platform_policies
-  WHERE policy_key = p_key AND is_active = true
+  -- Updated: 2026-09-30 - the Director list is readable only by super admins
+  -- and listed people (migration 20270520090000 patches the live body in place).
+  WHERE policy_key = p_key AND (p_key IS DISTINCT FROM 'platform.the_director_profile_ids' OR (SELECT public.is_super_admin()) OR (SELECT public.fn_is_the_director())) AND is_active = true
     AND (
       (scope_type='institution' AND scope_id=p_scope_id)
       OR (scope_type='global' AND scope_id IS NULL)
@@ -73030,8 +73032,9 @@ REVOKE ALL ON FUNCTION public.fn_learner_bill_year_visible(uuid, date) FROM PUBL
 GRANT EXECUTE ON FUNCTION public.fn_learner_bill_year_visible(uuid, date) TO authenticated, service_role;
 
 -- ============================================================================
--- Updated: 2026-09-30 - fn_is_the_director() + fn_guard_the_director_list()
--- Migration: 20270520090000_the_director_list.sql
+-- Updated: 2026-09-30 - fn_is_the_director(), fn_guard_the_director_list(), fn_audit_the_director_list()
+-- Migration: 20270520090000_the_director_list.sql (round 2: never-empty list,
+-- verified seed, profile ids checked, changes audited, readers closed)
 -- 'The Director' is ONE named list (platform_policies key
 -- 'platform.the_director_profile_ids'), NOT is_super_admin() (15 accounts).
 -- ============================================================================
@@ -73070,72 +73073,105 @@ COMMENT ON FUNCTION public.fn_is_the_director() IS
   'yes, appraisal rating override). Migration 20270520090000.';
 
 -- ----------------------------------------------------------------------------
--- 2. Guard: only a listed person (or service_role / a no-user DB session) may
---    insert, update or delete the list row, whatever RLS would allow.
+-- 2. Guard: who may change the list, and the list can never be empty.
+--    SECURITY DEFINER so the profile-id check sees every profile whatever the
+--    caller's own profiles rules are. auth.role() / auth.uid() read the
+--    request's JWT settings, so they still describe the real caller.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_guard_the_director_list()
 RETURNS trigger
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
   c_key CONSTANT text := 'platform.the_director_profile_ids';
-  v_touches boolean;
   v_role text := auth.role();
-  v_bad text;
+  v_seed boolean;
+  v_bad  text;
 BEGIN
-  v_touches := (TG_OP IN ('INSERT', 'UPDATE') AND NEW.policy_key = c_key)
-            OR (TG_OP IN ('UPDATE', 'DELETE') AND OLD.policy_key = c_key);
-
-  IF NOT v_touches THEN
+  IF NOT (   (TG_OP IN ('INSERT', 'UPDATE') AND NEW.policy_key = c_key)
+          OR (TG_OP IN ('UPDATE', 'DELETE') AND OLD.policy_key = c_key)) THEN
     RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
   END IF;
 
-  -- A request from an app user (signed in or anonymous) carries a JWT role.
-  -- Such a caller must already be on the list. A NULL role means a direct
-  -- database session (migration, SQL console, cron): the owner, allowed.
-  -- Two separate statements on purpose: anon has no EXECUTE on
-  -- fn_is_the_director(), and PostgreSQL checks that when the expression is
-  -- first prepared, so anon must be refused before that line is reached.
+  -- a. WHO. A request from an app user (signed in or anonymous) carries a JWT
+  --    role, and such a caller must already be on the list. A NULL role means
+  --    a direct database session (migration, SQL console, cron): allowed here,
+  --    but still bound by b and c below. NULL-safe: a NULL role never reaches
+  --    the refusal by accident, it is tested explicitly.
   IF v_role IS NOT NULL AND v_role IS DISTINCT FROM 'service_role' THEN
     IF v_role IS DISTINCT FROM 'authenticated' THEN
       RAISE EXCEPTION 'Only the Director can change who counts as the Director.'
         USING ERRCODE = '42501';
     END IF;
-    IF NOT public.fn_is_the_director() THEN
+    IF NOT COALESCE(public.fn_is_the_director(), false) THEN
       RAISE EXCEPTION 'Only the Director can change who counts as the Director.'
         USING ERRCODE = '42501';
     END IF;
   END IF;
 
+  -- b. NEVER EMPTY (Director ruling, 30 Sep 2026), for every caller.
   IF TG_OP = 'DELETE' THEN
-    RETURN OLD;
+    RAISE EXCEPTION 'The Director list cannot be deleted. It must always name at least one person; change the names on it instead.'
+      USING ERRCODE = '23514';
   END IF;
 
-  -- The value must be a JSON array of profile ids. Store it cleaned:
-  -- lower-case, no duplicates, sorted.
-  IF NEW.policy_key = c_key THEN
-    IF jsonb_typeof(NEW.value) IS DISTINCT FROM 'array' THEN
-      RAISE EXCEPTION 'platform.the_director_profile_ids must be a JSON array of profile ids.'
-        USING ERRCODE = '22023';
-    END IF;
-
-    SELECT e::text INTO v_bad
-      FROM jsonb_array_elements(NEW.value) AS t(e)
-     WHERE jsonb_typeof(e) <> 'string'
-        OR (e #>> '{}') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-     LIMIT 1;
-    IF FOUND THEN
-      RAISE EXCEPTION 'Not a profile id: %', v_bad
-        USING ERRCODE = '22023';
-    END IF;
-
-    NEW.value := COALESCE(
-      (SELECT jsonb_agg(DISTINCT lower(e) ORDER BY lower(e))
-         FROM jsonb_array_elements_text(NEW.value) AS t(e)),
-      '[]'::jsonb);
+  IF TG_OP = 'UPDATE' AND NEW.policy_key IS DISTINCT FROM c_key THEN
+    RAISE EXCEPTION 'The Director list cannot be renamed. It must always name at least one person.'
+      USING ERRCODE = '23514';
   END IF;
+
+  -- c. SHAPE. From here on NEW is the list row.
+  IF NEW.scope_type IS DISTINCT FROM 'global' OR NEW.scope_id IS NOT NULL THEN
+    RAISE EXCEPTION 'There is one Director list for the whole group. It cannot be set for one college, role or person.'
+      USING ERRCODE = '22023';
+  END IF;
+
+  IF jsonb_typeof(NEW.value) IS DISTINCT FROM 'array' THEN
+    RAISE EXCEPTION 'platform.the_director_profile_ids must be a JSON array of profile ids.'
+      USING ERRCODE = '22023';
+  END IF;
+
+  SELECT e::text INTO v_bad
+    FROM jsonb_array_elements(NEW.value) AS t(e)
+   WHERE jsonb_typeof(e) <> 'string'
+      OR (e #>> '{}') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+   LIMIT 1;
+  IF FOUND THEN
+    RAISE EXCEPTION 'Not a profile id: %', v_bad
+      USING ERRCODE = '22023';
+  END IF;
+
+  NEW.value := COALESCE(
+    (SELECT jsonb_agg(DISTINCT lower(e) ORDER BY lower(e))
+       FROM jsonb_array_elements_text(NEW.value) AS t(e)),
+    '[]'::jsonb);
+
+  SELECT e INTO v_bad
+    FROM jsonb_array_elements_text(NEW.value) AS t(e)
+   WHERE NOT EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = e::uuid)
+   LIMIT 1;
+  IF FOUND THEN
+    RAISE EXCEPTION 'No account has the id %. Only existing accounts can be on the Director list.', v_bad
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- b (continued). An empty or switched-off list is refused, except for the
+  -- one seed insert in section 6: a direct database session (no JWT role)
+  -- that has set app.the_director_list_seed = 'on' for its own transaction.
+  v_seed := TG_OP = 'INSERT'
+        AND v_role IS NULL
+        AND current_setting('app.the_director_list_seed', true) = 'on';
+  IF (NEW.value = '[]'::jsonb OR NEW.is_active IS DISTINCT FROM true)
+     AND NOT v_seed THEN
+    RAISE EXCEPTION 'The Director list can never be empty or switched off. Add another name before removing the last one.'
+      USING ERRCODE = '23514';
+  END IF;
+
+  -- d. WHO CHANGED IT.
+  NEW.updated_by := auth.uid();
+  NEW.updated_at := now();
 
   RETURN NEW;
 END;
@@ -73144,8 +73180,71 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_guard_the_director_list() FROM anon, PUBLIC;
 
 COMMENT ON FUNCTION public.fn_guard_the_director_list() IS
-  'BEFORE trigger on platform_policies. Refuses any insert/update/delete that '
-  'touches ''platform.the_director_profile_ids'' unless the caller is already '
-  'on that list, is service_role, or is a direct DB session with no JWT. '
-  'Also cleans the value to a sorted, de-duplicated array of lower-case ids. '
-  'Migration 20270520090000.';
+  'BEFORE trigger on platform_policies for ''platform.the_director_profile_ids''. '
+  'Who: only someone already on the list, service_role, or a direct DB session '
+  'with no JWT (42501). Never empty (Director ruling 30 Sep 2026): no caller may '
+  'delete, rename, switch off or empty the row (23514); only the migration seed '
+  'may insert an empty list. Shape: one global row, a JSON array of existing '
+  'profile ids, stored lower-case/de-duplicated/sorted (22023). Sets updated_by '
+  'and updated_at. Migration 20270520090000.';
+
+-- ----------------------------------------------------------------------------
+-- 3. Record every change a signed-in person makes (hr_policy_audit_log).
+--    AFTER, because the log's policy_id references the row. SECURITY DEFINER
+--    because the log's own insert rule allows super admins only.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_audit_the_director_list()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_old jsonb;
+BEGIN
+  IF TG_OP = 'UPDATE'
+     AND NEW.value IS NOT DISTINCT FROM OLD.value
+     AND NEW.is_active IS NOT DISTINCT FROM OLD.is_active THEN
+    RETURN NULL;  -- nothing about the list changed
+  END IF;
+
+  -- The log's edited_by is NOT NULL: a change made with the server key or in
+  -- the SQL console has no person to name, so it writes no row.
+  IF v_uid IS NULL OR to_regclass('public.hr_policy_audit_log') IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  v_old := CASE WHEN TG_OP = 'UPDATE' THEN OLD.value END;
+
+  INSERT INTO public.hr_policy_audit_log
+    (policy_id, policy_key, scope_type, scope_id, action,
+     old_value, new_value, reason, edited_by)
+  VALUES
+    (NEW.id, NEW.policy_key, NEW.scope_type, NEW.scope_id, 'publish',
+     v_old, NEW.value,
+     format('Changed who counts as the Director: %s name(s) before, %s after.',
+            COALESCE(jsonb_array_length(v_old), 0),
+            jsonb_array_length(NEW.value)),
+     v_uid);
+
+  RETURN NULL;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_audit_the_director_list() FROM anon, PUBLIC;
+
+COMMENT ON FUNCTION public.fn_audit_the_director_list() IS
+  'AFTER trigger on platform_policies for ''platform.the_director_profile_ids'': '
+  'a change by a signed-in person writes one hr_policy_audit_log row (action '
+  'publish, old and new list, edited_by = that person). Server-key and SQL '
+  'console changes write none (edited_by is NOT NULL). Migration 20270520090000.';
+
+-- ----------------------------------------------------------------------------
+-- 7. fn_get_policy() and fn_internship_evaluate_policy() are patched IN PLACE by
+--    the migration (pg_get_functiondef + one guard after each
+--    "policy_key = p_key"), so production-only fixes and Draft #4111's body are
+--    kept. The guard is also written into this file's own fn_get_policy copy
+--    above (search 'the_director_profile_ids'). The internship reader has no
+--    copy in this file. See the migration's section 7 for the exact DO block.
+-- ----------------------------------------------------------------------------

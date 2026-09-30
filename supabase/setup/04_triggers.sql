@@ -2807,8 +2807,9 @@ CREATE TRIGGER trg_log_bill_cancel_activity
   FOR EACH ROW EXECUTE FUNCTION public._fn_log_bill_cancel_activity();
 
 -- ============================================================================
--- Updated: 2026-09-30 - trg_guard_the_director_list on platform_policies
--- Migration: 20270520090000_the_director_list.sql
+-- Updated: 2026-09-30 - trg_guard_the_director_list + trg_audit_the_director_list on platform_policies
+-- Migration: 20270520090000_the_director_list.sql (round 2: never-empty list,
+-- verified seed, profile ids checked, changes audited, readers closed)
 -- 'The Director' is ONE named list (platform_policies key
 -- 'platform.the_director_profile_ids'), NOT is_super_admin() (15 accounts).
 -- ============================================================================
@@ -2817,3 +2818,10 @@ CREATE TRIGGER trg_guard_the_director_list
   BEFORE INSERT OR UPDATE OR DELETE ON public.platform_policies
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_guard_the_director_list();
+
+DROP TRIGGER IF EXISTS trg_audit_the_director_list ON public.platform_policies;
+CREATE TRIGGER trg_audit_the_director_list
+  AFTER INSERT OR UPDATE ON public.platform_policies
+  FOR EACH ROW
+  WHEN (NEW.policy_key = 'platform.the_director_profile_ids')
+  EXECUTE FUNCTION public.fn_audit_the_director_list();

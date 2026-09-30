@@ -11246,20 +11246,22 @@ GRANT SELECT ON public.billing_bill_cancel_request_actions TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.billing_bill_cancel_approval_flows TO authenticated;
 
 -- ============================================================================
--- Updated: 2026-09-30 - who may read the Director list row + its seed
--- Migration: 20270520090000_the_director_list.sql
+-- Updated: 2026-09-30 - who may read the Director list row and its audit rows
+-- Migration: 20270520090000_the_director_list.sql (round 2: never-empty list,
+-- verified seed, profile ids checked, changes audited, readers closed)
 -- 'The Director' is ONE named list (platform_policies key
 -- 'platform.the_director_profile_ids'), NOT is_super_admin() (15 accounts).
 -- ============================================================================
 -- ----------------------------------------------------------------------------
--- 3. Reading the raw row: super admins and listed people only.
+-- 4. Reading the raw row: super admins and listed people only.
 --    RESTRICTIVE, so it AND-s with the existing permissive select policies.
 --    Every other key is untouched (the first branch is true for them).
--- ----------------------------------------------------------------------------
+--    The calls are wrapped as (SELECT ...) so they run once per statement.
 --    Two policies, by role: anon has no EXECUTE on fn_is_the_director(), and
 --    a policy that merely names it would make every anon read of this table
 --    fail with "permission denied for function". So anon gets a policy that
 --    names no function and simply never sees this key.
+-- ----------------------------------------------------------------------------
 DROP POLICY IF EXISTS platform_policies_the_director_list_read ON public.platform_policies;
 CREATE POLICY platform_policies_the_director_list_read ON public.platform_policies
   AS RESTRICTIVE
@@ -11267,8 +11269,8 @@ CREATE POLICY platform_policies_the_director_list_read ON public.platform_polici
   TO authenticated
   USING (
     policy_key IS DISTINCT FROM 'platform.the_director_profile_ids'
-    OR public.is_super_admin()
-    OR public.fn_is_the_director()
+    OR (SELECT public.is_super_admin())
+    OR (SELECT public.fn_is_the_director())
   );
 
 DROP POLICY IF EXISTS platform_policies_the_director_list_hide_anon ON public.platform_policies;
@@ -11279,31 +11281,27 @@ CREATE POLICY platform_policies_the_director_list_hide_anon ON public.platform_p
   USING (policy_key IS DISTINCT FROM 'platform.the_director_profile_ids');
 
 -- ----------------------------------------------------------------------------
--- 4. Seed: the profile with email director@jkkn.ac.in, looked up now.
+-- 5. The audit rows of this key carry the list: same readers only.
+--    hr_policy_audit_log shows every global (scope_id NULL) row to every
+--    signed-in user, so without this the ids would leak through the log.
 -- ----------------------------------------------------------------------------
-DO $seed$
-DECLARE
-  v_ids jsonb;
+DO $audit_read$
 BEGIN
-  SELECT COALESCE(jsonb_agg(p.id::text ORDER BY p.id), '[]'::jsonb)
-    INTO v_ids
-    FROM public.profiles p
-   WHERE lower(p.email) = 'director@jkkn.ac.in';
-
-  IF v_ids = '[]'::jsonb THEN
-    RAISE NOTICE 'the_director_list: no profile has email director@jkkn.ac.in. Seeding an EMPTY list; fn_is_the_director() is false for everyone until service_role adds an id.';
+  IF to_regclass('public.hr_policy_audit_log') IS NULL THEN
+    RAISE NOTICE 'the_director_list: hr_policy_audit_log does not exist; changes are recorded in updated_by only.';
+    RETURN;
   END IF;
-
-  INSERT INTO public.platform_policies
-    (policy_key, scope_type, scope_id, value, description, data_type, is_system, is_active)
-  VALUES
-    ('platform.the_director_profile_ids', 'global', NULL, v_ids,
-     'Who counts as "the Director" for Director-only decisions (salary revision '
-     'final yes, appraisal rating override). A JSON array of profile ids. Only '
-     'someone already on this list can change it. Read through '
-     'fn_is_the_director(); is_super_admin() is NOT the Director.',
-     'array', true, true)
-  ON CONFLICT (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid))
-  DO NOTHING;
+  EXECUTE 'DROP POLICY IF EXISTS hr_policy_audit_log_the_director_list_read ON public.hr_policy_audit_log';
+  EXECUTE $p$
+    CREATE POLICY hr_policy_audit_log_the_director_list_read ON public.hr_policy_audit_log
+      AS RESTRICTIVE
+      FOR SELECT
+      TO authenticated
+      USING (
+        policy_key IS DISTINCT FROM 'platform.the_director_profile_ids'
+        OR (SELECT public.is_super_admin())
+        OR (SELECT public.fn_is_the_director())
+      )
+  $p$;
 END
-$seed$;
+$audit_read$;
