@@ -30,8 +30,10 @@ vi.mock('@/lib/services/director-desk/handover-chase-service', async (importOrig
   };
 });
 
+import { PRINCIPAL_LIST_CATEGORY } from '@/lib/campus-walk/chase-up';
 import {
   buildDirectorDigest,
+  catchUpLine,
   istDateOf,
   directorDigestIdempotencyKey,
   runCampusWalkDirectorDigest,
@@ -72,10 +74,11 @@ function row(id: string, reachedAt: string | null, institutionId: string | null,
   };
 }
 
-function world(opts: { todayExists?: boolean; previous?: any; rows: any[] }) {
+function world(opts: { todayExists?: boolean; previous?: any; rows: any[]; lists?: any[] }) {
   return (q: LadderQuery) => {
     if (q.table === 'notifications') {
       if (filterValue(q, 'eq', 'idempotency_key')) return { data: opts.todayExists ? { id: 'n-today' } : null };
+      if (filterValue(q, 'eq', 'category') === PRINCIPAL_LIST_CATEGORY) return { data: opts.lists ?? [] };
       return { data: opts.previous ?? null };
     }
     if (q.table === 'projects') return { data: { id: PROJ } };
@@ -243,5 +246,77 @@ describe('the morning run', () => {
     const q = queries.find((x) => x.table === 'project_tasks')!;
     expect(filterValue(q, 'eq', 'is_blocked')).toBe(false);
     expect(String(filterValue(q, 'not', 'status_key'))).toContain('done');
+  });
+});
+
+describe("catch-up lists: one line in the Director's summary", () => {
+  const lists = [
+    { metadata: { institution_id: ARTS, task_ids: ['a', 'b', 'c'] } },
+    { metadata: { institution_id: PHARM, task_ids: ['d', 'e'] } },
+  ];
+
+  it('the line counts colleges and jobs; no line when there were none', () => {
+    expect(catchUpLine({ colleges: 2, jobs: 5 })).toBe(
+      'Catch-up: the principals of 2 colleges got 5 late campus jobs as one list per college, not one message per job.'
+    );
+    expect(catchUpLine({ colleges: 0, jobs: 0 })).toBeNull();
+    expect(buildDirectorDigest([job({})], { earlierStillOpen: 0 }).body).not.toContain('Catch-up');
+  });
+
+  it('a morning with jobs AND lists: the jobs are listed and the lists get one line', async () => {
+    const { db, queries } = makeLadderDb(
+      world({
+        previous: { created_at: YESTERDAY_CUTOFF, metadata: { cutoff: YESTERDAY_CUTOFF } },
+        rows: [row('new-1', '2026-10-01T02:30:00.000Z', ARTS)],
+        lists,
+      })
+    );
+    const res = await runCampusWalkDirectorDigest({ client: db, now: NOW });
+    expect(res.outcome).toBe('sent');
+    expect(res.catch_up).toEqual({ colleges: 2, jobs: 5 });
+    const bell = createBellNotification.mock.calls[0][1];
+    expect(bell.body).toContain('Job new-1');
+    expect(bell.body.match(/Catch-up:/g)).toHaveLength(1);
+    expect(bell.metadata.catch_up_jobs).toBe(5);
+
+    // Only lists since yesterday's summary are counted.
+    const listQuery = queries.find(
+      (q) => q.table === 'notifications' && filterValue(q, 'eq', 'category') === PRINCIPAL_LIST_CATEGORY
+    )!;
+    expect(filterValue(listQuery, 'gt', 'created_at')).toBe(YESTERDAY_CUTOFF);
+  });
+
+  it('a morning with only lists still sends — the line alone', async () => {
+    const { db } = makeLadderDb(
+      world({
+        previous: { created_at: YESTERDAY_CUTOFF, metadata: { cutoff: YESTERDAY_CUTOFF } },
+        rows: [],
+        lists,
+      })
+    );
+    const res = await runCampusWalkDirectorDigest({ client: db, now: NOW });
+    expect(res.outcome).toBe('sent');
+    const bell = createBellNotification.mock.calls[0][1];
+    expect(bell.title).toBe('Morning summary: 5 late campus jobs sent to principals as one list per college');
+    expect(bell.body).toContain('No campus job reached 7 days past its due date since the last summary.');
+    expect(bell.body).toContain('Catch-up: the principals of 2 colleges got 5 late campus jobs');
+    expect(bell.metadata.task_ids).toEqual([]);
+  });
+
+  it('jobs the old ladder already paged to the Director carry no marker, so they are never listed', async () => {
+    const { db } = makeLadderDb(
+      world({
+        previous: { created_at: YESTERDAY_CUTOFF, metadata: { cutoff: YESTERDAY_CUTOFF } },
+        rows: [
+          row('paged-by-old-ladder', null, ARTS, {
+            campus_walk_chase: { rungs_sent: { escalate_accountable: 'a', escalate_director: 'b', escalate_principal: 'c' } },
+          }),
+        ],
+      })
+    );
+    const res = await runCampusWalkDirectorDigest({ client: db, now: NOW });
+    expect(res.outcome).toBe('nothing_new');
+    expect(res.earlier_still_open).toBe(0);
+    expect(createBellNotification).not.toHaveBeenCalled();
   });
 });

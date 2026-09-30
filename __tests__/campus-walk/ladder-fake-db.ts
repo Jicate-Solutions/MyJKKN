@@ -64,6 +64,10 @@ export function makeLadderDb(respond: LadderRespond) {
         q.filters.push(['lt', c, v]);
         return b;
       },
+      gt: (c: string, v: unknown) => {
+        q.filters.push(['gt', c, v]);
+        return b;
+      },
       order: () => b,
       limit: () => b,
       maybeSingle: () => run(),

@@ -24,6 +24,16 @@
  *
  * Jobs that were fixed or paused ("I can't fix this yet") before 08:03 are
  * left out: they are no longer late and untouched.
+ *
+ * CATCH-UP LINE: when the ladder folded a college's late jobs into ONE list to
+ * its principal (deploy day, or after a missed morning — see
+ * isCatchUpPrincipalStep in chase-up.ts), the summary says so in one line,
+ * counted from those list notifications since the previous cutoff. A morning
+ * with only that line still sends.
+ *
+ * Jobs the OLD ladder already paged to the Director (its day-5
+ * `escalate_director` step) never get the day-7 marker, so they are neither
+ * listed nor counted among "earlier summaries" — he has already heard.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -35,7 +45,7 @@ import {
   validateTargeting,
   type DirectorResolution
 } from '@/lib/services/director-desk/handover-chase-service';
-import { friendlyDate, jobLabel, placeOf } from '@/lib/campus-walk/chase-up';
+import { friendlyDate, jobLabel, placeOf, PRINCIPAL_LIST_CATEGORY } from '@/lib/campus-walk/chase-up';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 const MODULE = 'campus-walk/director-digest';
@@ -75,9 +85,25 @@ export interface DigestJob {
  * the latest jobs first within a college. Plain and courteous: each line
  * names the job, the place and how late it is — nobody is named or blamed.
  */
+export interface CatchUpCount {
+  /** Colleges whose principal(s) got one catch-up list. */
+  colleges: number;
+  /** Jobs across those lists. */
+  jobs: number;
+}
+
+/** The one line about catch-up lists, or null when there were none. */
+export function catchUpLine(c: CatchUpCount | null | undefined): string | null {
+  if (!c || c.colleges <= 0 || c.jobs <= 0) return null;
+  return (
+    `Catch-up: the principals of ${c.colleges} ${c.colleges === 1 ? 'college' : 'colleges'} got ` +
+    `${c.jobs} late campus ${c.jobs === 1 ? 'job' : 'jobs'} as one list per college, not one message per job.`
+  );
+}
+
 export function buildDirectorDigest(
   jobs: DigestJob[],
-  opts: { earlierStillOpen: number; maxListed?: number }
+  opts: { earlierStillOpen: number; maxListed?: number; catchUp?: CatchUpCount | null }
 ): { title: string; body: string } {
   const maxListed = opts.maxListed ?? MAX_LISTED_JOBS;
   const byCollege = new Map<string, DigestJob[]>();
@@ -94,11 +120,15 @@ export function buildDirectorDigest(
   });
 
   const n = jobs.length;
-  const lines: string[] = [
-    `Good morning. ${n === 1 ? 'This job has' : `These ${n} jobs have`} now reached 7 days past ` +
-      `${n === 1 ? 'its' : 'their'} due date and ${n === 1 ? 'is' : 'are'} still open. ` +
-      `Each has already gone to the fixer's boss and, where one is on record, the college principal.`
-  ];
+  const catchUp = catchUpLine(opts.catchUp);
+  const lines: string[] =
+    n > 0
+      ? [
+          `Good morning. ${n === 1 ? 'This job has' : `These ${n} jobs have`} now reached 7 days past ` +
+            `${n === 1 ? 'its' : 'their'} due date and ${n === 1 ? 'is' : 'are'} still open. ` +
+            `Each has already gone to the fixer's boss and, where one is on record, the college principal.`
+        ]
+      : ['Good morning. No campus job reached 7 days past its due date since the last summary.'];
 
   let listed = 0;
   for (const college of colleges) {
@@ -119,6 +149,9 @@ export function buildDirectorDigest(
   if (listed < n) {
     lines.push('', `…and ${n - listed} more on the Campus Operations board.`);
   }
+  if (catchUp) {
+    lines.push('', catchUp);
+  }
   if (opts.earlierStillOpen > 0) {
     lines.push(
       '',
@@ -128,6 +161,13 @@ export function buildDirectorDigest(
   }
 
   const collegeCount = colleges.length;
+  if (n === 0 && opts.catchUp && catchUp) {
+    const j = opts.catchUp.jobs;
+    return {
+      title: `Morning summary: ${j} late campus ${j === 1 ? 'job' : 'jobs'} sent to principals as one list per college`,
+      body: lines.join('\n')
+    };
+  }
   return {
     title: `Morning summary: ${n} campus ${n === 1 ? 'job' : 'jobs'} 7 days past due${
       collegeCount > 1 ? ` across ${collegeCount} colleges` : ''
@@ -142,6 +182,8 @@ export interface DirectorDigestResult {
   outcome: 'sent' | 'already_sent' | 'nothing_new' | 'failed';
   jobs_listed: number;
   earlier_still_open: number;
+  /** Catch-up lists (one per college) the ladder sent since the previous cutoff, and the jobs on them. */
+  catch_up: CatchUpCount;
   previous_cutoff: string | null;
   director_resolution: DirectorResolution['source'] | 'none';
   errors: string[];
@@ -173,6 +215,7 @@ export async function runCampusWalkDirectorDigest(
     outcome: 'nothing_new',
     jobs_listed: 0,
     earlier_still_open: 0,
+    catch_up: { colleges: 0, jobs: 0 },
     previous_cutoff: null,
     director_resolution: 'none',
     errors: [],
@@ -263,7 +306,27 @@ export async function runCampusWalkDirectorDigest(
     fresh.push({ row, institutionId: typeof inst === 'string' && inst ? inst : null });
   }
 
-  if (fresh.length === 0) return done('nothing_new');
+  // The ladder's catch-up lists since the previous summary (or, before the
+  // first summary ever, the last day) — one row per college.
+  const catchUpSince = previousCutoff ?? new Date(nowMs - 24 * 60 * 60 * 1000).toISOString();
+  const { data: lists, error: listsError } = await db
+    .from('notifications')
+    .select('metadata')
+    .eq('category', PRINCIPAL_LIST_CATEGORY)
+    .gt('created_at', catchUpSince);
+  if (listsError) {
+    // Not fatal: the jobs still go out; only the catch-up line is missing.
+    result.errors.push(`catch-up lists could not be read: ${listsError.message}`);
+  }
+  for (const l of (lists ?? []) as any[]) {
+    const ids = Array.isArray(l?.metadata?.task_ids) ? (l.metadata.task_ids as unknown[]).length : 0;
+    if (ids > 0) {
+      result.catch_up.colleges++;
+      result.catch_up.jobs += ids;
+    }
+  }
+
+  if (fresh.length === 0 && result.catch_up.colleges === 0) return done('nothing_new');
 
   const collegeName = new Map<string, string>();
   const institutionIds = [...new Set(fresh.map((f) => f.institutionId).filter((v): v is string => Boolean(v)))];
@@ -291,7 +354,10 @@ export async function runCampusWalkDirectorDigest(
     return done('failed');
   }
 
-  const copy = buildDirectorDigest(jobs, { earlierStillOpen: result.earlier_still_open });
+  const copy = buildDirectorDigest(jobs, {
+    earlierStillOpen: result.earlier_still_open,
+    catchUp: result.catch_up
+  });
   const notificationId = await createBellNotification(db, {
     recipientIds: check.userIds,
     createdBy: check.userIds[0],
@@ -308,7 +374,9 @@ export async function runCampusWalkDirectorDigest(
       cutoff: nowIso,
       previous_cutoff: previousCutoff,
       task_ids: jobs.map((j) => j.taskId),
-      jobs_listed: jobs.length
+      jobs_listed: jobs.length,
+      catch_up_colleges: result.catch_up.colleges,
+      catch_up_jobs: result.catch_up.jobs
     },
     idempotencyKey
   });
