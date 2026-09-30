@@ -101,6 +101,7 @@ $function$;
 REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_director_ids() FROM anon, PUBLIC, authenticated;
 
 -- The final yes: the list, never is_super_admin().
+-- ci:allow-secdef-authenticated answers ONE yes/no about the caller themselves (auth.uid()); takes no argument, returns no id, list or other person's data. Every approval screen asks it for the signed-in user.
 CREATE OR REPLACE FUNCTION public.fn_hr_salary_revision_can_approve()
 RETURNS boolean
 LANGUAGE sql
@@ -643,5 +644,19 @@ CREATE POLICY hr_salary_revision_comments_select ON public.hr_salary_revision_co
   USING (EXISTS (SELECT 1 FROM public.hr_salary_revision_requests r
                   WHERE r.id = request_id
                     AND public.fn_hr_salary_revision_can_see(r.staff_id, r.institution_id, r.department_id, r.asked_by)));
+
+-- ----------------------------------------------------------------------------
+-- 9. Grants, re-stated for every function this file re-creates (a CREATE OR
+--    REPLACE keeps them, but the file must say them: gate 20260901140000)
+-- ----------------------------------------------------------------------------
+REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_can_approve() FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_hr_salary_revision_can_approve() TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_user_tier(uuid) FROM anon, PUBLIC, authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_propose(uuid, numeric, text) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_hr_salary_revision_propose(uuid, numeric, text) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_approve_one(uuid, numeric, text) FROM anon, PUBLIC, authenticated;
+REVOKE EXECUTE ON FUNCTION public.hr_salary_revision_apply_due_on(date) FROM anon, PUBLIC, authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_hr_salary_revision_weekly_digest() FROM anon, PUBLIC, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_hr_salary_revision_weekly_digest() TO service_role;
 
 NOTIFY pgrst, 'reload schema';
