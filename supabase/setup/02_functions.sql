@@ -73764,40 +73764,40 @@ $function$;
 -- #4111), so this is for the SERVER only: EXECUTE is granted to service_role
 -- and nobody else. The route calls it only for staff ids the caller's own
 -- scoped read above has already returned.
+-- Updated: 2026-09-30 - the rule is now ONE group-wide row holding an amount
+--   PER DEPARTMENT (#4119, the Director's ruling). Same columns, in the same
+--   order, as #4119's hr_salary_suggestion_inputs(): the department, and from
+--   the rule ONLY that department's amount and the rounding step (published
+--   value only), never the row itself.
 CREATE OR REPLACE FUNCTION public.hr_salary_revision_suggestion_inputs(p_staff_ids uuid[])
 RETURNS TABLE(
-  staff_uuid uuid, institution_id uuid, designation text, date_of_joining date,
-  experience_years integer, has_extended_profile boolean, qualifications jsonb,
-  research_papers integer, monthly_gross numeric, band jsonb, rule jsonb,
-  rule_source text, rule_updated_at timestamptz)
+  staff_uuid uuid, institution_id uuid, department_id uuid, department_name text,
+  designation text, date_of_joining date, experience_years integer,
+  has_extended_profile boolean, monthly_gross numeric, band jsonb,
+  rule_rate numeric, rule_round_to numeric, rule_updated_at timestamptz)
 LANGUAGE sql
 STABLE
 SECURITY INVOKER
 SET search_path TO 'public'
 AS $function$
-  SELECT s.id, s.institution_id, s.designation::text, s.date_of_joining,
-         s.experience_years, s.has_extended_profile, s.qualifications,
-         s.research_papers, sal.monthly_gross, bp.value,
-         COALESCE(rc.value, rg.value),
-         CASE WHEN rc.id IS NOT NULL THEN 'college'
-              WHEN rg.id IS NOT NULL THEN 'group' END,
-         COALESCE(rc.updated_at, rg.updated_at)
+  SELECT s.id, s.institution_id, s.department_id, d.department_name::text,
+         s.designation::text, s.date_of_joining, s.experience_years,
+         s.has_extended_profile, sal.monthly_gross, bp.value,
+         public.hr_salary_rule_department_rate(rg.value, s.department_id),
+         public.hr_salary_rule_round_to(rg.value),
+         rg.updated_at
     FROM public.v_hr_staff s
+    LEFT JOIN public.departments d
+           ON d.id = s.department_id
     LEFT JOIN public.hr_staff_salaries sal
            ON sal.staff_id = s.id AND sal.superseded_by IS NULL
     LEFT JOIN public.platform_policies bp
            ON bp.policy_key = 'hr.pay_scales' AND bp.scope_type = 'institution'
           AND bp.scope_id = s.institution_id
-    LEFT JOIN public.platform_policies rc
-           ON rc.policy_key = 'hr.salary_suggestion_rule' AND rc.scope_type = 'institution'
-          AND rc.scope_id = s.institution_id AND rc.is_active IS NOT FALSE
-          AND rc.publication_state <> 'draft_only'
-          AND public.hr_salary_rule_has_amount(rc.value)
     LEFT JOIN public.platform_policies rg
            ON rg.policy_key = 'hr.salary_suggestion_rule' AND rg.scope_type = 'global'
           AND rg.scope_id IS NULL AND rg.is_active IS NOT FALSE
           AND rg.publication_state <> 'draft_only'
-          AND public.hr_salary_rule_has_amount(rg.value)
    WHERE s.id = ANY (p_staff_ids)
 $function$;
 

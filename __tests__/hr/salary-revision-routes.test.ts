@@ -90,11 +90,13 @@ const fakeAdmin = {
     if (fn === 'hr_salary_revision_suggestion_inputs') {
       return {
         data: (args?.p_staff_ids as string[]).map((id) => ({
-          staff_uuid: id, institution_id: 'inst-a', designation: 'Office Assistant', date_of_joining: '2020-06-01',
-          experience_years: 0, has_extended_profile: false, qualifications: [], research_papers: 0,
+          staff_uuid: id, institution_id: 'inst-a', department_id: 'dept-a', department_name: 'Office',
+          designation: 'Office Assistant', date_of_joining: '2020-06-01',
+          experience_years: 0, has_extended_profile: false,
           monthly_gross: '48000.00',
           band: { pay_matrix: [{ designation: 'Office Assistant', basic_pay: 40000 }, { designation: 'Office Assistant', basic_pay: 50000 }] },
-          rule: { per_year_at_jkkn: 1500 }, rule_source: 'college', rule_updated_at: '2026-09-29T00:00:00Z',
+          // The rule arrives already reduced to THIS person's department (30 Sep).
+          rule_rate: 1500, rule_round_to: null, rule_updated_at: '2026-09-29T00:00:00Z',
         })),
         error: null,
       };

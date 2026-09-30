@@ -25,7 +25,11 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { parsePayBandPolicy } from '@/lib/services/hr/pay-bands/pay-band-policy-service';
-import { suggestionFromRow, todayInIST } from '@/lib/services/hr/pay-bands/salary-suggestion-service';
+import {
+  suggestionFromRow,
+  todayInIST,
+  type SalarySuggestionInputsRow,
+} from '@/lib/services/hr/pay-bands/salary-suggestion-service';
 import { bandWarning, toAmount, type SalaryRevisionRow } from '@/lib/hr/salary-revision';
 
 export const RPC = {
@@ -89,21 +93,14 @@ export interface EnrichedRow extends SalaryRevisionRow {
   band_warning: string | null;
 }
 
-interface InputsRow {
-  staff_uuid: string;
-  institution_id: string;
-  designation: string | null;
-  date_of_joining: string | null;
-  experience_years: number | null;
-  has_extended_profile: boolean | null;
-  qualifications: unknown;
-  research_papers: number | null;
-  monthly_gross: number | string | null;
-  band: unknown;
-  rule: unknown;
-  rule_source: string | null;
-  rule_updated_at: string | null;
-}
+/**
+ * One row of hr_salary_revision_suggestion_inputs(): the same columns, in the
+ * same order, as #4119's hr_salary_suggestion_inputs(). The rule arrives
+ * already reduced to this person's department (rule_rate, rule_round_to);
+ * the other departments' amounts never reach this code (30 Sep, per-department
+ * ruling).
+ */
+type InputsRow = SalarySuggestionInputsRow;
 
 /** Pure: #4119's worked-out suggestion, reduced to what may be shown. */
 export function suggestionNote(inputs: InputsRow | undefined, today: string): SuggestionNote {
