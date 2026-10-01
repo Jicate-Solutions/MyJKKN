@@ -38,6 +38,8 @@ export class FakeSupabase {
   objects = new Map<string, { bytes: Uint8Array; contentType?: string }>();
   /** `${table}.${op}` -> error returned once. */
   failures = new Map<string, Failure>();
+  /** `${table}.${op}` -> the write is APPLIED, then this error is returned once (a lost reply). */
+  lostReplies = new Map<string, Failure>();
   log: string[] = [];
   signedUploadOpts: { path: string; upsert: boolean | undefined }[] = [];
   /** Called after every update that changed rows: lets a test interleave another request. */
@@ -221,6 +223,11 @@ class Query implements PromiseLike<{ data: unknown; error: Failure | null }> {
       this.db.log.push(`delete ${this.name} ${out.length}`);
     }
 
+    const lost = this.db.lostReplies.get(`${this.name}.${this.op}`);
+    if (lost && out.length > 0) {
+      this.db.lostReplies.delete(`${this.name}.${this.op}`);
+      return { data: null, error: lost };
+    }
     if (this.op !== 'select' && !this.returning) return { data: null, error: null };
     const data = clone(out);
     if (this.mode === 'single') {

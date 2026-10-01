@@ -750,7 +750,14 @@ export async function prepareBatch(
 
     // --- duplicates earlier in this file (needed to decide who may share a file) ---
     const sameFile = findSameFileDuplicates(parsed);
-    const personOf = (rowIndex: number) => sameFile.get(rowIndex)?.ref_row_index ?? rowIndex;
+    // Who may share ONE resume file: rows with the same email only. A shared
+    // phone (a family or agency number) or a matching name is not proof of the
+    // same person, so it never lets one file serve two rows.
+    const emailOf = new Map(parsed.map((r) => [r.row_index, r.candidate.email?.trim().toLowerCase() || null]));
+    const personOf = (rowIndex: number): string => {
+      const email = emailOf.get(rowIndex);
+      return email ? `e:${email}` : `r:${rowIndex}`;
+    };
 
     // --- pair each row with its resume: one file, one person ---
     const pairing = new Map<number, StoredResume | null>();
@@ -766,13 +773,13 @@ export async function prepareBatch(
       }
       pairing.set(row.row_index, m.file);
     }
-    // A file may serve several rows only when they are the SAME person (rows of
-    // one same-file duplicate group). Named by two different people, it pairs with
-    // neither: a guess could file one person's resume under another's name.
-    const peopleByFile = new Map<StoredResume, Set<number>>();
+    // A file may serve several rows only when they are the SAME person (same
+    // email, above). Named by two different people, it pairs with neither: a
+    // guess could file one person's resume under another's name.
+    const peopleByFile = new Map<StoredResume, Set<string>>();
     for (const [rowIndex, f] of pairing) {
       if (!f) continue;
-      const set = peopleByFile.get(f) ?? new Set<number>();
+      const set = peopleByFile.get(f) ?? new Set<string>();
       set.add(personOf(rowIndex));
       peopleByFile.set(f, set);
     }
@@ -936,8 +943,14 @@ export async function prepareBatch(
   } catch (e) {
     if (!committed) {
       // Leave the batch preparable again: no half-written rows, claim released.
-      await deps.admin.from('hr_intake_rows').delete().eq('batch_id', batchId);
-      await deps.admin.from('hr_intake_batches').update({ prepare_claimed_at: null }).eq('id', batchId);
+      // Only while it is still 'preparing': the "ready" write may have landed
+      // even though its reply was lost, and then the rows ARE the batch.
+      const { data: still } = await deps.admin
+        .from('hr_intake_batches').select('status').eq('id', batchId).maybeSingle();
+      if ((still as { status?: string } | null)?.status === 'preparing') {
+        await deps.admin.from('hr_intake_rows').delete().eq('batch_id', batchId);
+        await deps.admin.from('hr_intake_batches').update({ prepare_claimed_at: null }).eq('id', batchId);
+      }
     }
     throw e;
   }
@@ -1063,8 +1076,11 @@ export async function decide(
   // The session reads are the access check: this person can see the row and its batch.
   const row = await loadRow(deps, rowId);
   const batch = await loadBatchRecord(deps, row.batch_id);
-  if (batch.status === 'closed') throw new IntakeError('This batch is closed.', 409);
+  if (batch.status !== 'ready') throw new IntakeError(batch.status === 'closed' ? 'This batch is closed.' : 'This batch is still being prepared.', 409);
   if (row.application_id) throw new IntakeError('Already filed in MyJKKN; it cannot be changed here.', 409);
+  if (row.applied_at && !row.apply_error) {
+    throw new IntakeError('Filed once already; that application was later removed, so this card cannot be changed.', 409);
+  }
   const now = nowOf(deps);
   if (claimIsFresh(row.apply_claimed_at, now)) {
     throw new IntakeError('This candidate is being filed right now. Wait a minute, then refresh.', 409);
@@ -1138,7 +1154,7 @@ export async function decide(
 
 export async function acceptHigh(deps: IntakeDeps, actor: IntakeActor, batchId: string): Promise<{ decided: number }> {
   const batch = await loadBatchRecord(deps, batchId);
-  if (batch.status === 'closed') throw new IntakeError('This batch is closed.', 409);
+  if (batch.status !== 'ready') throw new IntakeError(batch.status === 'closed' ? 'This batch is closed.' : 'This batch is still being prepared.', 409);
   const rows = (await loadRows(deps, batchId)).filter(
     (r) =>
       !r.decision_action &&
@@ -1350,7 +1366,7 @@ async function closeIfFinished(deps: IntakeDeps, batchId: string): Promise<void>
       (r) =>
         r.decision_action &&
         r.decision_action !== 'needs_new_job' &&
-        (r.decision_action !== 'file_under_job' || r.application_id),
+        (r.decision_action !== 'file_under_job' || r.application_id || (r.applied_at && !r.apply_error)),
     );
   if (!settled(await loadRows(deps, batchId))) return;
 
@@ -1394,7 +1410,7 @@ export async function apply(
   rowIds?: string[] | null,
 ): Promise<{ results: ApplyResult[] }> {
   const batch = await loadBatchRecord(deps, batchId);
-  if (batch.status === 'closed') throw new IntakeError('This batch is closed.', 409);
+  if (batch.status !== 'ready') throw new IntakeError(batch.status === 'closed' ? 'This batch is closed.' : 'This batch is still being prepared.', 409);
   if (rowIds && (!Array.isArray(rowIds) || rowIds.some((id) => typeof id !== 'string'))) {
     throw new IntakeError('row_ids must be a list of row ids.', 400);
   }
@@ -1418,6 +1434,10 @@ export async function apply(
   for (const r of targets) {
     if (r.application_id) {
       results.push({ row_id: r.id, ok: true, application_id: r.application_id, error: null });
+    } else if (r.applied_at && !r.apply_error) {
+      // Filed once; the application has since been removed (e.g. purged). Never
+      // file the person again from an old batch.
+      results.push({ row_id: r.id, ok: false, application_id: null, error: 'Filed once already; that application was removed, so it is not filed again' });
     } else if (r.decision_action !== 'file_under_job') {
       results.push({ row_id: r.id, ok: false, application_id: null, error: 'Decide this row as "file under job" first' });
     } else {
