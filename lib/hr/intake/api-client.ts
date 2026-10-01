@@ -143,6 +143,20 @@ export async function listIntakeBatches(): Promise<IntakeBatch[]> {
   return body.batches;
 }
 
+/** The colleges this person may upload for, and their home college (the default). */
+export interface IntakeColleges {
+  institutions: IntakeCollegeChoice[];
+  home_institution_id: string | null;
+}
+
+export async function listIntakeColleges(): Promise<IntakeColleges> {
+  return call(
+    '/institutions',
+    undefined,
+    (b): b is IntakeColleges => isObj(b) && Array.isArray(b.institutions),
+  );
+}
+
 export async function getIntakeBatch(batchId: string): Promise<IntakeBatchDetail> {
   return call(
     `/batches/${encodeURIComponent(batchId)}`,
@@ -180,13 +194,14 @@ export type IntakeUploadStage = 'export' | 'resumes' | 'reading';
  *      three at a time;
  *   3. prepare pairs the files with rows, reads the resumes and proposes.
  * `resumes` is 0..n PDF/DOC/DOCX/JPG/PNG files, or exactly one .zip.
- * When the uploader has no college, step 1 fails with an IntakeApiClientError
- * whose `institutions` lists the colleges to choose from; retry with institutionId.
+ * `institutionId` is the college chosen (any the person's access reaches); without
+ * it the server uses their home college. When they have none, step 1 fails with an
+ * IntakeApiClientError whose `institutions` lists the colleges to choose from.
  */
 export async function createIntakeBatch(input: {
   exportFile: File;
   resumes: File[];
-  /** Only for someone whose profile has no college; the server asks for it when needed. */
+  /** The college chosen; omitted, the server uses the uploader's home college. */
   institutionId?: string | null;
   onProgress?: (stage: IntakeUploadStage, done: number, total: number) => void;
   uploader?: IntakeFileUploader;

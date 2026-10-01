@@ -8,7 +8,7 @@ import { useRouter } from 'next/navigation';
 import { Loader2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { useCreateIntakeBatch } from '@/hooks/hr/use-recruitment-intake';
+import { useCreateIntakeBatch, useIntakeColleges } from '@/hooks/hr/use-recruitment-intake';
 import { IntakeApiClientError, type IntakeCollegeChoice } from '@/lib/hr/intake/api-client';
 import { IntakeError } from './intake-states';
 
@@ -48,9 +48,15 @@ export function IntakeUploadForm() {
   const [resumes, setResumes] = useState<File[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
   const [stepText, setStepText] = useState<string | null>(null);
-  // Shown only when the server says this person's profile has no college.
-  const [colleges, setColleges] = useState<IntakeCollegeChoice[] | null>(null);
-  const [collegeId, setCollegeId] = useState('');
+  // Any college this person's access reaches (Director ruling, 1 Oct). The picker
+  // shows when there is a real choice, or when the server asks for one (no home college).
+  const loaded = useIntakeColleges().data;
+  const [asked, setAsked] = useState<IntakeCollegeChoice[] | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
+  const home = loaded?.home_institution_id ?? null;
+  const colleges =
+    asked ?? (loaded && (loaded.institutions.length > 1 || !home) ? loaded.institutions : null);
+  const collegeId = picked ?? (colleges?.some((c) => c.id === home) ? (home as string) : '');
 
   const resumeBytes = resumes.reduce((n, f) => n + f.size, 0);
 
@@ -80,7 +86,7 @@ export function IntakeUploadForm() {
       router.push(`/hr/recruitment/intake/${batch.id}`);
     } catch (e) {
       // Shown below from create.error. A "choose a college" answer also brings the choices.
-      if (e instanceof IntakeApiClientError && e.institutions) setColleges(e.institutions);
+      if (e instanceof IntakeApiClientError && e.institutions) setAsked(e.institutions);
     }
   }
 
@@ -147,7 +153,8 @@ export function IntakeUploadForm() {
             3. Which college is this upload for?
           </Label>
           <p className="text-sm text-muted-foreground">
-            Your profile has no college, so choose one. Only HR of that college will see these candidates.
+            {home ? 'You work with more than one college. ' : 'Your profile has no college, so choose one. '}
+            Only HR of the college chosen will see these candidates.
           </p>
           {colleges.length === 0 ? (
             <p role="alert" className="text-sm text-red-600 dark:text-red-400">
@@ -158,7 +165,7 @@ export function IntakeUploadForm() {
               id="intake-college"
               value={collegeId}
               onChange={(e) => {
-                setCollegeId(e.target.value);
+                setPicked(e.target.value);
                 setProblem(null);
               }}
               className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground"

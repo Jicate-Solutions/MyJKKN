@@ -11,6 +11,7 @@ const m = vi.hoisted(() => ({
   getBatch: vi.fn(),
   discardBatch: vi.fn(),
   createBatch: vi.fn(),
+  accessible: vi.fn(),
 }));
 
 vi.mock('next/server', async (orig) => ({
@@ -36,6 +37,7 @@ vi.mock('@/lib/services/hr/intake/intake-service', async (orig) => ({
   getBatch: (...a: unknown[]) => m.getBatch(...a),
   discardBatch: (...a: unknown[]) => m.discardBatch(...a),
   createBatch: (...a: unknown[]) => m.createBatch(...a),
+  accessibleInstitutions: (...a: unknown[]) => m.accessible(...a),
 }));
 
 import { DELETE as discardOne, GET as getOne } from '@/app/api/hr/recruitment/intake/batches/[id]/route';
@@ -114,5 +116,18 @@ describe('discard and the college choice', () => {
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: 'Choose a college.', needs_institution: true, institutions: [{ id: 'c1', name: 'Arts' }] });
     expect(m.createBatch.mock.calls[0][3]).toBe('c9');
+  });
+});
+
+describe('GET /institutions: the colleges this person may upload for (Director ruling, 1 Oct)', () => {
+  it('signed out -> 401; signed in with the permission -> their reachable colleges and home college', async () => {
+    const { GET: listColleges } = await import('@/app/api/hr/recruitment/intake/institutions/route');
+    expect((await listColleges()).status).toBe(401);
+    m.user = { id: 'u-1' };
+    m.rpc = { 'hr.recruitment.create': true };
+    m.accessible.mockResolvedValue([{ id: 'c1', name: 'Arts Demo College' }]);
+    const res = await listColleges();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ institutions: [{ id: 'c1', name: 'Arts Demo College' }], home_institution_id: null });
   });
 });

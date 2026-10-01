@@ -517,24 +517,28 @@ export async function accessibleInstitutions(deps: IntakeDeps): Promise<IntakeIn
 }
 
 /**
- * The college a new upload belongs to: the uploader's home college; for someone
- * with none, the college they chose, provided they can reach it. Never NULL — a
- * batch with no college would be visible to HR in every college.
+ * The college a new upload belongs to: the college they chose, provided their
+ * own access reaches it (role_has_institution_access, the check RLS uses: own
+ * college, user_institution_access grants, or an all-colleges scope); with no
+ * choice, their home college. Director ruling 2026-10-01: HR may upload for any
+ * college their role already lets them see. Never NULL — a batch with no
+ * college would be visible to HR in every college.
  */
 async function resolveBatchInstitution(
   deps: IntakeDeps,
   actor: IntakeActor,
   chosen: string | null | undefined,
 ): Promise<string> {
-  if (actor.institution_id) return actor.institution_id;
   const pick = typeof chosen === 'string' ? chosen.trim() : '';
   if (!pick) {
+    if (actor.institution_id) return actor.institution_id;
     throw new IntakeError(
       'Your profile has no college, so choose which college this upload is for.',
       400,
       { needs_institution: true, institutions: await accessibleInstitutions(deps) },
     );
-  }  if (!(await canReachInstitution(deps, pick))) {
+  }
+  if (!(await canReachInstitution(deps, pick))) {
     throw new IntakeError(
       'You cannot add candidates for that college. Choose one of the colleges you work with.',
       403,

@@ -259,3 +259,39 @@ describe('review 4: a discard that half-fails says what is true', () => {
     expect(err?.message).not.toMatch(/now closed/i);
   });
 });
+
+describe('Director ruling (1 Oct): HR may upload for any college their role lets them see', () => {
+  const choose = (actor: IntakeActor, college: string | null) =>
+    createBatch(deps(), actor, { name: 'e.tsv', bytes: ASHA() }, college);
+  const collegeOf = (batchId: string) => fake.table('hr_intake_batches').find((b) => b.id === batchId)!.institution_id;
+
+  it('a person with a home college may upload for another college they can reach', async () => {
+    fake.reachable = (id) => id === COLLEGE_1 || id === COLLEGE_2;
+    const { batch } = await choose(HR, COLLEGE_2);
+    expect(collegeOf(batch.id)).toBe(COLLEGE_2);
+  });
+
+  it('a college they cannot reach is refused, with the ones they can choose', async () => {
+    fake.reachable = (id) => id === COLLEGE_1 || id === COLLEGE_2;
+    const err = await choose(HR, COLLEGE_3).then(() => null, (e: unknown) => e as Error & { status?: number; details?: unknown });
+    expect(err?.status).toBe(403);
+    expect(err?.details).toMatchObject({
+      institutions: [{ id: COLLEGE_1, name: 'Arts Demo College' }, { id: COLLEGE_2, name: 'Engineering Demo College' }],
+    });
+    expect(fake.table('hr_intake_batches')).toHaveLength(0);
+  });
+
+  it('someone whose access covers every college (the COO) may upload for any of them', async () => {
+    fake.reachable = null; // every college, as for an all-colleges scope
+    for (const college of [COLLEGE_1, COLLEGE_2, COLLEGE_3]) {
+      const { batch } = await choose(HR, college);
+      expect(collegeOf(batch.id)).toBe(college);
+    }
+  });
+
+  it('choosing nothing still files under the home college, and NULL is never asked about', async () => {
+    const { batch } = await choose(HR, null);
+    expect(collegeOf(batch.id)).toBe(COLLEGE_1);
+    expect(fake.rpcCalls.every((c) => (c.args as { check_institution_id: unknown }).check_institution_id != null)).toBe(true);
+  });
+});

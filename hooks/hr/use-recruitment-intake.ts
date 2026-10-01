@@ -18,6 +18,7 @@ import {
   discardIntakeBatch,
   getIntakeBatch,
   listIntakeBatches,
+  listIntakeColleges,
   listIntakeRules,
   type DecideOutcome,
   type IntakeBatchDetail,
@@ -28,7 +29,17 @@ export const intakeKeys = {
   batches: () => [...intakeKeys.all, 'batches'] as const,
   batch: (id: string) => [...intakeKeys.all, 'batch', id] as const,
   rules: () => [...intakeKeys.all, 'rules'] as const,
+  colleges: () => [...intakeKeys.all, 'colleges'] as const,
 };
+
+/** The colleges this person may upload for (Director ruling, 1 Oct: any their access reaches). */
+export function useIntakeColleges() {
+  return useQuery({
+    queryKey: intakeKeys.colleges(),
+    queryFn: listIntakeColleges,
+    staleTime: 5 * 60 * 1000,
+  });
+}
 
 export function useIntakeBatches() {
   return useQuery({
