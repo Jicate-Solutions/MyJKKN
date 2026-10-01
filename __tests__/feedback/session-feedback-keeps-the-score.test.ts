@@ -64,18 +64,28 @@ let readFrom: { table: string; ascending: boolean; limit: number } | null = null
 /** What the route handed the ingest layer. */
 let ingested: Record<string, unknown>[] = [];
 
+/** Ids the fake ingest has accepted — the real view hides these, so the fake must too. */
+let accepted = new Set<string>();
+
 vi.mock('@/lib/supabase/server', () => ({
   createServiceRoleClient: () => ({
     from(table: string) {
       const q: any = {
         _asc: false,
-        _limit: 0,
         select() { return q; },
         order(_c: string, o: { ascending: boolean }) { q._asc = o.ascending; return q; },
         limit(n: number) {
-          q._limit = n;
           readFrom = { table, ascending: q._asc, limit: n };
-          return Promise.resolve({ data: source.slice(0, n), error: null });
+          // The pending-ingest view excludes rows already in the spine. Modelling
+          // that is the whole point: a fake that keeps returning ingested rows
+          // would let a non-converging loop pass.
+          const pending = source.filter((r) => !accepted.has(r.id));
+          const sorted = [...pending].sort((a, b) =>
+            q._asc
+              ? String(a.created_at).localeCompare(String(b.created_at))
+              : String(b.created_at).localeCompare(String(a.created_at)),
+          );
+          return Promise.resolve({ data: sorted.slice(0, n), error: null });
         },
       };
       return q;
@@ -85,7 +95,8 @@ vi.mock('@/lib/supabase/server', () => ({
 
 vi.mock('@/lib/services/feedback/feedback-ingest', () => ({
   ingestFeedbackEvents: async (events: Record<string, unknown>[]) => {
-    ingested = events;
+    ingested = ingested.concat(events);
+    for (const e of events) accepted.add(String(e.source_ref));
     return { inserted: events.length, error: null };
   },
 }));
@@ -118,6 +129,7 @@ describe('session feedback adapter keeps the learner score', () => {
     process.env.CRON_SECRET = CRON_SECRET;
     source = [];
     ingested = [];
+    accepted = new Set();
     readFrom = null;
     vi.resetModules();
   });
@@ -169,6 +181,26 @@ describe('session feedback adapter keeps the learner score', () => {
     expect(readFrom!.table).toBe('v_session_feedback_pending_ingest');
     expect(readFrom!.ascending).toBe(true);
     expect(readFrom!.limit).toBeGreaterThan(0);
+  });
+
+  it('copies MORE THAN ONE PAGE in a single run — a single fetch never converges', async () => {
+    // Source intake is about 2,000 rows a day and this route is on no Vercel
+    // schedule, so a run that stops after one page of 1,000 leaves the pending
+    // set growing for ever. 2,300 rows must all land in one run.
+    source = Array.from({ length: 2300 }, (_, i) => {
+      const r = row(`r${String(i).padStart(4, '0')}`, (i % 5) + 1);
+      r.created_at = new Date(Date.UTC(2026, 6, 1, 0, 0, i)).toISOString();
+      return r;
+    });
+
+    const { GET } = await import('@/app/api/cron/feedback-adapter-session/route');
+    const body = await (await GET(req())).json();
+
+    expect(body.inserted).toBe(2300);
+    expect(body.pages).toBeGreaterThan(1);
+    expect(ingested).toHaveLength(2300);
+    // Oldest first: the first row copied is the oldest in the source.
+    expect(ingested[0].source_ref).toBe('r0000');
   });
 
   it('refuses an unauthenticated caller', async () => {
