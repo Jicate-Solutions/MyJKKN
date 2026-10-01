@@ -132,9 +132,11 @@ describe('proposeMatch — learned rules win', () => {
     expect(p.reasons[1]).toMatch(/also fits .*check the rule fits this person/);
   });
 
-  it('a rule is high when nothing argues against it: the title fits no other post', () => {
+  it('a rule is high only with the resume agreeing, and the title fitting no other post', () => {
     const r = rule({ cvviz_job_title_norm: normaliseJobTitle(T.unmatched), job_id: J.history.id });
-    const p = proposeMatch({ ...base, candidate: cand(T.unmatched), rules: [r] });
+    // One person's correction alone, with nothing about this candidate's subject: medium.
+    expect(proposeMatch({ ...base, candidate: cand(T.unmatched), rules: [r] }).confidence).toBe('medium');
+    const p = proposeMatch({ ...base, candidate: cand(T.unmatched), extract: extract('History'), rules: [r] });
     expect(p).toMatchObject({ job_id: J.history.id, confidence: 'high', rule_id: r.id });
   });
 
@@ -210,9 +212,27 @@ describe('proposeMatch — scoring open jobs', () => {
     expect(p.reasons).toContain('Resume file name mentions "english"');
   });
 
-  it('a slash title fits the job named by one of its halves', () => {
+  it('a slash title fits the job named by one of its halves; high once something names its department', () => {
     const p = proposeMatch({ ...base, candidate: cand(T.combo) });
-    expect(p).toMatchObject({ job_id: J.lab_tech.id, confidence: 'high' });
+    // The post is in a named department the title does not mention: not high on the title alone.
+    expect(p).toMatchObject({ job_id: J.lab_tech.id, confidence: 'medium' });
+    expect(p.reasons[0]).toMatch(/names this post.s subject/);
+    const withQual = proposeMatch({ ...base, candidate: cand(T.combo, { qualification: `M.Sc. ${J.lab_tech.department_name}` }) });
+    expect(withQual).toMatchObject({ job_id: J.lab_tech.id, confidence: 'high' });
+  });
+
+  it('a qualification or resume subject that points elsewhere keeps a fitting title off high', () => {
+    const p = proposeMatch({ ...base, candidate: cand(T.combo, { qualification: 'M.Sc. Physics' }) });
+    expect(p).toMatchObject({ job_id: J.lab_tech.id, confidence: 'medium' });
+    expect(p.reasons[0]).toMatch(/\(physics\) does not match this post/);
+    const exact = proposeMatch({ ...base, candidate: cand(J.history.title), extract: extract('Chemistry') });
+    expect(exact).toMatchObject({ job_id: J.history.id, confidence: 'medium' });
+  });
+
+  it('a resume paired only by a similar file name is never high', () => {
+    const p = proposeMatch({ ...base, candidate: cand(J.history.title), resume_match: 'contains' });
+    expect(p).toMatchObject({ job_id: J.history.id, confidence: 'medium' });
+    expect(proposeMatch({ ...base, candidate: cand(J.history.title), resume_match: 'exact' }).confidence).toBe('high');
   });
 
   it('a different rank of post is not a fit: no open job, closest named', () => {

@@ -44,13 +44,23 @@ export interface ResumeMatch<T> {
    * paired then: a guess could put one person's resume on another's card.
    */
   ambiguous: boolean;
+  /**
+   * How the name matched: 'exact' and 'stem' are the same name; 'number' differs
+   * only by CVViZ's "_<long number>"; 'contains' is only a similar name, which
+   * may be someone else's file (never enough for a high proposal).
+   */
+  tier?: 'exact' | 'stem' | 'number' | 'contains';
 }
 
-function one<T>(hits: T[]): ResumeMatch<T> | null {
-  if (hits.length === 1) return { file: hits[0], ambiguous: false };
+function one<T>(hits: T[], tier: NonNullable<ResumeMatch<T>['tier']>): ResumeMatch<T> | null {
+  if (hits.length === 1) return { file: hits[0], ambiguous: false, tier };
   if (hits.length > 1) return { file: null, ambiguous: true };
   return null;
 }
+
+/** Words that say nothing about WHOSE file it is ("Resume", "CV", "Updated"...). */
+const GENERIC_NAME_WORDS = /curriculumvitae|curriculum|vitae|biodata|resume|document|profile|updated|scanned|scan|final|latest|copy|new|cv/g;
+const identifying = (stem: string) => stem.replace(GENERIC_NAME_WORDS, '').replace(/\d+/g, '');
 
 /**
  * The uploaded file the export's "File Name" cell refers to. Tiers, strongest
@@ -67,28 +77,33 @@ export function matchResumeFileDetailed<T extends { name: string }>(
   if (!exportName) return none;
   const wanted = baseOf(exportName.trim());
   const lower = wanted.toLowerCase();
-  const exact = one(uploads.filter((u) => baseOf(u.name.trim()).toLowerCase() === lower));
+  const exact = one(uploads.filter((u) => baseOf(u.name.trim()).toLowerCase() === lower), 'exact');
   if (exact) return exact;
 
   const stem = fileStem(wanted);
   if (!stem) return none;
-  const sameStem = one(uploads.filter((u) => fileStem(baseOf(u.name)) === stem));
+  const sameStem = one(uploads.filter((u) => fileStem(baseOf(u.name)) === stem), 'stem');
   if (sameStem) return sameStem;
 
   // CVViZ sometimes adds "_<long number>" to a name ("Image00732_1812345678901.pdf")
   // that the downloaded file does not carry, or the other way round.
   const bare = stripNumericSuffix(wanted);
   if (bare) {
-    const sameBare = one(uploads.filter((u) => stripNumericSuffix(baseOf(u.name)) === bare));
+    const sameBare = one(uploads.filter((u) => stripNumericSuffix(baseOf(u.name)) === bare), 'number');
     if (sameBare) return sameBare;
   }
 
   if (stem.length < MIN_CONTAINS_LEN) return none;
+  // "Resume.pdf" must never stand in for "Priya_Sharma_Resume.pdf": the shorter
+  // name has to carry something identifying, not only generic words.
   const contains = one(
     uploads.filter((u) => {
       const s = fileStem(baseOf(u.name));
-      return s.length >= MIN_CONTAINS_LEN && (s.includes(stem) || stem.includes(s));
+      if (s.length < MIN_CONTAINS_LEN || !(s.includes(stem) || stem.includes(s))) return false;
+      const shorter = s.length <= stem.length ? s : stem;
+      return identifying(shorter).length >= MIN_CONTAINS_LEN;
     }),
+    'contains',
   );
   return contains ?? none;
 }

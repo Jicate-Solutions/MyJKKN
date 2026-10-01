@@ -117,6 +117,8 @@ export const IDLE_BATCH_DAYS = 30;
 import { AMBIGUOUS_RESUME_NOTE, SHARED_RESUME_NOTE } from '@/lib/hr/intake/resume-notes';
 export { AMBIGUOUS_RESUME_NOTE, SHARED_RESUME_NOTE };
 
+type ResumeMatchTier = NonNullable<ReturnType<typeof matchResumeFileDetailed>['tier']>;
+
 export interface SkippedFile {
   file_name: string;
   reason: string;
@@ -759,6 +761,7 @@ export async function prepareBatch(
 
     // --- pair each row with its resume: one file, one person ---
     const pairing = new Map<number, StoredResume | null>();
+    const matchTier = new Map<number, ResumeMatchTier>();
     const ambiguousRows = new Set<number>();
     const ambiguousFiles = new Set<StoredResume>();
     const sharedRows = new Set<number>();
@@ -770,6 +773,7 @@ export async function prepareBatch(
         for (const f of files) if (matchResumeFileDetailed(row.file_name, [f]).file) ambiguousFiles.add(f);
       }
       pairing.set(row.row_index, m.file);
+      if (m.file && m.tier) matchTier.set(row.row_index, m.tier);
     }
     // A file may serve several rows only when they are the SAME person (same
     // email, above). Named by two different people, it pairs with neither: a
@@ -877,6 +881,7 @@ export async function prepareBatch(
         duplicate_of_row_index: same?.ref_row_index ?? null,
         duplicate_of_candidate: same ? byIndex.get(same.ref_row_index)?.candidate ?? null : null,
         batch_institution_id: batch.institution_id,
+        resume_match: s ? matchTier.get(row.row_index) ?? null : null,
         duplicate_of_resume_uploaded: same ? !!pairing.get(same.ref_row_index) : undefined,
         openJobs: jobs,
         rules: rulesForMatch,

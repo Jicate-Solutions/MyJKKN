@@ -167,7 +167,10 @@ describe('a batch from upload to proposals', () => {
     // Rows 2 and 3 are the same person as row 1 and are never read.
     expect(seen).not.toContain('Image00732.pdf');
     expect(new Set(seen).size).toBe(seen.length);
-    expect(byIndex(rows, 4).proposal).toMatchObject({ job_id: J.english.id, confidence: 'high' });
+    // The subject points to English, but row 4's resume was paired only by a
+    // similar file name, so the card asks for a check instead of being high.
+    expect(byIndex(rows, 4).proposal).toMatchObject({ job_id: J.english.id, confidence: 'medium' });
+    expect(byIndex(rows, 4).proposal.reasons[0]).toMatch(/matched only by a similar file name/);
     expect(byIndex(rows, 4).proposal.reasons).toContain('Resume subject: English');
     expect(byIndex(rows, 4).resume.extract?.experience_years).toBe(6);
   });
