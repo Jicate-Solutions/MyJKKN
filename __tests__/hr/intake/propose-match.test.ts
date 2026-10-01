@@ -323,3 +323,17 @@ describe('eighth review: sharing one word is not the same subject', () => {
   });
 });
 
+describe('ninth review: the same post open at a college the uploader cannot see', () => {
+  const visible = [J.english];
+  const everyCollege = [J.english, J.english_eng];
+  const input = { ...base, openJobs: visible, candidate: cand(J.english.title), extract: extract('English'), resume_match: 'exact' as const };
+  it('is high when only the uploader\u2019s post is open anywhere', () => {
+    expect(proposeMatch({ ...input, all_open_jobs: visible }).confidence).toBe('high');
+  });
+  it('is medium, naming the other college, when the title is also open elsewhere', () => {
+    const p = proposeMatch({ ...input, all_open_jobs: everyCollege });
+    expect(p).toMatchObject({ job_id: J.english.id, confidence: 'medium' });
+    expect(p.reasons[0]).toContain(`also open at ${J.english_eng.institution_name}`);
+  });
+});
+

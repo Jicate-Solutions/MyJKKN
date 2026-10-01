@@ -44,6 +44,8 @@ export class FakeSupabase {
   signedUploadOpts: { path: string; upsert: boolean | undefined }[] = [];
   /** Called after every update that changed rows: lets a test interleave another request. */
   afterUpdate: ((table: string, patch: unknown) => void) | null = null;
+  /** Rows the SESSION client cannot read (a stand-in for RLS on that table); the service role reads all. */
+  sessionHides: ((table: string, row: Row) => boolean) | null = null;
 
   table(name: string): Row[] {
     this.tables[name] ??= [];
@@ -176,6 +178,7 @@ class Query implements PromiseLike<{ data: unknown; error: Failure | null }> {
 
     if (this.op === 'select') {
       out = table.filter(match);
+      if (this.readOnly && this.db.sessionHides) out = out.filter((r) => !this.db.sessionHides!(this.name, r));
       if (this.orderBy) {
         const { col, asc } = this.orderBy;
         out = [...out].sort((a, b) => (String(a[col]) < String(b[col]) ? -1 : String(a[col]) > String(b[col]) ? 1 : 0) * (asc ? 1 : -1));

@@ -47,6 +47,12 @@ export interface ProposeInput {
    * college cannot even see them.
    */
   batch_institution_id?: string | null;
+  /**
+   * Every college's open jobs (the server reads them only to judge certainty).
+   * A post whose title is also open at another college is never high, even
+   * when the uploader cannot see that other post.
+   */
+  all_open_jobs?: MatchJob[];
   /** How the resume's file name matched (resume-files tiers); 'contains' is only a similar name. */
   resume_match?: 'exact' | 'stem' | 'number' | 'contains' | 'generic' | null;
   /** For a same_file row: the candidate on the row it points at. */
@@ -235,7 +241,7 @@ function scoreJobs(input: ProposeInput, cvTitle: string): Scored[] {
  * low, with the reason first.
  */
 export function proposeMatch(input: ProposeInput): IntakeProposal {
-  const p = requirePositiveEvidence(input, capOtherCollege(input, proposeFromEvidence(input)));
+  const p = capOpenElsewhere(input, requirePositiveEvidence(input, capOtherCollege(input, proposeFromEvidence(input))));
   if (p.action !== 'file_under_job') return p;
   const blockers = filingBlockers(input.candidate, input.resume_uploaded);
   if (blockers.length === 0) return p;
@@ -315,6 +321,27 @@ function requirePositiveEvidence(input: ProposeInput, p: IntakeProposal): Intake
   return p;
 }
 
+/** True when the CVViZ title (or one of its "/" halves) fits this job's title. */
+function titleFitsJob(cvTitle: string, job: MatchJob): boolean {
+  const alternatives = [cvTitle, ...cvTitle.split(/\s*\/\s*|\s+or\s+/i)].filter((t) => t.trim() !== '');
+  return alternatives.some((alt) => titleScore(alt, job.title) >= MIN_SCORE);
+}
+
+function capOpenElsewhere(input: ProposeInput, p: IntakeProposal): IntakeProposal {
+  if (p.action !== 'file_under_job' || p.confidence !== 'high' || !input.all_open_jobs) return p;
+  const cvTitle = input.candidate.cvviz_job_title ?? '';
+  const elsewhere = input.all_open_jobs.filter(
+    (j) => j.id !== p.job_id && j.institution_id !== p.institution_id && titleFitsJob(cvTitle, j),
+  );
+  if (elsewhere.length === 0) return p;
+  const where = [...new Set(elsewhere.map((j) => j.institution_name ?? 'another college'))].join(', ');
+  return {
+    ...p,
+    confidence: 'medium',
+    reasons: [`"${cvTitle}" is also open at ${where}: check which post this person applied for`, ...p.reasons],
+  };
+}
+
 function capOtherCollege(input: ProposeInput, p: IntakeProposal): IntakeProposal {
   if (p.action !== 'file_under_job' || !input.batch_institution_id) return p;
   if (p.institution_id === input.batch_institution_id) return p;
@@ -348,7 +375,11 @@ function proposeFromEvidence(input: ProposeInput): IntakeProposal {
     // title can be an open post at two colleges, so two rows may be two real
     // applications. Only when the title fits at most ONE open post is the second
     // row surely a repeat.
-    const posts = cvTitle ? scoreJobs(input, cvTitle).filter((s) => s.score >= MIN_SCORE).length : 0;
+    const posts = !cvTitle
+      ? 0
+      : input.all_open_jobs
+        ? input.all_open_jobs.filter((j) => titleFitsJob(cvTitle, j)).length
+        : scoreJobs(input, cvTitle).filter((s) => s.score >= MIN_SCORE).length;
     if (!sameEmail) reasons.push('Only the phone number or name matches: check this is the same person before skipping');
     else if (firstBlockers.length > 0) reasons.push('The earlier row cannot be filed as it stands: decide which row to file');
     else if (!differentJob && posts > 1) reasons.push(`"${cvTitle}" is open at more than one post: file this one too if both posts matter`);

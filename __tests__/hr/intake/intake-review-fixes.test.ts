@@ -620,3 +620,18 @@ describe('sixth review (fresh blind review of 7d6f297069)', () => {
 
 });
 
+describe('ninth review (prepare judges certainty against every college)', () => {
+  it('the same title open at another college keeps the card off high', async () => {
+    fake.table('hr_recruitment_jobs').push({
+      id: J.english_eng.id, title: J.english_eng.title, job_code: J.english_eng.job_code, institution_id: J.english_eng.institution_id,
+      status: 'open', closes_at: null, requirements: {}, institution: { name: J.english_eng.institution_name }, department: null,
+    });
+    // This HR person's access shows only their own college's posts.
+    fake.sessionHides = (table, row) => table === 'hr_recruitment_jobs' && row.institution_id !== COLLEGE_1;
+    const { rows } = await runBatch([{ name: 'Asha_Kumar.pdf', bytes: PDF('a') }], tsv(`Asha_Kumar.pdf\tAsha\tasha@example.test\t9811111111\t${J.english.title}`));
+    expect(rows[0].proposal.job_id).toBe(J.english.id);
+    expect(rows[0].proposal.confidence).toBe('medium');
+    expect(rows[0].proposal.reasons[0]).toContain(`also open at ${J.english_eng.institution_name}`);
+  });
+});
+
