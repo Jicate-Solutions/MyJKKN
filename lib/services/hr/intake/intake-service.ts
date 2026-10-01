@@ -1159,6 +1159,9 @@ export async function acceptHigh(deps: IntakeDeps, actor: IntakeActor, batchId: 
       !r.decision_action &&
       !r.application_id &&
       r.proposal_confidence === 'high' &&
+      // Bulk accept only ever FILES people. A skip or a link drops a card from
+      // filing for good, so each one is a person's own tap, never a bulk one.
+      r.proposal_action === 'file_under_job' &&
       // Never accept a filing that filing itself would refuse (rows from before
       // the cap, or a resume copy that has since gone).
       (r.proposal_action !== 'file_under_job' || filingBlockers(r.candidate, !!r.resume_storage_path).length === 0),

@@ -632,5 +632,16 @@ describe('sixth review (fresh blind review of 7d6f297069)', () => {
     expect(next.rows[0].proposal).toMatchObject({ job_id: J.history.id, confidence: 'medium' });
     expect(await acceptHigh(deps(), HR2, next.batch.id)).toEqual({ decided: 0 });
   });
+
+  it('accept-all only ever files people: even a sure repeat (high skip) waits for a person', async () => {
+    const { batch, rows } = await runBatch(
+      [{ name: 'a.pdf', bytes: PDF('a') }],
+      tsv('a.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal', '\tAsha\tasha@example.test\t9811111111\tPrincipal'),
+    );
+    expect(rowAt(rows, 2).proposal).toMatchObject({ action: 'skip', confidence: 'high' });
+    expect(await acceptHigh(deps(), HR, batch.id)).toEqual({ decided: 1 });
+    expect(rawRow(rowAt(rows, 1).id).decision_action).toBe('file_under_job');
+    expect(rawRow(rowAt(rows, 2).id).decision_action ?? null).toBeNull();
+  });
 });
 
