@@ -578,3 +578,27 @@ describe('fourth review (fresh blind review of 67aa3e9cf5)', () => {
   });
 });
 
+describe('fifth review (fresh blind review of 885be087ac)', () => {
+  it('blocker: another college\u2019s rule never makes accept-all file a person at that college', async () => {
+    // HR here reaches both colleges; the upload belongs to college 1.
+    const title = J.english.title;
+    expect(J.english_eng.title).toBe(title);
+    expect(J.english_eng.institution_id).not.toBe(COLLEGE_1);
+    fake.table('hr_recruitment_jobs').push({
+      id: J.english_eng.id, title, job_code: J.english_eng.job_code, institution_id: J.english_eng.institution_id,
+      status: 'open', closes_at: null, requirements: {}, institution: { name: J.english_eng.institution_name }, department: null,
+    });
+    fake.table('hr_intake_match_rules').push({
+      id: 'b0000000-0000-4000-8000-0000000000c2', cvviz_job_title_norm: normaliseJobTitle(title), job_id: J.english_eng.id,
+      institution_id: J.english_eng.institution_id, created_by: 'u-hr-other', created_by_name: 'Other College HR',
+      created_at: '2026-09-01T00:00:00.000Z', times_used: 3,
+    });
+    const { batch, rows } = await runBatch([{ name: 'cv.pdf', bytes: PDF('cv') }], tsv(`cv.pdf\tAsha\tasha@example.test\t9811111111\t${title}`));
+    expect(rows[0].proposal.job_id).toBe(J.english_eng.id);
+    expect(rows[0].proposal.confidence).toBe('medium');
+    expect(rows[0].proposal.reasons[0]).toMatch(/not the college this upload belongs to/);
+    expect(await acceptHigh(deps(), HR, batch.id)).toEqual({ decided: 0 });
+    expect(fake.table('hr_job_applications')).toHaveLength(0);
+  });
+});
+

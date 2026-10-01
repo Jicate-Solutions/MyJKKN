@@ -136,9 +136,12 @@ describe('a batch from upload to proposals', () => {
     // Row 6: the general pool.
     expect(byIndex(rows, 6).proposal).toMatchObject({ action: 'needs_new_job', confidence: 'low' });
     // Row 7, 9, 10: exact or half-of-a-slash titles -> high.
-    expect(byIndex(rows, 7).proposal).toMatchObject({ job_id: J.admin_officer.id, confidence: 'high' });
+    // Row 7's post is at the OTHER college than this upload's, so never high.
+    expect(byIndex(rows, 7).proposal).toMatchObject({ job_id: J.admin_officer.id, confidence: 'medium' });
+    expect(byIndex(rows, 7).proposal.reasons[0]).toMatch(/not the college this upload belongs to/);
     expect(byIndex(rows, 9).proposal).toMatchObject({ job_id: J.history.id, confidence: 'high' });
-    expect(byIndex(rows, 10).proposal).toMatchObject({ job_id: J.lab_tech.id, confidence: 'high' });
+    // Row 10's post is also at the other college: medium for the same reason as row 7.
+    expect(byIndex(rows, 10).proposal).toMatchObject({ job_id: J.lab_tech.id, confidence: 'medium' });
     // Row 8: the file name names the subject -> the matching post, medium.
     expect(byIndex(rows, 8).proposal).toMatchObject({ job_id: J.english.id, confidence: 'medium' });
 

@@ -28,6 +28,7 @@ import {
   isFiled,
   safeHttpUrl,
 } from './intake-labels';
+import { AMBIGUOUS_RESUME_NOTE, SHARED_RESUME_NOTE } from '@/lib/hr/intake/resume-notes';
 
 export interface CandidateCardProps {
   row: IntakeRow;
@@ -103,7 +104,11 @@ export function CandidateCard({ row, cardNumber, openJobs, duplicateNote, onDeci
           ) : (
             <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400">
               <FileX2 className="h-3.5 w-3.5" aria-hidden="true" />
-              {resume.file_name ? `Resume not found (looked for ${resume.file_name})` : 'No resume named in the export'}
+              {proposal.reasons.some((r) => r === SHARED_RESUME_NOTE || r === AMBIGUOUS_RESUME_NOTE)
+                ? `Resume held back (${resume.file_name ?? 'shared file name'}): see why below`
+                : resume.file_name
+                  ? `Resume not found (looked for ${resume.file_name})`
+                  : 'No resume named in the export'}
             </span>
           )}
         </div>

@@ -93,15 +93,17 @@ export function duplicateText(row: IntakeRow, numberById: Map<string, number>): 
       return null;
     case 'same_file': {
       const n = d.ref_id ? numberById.get(d.ref_id) : undefined;
-      const base = n ? `Same person as card ${n} in this upload` : 'Same person appears twice in this upload';
-      return d.note ? `${base}. ${d.note}` : base;
+      // The note ("Same person as row N in this file (same phone number)")
+      // already says it; only what matched is added, and "possibly" because a
+      // shared phone may be a different person.
+      const matched = d.note?.match(/\(([^)]+)\)\s*$/)?.[1];
+      const where = n ? `card ${n} in this upload` : 'another card in this upload';
+      return matched ? `Possibly the same person as ${where} (${matched})` : `Possibly the same person as ${where}`;
     }
     case 'existing_application':
-      return d.note ? `Already applied: ${d.note}` : 'Already applied to JKKN before';
+      return d.note ?? 'Already applied to JKKN before';
     case 'existing_candidate':
-      return d.note
-        ? `Already in MyJKKN as a candidate: ${d.note}`
-        : 'Already in MyJKKN as a candidate';
+      return d.note ?? 'Already in MyJKKN as a candidate';
   }
 }
 
@@ -142,7 +144,8 @@ export function summarise(rows: IntakeRow[]): IntakeSummary {
     if (r.decision) s.decided += 1;
     if (filed) s.filed += 1;
     if (!r.decision && r.proposal.confidence === 'high') s.highUndecided += 1;
-    if (r.decision && !filed) s.toApply.push(r.id);
+    // Only cards decided "file under job": the others have nothing to file.
+    if (r.decision?.action === 'file_under_job' && !filed) s.toApply.push(r.id);
   }
   return s;
 }

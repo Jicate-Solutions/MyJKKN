@@ -290,7 +290,7 @@ describe('BatchReview', () => {
     serve([ROW1, ROW2]);
     renderWithQuery(<BatchReview batchId="b1" />);
     const card2 = await screen.findByRole('article', { name: /Candidate 2: Bala K/ });
-    expect(within(card2).getByText('Same person as card 1 in this upload')).toBeTruthy();
+    expect(within(card2).getByText(/^Possibly the same person as card 1 in this upload/)).toBeTruthy();
   });
 
   it('a failed load is an error with the reason, never an empty upload', async () => {

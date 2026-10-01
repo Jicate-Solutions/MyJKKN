@@ -49,6 +49,7 @@ export function useIntakeBatch(batchId: string) {
 export function useCreateIntakeBatch() {
   const qc = useQueryClient();
   return useMutation({
+    retry: false, // never re-send: a retried upload would make a second batch
     mutationFn: createIntakeBatch,
     onSuccess: () => qc.invalidateQueries({ queryKey: intakeKeys.batches() }),
   });
@@ -58,6 +59,7 @@ export function useCreateIntakeBatch() {
 export function useDecideIntakeRow(batchId: string) {
   const qc = useQueryClient();
   return useMutation({
+    retry: false, // never re-send: a retried upload would make a second batch
     mutationFn: ({ rowId, req }: { rowId: string; req: DecideRequest }) =>
       decideIntakeRow(rowId, req),
     onSuccess: ({ row, ruleError }: DecideOutcome) => {
@@ -78,6 +80,7 @@ export function useDecideIntakeRow(batchId: string) {
 export function useAcceptHighConfidence(batchId: string) {
   const qc = useQueryClient();
   return useMutation({
+    retry: false, // never re-send: a retried upload would make a second batch
     mutationFn: () => acceptHighConfidence(batchId),
     onSettled: () => {
       qc.invalidateQueries({ queryKey: intakeKeys.batch(batchId) });
@@ -89,6 +92,7 @@ export function useAcceptHighConfidence(batchId: string) {
 export function useApplyIntake(batchId: string) {
   const qc = useQueryClient();
   return useMutation({
+    retry: false, // never re-send: a retried upload would make a second batch
     mutationFn: (rowIds?: string[]) => applyIntakeBatch(batchId, rowIds),
     // Refresh even after a failure: some rows may have been filed before it.
     onSettled: () => {
@@ -102,6 +106,7 @@ export function useApplyIntake(batchId: string) {
 export function useDiscardIntakeBatch(batchId: string) {
   const qc = useQueryClient();
   return useMutation({
+    retry: false, // never re-send: a retried upload would make a second batch
     mutationFn: () => discardIntakeBatch(batchId),
     onSuccess: () => {
       qc.removeQueries({ queryKey: intakeKeys.batch(batchId) });
@@ -120,6 +125,7 @@ export function useIntakeRules() {
 export function useDeleteIntakeRule() {
   const qc = useQueryClient();
   return useMutation({
+    retry: false, // never re-send: a retried upload would make a second batch
     mutationFn: deleteIntakeRule,
     onSuccess: () => qc.invalidateQueries({ queryKey: intakeKeys.rules() }),
   });
