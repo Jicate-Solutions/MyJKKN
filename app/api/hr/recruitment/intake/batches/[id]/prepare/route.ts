@@ -12,13 +12,14 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { PrepareRequest, ResumeExtractor } from '@/types/hr-intake';
 import { prepareBatch } from '@/lib/services/hr/intake/intake-service';
+import { createResumeExtractor } from '@/lib/hr/intake/resume-extract';
 import { intakeContext, intakeErrorResponse, readJson } from '../../../_lib/context';
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   await connection();
   try {
     const { id } = await params;
-    const extractor: ResumeExtractor | null = null; // INTEGRATOR: wire lane B's createResumeExtractor()
+    const extractor: ResumeExtractor | null = createResumeExtractor();
     const gate = await intakeContext(extractor);
     if (gate instanceof NextResponse) return gate;
     const body = await readJson<Partial<PrepareRequest>>(request);

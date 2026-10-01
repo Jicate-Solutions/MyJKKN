@@ -1070,8 +1070,11 @@ export class RecruitmentService {
       is_emergency: options?.is_emergency ?? false,
       // Website applicants have no account (applicant_user_id NULL) but ARE careers-page
       // candidates; keying on the user id alone mislabelled every one as an HR submission.
+      // CVViZ imports applied on the CVViZ careers page, so they are careers-page candidates too.
       source:
-        application.source === 'external_website' || application.applicant_user_id
+        application.source === 'external_website' ||
+        application.source === 'cvviz_import' ||
+        application.applicant_user_id
           ? 'public_careers_page'
           : 'hr_submission',
       submitted_by: promotedBy,
@@ -1353,7 +1356,7 @@ export class RecruitmentService {
       status: JobApplicationStatus;
       submitted_at: string;
       reviewed_at: string | null;
-      source: 'internal' | 'external_website';
+      source: 'internal' | 'external_website' | 'cvviz_import';
     };
     const apps = (appsRes.data ?? []) as AppRow[];
 

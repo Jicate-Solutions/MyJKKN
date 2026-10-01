@@ -16,6 +16,7 @@ import type {
   IntakeMatchRule,
   IntakeOpenJob,
   IntakeRow,
+  UploadUrlResponse,
 } from '@/types/hr-intake';
 
 export const INTAKE_API_BASE = '/api/hr/recruitment/intake';
@@ -132,32 +133,103 @@ export async function getIntakeBatch(batchId: string): Promise<IntakeBatchDetail
   );
 }
 
+/** Puts one file into the private intake bucket through a signed upload URL. */
+export type IntakeFileUploader = (
+  upload: UploadUrlResponse['uploads'][number],
+  file: File,
+) => Promise<void>;
+
+async function defaultUploader(
+  upload: UploadUrlResponse['uploads'][number],
+  file: File,
+): Promise<void> {
+  // Imported lazily so the module stays importable in tests without a browser client.
+  const { createClientSupabaseClient } = await import('@/lib/supabase/client');
+  const { error } = await createClientSupabaseClient()
+    .storage.from('hr-intake')
+    .uploadToSignedUrl(upload.path, upload.token, file, { contentType: upload.content_type });
+  if (error) throw new IntakeApiClientError(`Could not upload ${file.name}: ${error.message}`, 0);
+}
+
+export type IntakeUploadStage = 'export' | 'resumes' | 'reading';
+
 /**
- * Upload a CVViZ export plus resumes. `resumes` is 0..n PDF/DOC/DOCX files, or
- * exactly one .zip.
+ * Upload a CVViZ export plus resumes, in three steps, because the server
+ * accepts at most a few megabytes per request:
+ *   1. the export alone creates the batch;
+ *   2. each resume goes straight to storage through a signed upload URL,
+ *      three at a time;
+ *   3. prepare pairs the files with rows, reads the resumes and proposes.
+ * `resumes` is 0..n PDF/DOC/DOCX/JPG/PNG files, or exactly one .zip.
  */
 export async function createIntakeBatch(input: {
   exportFile: File;
   resumes: File[];
+  onProgress?: (stage: IntakeUploadStage, done: number, total: number) => void;
+  uploader?: IntakeFileUploader;
 }): Promise<IntakeBatch> {
+  const progress = input.onProgress ?? (() => undefined);
+  const uploader = input.uploader ?? defaultUploader;
+
+  progress('export', 0, 1);
   const form = new FormData();
   form.append('export', input.exportFile);
-  for (const f of input.resumes) form.append('resumes', f);
-  const body = await call(
+  const created = await call(
     '/batches',
     { method: 'POST', body: form },
     (b): b is { batch: IntakeBatch } => isObj(b) && isObj(b.batch) && typeof b.batch.id === 'string',
   );
-  return body.batch;
+  const batchId = created.batch.id;
+  progress('export', 1, 1);
+
+  const uploaded: { name: string; path: string }[] = [];
+  if (input.resumes.length > 0) {
+    const urls = await call(
+      `/batches/${encodeURIComponent(batchId)}/upload-urls`,
+      jsonInit('POST', {
+        files: input.resumes.map((f) => ({ name: f.name, size: f.size, type: f.type })),
+      }),
+      (b): b is UploadUrlResponse =>
+        isObj(b) && Array.isArray(b.uploads) && b.uploads.length === input.resumes.length,
+    );
+    let done = 0;
+    progress('resumes', 0, input.resumes.length);
+    const queue = urls.uploads.map((u, i) => ({ u, file: input.resumes[i] }));
+    const worker = async () => {
+      for (let next = queue.shift(); next; next = queue.shift()) {
+        await uploader(next.u, next.file);
+        uploaded.push({ name: next.u.name, path: next.u.path });
+        done += 1;
+        progress('resumes', done, input.resumes.length);
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+  }
+
+  progress('reading', 0, 1);
+  const prepared = await call(
+    `/batches/${encodeURIComponent(batchId)}/prepare`,
+    jsonInit('POST', { uploaded }),
+    (b): b is { batch: IntakeBatch; rows: IntakeRow[] } =>
+      isObj(b) && isObj(b.batch) && Array.isArray(b.rows),
+  );
+  progress('reading', 1, 1);
+  return prepared.batch;
 }
 
-export async function decideIntakeRow(rowId: string, req: DecideRequest): Promise<IntakeRow> {
+/** A decision, plus why a correction could not be remembered, when it could not. */
+export interface DecideOutcome {
+  row: IntakeRow;
+  ruleError: string | null;
+}
+
+export async function decideIntakeRow(rowId: string, req: DecideRequest): Promise<DecideOutcome> {
   const body = await call(
     `/rows/${encodeURIComponent(rowId)}/decide`,
     jsonInit('POST', { action: req.action, job_id: req.job_id ?? null }),
-    (b): b is { row: IntakeRow } => isObj(b) && isObj(b.row),
+    (b): b is { row: IntakeRow; rule_error?: string | null } => isObj(b) && isObj(b.row),
   );
-  return body.row;
+  return { row: body.row, ruleError: body.rule_error ?? null };
 }
 
 export async function acceptHighConfidence(batchId: string): Promise<number> {

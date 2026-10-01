@@ -12,7 +12,7 @@ import { useCreateIntakeBatch } from '@/hooks/hr/use-recruitment-intake';
 import { IntakeError } from './intake-states';
 
 const EXPORT_EXT = ['.csv', '.tsv', '.xlsx'];
-const RESUME_EXT = ['.pdf', '.doc', '.docx'];
+const RESUME_EXT = ['.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png'];
 
 const ext = (name: string) => {
   const i = name.lastIndexOf('.');
@@ -35,7 +35,7 @@ export function checkIntakeFiles(exportFile: File | null, resumes: File[]): stri
     return 'Upload either one .zip of resumes or the resume files themselves, not both.';
   }
   const odd = resumes.find((f) => ext(f.name) !== '.zip' && !RESUME_EXT.includes(ext(f.name)));
-  if (odd) return `Resumes must be PDF or Word files (or one .zip) — "${odd.name}" is not.`;
+  if (odd) return `Resumes must be PDF, Word or photo files (or one .zip) — "${odd.name}" is not.`;
   return null;
 }
 
@@ -45,6 +45,7 @@ export function IntakeUploadForm() {
   const [exportFile, setExportFile] = useState<File | null>(null);
   const [resumes, setResumes] = useState<File[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
+  const [stepText, setStepText] = useState<string | null>(null);
 
   const resumeBytes = resumes.reduce((n, f) => n + f.size, 0);
 
@@ -54,7 +55,18 @@ export function IntakeUploadForm() {
     setProblem(issue);
     if (issue || !exportFile) return;
     try {
-      const batch = await create.mutateAsync({ exportFile, resumes });
+      const batch = await create.mutateAsync({
+        exportFile,
+        resumes,
+        onProgress: (stage, done, total) =>
+          setStepText(
+            stage === 'export'
+              ? 'Reading the export…'
+              : stage === 'resumes'
+                ? `Uploading resumes ${done} of ${total}…`
+                : 'Reading the resumes and preparing each candidate… this can take a minute.',
+          ),
+      });
       router.push(`/hr/recruitment/intake/${batch.id}`);
     } catch {
       // Shown below from create.error.
@@ -132,7 +144,7 @@ export function IntakeUploadForm() {
           ) : (
             <Upload className="mr-1.5 h-4 w-4" aria-hidden="true" />
           )}
-          {create.isPending ? 'Uploading and reading…' : 'Upload and review'}
+          {create.isPending ? (stepText ?? 'Uploading…') : 'Upload and review'}
         </Button>
         <p className="text-xs text-muted-foreground">
           Nothing is added to MyJKKN yet. You review every candidate first.
