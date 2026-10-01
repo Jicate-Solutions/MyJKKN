@@ -28,7 +28,13 @@ interface SessionFeedbackRow {
   course_name: string | null;
   faculty_email: string | null;
   attendance_date: string | null;
-  understood: boolean | null;
+  /**
+   * THE ROOT CAUSE. This was declared `boolean | null`, but the column is a
+   * SMALLINT holding the learner's 1..5 score. The wrong declaration is why the
+   * mapping below was written as a true/false comparison and why TypeScript
+   * raised no objection, so every score was silently discarded.
+   */
+  understood: number | null;
   checklist: unknown;
   free_text: string | null;
   created_at: string | null;
@@ -43,6 +49,10 @@ function authorized(req: NextRequest): boolean {
   return false;
 }
 
+/** Source rows copied per run. The view keeps the queue shrinking, so this is
+ *  a throughput knob, not a correctness one. */
+const BATCH = 1000;
+
 export async function GET(req: NextRequest) {
   if (!authorized(req)) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
@@ -50,12 +60,18 @@ export async function GET(req: NextRequest) {
 
   const db = createServiceRoleClient();
   const { data, error } = await db
-    .from('session_feedback')
+    // The view excludes rows already in the spine, so paging OLDEST FIRST
+    // converges instead of starving. Reading session_feedback directly with
+    // created_at DESC re-served the newest 1,000 every run and left 148,748 of
+    // 215,938 source rows never ingested at all (measured 2026-10-01). Reading
+    // it ASC without the view would be the mirror of that bug: the same oldest
+    // 1,000 re-served for ever.
+    .from('v_session_feedback_pending_ingest')
     .select(
       'id, institution_id, student_id, timetable_id, course_code, course_name, faculty_email, attendance_date, understood, checklist, free_text, created_at'
     )
-    .order('created_at', { ascending: false })
-    .limit(1000);
+    .order('created_at', { ascending: true })
+    .limit(BATCH);
 
   if (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
@@ -73,7 +89,12 @@ export async function GET(req: NextRequest) {
     event_type: 'rating',
     // Only free_text is classifiable; pure understood/checklist rows are numeric.
     content: r.free_text && r.free_text.trim().length > 0 ? r.free_text.trim() : null,
-    rating: r.understood === true ? 1 : r.understood === false ? 0 : null,
+    // The learner's 1..5 score, kept as the score. Previously compared with
+    // === true / === false, which a number never satisfies, so all 67,190
+    // ingested rows carried a NULL rating on 2026-10-01 — including the 534
+    // learners who answered 1 or 2 and most needed to be seen. typeof still
+    // guards it, because the shape comes back from the database untyped.
+    rating: typeof r.understood === 'number' ? r.understood : null,
     raw: {
       course_code: r.course_code,
       course_name: r.course_name,
