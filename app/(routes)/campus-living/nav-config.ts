@@ -800,6 +800,12 @@ const config: ModuleNavConfig = {
           href: '/campus-living/settings/vacate-checklist',
           matchPaths: ['/campus-living/settings/vacate-checklist'],
         },
+        {
+          label: 'Damage Types',
+          icon: 'Hammer',
+          href: '/campus-living/settings/damage-types',
+          matchPaths: ['/campus-living/settings/damage-types'],
+        },
         // ── Premium Room (admin surfaces, now in-module) ────────────
         // Relocated 2026-06-01 from /admin/campus-living/* into the Campus
         // Living module so there's no separate admin module. Access is gated

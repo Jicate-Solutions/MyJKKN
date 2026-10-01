@@ -1479,6 +1479,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Warden / hostel office raising a request for a resident (2026-09-30).
   '/campus-living/vacate-requests/new': 'campus_living.vacate_requests.submit_on_behalf',
   '/campus-living/settings/vacate-checklist': 'campus_living.vacate_checklist.manage',
+  '/campus-living/settings/damage-types': 'campus_living.damage_types.manage',
   '/campus-living/attendance': 'campus_living.attendance.view',
   // '/campus-living/leave' retired to a redirect (2027-04) — see
   // '/learners/leave-onduty/settings' / '/learners/leave-onduty/my-applications'.
@@ -3091,6 +3092,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/campus-living/settings/notification-rules', label: 'Notification Rules', active: pathname.startsWith('/campus-living/settings/notification-rules') },
             { href: '/campus-living/settings/curfew', label: 'Curfew Policies', active: pathname.startsWith('/campus-living/settings/curfew') },
             { href: '/campus-living/settings/vacate-checklist', label: 'Vacate Checklist', active: pathname.startsWith('/campus-living/settings/vacate-checklist') },
+            { href: '/campus-living/settings/damage-types', label: 'Damage Types', active: pathname.startsWith('/campus-living/settings/damage-types') },
           ]
         },
         {

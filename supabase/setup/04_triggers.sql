@@ -2817,4 +2817,16 @@ DROP TRIGGER IF EXISTS trg_guard_salary_suggestion_rule_writes ON public.platfor
 CREATE TRIGGER trg_guard_salary_suggestion_rule_writes
   BEFORE INSERT OR UPDATE OR DELETE ON public.platform_policies
   FOR EACH ROW
-  EXECUTE FUNCTION public.fn_guard_salary_suggestion_rule_writes();
+  EXECUTE FUNCTION public.fn_guard_salary_suggestion_rule_writes();
+
+-- ═══ 2026-10-01: vacate approval chain + room damage + fine bill (20261001100000/110000) ═══
+DROP TRIGGER IF EXISTS trg_zz_vacate_on_bill_cleared ON public.billing_student_bills;
+CREATE TRIGGER trg_zz_vacate_on_bill_cleared
+  AFTER UPDATE OF balance_amount, status ON public.billing_student_bills
+  FOR EACH ROW
+  WHEN (
+    (NEW.balance_amount = 0 AND OLD.balance_amount IS DISTINCT FROM 0)
+    OR (NEW.status IN ('cancelled', 'superseded') AND OLD.status NOT IN ('cancelled', 'superseded'))
+  )
+  EXECUTE FUNCTION public.trg_vacate_on_bill_cleared();
+
