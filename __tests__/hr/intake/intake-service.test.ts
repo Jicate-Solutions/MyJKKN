@@ -139,7 +139,9 @@ describe('a batch from upload to proposals', () => {
     // Row 7's post is at the OTHER college than this upload's, so never high.
     expect(byIndex(rows, 7).proposal).toMatchObject({ job_id: J.admin_officer.id, confidence: 'medium' });
     expect(byIndex(rows, 7).proposal.reasons[0]).toMatch(/not the college this upload belongs to/);
-    expect(byIndex(rows, 9).proposal).toMatchObject({ job_id: J.history.id, confidence: 'high' });
+    // Row 9's resume file ("My_CV_2025_Updated_2.pdf") says nothing about whose it is: medium.
+    expect(byIndex(rows, 9).proposal).toMatchObject({ job_id: J.history.id, confidence: 'medium' });
+    expect(byIndex(rows, 9).proposal.reasons[0]).toMatch(/generic name/);
     // Row 10's post is also at the other college: medium for the same reason as row 7.
     expect(byIndex(rows, 10).proposal).toMatchObject({ job_id: J.lab_tech.id, confidence: 'medium' });
     // Row 8: the file name names the subject -> the matching post, medium.
@@ -391,8 +393,10 @@ describe('accept-high', () => {
     // The post for row 10 closes before anyone accepts it.
     fake.table('hr_recruitment_jobs').find((j) => j.id === J.lab_tech.id)!.status = 'closed';
     const { decided } = await acceptHigh(deps(), HR, batch.id);
-    // High: rows 1, 7, 9, 10. Row 7 was already decided; row 10's post closed.
-    expect(decided).toBe(2);
+    // High "file under job": only row 1 now (rows 7 and 10 are at the other
+    // college, row 9's file name is generic). Row 7 was decided by hand.
+    expect(decided).toBe(1);
+    expect(byIndex((await getBatch(deps(), batch.id)).rows, 9).decision).toBeNull();
     const after = (await getBatch(deps(), batch.id)).rows;
     expect(byIndex(after, 1).decision).toMatchObject({ action: 'file_under_job', job_id: J.principal.id, corrected: false });
     expect(byIndex(after, 7).decision?.action).toBe('skip');

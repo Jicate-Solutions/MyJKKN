@@ -64,6 +64,13 @@
     "associate": "Associate Professor - English",
     "vice_principal": "Vice Principal, ",
     "combo": "Lab Technician/Research Assistant",
-    "unmatched": "Guest Lecturer in Humanities"
+    "unmatched": "Guest Lecturer",
+    "mech_post": "Assistant Professor - Mechanical Engineering",
+    "civil_cv": "Assistant Professor - Civil Engineering",
+    "nursing_post": "Nursing Tutor - Medical Surgical Nursing",
+    "nursing_cv": "Nursing Tutor - Child Health Nursing",
+    "pharm_post": "Assistant Professor - Pharmaceutical Chemistry",
+    "pharm_cv": "Assistant Professor - Pharmaceutical Analysis",
+    "english_post": "Assistant Professor - English"
   }
 }

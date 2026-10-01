@@ -249,7 +249,8 @@ describe('M4 — the server writes; filing trusts nothing it did not write', () 
 
 describe('M5 — nothing unfileable is high; discard and idle clean-up', () => {
   it('accept-high skips a high filing row whose resume copy is gone', async () => {
-    const { batch, rows } = await runBatch([{ name: 'cv.pdf', bytes: PDF('cv') }], tsv('cv.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal'));
+    // A file name that identifies the person (a generic "cv.pdf" is never high).
+    const { batch, rows } = await runBatch([{ name: 'Asha_Kumar.pdf', bytes: PDF('cv') }], tsv('Asha_Kumar.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal'));
     expect(rows[0].proposal.confidence).toBe('high');
     rawRow(rows[0].id).resume_storage_path = null;
     expect(await acceptHigh(deps(), HR, batch.id)).toEqual({ decided: 0 });
@@ -453,8 +454,8 @@ describe('second review (fresh blind review of d26076b5ac)', () => {
 describe('third review (fresh blind review of 2177cb0c9b)', () => {
   it('blocker 1: two people sharing one phone are never auto-skipped; both are filed', async () => {
     const { batch, rows } = await runBatch(
-      [{ name: 'a.pdf', bytes: PDF('a') }, { name: 'b.pdf', bytes: PDF('b') }],
-      tsv('a.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal', 'b.pdf\tBala\tbala@example.test\t9811111111\tPrincipal'),
+      [{ name: 'Asha_Kumar.pdf', bytes: PDF('a') }, { name: 'Bala_Murugan.pdf', bytes: PDF('b') }],
+      tsv('Asha_Kumar.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal', 'Bala_Murugan.pdf\tBala\tbala@example.test\t9811111111\tPrincipal'),
     );
     const second = rowAt(rows, 2);
     expect(second.proposal).toMatchObject({ action: 'skip', confidence: 'medium' });
@@ -635,8 +636,8 @@ describe('sixth review (fresh blind review of 7d6f297069)', () => {
 
   it('accept-all only ever files people: even a sure repeat (high skip) waits for a person', async () => {
     const { batch, rows } = await runBatch(
-      [{ name: 'a.pdf', bytes: PDF('a') }],
-      tsv('a.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal', '\tAsha\tasha@example.test\t9811111111\tPrincipal'),
+      [{ name: 'Asha_Kumar.pdf', bytes: PDF('a') }],
+      tsv('Asha_Kumar.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal', '\tAsha\tasha@example.test\t9811111111\tPrincipal'),
     );
     expect(rowAt(rows, 2).proposal).toMatchObject({ action: 'skip', confidence: 'high' });
     expect(await acceptHigh(deps(), HR, batch.id)).toEqual({ decided: 1 });
