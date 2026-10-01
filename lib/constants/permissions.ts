@@ -242,7 +242,13 @@ export const PERMISSION_CATEGORIES = [
       // courses.applications.decide for the external_participant kind alone
       // (20260821070100). Do not tick this key just to unblock /courses.
       { key: 'users.jkkn_id.view', label: 'Look Up People by JKKN ID / Roll Number / Team Code' },
-      { key: 'users.jkkn_id.issue', label: 'Issue a JKKN ID for Any Learner or Team Member' }
+      { key: 'users.jkkn_id.issue', label: 'Issue a JKKN ID for Any Learner or Team Member' },
+      // Added 2026-10-01 — Director ruling: logins last forever on the installed
+      // app; the safety net for a lost or shared phone is "Sign out of all
+      // devices". Gates fn_revoke_user_sessions (the admin button on
+      // /users/[id]). Super admins have it implicitly; no role is granted it by
+      // default — tick it in Role Management for whoever should hold it.
+      { key: 'users.sessions.revoke', label: 'Sign Anyone Out of All Their Devices' }
     ]
   },
   {

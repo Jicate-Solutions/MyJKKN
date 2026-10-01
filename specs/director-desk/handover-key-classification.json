@@ -159,6 +159,7 @@
     "users.permissions_audit.view",
     "users.relationship.manage",
     "users.relationship.view",
+    "users.sessions.revoke",
     "users.view",
     "view_dashboard",
     "view_profile"
