@@ -221,7 +221,7 @@ describe('a batch from upload to proposals', () => {
     fake.table('hr_recruitment_candidates').push({ id: 'cand-existing-1', email: 'Lakshmi.Other@example.test', phone: '+91 9900112233' });
     const { rows } = await runBatch(deps(), RESUMES);
     expect(byIndex(rows, 7).duplicate).toMatchObject({ kind: 'existing_application', ref_id: 'app-existing-1' });
-    expect(byIndex(rows, 7).proposal).toMatchObject({ action: 'merge_existing', confidence: 'high' });
+    expect(byIndex(rows, 7).proposal).toMatchObject({ action: 'merge_existing', confidence: 'medium' });
     expect(byIndex(rows, 10).duplicate).toMatchObject({ kind: 'existing_candidate', ref_id: 'cand-existing-1' });
     expect(byIndex(rows, 10).duplicate.note).toBe('Already a candidate in MyJKKN (same phone number)');
   });
@@ -478,7 +478,7 @@ describe('apply — the careers path, one row at a time', () => {
     const { batch, rows } = await decidedBatch();
     fake.table('hr_intake_rows').find((r) => r.id === byIndex(rows, 1).id)!.apply_claimed_at = new Date().toISOString();
     const { results } = await apply(deps(), HR, batch.id, [byIndex(rows, 1).id]);
-    expect(results[0]).toMatchObject({ ok: false, error: 'Already being filed by another request' });
+    expect(results[0]).toMatchObject({ ok: false, error: expect.stringMatching(/another request is filing it/) });
     expect(upload).not.toHaveBeenCalled();
   });
 
