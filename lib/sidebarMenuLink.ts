@@ -2251,6 +2251,19 @@ export function navPathAllowed(
  *   - `/documents` section — no `app/(routes)/documents` page exists on
  *     prod; flagged during PR #409 sweep.
  */
+/**
+ * Billing pages that live under the sidebar's "Settings" menu (group-wide config
+ * and oversight pages). Shared by that menu's `active` predicate and by the
+ * Colleges menu, which must EXCLUDE them so only one row highlights.
+ */
+const BILLING_SETTINGS_PREFIXES = [
+  '/billing/categories',
+  '/billing/reports',
+  '/billing/analytics',
+  '/billing/activities',
+  '/billing/payment-accounts',
+] as const;
+
 export function GetPages(pathname: string): MenuGroup[] {
   return [
     {
@@ -4080,7 +4093,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             pathname === '/billing' ||
             (pathname.startsWith('/billing/') &&
               !pathname.startsWith('/billing/transport') &&
-              !pathname.startsWith('/billing/school-fees')),
+              !pathname.startsWith('/billing/school-fees') &&
+              !BILLING_SETTINGS_PREFIXES.some((prefix) => pathname.startsWith(prefix))),
           icon: GraduationCap,
           submenus: [
             { href: '/billing/schedule', label: 'Schedule · All Bills', active: pathname === '/billing/schedule' },
@@ -4095,19 +4109,11 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/billing/apportionment', label: 'Apportionment', active: pathname.startsWith('/billing/apportionment') },
             { href: '/billing/invoices', label: 'Invoices', active: pathname.startsWith('/billing/invoices') },
             { href: '/billing/late-charges', label: 'Late Charges', active: pathname.startsWith('/billing/late-charges') },
-            // ── Group-wide, not college-only ──────────────────────────────
-            // These six serve schools too and deliberately have no second row
-            // under Schools: one href in two menus highlights both at once.
-            // Categories IS the school fee-head master (school-fee-head-service
-            // reads billing_categories, collapsed to global in 20260428000001),
-            // and the school counter writes billing_receipt_items, so Receipts
-            // lists school payments as well.
-            { href: '/billing/categories', label: 'Categories', active: pathname.startsWith('/billing/categories') },
+            // Receipts is group-wide too (the school counter writes
+            // billing_receipt_items, so it lists school payments) but is daily
+            // work, not configuration, so it stays here. The other group-wide
+            // pages moved to the Settings menu below (2026-10-01).
             { href: '/billing/receipts', label: 'Receipts', active: pathname.startsWith('/billing/receipts') },
-            { href: '/billing/reports', label: 'Reports', active: pathname.startsWith('/billing/reports') },
-            { href: '/billing/analytics', label: 'Analytics', active: pathname.startsWith('/billing/analytics') },
-            { href: '/billing/activities', label: 'Activities', active: pathname.startsWith('/billing/activities') },
-            { href: '/billing/payment-accounts', label: 'Payment Gateway Accounts', active: pathname.startsWith('/billing/payment-accounts') },
           ]
         },
         {
@@ -4145,6 +4151,26 @@ export function GetPages(pathname: string): MenuGroup[] {
             // Sits after Generate because that is the order of the work: raise
             // the year's bills, then take money against them.
             { href: '/billing/school-fees/collect', label: 'School Bill Payment', active: pathname.startsWith('/billing/school-fees/collect') },
+          ]
+        },
+        {
+          // Group-wide configuration and oversight pages that serve colleges AND
+          // schools. They used to sit at the bottom of the Colleges list, which
+          // had grown past 17 rows. One href lives in exactly one menu, and the
+          // Colleges `active` predicate above excludes these prefixes, so only
+          // one row highlights. Categories IS the school fee-head master
+          // (school-fee-head-service reads billing_categories, collapsed to
+          // global in 20260428000001).
+          href: '/billing/categories',
+          label: 'Settings',
+          active: BILLING_SETTINGS_PREFIXES.some((prefix) => pathname.startsWith(prefix)),
+          icon: Settings,
+          submenus: [
+            { href: '/billing/categories', label: 'Categories', active: pathname.startsWith('/billing/categories') },
+            { href: '/billing/reports', label: 'Reports', active: pathname.startsWith('/billing/reports') },
+            { href: '/billing/analytics', label: 'Analytics', active: pathname.startsWith('/billing/analytics') },
+            { href: '/billing/activities', label: 'Activities', active: pathname.startsWith('/billing/activities') },
+            { href: '/billing/payment-accounts', label: 'Payment Gateway Accounts', active: pathname.startsWith('/billing/payment-accounts') },
           ]
         }
       ]
