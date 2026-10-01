@@ -46,6 +46,8 @@ export class FakeSupabase {
   afterUpdate: ((table: string, patch: unknown) => void) | null = null;
   /** Rows the SESSION client cannot read (a stand-in for RLS on that table); the service role reads all. */
   sessionHides: ((table: string, row: Row) => boolean) | null = null;
+  /** Like PostgREST's max-rows: a select returns at most this many rows. A count is never capped. */
+  maxRows: number | null = null;
 
   table(name: string): Row[] {
     this.tables[name] ??= [];
@@ -75,6 +77,13 @@ export class FakeSupabase {
         return { data: paths.map((name) => ({ name })), error: null };
       },
       list: async (prefix: string) => {
+        if (prefix === '') {
+          // The bucket's top level: each folder once, as storage lists it.
+          const top = [...this.objects.keys()]
+            .filter((k) => k.startsWith(`${bucket}/`))
+            .map((k) => k.slice(`${bucket}/`.length).split('/')[0]);
+          return { data: [...new Set(top)].map((name) => ({ name })), error: null };
+        }
         const names = [...this.objects.keys()]
           .filter((k) => k.startsWith(`${bucket}/${prefix}/`))
           .map((k) => k.slice(`${bucket}/${prefix}/`.length))
@@ -124,8 +133,12 @@ export class FakeSupabase {
   }
 }
 
-class Query implements PromiseLike<{ data: unknown; error: Failure | null }> {
+type Result = { data: unknown; error: Failure | null; count?: number };
+
+class Query implements PromiseLike<Result> {
   private op: 'select' | 'insert' | 'update' | 'delete' = 'select';
+  private counting = false;
+  private headOnly = false;
   private filters: Filter[] = [];
   private payload: unknown;
   private returning = false;
@@ -135,7 +148,9 @@ class Query implements PromiseLike<{ data: unknown; error: Failure | null }> {
 
   constructor(private db: FakeSupabase, private name: string, private readOnly = false) {}
 
-  select(_cols?: string) {
+  select(_cols?: string, opts?: { count?: 'exact'; head?: boolean }) {
+    if (opts?.count) this.counting = true;
+    if (opts?.head) this.headOnly = true;
     if (this.op === 'select') return this;
     this.returning = true;
     return this;
@@ -147,6 +162,11 @@ class Query implements PromiseLike<{ data: unknown; error: Failure | null }> {
   neq(c: string, v: unknown) { this.filters.push((r) => r[c] !== v); return this; }
   in(c: string, vs: unknown[]) { this.filters.push((r) => vs.includes(r[c])); return this; }
   is(c: string, v: null) { this.filters.push((r) => (v === null ? isNullish(r[c]) : r[c] === v)); return this; }
+  not(c: string, op: 'is', v: null) {
+    if (op !== 'is' || v !== null) throw new Error(`fake not(): unsupported ${op} ${String(v)}`);
+    this.filters.push((r) => !isNullish(r[c]));
+    return this;
+  }
   lt(c: string, v: string) { this.filters.push((r) => !isNullish(r[c]) && String(r[c]) < v); return this; }
   or(expr: string) { this.filters.push(orFilter(expr)); return this; }
   order(col: string, o?: { ascending?: boolean }) { this.orderBy = { col, asc: o?.ascending !== false }; return this; }
@@ -154,14 +174,14 @@ class Query implements PromiseLike<{ data: unknown; error: Failure | null }> {
   single() { this.mode = 'single'; return this; }
   maybeSingle() { this.mode = 'maybe'; return this; }
 
-  then<A = { data: unknown; error: Failure | null }, B = never>(
-    ok?: ((v: { data: unknown; error: Failure | null }) => A | PromiseLike<A>) | null,
+  then<A = Result, B = never>(
+    ok?: ((v: Result) => A | PromiseLike<A>) | null,
     bad?: ((e: unknown) => B | PromiseLike<B>) | null,
   ): PromiseLike<A | B> {
     return Promise.resolve().then(() => this.run()).then(ok, bad);
   }
 
-  private run(): { data: unknown; error: Failure | null } {
+  private run(): Result {
     if (this.readOnly && this.op !== 'select') {
       this.db.log.push(`REFUSED session ${this.op} ${this.name}`);
       return { data: null, error: { code: '42501', message: `permission denied for table ${this.name}` } };
@@ -183,7 +203,13 @@ class Query implements PromiseLike<{ data: unknown; error: Failure | null }> {
         const { col, asc } = this.orderBy;
         out = [...out].sort((a, b) => (String(a[col]) < String(b[col]) ? -1 : String(a[col]) > String(b[col]) ? 1 : 0) * (asc ? 1 : -1));
       }
-      if (this.limitN !== null) out = out.slice(0, this.limitN);
+      if (this.counting) {
+        const count = out.length;
+        if (this.headOnly) return { data: null, error: null, count };
+        out = this.capped(out);
+        return { data: clone(out), error: null, count };
+      }
+      out = this.capped(out);
     } else if (this.op === 'insert') {
       const list = (Array.isArray(this.payload) ? this.payload : [this.payload]) as Row[];
       for (const p of list) {
@@ -238,5 +264,11 @@ class Query implements PromiseLike<{ data: unknown; error: Failure | null }> {
     }
     if (this.mode === 'maybe') return { data: data[0] ?? null, error: null };
     return { data, error: null };
+  }
+
+  private capped(out: Row[]): Row[] {
+    if (this.limitN !== null) out = out.slice(0, this.limitN);
+    if (this.db.maxRows !== null) out = out.slice(0, this.db.maxRows);
+    return out;
   }
 }
