@@ -130,4 +130,15 @@ describe('GET /institutions: the colleges this person may upload for (Director r
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ institutions: [{ id: 'c1', name: 'Arts Demo College' }], home_institution_id: null });
   });
+
+  it('signed in without the permission -> 403 with a reason, and no college list is read', async () => {
+    const { GET: listColleges } = await import('@/app/api/hr/recruitment/intake/institutions/route');
+    m.user = { id: 'u-1' };
+    m.rpc = {};
+    m.accessible.mockReset();
+    const res = await listColleges();
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toMatch(/recruitment "create" permission/);
+    expect(m.accessible).not.toHaveBeenCalled();
+  });
 });

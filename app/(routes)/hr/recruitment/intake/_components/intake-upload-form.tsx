@@ -50,7 +50,11 @@ export function IntakeUploadForm() {
   const [stepText, setStepText] = useState<string | null>(null);
   // Any college this person's access reaches (Director ruling, 1 Oct). The picker
   // shows when there is a real choice, or when the server asks for one (no home college).
-  const loaded = useIntakeColleges().data;
+  const collegeList = useIntakeColleges();
+  const loaded = collegeList.data;
+  // Until the list is in, nothing is sent: a person who works with several
+  // colleges must never have an upload filed under their home college unasked.
+  const collegesBlocked = collegeList.isPending || collegeList.isError;
   const [asked, setAsked] = useState<IntakeCollegeChoice[] | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
   const home = loaded?.home_institution_id ?? null;
@@ -64,7 +68,7 @@ export function IntakeUploadForm() {
     e.preventDefault();
     const issue = checkIntakeFiles(exportFile, resumes);
     setProblem(issue);
-    if (issue || !exportFile) return;
+    if (issue || !exportFile || collegesBlocked) return;
     if (colleges && !collegeId) {
       setProblem('Choose which college this upload is for.');
       return;
@@ -85,8 +89,12 @@ export function IntakeUploadForm() {
       });
       router.push(`/hr/recruitment/intake/${batch.id}`);
     } catch (e) {
-      // Shown below from create.error. A "choose a college" answer also brings the choices.
-      if (e instanceof IntakeApiClientError && e.institutions) setAsked(e.institutions);
+      // Shown below from create.error. A "choose a college" answer also brings the choices;
+      // the picker goes back to the home college rather than keep a refused one.
+      if (e instanceof IntakeApiClientError && e.institutions) {
+        setAsked(e.institutions);
+        setPicked(null);
+      }
     }
   }
 
@@ -181,6 +189,14 @@ export function IntakeUploadForm() {
         </div>
       )}
 
+      {collegeList.isError && (
+        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+          Could not load the colleges you can upload for, so nothing can be uploaded yet.{' '}
+          <button type="button" className="underline underline-offset-4" onClick={() => void collegeList.refetch()}>
+            Try again
+          </button>
+        </p>
+      )}
       {problem && (
         <p role="alert" className="text-sm text-red-600 dark:text-red-400">
           {problem}
@@ -189,13 +205,17 @@ export function IntakeUploadForm() {
       {create.isError && <IntakeError title="The upload did not go through" error={create.error} />}
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <Button type="submit" disabled={create.isPending}>
+        <Button type="submit" disabled={create.isPending || collegesBlocked}>
           {create.isPending ? (
             <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden="true" />
           ) : (
             <Upload className="mr-1.5 h-4 w-4" aria-hidden="true" />
           )}
-          {create.isPending ? (stepText ?? 'Uploading…') : 'Upload and review'}
+          {create.isPending
+            ? (stepText ?? 'Uploading…')
+            : collegeList.isPending
+              ? 'Loading your colleges…'
+              : 'Upload and review'}
         </Button>
         <p className="text-xs text-muted-foreground">
           Nothing is added to MyJKKN yet. You review every candidate first.
