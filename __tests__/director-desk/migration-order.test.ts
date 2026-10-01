@@ -101,6 +101,10 @@ const APPROVED_REDEFINITIONS: Record<string, { fns: string[]; why: string }> = {
     fns: ['fn_handover_key_is_blocked'],
     why: "WALL 1b gains the role-change key added by direct push 9119732297 on 2026-09-25, which matched no clause and was therefore handable by ELSE false (verified live 2026-09-27). Body is 20261212110000's text verbatim, verified equal to production prosrc on 2026-09-27, plus exactly one key in the IN list beside create/edit/delete/status_update. Director ruling 2026-09-27 06:24 (W12 tab): walled like its siblings; during leave only he or the HR Head can change roles.",
   },
+  '20270710090000': {
+    fns: ['fn_handover_key_is_blocked'],
+    why: "WALL 5 (new block) walls eight keys: the Director's 'safe split' (W12 tab, 2026-09-30) - learners.leave_types.manage, ims.settings.pos_devices.manage, admission.consultants.commissions.configure - plus the five 1 Oct campus-living vacate keys (damage_types.manage, vacate_checklist.manage, vacate_requests.approve_cao/_mess/_principal), walled pending his line. Body is 20270403090000's text verbatim, verified equal to production via pg_get_functiondef on 2026-10-01 22:40 IST, plus exactly the WALL 5 IN list. Narrows only; no key moves to handable.",
+  },
   '20260927020000': {
     fns: ['user_has_permission'],
     why: "Adds an is_active = false OR is_login_disabled = true -> RETURN false guard to BOTH overloads, evaluated after the super-admin short-circuit and before the role checks, so a deactivated or login-disabled account holds no custom-role permissions (defense-in-depth behind the login block in app/auth/callback). NOT a revert of 20260811100100: the (text) form keeps that migration's Director-handover last resort verbatim -- the legacy fallback stays an IF and the body still ends in fn_handover_grants_key(auth.uid(), permission_name) -- and the (uuid, text) form keeps its own fn_handover_grants_key call. Verified by diffing both bodies against 20260811100100: the is_active guard is the only addition. Grants unchanged from the posture 20260811100100 asserts at apply time: (text) to authenticated + service_role, (uuid, text) to service_role only.",
