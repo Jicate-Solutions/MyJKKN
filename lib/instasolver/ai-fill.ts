@@ -13,7 +13,8 @@
 // its handlers — the trade list and the validator are needed by the client,
 // the ai-fill route, the broken route and the tests.
 //
-// NOTHING IN THIS FILE TOUCHES THE DATABASE. The per-user cap is in memory.
+// NOTHING IN THIS FILE TOUCHES THE DATABASE, and it is imported by the client,
+// so it must stay free of server-only imports. The per-user cap is in memory.
 // ============================================================================
 
 /**
@@ -246,31 +247,62 @@ export function distinctPlaces(
   return out;
 }
 
-export function buildAiFillSystemPrompt(knownPlaces: readonly string[]): string {
-  const placeBlock =
-    knownPlaces.length > 0
-      ? `Known places at this person's college (use one of these exactly when the text points to it):\n${knownPlaces
-          .map((p) => `- ${p}`)
-          .join('\n')}`
-      : 'No list of places is available for this college; take the place from the text.';
+/**
+ * The `places` payload value for the `instasolver.ai_fill` job. The prompt
+ * itself lives in the ai_job_types row (migration
+ * 20261230090300_instasolver_ai_fill_job_type.sql); this is the one part of it
+ * that changes per college.
+ */
+export function buildAiFillPlacesBlock(knownPlaces: readonly string[]): string {
+  return knownPlaces.length > 0
+    ? `Known places at this person's college (use one of these exactly when the text points to it):\n${knownPlaces
+        .map((p) => `- ${p}`)
+        .join('\n')}`
+    : 'No list of places is available for this college; take the place from the text.';
+}
 
-  return `You help people at JKKN, an Indian group of colleges, report something broken on campus. The person may write in English, Tamil, Tamil written in English letters (Tanglish), or a mix. Understand all of them. ALWAYS answer in English.
+// ── The Max-lane job (Director ruling, 1 Oct 2026) ─────────────────────────
+// "Fill it for me" runs as an ai_jobs job on the Windows box's Claude Max
+// lane, model Opus, at no API cost — never through a paid API key.
 
-Read the person's text and reply with ONLY one JSON object, no prose, no code fence, with exactly these keys:
-- "trade": exactly one of ${INSTASOLVER_TRADES.map((t) => JSON.stringify(t)).join(', ')}
-- "place": where the problem is, in short English (max 120 characters), or "" if the text does not say
-- "urgency": "dangerous" ONLY if someone could get hurt (exposed or sparking wire, fire or smoke, gas smell, water near electrics, a broken stair or railing, something about to fall); otherwise "normal"
-- "title": one short English line (max 80 characters)
-- "description": the problem restated clearly in English (max 400 characters). Keep every concrete detail. Never invent details that are not in the text.
-- "confidence": a number from 0 to 1 — how sure you are of trade, place AND urgency together
-- "one_question": null, OR — only when you are genuinely unsure of ONE thing — an object {"field": "trade" | "place" | "urgency", "text": a short English question, "options": 2 to 5 short answers the person can tap}. For "trade" the options must be trade names from the list above. For "urgency" the options must be "normal" and "dangerous". For "place" the options should be places from the known list when there is one. Ask at most one question, and ask about the single thing you are least sure of.
+/** The ai_job_types row the route enqueues. */
+export const AI_FILL_JOB_TYPE = 'instasolver.ai_fill';
 
-${placeBlock}`;
+/** The same words from the same person within this window reuse one job. */
+export const AI_FILL_DEDUPE_WINDOW_MS = 10 * 60 * 1000;
+
+/** How the client waits for the Max lane: quick at first, then slower, then gives up. */
+export const AI_FILL_POLL = {
+  firstMs: 3_000,
+  laterMs: 8_000,
+  switchAfterMs: 60_000,
+  giveUpAfterMs: 10 * 60 * 1000
+} as const;
+
+/** What counts as "the same text" for the dedupe: trimmed, spaces collapsed. */
+export function normalizeAiFillText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * For a pick-one field (the trade): the same rule as mergeFilledField. A fill
+ * sets it when nothing is picked or when it still holds what the previous fill
+ * picked — never over a choice the person made by hand.
+ */
+export function mergeFilledChoice<T extends string>(
+  current: T | null,
+  lastFilled: T | null,
+  next: T
+): T | null {
+  if (current === null) return next;
+  if (lastFilled !== null && current === lastFilled) return next;
+  return current;
 }
 
 // ── Per-user cap (in memory) ───────────────────────────────────────────────
-// A spend control, not a security boundary: it lives in one server instance's
-// memory, so on serverless it limits a burst, not a day. Chosen because the
+// A queue-load control, not a security boundary: it lives in one server
+// instance's memory, so on serverless it limits a burst, not a day. A request
+// that reuses an existing job (the 10-minute dedupe) does not take a slot. Chosen because the
 // only durable counter (instasolver_report_ledger) counts FILED reports — a
 // fill that wrote there would eat the reporter's 10-a-day report slots.
 export const AI_FILL_LIMIT_PER_WINDOW = 15;

@@ -26,8 +26,14 @@
 // for the estate office to sort. The photo is never sent to the AI. There is
 // no voice button: browser speech-to-text always asks for the microphone,
 // and phone keyboards already offer voice typing into the box.
+//
+// Director ruling, 1 Oct 2026: the fill runs on the Windows box's Claude Max
+// lane (an ai_jobs job, no API cost), which can be minutes behind batch work.
+// So the button queues a job and the screen polls for it, showing "Filling it
+// in…" meanwhile. The whole form stays usable by hand while it waits, and a
+// late result only fills what the person has not filled in themselves.
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   AlertCircle,
@@ -50,11 +56,13 @@ import { DUE_IN_DAYS } from '@/lib/campus-walk/due-dates';
 import {
   AI_FILL_FALLBACK_MESSAGE,
   AI_FILL_LIMITS,
+  AI_FILL_POLL,
   FALLBACK_TRADE,
   INSTASOLVER_TRADES,
   SKIPPED_PLACE_TEXT,
   isInstaSolverTrade,
   mergeDangerous,
+  mergeFilledChoice,
   mergeFilledField,
   type AiFillQuestion,
   type InstaSolverTrade
@@ -87,6 +95,12 @@ function formatDue(iso: string | null): string {
     month: 'short'
   });
 }
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Shown under the button while the Max lane works on it. */
+const FILL_WAIT_NOTE =
+  'This can take a few minutes. You can fill the form below by hand meanwhile.';
 
 /** Chip label for an urgency answer — the wire value stays 'normal' | 'dangerous'. */
 function urgencyLabel(v: string): string {
@@ -122,14 +136,43 @@ export function BrokenClient() {
   // later fill can replace its own text but never the person's.
   const lastFilledLocation = useRef<string | null>(null);
   const lastFilledDescription = useRef<string | null>(null);
+  const lastFilledTrade = useRef<InstaSolverTrade | null>(null);
+  // A fill can land minutes after the click, so it reads the form as it is
+  // THEN, not as it was when the button was pressed.
+  const tradeNow = useRef<InstaSolverTrade | null>(null);
+  const locationNow = useRef('');
+  const descriptionNow = useRef('');
+  const dangerousByHand = useRef(false);
+  useEffect(() => {
+    tradeNow.current = trade;
+  }, [trade]);
+  useEffect(() => {
+    locationNow.current = location;
+  }, [location]);
+  useEffect(() => {
+    descriptionNow.current = description;
+  }, [description]);
+  // Each fill gets a number; a newer fill, Send, "Report another" or leaving
+  // the page bumps it, and an older poll that sees a different number stops.
+  const pollGen = useRef(0);
+  useEffect(
+    () => () => {
+      pollGen.current += 1;
+    },
+    []
+  );
 
   const resetForm = useCallback(() => {
+    pollGen.current += 1;
+    setFilling(false);
     setAiText('');
     setFillNote(null);
     setAiFilled(false);
     setAiReadText(null);
     lastFilledLocation.current = null;
     lastFilledDescription.current = null;
+    lastFilledTrade.current = null;
+    dangerousByHand.current = false;
     setQuestion(null);
     setNeedsSorting(false);
     setTrade(null);
@@ -200,22 +243,100 @@ export function BrokenClient() {
   }, []);
 
   // ── "Fill it for me" ──────────────────────────────────────────────────────
-  // Sends ONLY the typed text. Any failure — network, timeout, a reply that
-  // does not parse, the hourly cap — leaves the form as it was and says so in
-  // one line; the person fills it by hand exactly as before.
+  // Sends ONLY the typed text. The server queues a job on the Max lane and
+  // this polls for it. Any failure — network, a failed job, a reply that does
+  // not parse, the hourly cap, no answer within the wait — leaves the form as
+  // it is and says so in one line; the person fills it by hand as before.
+
+  /** Apply one fill to the form as it is NOW. Never over the person's own input. */
+  const applyFill = useCallback((fill: Record<string, unknown>, text: string) => {
+    const prevTrade = lastFilledTrade.current;
+    const prevLocation = lastFilledLocation.current;
+    const prevDescription = lastFilledDescription.current;
+    const tradeByHand = tradeNow.current !== null && tradeNow.current !== prevTrade;
+    const placeByHand =
+      locationNow.current.trim() !== '' && locationNow.current !== prevLocation;
+    const descriptionByHand =
+      descriptionNow.current.trim() !== '' && descriptionNow.current !== prevDescription;
+
+    if (isInstaSolverTrade(fill.trade)) {
+      const t = fill.trade;
+      setTrade((cur) => mergeFilledChoice(cur, prevTrade, t));
+      if (!tradeByHand) lastFilledTrade.current = t;
+    }
+    if (typeof fill.place === 'string' && fill.place.trim()) {
+      const place = fill.place.slice(0, LOCATION_MAX);
+      setLocation((cur) => mergeFilledField(cur, prevLocation, place));
+      if (!placeByHand) lastFilledLocation.current = place;
+    }
+    if (typeof fill.description === 'string' && fill.description.trim()) {
+      const desc = fill.description.slice(0, DESCRIPTION_MAX);
+      setDescription((cur) => mergeFilledField(cur, prevDescription, desc));
+      if (!descriptionByHand) lastFilledDescription.current = desc;
+    }
+    // ON only, never OFF: a box the person ticked stays ticked.
+    setDangerous((cur) => mergeDangerous(cur, fill.urgency));
+    const q = fill.one_question;
+    const usable =
+      q && typeof q === 'object' && Array.isArray((q as AiFillQuestion).options)
+        ? (q as AiFillQuestion)
+        : null;
+    // A question about something the person already set by hand is moot —
+    // and left open it would flag the report for sorting at Send.
+    const moot =
+      usable !== null &&
+      ((usable.field === 'trade' && tradeByHand) ||
+        (usable.field === 'place' && placeByHand) ||
+        (usable.field === 'urgency' && dangerousByHand.current));
+    setQuestion(moot ? null : usable);
+    setNeedsSorting(false);
+    setAiFilled(true);
+    setAiReadText(text);
+    setFillNote('Filled in below. Check it and change anything that is wrong.');
+  }, []);
+
   const fillForMe = useCallback(async () => {
     const text = aiText.trim();
     if (text.length < AI_FILL_LIMITS.inputMin) return;
+    pollGen.current += 1;
+    const gen = pollGen.current;
+    const live = () => pollGen.current === gen;
     setFilling(true);
-    setFillNote(null);
+    setFillNote(FILL_WAIT_NOTE);
     setError(null);
     try {
-      const res = await fetch('/api/instasolver/ai-fill', {
+      let res = await fetch('/api/instasolver/ai-fill', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text })
       });
-      const json = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+      let json = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+
+      const startedAt = Date.now();
+      while (
+        live() &&
+        res.ok &&
+        json?.success === true &&
+        json.status === 'pending' &&
+        typeof json.job_id === 'string'
+      ) {
+        const elapsed = Date.now() - startedAt;
+        if (elapsed >= AI_FILL_POLL.giveUpAfterMs) break;
+        await sleep(elapsed < AI_FILL_POLL.switchAfterMs ? AI_FILL_POLL.firstMs : AI_FILL_POLL.laterMs);
+        if (!live()) return;
+        const jobId: string = json.job_id;
+        try {
+          const next = await fetch(`/api/instasolver/ai-fill?job=${encodeURIComponent(jobId)}`);
+          const nextJson = (await next.json().catch(() => null)) as Record<string, unknown> | null;
+          res = next;
+          json = nextJson;
+        } catch {
+          // A dropped connection mid-wait is not the job failing; ask again.
+          json = { success: true, status: 'pending', job_id: jobId };
+        }
+      }
+      if (!live()) return;
+
       const fill =
         json && json.success === true && json.fill && typeof json.fill === 'object'
           ? (json.fill as Record<string, unknown>)
@@ -228,38 +349,13 @@ export function BrokenClient() {
         );
         return;
       }
-
-      if (isInstaSolverTrade(fill.trade)) setTrade(fill.trade);
-      if (typeof fill.place === 'string' && fill.place.trim()) {
-        const place = fill.place.slice(0, LOCATION_MAX);
-        const prev = lastFilledLocation.current;
-        setLocation((cur) => mergeFilledField(cur, prev, place));
-        lastFilledLocation.current = place;
-      }
-      if (typeof fill.description === 'string' && fill.description.trim()) {
-        const desc = fill.description.slice(0, DESCRIPTION_MAX);
-        const prev = lastFilledDescription.current;
-        setDescription((cur) => mergeFilledField(cur, prev, desc));
-        lastFilledDescription.current = desc;
-      }
-      // ON only, never OFF: a box the person ticked stays ticked.
-      setDangerous((cur) => mergeDangerous(cur, fill.urgency));
-      const q = fill.one_question;
-      setQuestion(
-        q && typeof q === 'object' && Array.isArray((q as AiFillQuestion).options)
-          ? (q as AiFillQuestion)
-          : null
-      );
-      setNeedsSorting(false);
-      setAiFilled(true);
-      setAiReadText(text);
-      setFillNote('Filled in below. Check it and change anything that is wrong.');
+      applyFill(fill, text);
     } catch {
-      setFillNote(AI_FILL_FALLBACK_MESSAGE);
+      if (live()) setFillNote(AI_FILL_FALLBACK_MESSAGE);
     } finally {
-      setFilling(false);
+      if (live()) setFilling(false);
     }
-  }, [aiText]);
+  }, [aiText, applyFill]);
 
   const answerQuestion = useCallback(
     (option: string) => {
@@ -334,6 +430,9 @@ export function BrokenClient() {
           ? (json.urgent_alert as Record<string, unknown>)
           : null;
 
+      // Sent: a fill still on its way has nothing left to fill.
+      pollGen.current += 1;
+      setFilling(false);
       setSuccess({
         routedTo: typeof json.routed_to === 'string' ? json.routed_to : null,
         notice: typeof json.notice === 'string' ? json.notice : null,
@@ -431,7 +530,7 @@ export function BrokenClient() {
             variant="outline"
             className="w-full h-12"
             onClick={() => void fillForMe()}
-            disabled={filling || aiText.trim().length < AI_FILL_LIMITS.inputMin}
+            disabled={aiText.trim().length < AI_FILL_LIMITS.inputMin}
           >
             {filling ? (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -565,7 +664,10 @@ export function BrokenClient() {
               <Checkbox
                 id="dangerous"
                 checked={dangerous}
-                onCheckedChange={(v) => setDangerous(v === true)}
+                onCheckedChange={(v) => {
+                  dangerousByHand.current = true;
+                  setDangerous(v === true);
+                }}
                 className="mt-0.5"
               />
               <div className="space-y-1">
