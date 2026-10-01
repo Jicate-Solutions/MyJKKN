@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 // The ledger contract of lib/services/hr/duty-notices/dispatch.ts, exercised
@@ -182,5 +182,172 @@ describe('notifyRegularizationEvent', () => {
     });
     expect(await notifyRegularizationEvent(client, 'r1')).toEqual({ kind: null, outcome: 'nothing_due' });
     expect(dispatchSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The separate HR chase ladder (hr-duty-chase) also chases A3. When its switch
+// is literally `true` and its A3 duty is enabled, the daily run leaves the
+// reminder / hr_head chases to it and still sends submitted + decided. Driven
+// through the cron route so the wiring is proved, not just the helper.
+// ---------------------------------------------------------------------------
+
+let routeClient: SupabaseClient | null = null;
+vi.mock('@/lib/supabase/server', () => ({
+  createServiceRoleClient: () => routeClient,
+}));
+
+import { GET as dutyNoticesCron } from '@/app/api/cron/hr/duty-notices/route';
+import { NextRequest } from 'next/server';
+
+type Built = { table: string; calls: Array<{ name: string; args: unknown[] }>; op: string };
+
+function ladderClient(opts: {
+  /** undefined = no switch row at all. */
+  switchValue?: unknown;
+  a3Definition?: { enabled: unknown } | null;
+  definitionsError?: boolean;
+}) {
+  const built: Built[] = [];
+  const emp = { first_name: 'Ravi', last_name: 'K', profile_id: 'u-ravi', institution_id: 'inst-1' };
+  const reg = (id: string, status: string, created_at: string, approved_at: string | null) => ({
+    id, status, for_date: '2026-10-03', created_at, approved_at,
+    rejection_reason: null, reason_text: null, reason: { label: 'Forgot to punch' }, employee: emp,
+  });
+  // r-old: pending 6 days, submitted already sent → reminder + hr_head due.
+  // r-new: pending 1 hour, nothing sent → submitted due.
+  // r-done: approved after waiting, submitted sent → decided due.
+  const pending = [
+    reg('r-old', 'pending', '2026-10-04T04:00:00Z', null),
+    reg('r-new', 'pending', '2026-10-10T04:00:00Z', null),
+  ];
+  const decided = [reg('r-done', 'approved', '2026-10-05T04:00:00Z', '2026-10-08T04:00:00Z')];
+  const ledger = [
+    { subject_id: 'r-old', subject_key: '', reminder_kind: 'submitted' },
+    { subject_id: 'r-done', subject_key: '', reminder_kind: 'submitted' },
+  ];
+
+  const resolve = (x: Built): { data: unknown; error: { message: string } | null } => {
+    const has = (name: string, ...args: unknown[]) =>
+      x.calls.some((c) => c.name === name && args.every((a, i) => c.args[i] === a));
+    if (x.table === 'hr_duty_notices') {
+      if (x.op === 'upsert') return { data: [{ id: `claim-${built.length}` }], error: null };
+      if (x.op !== 'select') return { data: null, error: null };
+      return { data: ledger, error: null };
+    }
+    if (x.op !== 'select') return { data: null, error: null };
+    switch (x.table) {
+      case 'platform_policies':
+        return {
+          data: opts.switchValue === undefined
+            ? []
+            : [{ policy_key: 'hr.harness.chase.enabled', value: opts.switchValue }],
+          error: null,
+        };
+      case 'hr_duty_definitions':
+        if (opts.definitionsError) return { data: null, error: { message: 'relation does not exist' } };
+        return {
+          data: has('eq', 'config_key', 'A3') && has('eq', 'is_active', true) ? opts.a3Definition ?? null : null,
+          error: null,
+        };
+      case 'hr_attendance_regularizations':
+        return { data: has('eq', 'status', 'pending') ? pending : decided, error: null };
+      default:
+        return { data: [], error: null };
+    }
+  };
+
+  const client = {
+    rpc: vi.fn(async (fn: string) => ({
+      data: fn === 'fn_hr_permission_holder_ids' ? ['u-approver'] : fn === 'fn_hr_role_holder_ids' ? ['u-head'] : [],
+      error: null,
+    })),
+    from(table: string) {
+      const x: Built = { table, calls: [], op: 'select' };
+      built.push(x);
+      const b: Record<string, unknown> = {};
+      for (const m of ['select', 'eq', 'in', 'not', 'is', 'gte', 'lte', 'limit', 'upsert', 'update', 'delete', 'insert']) {
+        b[m] = (...args: unknown[]) => {
+          if (['upsert', 'update', 'delete', 'insert'].includes(m)) x.op = m;
+          x.calls.push({ name: m, args });
+          return b;
+        };
+      }
+      b.maybeSingle = async () => resolve(x);
+      b.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) =>
+        Promise.resolve(resolve(x)).then(res, rej);
+      return b;
+    },
+  };
+  return { client: client as unknown as SupabaseClient, built };
+}
+
+async function runCron(client: SupabaseClient) {
+  routeClient = client;
+  process.env.CRON_SECRET = 'test-secret';
+  const res = await dutyNoticesCron(
+    new NextRequest('http://localhost/api/cron/hr/duty-notices', {
+      headers: { authorization: 'Bearer test-secret' },
+    }),
+  );
+  return { status: res.status, body: (await res.json()) as { regularization: { handed_to_ladder: number } } };
+}
+
+const sentKinds = () => dispatchSpy.mock.calls.map((c) => c[0] as string).sort();
+const ALL_FOUR = [
+  'notifyRegularizationDecided',
+  'notifyRegularizationHrHead',
+  'notifyRegularizationReminder',
+  'notifyRegularizationSubmitted',
+];
+
+describe('daily run vs the HR chase ladder (A3)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-10T05:00:00Z'));
+    dispatchSpy.mockResolvedValue(1);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('switch row missing → reminders sent as today, ladder table never read', async () => {
+    const { client, built } = ladderClient({});
+    const { status, body } = await runCron(client);
+    expect(status).toBe(200);
+    expect(sentKinds()).toEqual(ALL_FOUR);
+    expect(body.regularization.handed_to_ladder).toBe(0);
+    expect(built.some((b) => b.table === 'hr_duty_definitions')).toBe(false);
+  });
+
+  it('switch true + A3 enabled → reminder and hr_head left to the ladder; submitted and decided still sent', async () => {
+    const { client } = ladderClient({ switchValue: true, a3Definition: { enabled: true } });
+    const { status, body } = await runCron(client);
+    expect(status).toBe(200);
+    expect(sentKinds()).toEqual(['notifyRegularizationDecided', 'notifyRegularizationSubmitted']);
+    expect(body.regularization.handed_to_ladder).toBe(2);
+  });
+
+  it('switch true + A3 disabled → reminders sent', async () => {
+    const { client } = ladderClient({ switchValue: true, a3Definition: { enabled: false } });
+    await runCron(client);
+    expect(sentKinds()).toEqual(ALL_FOUR);
+  });
+
+  it('switch stored as the string "true" → treated as off, reminders sent, ladder table never read', async () => {
+    const { client, built } = ladderClient({ switchValue: 'true', a3Definition: { enabled: true } });
+    await runCron(client);
+    expect(sentKinds()).toEqual(ALL_FOUR);
+    expect(built.some((b) => b.table === 'hr_duty_definitions')).toBe(false);
+  });
+
+  it('ladder table read fails → warns and sends reminders', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { client } = ladderClient({ switchValue: true, definitionsError: true });
+    const { status } = await runCron(client);
+    expect(status).toBe(200);
+    expect(sentKinds()).toEqual(ALL_FOUR);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[hr/duty-notices]'), 'A3', 'relation does not exist');
   });
 });

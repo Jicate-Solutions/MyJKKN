@@ -254,12 +254,22 @@ export async function profilesOnLeave(
 }
 
 // ---------------------------------------------------------------------------
-// Config (platform_policies rows seeded by 20270523090000)
+// Config (platform_policies rows seeded by 20270613101133)
 // ---------------------------------------------------------------------------
+
+/**
+ * Master switch of the separate HR chase ladder (hr-duty-chase cron). When it
+ * is on and the ladder's A3 duty is enabled, the ladder sends the A3 chases
+ * itself, so this run must not send its own as well. Only a literal boolean
+ * true counts as on.
+ */
+export const CHASE_LADDER_SWITCH_KEY = 'hr.harness.chase.enabled';
 
 export async function loadThresholds(supabase: SupabaseClient): Promise<{
   onboarding: OnboardingThresholds;
   regularization: RegularizationThresholds;
+  /** Raw value of CHASE_LADDER_SWITCH_KEY; only `true` means on. */
+  chaseLadderSwitch: unknown;
 }> {
   const { data } = await supabase
     .from('platform_policies')
@@ -272,6 +282,7 @@ export async function loadThresholds(supabase: SupabaseClient): Promise<{
       'hr.onboarding.joining_soon_days',
       'hr.regularization.reminder_after_hours',
       'hr.regularization.hr_head_notice_after_days',
+      CHASE_LADDER_SWITCH_KEY,
     ]);
   const v = new Map(
     ((data ?? []) as Array<{ policy_key: string; value: unknown }>).map((r) => [r.policy_key, r.value]),
@@ -298,7 +309,38 @@ export async function loadThresholds(supabase: SupabaseClient): Promise<{
         DEFAULT_REGULARIZATION_THRESHOLDS.hrHeadAfterDays,
       ),
     },
+    chaseLadderSwitch: v.get(CHASE_LADDER_SWITCH_KEY),
   };
+}
+
+/**
+ * Does the chase ladder own this duty's chases right now? False unless the
+ * switch is literally `true`; only then is hr_duty_definitions read (that
+ * table does not exist until the ladder ships). Any read problem answers
+ * false, so this run's own reminders keep going rather than nobody chasing.
+ */
+export async function ladderCoversDuty(
+  supabase: SupabaseClient,
+  switchValue: unknown,
+  dutyCode: string,
+): Promise<boolean> {
+  if (switchValue !== true) return false;
+  try {
+    const { data, error } = await supabase
+      .from('hr_duty_definitions')
+      .select('enabled')
+      .eq('config_key', dutyCode)
+      .eq('is_active', true)
+      .maybeSingle();
+    if (error) {
+      console.warn('[hr/duty-notices] chase ladder duty read failed; sending own reminders', dutyCode, error.message);
+      return false;
+    }
+    return (data as { enabled?: unknown } | null)?.enabled === true;
+  } catch (err) {
+    console.warn('[hr/duty-notices] chase ladder duty read threw; sending own reminders', dutyCode, err);
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -376,11 +418,16 @@ export interface SweepCounts {
   no_recipients: number;
   deferred_on_leave: number;
   failed: number;
+  /** A3 chases left to the chase ladder because it owns them (see ladderCoversDuty). */
+  handed_to_ladder: number;
   errors: string[];
 }
 
 function emptyCounts(): SweepCounts {
-  return { examined: 0, sent: 0, already_sent: 0, no_recipients: 0, deferred_on_leave: 0, failed: 0, errors: [] };
+  return {
+    examined: 0, sent: 0, already_sent: 0, no_recipients: 0, deferred_on_leave: 0, failed: 0,
+    handed_to_ladder: 0, errors: [],
+  };
 }
 
 function tally(counts: SweepCounts, outcome: SendOutcome) {
@@ -636,6 +683,8 @@ export async function runRegularizationSweep(
   now: Date,
   thresholds: RegularizationThresholds,
   onLeave: ReadonlySet<string>,
+  /** True when the chase ladder owns A3: skip the reminder and hr_head chases. */
+  ladderOwnsChases = false,
 ): Promise<SweepCounts> {
   const counts = emptyCounts();
   const since = new Date(now.getTime() - thresholds.decidedBackstopDays * 24 * 60 * 60 * 1000).toISOString();
@@ -697,6 +746,10 @@ export async function runRegularizationSweep(
       );
       for (const p of plan) {
         const isChase = p.kind === 'reminder' || p.kind === 'hr_head';
+        if (isChase && ladderOwnsChases) {
+          counts.handed_to_ladder += 1;
+          continue;
+        }
         const outcome = await sendRegularizationNotice(supabase, r, p.kind, now, {
           ...baseCtx,
           onLeave: isChase ? onLeave : undefined,
