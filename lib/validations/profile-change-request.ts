@@ -86,7 +86,7 @@ export const profileChangeSchema = z.object({
 
   // Other Personal Details
   blood_group: z
-    .enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'], {
+    .enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'A1+', 'A1-', 'A1B+', 'A1B-', 'A2+', 'A2-', 'A2B+', 'A2B-', 'A1B'], {
       errorMap: () => ({ message: 'Invalid blood group' }),
     })
     .optional(),

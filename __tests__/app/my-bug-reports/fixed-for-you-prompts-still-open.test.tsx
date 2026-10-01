@@ -33,6 +33,9 @@ type Prompt = {
   kind?: 'fix_check' | 'still_open';
   display_id: string;
   description: string;
+  /** Already-sanitised relative path from the API; absent on older payloads. */
+  href?: string | null;
+  screenshot_url?: string | null;
   status: 'sent' | 'delivered' | 'answered';
   answer: 'fixed' | 'not_fixed' | null;
   expires_at: string;
@@ -154,5 +157,118 @@ describe('FixedForYouPrompts — still_open kind', () => {
     expect(screen.getByText(/need a quick answer from you/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^fixed$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /no, it works now/i })).toBeInTheDocument();
+  });
+});
+
+// ============================================================================
+// "Which bug is this?" — the screenshot and the way back (2026-09-18).
+//
+// BUG-003162's whole description is "Two fab overlapping. Bug and work pulse."
+// Four words, filed 2026-04-01. Nobody can answer "is this still happening?"
+// from that. The card now shows the reporter's OWN screenshot and a link back
+// to the page they reported from.
+//
+// The href arrives ALREADY SANITISED from the API (origin discarded — see
+// lib/bug-reports/safe-report-href). What is pinned here is that the card
+// renders what it is given, and renders nothing extra when given nothing.
+// ============================================================================
+
+const SHOT =
+  'https://xyz.supabase.co/storage/v1/object/public/bug-reports/screenshots/bug-003162.png';
+
+const withEvidence: Prompt = {
+  ...stillOpen,
+  id: 'req-evidence',
+  bug_id: 'bug-evidence',
+  display_id: 'BUG-003162',
+  description: 'Two fab overlapping. Bug and work pulse.',
+  href: '/dashboard',
+  screenshot_url: SHOT
+};
+
+describe('FixedForYouPrompts — the reporter can tell which bug it is', () => {
+  it('shows the screenshot, named by display_id so it is not a mystery image', async () => {
+    stubFetch([withEvidence]);
+    renderBox();
+    await screen.findByText('BUG-003162');
+    const img = screen.getByAltText('Screenshot you attached to BUG-003162') as HTMLImageElement;
+    expect(img).toBeInTheDocument();
+    expect(img.getAttribute('src')).toBe(SHOT);
+  });
+
+  it('the alt text names the report, never the description (no PII echoed)', async () => {
+    stubFetch([withEvidence]);
+    renderBox();
+    const img = await screen.findByAltText('Screenshot you attached to BUG-003162');
+    expect(img.getAttribute('alt')).not.toMatch(/fab overlapping/i);
+  });
+
+  it('tapping the screenshot opens the full image in a new tab, safely', async () => {
+    stubFetch([withEvidence]);
+    renderBox();
+    const img = await screen.findByAltText('Screenshot you attached to BUG-003162');
+    const link = img.closest('a') as HTMLAnchorElement;
+    expect(link).not.toBeNull();
+    expect(link.getAttribute('href')).toBe(SHOT);
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+  });
+
+  it('offers the way back to the page, using the href the API gave it', async () => {
+    stubFetch([withEvidence]);
+    renderBox();
+    const link = (await screen.findByText(
+      /open the page where you reported this/i
+    )) as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('/dashboard');
+  });
+
+  it('renders the link above the Yes/No buttons, not after them', async () => {
+    stubFetch([withEvidence]);
+    renderBox();
+    const link = await screen.findByText(/open the page where you reported this/i);
+    const button = screen.getByRole('button', { name: /yes, still happening/i });
+    // Node.DOCUMENT_POSITION_FOLLOWING === 4
+    expect(link.compareDocumentPosition(button) & 4).toBeTruthy();
+  });
+
+  it('a prompt with a screenshot but no href shows the image and no link', async () => {
+    stubFetch([{ ...withEvidence, href: null }]);
+    renderBox();
+    await screen.findByAltText('Screenshot you attached to BUG-003162');
+    expect(screen.queryByText(/open the page where you reported this/i)).not.toBeInTheDocument();
+  });
+
+  it('a prompt with an href but no screenshot shows the link and no image', async () => {
+    stubFetch([{ ...withEvidence, screenshot_url: null }]);
+    renderBox();
+    await screen.findByText(/open the page where you reported this/i);
+    expect(screen.queryByAltText(/screenshot you attached/i)).not.toBeInTheDocument();
+  });
+
+  it('a prompt with neither renders exactly as before: no image, no link', async () => {
+    stubFetch([stillOpen]);
+    renderBox();
+    await screen.findByText('BUG-004321');
+    expect(screen.queryByAltText(/screenshot you attached/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/open the page where you reported this/i)).not.toBeInTheDocument();
+  });
+
+  it('the Yes/No answers still post exactly as before when evidence is shown', async () => {
+    const posts = stubFetch([withEvidence]);
+    renderBox();
+    await screen.findByText('BUG-003162');
+    fireEvent.click(screen.getByRole('button', { name: /yes, still happening/i }));
+    await waitFor(() => {
+      const answer = posts.find((p) => p.body?.action === 'answer');
+      expect(answer!.url).toBe('/api/bug-reports/feedback/req-evidence');
+      expect(answer!.body.answer).toBe('not_fixed');
+    });
+  });
+
+  it('a prompt with no display_id still gets real alt text', async () => {
+    stubFetch([{ ...withEvidence, display_id: null as any }]);
+    renderBox();
+    await screen.findByAltText('Screenshot you attached to this report');
   });
 });

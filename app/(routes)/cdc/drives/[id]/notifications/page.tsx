@@ -28,6 +28,7 @@ import { Bell, Loader2, Search, Stethoscope } from 'lucide-react';
 import { useCdcDrive, useCdcDriveNotifications, diagnoseCdcDriveNotification } from '@/hooks/cdc/use-cdc-drives';
 import type { LearnerNotifyDiagnosis } from '@/lib/services/cdc/drive-notifications';
 import { DriveStatusBadge } from '../../_components/drive-status-badge';
+import { TablePager, usePager } from '../../_components/table-pager';
 
 const PUSH_LABEL: Record<string, string> = {
   delivered: 'Push delivered',
@@ -104,6 +105,7 @@ function Content({ params }: { params: Promise<{ id: string }> }) {
 
   const drive = detail?.data;
   const s = data?.summary;
+  const pager = usePager(rows, 50);
 
   return (
     <ContentLayout title="Notification log">
@@ -123,10 +125,10 @@ function Content({ params }: { params: Promise<{ id: string }> }) {
             <Bell className="h-5 w-5 text-muted-foreground" />
             {drive?.title ?? 'Drive'}
           </h1>
-          <p className="text-sm text-muted-foreground mt-1 flex flex-wrap items-center gap-2">
+          <div className="text-sm text-muted-foreground mt-1 flex flex-wrap items-center gap-2">
             {drive ? <DriveStatusBadge status={drive.status} /> : null}
             <span>Deep link sent to learners: <code className="text-xs">/cdc/drives/{id}/willingness</code></span>
-          </p>
+          </div>
         </div>
 
         {s ? (
@@ -228,7 +230,7 @@ function Content({ params }: { params: Promise<{ id: string }> }) {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {rows.map((r) => (
+                    {pager.pageRows.map((r) => (
                       <TableRow key={r.id}>
                         <TableCell>
                           <div className="font-medium">{r.learner_name ?? '—'}</div>
@@ -259,6 +261,7 @@ function Content({ params }: { params: Promise<{ id: string }> }) {
                 </Table>
               </div>
             )}
+            <TablePager pager={pager} />
           </CardContent>
         </Card>
       </div>

@@ -55,7 +55,7 @@ const STATUS_OPTIONS: ReadonlyArray<EnumOption> = (
   label: JOB_STATUS_LABELS[value],
   hint:
     value === 'open'
-      ? 'Visible to interviewers; flip "Public on /careers" on to also expose it externally.'
+      ? 'Listed on jkkn.ac.in, where anyone can apply without a login.'
       : value === 'on_hold'
       ? 'Hidden from public; existing applications stay attached.'
       : value === 'closed'
@@ -170,13 +170,6 @@ function buildFormSchema(
       options: STATUS_OPTIONS,
       required: true,
     },
-    {
-      name: 'is_public',
-      kind: 'toggle',
-      englishLabel: 'Public on /careers',
-      englishHint:
-        'When on, this job is visible on the public careers page. Best paired with status "Open".',
-    },
   ];
 }
 
@@ -191,7 +184,6 @@ const NEW_ROW_DEFAULTS = {
   min_monthly_salary: '',
   max_monthly_salary: '',
   status: 'draft' as JobStatus,
-  is_public: false,
 };
 
 function rowToFormValues(row: HRRecruitmentJob): Record<string, unknown> {
@@ -206,7 +198,6 @@ function rowToFormValues(row: HRRecruitmentJob): Record<string, unknown> {
     min_monthly_salary: row.min_monthly_salary ?? '',
     max_monthly_salary: row.max_monthly_salary ?? '',
     status: row.status,
-    is_public: row.is_public,
   };
 }
 
@@ -285,7 +276,6 @@ export function JobsDataTable() {
         role_category: filters.role_category,
         institution_id: filters.institution_id,
         department_id: filters.department_id,
-        is_public: filters.is_public,
       });
 
       return {
@@ -305,7 +295,6 @@ export function JobsDataTable() {
       filters.role_category,
       filters.institution_id,
       filters.department_id,
-      filters.is_public,
     ],
   );
 
@@ -375,7 +364,6 @@ export function JobsDataTable() {
           positions_filled: positionsFilled ?? editingRow.positions_filled,
           department_id: optionalUuid(values.department_id),
           status,
-          is_public: Boolean(values.is_public),
         });
       } else {
         const institution_id = optionalUuid(values.institution_id);
@@ -404,7 +392,6 @@ export function JobsDataTable() {
           positions_filled: positionsFilled ?? 0,
           department_id,
           status,
-          is_public: Boolean(values.is_public),
         });
       }
 

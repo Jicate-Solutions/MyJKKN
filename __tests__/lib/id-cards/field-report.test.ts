@@ -70,8 +70,8 @@ describe('buildFieldReport — blanks', () => {
       'course',
       'department',
       'institution',
+      'father_name',
       'study_period',
-      'valid_until',
       'photo',
       'qr_code',
       'blood_group',
@@ -154,7 +154,7 @@ describe('buildFieldReport — address check integration', () => {
     // Over the 60-char default-back cut, under the 80-char every-layout cut,
     // and the district repeated in the street — readable, prints in full on a
     // designed back. Flagging this would paint most of a college red.
-    const parts = { ...CLEAN_ADDRESS, street: '12 Bharathi St, Namakkal' };
+    const parts = { ...CLEAN_ADDRESS, street: '12 Bharathi Street, Kattur Road, Namakkal' };
     const assessment = assessAddress(parts);
     expect(assessment.overDefaultBack).toBe(true);
     expect(assessment.overCustomBack).toBe(false);

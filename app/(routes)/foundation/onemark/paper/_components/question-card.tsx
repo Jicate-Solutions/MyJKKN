@@ -4,6 +4,10 @@
 // option layout resolved from the data (PRD §4.5), and the four controls —
 // swap, lock, edit, drop. The edit dialog writes a copy-on-write override
 // (decision 14); the master bank is never touched from here.
+//
+// An English paper is monolingual (PRD English §1; the PDF already prints it
+// that way — lib/onemark/pdf/document.ts), so `monolingual` shows the English
+// block only and the edit dialog never offers or writes Tamil fields.
 
 import { useState } from 'react';
 import { Lock, LockOpen, Pencil, Repeat, Trash2 } from 'lucide-react';
@@ -19,6 +23,7 @@ import {
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
+import { renderUnderline } from '@/lib/onemark/underline';
 import {
   JABT_LEVEL_LABELS,
   levelOf,
@@ -32,6 +37,8 @@ import {
 interface QuestionCardProps {
   question: ResolvedQuestion;
   language: PreviewLanguage;
+  /** English paper: English block only, whatever `language` says. */
+  monolingual?: boolean;
   canSeeAnswers: boolean;
   disabled: boolean;
   exhaustedReason: string | null;
@@ -41,7 +48,35 @@ interface QuestionCardProps {
   onOverride: (fields: QuestionOverride | null) => void;
 }
 
-function OptionList({ options, layout }: { options: OptionRow[]; layout: ReturnType<typeof resolveOptionLayout> }) {
+/** Tamil option codes, as the printed paper uses them (a→அ, b→ஆ …).
+ *  Copied character for character from existing code, never retyped: the
+ *  first four are the array draft-card.tsx already labels Tamil options with,
+ *  all six are OPTION_KEYS_TA in lib/onemark/pdf/layout.ts. Not imported from
+ *  there, because that module loads the PDF fonts and is server-only. */
+const OPTION_KEYS_TA = ['அ', 'ஆ', 'இ', 'ஈ', 'உ', 'ஊ'];
+const OPTION_KEYS_EN = ['A', 'B', 'C', 'D', 'E', 'F'];
+
+/** The option code for one script: `(a)` in English, `(அ)` in Tamil. A key
+ *  outside A–F falls back to its own letter rather than a wrong Tamil one. */
+export function optionLabel(key: string | null | undefined, script: 'ta' | 'en', fallbackIndex = -1): string {
+  const k = (key ?? '').toUpperCase();
+  if (script === 'ta') {
+    const i = OPTION_KEYS_EN.indexOf(k);
+    const idx = i >= 0 ? i : fallbackIndex;
+    if (idx >= 0 && idx < OPTION_KEYS_TA.length) return `(${OPTION_KEYS_TA[idx]})`;
+  }
+  return `(${k.toLowerCase()})`;
+}
+
+function OptionList({
+  options,
+  layout,
+  script,
+}: {
+  options: OptionRow[];
+  layout: ReturnType<typeof resolveOptionLayout>;
+  script: 'ta' | 'en';
+}) {
   const cls =
     layout === 'inline_4'
       ? 'flex flex-wrap gap-x-6 gap-y-1'
@@ -50,9 +85,9 @@ function OptionList({ options, layout }: { options: OptionRow[]; layout: ReturnT
         : 'flex flex-col gap-1';
   return (
     <ol className={cls}>
-      {options.map((o) => (
+      {options.map((o, i) => (
         <li key={o.key} className="text-sm text-foreground">
-          <span className="mr-1.5 font-mono text-xs text-muted-foreground">({(o.key ?? '').toLowerCase()})</span>
+          <span className="mr-1.5 font-mono text-xs text-muted-foreground">{optionLabel(o.key, script, i)}</span>
           {o.text}
         </li>
       ))}
@@ -60,7 +95,18 @@ function OptionList({ options, layout }: { options: OptionRow[]; layout: ReturnT
   );
 }
 
-export function QuestionCard({ question: q, language, canSeeAnswers, disabled, exhaustedReason, onSwap, onLock, onDrop, onOverride }: QuestionCardProps) {
+export function QuestionCard({
+  question: q,
+  language,
+  monolingual = false,
+  canSeeAnswers,
+  disabled,
+  exhaustedReason,
+  onSwap,
+  onLock,
+  onDrop,
+  onOverride,
+}: QuestionCardProps) {
   const [editing, setEditing] = useState(false);
   const ov = q.override ?? {};
   const stemEn = ov.stem ?? q.stem;
@@ -68,8 +114,8 @@ export function QuestionCard({ question: q, language, canSeeAnswers, disabled, e
   const optionsEn = ov.options ?? q.options;
   const optionsTa = ov.options_ta ?? q.options_ta;
   const layout = resolveOptionLayout(q.option_layout, optionsEn, q.tags);
-  const showTa = language !== 'en';
-  const showEn = language !== 'ta';
+  const showTa = !monolingual && language !== 'en';
+  const showEn = monolingual || language !== 'ta';
   // fp_items.answer has been written as {correct:'A'} (the console) and as
   // {index:1} (seeded banks); show the letter either way.
   const correct = (() => {
@@ -79,6 +125,25 @@ export function QuestionCard({ question: q, language, canSeeAnswers, disabled, e
     if (typeof a.index === 'number') return optionsEn[a.index]?.key ?? String(a.index);
     return '';
   })();
+  const explanationEn = ov.explanation ?? q.explanation ?? null;
+  const explanationTa = ov.explanation_ta ?? q.explanation_ta ?? null;
+  // The key line follows the blocks on screen: Tamil letter and Tamil
+  // explanation in Tamil-only mode, both in "Both" (as the printed key does,
+  // document.ts), English otherwise. "Key:" itself is wizard chrome.
+  const keyLabel = !correct
+    ? '(?)'
+    : showTa && showEn
+      ? `${optionLabel(correct, 'en')} / ${optionLabel(correct, 'ta')}`
+      : showTa
+        ? optionLabel(correct, 'ta')
+        : optionLabel(correct, 'en');
+  const keyExplanations = (
+    showTa && showEn
+      ? [explanationEn, explanationTa]
+      : showTa
+        ? [explanationTa ?? explanationEn]
+        : [explanationEn]
+  ).filter((e): e is string => !!e);
 
   return (
     <article
@@ -121,25 +186,27 @@ export function QuestionCard({ question: q, language, canSeeAnswers, disabled, e
         {showTa && (
           <div className="space-y-1">
             {stemTa ? (
-              <p className="text-sm text-foreground">{stemTa}</p>
+              <p className="text-sm text-foreground">{renderUnderline(stemTa)}</p>
             ) : (
               <p className="text-xs italic text-muted-foreground">Tamil text not yet entered for this question.</p>
             )}
-            {optionsTa && optionsTa.length > 0 && <OptionList options={optionsTa} layout={layout} />}
+            {optionsTa && optionsTa.length > 0 && <OptionList options={optionsTa} layout={layout} script="ta" />}
           </div>
         )}
         {showEn && (
           <div className="space-y-1">
-            <p className="text-sm text-foreground">{stemEn}</p>
-            <OptionList options={optionsEn} layout={layout} />
+            <p className="text-sm text-foreground">{renderUnderline(stemEn)}</p>
+            <OptionList options={optionsEn} layout={layout} script="en" />
           </div>
         )}
       </div>
 
       {canSeeAnswers && (
         <p className="mt-2 text-xs text-muted-foreground">
-          <span className="font-medium text-foreground">Key: ({correct.toLowerCase() || '?'})</span>
-          {(ov.explanation ?? q.explanation) && <span> — {ov.explanation ?? q.explanation}</span>}
+          <span className="font-medium text-foreground">Key: {keyLabel}</span>
+          {keyExplanations.map((e, i) => (
+            <span key={i}> — {e}</span>
+          ))}
         </p>
       )}
 
@@ -173,6 +240,7 @@ export function QuestionCard({ question: q, language, canSeeAnswers, disabled, e
         open={editing}
         onOpenChange={setEditing}
         question={q}
+        monolingual={monolingual}
         onSave={(fields) => {
           onOverride(fields);
           setEditing(false);
@@ -186,11 +254,13 @@ function OverrideDialog({
   open,
   onOpenChange,
   question: q,
+  monolingual,
   onSave,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   question: ResolvedQuestion;
+  monolingual: boolean;
   onSave: (fields: QuestionOverride | null) => void;
 }) {
   const ov = q.override ?? {};
@@ -202,9 +272,12 @@ function OverrideDialog({
   function save() {
     const fields: QuestionOverride = {};
     if (stem.trim() !== q.stem) fields.stem = stem.trim();
-    if (stemTa.trim() !== (q.stem_ta ?? '')) fields.stem_ta = stemTa.trim();
+    // An English paper has no Tamil text: never write stem_ta / options_ta for it.
+    if (!monolingual && stemTa.trim() !== (q.stem_ta ?? '')) fields.stem_ta = stemTa.trim();
     if (JSON.stringify(options) !== JSON.stringify(q.options)) fields.options = options;
-    if (optionsTa.length > 0 && JSON.stringify(optionsTa) !== JSON.stringify(q.options_ta ?? [])) fields.options_ta = optionsTa;
+    if (!monolingual && optionsTa.length > 0 && JSON.stringify(optionsTa) !== JSON.stringify(q.options_ta ?? [])) {
+      fields.options_ta = optionsTa;
+    }
     onSave(Object.keys(fields).length === 0 ? null : fields);
   }
 
@@ -217,7 +290,8 @@ function OverrideDialog({
             The question bank keeps its original wording. What you change here prints on this paper and its answer key, nowhere else.
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4 py-2 md:grid-cols-2">
+        <div className={monolingual ? 'grid gap-4 py-2' : 'grid gap-4 py-2 md:grid-cols-2'}>
+          {!monolingual && (
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label>Tamil stem</Label>
@@ -228,13 +302,14 @@ function OverrideDialog({
                 <Label>Tamil options</Label>
                 {optionsTa.map((o, i) => (
                   <div key={o.key} className="flex items-center gap-2">
-                    <span className="w-6 font-mono text-xs text-muted-foreground">({o.key.toLowerCase()})</span>
+                    <span className="w-6 font-mono text-xs text-muted-foreground">{optionLabel(o.key, 'ta', i)}</span>
                     <Input value={o.text} onChange={(e) => setOptionsTa((prev) => prev.map((p, j) => (j === i ? { ...p, text: e.target.value } : p)))} />
                   </div>
                 ))}
               </div>
             )}
           </div>
+          )}
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label>English stem</Label>

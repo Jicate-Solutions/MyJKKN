@@ -951,8 +951,13 @@ function LoopStepper({
       if (data.action === 'admin_confirm') {
         toast.success('Recorded as your confirmation — kept apart from reporter answers.');
       } else if (data.action === 'prepare') {
+        // 2026-09-16 (ruling 4): questions send themselves — the reporter is
+        // asked on the blocking screen from 3 days after today.
         toast.success(
-          `${data.prepared ?? 0} reporter question(s) prepared (not sent — you approve the send).` +
+          `${data.sent ?? 0} reporter question(s) sent — each reporter is asked on sign-in from 3 days after today.` +
+            (data.queued_by_cap
+              ? ` ${data.queued_by_cap} waiting (3 questions at a time per reporter, released automatically).`
+              : '') +
             (data.excluded_off_cause
               ? ` ${data.excluded_off_cause} different-cause report(s) excluded.`
               : '')
@@ -1385,11 +1390,11 @@ function LoopStepper({
               ) : (
                 <MessageCircleQuestion className='w-4 h-4 mr-1.5' />
               )}
-              Prepare the questions
+              Send the question
             </Button>
             <span className='text-[11px] text-muted-foreground'>
-              Drafts a private &quot;is this fixed for you?&quot; per reporter.
-              Nothing sends yet.
+              Sends one &quot;is this fixed for you?&quot; per reporter. They
+              answer on the blocking screen from 3 days after today.
             </span>
           </div>
         )}
@@ -1406,10 +1411,11 @@ function LoopStepper({
               ) : (
                 <Send className='w-4 h-4 mr-1.5' />
               )}
-              Send to {fb.pending_send} reporter{fb.pending_send === 1 ? '' : 's'}
+              Release {fb.pending_send} queued question{fb.pending_send === 1 ? '' : 's'} now
             </Button>
             <span className='text-[11px] text-amber-800 dark:text-amber-200'>
-              This messages real learners — your click is the approval.
+              Held by the 3-questions-at-a-time cap; released automatically as
+              answers land. This click releases them early.
             </span>
           </div>
         )}

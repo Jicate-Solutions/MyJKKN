@@ -43,6 +43,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { formatIstDate, formatIstTime } from '@/lib/utils/date-format';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
@@ -80,9 +81,18 @@ import {
   buildCategoryDtos,
   buildCreateEventDto,
   emptyEventCreateForm,
+  nextFormTab,
+  prevFormTab,
   validateEventForm,
 } from './_components/event-create-form';
 import type { EventCreateForm, FormTabKey } from './_components/event-create-form';
+import { SourcePicker } from './_components/source-picker';
+import type {
+  EventSourceLink,
+  EventSourcePrefill,
+  EventSourceType,
+} from './_components/event-sources';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 type Step = 'format' | 'home' | 'preset' | 'details';
 const STEP_ORDER: Step[] = ['format', 'home', 'preset', 'details'];
@@ -101,27 +111,34 @@ const DETAIL_TABS: { key: FormTabKey; label: string }[] = [
 const COMPETITION_FORMATS: EventFormat[] = ['tournament'];
 
 const dayLabel = (iso: string) =>
-  new Date(iso).toLocaleDateString('en-IN', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-  });
+  formatIstDate(iso, { weekday: 'short', day: 'numeric', month: 'short' });
 
-const timeRangeLabel = (startIso: string, endIso: string) => {
-  const fmt = (iso: string) =>
-    new Date(iso).toLocaleTimeString('en-IN', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    });
-  return `${fmt(startIso)}–${fmt(endIso)}`;
-};
+const timeRangeLabel = (startIso: string, endIso: string) =>
+  `${formatIstTime(startIso)}–${formatIstTime(endIso)}`;
 
 export default function CreateEventPage() {
   const router = useRouter();
   const { profile } = useAuth();
   const { selectedInstitutionId } = useUserInstitutionAccess();
   const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
+
+  // Every active college, for the joint hosts. `institutions` above is only what
+  // this user may file an event under (an HOD sees just their own college), but
+  // they can still run it jointly with any other college. Falls back to the
+  // accessible list if the fetch fails, which is what the picker showed before.
+  const [allInstitutions, setAllInstitutions] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/events/host-institutions')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (!cancelled && Array.isArray(json?.data)) setAllInstitutions(json.data);
+      })
+      .catch((err) => console.error('[events/create] could not load all institutions:', err));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // HOST INSTITUTION — the college that owns this event. It is what `institution_id`
   // is set to, and what the booking spine compares the room's owner against to decide
@@ -152,6 +169,11 @@ export default function CreateEventPage() {
     preset: EventPreset;
   } | null>(null);
   const [creating, setCreating] = useState(false);
+  // Tabs the organizer tried to leave (Save & Next) or submit while incomplete.
+  // Only those show inline "required" messages — an untouched tab stays calm.
+  const [attempted, setAttempted] = useState<Partial<Record<FormTabKey, boolean>>>({});
+  const markAttempted = (key: FormTabKey) =>
+    setAttempted((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
 
   const [form, setForm] = useState<EventCreateForm>(emptyEventCreateForm());
   const set = <K extends keyof EventCreateForm>(field: K, value: EventCreateForm[K]) =>
@@ -165,6 +187,40 @@ export default function CreateEventPage() {
   const [clashes, setClashes] = useState<EventVenueClash[]>([]);
   const [checking, setChecking] = useState(false);
   const [inchargePickerOpen, setInchargePickerOpen] = useState(false);
+
+  // "Create from an existing record" (event-sources.ts). The link rides into
+  // config.source; the prefill only seeds the form — every field stays editable.
+  const [sourceType, setSourceType] = useState<EventSourceType | null>(null);
+  const [source, setSource] = useState<EventSourceLink | null>(null);
+
+  const applySource = async (prefill: EventSourcePrefill) => {
+    setSource(prefill.source);
+    setForm((prev) => ({ ...prev, ...prefill.form }));
+    if (prefill.form.last_day) setMultiDay(true);
+    if (prefill.offCampus !== null) setOffCampus(prefill.offCampus);
+    if (!prefill.roomName) {
+      toast.success(`Prefilled from "${prefill.source.label}"`);
+      return;
+    }
+    // Source modules store the room as free text; match it to a real
+    // Resource Management room so it can be held. Exact name only — a fuzzy
+    // match could silently book the wrong hall.
+    const { data } = await createClientSupabaseClient()
+      .from('resources')
+      .select('id, name')
+      .ilike('name', prefill.roomName.replace(/[%_\\]/g, '\\$&'))
+      .limit(2);
+    if (data && data.length === 1) {
+      setVenueResourceId(data[0].id);
+      toast.success(`Prefilled from "${prefill.source.label}" — room: ${data[0].name}`);
+    } else {
+      setVenueResourceId('');
+      toast(
+        `Prefilled from "${prefill.source.label}". Couldn't match the room "${prefill.roomName}" — pick it on the Venue tab.`,
+        { icon: '⚠️', duration: 7000 },
+      );
+    }
+  };
 
   // The room is held at the Resource Management grain: the same hours on EACH day
   // of the event, never one continuous multi-day block.
@@ -248,6 +304,43 @@ export default function CreateEventPage() {
     goNext();
   };
 
+  // What blocks LEAVING a detail tab via "Save & Next". Mirrors the checks
+  // handleCreate runs at the end, but surfaced per tab so the organizer fixes
+  // each section as they fill it instead of being bounced back from the last one.
+  const tabProblem = (key: FormTabKey): string | undefined => {
+    if (errors[key]) return errors[key];
+    if (key === 'basics' && !institutionId) return 'Pick the host institution.';
+    if (key === 'schedule' && !offCampus) {
+      if (!form.event_date) return 'Set the date this event is conducted on.';
+      if (!form.start_time || !form.end_time) {
+        return 'Set the hours it runs so the room can be held.';
+      }
+      if (!daySlots.length) return 'Could not work out the event hours — check the date and times.';
+    }
+    if (key === 'venue') {
+      if (!offCampus && !venueResourceId) {
+        return 'Pick a room for this on-campus event — or switch on "Off-campus".';
+      }
+      if (offCampus && !form.venue.trim()) return 'Type the venue for this off-campus event.';
+    }
+    return undefined;
+  };
+
+  // "Save & Next" keeps the draft in the form state (nothing is written until
+  // Create) and advances only when the current tab is clean.
+  const saveAndNext = () => {
+    const problem = tabProblem(tab);
+    if (problem) {
+      markAttempted(tab);
+      toast.error(problem);
+      return;
+    }
+    const next = nextFormTab(tab);
+    if (next) setTab(next);
+  };
+
+  const isLastTab = nextFormTab(tab) === null;
+
   const handleCreate = async () => {
     if (!format || !formatDef || !institutionId || !form.name.trim()) return;
 
@@ -267,6 +360,7 @@ export default function CreateEventPage() {
     // organizer sees the offending input, not just a toast.
     const firstBad = DETAIL_TABS.find((t) => errors[t.key]);
     if (firstBad) {
+      markAttempted(firstBad.key);
       setTab(firstBad.key);
       toast.error(errors[firstBad.key] as string);
       return;
@@ -277,16 +371,19 @@ export default function CreateEventPage() {
     // off-campus events just type a place (no hold).
     if (!offCampus) {
       if (!venueResourceId) {
+        markAttempted('venue');
         setTab('venue');
         toast.error('Pick a room for this on-campus event — or switch on "Off-campus".');
         return;
       }
       if (!form.event_date) {
+        markAttempted('schedule');
         setTab('schedule');
         toast.error('Set the date this event is conducted on.');
         return;
       }
       if (!form.start_time || !form.end_time) {
+        markAttempted('schedule');
         setTab('schedule');
         toast.error('Set the hours it runs so the room can be held.');
         return;
@@ -297,6 +394,7 @@ export default function CreateEventPage() {
         return;
       }
     } else if (!form.venue.trim()) {
+      markAttempted('venue');
       setTab('venue');
       toast.error('Type the venue for this off-campus event.');
       return;
@@ -345,6 +443,7 @@ export default function CreateEventPage() {
         endIso,
         offCampus,
         venueResourceId,
+        source,
       });
       const created = await EventBaseService.createEvent(dto);
 
@@ -633,6 +732,11 @@ export default function CreateEventPage() {
                   </Badge>
                 </div>
               )}
+              <CardDescription>
+                Fields marked <span className="font-medium text-destructive">*</span> are
+                mandatory. Fill each tab and press Save &amp; Next; Create event is on the
+                last tab.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               {formatDef?.dedicatedCreatePath ? (
@@ -644,6 +748,7 @@ export default function CreateEventPage() {
                     form={form}
                     set={set}
                     institutions={institutions}
+                    allInstitutions={allInstitutions}
                     institutionId={institutionId}
                     institutionsLoading={institutionsLoading}
                     onHostChange={setHostOverride}
@@ -655,25 +760,46 @@ export default function CreateEventPage() {
                 </>
               ) : (
                 <Tabs value={tab} onValueChange={(v) => setTab(v as FormTabKey)}>
+                  <div className="mb-4">
+                    <SourcePicker
+                      sourceType={sourceType}
+                      onSourceTypeChange={setSourceType}
+                      linked={source}
+                      onPick={applySource}
+                      onClear={() => setSource(null)}
+                    />
+                  </div>
                   <TabsList className="mb-4 flex h-auto flex-wrap justify-start gap-1">
-                    {DETAIL_TABS.map((t) => (
+                    {DETAIL_TABS.map((t, i) => (
                       <TabsTrigger key={t.key} value={t.key} className="gap-1.5 text-xs">
-                        {t.label}
-                        {errors[t.key] && (
+                        <span className="text-muted-foreground">{i + 1}.</span> {t.label}
+                        {(errors[t.key] || (attempted[t.key] && tabProblem(t.key))) && (
                           <AlertCircle className="h-3.5 w-3.5 text-destructive" />
                         )}
                       </TabsTrigger>
                     ))}
                   </TabsList>
 
+                  {attempted[tab] && tabProblem(tab) && (
+                    <div
+                      role="alert"
+                      className="mb-4 flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/5 p-3 text-sm text-destructive"
+                    >
+                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span>{tabProblem(tab)}</span>
+                    </div>
+                  )}
+
                   <TabsContent value="basics" className="mt-0">
                     <BasicsTab
                       form={form}
                       set={set}
                       institutions={institutions}
+                      allInstitutions={allInstitutions}
                       institutionId={institutionId}
                       institutionsLoading={institutionsLoading}
                       onHostChange={setHostOverride}
+                      showRequired={!!attempted.basics}
                     />
                   </TabsContent>
 
@@ -692,6 +818,7 @@ export default function CreateEventPage() {
                       badTimes={badTimes}
                       tooManyDays={tooManyDays}
                       maxDays={MAX_EVENT_DAYS}
+                      showRequired={!!attempted.schedule}
                     />
                   </TabsContent>
 
@@ -709,6 +836,7 @@ export default function CreateEventPage() {
                       dayCount={dayCount}
                       dayLabel={dayLabel}
                       timeRangeLabel={timeRangeLabel}
+                      showRequired={!!attempted.venue}
                     />
                   </TabsContent>
 
@@ -753,31 +881,53 @@ export default function CreateEventPage() {
               )}
 
               <div className="flex items-center justify-between pt-2">
-                <Button variant="outline" onClick={goBack} className="gap-1">
-                  <ArrowLeft className="h-4 w-4" /> Back
-                </Button>
                 <Button
-                  onClick={handleCreate}
-                  disabled={
-                    creating ||
-                    !form.name.trim() ||
-                    !institutionId ||
-                    // All of these are false on the dedicated-creator path, where
-                    // none of the schedule/venue/registration fields render.
-                    (!formatDef?.dedicatedCreatePath &&
-                      (badTimes ||
-                        badDayRange ||
-                        tooManyDays ||
-                        badRegWindow ||
-                        // A clash the organizer can already see on screen — don't
-                        // let them submit into a guaranteed "NOT held" outcome.
-                        clashes.length > 0))
-                  }
+                  variant="outline"
+                  onClick={() => {
+                    // Walk back a tab first; only leave the step from the first tab.
+                    const prev = formatDef?.dedicatedCreatePath ? null : prevFormTab(tab);
+                    if (prev) setTab(prev);
+                    else goBack();
+                  }}
+                  disabled={creating}
                   className="gap-1"
                 >
-                  {creating && <Loader2 className="h-4 w-4 animate-spin" />}
-                  {formatDef?.dedicatedCreatePath ? 'Continue setup' : 'Create event'}
+                  <ArrowLeft className="h-4 w-4" /> Back
                 </Button>
+                {formatDef?.dedicatedCreatePath ? (
+                  <Button
+                    onClick={handleCreate}
+                    disabled={creating || !form.name.trim() || !institutionId}
+                    className="gap-1"
+                  >
+                    {creating && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Continue setup
+                  </Button>
+                ) : isLastTab ? (
+                  <Button
+                    onClick={handleCreate}
+                    disabled={
+                      creating ||
+                      !form.name.trim() ||
+                      !institutionId ||
+                      badTimes ||
+                      badDayRange ||
+                      tooManyDays ||
+                      badRegWindow ||
+                      // A clash the organizer can already see on screen — don't
+                      // let them submit into a guaranteed "NOT held" outcome.
+                      clashes.length > 0
+                    }
+                    className="gap-1"
+                  >
+                    {creating && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Create event
+                  </Button>
+                ) : (
+                  <Button onClick={saveAndNext} disabled={creating} className="gap-1">
+                    Save &amp; Next <ArrowRight className="h-4 w-4" />
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>

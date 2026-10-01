@@ -687,7 +687,9 @@ export class CallPipelineService {
       dlt_template_id: null,
       auto_whatsapp_enabled: false,
       auto_whatsapp_template: 'Thank you for calling JKKN Institutions. We missed your call and apologize. A counselor will call you back shortly. Reply here if you have any questions about our courses.',
-      auto_transcribe_enabled: true,
+      // Off: the Exotel call analysis was retired (BUG-006180). An institution
+      // with no settings row must not quietly switch it back on.
+      auto_transcribe_enabled: false,
       auto_enrich_leads: true,
       repeat_detection_window_days: 7,
       escalation_threshold: 3,

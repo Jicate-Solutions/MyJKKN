@@ -76,7 +76,7 @@ const STATUS_BADGE: Record<EventProposalStatus, { variant: 'default' | 'secondar
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString('en-IN', {
-    day: 'numeric', month: 'short', year: 'numeric',
+    day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata',
   });
 }
 

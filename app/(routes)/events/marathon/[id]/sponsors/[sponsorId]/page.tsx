@@ -66,7 +66,7 @@ import {
   CreditCard,
   FileText,
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { formatIstDate, formatIstTime } from '@/lib/utils/date-format';
 import type {
   MarathonSponsor,
   MarathonSponsorDeliverable,
@@ -531,7 +531,7 @@ function DeliverablesSection({ sponsor }: { sponsor: MarathonSponsor }) {
                   )}
                   {d.due_date && (
                     <p className="text-[11px] text-muted-foreground mt-0.5">
-                      Due {format(new Date(d.due_date), 'dd MMM yyyy')}
+                      Due {formatIstDate(d.due_date, { day: '2-digit', month: 'short', year: 'numeric' })}
                     </p>
                   )}
                 </div>
@@ -600,7 +600,7 @@ function ActivityTimeline({ sponsor }: { sponsor: MarathonSponsor }) {
                           {a.activity_type}
                         </Badge>
                         <span className="text-[11px] text-muted-foreground">
-                          {format(new Date(a.created_at), 'dd MMM yyyy, HH:mm')}
+                          {formatIstDate(a.created_at, { day: '2-digit', month: 'short', year: 'numeric' })}, {formatIstTime(a.created_at, { hour: '2-digit', minute: '2-digit', hour12: false })}
                         </span>
                       </div>
                       <p className="text-sm mt-1">{a.description}</p>
@@ -787,7 +787,7 @@ export default function SponsorDetailPage() {
                 )}
                 {sponsor.signed_date && (
                   <div className="text-xs text-muted-foreground">
-                    Signed: {format(new Date(sponsor.signed_date), 'dd MMM yyyy')}
+                    Signed: {formatIstDate(sponsor.signed_date, { day: '2-digit', month: 'short', year: 'numeric' })}
                   </div>
                 )}
               </CardContent>

@@ -22,7 +22,7 @@ import {
   Users,
   XCircle,
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { formatIstDate } from '@/lib/utils/date-format';
 import toast from 'react-hot-toast';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -80,7 +80,7 @@ function StatCard({
 function fmtDate(value: string | null): string {
   if (!value) return '—';
   const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? '—' : format(d, 'dd MMM yyyy');
+  return Number.isNaN(d.getTime()) ? '—' : formatIstDate(d, { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 function PaymentCell({ row }: { row: EventRegistrationRow }) {
@@ -101,6 +101,23 @@ function PaymentCell({ row }: { row: EventRegistrationRow }) {
       )}
     </div>
   );
+}
+
+
+/** 'learning_facilitator' → 'Learning Facilitator'; '' for a guest. */
+function personTypeLabel(v: string | null | undefined): string {
+  switch (v) {
+    case 'learner':
+      return 'Learner';
+    case 'learning_facilitator':
+      return 'Learning Facilitator';
+    case 'staff_other':
+      return 'Staff';
+    case 'user':
+      return 'MyJKKN User';
+    default:
+      return '';
+  }
 }
 
 export function RegistrationsBoard({
@@ -336,12 +353,24 @@ export function RegistrationsBoard({
       }
     }
 
+    // Internal detail: what a signed-in registrant was on the day. Blank for
+    // guests, so the sheet reads the same whoever registered.
     const headers: Record<string, string> = {
       participant_name: 'Participant',
       participant_phone: 'Phone',
       participant_email: 'Email',
       institution_name: 'Institution',
       participant_type: 'Type',
+      person_type: 'MyJKKN Role',
+      department_name: 'Department',
+      degree_name: 'Degree',
+      program_name: 'Program',
+      semester_name: 'Semester',
+      roll_number: 'Roll Number',
+      register_number: 'Register Number',
+      staff_id: 'Employee ID',
+      designation: 'Designation',
+      myjkkn_id: 'MyJKKN ID',
       ...(isTournament ? { division_label: 'Division', entry_type: 'Entry Type' } : {}),
       status: 'Status',
       payment_status: 'Payment Status',
@@ -362,6 +391,16 @@ export function RegistrationsBoard({
         participant_email: r.participant_email ?? '',
         institution_name: r.institution_name ?? '',
         participant_type: r.participant_type ?? '',
+        person_type: personTypeLabel(r.myjkkn_profile?.person_type),
+        department_name: r.myjkkn_profile?.department_name ?? '',
+        degree_name: r.myjkkn_profile?.degree_name ?? '',
+        program_name: r.myjkkn_profile?.program_name ?? '',
+        semester_name: r.myjkkn_profile?.semester_name ?? '',
+        roll_number: r.myjkkn_profile?.roll_number ?? '',
+        register_number: r.myjkkn_profile?.register_number ?? '',
+        staff_id: r.myjkkn_profile?.staff_id ?? '',
+        designation: r.myjkkn_profile?.designation ?? '',
+        myjkkn_id: r.myjkkn_profile?.profile_id ?? '',
         ...(isTournament
           ? { division_label: r.division_label ?? '', entry_type: r.entry_type ?? '' }
           : {}),
@@ -526,6 +565,37 @@ export function RegistrationsBoard({
                   )}
                 </dl>
               </div>
+
+              {detail.myjkkn_profile && (
+                <div className="space-y-1.5 border-t pt-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    MyJKKN record
+                  </p>
+                  <dl className="space-y-1 text-sm">
+                    {(
+                      [
+                        ['Role', personTypeLabel(detail.myjkkn_profile.person_type)],
+                        ['Department', detail.myjkkn_profile.department_name],
+                        ['Degree', detail.myjkkn_profile.degree_name],
+                        ['Program', detail.myjkkn_profile.program_name],
+                        ['Semester', detail.myjkkn_profile.semester_name],
+                        ['Roll number', detail.myjkkn_profile.roll_number],
+                        ['Register number', detail.myjkkn_profile.register_number],
+                        ['Employee ID', detail.myjkkn_profile.staff_id],
+                        ['Designation', detail.myjkkn_profile.designation],
+                        ['MyJKKN ID', detail.myjkkn_profile.profile_id],
+                      ] as [string, string | null | undefined][]
+                    )
+                      .filter(([, v]) => !!v)
+                      .map(([k, v]) => (
+                        <div key={k} className="flex justify-between gap-4">
+                          <dt className="text-muted-foreground">{k}</dt>
+                          <dd className="break-all text-right">{v}</dd>
+                        </div>
+                      ))}
+                  </dl>
+                </div>
+              )}
 
               {detail.custom_answers.length > 0 && (
                 <div className="space-y-1.5 border-t pt-3">

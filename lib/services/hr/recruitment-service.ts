@@ -206,9 +206,20 @@ function assertWriteLanded(rows: unknown[] | null, what: string): void {
  * so the Issue Offer predicate below can be proven to agree with it.
  */
 export const CANDIDATE_FORWARD_TRANSITIONS: Partial<Record<CandidateStatus, CandidateStatus[]>> = {
-  approved:       ['package_fixed', 'offer_issued'],
-  package_fixed:  ['offer_issued'],
-  offer_issued:   ['joined', 'no_show', 'offer_rescinded'],
+  // 'rejected' is reachable from every post-approval state (2026-09-24).
+  //
+  // Rejection used to be a CHAIN decision only: fn_decide_recruitment_candidate
+  // stamps the current step, so it could only be used while a step was still
+  // pending. Once everyone had signed off there was no way to end a candidacy
+  // at all — a hire that fell through stayed "Approved" for ever and kept
+  // counting as live in every pipeline view.
+  //
+  // no_show and offer_rescinded stay as the precise endings where they apply
+  // (they never came / we pulled the offer); 'rejected' is the general one for
+  // every other reason, which is what the Reject button on the profile records.
+  approved:       ['package_fixed', 'offer_issued', 'rejected'],
+  package_fixed:  ['offer_issued', 'rejected'],
+  offer_issued:   ['joined', 'no_show', 'offer_rescinded', 'rejected'],
 };
 
 export class RecruitmentService {
@@ -659,9 +670,19 @@ export class RecruitmentService {
 
   // ----- No-show (R2.4) -----
 
+  /**
+   * Close out a fully-approved candidate who never joined.
+   *
+   * `reason` is optional only for backward compatibility with the original
+   * signature; every UI caller supplies one. Without it the row carried a
+   * single fixed sentence, which is useless six months later when someone asks
+   * why an approved hire never started — the reason IS the record, since
+   * nothing transitions out of 'no_show'.
+   */
   static async markNoShow(
     supabase: SupabaseClient,
-    id: string
+    id: string,
+    reason?: string
   ): Promise<HRRecruitmentCandidate> {
     const candidate = await this.getCandidate(supabase, id);
     if (!candidate) throw new Error('Candidate not found');
@@ -677,7 +698,8 @@ export class RecruitmentService {
       .from('hr_recruitment_candidates')
       .update({
         status: 'no_show',
-        cancellation_reason: 'Candidate did not join on expected date',
+        cancellation_reason:
+          reason?.trim() || 'Candidate did not join on expected date',
         final_decided_at: new Date().toISOString(),
       })
       .eq('id', id)
@@ -789,7 +811,9 @@ export class RecruitmentService {
   static async updateStatus(
     supabase: SupabaseClient,
     id: string,
-    newStatus: CandidateStatus
+    newStatus: CandidateStatus,
+    /** Why, for the terminal negatives. Ignored for the forward ones. */
+    reason?: string
   ): Promise<HRRecruitmentCandidate> {
     const candidate = await this.getCandidate(supabase, id);
     if (!candidate) throw new Error('Candidate not found');
@@ -824,6 +848,22 @@ export class RecruitmentService {
       updatePayload.offer_issued_at = new Date().toISOString();
       const { data: auth } = await supabase.auth.getUser();
       updatePayload.offer_issued_by = auth?.user?.id ?? null;
+    }
+    // A terminal negative is the end of the candidacy — nothing transitions out
+    // of it — so the reason and the moment are the only record of why an
+    // approved hire never started. Stamp both, exactly as markNoShow does.
+    //
+    // 'rejected' writes rejection_reason, not cancellation_reason: that is the
+    // column rejectCandidate fills for a mid-chain rejection, and the profile
+    // renders it. Splitting them by status keeps one rejection reading the same
+    // on screen whichever stage it happened at.
+    if (newStatus === 'offer_rescinded' || newStatus === 'no_show') {
+      updatePayload.final_decided_at = new Date().toISOString();
+      if (reason?.trim()) updatePayload.cancellation_reason = reason.trim();
+    }
+    if (newStatus === 'rejected') {
+      updatePayload.final_decided_at = new Date().toISOString();
+      if (reason?.trim()) updatePayload.rejection_reason = reason.trim();
     }
 
     const { data, error } = await supabase
@@ -1028,7 +1068,12 @@ export class RecruitmentService {
         experience_months: application.experience_months,
       },
       is_emergency: options?.is_emergency ?? false,
-      source: application.applicant_user_id ? 'public_careers_page' : 'hr_submission',
+      // Website applicants have no account (applicant_user_id NULL) but ARE careers-page
+      // candidates; keying on the user id alone mislabelled every one as an HR submission.
+      source:
+        application.source === 'external_website' || application.applicant_user_id
+          ? 'public_careers_page'
+          : 'hr_submission',
       submitted_by: promotedBy,
     } as HRRecruitmentCandidateInsert);
 
@@ -1099,9 +1144,18 @@ export class RecruitmentService {
     supabase: SupabaseClient,
     candidateId: string
   ): Promise<HRRecruitmentCandidateComment[]> {
+    // The mentions embed drives the read-side "@Name" highlight. Two profile
+    // embeds hang off this row, so the mention's one must name its FK
+    // explicitly — PostgREST cannot guess which relationship `profiles` means
+    // when a table reaches it by more than one path.
     const { data, error } = await supabase
       .from('hr_recruitment_candidate_comments')
-      .select('*, commenter:profiles(full_name, email)')
+      .select(
+        '*, commenter:profiles(full_name, email), ' +
+        'mentions:hr_recruitment_comment_mentions(' +
+        'mentioned_user_id, notified_at, ' +
+        'profile:profiles!hr_recruitment_comment_mentions_mentioned_user_id_fkey(full_name))'
+      )
       .eq('candidate_id', candidateId)
       .order('created_at', { ascending: true });
     if (error) throw error;
@@ -1288,7 +1342,7 @@ export class RecruitmentService {
     const [appsRes, candidates] = await Promise.all([
       supabase
         .from('hr_job_applications')
-        .select('id, status, submitted_at, reviewed_at, applicant_user_id')
+        .select('id, status, submitted_at, reviewed_at, source')
         .eq('job_id', jobId)
         .limit(1000),
       this.listCandidatesForJob(supabase, jobId),
@@ -1299,18 +1353,18 @@ export class RecruitmentService {
       status: JobApplicationStatus;
       submitted_at: string;
       reviewed_at: string | null;
-      applicant_user_id: string | null;
+      source: 'internal' | 'external_website';
     };
     const apps = (appsRes.data ?? []) as AppRow[];
 
     const byApp: Record<JobApplicationStatus, number> = {
       pending: 0, reviewed: 0, shortlisted: 0, rejected: 0, promoted: 0,
     };
-    let withAccount = 0;
+    let website = 0;
     const screenDays: number[] = [];
     for (const a of apps) {
       byApp[a.status] += 1;
-      if (a.applicant_user_id) withAccount += 1;
+      if (a.source === 'external_website') website += 1;
       if (a.reviewed_at) {
         const days =
           (new Date(a.reviewed_at).getTime() - new Date(a.submitted_at).getTime()) / 86400000;
@@ -1336,7 +1390,7 @@ export class RecruitmentService {
       applications_total: apps.length,
       by_application_status: byApp,
       by_candidate_status: byCandidate,
-      source_split: { with_account: withAccount, anonymous: apps.length - withAccount },
+      source_split: { internal: apps.length - website, website },
       avg_days_to_screen: avg(screenDays),
       avg_days_in_approval: avg(approvalDays),
     };

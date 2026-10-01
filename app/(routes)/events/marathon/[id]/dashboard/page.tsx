@@ -535,6 +535,7 @@ export default function MarathonDashboardPage() {
                   day: 'numeric',
                   month: 'long',
                   year: 'numeric',
+                  timeZone: 'Asia/Kolkata',
                 })}
                 {event.venue && ` · ${event.venue}`}
               </p>

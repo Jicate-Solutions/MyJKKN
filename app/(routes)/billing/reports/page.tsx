@@ -31,6 +31,7 @@ import { CollectionReportTab } from './_components/collection-report-tab';
 import { InvoiceReportTab } from './_components/invoice-report-tab';
 import { DiscountReportTab } from './_components/discount-report-tab';
 import { RefundReportTab } from './_components/refund-report-tab';
+import { localIsoDate } from '@/lib/services/billing/reports/collection-daywise';
 
 const BILLING_REPORTS_TABS = [
   'dashboard',
@@ -50,6 +51,16 @@ function BillingReportsPageInner() {
     isSuperAdmin,
     isLoading: permissionsLoading
   } = usePermissions();
+
+  // Collection is a per-day tally, so with no range set (including after
+  // Reset All) it runs on today. Derived rather than written back, so the
+  // other tabs keep their "all dates" default; the shared panel is fed the
+  // same derived value so it shows the dates the report is actually using.
+  const today = localIsoDate();
+  const effectiveFilters: BillingReportFilters =
+    activeTab === 'collection' && !filters.date_from && !filters.date_to
+      ? { ...filters, date_from: today, date_to: today }
+      : filters;
 
   const canViewReports = isSuperAdmin || canAccess('billing.reports', 'view');
   const canExportReports =
@@ -146,7 +157,7 @@ function BillingReportsPageInner() {
         <Card>
           <CardContent className='p-6'>
             <ReportFilters
-              filters={filters}
+              filters={effectiveFilters}
               onFilterChange={handleFilterChange}
             />
           </CardContent>
@@ -224,7 +235,7 @@ function BillingReportsPageInner() {
 
           <TabsContent value='collection'>
             <CollectionReportTab
-              filters={filters}
+              filters={effectiveFilters}
               canExport={canExportReports}
             />
           </TabsContent>

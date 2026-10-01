@@ -17,6 +17,7 @@ import {
   type AutobalanceMode,
 } from '@/lib/services/induction/induction-volunteer-service';
 import { InductionService, type FeedbackMethodMix } from '@/lib/services/induction/induction-service';
+import { istLocalInputToIso } from '@/lib/utils/date-format';
 import { AppointMentorDialog } from './appoint-mentor-dialog';
 import { MentorIdentity } from './mentor-identity';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -361,7 +362,8 @@ function TrainingSessionsDialog({
     try {
       await InductionVolunteerService.createTrainingSession(
         eventId, title.trim(),
-        scheduledAt ? new Date(scheduledAt).toISOString() : null,
+        // Pinned to IST: the datetime-local input is read as IST wall-clock, not the browser's zone.
+        istLocalInputToIso(scheduledAt),
         venue.trim() || null,
       );
       toast.success('Training session scheduled.');
@@ -462,7 +464,7 @@ function TrainingSessionsDialog({
                   <div className="min-w-0">
                     <div className="font-medium truncate">{s.title}</div>
                     <div className="text-xs text-muted-foreground">
-                      {s.scheduled_at ? new Date(s.scheduled_at).toLocaleString() : 'No date set'}
+                      {s.scheduled_at ? new Date(s.scheduled_at).toLocaleString(undefined, { timeZone: 'Asia/Kolkata' }) : 'No date set'}
                       {s.venue ? ` · ${s.venue}` : ''}
                     </div>
                   </div>

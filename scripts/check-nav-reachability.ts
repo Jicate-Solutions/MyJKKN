@@ -53,6 +53,10 @@ const SIDEBAR = 'lib/sidebarMenuLink.ts';
  * etc.). This mirrors `NAV_EXCLUDE` in the predecessor script.
  */
 const NAV_EXCLUDE = new Set<string>([
+  // My Pay Changes — the salary revision outcome notice (20270519090000).
+  // Reached from the in-app notice sent at the Director's yes; a team member
+  // has nothing to find there before one, so it has no sidebar row.
+  '/hr/my-pay-changes',
   // Induction Session Catalog — the curated cross-college "best sessions" library.
   // Reached via the "Session catalog" button on the chip-reachable /events/induction
   // landing page (not a tier-strip destination). Gated induction.view in MENU_PERMISSIONS.
@@ -117,6 +121,12 @@ const NAV_EXCLUDE = new Set<string>([
   '/staff',
   '/startup-studio',
   '/okr/admin',
+
+  // Retired redirect stubs (2027-04) — the page body is just
+  // redirect('/academic/leave-onduty/...'), kept only so old bookmarks/links
+  // don't 404. No chip should point at them.
+  '/learners/leave-onduty/settings',
+  '/learners/leave-onduty/apply-bulk',
 
   // ────────────────────────────────────────────────────────────
   // 2026-06-10 admin-cluster relocation — admission (counselors +

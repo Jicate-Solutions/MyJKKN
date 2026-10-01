@@ -2,9 +2,10 @@
 
 // OneMark review queue — the list. One subject at a time (the two OneMark
 // exams are separate exam_definitions rows), drafts oldest-paper-first so a
-// reviewer works a paper top to bottom the way it was printed.
+// reviewer works a paper top to bottom the way it was printed. The subject is
+// held by the page, so the request panel above and this queue always agree.
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { ListChecks } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
@@ -19,15 +20,33 @@ import {
 } from '../_lib/drafts';
 import { DraftCard } from './draft-card';
 
-interface DraftQueueProps {
-  userId: string;
+/** This browser's last subject on the review page (a convenience only). */
+export const REVIEW_SUBJECT_STORAGE_KEY = 'onemark.review.subject';
+
+/** The subject the review page shows: the first preferred config_key that is
+ *  a real subject (a tab click, then ?subject=, then this browser's last
+ *  choice), else the first subject. */
+export function resolveReviewSubject(
+  exams: { id: string; config_key: string }[] | null | undefined,
+  preferredKeys: (string | null | undefined)[],
+): string | null {
+  if (!exams || exams.length === 0) return null;
+  for (const key of preferredKeys) {
+    const hit = key ? exams.find((e) => e.config_key === key) : undefined;
+    if (hit) return hit.id;
+  }
+  return exams[0].id;
 }
 
-export function DraftQueue({ userId }: DraftQueueProps) {
+interface DraftQueueProps {
+  userId: string;
+  /** The page's subject — shared with the request panel above. */
+  examId: string | null;
+  onSubjectChange: (examId: string) => void;
+}
+
+export function DraftQueue({ userId, examId, onSubjectChange }: DraftQueueProps) {
   const { data: exams, isLoading: examsLoading, isError: examsError } = useOneMarkExams();
-  const [selectedExamId, setExamId] = useState<string | null>(null);
-  // First subject by default; a tab click overrides. Derived, not synced.
-  const examId = selectedExamId ?? exams?.[0]?.id ?? null;
 
   const exam = useMemo(() => exams?.find((e) => e.id === examId) ?? null, [exams, examId]);
 
@@ -75,7 +94,7 @@ export function DraftQueue({ userId }: DraftQueueProps) {
               role="tab"
               type="button"
               aria-selected={active}
-              onClick={() => setExamId(e.id)}
+              onClick={() => onSubjectChange(e.id)}
               className={cn(
                 '-mb-px border-b-2 px-3 py-2 text-sm transition-colors',
                 active
@@ -106,9 +125,8 @@ export function DraftQueue({ userId }: DraftQueueProps) {
       ) : !drafts || drafts.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
           Nothing waiting for {exam?.display_name ?? 'this subject'}. Drafts arrive
-          from an ingested past paper (scripts/onemark/ingest-board-paper.ts) or an
-          AI drafting request; each one sits here until a subject Senior Learner
-          approves it.
+          from an imported past board paper or an AI drafting request; each one
+          sits here until a subject Senior Learner approves it.
         </div>
       ) : (
         <ul className="space-y-4">

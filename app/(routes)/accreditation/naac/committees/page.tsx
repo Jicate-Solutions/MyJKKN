@@ -124,7 +124,7 @@ const COMMITTEE_TYPE_LABELS: Record<CommitteeType, string> = {
 export default function NAACCommitteesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { isSuperAdmin, userProfile, can, isLoading: permsLoading } =
+  const { isSuperAdmin, userProfile, can, hasAllInstitutionsScope, isLoading: permsLoading } =
     usePermissions();
 
   const hasViewPermission =
@@ -154,7 +154,7 @@ export default function NAACCommitteesPage() {
 
   // Filter state: URL param ?college=<id> or 'all' (super_admin default)
   const urlCollege = searchParams.get('college');
-  const defaultScope = isSuperAdmin
+  const defaultScope = hasAllInstitutionsScope
     ? urlCollege ?? 'all'
     : userProfile?.institution_id ?? '';
   const [scope, setScope] = useState<string>(defaultScope);
@@ -174,7 +174,9 @@ export default function NAACCommitteesPage() {
   // Filtering such a viewer to their own institution_id would hand them an
   // empty list for a committee they chair. RLS already narrows this to exactly
   // the committees they are on, so let it.
-  const effectiveScope = isSuperAdmin
+  // Any role with institution_scope 'all' (ceo, managing_director,
+  // accreditation_officer) gets the same cross-campus picker as a super admin.
+  const effectiveScope = hasAllInstitutionsScope
     ? superAdminScope
     : isRosterOnlyViewer
       ? 'all'
@@ -283,7 +285,7 @@ export default function NAACCommitteesPage() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                {isSuperAdmin && (
+                {hasAllInstitutionsScope && (
                   <Select
                     value={superAdminScope}
                     onValueChange={handleScopeChange}

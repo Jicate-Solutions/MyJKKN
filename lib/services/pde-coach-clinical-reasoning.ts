@@ -15,7 +15,10 @@
 //   - lifetime_attempts_per_case (number, default 5)
 //
 // Cap enforcement: count rows in pde_submissions matched on (learner_id,
-// assessment_id). If count >= cap → throw FeedbackError(code='CAP_REACHED').
+// assessment_id). If count >= cap → notify the learner's Senior Learner (see
+// pde-clinical-cap-notice; idempotent per learner per case) and then throw
+// FeedbackError(code='CAP_REACHED'). The learner is never turned away without
+// someone who can unblock them being told.
 // NOTE: pde_submissions has no `status` column; we count all attempts.
 //
 // Cost tracking: every AI call writes a row to ai_model_usage with
@@ -32,6 +35,8 @@ import { estimateChatCostInr } from '@/lib/services/platform/ai-clients/sentimen
 import { getModel } from '@/lib/services/platform/ai-providers';
 import { FeedbackError } from '@/lib/services/pde-coach-errors';
 import { enqueueJobsLane, awaitJobsLaneResults } from '@/lib/services/platform/ai-jobs-lane';
+import { notifyFacultyOfCapReached } from '@/lib/services/pde-clinical-cap-notice';
+import { resolveEffectiveAttemptsCap } from '@/lib/services/pde-clinical-attempt-cap';
 
 // ---------------------------------------------------------------------------
 // Types — shapes pulled from DB rows we care about
@@ -303,11 +308,40 @@ export async function generateClinicalReasoningFeedback(
       cause: countError,
     });
   }
+  // Attempts a Senior Learner has granted this learner on this case count too.
+  // They are recorded by /api/pde/cases/[id]/grant-attempts and were, until
+  // now, read by nothing on the learner's side — so a granted attempt was
+  // audited, displayed on the faculty roster, and still refused here.
+  const { effectiveCap } = await resolveEffectiveAttemptsCap(supabase, {
+    assessmentId: input.assessmentId,
+    learnerId: input.learnerId,
+    baseCap: capPerCase,
+  });
+
   const attempts = priorAttempts ?? 0;
-  if (attempts >= capPerCase) {
+  if (attempts >= effectiveCap) {
+    // Never a silent dead end. Before the learner is turned away, the Senior
+    // Learner who can unblock them is told — automatically, once per learner
+    // per case (the notice is idempotent, so retrying the coach re-sends
+    // nothing), and the message the learner sees says whether that worked.
+    //
+    // Awaited, not fired-and-forgotten: on a serverless runtime the function
+    // can be frozen the moment this handler returns, and a pending write would
+    // simply never land. The helper never throws and the whole call is one
+    // idempotency pre-check plus at most two inserts.
+    const notice = await notifyFacultyOfCapReached(supabase, {
+      learnerId: input.learnerId,
+      assessmentId: input.assessmentId,
+      attemptsUsed: attempts,
+      attemptsCap: effectiveCap,
+      caseTitle: assessment.title,
+    });
+
     throw new FeedbackError({
       code: 'CAP_REACHED',
-      message: `Lifetime attempt cap (${capPerCase}) reached for this case. Ask faculty to grant additional attempts.`,
+      message: notice.delivered
+        ? `You have used all ${effectiveCap} attempts on this case. Your Senior Learner has been notified and can grant you more.`
+        : `You have used all ${effectiveCap} attempts on this case. Ask your Senior Learner to grant you additional attempts.`,
     });
   }
 

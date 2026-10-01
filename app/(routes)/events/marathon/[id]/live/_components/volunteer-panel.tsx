@@ -21,7 +21,7 @@ import {
   useDeleteVolunteer,
 } from '@/hooks/events/marathon/use-marathon-live-ops';
 import { UserPlus, LogOut, Users2, Trash2 } from 'lucide-react';
-import { format } from 'date-fns';
+import { formatIstTime } from '@/lib/utils/date-format';
 import type { MarathonVolunteerCheckin } from '@/types/events-marathon';
 
 interface VolunteerPanelProps {
@@ -183,7 +183,7 @@ export function VolunteerPanel({ eventId, volunteers }: VolunteerPanelProps) {
                     <td className="py-2 pr-2">{v.station}</td>
                     <td className="py-2 pr-2 text-muted-foreground">{v.role ?? '-'}</td>
                     <td className="py-2 pr-2 text-xs text-muted-foreground">
-                      {format(new Date(v.checked_in_at), 'HH:mm')}
+                      {formatIstTime(v.checked_in_at, { hour: '2-digit', minute: '2-digit', hour12: false })}
                     </td>
                     <td className="py-2 pr-2">
                       {isActive ? (

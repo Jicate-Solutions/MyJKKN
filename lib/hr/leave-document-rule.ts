@@ -46,9 +46,35 @@ export interface LeaveDocumentRequirement {
 export function leaveDocumentRequirement(
   policy: LeaveDocumentPolicy | null | undefined,
   totalDays: number,
+  /**
+   * The proof for this leave type was already given ONCE, at eligibility.
+   *
+   * An eligibility-gated type (PH.D and its like) collects its evidence with
+   * the eligibility request, which a human approved before the type ever
+   * appeared in Apply Leave. Demanding the same enrolment certificate again on
+   * every application afterwards is the thing this flag removes.
+   *
+   * REQUIRED, NOT DEFAULTED, and for the same reason the `isEmergency`
+   * parameter was deleted rather than defaulted in 2026-09-12: a call site that
+   * has not thought about this must fail to compile, not silently pick the
+   * lenient answer. The drawer and createApplication must agree, and the
+   * expensive direction is the drawer NOT asking for a file the server then
+   * refuses to accept without.
+   */
+  eligibilityCoversDocument: boolean,
 ): LeaveDocumentRequirement {
   if (!policy?.requires_documents) {
     return { required: false, optional: false, reason: null };
+  }
+
+  if (eligibilityCoversDocument) {
+    return {
+      required: false,
+      // Not even offered: there is nothing useful to attach to a request whose
+      // evidence is already on file and approved.
+      optional: false,
+      reason: null,
+    };
   }
 
   const threshold = policy.document_required_after_days;

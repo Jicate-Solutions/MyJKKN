@@ -13,6 +13,7 @@ import { DayOfWeek } from '@/types/academics';
 import { TimetableHeader } from './timetable-header';
 import { TimelineCard } from './timeline-card';
 import { CurrentClassIndicator } from './current-class-indicator';
+import { isShowingToday } from '@/lib/services/learners/timetable-week';
 import { EmptyState } from './empty-state';
 import { CourseDetailSheet } from './course-detail-sheet';
 import { cn } from '@/lib/utils';
@@ -90,7 +91,7 @@ export function DaySwiper({ timetableData }: DaySwiperProps) {
   };
 
   // Check if it's Sunday
-  const isToday = new Date().getDay() - 1 === currentDayIndex;
+  const isToday = isShowingToday(availableDays[currentDayIndex]);
   const isSunday = new Date().getDay() === 0 && currentDayIndex === 0;
 
   return (

@@ -94,6 +94,9 @@ import {
   ShieldCheck,
   // Campus Living Icons
   Hotel,
+  Bed,
+  DoorOpen,
+  FileSearch,
   UtensilsCrossed,
   WashingMachine,
   HeartPulse,
@@ -438,6 +441,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/learners/change-requests/[id]': 'learners.change-requests.view',
   '/learners/school-master': 'learners.school_master.view',
   '/learners/postal-codes': 'learners.postal_codes.view',
+  // Access-neutral: no dedicated key was ever mapped, so the route guard's
+  // longest-prefix walk already resolved these to '/learners'.
+  '/learners/onboarding': 'learners.profiles.view',
+  '/learners/advisor-caseload': 'learners.profiles.view',
 
   // Learner Counseling (Phase 1 — placeholder gate; module pages land in Phase 2)
   // Spec: specs/counselor-taxonomy-spec.md. Role seed:
@@ -515,6 +522,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // hr_manager holds, quietly opening tax configuration to a wider audience than
   // the salaries it is derived from.
   '/hr/payroll/tds-slabs': 'hr.payroll.salary.view',
+  // Pay against the band. Same key as Employee Salaries for the same reason the
+  // TDS bands share it: this page shows what every person earns, so it cannot be
+  // narrower, and there is nothing here that is not already on that screen. An
+  // entry is mandatory rather than tidy — longest-prefix resolution would
+  // otherwise hand it to '/hr/payroll' -> 'hr.payroll.institution.view', which
+  // hr_manager holds, and publish everybody's pay to a wider audience.
+  '/hr/payroll/pay-band-check': 'hr.payroll.salary.view',
   // WHERE THE MONEY LANDS. A third key again, not a reuse of the salary one:
   // the amount and the destination are separate decisions, and the destination
   // is the field a change to redirects real money.
@@ -524,6 +538,23 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // once — the union of the three above, which is a wider grant than any of
   // them individually.
   '/hr/payroll/register': 'hr.payroll.register.view',
+  // SALARY REVISIONS (2026-09-29, 20270519090000) — ask, check, approve. Not
+  // under /hr/payroll on purpose: principals and heads of department ask from
+  // here, and longest-prefix resolution would hand /hr/payroll/* to
+  // hr.payroll.institution.view, which they do not hold. Each page names its own
+  // key; WHO may ask for WHOM is decided in Postgres, not by these keys alone.
+  '/hr/salary-revisions': 'hr.payroll.salary_revision.ask',
+  '/hr/salary-revisions/ask': 'hr.payroll.salary_revision.ask',
+  '/hr/salary-revisions/[id]': 'hr.payroll.salary_revision.ask',
+  '/hr/salary-revisions/college-check': 'hr.payroll.salary_revision.college_check',
+  '/hr/salary-revisions/approve': 'hr.payroll.salary_revision.approve',
+  // The outcome notice a team member reaches from the bell after the
+  // Director's yes (ruling 5). EVERY team member must be able to open it, and
+  // most roles hold no HR key (test.faculty's role has no hr.view), so it uses
+  // the universal signed-in sentinel `view_profile` — see the /my-desk note
+  // below. Safe because hr_salary_revision_outcomes' RLS returns only the
+  // caller's own rows; there is no sidebar link (reached from the bell).
+  '/hr/my-pay-changes': 'view_profile',
   // Closing an attendance month. Its own key, NOT the self-service
   // '/hr/attendance' one: 22 roles hold hr.attendance.view_self, and without an
   // entry here longest-prefix resolution would hand all of them the ability to
@@ -577,6 +608,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // whose authority comes from an approval flow rather than a permission key
   // are not blocked at the route layer. See app/(routes)/hr/leave/approvals/page.tsx.
   '/hr/leave/approvals': 'hr.leave.apply',
+  // Eligibility: same reasoning as Approvals above. An approver's authority
+  // here comes from the leave type's approval flow, not from a permission key,
+  // so the static gate is the permissive self-service one and the page itself
+  // shows only what RLS returns — the HR-only half is gated on
+  // hr.leave.types.manage inside the page.
+  '/hr/leave/eligibility': 'hr.leave.apply',
   '/hr/leave/[id]': 'hr.leave.apply',
   // ── Employee Self Service (2026-07-21) ───────────────────────────────────
   // These entries are LOAD-BEARING beyond the sidebar. app/(routes)/hr/layout.tsx
@@ -588,6 +625,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Deleting any line here does not merely hide a menu item; it re-blocks the
   // page.
   '/hr/attendance': 'hr.attendance.view_self',
+  // The Attendance & Time row's "All Attendance" entry (2026-09-21): the same
+  // page, opened on the staff picker. Keyed on view_all — held by the two HR
+  // roles — so the entry never shows to the 76 roles holding only view_self.
+  // Same query-string trick as '/hr/recruitment/approvals?view=all'.
+  '/hr/attendance?view=all': 'hr.attendance.view_all',
   '/hr/attendance/regularize': 'hr.attendance.regularize_self',
   // Biometric punch import — an HR-ops surface, NOT self-service. Without this
   // line it inherited '/hr/attendance' -> hr.attendance.view_self and rendered
@@ -635,6 +677,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/admin/payroll': 'hr.dashboard.view',
   '/hr/admin/performance-reviews': 'hr.dashboard.view',
   '/hr/admin/policies': 'hr.dashboard.view',
+  // The salary suggestion rule holds rupee amounts per year of experience. The
+  // page itself is super-admin only; this entry stops longest-prefix resolution
+  // handing it to '/hr/admin/policies' -> 'hr.dashboard.view', which far more
+  // roles hold. The salary key is the narrowest one that already exists.
+  '/hr/admin/policies/salary-suggestion': 'hr.payroll.salary.manage',
   '/hr/admin/promotions': 'hr.dashboard.view',
   '/hr/admin/recruitment-approval-flows': 'hr.dashboard.view',
   '/hr/admin/recruitment-maintenance': 'hr.dashboard.view',
@@ -683,6 +730,16 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/events': 'events.view',
   '/courses': 'courses.view',
   '/courses/new': 'courses.create',
+  // The participant's own portal — their enrolment, instalment bills and
+  // receipts. NOT courses.view: that is the admin console's key, and the people
+  // this page is for (an external participant, or a team member/learner whose
+  // identity an approval reused) hold none of the courses.* admin keys. Mapped
+  // deliberately rather than left out, because an unmapped href is hidden by
+  // default from every non-super-admin (see the "hide by default" branch in
+  // GetRoleBasedPages). The key gates no RLS anywhere — the page is self-scoped
+  // by profile_id = auth.uid() — so it is granted to every role and Role
+  // Management is the switch.
+  '/my-courses': 'courses.participant.self',
   '/projects': 'projects.view',
   // Campus Walk — the Director photographs a physical campus condition while
   // walking and it routes as a project_task under CAMPUS-OPS. Same module, so
@@ -708,10 +765,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Leave/OnDuty Application System (NEW - 2026-01-28)
   '/academic/leave-onduty/approvals': 'academic.leave_onduty.approve',
-  '/academic/leave-onduty/settings': 'academic.leave_onduty.manage',
   '/academic/leave-onduty/reports': 'academic.leave_onduty.reports',
   '/learners/leave-onduty/apply': 'learners.leave_onduty.apply',
   '/learners/leave-onduty/my-applications': 'learners.leave_onduty.view',
+  // Facilitator bulk On-Duty (2027-04) — lives in the Academic module.
+  '/academic/leave-onduty/apply-bulk': 'learners.leave_onduty.apply_bulk',
+  // Global Learner Leave Types + Approval Flows settings (moved to the
+  // Academic module 2027-04) — replaces the old OD sub-category settings and
+  // '/campus-living/settings/leave-types'. The old /learners/... URLs redirect.
+  '/academic/leave-onduty/settings': 'learners.leave_types.view',
 
   // Exceptions & Privileges
   '/academic/privileges': 'academic.privileges.view',
@@ -737,6 +799,20 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/attendance': 'academic.attendance.view',
   '/academic/attendance/dashboard': 'academic.attendance.dashboard.view',
   '/academic/attendance/pending': 'academic.attendance.view',
+  // Sidebar children added when the Academic group was regrouped (2027-04).
+  // Same key the page itself enforces (page-access map); listed so the
+  // accordion child is not hidden.
+  '/academic/attendance/mark': 'academic.attendance.view',
+  '/academic/attendance/day': 'academic.attendance.view',
+  '/academic/attendance/consolidation/facilitators': 'academic.attendance.consolidation.view',
+  '/academic/timetables/conflicts': 'academic.timetables.view',
+  '/academic/timetables/faculty-calendar/admin': 'faculty.calendar.view',
+  '/academic/privileges/my/report': 'learners.privileges.view',
+  '/academic/obe': 'academic.years.view',
+  '/academic/obe/regulation-config': 'academic.years.view',
+  '/academic/obe/po-pso': 'academic.years.view',
+  '/academic/obe/co-po-mapping': 'academic.years.view',
+  '/academic/session-feedback': 'academic.years.view',
   // Retrospective view of sessions that went unmarked. Gated on the DASHBOARD
   // key, not the plain view key, and deliberately: it reads across a whole
   // department or institution for months at a time, which is the dashboard's
@@ -755,7 +831,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   //   bypass). This key makes the faculty completion lane REACHABLE by faculty.
   // principal lane: gated to academic.attendance.dashboard.view (held by
   //   principal/hod, not plain faculty) — the escalation oversight audience.
-  // (admin lane is super-admin-only via requiresSuperAdmin on the menu item.)
+  // admin lane: gated to academic.session_feedback.leadership.view (below).
   '/academic/session-feedback/faculty': 'academic.attendance.view',
   '/academic/session-feedback/principal': 'academic.attendance.dashboard.view',
   // Admin lane of session feedback (D2 gate) — leadership-view key
@@ -890,6 +966,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ai-query/admin': 'super_admin', // Super admin only - AI Query Tools Registry
   '/admin/ai-models': 'super_admin', // Super admin only - AI Model Config (provider/model picker + spend caps + usage)
   '/admin/loops': 'super_admin', // Super admin only - Loop Control Tower (live health of every self-improving/cadence/accountability loop)
+  '/admin/loops/live': 'super_admin', // Super admin only - Live Loops (per loop: last measurement, its bar, the gap; in-progress readings greyed)
   '/admin/adoption': 'super_admin', // Super admin only - Feature Adoption (the three adoption numbers per shipped feature, why-not answers, simplify/retrain/retire cards)
   '/admin/learner-notes': 'super_admin', // Super admin only - Learner Notes approval queue (AI-drafted support notes reviewed before students see them)
   '/admin/page-metadata': 'super_admin', // Super admin only - Page Search Metadata
@@ -1003,6 +1080,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Gated on the REQUEST key so accounts staff can watch their own requests;
   // approve/decline inside is gated separately and re-checked by the RPC.
   '/billing/receipt-cancellations': 'billing.receipts.cancel.request',
+  // Same shape: requesters see it; flow-named approvers are admitted by the
+  // page guard (fn_is_bill_cancel_approver) and every write re-checks in the RPC.
+  '/billing/bill-cancellations': 'billing.schedule.cancel.request',
   '/billing/apportionment': 'billing.apportionment.view',
   '/billing/apportionment/rules': 'billing.apportionment.view',
   '/billing/invoices': 'billing.invoices.view',
@@ -1130,6 +1210,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // commission machinery, matching its RPC.
   '/admission/consultants/payout-readiness': 'admission.consultants.commissions.view',
   '/admission/consultants/reconciliation': 'admission.consultants.commissions.view',
+  // Added 2026-09-28 — commission payment approval workflow (mirrors billing refunds).
+  '/admission/consultants/commission-payments': 'admission.consultants.commissions.view',
+  '/admission/consultants/commission-payments/[id]': 'admission.consultants.commissions.view',
+  '/admission/consultants/commission-approvals': 'admission.consultants.commissions.configure',
   '/admission/consultants/referrals': 'admission.consultants.referrals.view',
   // Added 2026-08-10 — read-only review worklist for agency credits that need a
   // human look. Gated on the enquiry-desk read permission, matching its RPC.
@@ -1392,8 +1476,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/campus-living/my-hostel/premium/pick-room': 'campus_living.premium.pick_room',
   '/campus-living/my-hostel/premium/invite-roommate': 'campus_living.premium.invite_roommate',
   '/campus-living/vacate-requests': 'campus_living.vacate_requests.view',
+  // Warden / hostel office raising a request for a resident (2026-09-30).
+  '/campus-living/vacate-requests/new': 'campus_living.vacate_requests.submit_on_behalf',
+  '/campus-living/settings/vacate-checklist': 'campus_living.vacate_checklist.manage',
+  '/campus-living/settings/damage-types': 'campus_living.damage_types.manage',
   '/campus-living/attendance': 'campus_living.attendance.view',
-  '/campus-living/leave': 'campus_living.leave.view',
+  // '/campus-living/leave' retired to a redirect (2027-04) — see
+  // '/learners/leave-onduty/settings' / '/learners/leave-onduty/my-applications'.
   '/campus-living/gate-passes': 'campus_living.gate_passes.view',
   // Gated on the WRITE key, not .view: the scan screen exists only to record
   // exits and returns, so a read-only holder has nothing to do there.
@@ -1453,6 +1542,85 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/campus-living/reports': 'campus_living.reports.view',
   '/campus-living/settings': 'campus_living.settings.view',
   '/campus-living/settings/approval-chains': 'campus_living.approval_chains.view',
+  // ── Sidebar sub-module rows (2026-09-22) ──────────────────────────────
+  // The Campus Living section went from one auto-discovered row to one row
+  // per sub-module with hand-authored submenus. Every submenu href must be
+  // mapped here or the default-deny filter hides it from every non-super-admin
+  // (check:menu-coverage fails the build on a gap). Each entry below carries
+  // the SAME key the route guard already resolved for it through the
+  // longest-prefix walk (lib/auth/route-matcher.ts), so nobody's access moves
+  // — this is a nav regrouping, not a re-gating. Tightening a page to its own
+  // more specific key (e.g. attendance.mark) is a separate decision.
+  '/campus-living/wardens': 'campus_living.dashboard.view',
+  '/campus-living/allocations/pending': 'campus_living.allocations.view',
+  '/campus-living/allocations/waitlist': 'campus_living.allocations.view',
+  '/campus-living/allocations/auto': 'campus_living.allocations.view',
+  '/campus-living/allocations/batches': 'campus_living.allocations.view',
+  '/campus-living/attendance/mark': 'campus_living.attendance.view',
+  '/campus-living/attendance/absentees': 'campus_living.attendance.view',
+  '/campus-living/attendance/history': 'campus_living.attendance.view',
+  '/campus-living/visitors/known': 'campus_living.visitors.view',
+  '/campus-living/visitors/register': 'campus_living.visitors.view',
+  '/campus-living/mess/bookings': 'campus_living.mess.view',
+  '/campus-living/mess/categories': 'campus_living.mess.view',
+  '/campus-living/mess/caterers': 'campus_living.mess.view',
+  '/campus-living/mess/caterer-management': 'campus_living.mess.view',
+  '/campus-living/mess/library': 'campus_living.mess.view',
+  '/campus-living/mess/menu-loop': 'campus_living.mess.view',
+  '/campus-living/mess/insights': 'campus_living.mess.view',
+  '/campus-living/mess/policies': 'campus_living.mess.view',
+  '/campus-living/safety/access-log': 'campus_living.safety.view',
+  '/campus-living/safety/curfew-exceptions': 'campus_living.safety.view',
+  '/campus-living/safety/emergency-contacts': 'campus_living.safety.view',
+  '/campus-living/analytics/occupancy': 'campus_living.analytics.view',
+  '/campus-living/analytics/attendance': 'campus_living.analytics.view',
+  '/campus-living/analytics/mess': 'campus_living.analytics.view',
+  '/campus-living/analytics/maintenance': 'campus_living.analytics.view',
+  '/campus-living/analytics/safety': 'campus_living.analytics.view',
+  '/campus-living/analytics/fees': 'campus_living.analytics.view',
+  '/campus-living/analytics/bed-economics': 'campus_living.analytics.view',
+  '/campus-living/analytics/cross-domain': 'campus_living.analytics.view',
+  '/campus-living/analytics/alerts': 'campus_living.analytics.view',
+  '/campus-living/analytics/alert-rules': 'campus_living.analytics.view',
+  '/campus-living/reports/occupancy': 'campus_living.reports.view',
+  '/campus-living/reports/attendance-register': 'campus_living.reports.view',
+  '/campus-living/reports/fee-collection': 'campus_living.reports.view',
+  '/campus-living/reports/visitor-register': 'campus_living.reports.view',
+  '/campus-living/reports/safety-audit': 'campus_living.reports.view',
+  '/campus-living/reports/anti-ragging-compliance': 'campus_living.reports.view',
+  '/campus-living/settings/general': 'campus_living.settings.view',
+  '/campus-living/settings/categories': 'campus_living.settings.view',
+  '/campus-living/settings/program-eligibility': 'campus_living.settings.view',
+  '/campus-living/settings/allocations': 'campus_living.settings.view',
+  '/campus-living/settings/amenities': 'campus_living.settings.view',
+  '/campus-living/settings/billable-amenities': 'campus_living.settings.view',
+  '/campus-living/settings/ac-amenity-audit': 'campus_living.settings.view',
+  '/campus-living/settings/hostel-years': 'campus_living.settings.view',
+  '/campus-living/settings/packages': 'campus_living.settings.view',
+  '/campus-living/settings/block-economics': 'campus_living.settings.view',
+  '/campus-living/settings/choose-your-menu': 'campus_living.settings.view',
+  '/campus-living/settings/mess-services': 'campus_living.settings.view',
+  '/campus-living/settings/fee-config': 'campus_living.settings.view',
+  '/campus-living/settings/fees-economics': 'campus_living.settings.view',
+  // '/campus-living/settings/leave-types' retired to a redirect (2027-04) —
+  // see '/learners/leave-onduty/settings'.
+  '/campus-living/settings/policies-workflows': 'campus_living.settings.view',
+  '/campus-living/settings/maintenance-sla': 'campus_living.settings.view',
+  '/campus-living/settings/notification-rules': 'campus_living.settings.view',
+  '/campus-living/settings/curfew': 'campus_living.settings.view',
+  // Billing Audit (2026-09-22) — hostel-learner bill coverage + fee-band audit.
+  // Its own key, granted by migration 20260922120000; the RPCs behind both
+  // pages gate on the same key server-side.
+  '/campus-living/billing-audit': 'campus_living.billing_audit.view',
+  '/campus-living/billing-audit/learners': 'campus_living.billing_audit.view',
+  // Premium Room admin surfaces are wrapped in SuperAdminOnly at the page
+  // level (app/(routes)/campus-living/premium/*/page.tsx). The sentinel makes
+  // the sidebar and the route guard say the same thing the page already does.
+  '/campus-living/premium/dashboard': 'super_admin',
+  '/campus-living/premium/tier-policy': 'super_admin',
+  '/campus-living/premium/override': 'super_admin',
+  '/campus-living/premium/audit-log': 'super_admin',
+  '/campus-living/premium/allocation-rules': 'super_admin',
 
   // Faculty Innovation Portfolio (spec v1.0.0 — 2026-04-15)
   '/faculty/innovation': 'faculty_innovation.initiative.submit',
@@ -1716,6 +1884,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/health/admin/programs': 'health.programs.manage',
   '/health/counselor': 'health.counselor.view',
   '/health/programs': 'health.programs.view',
+  '/health/surveys': 'health.programs.view',
 
   // IMS (Inventory Management System) — Added 2026-04-27. Module-level
   // taxonomy mirrors Admission CRM precedent; gateway permission `ims.view`
@@ -1808,6 +1977,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/cdc/drives/new': 'cdc.drives.create',
   '/cdc/drives/[id]': 'cdc.drives.view',
   '/cdc/drives/[id]/responses': 'cdc.drives.view',
+  '/cdc/drives/[id]/participants': 'cdc.drives.view',
+  '/cdc/drives/[id]/selected': 'cdc.drives.view',
+  '/cdc/drives/[id]/documents/bulk-upload': 'cdc.drives.edit',
+  '/cdc/drives/[id]/attendance': 'cdc.drives.view',
+  '/cdc/drives/coordinating': 'cdc.drives.view',
   '/cdc/drives/[id]/notifications': 'cdc.drives.view',
   '/cdc/drives/[id]/edit': 'cdc.drives.edit',
   // Staff view = assigned-learner willingness tracker; learners reach the same
@@ -1902,6 +2076,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/pde/faculty/cases/new': 'pde.faculty.view',
   '/pde/faculty/cases/[id]/edit': 'pde.faculty.view',
   '/pde/faculty/cases/[id]/preview': 'pde.faculty.view',
+  '/pde/faculty/cases/[id]/export': 'pde.faculty.view',
   '/pde/faculty/cases/[id]/attempts': 'pde.faculty.view',
   '/pde/faculty/cases/[id]/attempts/[studentId]': 'pde.faculty.view',
   '/pde/learn/cases/[caseSlug]': 'pde.profile.view',
@@ -1945,6 +2120,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ims/settings/suppliers': 'ims.settings.suppliers.manage',
   '/ims/settings/units': 'ims.settings.units.manage',
   '/ims/settings/unit-conversions': 'ims.settings.units.manage',
+  '/ims/settings/pos-devices': 'ims.settings.pos_devices.manage',
   // Store Kits (PR-K2, 2026-07-12) — per-group item kits handed over at the
   // central store. Spec: specs/store-kit-entitlements-spec-2026-07-12.md.
   // Keys ship UNGRANTED (dark) until the grn_verify rollout.
@@ -2075,6 +2251,19 @@ export function navPathAllowed(
  *   - `/documents` section — no `app/(routes)/documents` page exists on
  *     prod; flagged during PR #409 sweep.
  */
+/**
+ * Billing pages that live under the sidebar's "Settings" menu (group-wide config
+ * and oversight pages). Shared by that menu's `active` predicate and by the
+ * Colleges menu, which must EXCLUDE them so only one row highlights.
+ */
+const BILLING_SETTINGS_PREFIXES = [
+  '/billing/categories',
+  '/billing/reports',
+  '/billing/analytics',
+  '/billing/activities',
+  '/billing/payment-accounts',
+] as const;
+
 export function GetPages(pathname: string): MenuGroup[] {
   return [
     {
@@ -2311,16 +2500,23 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/organizations/institutions', label: 'Institutions', active: pathname.startsWith('/organizations/institutions') },
             { href: '/organizations/degrees', label: 'Degrees', active: pathname.startsWith('/organizations/degrees') },
             { href: '/organizations/departments', label: 'Departments', active: pathname === '/organizations/departments' },
-            // Both entries added 2026-08-04. Leadership is new; HoD Assignment
-            // already worked but had no sidebar entry, which is why 82 of 89
-            // departments still have no Head.
-            { href: '/organizations/leadership', label: 'College Leadership', active: pathname.startsWith('/organizations/leadership') },
-            { href: '/organizations/departments/hod-assignment', label: 'HoD Assignment', active: pathname.startsWith('/organizations/departments/hod-assignment') },
             { href: '/organizations/programs', label: 'Programs', active: pathname.startsWith('/organizations/programs') },
             { href: '/organizations/semesters', label: 'Semesters', active: pathname.startsWith('/organizations/semesters') },
             { href: '/organizations/sections', label: 'Sections', active: pathname.startsWith('/organizations/sections') },
             { href: '/organizations/courses', label: 'Courses', active: pathname.startsWith('/organizations/courses') },
             { href: '/organizations/courses/mappings', label: 'Course Mappings', active: pathname === '/organizations/courses/mappings' },
+          ]
+        },
+        {
+          // Moved out of the Organizations submenu. URLs and MENU_PERMISSIONS
+          // keys are unchanged (they key on href, not on group).
+          href: '/organizations/leadership',
+          label: 'Leadership',
+          active: pathname.startsWith('/organizations/leadership') || pathname.startsWith('/organizations/departments/hod-assignment'),
+          icon: UserCog,
+          submenus: [
+            { href: '/organizations/leadership', label: 'College Leadership', active: pathname.startsWith('/organizations/leadership') },
+            { href: '/organizations/departments/hod-assignment', label: 'HoD Assignment', active: pathname.startsWith('/organizations/departments/hod-assignment') },
           ]
         },
         {
@@ -2347,106 +2543,156 @@ export function GetPages(pathname: string): MenuGroup[] {
         // across JKKN's 8+ high-traffic modules. URLs UNCHANGED — preserves
         // faculty daily workflow bookmarks.
         {
-          // Foundation & Competitive-Exam Programme — school-grade foundation +
-          // govt/competitive-exam coaching. Gated by
-          // '/foundation' -> 'foundation.dashboard.view' (MENU_PERMISSIONS).
-          href: '/foundation',
-          label: 'Foundation Programme',
-          active: pathname === '/foundation' || pathname.startsWith('/foundation/'),
-          icon: Target,
-          // Hand-authored children REPLACE the route manifest's depth-2
-          // auto-discovery for this row (components/Navbar/menu.tsx), so the
-          // Console is listed explicitly to keep it. The two OneMark operator
-          // screens sit at depth 3 and would never be auto-discovered. They are
-          // children here, not top-level rows, because the Academic group is
-          // one row below the sidebar validator's hard cap (15). Each child is
-          // gated by its own MENU_PERMISSIONS key.
-          //
-          // 'Overview' is the hub itself, listed as its own first child (same
-          // idiom as '/procurement'). Two things depend on it: (1) a row with
-          // explicit children is filtered by its CHILDREN only —
-          // GetRoleBasedPages never reads MENU_PERMISSIONS['/foundation'] once
-          // submenus is non-empty — so without this child a holder of ONLY
-          // foundation.dashboard.view lost the row that main rendered for them;
-          // (2) an explicit-children row renders as an accordion whose parent
-          // click is a pure toggle (menu.tsx), so this child is the only
-          // sidebar door to /foundation for ANY role.
+          // Academic module, regrouped module-wise 2027-04 (was ONE flat
+          // '/academic' link + in-page tabs). The tab bar still works; every
+          // page below is now also reachable from the sidebar. Each child href
+          // MUST stay in MENU_PERMISSIONS or it is hidden.
+          href: '/academic/years',
+          label: 'Academic Setup',
+          active: pathname.startsWith('/academic/years') ||
+            pathname.startsWith('/academic/regulations') ||
+            pathname.startsWith('/academic/batches') ||
+            pathname.startsWith('/academic/periods') ||
+            pathname.startsWith('/academic/staff-planning') ||
+            pathname.startsWith('/academic/parent-portal'),
+          icon: GraduationCap,
           submenus: [
-            { href: '/foundation', label: 'Overview', active: pathname === '/foundation' },
-            { href: '/foundation/console', label: 'Console', active: pathname.startsWith('/foundation/console') },
-            { href: '/foundation/onemark/paper', label: 'OneMark: Build a Paper', active: pathname.startsWith('/foundation/onemark/paper') },
-            { href: '/foundation/onemark/review', label: 'OneMark: Review Drafts', active: pathname.startsWith('/foundation/onemark/review') },
-            // Wave 3 (Lane N). Both nest here rather than becoming top-level
-            // rows: the Academic group is at 14 and the validator's hard cap
-            // is 15. Each is gated by its own MENU_PERMISSIONS key, so the
-            // children-decide-the-parent rule keeps the accordion off anyone
-            // who holds neither.
-            { href: '/foundation/onemark/results', label: 'OneMark: Results', active: pathname.startsWith('/foundation/onemark/results') },
-            { href: '/foundation/onemark/units', label: 'OneMark: Unit List', active: pathname.startsWith('/foundation/onemark/units') },
+            { href: '/academic/years', label: 'Years', active: pathname.startsWith('/academic/years') },
+            { href: '/academic/regulations', label: 'Regulations', active: pathname.startsWith('/academic/regulations') },
+            { href: '/academic/batches', label: 'Batches', active: pathname.startsWith('/academic/batches') },
+            { href: '/academic/periods', label: 'Periods', active: pathname.startsWith('/academic/periods') },
+            { href: '/academic/staff-planning', label: 'Staff Planning', active: pathname.startsWith('/academic/staff-planning') },
+            { href: '/academic/parent-portal', label: 'Parent Portal', active: pathname.startsWith('/academic/parent-portal') },
           ]
         },
         {
-          // The learner's own door into the same programme. Separate entry
-          // rather than a submenu because the audience is disjoint: whoever
-          // sits the programme holds foundation.practice.take and none of the
-          // operator keys, so '/foundation' above never renders for them.
-          href: '/foundation/practice',
-          label: 'Foundation Practice',
-          // Exact, so that running a session for somebody else does not also
-          // light up "practise on my own" — they are different acts.
-          active: pathname === '/foundation/practice',
-          icon: Target,
-          submenus: []
+          href: '/academic/timetables',
+          label: 'Timetables',
+          active: pathname.startsWith('/academic/timetables'),
+          icon: CalendarClock,
+          submenus: [
+            { href: '/academic/timetables', label: 'Overview', active: pathname === '/academic/timetables' ||
+              (pathname.startsWith('/academic/timetables/') &&
+                !pathname.startsWith('/academic/timetables/faculty-calendar') &&
+                !pathname.startsWith('/academic/timetables/templates') &&
+                !pathname.startsWith('/academic/timetables/conflicts')) },
+            { href: '/academic/timetables/faculty-calendar', label: 'Faculty Calendar', active: pathname === '/academic/timetables/faculty-calendar' },
+            { href: '/academic/timetables/faculty-calendar/admin', label: 'Calendar Admin', active: pathname.startsWith('/academic/timetables/faculty-calendar/admin') },
+            { href: '/academic/timetables/templates', label: 'Templates', active: pathname === '/academic/timetables/templates' ||
+              (pathname.startsWith('/academic/timetables/templates/') &&
+                !pathname.startsWith('/academic/timetables/templates/analytics')) },
+            { href: '/academic/timetables/templates/analytics', label: 'Template Analytics', active: pathname.startsWith('/academic/timetables/templates/analytics') },
+            { href: '/academic/timetables/conflicts', label: 'Conflicts', active: pathname.startsWith('/academic/timetables/conflicts') },
+          ]
         },
         {
-          // Running the programme FOR a group, as opposed to sitting it.
-          // Gated on the same permission, but only ever populated for whoever
-          // is named as a cohort's resource person — most holders of the key
-          // will correctly see "you are not running any groups yet".
-          href: '/foundation/practice/facilitate',
-          label: 'Run a Practice Session',
-          active: pathname.startsWith('/foundation/practice/facilitate'),
-          icon: Users,
-          submenus: []
-        },
-        {
-          // OneMark — the Class-12 one-mark MCQ sitting: practice, timed, a
-          // Senior Learner's live paper, and vault review. Same audience and
-          // same key as Foundation Practice. A separate flat row, not a child
-          // of '/foundation', for the same reason Foundation Practice is: the
-          // learner never holds the operator keys that render that parent.
-          // This makes the Academic group 14 top-level rows — ONE below the
-          // sidebar validator's hard cap; the next entry must nest.
-          //
-          // Wave 3 Lane N asked for a flat learner door to the hub
-          // '/foundation/onemark' alongside this row. It is NOT here, and the
-          // spec's own stop condition is why: a 15th top-level row makes
-          // validateSidebar() raise a BLOCKING issue (ERROR_THRESHOLD = 15,
-          // `topLevelCount >= ERROR_THRESHOLD`) and check:sidebar fails the
-          // build for every module, not just this one. The alternative the
-          // spec offered — the mobile module tabs — is not an independent
-          // door either: components/BottomNav reads MODULES only for section
-          // identity, icon and order, and takes its actual rows from
-          // GetRoleBasedPages, so a MODULES entry would render nothing new.
-          // Reported rather than forced. See the PR for the two ways out
-          // (nest the hub under this row, or restructure the Academic group).
-          href: '/foundation/onemark/practice',
-          label: 'OneMark Practice',
-          active: pathname.startsWith('/foundation/onemark/practice'),
+          href: '/academic/attendance',
+          label: 'Attendance',
+          active: pathname.startsWith('/academic/attendance'),
           icon: ClipboardCheck,
-          submenus: []
+          submenus: [
+            { href: '/academic/attendance', label: 'Overview', active: pathname === '/academic/attendance' },
+            { href: '/academic/attendance/dashboard', label: 'Dashboard', active: pathname.startsWith('/academic/attendance/dashboard') },
+            { href: '/academic/attendance/mark', label: 'Mark', active: pathname.startsWith('/academic/attendance/mark') },
+            { href: '/academic/attendance/day', label: 'Day Attendance', active: pathname.startsWith('/academic/attendance/day') },
+            { href: '/academic/attendance/pending', label: 'Pending', active: pathname.startsWith('/academic/attendance/pending') },
+            { href: '/academic/attendance/history', label: 'Unmarked History', active: pathname.startsWith('/academic/attendance/history') },
+            { href: '/academic/attendance/reports', label: 'Reports', active: pathname.startsWith('/academic/attendance/reports') },
+            { href: '/academic/attendance/consolidation', label: 'Consolidation', active: pathname.startsWith('/academic/attendance/consolidation') &&
+              !pathname.startsWith('/academic/attendance/consolidation/facilitators') },
+            { href: '/academic/attendance/consolidation/facilitators', label: 'Facilitators', active: pathname.startsWith('/academic/attendance/consolidation/facilitators') },
+          ]
         },
         {
-          // D3: click → module root. `/academic` resolves to the in-page
-          // AcademicNav (nav-config.ts) which handles all drill-down.
-          href: '/academic',
-          label: 'Academic',
-          active: pathname === '/academic' || pathname.startsWith('/academic/'),
-          icon: GraduationCap,
-          // Flat link — the Academic sub-pages (incl. Parent Portal Content)
-          // are surfaced by the in-module tab bar (academic/nav-config.ts),
-          // NOT as sidebar submenus. Adding submenus here would hide the rest.
-          submenus: []
+          href: '/academic/internal-marks',
+          label: 'Assessment',
+          active: pathname.startsWith('/academic/question-papers') ||
+            pathname.startsWith('/academic/internal-marks') ||
+            pathname.startsWith('/academic/mark-entry') ||
+            pathname.startsWith('/academic/course-grades'),
+          icon: FileText,
+          submenus: [
+            { href: '/academic/question-papers', label: 'Question Papers', active: pathname.startsWith('/academic/question-papers') },
+            { href: '/academic/internal-marks', label: 'Internal Marks', active: pathname === '/academic/internal-marks' },
+            { href: '/academic/mark-entry', label: 'Mark Entry', active: pathname.startsWith('/academic/mark-entry') },
+            { href: '/academic/internal-marks/monitor', label: 'IA Monitor', active: pathname.startsWith('/academic/internal-marks/monitor') },
+            { href: '/academic/internal-marks/attendance-insight', label: 'Attendance vs Marks', active: pathname.startsWith('/academic/internal-marks/attendance-insight') },
+            { href: '/academic/internal-marks/exam-audit', label: 'Exam IA Audit', active: pathname.startsWith('/academic/internal-marks/exam-audit') },
+            { href: '/academic/internal-marks/report', label: 'Internal Marks Report', active: pathname.startsWith('/academic/internal-marks/report') },
+            { href: '/academic/course-grades', label: 'Course Grades', active: pathname.startsWith('/academic/course-grades') },
+          ]
+        },
+        {
+          href: '/academic/leaves',
+          label: 'Faculty Leaves',
+          active: pathname.startsWith('/academic/leaves') ||
+            pathname.startsWith('/academic/leave-calendar'),
+          icon: CalendarX2,
+          submenus: [
+            { href: '/academic/leaves', label: 'Leaves', active: pathname.startsWith('/academic/leaves') && !pathname.startsWith('/academic/leaves/settings') },
+            { href: '/academic/leave-calendar', label: 'Leave Calendar', active: pathname.startsWith('/academic/leave-calendar') },
+            { href: '/academic/leaves/settings', label: 'Leave Settings', active: pathname === '/academic/leaves/settings' },
+            { href: '/academic/leaves/settings/types', label: 'Leave Types', active: pathname.startsWith('/academic/leaves/settings/types') },
+            { href: '/academic/leaves/settings/workflows', label: 'Leave Workflows', active: pathname.startsWith('/academic/leaves/settings/workflows') },
+          ]
+        },
+        {
+          // Learner leave / on-duty administration. Team Apply = facilitator bulk
+          // On-Duty (learners.leave_onduty.apply_bulk); Settings = global leave
+          // types + approval flows. The learner's own Apply / My Applications
+          // stay in the Learners group.
+          href: '/academic/leave-onduty/approvals',
+          label: 'Leave/OnDuty',
+          active: pathname.startsWith('/academic/leave-onduty'),
+          icon: UserCheck,
+          submenus: [
+            { href: '/academic/leave-onduty/approvals', label: 'Approvals', active: pathname.startsWith('/academic/leave-onduty/approvals') },
+            { href: '/academic/leave-onduty/reports', label: 'Reports', active: pathname.startsWith('/academic/leave-onduty/reports') },
+            { href: '/academic/leave-onduty/apply-bulk', label: 'Team Apply', active: pathname.startsWith('/academic/leave-onduty/apply-bulk') },
+            { href: '/academic/leave-onduty/settings', label: 'Settings', active: pathname.startsWith('/academic/leave-onduty/settings') },
+          ]
+        },
+        {
+          href: '/academic/privileges',
+          label: 'Privileges',
+          active: pathname.startsWith('/academic/privileges'),
+          icon: Shield,
+          submenus: [
+            { href: '/academic/privileges', label: 'Overview', active: pathname === '/academic/privileges' },
+            { href: '/academic/privileges/my', label: 'My Privileges', active: pathname === '/academic/privileges/my' },
+            { href: '/academic/privileges/my/report', label: 'My Report', active: pathname.startsWith('/academic/privileges/my/report') },
+            { href: '/academic/privileges/templates', label: 'Templates', active: pathname.startsWith('/academic/privileges/templates') },
+          ]
+        },
+        {
+          href: '/academic/obe',
+          label: 'OBE',
+          active: pathname.startsWith('/academic/obe'),
+          icon: Target,
+          submenus: [
+            { href: '/academic/obe', label: 'Dashboard', active: pathname === '/academic/obe' },
+            { href: '/academic/obe/regulation-config', label: 'Regulation Config', active: pathname.startsWith('/academic/obe/regulation-config') },
+            { href: '/academic/obe/po-pso', label: 'Program Outcomes', active: pathname.startsWith('/academic/obe/po-pso') },
+            { href: '/academic/obe/co-po-mapping', label: 'CO-PO Mapping', active: pathname.startsWith('/academic/obe/co-po-mapping') },
+          ]
+        },
+        {
+          // Post-class feedback lanes + curriculum review, grouped 2027-04.
+          // Each lane keeps its own gate (see MENU_PERMISSIONS); the hub uses
+          // academic.years.view.
+          href: '/academic/session-feedback',
+          label: 'Session Feedback',
+          active: pathname.startsWith('/academic/session-feedback') ||
+            pathname.startsWith('/academic/curriculum-review'),
+          icon: MessageSquare,
+          submenus: [
+            { href: '/academic/session-feedback', label: 'Hub', active: pathname === '/academic/session-feedback' },
+            { href: '/academic/session-feedback/faculty', label: 'Faculty', active: pathname.startsWith('/academic/session-feedback/faculty') },
+            { href: '/academic/session-feedback/principal', label: 'Session Escalations', active: pathname.startsWith('/academic/session-feedback/principal') },
+            { href: '/academic/session-feedback/note-review', label: 'Learner Note Review', active: pathname.startsWith('/academic/session-feedback/note-review') },
+            { href: '/academic/session-feedback/admin', label: 'All-College Feedback', active: pathname.startsWith('/academic/session-feedback/admin') },
+            { href: '/academic/curriculum-review', label: 'Lesson Spine Review', active: pathname.startsWith('/academic/curriculum-review') },
+          ]
         },
         {
           // Fresher Induction — guided onboarding program per college. Lives
@@ -2495,59 +2741,85 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/rcltp' || pathname.startsWith('/rcltp/'),
           icon: BookOpen,
           submenus: []
+        }
+      ]
+    },
+    {
+      // Foundation & competitive-exam programme, split out of the Academic group
+      // 2027-04: it is its own module, and Academic had reached the sidebar row
+      // cap. Operator row first (children-decide-the-parent), then the learner
+      // doors, whose audience is disjoint from the operator keys.
+      groupLabel: 'Foundation',
+      menus: [
+        {
+          // Foundation & Competitive-Exam Programme — school-grade foundation +
+          // govt/competitive-exam coaching. Gated by
+          // '/foundation' -> 'foundation.dashboard.view' (MENU_PERMISSIONS).
+          href: '/foundation',
+          label: 'Foundation Programme',
+          active: pathname === '/foundation' || pathname.startsWith('/foundation/'),
+          icon: Target,
+          // Hand-authored children REPLACE the route manifest's depth-2
+          // auto-discovery for this row (components/Navbar/menu.tsx), so the
+          // Console is listed explicitly to keep it. The two OneMark operator
+          // screens sit at depth 3 and would never be auto-discovered. They are
+          // children here, not top-level rows, because the Academic group is
+          // one row below the sidebar validator's hard cap (15). Each child is
+          // gated by its own MENU_PERMISSIONS key.
+          //
+          // 'Overview' is the hub itself, listed as its own first child (same
+          // idiom as '/procurement'). Two things depend on it: (1) a row with
+          // explicit children is filtered by its CHILDREN only —
+          // GetRoleBasedPages never reads MENU_PERMISSIONS['/foundation'] once
+          // submenus is non-empty — so without this child a holder of ONLY
+          // foundation.dashboard.view lost the row that main rendered for them;
+          // (2) an explicit-children row renders as an accordion whose parent
+          // click is a pure toggle (menu.tsx), so this child is the only
+          // sidebar door to /foundation for ANY role.
+          submenus: [
+            { href: '/foundation', label: 'Overview', active: pathname === '/foundation' },
+            { href: '/foundation/console', label: 'Console', active: pathname.startsWith('/foundation/console') },
+            { href: '/foundation/onemark/paper', label: 'OneMark: Build a Paper', active: pathname.startsWith('/foundation/onemark/paper') },
+            { href: '/foundation/onemark/review', label: 'OneMark: Review Drafts', active: pathname.startsWith('/foundation/onemark/review') },
+            // Wave 3 (Lane N). Both nest here rather than becoming top-level
+            // rows: the Academic group is at 14 and the validator's hard cap
+            // is 15. Each is gated by its own MENU_PERMISSIONS key, so the
+            // children-decide-the-parent rule keeps the accordion off anyone
+            // who holds neither.
+            { href: '/foundation/onemark/results', label: 'OneMark: Results', active: pathname.startsWith('/foundation/onemark/results') },
+            { href: '/foundation/onemark/units', label: 'OneMark: Unit List', active: pathname.startsWith('/foundation/onemark/units') },
+          ]
         },
         {
-          // Post-class feedback — faculty's own anonymized session-understanding signal.
-          href: '/academic/session-feedback/faculty',
-          label: 'Session Feedback (Faculty)',
-          active: pathname.startsWith('/academic/session-feedback/faculty'),
-          icon: MessageSquare,
+          // Foundation learner doors (moved from the Academic group 2027-04 so
+          // that group stays module-wise and under the row cap). Audience is
+          // disjoint from the operator '/foundation' row: whoever sits the
+          // programme holds foundation.practice.take and none of the operator
+          // keys. Exact match so running a session for others does not also
+          // light up "practise on my own".
+          href: '/foundation/practice',
+          label: 'Foundation Practice',
+          active: pathname === '/foundation/practice',
+          icon: Target,
           submenus: []
         },
         {
-          // Curriculum AI — review + approve the AI-drafted lesson spine (Phase 2).
-          // Drafts are never student-visible until a faculty approves them here.
-          href: '/academic/curriculum-review',
-          label: 'Lesson Spine Review',
-          active: pathname.startsWith('/academic/curriculum-review'),
-          icon: BookOpen,
+          // Running the programme FOR a group (a cohort's resource person).
+          href: '/foundation/practice/facilitate',
+          label: 'Run a Practice Session',
+          active: pathname.startsWith('/foundation/practice/facilitate'),
+          icon: Users,
           submenus: []
         },
         {
-          // Post-class feedback — principal escalation dashboard (L4). Sessions
-          // where learners reported low understanding, for follow-up with faculty.
-          href: '/academic/session-feedback/principal',
-          label: 'Session Escalations',
-          active: pathname.startsWith('/academic/session-feedback/principal'),
-          icon: Activity,
-          submenus: []
-        },
-        {
-          // SCF note-safety loop Phase 0 (2026-07-26): the named reviewer's
-          // queue for AI-drafted learner support notes. Visible only to
-          // holders of scf.notes.review (via MENU_PERMISSIONS) — today the
-          // scf_note_reviewer role — plus the super-admin bypass. The page's
-          // RPCs re-enforce the same permission server-side.
-          href: '/academic/session-feedback/note-review',
-          label: 'Learner Note Review',
-          active: pathname.startsWith('/academic/session-feedback/note-review'),
+          // OneMark — Class-12 one-mark MCQ sitting. Same audience and key as
+          // Foundation Practice; a flat row, never a child of the operator parent.
+          href: '/foundation/onemark/practice',
+          label: 'OneMark Practice',
+          active: pathname.startsWith('/foundation/onemark/practice'),
           icon: ClipboardCheck,
           submenus: []
         },
-        {
-          // Post-class feedback — SUPER-ADMIN all-college dashboard (L5). The
-          // cross-college rollup (submission + understanding per college / faculty
-          // / day). Cross-college reach is super-admin-only, so the sidebar entry
-          // is gated to super admin via requiresSuperAdmin (super_admin sees ALL
-          // menus via the bypass earlier in GetRoleBasedPages). The page's RPCs
-          // still authorize institution leadership if they navigate directly.
-          href: '/academic/session-feedback/admin',
-          label: 'All-College Feedback',
-          active: pathname.startsWith('/academic/session-feedback/admin'),
-          icon: BarChart,
-          requiresSuperAdmin: true,
-          submenus: []
-        } as MenuItem & { requiresSuperAdmin: boolean }
       ]
     },
     {
@@ -2579,26 +2851,289 @@ export function GetPages(pathname: string): MenuGroup[] {
     {
       groupLabel: 'Campus Living',
       menus: [
-        // Single sidebar entry — all Campus Living navigation lives in the
-        // module's in-page tab bar (CLNav, see app/(routes)/campus-living/
-        // _components/cl-nav.tsx). This mirrors the Learners Council pattern
-        // where the sidebar shows only "Learners Council" as one entry.
+        // One row per sub-module, each with hand-authored submenus (2026-09-22).
         //
-        // Why: deep sidebar nesting doesn't scale across 8+ modules. The
-        // in-page tab pattern keeps the sidebar flat (1 entry per module)
-        // and puts workflow-specific navigation adjacent to the content.
+        // Before this the section had a single `/campus-living` row and
+        // Navbar/menu.tsx auto-discovered its depth-2 pages from the route
+        // manifest — 25 links in one alphabetical accordion (Activity,
+        // Allocations, Analytics, Attendance, Blocks, Calendar, …) with no
+        // grouping, so nothing could be found by topic. The in-page tab bar
+        // (app/(routes)/campus-living/nav-config.ts) still renders the
+        // tier-2 / tier-3 chips; this is the sidebar half of the same map.
+        // Same shape as HR Management below: rows with explicit submenus
+        // self-anchor on their own href, so each row is its own accordion.
+        //
+        // Gating: a row shows when ANY of its submenus is allowed, and every
+        // submenu href is mapped in MENU_PERMISSIONS (build gate). A role that
+        // holds only a sub-module key — mess_caterer, mess_operations — now
+        // sees that one row; before, without campus_living.dashboard.view, it
+        // saw no Campus Living entry at all.
+        //
+        // The `/campus-living` row MUST stay first and keep that exact href:
+        // GetRoleBasedPages rewrites it to the student's "My Hostel" link.
         {
           href: '/campus-living',
-          label: 'Campus Living',
-          active: pathname === '/campus-living' || pathname.startsWith('/campus-living/'),
+          label: 'Overview',
+          active: pathname === '/campus-living' || pathname === '/campus-living/dashboard',
           icon: Hotel,
-          submenus: []
-        }
-
-        // ↓ Previous nested structure removed. All routes remain reachable
-        // via the CLNav tab bar (Overview, Dashboard, Residents, Attendance,
-        // Services, Facility, Community, Insights, Settings) and per-section
-        // SectionSubNav components. URLs are UNCHANGED — no bookmarks break.
+          submenus: [
+            { href: '/campus-living', label: 'Overview', active: pathname === '/campus-living' },
+            { href: '/campus-living/dashboard', label: 'Dashboard', active: pathname === '/campus-living/dashboard' },
+          ]
+        },
+        {
+          href: '/campus-living/residents',
+          label: 'Residents & Rooms',
+          active:
+            pathname.startsWith('/campus-living/residents')
+            || pathname.startsWith('/campus-living/blocks')
+            || pathname.startsWith('/campus-living/wardens'),
+          icon: UsersRound,
+          submenus: [
+            { href: '/campus-living/residents', label: 'Residents', active: pathname.startsWith('/campus-living/residents') },
+            { href: '/campus-living/blocks', label: 'Blocks', active: pathname.startsWith('/campus-living/blocks') },
+            { href: '/campus-living/wardens', label: 'Wardens', active: pathname.startsWith('/campus-living/wardens') },
+          ]
+        },
+        {
+          // Approval-queue pages for non-hostel approvers (principal, CAO, …).
+          // Kept out of "Residents & Rooms" so a role holding only
+          // campus_living.vacate_requests.view sees just this row. Row shows
+          // when any submenu is allowed (see gating note above).
+          href: '/campus-living/vacate-requests',
+          label: 'Requests',
+          active: pathname.startsWith('/campus-living/vacate-requests'),
+          icon: ClipboardList,
+          submenus: [
+            { href: '/campus-living/vacate-requests', label: 'Vacate Requests', active: pathname.startsWith('/campus-living/vacate-requests') },
+          ]
+        },
+        {
+          href: '/campus-living/allocations',
+          label: 'Allocations',
+          active: pathname.startsWith('/campus-living/allocations'),
+          icon: Bed,
+          submenus: [
+            { href: '/campus-living/allocations', label: 'Allocations', active: pathname === '/campus-living/allocations' },
+            { href: '/campus-living/allocations/pending', label: 'Pending Approvals', active: pathname.startsWith('/campus-living/allocations/pending') },
+            { href: '/campus-living/allocations/waitlist', label: 'Waitlist', active: pathname.startsWith('/campus-living/allocations/waitlist') },
+            { href: '/campus-living/allocations/auto', label: 'Auto-Allocate', active: pathname.startsWith('/campus-living/allocations/auto') },
+            { href: '/campus-living/allocations/batches', label: 'Allocation Batches', active: pathname.startsWith('/campus-living/allocations/batches') },
+            { href: '/campus-living/allocations/roommate-matching', label: 'Roommate Matching', active: pathname.startsWith('/campus-living/allocations/roommate-matching') },
+            { href: '/campus-living/allocations/onboarding', label: 'Onboarding', active: pathname.startsWith('/campus-living/allocations/onboarding') },
+            // Own key (campus_living.allocations.audit) held by no role — the
+            // link is super-admin-only by design, same as the route guard.
+            { href: '/campus-living/allocations/audit', label: 'Allocation Audit', active: pathname.startsWith('/campus-living/allocations/audit') },
+          ]
+        },
+        {
+          href: '/campus-living/attendance',
+          label: 'Attendance & Leave',
+          active: pathname.startsWith('/campus-living/attendance'),
+          icon: UserCheck,
+          submenus: [
+            { href: '/campus-living/attendance', label: 'Attendance', active: pathname === '/campus-living/attendance' },
+            { href: '/campus-living/attendance/mark', label: 'Mark Attendance', active: pathname.startsWith('/campus-living/attendance/mark') },
+            { href: '/campus-living/attendance/absentees', label: 'Absentees', active: pathname.startsWith('/campus-living/attendance/absentees') },
+            { href: '/campus-living/attendance/history', label: 'History', active: pathname.startsWith('/campus-living/attendance/history') },
+            // 'Leave' retired (2027-04) — hostel leave requests now go through
+            // the global /learners/leave-onduty/my-applications flow.
+          ]
+        },
+        {
+          href: '/campus-living/gate-passes',
+          label: 'Gate & Visitors',
+          active:
+            pathname.startsWith('/campus-living/gate-passes')
+            || pathname.startsWith('/campus-living/visitors'),
+          icon: DoorOpen,
+          submenus: [
+            { href: '/campus-living/gate-passes', label: 'Gate Passes', active: pathname === '/campus-living/gate-passes' },
+            { href: '/campus-living/gate-passes/scan', label: 'Gate Scan', active: pathname.startsWith('/campus-living/gate-passes/scan') },
+            { href: '/campus-living/visitors', label: 'Visitors', active: pathname === '/campus-living/visitors' },
+            { href: '/campus-living/visitors/known', label: 'Known Visitors', active: pathname.startsWith('/campus-living/visitors/known') },
+            { href: '/campus-living/visitors/register', label: 'Register Visitor', active: pathname.startsWith('/campus-living/visitors/register') },
+          ]
+        },
+        {
+          // Menu Editor (/mess/menu-editor/[tier]) is deliberately absent: a
+          // dynamic route has no literal href to map; it stays an in-page chip.
+          href: '/campus-living/mess',
+          label: 'Mess',
+          active: pathname.startsWith('/campus-living/mess'),
+          icon: UtensilsCrossed,
+          submenus: [
+            { href: '/campus-living/mess', label: 'Mess Home', active: pathname === '/campus-living/mess' },
+            { href: '/campus-living/mess/menu', label: 'Menu', active: pathname.startsWith('/campus-living/mess/menu') && !pathname.startsWith('/campus-living/mess/menu-') },
+            { href: '/campus-living/mess/meals', label: 'Meals', active: pathname.startsWith('/campus-living/mess/meals') },
+            { href: '/campus-living/mess/bookings', label: 'Bookings', active: pathname.startsWith('/campus-living/mess/bookings') },
+            { href: '/campus-living/mess/billing', label: 'Billing', active: pathname.startsWith('/campus-living/mess/billing') },
+            { href: '/campus-living/mess/feedback', label: 'Feedback', active: pathname.startsWith('/campus-living/mess/feedback') },
+            { href: '/campus-living/mess/waste', label: 'Waste', active: pathname.startsWith('/campus-living/mess/waste') },
+            { href: '/campus-living/mess/categories', label: 'Mess Categories', active: pathname.startsWith('/campus-living/mess/categories') },
+            { href: '/campus-living/mess/caterers', label: 'Caterers', active: pathname.startsWith('/campus-living/mess/caterers') },
+            { href: '/campus-living/mess/caterer-management', label: 'Caterer Management', active: pathname.startsWith('/campus-living/mess/caterer-management') },
+            { href: '/campus-living/mess/library', label: 'Item Library', active: pathname.startsWith('/campus-living/mess/library') },
+            { href: '/campus-living/mess/menu-loop', label: 'Menu Loop', active: pathname.startsWith('/campus-living/mess/menu-loop') },
+            { href: '/campus-living/mess/insights', label: 'Rating Insights', active: pathname.startsWith('/campus-living/mess/insights') },
+            { href: '/campus-living/mess/policies', label: 'Mess Policies', active: pathname.startsWith('/campus-living/mess/policies') },
+          ]
+        },
+        {
+          href: '/campus-living/laundry',
+          label: 'Laundry & Housekeeping',
+          active:
+            pathname.startsWith('/campus-living/laundry')
+            || pathname.startsWith('/campus-living/housekeeping'),
+          icon: WashingMachine,
+          submenus: [
+            { href: '/campus-living/laundry', label: 'Laundry', active: pathname === '/campus-living/laundry' },
+            { href: '/campus-living/laundry/orders', label: 'Laundry Orders', active: pathname.startsWith('/campus-living/laundry/orders') },
+            { href: '/campus-living/laundry/schedule', label: 'Laundry Schedule', active: pathname.startsWith('/campus-living/laundry/schedule') },
+            { href: '/campus-living/laundry/settings', label: 'Laundry Settings', active: pathname.startsWith('/campus-living/laundry/settings') },
+            { href: '/campus-living/housekeeping', label: 'Housekeeping', active: pathname === '/campus-living/housekeeping' },
+            { href: '/campus-living/housekeeping/availability', label: 'Cleaning Availability', active: pathname.startsWith('/campus-living/housekeeping/availability') },
+            { href: '/campus-living/housekeeping/cleaners', label: 'Cleaners', active: pathname.startsWith('/campus-living/housekeeping/cleaners') },
+            { href: '/campus-living/housekeeping/types', label: 'Cleaning Types', active: pathname.startsWith('/campus-living/housekeeping/types') },
+            { href: '/campus-living/housekeeping/holds', label: 'Feedback Holds', active: pathname.startsWith('/campus-living/housekeeping/holds') },
+          ]
+        },
+        {
+          // Maintenance + Safety & Wellness share one row (mirrors the
+          // "Facility" tab group in nav-config.ts) to keep the section under
+          // the sidebar validator's 15-row cap after "Requests" was added.
+          href: '/campus-living/maintenance',
+          label: 'Facility',
+          active:
+            pathname.startsWith('/campus-living/maintenance')
+            || pathname.startsWith('/campus-living/safety')
+            || pathname.startsWith('/campus-living/wellness')
+            || pathname.startsWith('/campus-living/health'),
+          icon: Wrench,
+          submenus: [
+            { href: '/campus-living/maintenance', label: 'Maintenance', active: pathname === '/campus-living/maintenance' },
+            { href: '/campus-living/maintenance/preventive', label: 'Preventive', active: pathname === '/campus-living/maintenance/preventive' },
+            { href: '/campus-living/maintenance/preventive/tasks', label: 'Preventive Tasks', active: pathname.startsWith('/campus-living/maintenance/preventive/tasks') },
+            { href: '/campus-living/maintenance/contracts', label: 'Contracts', active: pathname.startsWith('/campus-living/maintenance/contracts') },
+            { href: '/campus-living/safety', label: 'Safety', active: pathname === '/campus-living/safety' },
+            { href: '/campus-living/safety/incidents', label: 'Incidents', active: pathname.startsWith('/campus-living/safety/incidents') },
+            { href: '/campus-living/safety/inspections', label: 'Inspections', active: pathname.startsWith('/campus-living/safety/inspections') },
+            { href: '/campus-living/safety/access-log', label: 'Access Log', active: pathname.startsWith('/campus-living/safety/access-log') },
+            { href: '/campus-living/safety/anti-ragging', label: 'Anti-Ragging', active: pathname.startsWith('/campus-living/safety/anti-ragging') },
+            { href: '/campus-living/safety/curfew-exceptions', label: 'Curfew Exceptions', active: pathname.startsWith('/campus-living/safety/curfew-exceptions') },
+            { href: '/campus-living/safety/emergency-contacts', label: 'Emergency Contacts', active: pathname.startsWith('/campus-living/safety/emergency-contacts') },
+            { href: '/campus-living/wellness', label: 'Wellness', active: pathname === '/campus-living/wellness' },
+            { href: '/campus-living/wellness/surveys', label: 'Wellness Surveys', active: pathname.startsWith('/campus-living/wellness/surveys') },
+            { href: '/campus-living/health', label: 'Health', active: pathname.startsWith('/campus-living/health') },
+          ]
+        },
+        {
+          href: '/campus-living/community',
+          label: 'Community',
+          active:
+            pathname.startsWith('/campus-living/community')
+            || pathname.startsWith('/campus-living/activity')
+            || pathname.startsWith('/campus-living/calendar'),
+          icon: Users,
+          submenus: [
+            { href: '/campus-living/community', label: 'Community Home', active: pathname === '/campus-living/community' },
+            { href: '/campus-living/activity', label: 'Activity Feed', active: pathname.startsWith('/campus-living/activity') },
+            { href: '/campus-living/calendar', label: 'Calendar', active: pathname.startsWith('/campus-living/calendar') },
+            { href: '/campus-living/community/settings', label: 'Community Settings', active: pathname.startsWith('/campus-living/community/settings') },
+          ]
+        },
+        {
+          href: '/campus-living/analytics',
+          label: 'Analytics & Reports',
+          active:
+            pathname.startsWith('/campus-living/analytics')
+            || pathname.startsWith('/campus-living/reports')
+            || pathname.startsWith('/campus-living/settle-preview'),
+          icon: BarChart3,
+          submenus: [
+            { href: '/campus-living/analytics', label: 'Analytics Home', active: pathname === '/campus-living/analytics' },
+            { href: '/campus-living/analytics/occupancy', label: 'Occupancy', active: pathname.startsWith('/campus-living/analytics/occupancy') },
+            { href: '/campus-living/analytics/attendance', label: 'Attendance', active: pathname.startsWith('/campus-living/analytics/attendance') },
+            { href: '/campus-living/analytics/mess', label: 'Mess Analytics', active: pathname.startsWith('/campus-living/analytics/mess') },
+            { href: '/campus-living/analytics/maintenance', label: 'Maintenance Analytics', active: pathname.startsWith('/campus-living/analytics/maintenance') },
+            { href: '/campus-living/analytics/safety', label: 'Safety Analytics', active: pathname.startsWith('/campus-living/analytics/safety') },
+            { href: '/campus-living/analytics/fees', label: 'Fees Analytics', active: pathname.startsWith('/campus-living/analytics/fees') },
+            { href: '/campus-living/analytics/bed-economics', label: 'Bed Economics', active: pathname.startsWith('/campus-living/analytics/bed-economics') },
+            { href: '/campus-living/analytics/cross-domain', label: 'Cross-Domain', active: pathname.startsWith('/campus-living/analytics/cross-domain') },
+            { href: '/campus-living/analytics/alerts', label: 'Alerts', active: pathname.startsWith('/campus-living/analytics/alerts') },
+            { href: '/campus-living/analytics/alert-rules', label: 'Alert Rules', active: pathname.startsWith('/campus-living/analytics/alert-rules') },
+            { href: '/campus-living/reports', label: 'Reports Home', active: pathname === '/campus-living/reports' },
+            { href: '/campus-living/reports/occupancy', label: 'Occupancy Report', active: pathname.startsWith('/campus-living/reports/occupancy') },
+            { href: '/campus-living/reports/attendance-register', label: 'Attendance Register', active: pathname.startsWith('/campus-living/reports/attendance-register') },
+            { href: '/campus-living/reports/fee-collection', label: 'Fee Collection', active: pathname.startsWith('/campus-living/reports/fee-collection') },
+            { href: '/campus-living/reports/visitor-register', label: 'Visitor Register', active: pathname.startsWith('/campus-living/reports/visitor-register') },
+            { href: '/campus-living/reports/safety-audit', label: 'Safety Audit', active: pathname.startsWith('/campus-living/reports/safety-audit') },
+            { href: '/campus-living/reports/anti-ragging-compliance', label: 'Anti-Ragging Compliance', active: pathname.startsWith('/campus-living/reports/anti-ragging-compliance') },
+            { href: '/campus-living/settle-preview', label: 'Bill Practice Run', active: pathname.startsWith('/campus-living/settle-preview') },
+          ]
+        },
+        {
+          // Hostel-learner bill coverage + fee-band audit (2026-09-22). Gated on
+          // campus_living.billing_audit.view — wardens do not hold it.
+          href: '/campus-living/billing-audit',
+          label: 'Billing Audit',
+          active: pathname.startsWith('/campus-living/billing-audit'),
+          icon: FileSearch,
+          submenus: [
+            { href: '/campus-living/billing-audit', label: 'Analytics', active: pathname === '/campus-living/billing-audit' },
+            { href: '/campus-living/billing-audit/learners', label: 'Learner Audit', active: pathname.startsWith('/campus-living/billing-audit/learners') },
+          ]
+        },
+        {
+          href: '/campus-living/settings',
+          label: 'Settings',
+          active: pathname.startsWith('/campus-living/settings'),
+          icon: Settings,
+          submenus: [
+            { href: '/campus-living/settings/general', label: 'General', active: pathname.startsWith('/campus-living/settings/general') },
+            { href: '/campus-living/settings/categories', label: 'Hostel Room Categories', active: pathname.startsWith('/campus-living/settings/categories') },
+            { href: '/campus-living/settings/program-eligibility', label: 'Program Eligibility', active: pathname.startsWith('/campus-living/settings/program-eligibility') },
+            { href: '/campus-living/settings/allocations', label: 'Allocations & Eligibility', active: pathname.startsWith('/campus-living/settings/allocations') },
+            { href: '/campus-living/settings/amenities', label: 'Amenities', active: pathname.startsWith('/campus-living/settings/amenities') },
+            { href: '/campus-living/settings/billable-amenities', label: 'Billable Amenities', active: pathname.startsWith('/campus-living/settings/billable-amenities') },
+            { href: '/campus-living/settings/ac-amenity-audit', label: 'AC / Category Audit', active: pathname.startsWith('/campus-living/settings/ac-amenity-audit') },
+            { href: '/campus-living/settings/hostel-years', label: 'Hostel Years', active: pathname.startsWith('/campus-living/settings/hostel-years') },
+            { href: '/campus-living/settings/packages', label: 'Admission Packages', active: pathname.startsWith('/campus-living/settings/packages') },
+            { href: '/campus-living/settings/block-economics', label: 'Block Economics', active: pathname.startsWith('/campus-living/settings/block-economics') },
+            { href: '/campus-living/settings/choose-your-menu', label: 'Choose Your Menu', active: pathname.startsWith('/campus-living/settings/choose-your-menu') },
+            { href: '/campus-living/settings/mess-services', label: 'Mess & Daily Services', active: pathname.startsWith('/campus-living/settings/mess-services') },
+            { href: '/campus-living/settings/fee-config', label: 'Fee Config', active: pathname.startsWith('/campus-living/settings/fee-config') },
+            { href: '/campus-living/settings/fees-economics', label: 'Fees & Economics', active: pathname.startsWith('/campus-living/settings/fees-economics') },
+            // 'Leave Types' retired (2027-04) — see the global learner Leave
+            // Settings page under Learners.
+            { href: '/campus-living/settings/approval-chains', label: 'Approval Chains', active: pathname.startsWith('/campus-living/settings/approval-chains') },
+            { href: '/campus-living/settings/policies-workflows', label: 'Policies & Workflows', active: pathname.startsWith('/campus-living/settings/policies-workflows') },
+            { href: '/campus-living/settings/maintenance-sla', label: 'Maintenance SLA', active: pathname.startsWith('/campus-living/settings/maintenance-sla') },
+            { href: '/campus-living/settings/notification-rules', label: 'Notification Rules', active: pathname.startsWith('/campus-living/settings/notification-rules') },
+            { href: '/campus-living/settings/curfew', label: 'Curfew Policies', active: pathname.startsWith('/campus-living/settings/curfew') },
+            { href: '/campus-living/settings/vacate-checklist', label: 'Vacate Checklist', active: pathname.startsWith('/campus-living/settings/vacate-checklist') },
+            { href: '/campus-living/settings/damage-types', label: 'Damage Types', active: pathname.startsWith('/campus-living/settings/damage-types') },
+          ]
+        },
+        {
+          // Every page under /campus-living/premium is wrapped in SuperAdminOnly,
+          // so the row is flagged the same way (super_admin sees ALL menus; the
+          // filter drops the row for everyone else). Its hrefs map to the
+          // `super_admin` sentinel in MENU_PERMISSIONS. /campus-living/premium
+          // itself has no page.tsx, hence the row links to the dashboard.
+          href: '/campus-living/premium/dashboard',
+          label: 'Premium Rooms',
+          active: pathname.startsWith('/campus-living/premium'),
+          icon: Sparkles,
+          requiresSuperAdmin: true,
+          submenus: [
+            { href: '/campus-living/premium/dashboard', label: 'Premium Dashboard', active: pathname.startsWith('/campus-living/premium/dashboard') },
+            { href: '/campus-living/premium/tier-policy', label: 'Tier Policy', active: pathname.startsWith('/campus-living/premium/tier-policy') },
+            { href: '/campus-living/premium/override', label: 'Override', active: pathname.startsWith('/campus-living/premium/override') },
+            { href: '/campus-living/premium/audit-log', label: 'Audit Log', active: pathname.startsWith('/campus-living/premium/audit-log') },
+            { href: '/campus-living/premium/allocation-rules', label: 'Allocation Rules', active: pathname.startsWith('/campus-living/premium/allocation-rules') },
+          ]
+        } as MenuItem & { requiresSuperAdmin: boolean },
       ]
     },
     {
@@ -2742,6 +3277,18 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/consultants/payouts',
               label: 'Payouts',
               active: pathname === '/admission/consultants/payouts'
+            },
+            {
+              // Added 2026-09-28 — rate-card commission payments raised from the
+              // consultant's Commission Structure tab and their approval flow.
+              href: '/admission/consultants/commission-payments',
+              label: 'Commission Payments',
+              active: pathname.startsWith('/admission/consultants/commission-payments')
+            },
+            {
+              href: '/admission/consultants/commission-approvals',
+              label: 'Commission Approvals',
+              active: pathname === '/admission/consultants/commission-approvals'
             },
             {
               // Added 2026-08-17 — sits next to Payouts because it answers the
@@ -3032,11 +3579,11 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/leave/my-applications', label: 'My Leave Applications', active: pathname === '/hr/leave/my-applications' },
             { href: '/hr/leave/balance', label: 'My Leave Balance', active: pathname === '/hr/leave/balance' },
             { href: '/hr/leave/encashment', label: 'Leave Encashment', active: pathname === '/hr/leave/encashment' },
+            // Regularize Attendance is deliberately NOT listed here (2026-09-21):
+            // it is reached from the My Attendance page's own chips
+            // (app/(routes)/hr/nav-config.ts), which is also what keeps it in
+            // the reachability manifest.
             { href: '/hr/attendance', label: 'My Attendance', active: pathname === '/hr/attendance' },
-            { href: '/hr/attendance/regularize', label: 'Regularize Attendance', active: pathname.startsWith('/hr/attendance/regularize') },
-            // HR-ops, not self-service: gated on hr.attendance.period.view so it
-            // is invisible to the 22 roles that hold only view_self.
-            { href: '/hr/attendance/close', label: 'Attendance · Month Close', active: pathname.startsWith('/hr/attendance/close') },
             { href: '/hr/performance-reviews', label: 'My Appraisal', active: pathname === '/hr/performance-reviews' },
             { href: '/hr/training', label: 'My Training', active: pathname.startsWith('/hr/training') },
             { href: '/hr/fdp', label: 'My FDP', active: pathname.startsWith('/hr/fdp') },
@@ -3046,29 +3593,184 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/memos/my', label: 'My Memos', active: pathname.startsWith('/hr/memos/my') },
           ]
         },
+        // ── HR Management, grouped BY MODULE (2026-09-21) ────────────────
+        // Until now the group had one "HR" row (leave inbox + payroll mixed)
+        // and one "Admin" row listing 26 pages alphabetically — the salary
+        // register sat under HR while payroll setup sat under Admin, and leave
+        // types were two rows away from the leave inbox. Only Recruitment read
+        // as a module. Every row below is now one module, in the order the
+        // work happens: people → hiring → time off → hours → pay → growth →
+        // comms → setup.
+        //
+        // THE RULE: a page joins the row of its MODULE, never the row of its
+        // URL prefix. /hr/admin/leave-types belongs to Leave; /hr/admin/payroll
+        // belongs to Payroll. No href was added or removed in the regroup and
+        // every one keeps its MENU_PERMISSIONS key, so what a role can see is
+        // unchanged — only where it is listed.
+        //
+        // Row anchors are landings or 307 routes (/hr/leave → requests,
+        // /hr/payroll → organisation), so clicking a row title always lands
+        // somewhere. Each row's `active` is the union of ITS OWN children's
+        // tests, so two accordions never highlight at once; HR Setup keeps the
+        // chip-only pages under /hr (employees, intelligence) that the old HR
+        // row used to claim.
+        //
+        // components/Navbar/menu.tsx anchors a row with hand-authored submenus
+        // on its full href, which is what lets ten rows share the /hr slug.
+        // lib/sidebar-validator.ts warns above 8 rows per group (Academic and
+        // CDC sit at 14); ten was agreed as the right trade for findability.
         {
-          href: '/hr',
-          label: 'HR',
-          // Recruitment and Admin live under /hr/ but have their own menu rows.
-          // /hr/employees is NOT excluded from `active` — it has no sidebar
-          // submenu of its own (product decision 2026-07-21: the employee list
-          // belongs to the Employee row below, which owns the record). It
-          // surfaces as an AutoTabNav chip under /hr and highlights this row.
-          active: pathname === '/hr' || (pathname.startsWith('/hr/') && !pathname.startsWith('/hr/recruitment') && !pathname.startsWith('/hr/admin')),
-          icon: Building,
+          // Employee — people-records row, merged in from the retired
+          // 'Employee Management' group (2026-07-20).
+          //
+          // This is the ONLY employee-list entry in the sidebar (2026-07-21).
+          // It stays on '/staff/list' — the WRITE surface, owning the record
+          // (create/edit/bulk upload/photos). The read-only '/hr/employees'
+          // lens deliberately has no sidebar entry of its own; it reads the
+          // same `staff` table and is reachable as an AutoTabNav chip under
+          // /hr. Repointing this href there would strand the only entry point
+          // for creating and editing staff records.
+          //
+          // Visibility note: GetRoleBasedPages shows this row only if SOME
+          // submenu is permitted. '/staff/list' gates on `staff.view`, held by
+          // 61 roles — so this row is effectively universal. Do not narrow it
+          // to an HR-tier key without checking that count first. The record
+          // setup pages beside it gate on hr.dashboard.view, so the 61 see one
+          // child and HR sees five.
+          //
+          // The parent href stays '/staff' (NOT '/staff/list') so the rest of
+          // the subtree also remains reachable as manifest-derived AutoTabNav
+          // chips. Since 2026-09-25 dashboard, category and class-incharges
+          // are listed here too, each on its own staff.* key (~10 roles), so
+          // the 61 staff.view holders still see only Employee List.
+          href: '/staff',
+          label: 'Employee',
+          active:
+            pathname === '/staff'
+            || pathname.startsWith('/staff/')
+            || pathname.startsWith('/hr/staff-photos')
+            || pathname.startsWith('/hr/admin/designation-mapping')
+            || pathname.startsWith('/hr/admin/required-documents')
+            || pathname.startsWith('/hr/admin/sanctioned-posts'),
+          icon: Users,
           submenus: [
-            // Apply / My Applications / Balance / Encashment moved to the Self
-            // Service row above (2026-07-21). What stays here is the shared and
-            // approver-facing half — duplicating the self-service entries in
-            // both rows would put the same label twice in one group, the exact
-            // confusion the Employee List rename fixed a day earlier.
-            { href: '/hr', label: 'HR Command Center', active: pathname === '/hr' },
-            { href: '/hr/policies', label: 'Policies', active: pathname.startsWith('/hr/policies') },
-            { href: '/hr/leave', label: 'Leave Overview', active: pathname === '/hr/leave' },
-            { href: '/hr/leave/approve', label: 'Leave · Approve Inbox', active: pathname === '/hr/leave/approve' },
-            { href: '/hr/leave/calendar', label: 'Leave · Calendar', active: pathname === '/hr/leave/calendar' },
+            { href: '/staff/dashboard', label: 'Employees Dashboard', active: pathname.startsWith('/staff/dashboard') },
+            { href: '/staff/list', label: 'Employee List', active: pathname === '/staff/list' },
+            { href: '/staff/category', label: 'Employees Categories', active: pathname.startsWith('/staff/category') },
+            { href: '/staff/class-incharges', label: 'Class Incharges', active: pathname.startsWith('/staff/class-incharges') },
+            // Approving a photograph is what makes it printable on an identity
+            // card, so it sits with the people records rather than with leave.
+            // Gated on hr.staff_photo.review in MENU_PERMISSIONS, so the 61
+            // roles holding staff.view do not all see it — only reviewers do.
+            { href: '/hr/staff-photos', label: 'Team Member Photographs', active: pathname.startsWith('/hr/staff-photos') },
+            { href: '/hr/admin/designation-mapping', label: 'Designation Mapping', active: pathname.startsWith('/hr/admin/designation-mapping') },
+            { href: '/hr/admin/required-documents', label: 'Required Documents', active: pathname.startsWith('/hr/admin/required-documents') },
+            { href: '/hr/admin/sanctioned-posts', label: 'Sanctioned Posts', active: pathname.startsWith('/hr/admin/sanctioned-posts') },
+          ]
+        },
+        {
+          // Lifecycle — what happens to a record between joining and leaving.
+          href: '/hr/admin/onboarding-checklists',
+          label: 'Lifecycle',
+          active:
+            pathname.startsWith('/hr/admin/onboarding-checklists')
+            || pathname.startsWith('/hr/admin/offboarding')
+            || pathname.startsWith('/hr/admin/terminations')
+            || pathname.startsWith('/hr/admin/disciplinary')
+            || pathname.startsWith('/hr/admin/promotions'),
+          icon: UserCog,
+          submenus: [
+            { href: '/hr/admin/onboarding-checklists', label: 'Onboarding Checklists', active: pathname.startsWith('/hr/admin/onboarding-checklists') },
+            { href: '/hr/admin/offboarding', label: 'Offboarding', active: pathname.startsWith('/hr/admin/offboarding') },
+            { href: '/hr/admin/terminations', label: 'Terminations', active: pathname.startsWith('/hr/admin/terminations') },
+            { href: '/hr/admin/disciplinary', label: 'Disciplinary', active: pathname.startsWith('/hr/admin/disciplinary') },
+            { href: '/hr/admin/promotions', label: 'Promotions', active: pathname.startsWith('/hr/admin/promotions') },
+          ]
+        },
+        {
+          // Recruitment — the hiring pipeline as one unit: need → posting →
+          // submit → approve → interview, with its own setup pages last.
+          href: '/hr/recruitment',
+          label: 'Recruitment',
+          active:
+            pathname.startsWith('/hr/recruitment')
+            || pathname.startsWith('/hr/admin/recruitment-need')
+            || pathname.startsWith('/hr/admin/recruitment-approval-flows')
+            || pathname.startsWith('/hr/admin/recruitment-maintenance'),
+          icon: UserSearch,
+          submenus: [
+            { href: '/hr/recruitment', label: 'Dashboard', active: pathname === '/hr/recruitment' },
+            { href: '/hr/recruitment/jobs', label: 'Job Postings', active: pathname.startsWith('/hr/recruitment/jobs') },
+            { href: '/hr/recruitment/submit', label: 'Apply for Jobs', active: pathname === '/hr/recruitment/submit' },
+            { href: '/hr/recruitment/my', label: 'My Submissions', active: pathname === '/hr/recruitment/my' },
+            { href: '/hr/recruitment/approvals', label: 'Approvals', active: pathname === '/hr/recruitment/approvals' },
+            { href: '/hr/recruitment/interviews', label: 'Interviews', active: pathname.startsWith('/hr/recruitment/interviews') },
+            { href: '/hr/recruitment/approvals?view=all', label: 'All Approvals', active: false },
+            { href: '/hr/admin/recruitment-need', label: 'Recruitment Need', active: pathname.startsWith('/hr/admin/recruitment-need') },
+            { href: '/hr/admin/recruitment-approval-flows', label: 'Recruitment Approval Flows', active: pathname.startsWith('/hr/admin/recruitment-approval-flows') },
+            { href: '/hr/admin/recruitment-maintenance', label: 'Recruitment Maintenance', active: pathname.startsWith('/hr/admin/recruitment-maintenance') },
+          ]
+        },
+        {
+          // Leave — the shared and approver-facing half plus its setup. The
+          // SELF-SERVICE half (apply, my applications, balance, encashment)
+          // lives in the Self Service row above and is excluded from `active`
+          // here so the two rows never highlight together.
+          href: '/hr/leave',
+          label: 'Leave',
+          active:
+            (pathname.startsWith('/hr/leave')
+              && !pathname.startsWith('/hr/leave/apply')
+              && !pathname.startsWith('/hr/leave/my-applications')
+              && !pathname.startsWith('/hr/leave/balance')
+              && !pathname.startsWith('/hr/leave/encashment'))
+            || pathname.startsWith('/hr/admin/leave-types')
+            || pathname.startsWith('/hr/admin/leave-balances')
+            || pathname.startsWith('/hr/admin/academic-years'),
+          icon: CalendarDays,
+          submenus: [
+            { href: '/hr/leave', label: 'Leave Overview', active: pathname === '/hr/leave' || pathname === '/hr/leave/requests' },
+            { href: '/hr/leave/approve', label: 'Approve Inbox', active: pathname === '/hr/leave/approve' },
+            { href: '/hr/leave/calendar', label: 'Calendar', active: pathname === '/hr/leave/calendar' },
+            { href: '/hr/admin/leave-types', label: 'Leave Types', active: pathname.startsWith('/hr/admin/leave-types') },
+            { href: '/hr/admin/leave-balances', label: 'Leave Balances', active: pathname.startsWith('/hr/admin/leave-balances') },
+            // The leave year (Jun 1 → May 31) is what balances reset on, so it
+            // is leave setup rather than institution setup.
+            { href: '/hr/admin/academic-years', label: 'HR Academic Years', active: pathname.startsWith('/hr/admin/academic-years') },
+          ]
+        },
+        {
+          // Attendance & Time — the rules a punch is judged against and the
+          // month that closes them. My Attendance / Regularize stay in Self
+          // Service: they are a person's own record, these are the institution's.
+          href: '/hr/attendance/close',
+          label: 'Attendance & Time',
+          active:
+            pathname.startsWith('/hr/attendance/close')
+            || pathname.startsWith('/hr/admin/shift-timings')
+            || pathname.startsWith('/hr/admin/work-patterns'),
+          icon: Clock,
+          submenus: [
+            // Opens /hr/attendance on the team-member picker for view_all
+            // holders. `active: false` because the pathname carries no query
+            // and /hr/attendance itself belongs to Self Service.
+            { href: '/hr/attendance?view=all', label: 'All Attendance', active: false },
+            { href: '/hr/attendance/close', label: 'Month Close', active: pathname.startsWith('/hr/attendance/close') },
+            { href: '/hr/admin/shift-timings', label: 'Shift Timings', active: pathname.startsWith('/hr/admin/shift-timings') },
+            { href: '/hr/admin/work-patterns', label: 'Work Patterns', active: pathname.startsWith('/hr/admin/work-patterns') },
+          ]
+        },
+        {
+          // Payroll — in the order the register needs them filled: who pays,
+          // what they earn, the bands the TDS column derives from, where it
+          // is paid, then the register that reads all four.
+          href: '/hr/payroll',
+          label: 'Payroll',
+          active: pathname.startsWith('/hr/payroll') || pathname.startsWith('/hr/admin/payroll'),
+          icon: Wallet,
+          submenus: [
             // Gates on hr.payroll.institution.view, held by hr_admin / hr_head /
-            // hr_manager only — so this row is invisible to the rest of the HR
+            // hr_manager only — so this entry is invisible to the rest of the HR
             // group rather than visible-and-denied.
             { href: '/hr/payroll/organisation', label: 'Payroll Organisation', active: pathname.startsWith('/hr/payroll/organisation') },
             // Gates on hr.payroll.salary.view — held by hr_head ALONE, plus the
@@ -3080,105 +3782,97 @@ export function GetPages(pathname: string): MenuGroup[] {
             // configuration FOR that screen, and the TDS column there is derived
             // from them rather than stored per person.
             { href: '/hr/payroll/tds-slabs', label: 'TDS Bands', active: pathname.startsWith('/hr/payroll/tds-slabs') },
+            // Reads the salary and the pay-scale policy together and reports who
+            // sits outside their band. Immediately after the two screens it
+            // derives from, and on the same key as the salaries it reads.
+            { href: '/hr/payroll/pay-band-check', label: 'Pay Band Check', active: pathname.startsWith('/hr/payroll/pay-band-check') },
             // Gates on hr.payroll.bank.view — hr_head alone, plus the Super
             // Administrator via is_super_admin().
             { href: '/hr/payroll/bank-accounts', label: 'Bank Accounts', active: pathname.startsWith('/hr/payroll/bank-accounts') },
             // Gates on hr.payroll.register.view — hr_head alone, plus the Super
-            // Administrator. Last in the group because it is the step AFTER the
-            // three above are populated: the register reads the payer directory,
-            // the salary and the bank account, and reports whichever is missing.
+            // Administrator. After the four above because it is the step AFTER
+            // they are populated: the register reads the payer directory, the
+            // salary and the bank account, and reports whichever is missing.
             { href: '/hr/payroll/register', label: 'Salary Register', active: pathname.startsWith('/hr/payroll/register') },
+            // The /hr/admin/payroll hub (periods, preview) — payroll setup,
+            // listed with payroll rather than under an "Admin" row.
+            { href: '/hr/admin/payroll', label: 'Payroll Setup', active: pathname.startsWith('/hr/admin/payroll') },
           ]
         },
         {
-          // Employee — people-records row, merged in from the retired
-          // 'Employee Management' group (2026-07-20).
-          //
-          // ONE submenu by product decision (2026-07-20): a single employee
-          // list, not five entries.
-          //
-          // This is the ONLY employee-list entry in the sidebar (2026-07-21).
-          // It stays on '/staff/list' — the WRITE surface, owning the record
-          // (create/edit/bulk upload/photos). The read-only '/hr/employees'
-          // lens deliberately has no sidebar entry of its own; it reads the
-          // same `staff` table and is reachable as an AutoTabNav chip under
-          // /hr. Repointing this href there would strand the only entry point
-          // for creating and editing staff records.
-          //
-          // Visibility note: GetRoleBasedPages (~:3100) shows this row only if
-          // SOME submenu is permitted. '/staff/list' gates on `staff.view`,
-          // held by 61 roles — so this row is effectively universal. Do not
-          // narrow it to an HR-tier key without checking that count first.
-          //
-          // The parent href stays '/staff' (NOT '/staff/list') so the rest of
-          // the subtree — dashboard, category, class-incharges — remains
-          // reachable as manifest-derived AutoTabNav chips. staff has no
-          // nav-config.ts, so this seed is their only reachability source.
-          href: '/staff',
-          label: 'Employee',
-          active: pathname === '/staff' || pathname.startsWith('/staff/'),
-          icon: Users,
+          // Salary Revisions (2026-09-29) — its own row, not a Payroll child:
+          // principals and heads of department use it and hold none of the
+          // Payroll row's keys, and the row anchor must land somewhere they can
+          // open. Ask → the principal's check (HOD requests) → the Director.
+          href: '/hr/salary-revisions',
+          label: 'Salary Revisions',
+          active: pathname.startsWith('/hr/salary-revisions'),
+          icon: Wallet,
           submenus: [
-            { href: '/staff/list', label: 'Employee List', active: pathname === '/staff/list' },
-            // Approving a photograph is what makes it printable on an identity
-            // card, so it sits with the people records rather than with leave.
-            // Gated on hr.staff_photo.review in MENU_PERMISSIONS, so the 61
-            // roles holding staff.view do not all see it — only reviewers do.
-            { href: '/hr/staff-photos', label: 'Team Member Photographs', active: pathname.startsWith('/hr/staff-photos') },
+            { href: '/hr/salary-revisions', label: 'Salary Revision Requests', active: pathname === '/hr/salary-revisions' },
+            { href: '/hr/salary-revisions/ask', label: 'Ask for a Salary Revision', active: pathname === '/hr/salary-revisions/ask' },
+            { href: '/hr/salary-revisions/college-check', label: "Principal's Check", active: pathname.startsWith('/hr/salary-revisions/college-check') },
+            { href: '/hr/salary-revisions/approve', label: 'Approve Salary Revisions', active: pathname.startsWith('/hr/salary-revisions/approve') },
           ]
         },
         {
-          // Recruitment — own top-level menu (moved out of the HR dropdown so the
-          // hiring pipeline reads as one unit: screen → submit → approve → interview).
-          href: '/hr/recruitment',
-          label: 'Recruitment',
-          active: pathname.startsWith('/hr/recruitment'),
-          icon: UserSearch,
+          // Development — appraisal and learning, the HR-facing side. The
+          // person's own appraisal / training / FDP stay in Self Service.
+          href: '/hr/admin/performance-reviews',
+          label: 'Development',
+          active:
+            pathname.startsWith('/hr/admin/performance-reviews')
+            || pathname.startsWith('/hr/admin/training')
+            || pathname.startsWith('/hr/admin/fdp'),
+          icon: Award,
           submenus: [
-            { href: '/hr/recruitment', label: 'Dashboard', active: pathname === '/hr/recruitment' },
-            { href: '/hr/recruitment/jobs', label: 'Job Postings', active: pathname.startsWith('/hr/recruitment/jobs') },
-            { href: '/hr/recruitment/submit', label: 'Apply for Jobs', active: pathname === '/hr/recruitment/submit' },
-            { href: '/hr/recruitment/my', label: 'My Submissions', active: pathname === '/hr/recruitment/my' },
-            { href: '/hr/recruitment/approvals', label: 'Approvals', active: pathname === '/hr/recruitment/approvals' },
-            { href: '/hr/recruitment/interviews', label: 'Interviews', active: pathname.startsWith('/hr/recruitment/interviews') },
-            { href: '/hr/recruitment/approvals?view=all', label: 'All Approvals', active: false },
+            { href: '/hr/admin/performance-reviews', label: 'Performance Reviews', active: pathname.startsWith('/hr/admin/performance-reviews') },
+            { href: '/hr/admin/training', label: 'Training', active: pathname.startsWith('/hr/admin/training') },
+            { href: '/hr/admin/fdp', label: 'FDP', active: pathname.startsWith('/hr/admin/fdp') },
           ]
         },
         {
-          // HR Admin cluster (/hr/admin) — one submenu per top-level admin
-          // section. All entries gate on hr.dashboard.view, matching the strict
-          // core-HR-only guard on the /hr/admin landing (Director decision, see
-          // app/(routes)/hr/admin/page.tsx); each page still self-gates deeper.
-          href: '/hr/admin',
-          label: 'Admin',
-          active: pathname.startsWith('/hr/admin'),
+          // Engagement — what HR publishes to everyone: policies to read,
+          // memos to send, forms to fill. My Memos stays in Self Service.
+          href: '/hr/policies',
+          label: 'Engagement',
+          active:
+            pathname.startsWith('/hr/policies')
+            || pathname.startsWith('/hr/admin/policies')
+            || pathname.startsWith('/hr/admin/memos')
+            || pathname.startsWith('/hr/admin/forms'),
+          icon: Megaphone,
+          submenus: [
+            { href: '/hr/policies', label: 'Policies', active: pathname.startsWith('/hr/policies') },
+            { href: '/hr/admin/policies', label: 'Manage Policies', active: pathname.startsWith('/hr/admin/policies') },
+            { href: '/hr/admin/memos', label: 'Memos', active: pathname.startsWith('/hr/admin/memos') },
+            { href: '/hr/admin/forms', label: 'Forms', active: pathname.startsWith('/hr/admin/forms') },
+          ]
+        },
+        {
+          // HR Setup — the two dashboards and the institution-level switches.
+          // Also claims the chip-only pages under /hr that have no row of
+          // their own (/hr/employees, /hr/intelligence), as the old HR row did.
+          // /hr/employees is deliberately NOT a sidebar entry (product decision
+          // 2026-07-21: the employee list belongs to the Employee row, which
+          // owns the record); it surfaces as an AutoTabNav chip under /hr.
+          href: '/hr',
+          label: 'HR Setup',
+          active:
+            pathname === '/hr'
+            || pathname === '/hr/admin'
+            || pathname.startsWith('/hr/admin/automation-rules')
+            || pathname.startsWith('/hr/admin/institutions')
+            || pathname.startsWith('/hr/employees')
+            || pathname.startsWith('/hr/intelligence'),
           icon: Settings,
           submenus: [
-            { href: '/hr/admin', label: 'Dashboard', active: pathname === '/hr/admin' },
+            { href: '/hr', label: 'HR Command Center', active: pathname === '/hr' },
+            // Gates on hr.dashboard.view, matching the strict core-HR-only guard
+            // on the /hr/admin landing (Director decision, see
+            // app/(routes)/hr/admin/page.tsx).
+            { href: '/hr/admin', label: 'Admin Dashboard', active: pathname === '/hr/admin' },
             { href: '/hr/admin/automation-rules', label: 'Automation Rules', active: pathname.startsWith('/hr/admin/automation-rules') },
-            { href: '/hr/admin/designation-mapping', label: 'Designation Mapping', active: pathname.startsWith('/hr/admin/designation-mapping') },
-            { href: '/hr/admin/disciplinary', label: 'Disciplinary', active: pathname.startsWith('/hr/admin/disciplinary') },
-            { href: '/hr/admin/fdp', label: 'FDP', active: pathname.startsWith('/hr/admin/fdp') },
-            { href: '/hr/admin/forms', label: 'Forms', active: pathname.startsWith('/hr/admin/forms') },
-            { href: '/hr/admin/memos', label: 'Memos', active: pathname.startsWith('/hr/admin/memos') },
-            { href: '/hr/admin/offboarding', label: 'Offboarding', active: pathname.startsWith('/hr/admin/offboarding') },
-            { href: '/hr/admin/onboarding-checklists', label: 'Onboarding Checklists', active: pathname.startsWith('/hr/admin/onboarding-checklists') },
-            { href: '/hr/admin/payroll', label: 'Payroll', active: pathname.startsWith('/hr/admin/payroll') },
-            { href: '/hr/admin/performance-reviews', label: 'Performance Reviews', active: pathname.startsWith('/hr/admin/performance-reviews') },
-            { href: '/hr/admin/policies', label: 'Policies', active: pathname.startsWith('/hr/admin/policies') },
-            { href: '/hr/admin/promotions', label: 'Promotions', active: pathname.startsWith('/hr/admin/promotions') },
-            { href: '/hr/admin/recruitment-approval-flows', label: 'Recruitment Approval Flows', active: pathname.startsWith('/hr/admin/recruitment-approval-flows') },
-            { href: '/hr/admin/recruitment-maintenance', label: 'Recruitment Maintenance', active: pathname.startsWith('/hr/admin/recruitment-maintenance') },
-            { href: '/hr/admin/recruitment-need', label: 'Recruitment Need', active: pathname.startsWith('/hr/admin/recruitment-need') },
-            { href: '/hr/admin/required-documents', label: 'Required Documents', active: pathname.startsWith('/hr/admin/required-documents') },
-            { href: '/hr/admin/shift-timings', label: 'Shift Timings', active: pathname.startsWith('/hr/admin/shift-timings') },
-            { href: '/hr/admin/work-patterns', label: 'Work Patterns', active: pathname.startsWith('/hr/admin/work-patterns') },
-            { href: '/hr/admin/terminations', label: 'Terminations', active: pathname.startsWith('/hr/admin/terminations') },
-            { href: '/hr/admin/training', label: 'Training', active: pathname.startsWith('/hr/admin/training') },
-            { href: '/hr/admin/leave-types', label: 'Leave Types', active: pathname.startsWith('/hr/admin/leave-types') },
-            { href: '/hr/admin/leave-balances', label: 'Leave Balances', active: pathname.startsWith('/hr/admin/leave-balances') },
-            { href: '/hr/admin/academic-years', label: 'HR Academic Years', active: pathname.startsWith('/hr/admin/academic-years') },
-            { href: '/hr/admin/sanctioned-posts', label: 'Sanctioned Posts', active: pathname.startsWith('/hr/admin/sanctioned-posts') },
             { href: '/hr/admin/institutions', label: 'Institutions in HR', active: pathname.startsWith('/hr/admin/institutions') },
           ]
         }
@@ -3208,14 +3902,16 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'My Timetable',
           active: pathname === '/learners/my-timetable',
           icon: CalendarClock,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           href: '/learners/my-attendance',
           label: 'My Attendance',
           active: pathname.startsWith('/learners/my-attendance'),
           icon: ClipboardCheck,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           // Post-class feedback — the student gives a 10-second rating that
@@ -3234,14 +3930,16 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Learning Studio Feedback',
           active: pathname.startsWith('/learners/class-feedback'),
           icon: MessageSquare,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           href: '/learners/my-profile',
           label: 'My Profile',
           active: pathname === '/learners/my-profile',
           icon: Users,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           // Fresher induction — the student's own induction view (their batch
@@ -3251,7 +3949,8 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'My Induction',
           active: pathname.startsWith('/learners/my-induction'),
           icon: Rocket,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           // Senior Peer Mentor — a final-year student's lane to run their assigned
@@ -3263,7 +3962,8 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Senior Peer Mentor',
           active: pathname.startsWith('/my-induction-feedback'),
           icon: UserCheck,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           // My Individual Development Plan — learner self-service (BUG-004298).
@@ -3274,14 +3974,16 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'My Development Plan',
           active: pathname.startsWith('/learner/idp'),
           icon: ClipboardList,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           href: '/learners/my-marks',
           label: 'My Marks',
           active: pathname.startsWith('/learners/my-marks'),
           icon: GraduationCap,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           // No MENU_PERMISSIONS entry, same as My Marks above: the page gates
@@ -3290,53 +3992,89 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'My Learning Pathway',
           active: pathname.startsWith('/learners/my-syllabus'),
           icon: BookOpen,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           href: '/learners/my-bills',
           label: 'My Bills',
           active: pathname.startsWith('/learners/my-bills'),
           icon: Wallet,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           href: '/learners/leave-onduty/my-applications',
           label: 'Leave/OnDuty',
           active: pathname.startsWith('/learners/leave-onduty'),
           icon: Briefcase,
-          submenus: []
+          // Learner's own individual form + their applications. Bulk (Team) apply
+          // and Settings live in the Academic module (2027-04).
+          submenus: [
+            { href: '/learners/leave-onduty/apply', label: 'Apply', active: pathname === '/learners/leave-onduty/apply' },
+            { href: '/learners/leave-onduty/my-applications', label: 'My Applications', active: pathname.startsWith('/learners/leave-onduty/my-applications') },
+          ]
         },
 
-        // Admin Features
+        // Every plain-link row in this group carries noSubmenus: true. Without it,
+        // menu.tsx auto-discovers ALL /learners/* manifest pages under the first
+        // submenus:[] row of the slug (the anchor) — for staff that is Analytics
+        // Dashboard, which then listed the student-only My * pages.
+        // Admin Features — regrouped 2026-09-29. The old single "Admission
+        // Management" row mixed admission, learner records, leave/on-duty and
+        // masters, and repeated the student-portal links already shown above.
+        // One row per sub-module now, each with hand-authored submenus (HR /
+        // Campus Living pattern). Every href below MUST stay in MENU_PERMISSIONS.
+        // Active predicates are mutually exclusive across these rows.
+        // /learners/lifecycle is deliberately NOT here: it already has a row in
+        // the Admin group, and one href in two menus highlights both.
         {
           href: '/learners/analytics',
           label: 'Analytics Dashboard',
           active: pathname.startsWith('/learners/analytics'),
           icon: BarChart,
-          submenus: []
+          submenus: [],
+          noSubmenus: true
         },
         {
           href: '/learners/enquiries',
-          label: 'Admission Management',
-          active: pathname.startsWith('/learners/enquiries') || pathname.startsWith('/learners/applications'),
+          label: 'Admission',
+          active:
+            pathname.startsWith('/learners/enquiries') ||
+            pathname.startsWith('/learners/applications') ||
+            pathname.startsWith('/learners/onboarding'),
           icon: ClipboardCheck,
           submenus: [
-            // Student portal (role=student — filtered downstream)
-            { href: '/learners/my-timetable', label: 'My Timetable', active: pathname === '/learners/my-timetable' },
-            { href: '/learners/my-attendance', label: 'My Attendance', active: pathname.startsWith('/learners/my-attendance') },
-            { href: '/learners/my-profile', label: 'My Profile', active: pathname === '/learners/my-profile' },
-            { href: '/learners/my-bills', label: 'My Bills', active: pathname.startsWith('/learners/my-bills') },
-            { href: '/learners/leave-onduty', label: 'Leave/OnDuty · Landing', active: pathname === '/learners/leave-onduty' },
-            { href: '/learners/leave-onduty/my-applications', label: 'Leave/OnDuty · My Applications', active: pathname === '/learners/leave-onduty/my-applications' },
-            { href: '/learners/leave-onduty/apply', label: 'Leave/OnDuty · Apply', active: pathname === '/learners/leave-onduty/apply' },
-            { href: '/academic/privileges/my', label: 'My Privileges', active: pathname.startsWith('/academic/privileges/my') },
-            // Admin
-            { href: '/learners/analytics', label: 'Analytics Dashboard', active: pathname.startsWith('/learners/analytics') },
-            { href: '/learners/enquiries', label: 'Admission · All Admitted', active: pathname === '/learners/enquiries' },
-            { href: '/learners/enquiries/new', label: 'Admission · New Admitted', active: pathname === '/learners/enquiries/new' },
-            { href: '/learners/profiles', label: 'Learner Profiles', active: pathname.startsWith('/learners/profiles') },
+            { href: '/learners/enquiries', label: 'All Admissions', active: pathname === '/learners/enquiries' },
+            { href: '/learners/enquiries/new', label: 'New Enquiries', active: pathname === '/learners/enquiries/new' },
+            { href: '/learners/onboarding', label: 'Onboarding', active: pathname.startsWith('/learners/onboarding') },
+          ]
+        },
+        {
+          href: '/learners/profiles',
+          label: 'Learner Profiles',
+          active:
+            pathname.startsWith('/learners/profiles') ||
+            pathname.startsWith('/learners/alumni') ||
+            pathname.startsWith('/learners/change-requests') ||
+            pathname.startsWith('/learners/advisor-caseload'),
+          icon: GraduationCap,
+          submenus: [
+            { href: '/learners/profiles', label: 'All Profiles', active: pathname === '/learners/profiles' },
+            { href: '/learners/profiles/promotion', label: 'Promotion', active: pathname.startsWith('/learners/profiles/promotion') },
             { href: '/learners/alumni', label: 'Alumni & Graduates', active: pathname.startsWith('/learners/alumni') },
             { href: '/learners/change-requests', label: 'Change Requests', active: pathname.startsWith('/learners/change-requests') },
+            { href: '/learners/advisor-caseload', label: 'Advisor Caseload', active: pathname.startsWith('/learners/advisor-caseload') },
+          ]
+        },
+        {
+          href: '/learners/school-master',
+          label: 'Masters',
+          active:
+            pathname.startsWith('/learners/school-master') ||
+            pathname.startsWith('/learners/postal-codes'),
+          icon: Database,
+          submenus: [
             { href: '/learners/school-master', label: 'School Master', active: pathname.startsWith('/learners/school-master') },
             { href: '/learners/postal-codes', label: 'Postal Codes', active: pathname.startsWith('/learners/postal-codes') },
           ]
@@ -3362,7 +4100,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             pathname === '/billing' ||
             (pathname.startsWith('/billing/') &&
               !pathname.startsWith('/billing/transport') &&
-              !pathname.startsWith('/billing/school-fees')),
+              !pathname.startsWith('/billing/school-fees') &&
+              !BILLING_SETTINGS_PREFIXES.some((prefix) => pathname.startsWith(prefix))),
           icon: GraduationCap,
           submenus: [
             { href: '/billing/schedule', label: 'Schedule · All Bills', active: pathname === '/billing/schedule' },
@@ -3373,22 +4112,15 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/billing/refunds', label: 'Refunds', active: pathname.startsWith('/billing/refunds') },
             { href: '/billing/refund-approvals', label: 'Refund Approvals', active: pathname.startsWith('/billing/refund-approvals') },
             { href: '/billing/receipt-cancellations', label: 'Receipt Cancellations', active: pathname.startsWith('/billing/receipt-cancellations') },
+            { href: '/billing/bill-cancellations', label: 'Bill Cancellations', active: pathname.startsWith('/billing/bill-cancellations') },
             { href: '/billing/apportionment', label: 'Apportionment', active: pathname.startsWith('/billing/apportionment') },
             { href: '/billing/invoices', label: 'Invoices', active: pathname.startsWith('/billing/invoices') },
             { href: '/billing/late-charges', label: 'Late Charges', active: pathname.startsWith('/billing/late-charges') },
-            // ── Group-wide, not college-only ──────────────────────────────
-            // These six serve schools too and deliberately have no second row
-            // under Schools: one href in two menus highlights both at once.
-            // Categories IS the school fee-head master (school-fee-head-service
-            // reads billing_categories, collapsed to global in 20260428000001),
-            // and the school counter writes billing_receipt_items, so Receipts
-            // lists school payments as well.
-            { href: '/billing/categories', label: 'Categories', active: pathname.startsWith('/billing/categories') },
+            // Receipts is group-wide too (the school counter writes
+            // billing_receipt_items, so it lists school payments) but is daily
+            // work, not configuration, so it stays here. The other group-wide
+            // pages moved to the Settings menu below (2026-10-01).
             { href: '/billing/receipts', label: 'Receipts', active: pathname.startsWith('/billing/receipts') },
-            { href: '/billing/reports', label: 'Reports', active: pathname.startsWith('/billing/reports') },
-            { href: '/billing/analytics', label: 'Analytics', active: pathname.startsWith('/billing/analytics') },
-            { href: '/billing/activities', label: 'Activities', active: pathname.startsWith('/billing/activities') },
-            { href: '/billing/payment-accounts', label: 'Payment Gateway Accounts', active: pathname.startsWith('/billing/payment-accounts') },
           ]
         },
         {
@@ -3426,6 +4158,26 @@ export function GetPages(pathname: string): MenuGroup[] {
             // Sits after Generate because that is the order of the work: raise
             // the year's bills, then take money against them.
             { href: '/billing/school-fees/collect', label: 'School Bill Payment', active: pathname.startsWith('/billing/school-fees/collect') },
+          ]
+        },
+        {
+          // Group-wide configuration and oversight pages that serve colleges AND
+          // schools. They used to sit at the bottom of the Colleges list, which
+          // had grown past 17 rows. One href lives in exactly one menu, and the
+          // Colleges `active` predicate above excludes these prefixes, so only
+          // one row highlights. Categories IS the school fee-head master
+          // (school-fee-head-service reads billing_categories, collapsed to
+          // global in 20260428000001).
+          href: '/billing/categories',
+          label: 'Settings',
+          active: BILLING_SETTINGS_PREFIXES.some((prefix) => pathname.startsWith(prefix)),
+          icon: Settings,
+          submenus: [
+            { href: '/billing/categories', label: 'Categories', active: pathname.startsWith('/billing/categories') },
+            { href: '/billing/reports', label: 'Reports', active: pathname.startsWith('/billing/reports') },
+            { href: '/billing/analytics', label: 'Analytics', active: pathname.startsWith('/billing/analytics') },
+            { href: '/billing/activities', label: 'Activities', active: pathname.startsWith('/billing/activities') },
+            { href: '/billing/payment-accounts', label: 'Payment Gateway Accounts', active: pathname.startsWith('/billing/payment-accounts') },
           ]
         }
       ]
@@ -3465,6 +4217,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/ims/settings/suppliers', label: 'Settings · Suppliers', active: pathname === '/ims/settings/suppliers' },
             { href: '/ims/settings/units', label: 'Settings · Units', active: pathname === '/ims/settings/units' },
             { href: '/ims/settings/unit-conversions', label: 'Settings · Unit Conversions', active: pathname === '/ims/settings/unit-conversions' },
+            { href: '/ims/settings/pos-devices', label: 'Settings · Payment Terminals', active: pathname === '/ims/settings/pos-devices' },
             // Store Kits (PR-K2) — visibility gated per-entry via MENU_PERMISSIONS
             { href: '/ims/kits', label: 'Kits · Rules', active: pathname === '/ims/kits' },
             { href: '/ims/kits/counter', label: 'Kits · Counter', active: pathname === '/ims/kits/counter' },
@@ -3487,10 +4240,10 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: ShoppingCart,
           submenus: [
             { href: '/procurement', label: 'Overview', active: pathname === '/procurement' },
-            { href: '/procurement/requests', label: 'Purchase Requests', active: pathname.startsWith('/procurement/requests') },
-            { href: '/procurement/rfqs', label: 'RFQs', active: pathname.startsWith('/procurement/rfqs') },
-            { href: '/procurement/purchase-orders', label: 'Purchase Orders', active: pathname.startsWith('/procurement/purchase-orders') },
-            { href: '/procurement/grn', label: 'Goods Receipt', active: pathname.startsWith('/procurement/grn') },
+            // Same three working tabs as app/(routes)/procurement/nav-config.ts.
+            { href: '/procurement/requests', label: 'Requests', active: pathname.startsWith('/procurement/requests') },
+            { href: '/procurement/rfqs', label: 'Quotations', active: pathname.startsWith('/procurement/rfqs') },
+            { href: '/procurement/purchase-orders', label: 'Deliveries', active: pathname.startsWith('/procurement/purchase-orders') || pathname.startsWith('/procurement/grn') },
           ]
         }
       ]
@@ -3836,6 +4589,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/health/admin/programs', label: 'Manage Programs', active: pathname.startsWith('/health/admin/programs') },
             { href: '/health/counselor', label: 'Counselor Dashboard', active: pathname === '/health/counselor' },
             { href: '/health/programs', label: 'Wellness Programs', active: pathname === '/health/programs' || pathname.startsWith('/health/programs/') },
+            { href: '/health/surveys', label: 'Wellness Surveys', active: pathname === '/health/surveys' },
             // Sports activities surfaced under Health & Wellness (Director ask, 2026-06-22).
             // These are NAV LINKS to the events-platform modules — NOT route moves:
             // /events/marathon & /events/tournament keep their canonical homes + permissions
@@ -3936,6 +4690,19 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             { href: '/courses', label: 'All Courses', active: pathname === '/courses' },
             { href: '/courses/new', label: 'Create a Course', active: pathname === '/courses/new' },
+            // The participant's own portal, and the ONLY click path to it — it
+            // lives at app/my-courses (outside app/(routes)) so that it does not
+            // mount the admin shell, which also means the route manifest never
+            // discovers it and nothing else in the nav can surface it.
+            //
+            // A submenu rather than its own top-level row on purpose: the parent
+            // "Courses" row is gated on courses.view, which a participating
+            // faculty member or learner does not hold — but GetRoleBasedPages
+            // keeps a parent visible when ANY submenu is accessible ("Show
+            // parent if any submenu is accessible"), so they get the Courses
+            // group containing only this leaf, while a course admin sees all
+            // three.
+            { href: '/my-courses', label: 'My Courses', active: pathname.startsWith('/my-courses') },
           ]
         }
       ]
@@ -4356,8 +5123,18 @@ export function normalizeRoute(href: string): string {
  *
  * Single source of truth — used by both the top-level row filter AND the
  * nested-submenu filter (these links also appear as flyout submenus under the
- * admin "Admission Management" parent), for super admin and every other role.
+ * admin learner parents), for super admin and every other role.
  */
+/**
+ * Student-lane pages a super admin may still open and see in the sidebar.
+ * Learning Studio Feedback has no role redirect (it self-scopes to the caller's
+ * own sessions), so a super admin can review the learner experience; every
+ * other student-portal page redirects non-students and stays hidden.
+ */
+export const SUPER_ADMIN_VISIBLE_STUDENT_ROUTES: ReadonlySet<string> = new Set([
+  '/learners/class-feedback',
+]);
+
 export function isStudentPortalRoute(href: string): boolean {
   return (
     href.includes('/learners/my-') ||
@@ -4417,21 +5194,26 @@ export function GetRoleBasedPages(
   const allMenus = GetPages(pathname);
 
   // Campus Living sidebar is role-aware: students get a single entry (no
-  // admin sub-page accordion — those pages auto-discover from the route
-  // manifest ungated and would otherwise leak the full admin list). Everyone
-  // else (super admin, wardens, staff) gets the full auto-discovered
-  // accordion. Set here because GetPages() has no role context.
+  // admin sub-module rows). Everyone else (super admin, wardens, staff) gets
+  // the per-sub-module accordion rows declared in GetPages. Set here because
+  // GetPages() has no role context.
   //
   // Students never hold the staff gate (campus_living.dashboard.view), so the
-  // entry is rewritten to the My Hostel hub and gated on
-  // campus_living.my_hostel.view instead. The nav surfaces (menu.tsx +
-  // bottom-navbar.tsx) overwrite that key with live user_is_hosteler() status,
-  // so only students with hostel accommodation see it.
+  // Overview row is rewritten to the My Hostel hub and gated on
+  // campus_living.my_hostel.view instead. Its submenus are emptied as well:
+  // the permission filter below shows a row with submenus only when one of
+  // THEM is allowed (Overview / Dashboard — keys no student holds), and would
+  // otherwise hide the very link this rewrite exists to show. The other
+  // Campus Living rows fall to that same filter on their own. The nav
+  // surfaces (menu.tsx + bottom-navbar.tsx) overwrite my_hostel.view with live
+  // user_is_hosteler() status, so only students with hostel accommodation see
+  // it.
   if (userRole?.role_key === 'student') {
     for (const group of allMenus) {
       for (const menu of group.menus) {
         if (menu.href === '/campus-living') {
           menu.noSubmenus = true;
+          menu.submenus = [];
           menu.href = '/campus-living/my-hostel';
           menu.label = 'My Hostel';
         }
@@ -4447,14 +5229,22 @@ export function GetRoleBasedPages(
         // Hide student-portal top-level rows (my-* and leave-onduty/my-applications)
         // from super admin. Bug report pages are NOT student-portal routes, so
         // they remain visible to everyone including super admin.
-        .filter((menu) => !isStudentPortalRoute(menu.href))
+        .filter(
+          (menu) =>
+            !isStudentPortalRoute(menu.href) ||
+            SUPER_ADMIN_VISIBLE_STUDENT_ROUTES.has(menu.href)
+        )
         // Also strip any student-portal links nested as submenus under an admin
-        // parent. The "Admission Management" (/learners/enquiries) flyout carries
+        // parent. Admin flyouts (e.g. Admission, Leave / On-Duty) may carry
         // My Attendance / My Profile / My Timetable as submenus — without this
         // they would still leak into the super-admin flyout.
         .map((menu) => ({
           ...menu,
-          submenus: menu.submenus.filter((submenu) => !isStudentPortalRoute(submenu.href)),
+          submenus: menu.submenus.filter(
+            (submenu) =>
+              !isStudentPortalRoute(submenu.href) ||
+              SUPER_ADMIN_VISIBLE_STUDENT_ROUTES.has(submenu.href)
+          ),
         })),
     })).filter((group) => group.menus.length > 0);
   }

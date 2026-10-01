@@ -41,6 +41,7 @@ interface Row {
 
 let rows: Row[] = [];
 let grantError: { code: string; message: string } | null = null;
+let readError: { code: string; message: string } | null = null;
 
 /** A just-enough PostgREST query builder over `rows`. */
 function query() {
@@ -53,26 +54,33 @@ function query() {
       hit.forEach((r) => Object.assign(r, op && op.kind === 'update' ? op.patch : {}));
       return { data: null, error: null };
     }
+    if (readError) return { data: null, error: readError };
     return { data: hit.map((r) => ({ ...r })), error: null };
   };
 
   const b: any = {
     upsert(input: Omit<Row, 'id' | 'notified_at'>[]) {
-      if (grantError) return Promise.resolve({ error: grantError });
+      // Like PostgREST with ignoreDuplicates: .select() returns only the rows
+      // this call inserted.
+      const inserted: Row[] = [];
+      const done = (v: unknown) => ({ select: () => Promise.resolve(v) });
+      if (grantError) return done({ data: null, error: grantError });
       for (const i of input) {
         const exists = rows.some(
           (r) => r.comment_id === i.comment_id && r.mentioned_user_id === i.mentioned_user_id,
         );
         if (!exists) {
-          rows.push({
+          const row: Row = {
             id: `tag-${rows.length + 1}`,
             comment_id: i.comment_id,
             mentioned_user_id: i.mentioned_user_id,
             notified_at: null,
-          });
+          };
+          rows.push(row);
+          inserted.push(row);
         }
       }
-      return Promise.resolve({ error: null });
+      return done({ data: inserted.map((r) => ({ ...r })), error: null });
     },
     select() {
       op = { kind: 'select' };
@@ -128,6 +136,7 @@ const tag = (userIds: string[]) =>
 beforeEach(() => {
   rows = [];
   grantError = null;
+  readError = null;
   alerts.deliveries = [];
   alerts.seenKeys = new Set();
   alerts.failuresLeft = 0;
@@ -141,6 +150,46 @@ afterEach(() => {
 });
 
 describe('grantAndNotifyTags', () => {
+  // BUG-006178: `created` is what the adoption loop counts as "tagged somebody".
+  it('reports a tag as created only on the call that made it', async () => {
+    const first = await tag(['u1']);
+    expect(first.created).toEqual(['u1']);
+
+    // Same person again (inside the reminder cooldown): nothing is created.
+    const repeat = await tag(['u1']);
+    expect(repeat.tagged).toEqual(['u1']);
+    expect(repeat.created).toEqual([]);
+
+    // A mixed request creates only the new one.
+    const mixed = await tag(['u1', 'u2']);
+    expect(mixed.created).toEqual(['u2']);
+  });
+
+  it('reports a tag as created even when its alert fails, and not again on the resend', async () => {
+    alerts.failuresLeft = 1;
+    const failed = await tag(['u1']);
+    expect(failed.notNotified).toEqual(['u1']);
+    expect(failed.created).toEqual(['u1']);
+
+    const resend = await tag(['u1']);
+    expect(resend.notified).toEqual(['u1']);
+    expect(resend.created).toEqual([]);
+  });
+
+  it('still reports the tag it saved when the read-back afterwards fails', async () => {
+    readError = { code: 'PGRST000', message: 'read failed' };
+    const r = await tag(['u1']);
+    expect(r.grantError?.code).toBe('PGRST000');
+    expect(r.created).toEqual(['u1']);
+  });
+
+  it('creates nothing when the grant is refused', async () => {
+    grantError = { code: '42501', message: 'refused' };
+    const r = await tag(['u1']);
+    expect(r.grantError?.code).toBe('42501');
+    expect(r.created).toEqual([]);
+  });
+
   it('grants and tells a newly tagged person once, and records it', async () => {
     const r = await tag(['u1']);
 

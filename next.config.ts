@@ -77,6 +77,8 @@ const nextConfig: NextConfig = {
   // (Open Sans), which is what made the minutes' narrative box overflow in
   // production while looking correct locally.
   outputFileTracingIncludes: {
+    // ID-card compositor fonts (satori needs TTF; see lib/id-cards/card-fonts.ts).
+    '/api/id-cards/templates/*/render': ['./lib/id-cards/fonts/**/*'],
     '/api/bos/meetings/*/notify-members': [
       './node_modules/@sparticuz/chromium/**/*',
       './public/fonts/pdf/**/*',
@@ -97,6 +99,14 @@ const nextConfig: NextConfig = {
       './node_modules/@sparticuz/chromium/**/*',
       './public/fonts/pdf/**/*',
       './node_modules/katex/dist/**/*',
+    ],
+    // BoS PO & PSO document (app/api/bos/po-pso/pdf). Same Chromium + body
+    // fonts, plus the institution logos the letterhead inlines from /public.
+    '/api/bos/po-pso/pdf': [
+      './node_modules/@sparticuz/chromium/**/*',
+      './public/fonts/pdf/**/*',
+      './public/*.png',
+      './public/logo/**/*.png',
     ],
   },
 

@@ -8,8 +8,10 @@
 //     correction ("she actually took 1.5, not 2").
 //   * "Entitlement" writes hr_leave_entitlement_overrides — a policy decision
 //     for this one person ("mid-year joiner, pro-rate to 7").
-//   * "Month-wise" sets the total for ONE month, overriding the approved
-//     requests dated in it.
+//   * "Taken by month" sets the total for ONE month, overriding the approved
+//     requests dated in it. Since the 2026-09-22 reset charged everyone one
+//     day for each of June, July and August, this is the lever HR reaches for
+//     most — "she never took June's day" — so it is the landing tab.
 //
 // ALL THREE ARE SUPER-ADMIN ONLY as of 2026-09-06 (migrations 20260906130000
 // and 20260906130100). They previously took hr.leave.policies.write and
@@ -150,14 +152,12 @@ function AdjustForm({
   // an uncontrolled Tabs it always submitted the first permitted action, so
   // opening Entitlement and pressing Save wrote `used`.
   //
-  // 'ledger' is read-only and always available — a viewer who can change
-  // nothing can still be shown where the days went, which is the question this
-  // dialog is most often opened to answer. It is the landing tab when the
-  // caller holds neither write key, so those users get content rather than an
-  // error card.
-  const [tab, setTab] = useState<'used' | 'entitlement' | 'ledger'>(
-    canSetUsed ? 'used' : canSetEntitlement ? 'entitlement' : 'ledger'
-  );
+  // 'ledger' is the landing tab for everyone. It is always available — a
+  // viewer who can change nothing is still shown where the days went, which
+  // is the question this dialog is most often opened to answer — and for an
+  // adjuster it carries the month editor, the correction made far more often
+  // than rewriting the year total or the entitlement.
+  const [tab, setTab] = useState<'used' | 'entitlement' | 'ledger'>('ledger');
 
   const sourceMeta = SOURCE_META[cell.source];
   const busy = mutation.isPending;
@@ -274,7 +274,7 @@ function AdjustForm({
             <TabsTrigger value="entitlement" disabled={!canSetEntitlement}>
               Entitlement
             </TabsTrigger>
-            <TabsTrigger value="ledger">Month-wise</TabsTrigger>
+            <TabsTrigger value="ledger">Taken by month</TabsTrigger>
           </TabsList>
 
           <TabsContent value="used" className="space-y-3 pt-3">
@@ -331,11 +331,11 @@ function AdjustForm({
           </TabsContent>
 
           <TabsContent value="ledger" className="pt-3">
-            {/* editable ONLY here. The Staff Balances row expander and the
-                team member's own leave page render the same table read-only —
-                a staff member must never be able to record their own taken
-                days, and the component itself re-checks
-                hr.leave.policies.write before showing any control. */}
+            {/* editable here and in the Staff Balances row expander — both
+                admin surfaces. The team member's own leave page renders the
+                same table read-only: a staff member must never be able to
+                record their own taken days, and the component itself re-checks
+                hr.leave.balance.adjust before showing any control. */}
             <LeaveMonthlyLedger
               staffId={staff.employee_id}
               leaveTypeId={leaveType.id}

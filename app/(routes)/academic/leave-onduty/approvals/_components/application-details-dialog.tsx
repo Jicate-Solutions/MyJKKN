@@ -31,6 +31,7 @@ import { format } from 'date-fns';
 import { AttachmentLink } from '@/components/academic/leave-onduty/attachment-link';
 import { ApprovalTimeline } from '@/components/academic/leave-onduty/approval-timeline';
 import { cn } from '@/lib/utils';
+import { ApproverRole, APPROVER_ROLE_LABELS } from '@/types/leave-onduty';
 
 interface ApplicationDetailsDialogProps {
   isOpen: boolean;
@@ -272,7 +273,7 @@ export function ApplicationDetailsDialog({
                      <div className="bg-muted/50 rounded-md px-3 py-2 flex-1">
                         <p className="text-xs text-muted-foreground font-medium">Sub Category</p>
                         <p className="text-sm font-medium capitalize mt-0.5">
-                          {application.sub_category?.replace('_', ' ')}
+                          {application.leave_type?.name ?? application.sub_category?.replace(/_/g, ' ')}
                         </p>
                      </div>
                      <div className="bg-muted/50 rounded-md px-3 py-2 flex-1">
@@ -282,6 +283,12 @@ export function ApplicationDetailsDialog({
                         </p>
                      </div>
                   </div>
+
+                  {application.leave_type?.affects_attendance === false && (
+                    <p className="text-xs text-muted-foreground italic">
+                      Does not affect class attendance
+                    </p>
+                  )}
 
                   <div>
                     <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-2">Reason</p>
@@ -330,7 +337,8 @@ export function ApplicationDetailsDialog({
             approver_id?: string;
             status?: string;
             step_order?: number;
-            approver_role?: string;
+            approver_role?: ApproverRole | 'super_admin' | null;
+            role?: { id: string; role_name: string } | null;
           }>;
           const myPendingStep = currentUserId
             ? approvals.find(
@@ -343,6 +351,13 @@ export function ApplicationDetailsDialog({
               )
             : undefined;
           const nextPendingStep = approvals.find((a) => a.status === 'pending');
+          const roleLabel = (step: { approver_role?: ApproverRole | 'super_admin' | null; role?: { role_name: string } | null } | undefined) =>
+            step
+              ? step.role?.role_name ??
+                (step.approver_role
+                  ? APPROVER_ROLE_LABELS[step.approver_role as ApproverRole] ?? step.approver_role
+                  : 'Approver')
+              : null;
 
           // Super admin always sees the action buttons (for override/support).
           const showActions = isSuperAdmin || !!myPendingStep;
@@ -392,7 +407,7 @@ export function ApplicationDetailsDialog({
                     <>
                       You {myPastStep.status} this application
                       {myPastStep.status === 'approved' && nextPendingStep && (
-                        <> — waiting for <span className="font-medium capitalize">{nextPendingStep.approver_role}</span></>
+                        <> — waiting for <span className="font-medium">{roleLabel(nextPendingStep)}</span></>
                       )}
                       {myPastStep.status === 'approved' && !nextPendingStep && appStatus === 'approved' && (
                         <> — fully approved.</>
@@ -402,7 +417,7 @@ export function ApplicationDetailsDialog({
                   ) : appStatus !== 'pending' ? (
                     <>This application is <span className="font-medium capitalize">{appStatus}</span>.</>
                   ) : nextPendingStep ? (
-                    <>Waiting for <span className="font-medium capitalize">{nextPendingStep.approver_role}</span>.</>
+                    <>Waiting for <span className="font-medium">{roleLabel(nextPendingStep)}</span>.</>
                   ) : (
                     <>No action available for you on this application.</>
                   )}

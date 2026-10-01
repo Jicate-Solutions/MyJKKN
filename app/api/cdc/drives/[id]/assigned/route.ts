@@ -34,6 +34,8 @@ import {
   applyAssignedFilters,
   buildAssignedLearners,
 } from '@/lib/services/cdc/drive-assigned';
+import { canMarkWillingManually, markWillingManually } from '@/lib/services/cdc/willingness-manual';
+import { logActivity } from '@/lib/services/cdc/drive-day';
 import type { CdcAssignedWillingnessBucket, CdcDriveAssignedResponse, CdcWillingnessStatus } from '@/types/cdc';
 
 const VIEW_PERMISSION = 'cdc.drives.willingness.view';
@@ -66,18 +68,26 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    const [viewRes, ...profileRes] = await Promise.all([
+    const service = createServiceRoleClient();
+    const [viewRes, editRes, coordRes, ...profileRes] = await Promise.all([
       supabase.rpc('user_has_permission', { permission_name: VIEW_PERMISSION }),
+      supabase.rpc('user_has_permission', { permission_name: 'cdc.drives.edit' }),
+      service.from('cdc_drive_coordinators').select('id').eq('drive_id', id).eq('user_id', user.id).maybeSingle(),
       ...LEARNER_PROFILE_PERMISSIONS.map((key) => supabase.rpc('user_has_permission', { permission_name: key })),
     ]);
-    if (viewRes.data !== true) {
+    // An assigned coordinator of THIS drive sees its tracker too (2026-09-23),
+    // so they can mark willing learners by hand on the drive day.
+    const isCoordinator = !!coordRes.data;
+    if (viewRes.data !== true && !isCoordinator) {
       return NextResponse.json({ error: `Forbidden — ${VIEW_PERMISSION} required` }, { status: 403 });
     }
     // Existing learner-profile access rule decides whether profile contact goes out.
     const releaseProfileContact = profileRes.some((r) => r.data === true);
 
-    const drive = await CdcDriveService.getDrive(supabase, id);
+    const drive = await CdcDriveService.getDrive(isCoordinator ? service : supabase, id);
     if (!drive) return NextResponse.json({ error: 'Drive not found' }, { status: 404 });
+    const manual = canMarkWillingManually(drive);
+    const canMark = (editRes.data === true || isCoordinator) && manual.ok;
 
     const sp = request.nextUrl.searchParams;
     const format = sp.get('format') === 'xlsx' ? 'xlsx' : 'json';
@@ -93,7 +103,6 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       q: sp.get('q') || null,
     };
 
-    const service = createServiceRoleClient();
     const { rows, summary } = await buildAssignedLearners(service, drive, { releaseProfileContact });
     const filtered = applyAssignedFilters(rows, filters);
 
@@ -103,6 +112,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         total: filtered.length,
         summary,
         contact_released: releaseProfileContact,
+        can_mark_willing: canMark,
+        mark_blocked_reason: editRes.data === true || isCoordinator ? manual.reason : null,
       };
       return NextResponse.json(body, { headers: { 'Cache-Control': 'no-store' } });
     }
@@ -158,5 +169,58 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   } catch (err) {
     console.error('[cdc/drives/[id]/assigned] GET error', err);
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Unknown error' }, { status: 500 });
+  }
+}
+
+/**
+ * POST /api/cdc/drives/[id]/assigned  { learner_ids: string[] }
+ * Marks the chosen learners as Willing on their behalf (manual willingness).
+ * Gate: cdc.drives.edit OR an assigned coordinator of this drive.
+ */
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  await connection();
+  try {
+    const { id } = await params;
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const service = createServiceRoleClient();
+    const [{ data: canEdit }, { data: coord }] = await Promise.all([
+      supabase.rpc('user_has_permission', { permission_name: 'cdc.drives.edit' }),
+      service.from('cdc_drive_coordinators').select('id').eq('drive_id', id).eq('user_id', user.id).maybeSingle(),
+    ]);
+    const isCoordinator = !!coord;
+    if (canEdit !== true && !isCoordinator) {
+      return NextResponse.json({ error: 'Forbidden — cdc.drives.edit or an assigned coordinator required' }, { status: 403 });
+    }
+
+    const drive = await CdcDriveService.getDrive(service, id);
+    if (!drive) return NextResponse.json({ error: 'Drive not found' }, { status: 404 });
+
+    const body = await request.json().catch(() => ({}));
+    const learnerIds = Array.isArray(body.learner_ids)
+      ? (body.learner_ids as unknown[]).filter((v): v is string => typeof v === 'string')
+      : [];
+    if (learnerIds.length === 0) return NextResponse.json({ error: 'learner_ids is required' }, { status: 400 });
+
+    const actorRole = canEdit === true ? 'cdc' : 'coordinator';
+    const result = await markWillingManually(service, drive, learnerIds, user.id, actorRole);
+    await logActivity(service, [
+      {
+        drive_id: id,
+        actor_id: user.id,
+        actor_role: actorRole,
+        action: 'willingness.marked_manually',
+        new_value: { learner_ids: learnerIds, ...result },
+      },
+    ]);
+    return NextResponse.json(result);
+  } catch (err) {
+    console.error('[cdc/drives/[id]/assigned] POST error', err);
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Unknown error' }, { status: 400 });
   }
 }

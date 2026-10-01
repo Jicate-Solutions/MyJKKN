@@ -11,7 +11,7 @@
 // hr_leave_applications. Re-export rather than redeclaring — two independent
 // unions of the same four values drift the moment one is edited.
 export type { LeaveDurationType } from '@/types/hr';
-import type { LeaveDurationType } from '@/types/hr';
+import type { LeaveApprovalStep, LeaveDocument, LeaveDurationType } from '@/types/hr';
 
 export type LeaveAccrualType = 'none' | 'annual' | 'monthly';
 export type LeaveApplicableGender = 'all' | 'male' | 'female';
@@ -69,6 +69,12 @@ export interface HRLeaveType {
   min_advance_notice_days: number;
   max_continuous_days: number | null;
   requires_documents: boolean;
+  /**
+   * Hidden from Apply Leave until the staff member holds an approved
+   * hr_leave_eligibilities row — and once they do, the document above is
+   * considered already given and is not asked for per application.
+   */
+  requires_eligibility: boolean;
   document_required_after_days: number | null;
   default_entitled_days: number;
 
@@ -241,6 +247,36 @@ export interface LeavePeriodUsage {
 /** A step's approver is either a role or one named person — never both. */
 export type LeaveApproverMode = 'role' | 'user';
 
+/**
+ * Which staff a flow governs, from employment_categories.is_teaching.
+ *
+ * ABSENT MEANS ALL STAFF — it is not a third value. A flow with no staff_group
+ * is the default for everyone, and a Teaching or Non-teaching flow overrides it
+ * for that group only. A member of staff whose category cannot be read has no
+ * group and therefore uses the All staff flow, never a guessed one.
+ */
+export type LeaveStaffGroup = 'teaching' | 'non_teaching';
+
+export const LEAVE_STAFF_GROUP_LABELS: Record<LeaveStaffGroup, string> = {
+  teaching: 'Teaching',
+  non_teaching: 'Non-teaching',
+};
+
+/** The tabs of the "Who approves this" dialog. `null` is the All staff slot. */
+export type LeaveFlowSlot = LeaveStaffGroup | null;
+
+/**
+ * Which decision a flow on hr_approval_flows governs.
+ *
+ * 'leave_approval' decides the leave itself. 'leave_eligibility' decides the
+ * one-time request that opens a gated type (PH.D and its like) to a member of
+ * staff — a different set of people, since it is the proof being read rather
+ * than the dates. Same table, same steps shape, same gate; only the row that
+ * seeds the chain differs. An eligibility flow carries no staff_group (a
+ * CHECK enforces it), and a gated type with none falls back to its leave flow.
+ */
+export type LeaveFlowFor = 'leave_approval' | 'leave_eligibility';
+
 /** Where a flow's steps come from. Independent of how they RUN. */
 export type LeaveFlowStepSource = 'explicit' | 'role_ladder';
 
@@ -307,8 +343,12 @@ export interface LeaveApprovalFlow {
   id: string;
   hr_organization_id: string;
   flow_name: string;
-  /** `{ leave_type_id }` for a per-type flow; `{}` for the org catch-all. */
-  conditions: { leave_type_id?: string } | null;
+  /**
+   * `{ leave_type_id }` for a per-type flow; `{}` for the org catch-all.
+   * `staff_group` narrows either of those to Teaching or Non-teaching; absent
+   * means the flow governs all staff.
+   */
+  conditions: { leave_type_id?: string; staff_group?: LeaveStaffGroup } | null;
   steps: LeaveApprovalFlowStep[];
   is_active: boolean;
   escalate_after_hours: number;
@@ -388,4 +428,68 @@ export function formatMinutes(mins: number | null | undefined): string {
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+// ---------------------------------------------------------------------------
+// Eligibility-gated leave types — hr_leave_eligibilities
+// ---------------------------------------------------------------------------
+//
+// Some leave types are not open to everyone. PH.D leave needs proof of
+// enrolment before anybody may take it, and that proof is given ONCE rather
+// than stapled to every application for the rest of the degree.
+//
+// A gated type is INVISIBLE in Apply Leave until the staff member holds an
+// approved row here — v_hr_leave_balance_src filters on
+// fn_hr_leave_eligibility_ok, and LeaveService.createApplication checks it
+// again because the view hides a type but is not the authority.
+
+export type LeaveEligibilityStatus = 'pending' | 'approved' | 'rejected' | 'revoked';
+
+export const LEAVE_ELIGIBILITY_STATUS_LABELS: Record<LeaveEligibilityStatus, string> = {
+  pending: 'Awaiting approval',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  revoked: 'Revoked',
+};
+
+export interface LeaveEligibility {
+  id: string;
+  employee_id: string;
+  leave_type_id: string;
+  hr_organization_id: string;
+  status: LeaveEligibilityStatus;
+  /** The proof, in the same shape hr_leave_applications.documents uses. */
+  documents: LeaveDocument[];
+  reason: string | null;
+  /** Frozen at submit, exactly like a leave application's chain. */
+  approval_chain: LeaveApprovalStep[];
+  current_step: number;
+  /**
+   * Days this person gets for this type. Applied on approval by writing an
+   * hr_leave_entitlement_overrides row — that table is already first in the
+   * balance view's COALESCE, so nothing downstream learns a new rule.
+   */
+  entitled_days: number | null;
+  valid_from: string;
+  /** NULL = never expires. */
+  valid_until: string | null;
+  decided_by: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
+  revoked_by: string | null;
+  revoked_at: string | null;
+  revoke_reason: string | null;
+  /** HR recorded the grant directly rather than the staff member requesting it. */
+  granted_directly: boolean;
+  /** profiles.id of the requester; NULL on a direct HR grant. */
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A row of the admin list, with the names the ids stand for. */
+export interface LeaveEligibilityRow extends LeaveEligibility {
+  staff_name: string | null;
+  staff_code: string | null;
+  leave_type_name: string | null;
 }

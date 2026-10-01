@@ -44,7 +44,6 @@ const config: ModuleNavConfig = {
         '/campus-living/blocks',
         '/campus-living/wardens',
         '/campus-living/allocations',
-        '/campus-living/vacate-requests',
       ],
       children: [
         {
@@ -118,6 +117,16 @@ const config: ModuleNavConfig = {
           icon: 'FileText',
           href: '/campus-living/allocations/onboarding/templates',
         },
+      ],
+    },
+    {
+      // Approver-facing queue (principal, CAO, …) — separate from Residents so
+      // roles without hostel access land on a bar that only shows their pages.
+      label: 'Requests',
+      icon: 'ClipboardList',
+      href: '/campus-living/vacate-requests',
+      matchPaths: ['/campus-living/vacate-requests'],
+      children: [
         {
           label: 'Vacate Requests',
           icon: 'LogOut',
@@ -646,6 +655,28 @@ const config: ModuleNavConfig = {
       ],
     },
     {
+      // Hostel-learner bill coverage + fee-band audit (2026-09-22). Both pages
+      // are gated on campus_living.billing_audit.view via MENU_PERMISSIONS.
+      label: 'Billing Audit',
+      icon: 'FileSearch',
+      href: '/campus-living/billing-audit',
+      matchPaths: ['/campus-living/billing-audit'],
+      children: [
+        {
+          label: 'Analytics',
+          icon: 'BarChart3',
+          href: '/campus-living/billing-audit',
+          exact: true,
+        },
+        {
+          label: 'Learner Audit',
+          icon: 'ListChecks',
+          href: '/campus-living/billing-audit/learners',
+          matchPaths: ['/campus-living/billing-audit/learners'],
+        },
+      ],
+    },
+    {
       label: 'Settings',
       icon: 'Settings',
       href: '/campus-living/settings',
@@ -771,6 +802,18 @@ const config: ModuleNavConfig = {
           icon: 'Clock',
           href: '/campus-living/settings/curfew',
           matchPaths: ['/campus-living/settings/curfew'],
+        },
+        {
+          label: 'Vacate Checklist',
+          icon: 'ListChecks',
+          href: '/campus-living/settings/vacate-checklist',
+          matchPaths: ['/campus-living/settings/vacate-checklist'],
+        },
+        {
+          label: 'Damage Types',
+          icon: 'Hammer',
+          href: '/campus-living/settings/damage-types',
+          matchPaths: ['/campus-living/settings/damage-types'],
         },
         // ── Premium Room (admin surfaces, now in-module) ────────────
         // Relocated 2026-06-01 from /admin/campus-living/* into the Campus

@@ -1,3 +1,4 @@
+import { BLOOD_GROUP_OPTIONS } from '@/lib/constants/learner-dropdown-values';
 // ============================================
 // BASIC DETAILS FORM SECTION
 // ============================================
@@ -226,19 +227,8 @@ export function BasicDetailsSection({
     { value: 'OTHERS', label: 'Others' }
   ];
 
-  // Blood group options
-  const bloodGroupOptions = [
-    { value: 'A+', label: 'A+' },
-    { value: 'A-', label: 'A-' },
-    { value: 'B+', label: 'B+' },
-    { value: 'B-', label: 'B-' },
-    { value: 'AB+', label: 'AB+' },
-    { value: 'AB-', label: 'AB-' },
-    { value: 'O+', label: 'O+' },
-    { value: 'O-', label: 'O-' },
-    { value: 'A1+', label: 'A1+' },
-    { value: 'A1B', label: 'A1B' }
-  ];
+  // Blood group options (shared with Excel template + import validation)
+  const bloodGroupOptions = BLOOD_GROUP_OPTIONS;
 
   return (
     <div className="space-y-6">

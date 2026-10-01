@@ -1,5 +1,7 @@
 import { useQuery, useMutation, useQueryClient, UseQueryOptions } from '@tanstack/react-query';
 import { LearnerProfileService } from '@/lib/services/learner-profile-service';
+import { FEATURE_KEYS, recordFeatureUse } from '@/lib/usage/record';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
   LearnerProfile,
   CreateLearnerProfileDto,
@@ -139,6 +141,8 @@ export function useCreateLearnerProfile() {
     mutationFn: (dto) =>
       LearnerProfileService.createLearnerProfile({ ...dto, lifecycle_status: 'active' }),
     onSuccess: () => {
+      // Adoption loop: a learner profile was created (signed-in client, never blocks).
+      void recordFeatureUse(createClientSupabaseClient(), FEATURE_KEYS.LEARNERS_CREATE_PROFILE);
       // Invalidate all lists and analytics
       queryClient.invalidateQueries({ queryKey: learnerProfileKeys.lists() });
       queryClient.invalidateQueries({ queryKey: learnerProfileKeys.analytics() });

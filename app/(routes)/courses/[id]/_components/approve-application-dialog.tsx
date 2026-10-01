@@ -9,10 +9,10 @@
 // disappears, and the dialog must not close itself. The admin dismisses it once
 // they have copied the credentials.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import {
-  AlertTriangle, BadgeCheck, Copy, IndianRupee, Loader2, Mail, ReceiptText,
+  AlertTriangle, BadgeCheck, Copy, IndianRupee, Loader2, Mail, ReceiptText, UserCheck,
 } from 'lucide-react';
 
 import {
@@ -26,7 +26,10 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { useCoursePackages } from '@/hooks/courses/use-course-packages';
-import { useApproveCourseApplication } from '@/hooks/courses/use-course-applications';
+import {
+  useApproveCourseApplication,
+  useCourseApplicantMatch,
+} from '@/hooks/courses/use-course-applications';
 import { isWindowOpen } from '@/lib/services/courses/application-window';
 import type { CourseApplication, CourseApprovalResult } from '@/types/courses';
 
@@ -84,6 +87,28 @@ export function ApproveApplicationDialog({
     application ? courseEventId : '',
   );
 
+  // Debounced, because this runs against whatever the admin has typed so far
+  // and every keystroke would otherwise be a round trip. 400ms is below the
+  // point where the banner feels laggy and well above typing speed.
+  const [debouncedEmail, setDebouncedEmail] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedEmail(email.trim().toLowerCase()), 400);
+    return () => clearTimeout(t);
+  }, [email]);
+
+  // Is this somebody MyJKKN already knows? Asked here purely so the admin can
+  // SEE it before clicking — the approve route asks again server-side and is
+  // what actually decides. A phone-only hit never links; it only warns.
+  const { data: match } = useCourseApplicantMatch(
+    debouncedEmail,
+    application?.applicant_phone ?? null,
+    Boolean(application) && !result,
+  );
+
+  const matched = match?.matched && !match.ambiguous ? match : null;
+  const ambiguous = Boolean(match?.ambiguous);
+  const phoneOnly = match?.phone_only_matches ?? [];
+
   // Only a package that can actually price an enrollment. The RPC refuses an
   // inactive one and one with no instalment schedule, so offering either here
   // would be inviting an error the admin cannot act on from this dialog.
@@ -126,7 +151,11 @@ export function ApproveApplicationDialog({
   // password, not by email, so an address is contact information rather than a
   // credential — requiring one would block approving the many applicants who
   // never gave one.
-  const canSubmit = Boolean(packageId) && chosenInstallments > 0 && !approve.isPending;
+  // Ambiguous blocks the button as well as the RPC: the approval would be
+  // refused anyway, and letting the click happen just to surface a raised
+  // exception is a worse way to say the same thing.
+  const canSubmit =
+    Boolean(packageId) && chosenInstallments > 0 && !approve.isPending && !ambiguous;
 
   return (
     <Dialog open={Boolean(application)} onOpenChange={(open) => !open && close()}>
@@ -139,9 +168,11 @@ export function ApproveApplicationDialog({
                 {application?.applicant_name} is enrolled
               </DialogTitle>
               <DialogDescription>
-                {result.reusedExistingIdentity
-                  ? 'This person already had a JKKN ID from an earlier course, so it has been reused — one person keeps one number for life.'
-                  : 'Pass these on to the participant. They sign in with the JKKN ID and this password. The password is shown once and cannot be retrieved again.'}
+                {result.participantType && result.participantType !== 'external'
+                  ? `${result.matchedName ?? 'This person'} already had a MyJKKN account, so their existing JKKN ID and login were reused — one person keeps one number for life.`
+                  : result.reusedExistingIdentity
+                    ? 'This person already had a JKKN ID from an earlier course, so it has been reused — one person keeps one number for life.'
+                    : 'Pass these on to the participant. They sign in with the JKKN ID and this password. The password is shown once and cannot be retrieved again.'}
               </DialogDescription>
             </DialogHeader>
 
@@ -193,8 +224,19 @@ export function ApproveApplicationDialog({
                 <p className="text-xs text-muted-foreground">
                   Enrollment {result.enrollment_no}
                 </p>
+                {/* Which sign-in page is not cosmetic: fn_resolve_participant_jkkn_id
+                    is scoped to person_kind='external_participant', so a reused
+                    team member's or learner's number does not resolve at
+                    /auth/participant-login and sending them there is a dead end. */}
                 <p className="text-xs text-muted-foreground">
-                  They sign in at <span className="font-mono">/auth/participant-login</span>
+                  {result.participantType && result.participantType !== 'external' ? (
+                    'They sign in to MyJKKN as they normally do, then open My Courses.'
+                  ) : (
+                    <>
+                      They sign in at{' '}
+                      <span className="font-mono">/auth/participant-login</span>
+                    </>
+                  )}
                 </p>
               </div>
             </div>
@@ -210,12 +252,64 @@ export function ApproveApplicationDialog({
             <DialogHeader>
               <DialogTitle>Approve {application?.applicant_name}</DialogTitle>
               <DialogDescription>
-                This creates a JKKN ID and a login, enrolls them, and raises the
-                instalment bills. It cannot be undone by rejecting afterwards.
+                {matched
+                  ? 'This person is already in MyJKKN. Approving enrols them under the identity they already hold and raises the instalment bills. It cannot be undone by rejecting afterwards.'
+                  : 'This creates a JKKN ID and a login, enrolls them, and raises the instalment bills. It cannot be undone by rejecting afterwards.'}
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4">
+              {/* Who this actually is, before the click. */}
+              {matched && (
+                <div className="flex gap-2 rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm dark:border-emerald-900 dark:bg-emerald-950/40">
+                  <UserCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-500" />
+                  <p className="text-emerald-900 dark:text-emerald-200">
+                    This email belongs to{' '}
+                    <strong>{matched.display_name ?? 'an existing MyJKKN account'}</strong>
+                    {matched.jkkn_id ? (
+                      <>
+                        {' '}(JKKN ID <span className="font-mono">{matched.jkkn_id}</span>
+                        {matched.matched_on ? `, ${matched.matched_on}` : ''})
+                      </>
+                    ) : null}
+                    . They will be enrolled under that identity —{' '}
+                    <strong>no new JKKN ID and no new password</strong>.
+                  </p>
+                </div>
+              )}
+
+              {/* One address, two people. Approving would have to guess. */}
+              {ambiguous && (
+                <div className="flex gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                  <p className="text-destructive">
+                    This email address belongs to more than one person (JKKN IDs{' '}
+                    <span className="font-mono">{(match?.jkkn_ids ?? []).join(', ')}</span>).
+                    Approving would have to guess which of them is applying. Use an
+                    address that belongs to only one of them, or link this application
+                    by hand.
+                  </p>
+                </div>
+              )}
+
+              {/* Phone matches NEVER link automatically — families share numbers,
+                  and the 2026-08-27 register backfill withheld 18 such pairs for
+                  human review rather than merging them. This banner IS that review. */}
+              {phoneOnly.length > 0 && (
+                <div className="flex gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-900 dark:bg-amber-950/40">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-500" />
+                  <p className="text-amber-900 dark:text-amber-200">
+                    {phoneOnly.length === 1
+                      ? 'Someone else already uses this phone number: '
+                      : `${phoneOnly.length} other people already use this phone number: `}
+                    {phoneOnly
+                      .map((m) => `${m.display_name ?? 'unnamed'} (${m.jkkn_id}, ${m.kind})`)
+                      .join('; ')}
+                    . Nothing has been linked — check this is a different person before
+                    approving.
+                  </p>
+                </div>
+              )}
               <div className="space-y-1.5">
                 <Label htmlFor="approve-email">Email address (optional)</Label>
                 <Input

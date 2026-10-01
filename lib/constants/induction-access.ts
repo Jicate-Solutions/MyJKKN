@@ -102,3 +102,35 @@ export const INDUCTION_ONLY_NAV_REWRITES: Record<
     label: 'Service Requests',
   },
 };
+
+// ---------------------------------------------------------------------------
+// What a pre-onboarding learner is actually waiting FOR (BUG-005921 et al).
+//
+// The first version of the notice told every induction-only learner that the
+// rest of MyJKKN "unlocks automatically once your onboarding is complete".
+// That is wrong for most of them. Production, 22 Sep 2026: of the 729 learners
+// in these five statuses, 454 (enquiry_submitted 408 + enquiry 46) have not
+// been admitted yet — nothing they do to their own profile opens anything,
+// the college has to admit them first, and for some it never will (94 are
+// `rejected`). Only the remaining 275 (reserved 121, account 78, admitted 76)
+// are waiting on onboarding/activation.
+//
+// So the notice says which of the two waits this learner is in. Anything not
+// in the list returns null and the notice renders nothing.
+export type InductionWait = 'awaiting_admission' | 'awaiting_activation';
+
+export function inductionWaitFor(
+  status: string | null | undefined
+): InductionWait | null {
+  switch (status) {
+    case 'enquiry':
+    case 'enquiry_submitted':
+      return 'awaiting_admission';
+    case 'reserved':
+    case 'admitted':
+    case 'account':
+      return 'awaiting_activation';
+    default:
+      return null;
+  }
+}

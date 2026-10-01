@@ -9,6 +9,7 @@ import type {
   BillingReportFilters,
   OutstandingReport,
   CollectionReport,
+  CollectionDaywiseRow,
   DiscountReport,
   RefundReport,
   InvoiceReport,
@@ -74,27 +75,19 @@ export class BillingReportService extends BaseService {
   }
 
   /**
-   * The FULL filtered collection set in one call (p_limit null), not one page.
-   *
-   * Backs the Collection tab's payment-mode totals, mode filter and search —
-   * none of which can be derived from a single 50-row page, and none of which
-   * the RPC accepts as parameters. Capped at the RPC's own 10,000 LIMIT;
-   * billing_receipts holds 2,821 rows today, so the whole set arrives.
-   * `truncated` says whether that cap was actually reached, so the UI can warn
-   * instead of quietly reporting partial money totals.
+   * Collection tab: the whole filtered range (no paging) with the
+   * transaction detail columns, ordered by receipt_date ASC so the tab can
+   * group consecutive rows into day sections. Capped at 10,000 by the RPC.
    */
-  static async getCollectionFullSet(
+  static async getCollectionDaywise(
     filters: BillingReportFilters = {}
-  ): Promise<{ rows: CollectionReport[]; truncated: boolean }> {
-    const raw = await this.executeDashboardRPC<any[]>(
-      'get_billing_reports_collection',
-      { ...buildReportScope(filters), ...EXPORT_PAGE }
+  ): Promise<{ rows: CollectionDaywiseRow[]; truncated: boolean }> {
+    const raw = await this.executeDashboardRPC<CollectionDaywiseRow[]>(
+      'get_billing_reports_collection_daywise',
+      buildReportScope(filters)
     );
-    const list = raw ?? [];
-    return {
-      rows: list.map(({ total_count: _drop, ...rest }) => rest) as CollectionReport[],
-      truncated: list.length >= 10000,
-    };
+    const rows = raw ?? [];
+    return { rows, truncated: rows.length >= 10000 };
   }
 
   static async getInvoiceReport(

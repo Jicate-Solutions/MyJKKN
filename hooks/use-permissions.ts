@@ -572,6 +572,15 @@ export function usePermissions(
     userRoles.length > 0 &&
     userRoles.every((r) => (r as any).institution_scope !== 'all');
 
+  // True when the user may reach EVERY institution: super admin, or any
+  // assigned role carrying institution_scope = 'all' (mirrors
+  // role_has_institution_access() and get_user_accessible_institutions()).
+  // Use this — not isSuperAdmin — to decide whether to show a cross-campus
+  // institution picker; ceo / managing_director / accreditation_officer are
+  // scope 'all' without being super admins.
+  const hasAllInstitutionsScope =
+    isSuperAdmin || userRoles.some((r) => (r as any).institution_scope === 'all');
+
   // Mirror of the DB function get_user_module_scope(). Returns the most
   // permissive scope across the user's roles for a given module. Lets UI
   // gate fields without a DB roundtrip (RLS still enforces at write time).
@@ -608,6 +617,7 @@ export function usePermissions(
     isAdmissionGlobalUser,
     isCounselorUser,
     isInstitutionScoped,
+    hasAllInstitutionsScope,
     getModuleScope,
     userProfile,
     // Refetch the permission query — used by nav surfaces to offer an explicit

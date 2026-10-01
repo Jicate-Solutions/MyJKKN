@@ -154,6 +154,14 @@ export function ApplyWidget({
   const [honeypot, setHoneypot] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [reference, setReference] = useState<string | null>(null);
+  // What the server did with the submission. Registration is self-service since
+  // 2026-09-19: most applicants are provisioned on the spot and simply need to
+  // open their inbox. The route falls back to the old review flow when it
+  // cannot safely do that, and these two flags are how the screen tells which
+  // happened. Deliberately no JKKN ID and no password — neither is ever sent
+  // back to an unverified browser.
+  const [autoApproved, setAutoApproved] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
 
   // The course charges fees, but no tier is on sale right now. `packages` is
   // empty in this case exactly as it is for a free course, which is why the
@@ -211,6 +219,8 @@ export function ApplyWidget({
         toast.error(json?.error ?? 'Could not submit your application. Please try again.');
         return;
       }
+      setAutoApproved(Boolean(json.autoApproved));
+      setEmailSent(Boolean(json.emailSent));
       setReference(json.reference ?? null);
     } catch {
       toast.error('Could not reach the server. Please check your connection and try again.');
@@ -228,9 +238,13 @@ export function ApplyWidget({
         <div className="h-1.5 w-full bg-primary" />
         <main className="mx-auto w-full max-w-xl px-5 py-16 text-center">
           <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-600" />
-          <h1 className="mt-4 text-2xl font-bold">Application received</h1>
+          <h1 className="mt-4 text-2xl font-bold">
+            {autoApproved ? "You're enrolled" : 'Application received'}
+          </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Thank you for applying to {form.courseTitle}.
+            {autoApproved
+              ? `You have a place on ${form.courseTitle}.`
+              : `Thank you for applying to ${form.courseTitle}.`}
           </p>
           {reference && (
             <p className="mt-4 text-sm">
@@ -240,11 +254,41 @@ export function ApplyWidget({
               </span>
             </p>
           )}
-          <p className="mt-6 text-sm text-muted-foreground">
-            Your application will be reviewed by the institution. If it is accepted you will
-            receive a JKKN ID and a login by email or WhatsApp, and you will be able to pay
-            your instalments there. Nothing is payable now.
-          </p>
+
+          {autoApproved && emailSent ? (
+            // The headline case. The credentials exist and are in their inbox —
+            // they are never shown here, because this page is public and the
+            // browser that submitted the form proved nothing about the address.
+            <div className="mt-6 space-y-3 text-sm">
+              <p className="font-medium">Check your email to sign in.</p>
+              <p className="text-muted-foreground">
+                We have sent your JKKN ID and password to the address you gave. Use them to
+                sign in and see your payment schedule. Nothing is payable now.
+              </p>
+              <a href="/auth/participant-login" className="inline-block underline">
+                Go to the sign-in page
+              </a>
+              <p className="text-xs text-muted-foreground">
+                No email after a few minutes? Check your spam folder, then contact the
+                institution.
+              </p>
+            </div>
+          ) : autoApproved ? (
+            // Provisioned, but the email did not go out — so they hold
+            // credentials they cannot read. Say it plainly rather than sending
+            // them to a sign-in page they cannot get through.
+            <p className="mt-6 text-sm text-muted-foreground">
+              Your place is confirmed, but we could not email your sign-in details. Please
+              contact the institution running this course, quoting the reference above, and
+              they will send them to you.
+            </p>
+          ) : (
+            <p className="mt-6 text-sm text-muted-foreground">
+              Your application will be reviewed by the institution. If it is accepted you will
+              receive a JKKN ID and a login by email or WhatsApp, and you will be able to pay
+              your instalments there. Nothing is payable now.
+            </p>
+          )}
           <Link
             href={`/course/${courseSlug}`}
             className="mt-8 inline-block text-sm underline"

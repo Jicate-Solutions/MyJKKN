@@ -13,6 +13,7 @@ import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { LEAVE_DURATION_LABELS } from '@/types/hr';
 import {
   APPLICABLE_GENDER_LABELS,
+  LEAVE_STAFF_GROUP_LABELS,
   REQUEST_CATEGORY_LABELS,
   type HRLeaveType,
 } from '@/types/hr-leave-types';
@@ -27,6 +28,7 @@ export interface LeaveTypeColumnActions {
   onEdit: (t: HRLeaveType) => void;
   /** Opens the approval-chain editor for this type. */
   onApprovalFlow: (t: HRLeaveType) => void;
+  onEligibilityFlow: (t: HRLeaveType) => void;
   /** Asks the page to open its archive confirmation. */
   onArchive: (t: HRLeaveType) => void;
   onActivate: (t: HRLeaveType) => Promise<void> | void;
@@ -183,16 +185,65 @@ export function getLeaveTypeColumns(
         const cov = actions.flowCoverage;
         if (!cov) return <span className="text-muted-foreground">—</span>;
 
+        // Teaching / Non-teaching overrides, shown beside whatever the base
+        // state is. A group chip does NOT make the type "covered" — those staff
+        // are routed separately, everybody else still follows the base flow —
+        // so it is rendered alongside, never instead of, the state below.
+        const groups = [...(cov.groupFlows?.get(t.id) ?? [])].sort();
+        const groupChips = groups.length > 0 && (
+          <span className="ml-1.5 inline-flex gap-1">
+            {groups.map((g) => (
+              <Badge
+                key={g}
+                variant="outline"
+                className="text-[10px] font-normal"
+                title={`${LEAVE_STAFF_GROUP_LABELS[g]} team members have their own approval flow for this leave type.`}
+              >
+                {LEAVE_STAFF_GROUP_LABELS[g]}
+              </Badge>
+            ))}
+          </span>
+        );
+
+        // WHO DECIDES ELIGIBILITY, only on a gated type. Three states, none of
+        // them an error: an eligibility flow of its own, the institution's
+        // eligibility catch-all, or — the documented fallback — the leave
+        // approvers above. Rendered beside the leave state, never instead of
+        // it, because the two decisions are taken by different people.
+        const eligibilityChip = t.requires_eligibility && (
+          <Badge
+            variant="outline"
+            className="ml-1.5 text-[10px] font-normal"
+            title={
+              cov.eligibilityFlowTypeIds?.has(t.id)
+                ? 'Eligibility requests have their own approvers. Edit with “Who approves eligibility”.'
+                : cov.orgsWithEligibilityCatchAll?.has(t.hr_organization_id)
+                  ? 'Eligibility requests follow the institution’s eligibility flow. Use “Who approves eligibility” to set one for this type.'
+                  : 'No eligibility approvers set, so eligibility requests go to the leave approvers. Use “Who approves eligibility” to change that.'
+            }
+          >
+            {cov.eligibilityFlowTypeIds?.has(t.id)
+              ? 'Eligibility: own'
+              : cov.orgsWithEligibilityCatchAll?.has(t.hr_organization_id)
+                ? 'Eligibility: org'
+                : 'Eligibility: leave approvers'}
+          </Badge>
+        );
+
         // A type with its OWN flow. The only state the row menu's "Who approves
         // this" has actually been used for.
         if (cov.ownFlowTypeIds.has(t.id)) {
           return (
-            <Badge
-              variant="secondary"
-              title="This leave type has its own approval flow, which beats the organisation's catch-all."
-            >
-              Own flow
-            </Badge>
+            <span className="inline-flex flex-wrap items-center gap-y-1">
+              <Badge
+                variant="secondary"
+                title="This leave type has its own approval flow, which beats the organisation's catch-all."
+              >
+                Own flow
+              </Badge>
+              {groupChips}
+              {eligibilityChip}
+            </span>
           );
         }
 
@@ -201,11 +252,15 @@ export function getLeaveTypeColumns(
         // not read as something to fix.
         if (cov.orgsWithCatchAll.has(t.hr_organization_id)) {
           return (
-            <span
-              className="text-xs text-muted-foreground"
-              title="No flow of its own, so it follows the organisation's catch-all flow. Use “Who approves this” to give it a specific one."
-            >
-              Org default
+            <span className="inline-flex items-center">
+              <span
+                className="text-xs text-muted-foreground"
+                title="No flow of its own, so it follows the organisation's catch-all flow. Use “Who approves this” to give it a specific one."
+              >
+                Org default
+              </span>
+              {groupChips}
+              {eligibilityChip}
             </span>
           );
         }
@@ -214,12 +269,15 @@ export function getLeaveTypeColumns(
         // can apply for this leave type at all — the one case worth shouting
         // about, and the reason this column exists.
         return (
-          <Badge
-            variant="destructive"
-            title="No approval flow resolves for this leave type, so applying for it fails outright. Use “Who approves this” on the row menu, or give the organisation a catch-all flow."
-          >
-            Not set
-          </Badge>
+          <span className="inline-flex flex-wrap items-center gap-y-1">
+            <Badge
+              variant="destructive"
+              title="No approval flow resolves for this leave type, so applying for it fails outright. Use “Who approves this” on the row menu, or give the organisation a catch-all flow."
+            >
+              Not set
+            </Badge>
+            {eligibilityChip}
+          </span>
         );
       },
     },
@@ -291,6 +349,7 @@ export function getLeaveTypeColumns(
           onAssign={actions.onAssign}
           onEdit={actions.onEdit}
           onApprovalFlow={actions.onApprovalFlow}
+          onEligibilityFlow={actions.onEligibilityFlow}
           onArchive={actions.onArchive}
           onActivate={actions.onActivate}
           onDelete={actions.onDelete}

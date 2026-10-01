@@ -47,7 +47,7 @@ const todayISO = () => new Date().toISOString().slice(0, 10);
 
 /** dd Mon yyyy — cover dates are read at a glance, not parsed. */
 const fmtDate = (d: string | null) =>
-  d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+  d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }) : '—';
 
 export default function SeniorPeerMentorConsolePage() {
   const params = useParams();

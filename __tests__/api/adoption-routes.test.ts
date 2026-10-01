@@ -207,6 +207,8 @@ describe('POST /api/admin/adoption/register', () => {
       p_module: 'gate',
       p_source_pr: 3842,
       p_shipped_at: null,
+      p_cadence: 'weekly',
+      p_skip_reason: null,
       p_usage_wired: false,
       p_event_module: null,
       p_event_feature: null,
@@ -243,6 +245,61 @@ describe('POST /api/admin/adoption/register', () => {
     rpcData = { success: true, feature_key: 'gate.pass_issue' };
     await registerPost(post('register', VALID_BODY.register));
     expect(userRpc.mock.calls[0][1]).toMatchObject({ p_intended_roles: ['all'] });
+  });
+
+  it('judges by the week unless the label says term', async () => {
+    // Every feature labelled before cadence existed is weekly, so an absent
+    // field must not quietly turn one seasonal.
+    rpcData = { success: true, feature_key: 'gate.pass_issue' };
+    await registerPost(post('register', VALID_BODY.register));
+    expect(userRpc.mock.calls[0][1]).toMatchObject({ p_cadence: 'weekly' });
+  });
+
+  it('passes a seasonal label through as term', async () => {
+    rpcData = { success: true, feature_key: 'academic.timetable_publish' };
+    const res = await registerPost(
+      post('register', {
+        feature_key: 'academic.timetable_publish',
+        title: 'Publish a timetable',
+        core_action: 'publish a timetable for a section',
+        cadence: 'term',
+      })
+    );
+    expect(res.status).toBe(200);
+    expect(userRpc.mock.calls[0][1]).toMatchObject({ p_cadence: 'term' });
+  });
+
+  it('refuses a third cadence before the database sees it', async () => {
+    // 'yearly' is not a cadence the loop knows. Refusing it here gives a
+    // readable sentence instead of a constraint violation from the RPC.
+    const res = await registerPost(
+      post('register', { ...VALID_BODY.register, cadence: 'yearly' })
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/weekly or term/i);
+    expect(userRpc).not.toHaveBeenCalled();
+  });
+
+  it('carries a skip reason through, trimmed', async () => {
+    rpcData = { success: true, feature_key: 'ops.nightly_rollup' };
+    await registerPost(
+      post('register', {
+        ...VALID_BODY.register,
+        skip_reason: '  a cron job, nobody opens it  ',
+      })
+    );
+    expect(userRpc.mock.calls[0][1]).toMatchObject({
+      p_skip_reason: 'a cron job, nobody opens it',
+    });
+  });
+
+  it('sends null for an empty skip box, which puts a feature back in the numbers', async () => {
+    // The database writes whatever it is given, so an empty string would store
+    // a blank skip and hide the feature from every headline with no reason
+    // shown. Null is what clears the skip.
+    rpcData = { success: true, feature_key: 'gate.pass_issue' };
+    await registerPost(post('register', { ...VALID_BODY.register, skip_reason: '   ' }));
+    expect(userRpc.mock.calls[0][1]).toMatchObject({ p_skip_reason: null });
   });
 
   it('drops blank and non-text entries from the audience list', async () => {
@@ -394,5 +451,36 @@ describe('POST /api/admin/adoption/sync', () => {
     const res = await syncPost(post('sync', { days: 30 }));
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/switched off/);
+  });
+});
+
+describe('POST /api/admin/adoption/register — cadence', () => {
+  it('accepts a feature that is used only when the occasion arises', async () => {
+    rpcData = { success: true, feature_key: 'bug_reports.submit', cadence: 'event' };
+    const res = await registerPost(
+      post('register', {
+        feature_key: 'bug_reports.submit',
+        title: 'Report a bug',
+        core_action: 'report a problem you hit',
+        cadence: 'event',
+      })
+    );
+    expect(res.status).toBe(200);
+    expect(userRpc).toHaveBeenCalledWith(
+      'fn_adoption_register',
+      expect.objectContaining({ p_cadence: 'event' })
+    );
+  });
+
+  it('still refuses a cadence nobody defined', async () => {
+    const res = await registerPost(
+      post('register', {
+        feature_key: 'gate.pass_issue',
+        title: 'Gate pass',
+        core_action: 'issue a gate pass',
+        cadence: 'yearly',
+      })
+    );
+    expect(res.status).toBe(400);
   });
 });

@@ -355,14 +355,18 @@ export interface AttendanceMonthSummary {
   // The counts above answer "what did each day look like"; these answer "how
   // many days am I paid for". Kept in the same pass so the two can never
   // disagree about a day.
-  /** Days in the month minus week offs. Holidays ARE working days. */
+  /**
+   * Business working days: days in the month minus week offs minus holidays
+   * (HR, 2026-09-22). The same unit the salary register divides by, so the
+   * two screens print the same figure for the same person.
+   */
   workingDays: number;
   /** Per leave type, biggest first. Only types that actually appear. */
   paidLeaveByType: PaidLeaveBucket[];
   paidLeaveTotal: number;
   /** Absent days, plus half a day for every half day. */
   lop: number;
-  /** Present + holiday + paid leave + half a day for every half day. */
+  /** Present + paid leave (every paid type) + half a day for every half day. */
   totalPaid: number;
 }
 
@@ -662,10 +666,12 @@ export function summariseDays(days: AttendanceDay[]): AttendanceMonthSummary {
     }
   }
 
-  // Holidays stay inside working days deliberately: they are paid days that
-  // fall on a workable date, so excluding them would make totalPaid exceed
-  // workingDays. Only a week off is genuinely outside the month's work.
-  s.workingDays = inMonthDays - s.weeklyOff;
+  // BUSINESS working days: week offs AND holidays are outside the month's
+  // work (HR, 2026-09-22). Holidays used to sit inside — 26 for Pharmacy
+  // August against the register's 23 — and the two screens never printed the
+  // same number for the same person. A holiday is now neither counted nor
+  // paid, on both.
+  s.workingDays = inMonthDays - s.weeklyOff - s.holiday;
 
   s.paidLeaveByType = [...buckets.values()].sort(
     (a, b) => b.days - a.days || a.code.localeCompare(b.code),
@@ -673,9 +679,10 @@ export function summariseDays(days: AttendanceDay[]): AttendanceMonthSummary {
   s.paidLeaveTotal = s.paidLeaveByType.reduce((n, b) => n + b.days, 0);
 
   // A half day is half worked and half lost, so it lands on both sides and the
-  // identity paid + lop + pending = workingDays still holds.
+  // identity paid + lop + pending = workingDays still holds. paidLeaveTotal is
+  // every paid type — CL, OD, comp-off and whatever an institution has added.
   s.lop = s.absent + s.halfDay * 0.5;
-  s.totalPaid = s.present + s.holiday + s.paidLeaveTotal + s.halfDay * 0.5;
+  s.totalPaid = s.present + s.paidLeaveTotal + s.halfDay * 0.5;
 
   return s;
 }

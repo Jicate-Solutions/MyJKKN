@@ -16,8 +16,10 @@ import { motion, AnimatePresence } from 'motion/react';
 import { usePaymentStatus } from '@/hooks/billing/use-payment-gateway';
 import {
   buildPaymentRedirectUrl,
+  buildPaymentSuccessLinks,
   shouldRedirectToFailedPage,
 } from '@/lib/billing/payment-status-flow';
+import { useAuth } from '@/hooks/use-auth';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 // Success Animation Component
@@ -123,12 +125,20 @@ export default function PaymentSuccessPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [paymentStatus, setPaymentStatus] = useState<'success' | 'pending' | 'failed'>('pending');
   const [showContent, setShowContent] = useState(false);
+  const { profile, isLoading: isAuthLoading } = useAuth();
 
   // Verify actual payment status from database (security: don't trust URL params alone)
   const { data: verifiedStatus, isLoading: isVerifying } = usePaymentStatus(
     transactionId,
     !!transactionId
   );
+
+  // Students go to /learners/my-bills — the admin receipt/bill pages deny them.
+  const links = buildPaymentSuccessLinks({
+    isStudent: profile?.role === 'student',
+    receiptId,
+    studentId: verifiedStatus?.student_id,
+  });
 
   // Format amount for display (Indian Rupee format)
   const formattedAmount = amount
@@ -269,7 +279,8 @@ export default function PaymentSuccessPage() {
     );
   }
 
-  if (isLoading || isVerifying) {
+  // Wait for the profile too: the buttons' destinations depend on the role.
+  if (isLoading || isVerifying || isAuthLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 via-emerald-50 to-teal-50 dark:from-gray-900 dark:via-green-950 dark:to-gray-800">
         <motion.div
@@ -502,29 +513,21 @@ export default function PaymentSuccessPage() {
                     transition={{ delay: 1, duration: 0.5 }}
                     className="flex flex-col sm:flex-row gap-3 pt-4"
                   >
-                    {receiptId && paymentStatus === 'success' && (
+                    {links.receipt && paymentStatus === 'success' && (
                       <Button
                         size="lg"
                         className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white shadow-lg"
-                        onClick={() => router.push(`/billing/receipts/${receiptId}`)}
+                        onClick={() => router.push(links.receipt!)}
                       >
                         <ReceiptIndianRupee className="mr-2 h-5 w-5" />
-                        View Receipt
+                        View / Download Receipt
                       </Button>
                     )}
                     <Button
                       size="lg"
                       variant={receiptId && paymentStatus === 'success' ? 'outline' : 'default'}
                       className="flex-1"
-                      onClick={() => {
-                        // Navigate to student's individual bill page if student_id is available
-                        const studentId = verifiedStatus?.student_id;
-                        if (studentId) {
-                          router.push(`/billing/schedule/students/${studentId}`);
-                        } else {
-                          router.push('/billing/schedule/students');
-                        }
-                      }}
+                      onClick={() => router.push(links.bills)}
                     >
                       <ReceiptIndianRupee className="mr-2 h-5 w-5" />
                       View My Bills

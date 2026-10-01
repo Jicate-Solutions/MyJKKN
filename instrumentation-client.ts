@@ -10,6 +10,17 @@ Sentry.init({
   // Add optional integrations for additional features
   integrations: [Sentry.replayIntegration()],
 
+  // A service-worker UPDATE check is best-effort and its failure is benign:
+  // the already-active worker keeps serving the page, so nothing the person
+  // is doing breaks. These were the top user-facing issues in Sentry anyway —
+  // group 7459568684 (JAVASCRIPT-NEXTJS-1J, TypeError "An unknown error
+  // occurred when fetching the script", 309 events / 23 users) and group
+  // 7514970624 (JAVASCRIPT-NEXTJS-41, InvalidStateError, 20 events / 9 users).
+  // The caller now catches and warns (components/pwa/sw-update.ts); this is
+  // the second layer, for the browsers and extensions that raise the same
+  // failure from outside our own call sites.
+  ignoreErrors: [/Failed to update a ServiceWorker/],
+
   // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
   tracesSampleRate: 0.05,
   // Enable logs to be sent to Sentry

@@ -73,6 +73,18 @@ export interface BiometricReport {
   /** 1-12. */
   month: number;
   employees: BiometricEmployee[];
+  /**
+   * First and last day-of-month carrying a punch ANYWHERE in the file, or null
+   * when the file holds no punch at all.
+   *
+   * This DECIDES NOTHING. The importer processes the range the user chose; this
+   * pair only lets it say "you asked for all 30 days but this export stops on
+   * the 15th" before it marks half a month absent. A mid-month export is the
+   * normal case here — the report is pulled fortnightly — so the tail of blank
+   * columns is expected, not a fault.
+   */
+  punchDayFrom: number | null;
+  punchDayTo: number | null;
   /** Non-fatal problems worth showing the user. */
   warnings: string[];
 }
@@ -151,6 +163,9 @@ function parseMonthLabel(label: string): { year: number; month: number } | null 
 
 const iso = (y: number, m: number, d: number) =>
   `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+/** Last day of a 1-based month. Day 0 of month m+1 is the last day of month m. */
+export const lastDayOfMonth = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate();
 
 /** Rows +4..+9 are labelled in column A; match on the label, never on order. */
 const METRIC_ROWS = ['in', 'out', 'work', 'break', 'ot', 'status'] as const;
@@ -236,8 +251,48 @@ export function parseMonthlyReportGrid(aoa: unknown[][]): BiometricReport {
   if (!parsedMonth) {
     warnings.push(`Could not read the Report Month ("${monthLabel}"). Dates cannot be resolved.`);
   } else {
+    // The machine prints a FIXED 31 day-columns whatever the month is, so a
+    // 30-day month arrives with a day-31 column (blank metrics) and a 28-day
+    // February with three. Formatting those blind produced '2026-09-31', which
+    // the importer sends straight to fn_resolve_shift_timings_bulk(p_to date)
+    // and Postgres rejects with 22008 — killing the whole preview before a
+    // single row is written. Only July and August had ever been imported, so
+    // every 30-day month failed from the start (2026-09-19).
+    //
+    // DROP, never clamp: clamping day 31 onto the 30th would give that date two
+    // cells and let the phantom one win the upsert on (employee_id, work_date).
+    const lastDay = lastDayOfMonth(parsedMonth.year, parsedMonth.month);
+    let droppedCells = 0;
+    let droppedWithPunches = 0;
     for (const e of employees) {
+      const real = e.days.filter((d) => d.day <= lastDay);
+      for (const d of e.days) {
+        if (d.day <= lastDay) continue;
+        droppedCells += 1;
+        if (d.inTime || d.outTime) droppedWithPunches += 1;
+      }
+      e.days = real;
       for (const d of e.days) d.workDate = iso(parsedMonth.year, parsedMonth.month, d.day);
+    }
+    if (droppedCells > 0) {
+      warnings.push(
+        `${monthLabel} has ${lastDay} days — ignored ${droppedCells} cell(s) in day columns past ${lastDay}.` +
+          (droppedWithPunches > 0
+            ? ` ${droppedWithPunches} of them carried punches, which cannot belong to this month.`
+            : ''),
+      );
+    }
+  }
+
+  // After the month-length filter, so a punch in a column that cannot exist
+  // (day 31 of September) can never widen the detected span.
+  let punchDayFrom: number | null = null;
+  let punchDayTo: number | null = null;
+  for (const e of employees) {
+    for (const d of e.days) {
+      if (!d.inTime && !d.outTime) continue;
+      if (punchDayFrom === null || d.day < punchDayFrom) punchDayFrom = d.day;
+      if (punchDayTo === null || d.day > punchDayTo) punchDayTo = d.day;
     }
   }
 
@@ -247,6 +302,8 @@ export function parseMonthlyReportGrid(aoa: unknown[][]): BiometricReport {
     monthLabel,
     year: parsedMonth?.year ?? 0,
     month: parsedMonth?.month ?? 0,
+    punchDayFrom,
+    punchDayTo,
     employees,
     warnings,
   };
@@ -289,7 +346,8 @@ export function parseMonthlyReportFile(data: ArrayBuffer | Uint8Array): Biometri
   if (!ws) {
     return {
       institutionCode: '', institutionName: '', monthLabel: '', year: 0, month: 0,
-      employees: [], warnings: ['The workbook has no readable sheet.'],
+      employees: [], punchDayFrom: null, punchDayTo: null,
+      warnings: ['The workbook has no readable sheet.'],
     };
   }
   const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, {

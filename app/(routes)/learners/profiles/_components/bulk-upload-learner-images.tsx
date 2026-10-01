@@ -294,7 +294,7 @@ export function BulkUploadLearnerImages({
       // Extract roll number from filename
       const rollNumber = extractRollNumberFromFilename(file.name);
       const extractionError = !rollNumber
-        ? 'Could not extract roll number from filename. Expected format: ROLLNUMBER.jpg (e.g., 123654789.jpg, 24MBA60.jpg, DB22092.jpg)'
+        ? 'Could not extract roll number from filename. Expected format: ROLLNUMBER.jpg (e.g., 4559.jpg, 123654789.jpg, 24MBA60.jpg, DB22092.jpg)'
         : undefined;
 
       // Validate file type and size

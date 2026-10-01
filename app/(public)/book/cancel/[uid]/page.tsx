@@ -12,9 +12,19 @@
 // (avoid naming a routing-config slug "cancel" regardless).
 //
 // Pattern: app/(public)/book/[slug]/page.tsx (service-role load, no auth).
+//
+// An interview-link booking inside its last two hours opens as 'too-close'
+// (no cancel form): the candidate contacts the office instead (#11 — the team
+// lead reads "after that they contact the office" as covering cancelling too).
 
 import type { Metadata, Viewport } from 'next';
 import { createClient } from '@supabase/supabase-js';
+import {
+  CHANGE_CUTOFF_MESSAGE,
+  getChangeCutoffMin,
+  isInsideChangeCutoff,
+  isInterviewLinkSource,
+} from '@/lib/services/hr/interview-booking-service';
 import { CancelWidget } from './_components/cancel-widget';
 
 export const dynamic = 'force-dynamic';
@@ -52,6 +62,8 @@ interface BookingView {
   status: string;
   /** Wave-3 lifecycle: free-text policy shown to the attendee on this page. */
   cancellationPolicy: string | null;
+  /** Interview-link booking inside the change cutoff — the candidate may not cancel it (#11). */
+  tooClose: boolean;
 }
 
 async function loadBooking(uid: string, token: string): Promise<BookingView | null> {
@@ -62,7 +74,7 @@ async function loadBooking(uid: string, token: string): Promise<BookingView | nu
   );
   const { data: booking } = await supabase
     .from('meeting_bookings')
-    .select('cancel_token, status, start_time, meeting_type_id, host_profile_id')
+    .select('cancel_token, status, start_time, meeting_type_id, host_profile_id, source')
     .eq('uid', uid)
     .maybeSingle();
   // Token gate BEFORE any detail leaves the server.
@@ -91,6 +103,11 @@ async function loadBooking(uid: string, token: string): Promise<BookingView | nu
     status: booking.status as string,
     cancellationPolicy:
       ((mt as { cancellation_policy?: string | null } | null)?.cancellation_policy ?? null) || null,
+    // After the token gate, so a wrong link learns nothing. The policy is only
+    // read for interview-link bookings; ordinary meetings never reach it.
+    tooClose:
+      isInterviewLinkSource(booking.source as string | null) &&
+      isInsideChangeCutoff(booking.start_time as string, await getChangeCutoffMin(supabase)),
   };
 }
 
@@ -107,7 +124,9 @@ export default async function CancelBookingPage({ params, searchParams }: Cancel
         ? ('invalid' as const)
         : new Date(booking.startTime).getTime() < Date.now()
           ? ('past' as const)
-          : ('confirm' as const);
+          : booking.tooClose
+            ? ('too-close' as const)
+            : ('confirm' as const);
 
   return (
     <CancelWidget
@@ -118,6 +137,8 @@ export default async function CancelBookingPage({ params, searchParams }: Cancel
       hostName={booking?.hostName ?? ''}
       startTime={booking?.startTime ?? ''}
       cancellationPolicy={booking?.cancellationPolicy ?? null}
+      // A fixed sentence, not booking data — safe to send with any link state.
+      tooCloseMessage={CHANGE_CUTOFF_MESSAGE}
     />
   );
 }
