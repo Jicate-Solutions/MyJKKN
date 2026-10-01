@@ -216,6 +216,7 @@ export default function HrSupervisorTeamReviewPage() {
         selected.id,
         'draft',
         sendBackReason,
+        selected.updated_at,
       );
       toast.success('Sent back to the person to redo.');
       setReviews((rs) => rs.map((r) => (r.id === updated.id ? updated : r)));
@@ -257,6 +258,7 @@ export default function HrSupervisorTeamReviewPage() {
         supabase,
         selected.id,
         form as unknown as Record<string, unknown>,
+        selected.updated_at,
       );
       toast.success('Review submitted to SEDC.');
       setReviews((rs) => rs.map((r) => (r.id === updated.id ? updated : r)));

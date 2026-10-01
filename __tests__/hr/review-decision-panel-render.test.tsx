@@ -182,7 +182,7 @@ describe('committee step (supervisor_reviewed)', () => {
       ratings: { teaching: 'exceeds', research: 'below', service: 'exceeds', collegiality: 'meets' },
       collegiality_example: '',
       normalisation_notes: 'Raised Teaching on the course feedback.',
-    });
+    }, '2026-09-01T00:00:00Z');
     await vi.waitFor(() => expect(onDone).toHaveBeenCalled());
   });
 
@@ -194,7 +194,7 @@ describe('committee step (supervisor_reviewed)', () => {
     fireEvent.click(screen.getByRole('button', { name: /Send back to the head of department/ }));
     await vi.waitFor(() => expect(svc.sendBack).toHaveBeenCalledTimes(1));
     expect(svc.sendBack).toHaveBeenCalledWith(
-      SUPABASE, 'rev-1', 'self_submitted', 'Recheck Research against the records.',
+      SUPABASE, 'rev-1', 'self_submitted', 'Recheck Research against the records.', '2026-09-01T00:00:00Z',
     );
   });
 
@@ -269,6 +269,7 @@ describe('Director step (sedc_reviewed)', () => {
     fireEvent.click(screen.getByRole('button', { name: /Approve and close/ }));
     await vi.waitFor(() => expect(svc.finalApprove).toHaveBeenCalledTimes(1));
     expect(svc.finalApprove).toHaveBeenCalledWith(SUPABASE, 'rev-1', {
+      expected_updated_at: '2026-09-01T00:00:00Z',
       final_remarks: '',
       approver_profile_id: 'director-1',
       director_ratings: { teaching: 'exceeds', research: 'meets', service: 'meets', collegiality: 'meets' },
@@ -283,6 +284,7 @@ describe('Director step (sedc_reviewed)', () => {
     fireEvent.click(screen.getByRole('button', { name: /Approve and close/ }));
     await vi.waitFor(() => expect(svc.finalApprove).toHaveBeenCalledTimes(1));
     expect(svc.finalApprove).toHaveBeenCalledWith(SUPABASE, 'rev-1', {
+      expected_updated_at: '2026-09-01T00:00:00Z',
       final_remarks: '',
       approver_profile_id: 'director-1',
       director_ratings: undefined,
@@ -383,6 +385,7 @@ describe('Director step (sedc_reviewed)', () => {
     fireEvent.click(screen.getByRole('button', { name: /Approve and close/ }));
     await vi.waitFor(() => expect(svc.finalApprove).toHaveBeenCalledTimes(1));
     expect(svc.finalApprove).toHaveBeenCalledWith(SUPABASE, 'rev-1', {
+      expected_updated_at: '2026-09-01T00:00:00Z',
       final_remarks: 'Agreed.',
       approver_profile_id: 'director-1',
     });
@@ -397,7 +400,7 @@ describe('Director step (sedc_reviewed)', () => {
     fireEvent.click(screen.getByRole('button', { name: /Send back to committee/ }));
     await vi.waitFor(() => expect(svc.sendBack).toHaveBeenCalledTimes(1));
     expect(svc.sendBack).toHaveBeenCalledWith(
-      SUPABASE, 'rev-1', 'supervisor_reviewed', 'Explain the Below in Service.',
+      SUPABASE, 'rev-1', 'supervisor_reviewed', 'Explain the Below in Service.', '2026-09-01T00:00:00Z',
     );
     expect(svc.finalApprove).not.toHaveBeenCalled();
   });

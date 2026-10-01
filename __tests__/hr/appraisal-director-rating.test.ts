@@ -79,7 +79,8 @@ describe('sign-off', () => {
           select: () => ({ eq: () => ({ single: async () => ({ data: review, error: null }) }) }),
           update: (payload: Record<string, unknown>) => {
             fake.update = payload;
-            return { eq: () => ({ select: () => ({ single: async () => ({ data: { ...review, ...payload }, error: null }) }) }) };
+            const done = { select: () => ({ single: async () => ({ data: { ...review, ...payload }, error: null }), maybeSingle: async () => ({ data: { ...review, ...payload }, error: null }) }) };
+            return { eq: () => ({ ...done, eq: () => done }) };
           },
         };
       },

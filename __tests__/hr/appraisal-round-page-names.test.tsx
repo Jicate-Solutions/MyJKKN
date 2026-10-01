@@ -38,7 +38,11 @@ vi.mock('@/components/auth/admin-permission-guard', () => ({
   SuperAdminOnly: (props: { children: React.ReactNode }) => props.children,
 }));
 vi.mock('@/lib/supabase/client', () => {
-  const client = { auth: { getUser: async () => ({ data: { user: { id: 'admin-profile' } } }) } };
+  const client = {
+    auth: { getUser: async () => ({ data: { user: { id: 'admin-profile' } } }) },
+    // The round page asks who is the Director (Sign off gate, 1 Oct 2026).
+    rpc: async () => ({ data: false, error: null }),
+  };
   return { createClientSupabaseClient: () => client };
 });
 

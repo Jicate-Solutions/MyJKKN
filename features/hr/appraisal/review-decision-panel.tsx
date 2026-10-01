@@ -116,7 +116,7 @@ export function ReviewDecisionPanel({
         ratings,
         collegiality_example: example,
         normalisation_notes: notes,
-      });
+      }, review.updated_at);
       toast.success('Sent to the Director for sign-off.');
       onDone(updated);
     } catch (e) {
@@ -153,6 +153,7 @@ export function ReviewDecisionPanel({
         director_reason: changedAreas.length > 0 ? directorReason : undefined,
         director_collegiality_example:
           changedAreas.includes('collegiality') && approvedRatings.collegiality === 'below' ? example : undefined,
+        expected_updated_at: review.updated_at,
       });
       toast.success('Appraisal approved and closed.');
       onDone(updated);
@@ -167,7 +168,7 @@ export function ReviewDecisionPanel({
     const to = isDirectorStep ? 'supervisor_reviewed' : 'self_submitted';
     setBusy(true);
     try {
-      const updated = await PerformanceReviewService.sendBack(supabase, review.id, to, notes);
+      const updated = await PerformanceReviewService.sendBack(supabase, review.id, to, notes, review.updated_at);
       toast.success('Sent back for rework.');
       onDone(updated);
     } catch (e) {
