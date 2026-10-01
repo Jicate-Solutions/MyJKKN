@@ -534,8 +534,7 @@ async function resolveBatchInstitution(
       400,
       { needs_institution: true, institutions: await accessibleInstitutions(deps) },
     );
-  }
-  if (!(await canReachInstitution(deps, pick))) {
+  }  if (!(await canReachInstitution(deps, pick))) {
     throw new IntakeError(
       'You cannot add candidates for that college. Choose one of the colleges you work with.',
       403,
@@ -1484,6 +1483,10 @@ export async function discardBatch(
   }
   const { data, error } = await deps.admin.from('hr_intake_batches').delete().eq('id', batchId).select('id');
   if (error) {
+    // The delete may have landed with only its reply lost: then the discard did happen.
+    const { data: still, error: stillErr } = await deps.admin
+      .from('hr_intake_batches').select('id').eq('id', batchId).maybeSingle();
+    if (!stillErr && !still) return { ok: true, removed_files: removed };
     // The resume copies are already gone. Leave the batch closed, its cards
     // pointing at no file, and the claim released, so a second try can
     // discard it at once instead of waiting for the claim to expire.
@@ -1492,13 +1495,23 @@ export async function discardBatch(
       .from('hr_intake_batches')
       .update({ status: 'closed', parsed_rows: null, prepare_claimed_at: null })
       .eq('id', batchId);
-    if (closeErr) await deps.admin.from('hr_intake_batches').update({ prepare_claimed_at: null }).eq('id', batchId);
+    const releaseErr = closeErr
+      ? (await deps.admin.from('hr_intake_batches').update({ prepare_claimed_at: null }).eq('id', batchId)).error
+      : null;
     if (rowsErr || closeErr) {
-      console.warn('[hr/intake] discard left the batch half done', { batchId, rows: rowsErr?.message, close: closeErr?.message });
+      console.warn('[hr/intake] discard left the batch half done', {
+        batchId, rows: rowsErr?.message, close: closeErr?.message, release: releaseErr?.message,
+      });
     }
     const message = (error as { message?: string }).message ?? 'unknown error';
+    const next = !closeErr
+      ? 'It is now closed; try discarding it again.'
+      : !releaseErr
+        ? 'Try discarding it again.'
+        // The claim stays until it expires (APPLY_CLAIM_TTL_MS).
+        : 'Wait up to 10 minutes, then try discarding it again.';
     throw new IntakeError(
-      `The resume copies were removed, but the upload itself could not be deleted (${message}). ${closeErr ? 'Try' : 'It is now closed; try'} discarding it again.`,
+      `The resume copies were removed, but the upload itself could not be deleted (${message}). ${next}`,
       500,
     );
   }
@@ -1556,7 +1569,7 @@ export async function cleanupIdleBatches(admin: SupabaseClient, now: Date = new 
     }
   }
   try {
-    summary.late_files_removed = await removeLateUploads(admin);
+    summary.late_files_removed = await removeLateUploads(admin, now);
   } catch (e) {
     summary.failed += 1;
     console.warn('[hr/intake] late uploads not removed', { message: (e as Error)?.message });
@@ -1569,25 +1582,48 @@ export async function cleanupIdleBatches(admin: SupabaseClient, now: Date = new 
  * A signed upload URL stays valid for a while after it is issued, so a slow
  * upload can land after its batch was closed or discarded, in a folder nothing
  * reads or clears again. Every top-level folder of the bucket is a batch id:
- * one whose batch is closed or gone is emptied here. A folder whose batch is
- * still open is left alone, and so is anything not named like a batch.
+ * one whose batch is gone (discarded) is emptied at once, one whose batch is
+ * closed only once it has stayed closed for LATE_UPLOAD_SETTLE_MS.
+ * closeIfFinished marks a batch closed and may reopen it a moment later; the
+ * reopen bumps updated_at (the hr_intake_batches_updated_at trigger), so a
+ * batch closed for an hour is closed for good. Its status is read once more
+ * right before its folder is emptied. A folder whose batch is open is left
+ * alone, and so is anything not named like a batch.
  */
-async function removeLateUploads(admin: SupabaseClient): Promise<number> {
+const LATE_UPLOAD_SETTLE_MS = 60 * 60 * 1000;
+
+async function removeLateUploads(admin: SupabaseClient, now: Date): Promise<number> {
   const folders: string[] = [];
   const PAGE = 1000;
-  for (let offset = 0; ; offset += PAGE) {
+  // Until an empty page: storage may return fewer entries than asked for.
+  for (let offset = 0; ; ) {
     const { data, error } = await admin.storage.from(INTAKE_BUCKET).list('', { limit: PAGE, offset });
     if (error) throw new IntakeError(`Could not list the upload folders: ${error.message}`, 500);
-    folders.push(...(data ?? []).map((o) => o.name).filter(isUuid));
-    if ((data ?? []).length < PAGE) break;
+    const page = data ?? [];
+    if (page.length === 0) break;
+    folders.push(...page.map((o) => o.name).filter(isUuid));
+    offset += page.length;
   }
   if (folders.length === 0) return 0;
+  const settledBefore = new Date(now.getTime() - LATE_UPLOAD_SETTLE_MS).toISOString();
+  const closedForGood = (b: { status: string; updated_at: string } | null | undefined) =>
+    !!b && b.status === 'closed' && b.updated_at < settledBefore;
   // Throws on a failed read: a batch that could not be read is never taken for gone.
-  const batches = await selectInChunks<{ id: string; status: string }>(folders, (chunk) =>
-    admin.from('hr_intake_batches').select('id, status').in('id', chunk));
-  const open = new Set(batches.filter((b) => b.status !== 'closed').map((b) => b.id));
+  const batches = await selectInChunks<{ id: string; status: string; updated_at: string }>(folders, (chunk) =>
+    admin.from('hr_intake_batches').select('id, status, updated_at').in('id', chunk));
+  const byId = new Map(batches.map((b) => [b.id, b]));
   let removed = 0;
-  for (const id of folders) if (!open.has(id)) removed += await removeBatchFiles(admin, id);
+  for (const id of folders) {
+    const seen = byId.get(id);
+    if (seen) {
+      if (!closedForGood(seen)) continue;
+      const { data: again, error } = await admin
+        .from('hr_intake_batches').select('status, updated_at').eq('id', id).maybeSingle();
+      if (error) throw new IntakeError(`Could not re-read an upload before clearing it: ${error.message}`, 500);
+      if (again && !closedForGood(again as { status: string; updated_at: string })) continue;
+    }
+    removed += await removeBatchFiles(admin, id);
+  }
   return removed;
 }
 
