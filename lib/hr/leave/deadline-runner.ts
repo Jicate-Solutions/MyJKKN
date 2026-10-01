@@ -34,6 +34,7 @@ import {
   type EscalationNotice,
   type EscalationRecipientRow,
 } from '@/lib/hr/leave/deadline-harness';
+import { ladderCoversDuty } from '@/lib/hr/leave/ladder-handoff';
 
 const PAGE = 1000;
 const IN_CHUNK = 200;
@@ -95,6 +96,8 @@ export interface LeaveEscalationResult {
   no_recipient: number;
   notified: number;
   overflow_notices: number;
+  /** Escalations recorded but not announced: the HR chase ladder (duty L1) tells people instead. */
+  ladder_covered: number;
   errors: string[];
 }
 
@@ -152,6 +155,7 @@ export async function runLeaveEscalations(
     no_recipient: 0,
     notified: 0,
     overflow_notices: 0,
+    ladder_covered: 0,
     errors: [],
   };
 
@@ -166,6 +170,11 @@ export async function runLeaveEscalations(
   if (overdue.length === 0) return result;
 
   const toNotify: Array<{ o: (typeof overdue)[number]; picked: ReturnType<typeof pickEscalationRecipients> }> = [];
+  // The status flip and the ledger row stay exactly as they are: the escalation
+  // is workflow, and the ladder's L1 duty reads that status. Only the messages
+  // stand down when the ladder chases L1 itself, and then the ledger records
+  // nobody as notified, because nobody was.
+  const ladderHasL1 = await ladderCoversDuty(db, 'L1');
 
   for (const o of overdue) {
     try {
@@ -182,7 +191,7 @@ export async function runLeaveEscalations(
         p_application_id: o.applicationId,
         p_step_index: o.stepIndex,
         p_due_at: o.dueAt,
-        p_notified: notified,
+        p_notified: ladderHasL1 ? [] : notified,
       });
       if (recordErr) throw recordErr;
 
@@ -219,6 +228,11 @@ export async function runLeaveEscalations(
   }
 
   if (toNotify.length === 0) return result;
+
+  if (ladderHasL1) {
+    result.ladder_covered = toNotify.length;
+    return result;
+  }
 
   // Names for the notice text, fetched once for the whole run.
   const apps = toNotify.map(({ o }) => byId.get(o.applicationId)!);
@@ -283,6 +297,8 @@ export interface CompOffNudgeResult {
   already: number;
   stale: number;
   no_recipient: number;
+  /** Approver nudges left to the HR chase ladder (duty L2). */
+  ladder_covered: number;
   errors: string[];
 }
 
@@ -329,6 +345,7 @@ export async function runCompOffExpiryNudges(
     already: 0,
     stale: 0,
     no_recipient: 0,
+    ladder_covered: 0,
     errors: [],
   };
   const today = todayIST(now);
@@ -364,10 +381,16 @@ export async function runCompOffExpiryNudges(
 
   const sent = await loadSentKinds(db, [...pending, ...lapsed].map((c) => c.id));
   const names = await staffNames(db, [...pending, ...lapsed].map((c) => c.employee_id));
+  // When the ladder chases L2, it nudges the approvers; the lapse notice to the claimant below is unchanged.
+  const ladderHasL2 = pending.length > 0 && (await ladderCoversDuty(db, 'L2'));
 
   for (const c of pending) {
     const kind = compOffNudgeKind(c.expires_on, today);
     if (!kind) continue;
+    if (ladderHasL2 && (kind === 'comp_off_expiry_7d' || kind === 'comp_off_expiry_2d')) {
+      result.ladder_covered++;
+      continue;
+    }
     if (sent.has(`${c.id}:${kind}`)) {
       result.already++;
       continue;
