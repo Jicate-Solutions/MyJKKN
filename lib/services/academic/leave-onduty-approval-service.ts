@@ -435,6 +435,7 @@ export class LeaveOndutyApprovalService {
           semester:semesters!semester_id(id, semester_name),
           institution:institutions!institution_id(id, name),
           leave_type:learner_leave_types(id, code, name, color_code, residency, affects_attendance),
+          batch:leave_onduty_batches!batch_id(id, title),
           approvals:leave_onduty_approvals!application_id(*, role:custom_roles(id, role_name))
         `)
         .in('id', appIds.slice(i, i + 150))

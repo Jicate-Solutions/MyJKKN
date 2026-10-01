@@ -851,6 +851,8 @@ export class StaffService {
       // Holds the digital_coordinator role as ANY of their roles (primary or
       // secondary) — profiles.role only carries the primary one.
       is_digital_coordinator?: boolean;
+      // Caller-resolved: list only the user's own record (staff counsellors).
+      is_self_only?: boolean;
     }
   ): Promise<StaffListResponse> {
     try {
@@ -876,8 +878,11 @@ export class StaffService {
         );
       }
 
-      // Faculty users can only view their own staff record
-      if (userProfile?.role === 'faculty' && userProfile.id) {
+      // Faculty users and staff counsellors can only view their own staff record
+      if (
+        (userProfile?.role === 'faculty' || userProfile?.is_self_only) &&
+        userProfile.id
+      ) {
         console.log(
           '[staff-service] Applied self-only record filter for profile:',
           userProfile.id

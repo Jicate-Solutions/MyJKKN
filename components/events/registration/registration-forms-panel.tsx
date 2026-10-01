@@ -336,8 +336,8 @@ export function RegistrationFormsPanel({
       )}
 
       {/* The picture at the top of the public page (events.hero_image_url).
-          General events only: a marathon sets it on its own settings page. */}
-      {selected && variant === 'general' && (
+          Both variants — /p/tournament/[id]/register renders it too. */}
+      {selected && (
         <RegistrationBannerCard key={`banner-${selected.id}`} eventId={eventId} form={selected} />
       )}
 

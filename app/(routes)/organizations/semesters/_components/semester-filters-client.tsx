@@ -21,6 +21,14 @@ export function SemesterFiltersClient({ searchParams }: SemesterFiltersClientPro
       } else {
         params.delete(key);
       }
+      // Clear dependent filters in the SAME navigation (separate pushes off
+      // the same stale params overwrite each other).
+      const dependents: Record<string, string[]> = {
+        institution_id: ['degree_id', 'department_id', 'program_id'],
+        degree_id: ['department_id', 'program_id'],
+        department_id: ['program_id']
+      };
+      for (const dep of dependents[key] ?? []) params.delete(dep);
       params.set('page', '1');
       router.push(`/organizations/semesters?${params.toString()}`);
     },

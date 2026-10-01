@@ -1067,6 +1067,7 @@ export class LeaveOndutyService {
         semester:semesters(id, semester_name),
         section:sections(id, section_name),
         leave_type:learner_leave_types(id, code, name, color_code, residency, affects_attendance),
+        batch:leave_onduty_batches!batch_id(id, title),
         approvals:leave_onduty_approvals(
           *,
           approver:profiles!leave_onduty_approvals_approver_id_fkey(id, full_name, email, avatar_url),
@@ -1139,6 +1140,7 @@ export class LeaveOndutyService {
         semester:semesters(id, semester_name),
         section:sections(id, section_name),
         leave_type:learner_leave_types(id, code, name, color_code, residency, affects_attendance),
+        batch:leave_onduty_batches!batch_id(id, title),
         approvals:leave_onduty_approvals(
           *,
           approver:profiles!leave_onduty_approvals_approver_id_fkey(id, full_name, email, avatar_url),

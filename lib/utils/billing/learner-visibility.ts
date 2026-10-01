@@ -112,3 +112,40 @@ export function collapseHiddenReceiptItems(
 
   return visible;
 }
+
+/**
+ * Advance-year window: a learner sees every past + current academic-year bill
+ * and at most ONE advance year. The rule lives in the database
+ * (`fn_learner_bill_year_visible`, also used by the student RLS policies on
+ * billing_student_bills) so it is never re-implemented here. This helper exists
+ * for the SERVICE-ROLE learner surfaces (parent portal), where RLS does not apply.
+ *
+ * Fails CLOSED: an RPC error throws — on a service-role route, swallowing it
+ * would silently mean "hide nothing" and re-open the wrong-year payment hole.
+ */
+export async function getLearnerHiddenYearIds(
+  db: { rpc: (fn: string, args: Record<string, unknown>) => any },
+  academicYearIds: Array<string | null | undefined>
+): Promise<Set<string>> {
+  const ids = [...new Set(academicYearIds.filter((id): id is string => !!id))];
+  const hidden = new Set<string>();
+  await Promise.all(
+    ids.map(async (id) => {
+      const { data, error } = await db.rpc('fn_learner_bill_year_visible', {
+        p_academic_year_id: id,
+      });
+      if (error) throw error;
+      if (data === false) hidden.add(id);
+    })
+  );
+  return hidden;
+}
+
+/** True when a bill's academic year is inside the learner window (null year → visible). */
+export function isBillYearLearnerVisible(
+  academicYearId: string | null | undefined,
+  hiddenYearIds: Set<string>
+): boolean {
+  if (!academicYearId) return true;
+  return !hiddenYearIds.has(academicYearId);
+}
