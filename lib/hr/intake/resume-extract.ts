@@ -262,7 +262,14 @@ async function buildContent(
     ];
   }
   const { value } = await mammoth.extractRawText({ buffer });
-  const text = value.replace(/\n{3,}/g, '\n\n').trim();
+  // Contact details are stripped BEFORE the text leaves for the model, line by
+  // line so the resume keeps its shape. (A PDF or image goes as the file itself.)
+  const text = value
+    .split('\n')
+    .map((line) => stripContactDetails(line))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
   if (!text) return null;
   return [
     {

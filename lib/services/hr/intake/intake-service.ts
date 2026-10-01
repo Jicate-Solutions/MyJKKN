@@ -287,6 +287,9 @@ async function loadOpenJobs(deps: IntakeDeps): Promise<LoadedJob[]> {
   const now = nowOf(deps).getTime();
   return ((data ?? []) as Record<string, unknown>[])
     .filter((r) => !r.closes_at || Date.parse(String(r.closes_at)) > now)
+    // A job with no college is readable at every college, and so would be the
+    // application filed under it: the helper never proposes or files one.
+    .filter((r) => !!r.institution_id)
     .map((r) => {
       const inst = r.institution as { name?: string } | null;
       const dept = r.department as { department_name?: string } | null;
@@ -669,7 +672,9 @@ async function collectUploads(
           continue;
         }
         k += 1;
-        const path = `${batchId}/zip${zipCount}-${k}-${safeStorageName(f.name)}`;
+        // "_" first: a loose upload's name never starts with it (safeStorageName),
+        // so a zip entry can never overwrite a resume uploaded on its own.
+        const path = `${batchId}/_zip${zipCount}-${k}-${safeStorageName(f.name)}`;
         const { error: upErr } = await deps.admin.storage
           .from(INTAKE_BUCKET)
           .upload(path, f.bytes, { contentType: innerMime, upsert: true });
@@ -1213,6 +1218,7 @@ async function fileOne(deps: IntakeDeps, row: RowRecord, job: LoadedJob | undefi
   const c = row.candidate;
   if (!row.decided_by || !row.decided_at) return fail('No one has recorded a decision for this row; decide it again');
   if (!job) return fail('The job is no longer open, or you do not have access to it');
+  if (!job.institution_id) return fail('This job has no college, so an application under it would be visible at every college');
   if (!c.email) return fail('No email address in the export, so it cannot be filed');
   if (!c.phone) return fail(`No usable phone number (${c.phone_issue ?? 'missing'})`);
   if (!row.resume_storage_path) return fail('No resume file was uploaded for this row');
@@ -1220,10 +1226,9 @@ async function fileOne(deps: IntakeDeps, row: RowRecord, job: LoadedJob | undefi
   const resumePath = row.resume_storage_path;
 
   try {
-    const already = await existingApplicationId(deps.admin, job.id, c.email);
-    if (already) return done(already);
-
-    // Claim the row so a second, concurrent apply cannot file it again.
+    // Claim the row so a second, concurrent apply cannot file it again. The
+    // claim is pinned to the decision this request loaded: if HR changed the
+    // card since (to skip, or another job), nothing is filed.
     const now = nowOf(deps);
     const stale = new Date(now.getTime() - APPLY_CLAIM_TTL_MS).toISOString();
     const { data: claimed, error: claimErr } = await deps.admin
@@ -1231,13 +1236,22 @@ async function fileOne(deps: IntakeDeps, row: RowRecord, job: LoadedJob | undefi
       .update({ apply_claimed_at: now.toISOString() })
       .eq('id', row.id)
       .is('application_id', null)
+      .eq('decision_action', 'file_under_job')
+      .eq('decision_job_id', job.id)
+      .eq('decided_at', row.decided_at)
       .or(`apply_claimed_at.is.null,apply_claimed_at.lt.${stale}`)
       .select('id');
     if (claimErr) return fail(`Could not start filing: ${claimErr.message}`);
     if (!claimed || claimed.length === 0) {
-      return { row_id: row.id, ok: false, application_id: null, error: 'Already being filed by another request' };
+      return {
+        row_id: row.id, ok: false, application_id: null,
+        error: 'Not filed: the decision on this card changed, or another request is filing it. Refresh to see it.',
+      };
     }
     claimedAt = now.toISOString();
+
+    const already = await existingApplicationId(deps.admin, job.id, c.email);
+    if (already) return done(already);
 
     const { data: blob, error: dlErr } = await deps.admin.storage.from(INTAKE_BUCKET).download(resumePath);
     if (dlErr || !blob) return fail(`Could not open the stored resume: ${dlErr?.message ?? 'missing'}`);
@@ -1314,15 +1328,15 @@ async function closeIfFinished(deps: IntakeDeps, batchId: string): Promise<void>
       (r.decision_action !== 'file_under_job' || r.application_id),
   );
   if (!finished) return;
-  const paths = rows.map((r) => r.resume_storage_path).filter((p): p is string => !!p);
-  if (paths.length > 0) {
-    const { error } = await deps.admin.storage.from(INTAKE_BUCKET).remove(paths);
-    if (error) {
-      console.warn('[hr/intake] resume copies not removed; batch stays open', { batchId, message: error.message });
-      return;
-    }
-    await deps.admin.from('hr_intake_rows').update({ resume_storage_path: null }).eq('batch_id', batchId);
+  // Everything under the batch folder, not only the paths on rows: an upload
+  // never sent to prepare would otherwise stay in storage for ever.
+  try {
+    await removeBatchFiles(deps.admin, batchId);
+  } catch (e) {
+    console.warn('[hr/intake] resume copies not removed; batch stays open', { batchId, message: (e as Error)?.message });
+    return;
   }
+  await deps.admin.from('hr_intake_rows').update({ resume_storage_path: null }).eq('batch_id', batchId);
   await deps.admin.from('hr_intake_batches').update({ status: 'closed' }).eq('id', batchId);
 }
 
@@ -1408,8 +1422,27 @@ export async function discardBatch(
   if (rows.some((r) => claimIsFresh(r.apply_claimed_at, now))) {
     throw new IntakeError('A candidate in this batch is being filed right now. Try again in a minute.', 409);
   }
+  // Take the prepare claim: a prepare running now could otherwise store zip
+  // contents after the files are removed. Holding it also stops a new prepare.
+  const stale = new Date(now.getTime() - APPLY_CLAIM_TTL_MS).toISOString();
+  const { data: held, error: holdErr } = await deps.admin
+    .from('hr_intake_batches')
+    .update({ prepare_claimed_at: now.toISOString() })
+    .eq('id', batchId)
+    .or(`prepare_claimed_at.is.null,prepare_claimed_at.lt.${stale}`)
+    .select('id');
+  if (holdErr) throw dbFail('discard the batch', holdErr);
+  if (!held || held.length === 0) {
+    throw new IntakeError('This batch is being prepared right now. Try again in a minute.', 409);
+  }
   // Files first: if they cannot be removed, the batch stays so nothing is orphaned.
-  const removed = await removeBatchFiles(deps.admin, batchId);
+  let removed: number;
+  try {
+    removed = await removeBatchFiles(deps.admin, batchId);
+  } catch (e) {
+    await deps.admin.from('hr_intake_batches').update({ prepare_claimed_at: null }).eq('id', batchId);
+    throw e;
+  }
   const { data, error } = await deps.admin.from('hr_intake_batches').delete().eq('id', batchId).select('id');
   if (error) throw dbFail('discard the batch', error);
   if (!data || data.length === 0) throw new IntakeError('Batch not found, or you do not have access to it.', 404);

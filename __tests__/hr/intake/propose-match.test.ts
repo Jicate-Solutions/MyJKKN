@@ -83,8 +83,10 @@ describe('proposeMatch — duplicates come first', () => {
       candidate: cand(J.principal.title),
       duplicate: { kind: 'existing_application', ref_id: 'app-9', note: 'Already applied in MyJKKN (same email)' },
     });
-    expect(p).toMatchObject({ action: 'merge_existing', confidence: 'high' });
-    expect(p.reasons).toEqual(['Already applied in MyJKKN (same email)']);
+    // Never high: the earlier record may be for another job (second review, blocker 3).
+    expect(p).toMatchObject({ action: 'merge_existing', confidence: 'medium' });
+    expect(p.reasons[0]).toBe('Already applied in MyJKKN (same email)');
+    expect(p.reasons[1]).toMatch(/earlier record is for this job/);
   });
 });
 
@@ -242,6 +244,6 @@ describe('a row filing would refuse is never high', () => {
       duplicate: { kind: 'existing_candidate', ref_id: 'c1', note: null },
       resume_uploaded: false,
     });
-    expect(p).toMatchObject({ action: 'merge_existing', confidence: 'high' });
+    expect(p).toMatchObject({ action: 'merge_existing', confidence: 'medium' });
   });
 });

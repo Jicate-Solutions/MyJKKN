@@ -126,6 +126,25 @@ describe('routing by file type', () => {
     expect(content[0].text).toContain('Eight years teaching.');
   });
 
+  it('strips contact details from a DOCX before its text leaves for the model', async () => {
+    extractRawText.mockResolvedValue({
+      value: 'Asha Demo\nasha.demo@example.test | +91 98765 43210\nlinkedin.com/in/asha-demo\n\nPh.D. in History, 2014. Eight years teaching.',
+      messages: [],
+    });
+    const { client, create } = fakeClient(async () => reply(GOOD));
+    await createResumeExtractor({ client })({
+      fileName: 'cv.docx',
+      bytes: bytes(),
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    });
+    const sent = (create.mock.calls[0][0].messages[0].content as Array<{ text?: string }>)[0].text ?? '';
+    expect(sent).not.toContain('asha.demo@example.test');
+    expect(sent).not.toMatch(/98765\s?43210/);
+    expect(sent).not.toContain('linkedin.com');
+    expect(sent).toContain('Ph.D. in History, 2014. Eight years teaching.');
+    expect(sent).toContain('Asha Demo');
+  });
+
   it('returns null without calling the model for .doc, unsupported, empty, too-large and empty-text files', async () => {
     const { client, create } = fakeClient(async () => reply(GOOD));
     const read = createResumeExtractor({ client });

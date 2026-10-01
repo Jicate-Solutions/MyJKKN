@@ -202,16 +202,15 @@ describe('M3 — a correction never touches another college’s rule', () => {
     expect(fake.table('hr_intake_match_rules')).toHaveLength(1);
   });
 
-  it('a job with no college teaches no rule (no shared NULL-college rules); the decision stands', async () => {
+  it('a job with no college cannot be chosen, so it teaches no rule (no shared NULL-college rules)', async () => {
     fake.table('hr_recruitment_jobs').push({
       id: 'a0000000-0000-4000-8000-0000000000ff', title: 'Floating Post', job_code: null, institution_id: null,
       status: 'open', closes_at: null, requirements: {}, institution: null, department: null,
     });
     const { rows } = await runBatch([], tsv(`\tAsha\tasha@example.test\t9811111111\t${GENERIC}`));
-    const res = await decide(deps(), HR, rows[0].id, { action: 'file_under_job', job_id: 'a0000000-0000-4000-8000-0000000000ff' });
-    expect(res.row.decision?.job_id).toBe('a0000000-0000-4000-8000-0000000000ff');
-    expect(res.rule).toBeNull();
-    expect(res.rule_error).toMatch(/no college/);
+    await expect(decide(deps(), HR, rows[0].id, { action: 'file_under_job', job_id: 'a0000000-0000-4000-8000-0000000000ff' }))
+      .rejects.toMatchObject({ status: 400 });
+    expect(rawRow(rows[0].id).decision_action ?? null).toBeNull();
     expect(fake.table('hr_intake_match_rules')).toHaveLength(0);
   });
 });
@@ -372,5 +371,81 @@ describe('minors', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+describe('second review (fresh blind review of d26076b5ac)', () => {
+  it('blocker 1: a card changed to skip while "file all" runs is not filed', async () => {
+    // Four rows, three filed at a time: the fourth is claimed only after one of
+    // the first three finishes, so HR's change lands before its claim.
+    const names = ['Asha', 'Bala', 'Chitra', 'Devi'];
+    const batch4 = await runBatch(
+      names.map((nm) => ({ name: `${nm}.pdf`, bytes: PDF(nm) })),
+      tsv(...names.map((nm, i) => `${nm}.pdf\t${nm}\t${nm.toLowerCase()}@example.test\t98${i}1111111\tPrincipal`)),
+    );
+    for (const r of batch4.rows) await decide(deps(), HR, r.id, { action: 'file_under_job', job_id: J.principal.id });
+    const fourth = rowAt(batch4.rows, 4);
+    upload.mockImplementationOnce(async ({ file }: { file: File }) => {
+      await decide(deps(), HR2, fourth.id, { action: 'skip' });
+      return { url: `https://drive.example/file/x/${file.name}`, driveFileId: 'drive-x' };
+    });
+    const { results } = await apply(deps(), HR, batch4.batch.id);
+    expect(results.filter((r) => r.ok)).toHaveLength(3);
+    expect(results.find((r) => r.row_id === fourth.id)).toMatchObject({ ok: false, error: expect.stringMatching(/decision on this card changed/) });
+    expect(rawRow(fourth.id).decision_action).toBe('skip');
+    expect(rawRow(fourth.id).application_id ?? null).toBeNull();
+    expect(fake.table('hr_job_applications')).toHaveLength(3);
+  });
+
+  it('blocker 3: someone with an earlier application elsewhere is never "high", so accept-all leaves them', async () => {
+    fake.table('hr_job_applications').push({ id: 'app-old', email: 'asha@example.test', job_id: J.history.id });
+    const { batch, rows } = await runBatch([{ name: 'cv.pdf', bytes: PDF('cv') }], tsv('cv.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal'));
+    expect(rows[0].proposal).toMatchObject({ action: 'merge_existing', confidence: 'medium' });
+    expect(await acceptHigh(deps(), HR, batch.id)).toEqual({ decided: 0 });
+    expect(rawRow(rows[0].id).resume_storage_path).not.toBeNull();
+  });
+
+  it('blocker 4: a job with no college is never offered, proposed or filed under', async () => {
+    const FLOAT = 'a0000000-0000-4000-8000-0000000000fe';
+    fake.table('hr_recruitment_jobs').push({
+      id: FLOAT, title: J.principal.title, job_code: null, institution_id: null,
+      status: 'open', closes_at: null, requirements: {}, institution: null, department: null,
+    });
+    const { batch, rows } = await runBatch([{ name: 'cv.pdf', bytes: PDF('cv') }], tsv('cv.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal'));
+    expect(rows[0].proposal.job_id).not.toBe(FLOAT);
+    expect((await getBatch(deps(), batch.id)).open_jobs.some((j) => j.id === FLOAT)).toBe(false);
+    // Even a row already decided under it (before this fix) is refused at filing.
+    Object.assign(rawRow(rows[0].id), { decision_action: 'file_under_job', decision_job_id: FLOAT, decided_by: HR.id, decided_at: new Date().toISOString() });
+    const { results } = await apply(deps(), HR, batch.id);
+    expect(results[0].ok).toBe(false);
+    expect(fake.table('hr_job_applications')).toHaveLength(0);
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it('zip contents are stored under a name no loose upload can have', async () => {
+    const zip = new JSZip();
+    zip.file('cv.pdf', PDF('z'));
+    const zipBytes = new Uint8Array(await zip.generateAsync({ type: 'uint8array' }));
+    await runBatch([{ name: 'all.zip', bytes: zipBytes, type: 'application/zip' }], tsv('cv.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal'));
+    const stored = [...fake.objects.keys()].filter((k) => k.includes('cv.pdf'));
+    expect(stored).toHaveLength(1);
+    expect(stored[0].split('/').pop()!.startsWith('_zip')).toBe(true);
+  });
+
+  it('closing a batch removes every file under it, not only those on rows', async () => {
+    const { batch, row } = await decidedRow();
+    fake.objects.set(`hr-intake/${batch.id}/never-prepared.pdf`, { bytes: PDF('x') });
+    await apply(deps(), HR, batch.id);
+    expect(rawRow(row.id).application_id).not.toBeNull();
+    expect(fake.table('hr_intake_batches').find((b) => b.id === batch.id)!.status).toBe('closed');
+    expect([...fake.objects.keys()].some((k) => k.includes(batch.id))).toBe(false);
+  });
+
+  it('discard refuses while the batch is being prepared, and keeps its files', async () => {
+    const { batch } = await runBatch([{ name: 'cv.pdf', bytes: PDF('cv') }], tsv('cv.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal'));
+    fake.table('hr_intake_batches').find((b) => b.id === batch.id)!.prepare_claimed_at = new Date().toISOString();
+    await expect(discardBatch(deps(), HR, batch.id)).rejects.toMatchObject({ status: 409 });
+    expect(fake.objects.size).toBe(1);
+    expect(fake.table('hr_intake_batches')).toHaveLength(1);
   });
 });

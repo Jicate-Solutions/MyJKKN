@@ -251,7 +251,13 @@ function proposeFromEvidence(input: ProposeInput): IntakeProposal {
     const fallback = input.duplicate.kind === 'existing_application'
       ? 'Already applied in MyJKKN'
       : 'Already a candidate in MyJKKN';
-    return empty('merge_existing', 'high', [input.duplicate.note ?? fallback, ...extra]);
+    // Never high: the earlier record may be for another job or another college,
+    // and linking files nothing new, so "Accept all high" must not decide it.
+    return empty('merge_existing', 'medium', [
+      input.duplicate.note ?? fallback,
+      'Check the earlier record is for this job before linking; if not, file this one too',
+      ...extra,
+    ]);
   }
 
   // 3. The general pool is not a job.
