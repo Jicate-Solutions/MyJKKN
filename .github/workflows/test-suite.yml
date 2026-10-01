@@ -194,6 +194,7 @@ jobs:
       WAITLIST_TEST_PGUSER: postgres   # __tests__/events/event-waitlist-seat-holding.pg.test.ts (#3739)
       PHC_TEST_PGUSER: postgres
       ACK_SEEN_TEST_PGUSER: postgres
+      HR_INTAKE_TEST_PGUSER: postgres   # __tests__/hr/intake/intake-schema.pg.test.ts
 
     steps:
       - uses: actions/checkout@v4

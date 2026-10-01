@@ -11640,3 +11640,165 @@ CREATE POLICY sign_out_notices_update_own ON public.sign_out_notices
   FOR UPDATE TO authenticated
   USING (user_id = (SELECT auth.uid()))
   WITH CHECK (user_id = (SELECT auth.uid()));
+
+-- ============================================================================
+-- Updated: 2026-10-01 - HR intake helper (source: migrations/20270613101241_hr_intake_helper.sql)
+-- ============================================================================
+ALTER TABLE public.hr_intake_batches ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hr_intake_rows ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hr_intake_match_rules ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.hr_intake_batches FROM anon, PUBLIC;
+REVOKE ALL ON public.hr_intake_rows FROM anon, PUBLIC;
+REVOKE ALL ON public.hr_intake_match_rules FROM anon, PUBLIC;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_intake_batches TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_intake_rows TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_intake_match_rules TO authenticated;
+
+-- The gate is hr.recruitment.create (the people who bring candidates in),
+-- scoped like the recruitment screens: institution access through
+-- role_has_institution_access(), super admins and admins first. No role name
+-- is written anywhere; Role Management decides who holds the key.
+
+-- 6a. Batches: the uploader, or anyone holding the key for the batch's college.
+DROP POLICY IF EXISTS hr_intake_batches_select ON public.hr_intake_batches;
+CREATE POLICY hr_intake_batches_select ON public.hr_intake_batches
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.recruitment.create'))
+        AND (created_by = (SELECT auth.uid())
+             OR public.role_has_institution_access(institution_id)))
+  );
+
+DROP POLICY IF EXISTS hr_intake_batches_insert ON public.hr_intake_batches;
+CREATE POLICY hr_intake_batches_insert ON public.hr_intake_batches
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    created_by = (SELECT auth.uid())
+    AND (
+      (SELECT public.is_super_admin())
+      OR (SELECT public.is_admin())
+      OR ((SELECT public.user_has_permission('hr.recruitment.create'))
+          AND (institution_id IS NULL OR public.role_has_institution_access(institution_id)))
+    )
+  );
+
+DROP POLICY IF EXISTS hr_intake_batches_update ON public.hr_intake_batches;
+CREATE POLICY hr_intake_batches_update ON public.hr_intake_batches
+  FOR UPDATE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.recruitment.create'))
+        AND (created_by = (SELECT auth.uid())
+             OR public.role_has_institution_access(institution_id)))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.recruitment.create'))
+        AND (created_by = (SELECT auth.uid())
+             OR public.role_has_institution_access(institution_id)))
+  );
+
+-- Delete: only the uploader (the server removes a batch whose preparation broke).
+DROP POLICY IF EXISTS hr_intake_batches_delete ON public.hr_intake_batches;
+CREATE POLICY hr_intake_batches_delete ON public.hr_intake_batches
+  FOR DELETE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.recruitment.create'))
+        AND created_by = (SELECT auth.uid()))
+  );
+
+-- 6b. Rows follow their batch: whoever can see the batch can see and decide
+-- its rows. The EXISTS runs under the caller's own batch policy above.
+DROP POLICY IF EXISTS hr_intake_rows_select ON public.hr_intake_rows;
+CREATE POLICY hr_intake_rows_select ON public.hr_intake_rows
+  FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.hr_intake_batches b WHERE b.id = hr_intake_rows.batch_id));
+
+DROP POLICY IF EXISTS hr_intake_rows_insert ON public.hr_intake_rows;
+CREATE POLICY hr_intake_rows_insert ON public.hr_intake_rows
+  FOR INSERT TO authenticated
+  WITH CHECK (EXISTS (SELECT 1 FROM public.hr_intake_batches b WHERE b.id = hr_intake_rows.batch_id));
+
+DROP POLICY IF EXISTS hr_intake_rows_update ON public.hr_intake_rows;
+CREATE POLICY hr_intake_rows_update ON public.hr_intake_rows
+  FOR UPDATE TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.hr_intake_batches b WHERE b.id = hr_intake_rows.batch_id))
+  WITH CHECK (EXISTS (SELECT 1 FROM public.hr_intake_batches b WHERE b.id = hr_intake_rows.batch_id));
+
+DROP POLICY IF EXISTS hr_intake_rows_delete ON public.hr_intake_rows;
+CREATE POLICY hr_intake_rows_delete ON public.hr_intake_rows
+  FOR DELETE TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.hr_intake_batches b WHERE b.id = hr_intake_rows.batch_id));
+
+-- 6c. Rules: visible and editable within the college of the job they point at.
+-- A write must name the institution its job really belongs to, as the writer
+-- can see that job; a write is always credited to the writer.
+DROP POLICY IF EXISTS hr_intake_match_rules_select ON public.hr_intake_match_rules;
+CREATE POLICY hr_intake_match_rules_select ON public.hr_intake_match_rules
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.recruitment.create'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS hr_intake_match_rules_insert ON public.hr_intake_match_rules;
+CREATE POLICY hr_intake_match_rules_insert ON public.hr_intake_match_rules
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    created_by = (SELECT auth.uid())
+    AND EXISTS (
+      SELECT 1 FROM public.hr_recruitment_jobs j
+       WHERE j.id = hr_intake_match_rules.job_id
+         AND j.institution_id IS NOT DISTINCT FROM hr_intake_match_rules.institution_id
+    )
+    AND (
+      (SELECT public.is_super_admin())
+      OR (SELECT public.is_admin())
+      OR ((SELECT public.user_has_permission('hr.recruitment.create'))
+          AND public.role_has_institution_access(institution_id))
+    )
+  );
+
+DROP POLICY IF EXISTS hr_intake_match_rules_update ON public.hr_intake_match_rules;
+CREATE POLICY hr_intake_match_rules_update ON public.hr_intake_match_rules
+  FOR UPDATE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.recruitment.create'))
+        AND public.role_has_institution_access(institution_id))
+  )
+  WITH CHECK (
+    created_by = (SELECT auth.uid())
+    AND EXISTS (
+      SELECT 1 FROM public.hr_recruitment_jobs j
+       WHERE j.id = hr_intake_match_rules.job_id
+         AND j.institution_id IS NOT DISTINCT FROM hr_intake_match_rules.institution_id
+    )
+    AND (
+      (SELECT public.is_super_admin())
+      OR (SELECT public.is_admin())
+      OR ((SELECT public.user_has_permission('hr.recruitment.create'))
+          AND public.role_has_institution_access(institution_id))
+    )
+  );
+
+DROP POLICY IF EXISTS hr_intake_match_rules_delete ON public.hr_intake_match_rules;
+CREATE POLICY hr_intake_match_rules_delete ON public.hr_intake_match_rules
+  FOR DELETE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.recruitment.create'))
+        AND public.role_has_institution_access(institution_id))
+  );
