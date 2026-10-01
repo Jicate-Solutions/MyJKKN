@@ -703,6 +703,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/recruitment': 'hr.recruitment.view',
   '/hr/recruitment/jobs': 'hr.recruitment.view',
   '/hr/recruitment/submit': 'hr.recruitment.create',
+  // Bring in Candidates — the CVViZ intake helper (2026-10-01). Uploading and
+  // filing candidates is a create action, so the whole subtree (review cards at
+  // /intake/[batchId] resolve here by longest prefix) needs hr.recruitment.create.
+  '/hr/recruitment/intake': 'hr.recruitment.create',
+  '/hr/recruitment/intake/rules': 'hr.recruitment.create',
   '/hr/recruitment/my': 'hr.recruitment.view',
   '/hr/recruitment/candidates': 'hr.recruitment.view',
   '/hr/recruitment/interviews': 'hr.recruitment.view',
@@ -3878,6 +3883,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/recruitment', label: 'Dashboard', active: pathname === '/hr/recruitment' },
             { href: '/hr/recruitment/jobs', label: 'Job Postings', active: pathname.startsWith('/hr/recruitment/jobs') },
             { href: '/hr/recruitment/candidates', label: 'All Candidates', active: pathname.startsWith('/hr/recruitment/candidates') },
+            { href: '/hr/recruitment/intake', label: 'Bring in Candidates', active: pathname.startsWith('/hr/recruitment/intake') },
             { href: '/hr/recruitment/submit', label: 'Apply for Jobs', active: pathname === '/hr/recruitment/submit' },
             { href: '/hr/recruitment/my', label: 'My Submissions', active: pathname === '/hr/recruitment/my' },
             { href: '/hr/recruitment/approvals', label: 'Approvals', active: pathname === '/hr/recruitment/approvals' },
