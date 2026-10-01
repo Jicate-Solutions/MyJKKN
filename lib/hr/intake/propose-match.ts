@@ -41,6 +41,12 @@ export interface ProposeInput {
   duplicate_of_job_title?: string | null;
   /** For a same_file row: that row's 1-based number. */
   duplicate_of_row_index?: number | null;
+  /**
+   * The college the upload belongs to. A proposal for a job at ANOTHER college
+   * is never high: one "Accept all high" tap would file the person where the
+   * uploading college cannot even see them.
+   */
+  batch_institution_id?: string | null;
   /** For a same_file row: the candidate on the row it points at. */
   duplicate_of_candidate?: Pick<IntakeCandidate, 'email' | 'phone'> | null;
   /** For a same_file row: whether that row has a resume paired. */
@@ -227,11 +233,19 @@ function scoreJobs(input: ProposeInput, cvTitle: string): Scored[] {
  * low, with the reason first, so "Accept all high-confidence" never picks it up.
  */
 export function proposeMatch(input: ProposeInput): IntakeProposal {
-  const p = proposeFromEvidence(input);
+  const p = capOtherCollege(input, proposeFromEvidence(input));
   if (p.action !== 'file_under_job') return p;
   const blockers = filingBlockers(input.candidate, input.resume_uploaded);
   if (blockers.length === 0) return p;
   return { ...p, confidence: 'low', reasons: [...blockers, ...p.reasons] };
+}
+
+function capOtherCollege(input: ProposeInput, p: IntakeProposal): IntakeProposal {
+  if (p.action !== 'file_under_job' || !input.batch_institution_id) return p;
+  if (p.institution_id === input.batch_institution_id) return p;
+  const where = input.openJobs.find((j) => j.id === p.job_id)?.institution_name ?? 'another college';
+  const reason = `This job is at ${where}, not the college this upload belongs to: check before filing`;
+  return { ...p, confidence: p.confidence === 'high' ? 'medium' : p.confidence, reasons: [reason, ...p.reasons] };
 }
 
 function proposeFromEvidence(input: ProposeInput): IntakeProposal {

@@ -114,10 +114,8 @@ export interface IntakeInstitutionChoice {
 /** Batches with no activity for this long are closed and their resume copies removed. */
 export const IDLE_BATCH_DAYS = 30;
 
-/** Card reasons when a resume could not be paired safely (one file, one person). */
-export const AMBIGUOUS_RESUME_NOTE = 'Two uploaded files share this name — upload them with distinct names';
-export const SHARED_RESUME_NOTE =
-  'Another candidate in this export names the same resume file — upload each person’s resume with a distinct name';
+import { AMBIGUOUS_RESUME_NOTE, SHARED_RESUME_NOTE } from '@/lib/hr/intake/resume-notes';
+export { AMBIGUOUS_RESUME_NOTE, SHARED_RESUME_NOTE };
 
 export interface SkippedFile {
   file_name: string;
@@ -878,6 +876,7 @@ export async function prepareBatch(
         duplicate_of_job_title: same ? byIndex.get(same.ref_row_index)?.candidate.cvviz_job_title ?? null : null,
         duplicate_of_row_index: same?.ref_row_index ?? null,
         duplicate_of_candidate: same ? byIndex.get(same.ref_row_index)?.candidate ?? null : null,
+        batch_institution_id: batch.institution_id,
         duplicate_of_resume_uploaded: same ? !!pairing.get(same.ref_row_index) : undefined,
         openJobs: jobs,
         rules: rulesForMatch,
