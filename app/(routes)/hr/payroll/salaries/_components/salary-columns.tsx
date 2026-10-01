@@ -19,7 +19,6 @@ import { MoreHorizontal, PencilLine, History as HistoryIcon, Sparkles } from 'lu
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -95,8 +94,11 @@ export interface SalaryColumnActions {
    * screen (hr.payroll.salary.view): it reads nothing they cannot already see.
    */
   onSuggest: (row: StaffSalaryDirectoryRow) => void;
-  /** Whether the viewer holds hr.payroll.salary.manage. */
-  canManage: boolean;
+  /**
+   * Whether the viewer is on the Director list (2026-09-30: only they may
+   * change a salary; hr.payroll.salary.manage no longer does).
+   */
+  canEdit: boolean;
   /**
    * The bands in force. TDS is never stored against a person, so the column is
    * resolved per row from these — which is why editing a band updates every
@@ -109,40 +111,6 @@ export function getSalaryColumns(
   actions: SalaryColumnActions
 ): ColumnDef<StaffSalaryDirectoryRow>[] {
   const columns: ColumnDef<StaffSalaryDirectoryRow>[] = [];
-
-  // enableRowSelection only turns the machinery on; the checkbox column has to
-  // be supplied here or the toolbar's bulk actions have nothing to select with.
-  if (actions.canManage) {
-    columns.push({
-      id: 'select',
-      size: 40,
-      enableSorting: false,
-      enableHiding: false,
-      header: ({ table }) => (
-        <Checkbox
-          // Spelled out as a ternary rather than the usual `a || (b && 'x')`.
-          // strictNullChecks is off in this repo, so that expression widens to
-          // `true | "" | "indeterminate"` and no longer satisfies CheckedState.
-          checked={
-            table.getIsAllPageRowsSelected()
-              ? true
-              : table.getIsSomePageRowsSelected()
-                ? 'indeterminate'
-                : false
-          }
-          onCheckedChange={(v) => table.toggleAllPageRowsSelected(v === true)}
-          aria-label='Select all on this page'
-        />
-      ),
-      cell: ({ row }) => (
-        <Checkbox
-          checked={row.getIsSelected()}
-          onCheckedChange={(v) => row.toggleSelected(!!v)}
-          aria-label='Select row'
-        />
-      ),
-    });
-  }
 
   columns.push(
     {
@@ -280,7 +248,7 @@ export function getSalaryColumns(
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align='end'>
-              {actions.canManage && (
+              {actions.canEdit && (
                 <DropdownMenuItem onClick={() => actions.onEdit(r)}>
                   <PencilLine className='mr-2 h-4 w-4' />
                   {r.salary_id ? 'Update salary' : 'Record salary'}

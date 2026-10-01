@@ -277,16 +277,26 @@ describe('the Edit Salary dialog, pre-filled', () => {
     expect(screen.getByLabelText('Effective from')).toHaveValue('2026-11-01');
   });
 
-  it('without a figure, is UNCHANGED from main: pay in force, the current salary date, and a past date accepted', () => {
+  it('without a figure: pay in force, the 1st of next month, and a past date refused (no backdating, 30 Sep / 1 Oct rulings)', () => {
     render(<EditSalaryDialog row={ROW} onOpenChange={() => {}} />);
     expect(screen.getByLabelText('Monthly gross')).toHaveValue('21000');
-    expect(screen.getByLabelText('Effective from')).toHaveValue('2026-04-01');
+    // Not the current salary's own date (1 April 2026, in the past).
+    expect(screen.getByLabelText('Effective from')).toHaveValue('2026-10-01');
     expect(screen.queryByTestId('prefill-note')).toBeNull();
-    // No lower limit on the native date picker: corrections may be dated in the past.
-    expect(screen.getByLabelText('Effective from')).not.toHaveAttribute('min');
+    expect(screen.getByLabelText('Effective from')).toHaveAttribute('min', '2026-09-29');
     fireEvent.change(screen.getByLabelText('Monthly gross'), { target: { value: '22000' } });
     expect(screen.queryByTestId('backdated-raise')).toBeNull();
     expect(save()).toBeEnabled();
+    // Any future date is allowed for a direct change, not only a 1st.
+    fireEvent.change(screen.getByLabelText('Effective from'), { target: { value: '2026-10-17' } });
+    expect(save()).toBeEnabled();
+    fireEvent.change(screen.getByLabelText('Effective from'), { target: { value: '2026-04-01' } });
+    expect(screen.getByTestId('backdated-raise')).toHaveTextContent(
+      'A salary change cannot start in the past.'
+    );
+    expect(save()).toBeDisabled();
+    fireEvent.click(save());
+    expect(mutateAsync).not.toHaveBeenCalled();
   });
 
   it('re-seeds when the same person is reopened with a figure', () => {

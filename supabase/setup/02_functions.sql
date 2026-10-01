@@ -48765,9 +48765,20 @@ COMMENT ON FUNCTION public.hr_trig_leave_enforce_no_overlap() IS
   'Refuses a day-leave request whose dates overlap another live request for the same employee. Not fired on status changes, so pre-existing overlaps stay decidable.';
 
 -- ===========================================================================
--- fn_hr_set_staff_salary (2026-08-21, EPF/ESI added 2026-09-01)
+-- fn_hr_set_staff_salary (2026-08-21, EPF/ESI added 2026-09-01,
+--   only the Director list, no past start dates 2026-09-30)
 -- Source: 20260821201000_fn_hr_set_staff_salary.sql
 --         20260901120000_hr_salary_epf_esi_values.sql
+--         20260902100000_hr_tds_slabs_and_allowance.sql
+--         20270603090000_hr_salary_no_backdating.sql
+--
+-- Updated: 2026-09-30 - Director ruling of 30 Sep 08:59. A signed-in caller
+-- must be on the Director list (fn_is_the_director(), 20270520090000);
+-- service_role and trusted database code (the approvals job) may also write.
+-- A start before today (Asia/Kolkata) is refused for every caller; today is
+-- allowed; there is no exception. Same 18 arguments as before. An earlier,
+-- never-applied draft of 20270603090000 had a 19th argument (p_allow_past);
+-- it is dropped IF EXISTS so no overload is left behind.
 --
 -- The 2026-09-01 revision DROPPED the 13-argument signature before recreating
 -- it at 16. `CREATE OR REPLACE` with a changed parameter list creates an
@@ -48775,6 +48786,12 @@ COMMENT ON FUNCTION public.hr_trig_leave_enforce_no_overlap() IS
 -- call. A rebuild from this file starts clean, so only the final shape is
 -- recorded here — but the drop is why the grants below are restated.
 -- ===========================================================================
+DROP FUNCTION IF EXISTS public.fn_hr_set_staff_salary(
+  uuid, uuid, numeric, date, text, text, numeric,
+  boolean, boolean, boolean, boolean, boolean, text,
+  numeric, boolean, numeric, numeric, text, boolean
+);
+
 CREATE OR REPLACE FUNCTION public.fn_hr_set_staff_salary(
   p_staff_id               uuid,
   p_hr_organization_id     uuid,
@@ -48800,13 +48817,29 @@ LANGUAGE plpgsql
 SET search_path TO 'public'
 AS $function$
 DECLARE
-  v_new_id  uuid := gen_random_uuid();
-  v_current record;
+  v_new_id    uuid := gen_random_uuid();
+  v_current   record;
   v_epf       numeric;
   v_esi       numeric;
   v_allowance numeric;
   v_alw_label text;
+  -- 2026-09-30: "today" is India's today, not the server's (UTC) date.
+  v_today     date := (now() AT TIME ZONE 'Asia/Kolkata')::date;
 BEGIN
+  -- 2026-09-30 (ruling of 08:59): only the Director list may create or edit a
+  -- salary. current_user is the caller's API role because this function is
+  -- SECURITY INVOKER. service_role (the server key) and trusted database code
+  -- (the approvals job runs SECURITY DEFINER, as the owner) are not API users
+  -- and pass. IS TRUE, not a bare test: a NULL answer is "no".
+  IF current_user = 'anon' THEN
+    RAISE EXCEPTION 'Only the Director can change a salary.'
+      USING ERRCODE = '42501';
+  END IF;
+  IF current_user = 'authenticated' AND NOT (public.fn_is_the_director() IS TRUE) THEN
+    RAISE EXCEPTION 'Only the Director can change a salary.'
+      USING ERRCODE = '42501';
+  END IF;
+
   IF p_staff_id IS NULL OR p_hr_organization_id IS NULL THEN
     RAISE EXCEPTION 'Staff and payroll organisation are both required'
       USING ERRCODE = '22023';
@@ -48820,14 +48853,12 @@ BEGIN
   IF COALESCE(p_epf_amount, 0) < 0 OR COALESCE(p_esi_amount, 0) < 0 THEN
     RAISE EXCEPTION 'EPF and ESI amounts cannot be negative' USING ERRCODE = '22023';
   END IF;
-
-  -- An amount against a flag that is OFF is zeroed, not rejected. The bulk
-  -- importer feeds this from a spreadsheet where a leftover figure beside a "No"
-  -- is a formatting slip, and a hard failure there would abort a 754-row import.
   IF COALESCE(p_allowance_amount, 0) < 0 THEN
     RAISE EXCEPTION 'Allowance cannot be negative' USING ERRCODE = '22023';
   END IF;
 
+  -- An amount against a flag that is OFF is zeroed, not rejected. A leftover
+  -- figure beside a "No" is a formatting slip, not a decision.
   v_epf := CASE WHEN p_eligible_for_pf  THEN COALESCE(p_epf_amount, 0) ELSE 0 END;
   v_esi := CASE WHEN p_eligible_for_esi THEN COALESCE(p_esi_amount, 0) ELSE 0 END;
 
@@ -48846,14 +48877,14 @@ BEGIN
   -- Re-writing an IDENTICAL record would bury the real history under duplicates,
   -- so the incumbent is returned untouched instead.
   --
-  -- COMPARES THE WHOLE PAYLOAD (widened 2026-09-01). It used to test only
-  -- monthly_gross and effective_from, which meant changing a flag, the overtime
-  -- or the notes saved NOTHING and still reported success. Adding EPF/ESI made
-  -- that the common case: tick ESI, type 165, save, nothing happens.
+  -- COMPARES THE WHOLE PAYLOAD. It once tested only monthly_gross and
+  -- effective_from, which made every other kind of edit a silent no-op that
+  -- still reported success. Every column written below must appear here.
   --
-  -- IS DISTINCT FROM throughout, not <>. p_notes is nullable and `x <> NULL` is
-  -- NULL rather than false — a plain <> chain would evaluate to NULL, be read as
-  -- "not different", and silently restore the exact bug this widening fixes.
+  -- IS DISTINCT FROM throughout, not <>. p_notes and p_allowance_label are
+  -- nullable, and `x <> NULL` is NULL rather than false — a plain <> chain would
+  -- evaluate to NULL, be read as "not different", and restore the very bug this
+  -- comparison exists to prevent.
   IF FOUND
      AND v_current.monthly_gross          IS NOT DISTINCT FROM p_monthly_gross
      AND v_current.effective_from         IS NOT DISTINCT FROM p_effective_from
@@ -48875,10 +48906,25 @@ BEGIN
     RETURN v_current.id;
   END IF;
 
+  -- 2026-09-30: no salary change may start in the past, for anybody. Today is
+  -- allowed. Placed AFTER the identical-payload return above: saving something
+  -- that changes nothing writes nothing, so it is not a change.
+  IF p_effective_from < v_today THEN
+    RAISE EXCEPTION 'A salary change cannot start in the past. % is before today (%).',
+      to_char(p_effective_from, 'DD Mon YYYY'), to_char(v_today, 'DD Mon YYYY')
+      USING ERRCODE = '22023',
+            HINT = 'Pick today or a later date. A raise entered late starts from the 1st of next month.';
+  END IF;
+
+  -- The new row replaces the row in force. The table guard refuses any change
+  -- to superseded_by except this one, named here for this transaction only.
+  -- FOUND still describes the SELECT above: nothing in between sets it.
   IF FOUND THEN
+    PERFORM set_config('app.hr_salary_supersede', v_current.id::text, true);
     UPDATE public.hr_staff_salaries
        SET superseded_by = v_new_id, updated_at = now(), updated_by = auth.uid()
      WHERE id = v_current.id;
+    PERFORM set_config('app.hr_salary_supersede', '', true);
   END IF;
 
   INSERT INTO public.hr_staff_salaries (
@@ -48901,16 +48947,108 @@ BEGIN
 END;
 $function$;
 
--- CREATE OR REPLACE keeps existing grants, but a DROP FUNCTION discards them and
--- reverts EXECUTE to PUBLIC — which is exactly what the 2026-09-01 signature
--- change did, and had to be undone. Restated so a rebuild from these files lands
--- in the same place. PUBLIC is revoked as well as anon: a grant to PUBLIC is not
--- removed by revoking from anon.
-REVOKE ALL ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text, numeric, boolean, numeric, numeric, text) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text, numeric, boolean, numeric, numeric, text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_hr_set_staff_salary(
+  uuid, uuid, numeric, date, text, text, numeric,
+  boolean, boolean, boolean, boolean, boolean, text,
+  numeric, boolean, numeric, numeric, text
+) FROM anon, PUBLIC;
 
-COMMENT ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text, numeric, boolean, numeric, numeric, text) IS
-  'Supersede-and-insert a staff salary in one transaction. SECURITY INVOKER: hr_staff_salaries_write enforces hr.payroll.salary.manage. Returns the incumbent unchanged when the whole payload matches.';
+GRANT EXECUTE ON FUNCTION public.fn_hr_set_staff_salary(
+  uuid, uuid, numeric, date, text, text, numeric,
+  boolean, boolean, boolean, boolean, boolean, text,
+  numeric, boolean, numeric, numeric, text
+) TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.fn_hr_set_staff_salary(
+  uuid, uuid, numeric, date, text, text, numeric,
+  boolean, boolean, boolean, boolean, boolean, text,
+  numeric, boolean, numeric, numeric, text
+) IS
+  'Supersede-and-insert a staff salary in one transaction. SECURITY INVOKER. A signed-in caller must be on the Director list (fn_is_the_director()); service_role and trusted database code (the approvals job) may also write. Returns the incumbent unchanged when the whole payload matches. Refuses a start before today (Asia/Kolkata) for every caller; today is allowed. See 20270603090000.';
+
+-- ===========================================================================
+-- hr_staff_salaries_guard_writes (2026-09-30)
+-- Source: 20270603090000_hr_salary_no_backdating.sql
+-- Trigger: trg_hr_staff_salaries_guard_writes in 04_triggers.sql.
+-- ===========================================================================
+CREATE OR REPLACE FUNCTION public.hr_staff_salaries_guard_writes()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_today date := (now() AT TIME ZONE 'Asia/Kolkata')::date;
+BEGIN
+  -- Only API callers. The database owner (migrations, an operator's repair, a
+  -- foreign-key cascade, the approvals job running SECURITY DEFINER) is not a
+  -- user of the app; the function's past-date check covers any caller that
+  -- goes through fn_hr_set_staff_salary.
+  IF current_user NOT IN ('anon', 'authenticated', 'service_role') THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+
+  -- 2026-09-30 (ruling of 08:59): WHO. Only the Director list writes pay. The
+  -- HR head's hr.payroll.salary.manage still passes the table's row rule (that
+  -- rule also governs reads, which do not change), so it is refused here.
+  IF current_user = 'anon'
+     OR (current_user = 'authenticated' AND NOT (public.fn_is_the_director() IS TRUE)) THEN
+    RAISE EXCEPTION 'Only the Director can change a salary.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Deleting a salary record rewrites pay history (and deleting the row in
+  -- force leaves a person with no pay). No API caller may.
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'A salary record cannot be deleted. Record a new salary from today or a later date instead.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.effective_from IS NULL OR NEW.effective_from < v_today THEN
+      RAISE EXCEPTION 'A salary change cannot start in the past. % is before today (%).',
+        COALESCE(to_char(NEW.effective_from, 'DD Mon YYYY'), 'A blank start date'),
+        to_char(v_today, 'DD Mon YYYY')
+        USING ERRCODE = '22023';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  -- UPDATE, part 1: which row is in force. Only fn_hr_set_staff_salary may
+  -- change superseded_by, and only to retire the one row in force it names.
+  -- Anything else (re-pointing, clearing it to bring an old salary back) is
+  -- refused.
+  IF NEW.superseded_by IS DISTINCT FROM OLD.superseded_by THEN
+    IF NOT (OLD.superseded_by IS NULL
+            AND NEW.superseded_by IS NOT NULL
+            AND COALESCE(current_setting('app.hr_salary_supersede', true), '') = OLD.id::text) THEN
+      RAISE EXCEPTION 'Which salary is in force can only change by recording a new salary.'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  -- UPDATE, part 2: the pay itself. annual_gross is GENERATED and not
+  -- settable, so it is left out of the compare.
+  IF (to_jsonb(NEW) - 'superseded_by' - 'updated_at' - 'updated_by' - 'annual_gross')
+     IS DISTINCT FROM
+     (to_jsonb(OLD) - 'superseded_by' - 'updated_at' - 'updated_by' - 'annual_gross')
+  THEN
+    -- Editing a row that has already started (or whose start was never
+    -- recorded) rewrites pay already in force: a backdated change by another
+    -- route. Moving a start into the past is the same thing.
+    IF OLD.effective_from IS NULL OR OLD.effective_from < v_today
+       OR NEW.effective_from IS NULL OR NEW.effective_from < v_today THEN
+      RAISE EXCEPTION 'A salary that has already started cannot be edited in place. Record a new salary from today or a later date.'
+        USING ERRCODE = '22023';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.hr_staff_salaries_guard_writes() FROM anon, PUBLIC, authenticated;
+
+COMMENT ON FUNCTION public.hr_staff_salaries_guard_writes() IS
+  'BEFORE INSERT/UPDATE/DELETE guard on hr_staff_salaries for API callers: anon refused; a signed-in caller must be on the Director list (fn_is_the_director()); no insert with a blank start or a start before today (Asia/Kolkata); no change to superseded_by except fn_hr_set_staff_salary retiring the row in force; no in-place edit of a row already started; no delete. See 20270603090000.';
 
 -- ===========================================================================
 -- hr_staff_salary_directory (2026-08-21, EPF/ESI added 2026-09-01)
