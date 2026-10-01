@@ -8,7 +8,8 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { DecideRequest, IntakeRow } from '@/types/hr-intake';
+import { toast } from 'sonner';
+import type { DecideRequest } from '@/types/hr-intake';
 import {
   acceptHighConfidence,
   applyIntakeBatch,
@@ -18,6 +19,7 @@ import {
   getIntakeBatch,
   listIntakeBatches,
   listIntakeRules,
+  type DecideOutcome,
   type IntakeBatchDetail,
 } from '@/lib/hr/intake/api-client';
 
@@ -57,7 +59,9 @@ export function useDecideIntakeRow(batchId: string) {
   return useMutation({
     mutationFn: ({ rowId, req }: { rowId: string; req: DecideRequest }) =>
       decideIntakeRow(rowId, req),
-    onSuccess: (row: IntakeRow) => {
+    onSuccess: ({ row, ruleError }: DecideOutcome) => {
+      // The decision stands even when the correction could not be remembered; say so.
+      if (ruleError) toast.warning(`Decision saved, but it could not be remembered for next time: ${ruleError}`);
       qc.setQueryData<IntakeBatchDetail>(intakeKeys.batch(batchId), (prev) =>
         prev
           ? { ...prev, rows: prev.rows.map((r) => (r.id === row.id ? row : r)) }
