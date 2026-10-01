@@ -48,6 +48,10 @@ export class FakeSupabase {
   sessionHides: ((table: string, row: Row) => boolean) | null = null;
   /** Like PostgREST's max-rows: a select returns at most this many rows. A count is never capped. */
   maxRows: number | null = null;
+  /** A storage listing returns at most this many entries per call, whatever limit was asked. */
+  listMax: number | null = null;
+  /** Called after every select ran: lets a test change the data between two reads. */
+  afterSelect: ((table: string) => void) | null = null;
 
   table(name: string): Row[] {
     this.tables[name] ??= [];
@@ -76,19 +80,21 @@ export class FakeSupabase {
         this.log.push(`remove ${paths.length}`);
         return { data: paths.map((name) => ({ name })), error: null };
       },
-      list: async (prefix: string) => {
-        if (prefix === '') {
-          // The bucket's top level: each folder once, as storage lists it.
-          const top = [...this.objects.keys()]
-            .filter((k) => k.startsWith(`${bucket}/`))
-            .map((k) => k.slice(`${bucket}/`.length).split('/')[0]);
-          return { data: [...new Set(top)].map((name) => ({ name })), error: null };
-        }
-        const names = [...this.objects.keys()]
-          .filter((k) => k.startsWith(`${bucket}/${prefix}/`))
-          .map((k) => k.slice(`${bucket}/${prefix}/`.length))
-          .filter((n) => !n.includes('/'));
-        return { data: names.map((name) => ({ name })), error: null };
+      list: async (prefix: string, opts?: { limit?: number; offset?: number }) => {
+        // Sorted by name and paged by limit/offset, as storage lists.
+        const names = prefix === ''
+          // The bucket's top level: each folder once.
+          ? [...new Set([...this.objects.keys()]
+              .filter((k) => k.startsWith(`${bucket}/`))
+              .map((k) => k.slice(`${bucket}/`.length).split('/')[0]))]
+          : [...this.objects.keys()]
+              .filter((k) => k.startsWith(`${bucket}/${prefix}/`))
+              .map((k) => k.slice(`${bucket}/${prefix}/`.length))
+              .filter((n) => !n.includes('/'));
+        names.sort();
+        const offset = opts?.offset ?? 0;
+        const limit = Math.min(opts?.limit ?? 100, this.listMax ?? Infinity);
+        return { data: names.slice(offset, offset + limit).map((name) => ({ name })), error: null };
       },
       createSignedUploadUrl: async (path: string, opts?: { upsert?: boolean }) => {
         this.signedUploadOpts.push({ path, upsert: opts?.upsert });
@@ -178,7 +184,14 @@ class Query implements PromiseLike<Result> {
     ok?: ((v: Result) => A | PromiseLike<A>) | null,
     bad?: ((e: unknown) => B | PromiseLike<B>) | null,
   ): PromiseLike<A | B> {
-    return Promise.resolve().then(() => this.run()).then(ok, bad);
+    return Promise.resolve()
+      .then(() => {
+        const result = this.run();
+        // After the result is copied out, so a change made here is not in it.
+        if (this.op === 'select') this.db.afterSelect?.(this.name);
+        return result;
+      })
+      .then(ok, bad);
   }
 
   private run(): Result {
