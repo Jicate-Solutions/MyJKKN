@@ -14,7 +14,20 @@ import { routeAllowedByHandover } from './lib/auth/handover-route-access';
 import { FEATURE_FLAGS } from './lib/config/feature-flags';
 import { StudentValidationService } from './lib/services/auth/student-validation-service';
 import { isInductionOnlyAllowedPath } from './lib/constants/induction-access';
-import { PARENT_SESSION_COOKIE, verifyParentSession } from './lib/auth/parent-jwt';
+import {
+  PARENT_SESSION_COOKIE,
+  PARENT_ACTIVE_LEARNER_COOKIE,
+  verifyParentSession,
+  signParentSession,
+  parentSessionCookieOptions,
+  type ParentJwtClaims,
+} from './lib/auth/parent-jwt';
+import {
+  getParentAccountState,
+  decideParentSessionAction,
+  type ParentSessionAction,
+} from './lib/auth/parent-session-state';
+import { createServiceRoleClient } from './lib/supabase/server';
 import {
   SCHOOL_PORTAL_SESSION_COOKIE,
   verifySchoolPortalSession,
@@ -46,26 +59,76 @@ const PARENT_REDIRECT_WHEN_AUTHED = new Set([
   '/parent/register',
 ]);
 
+// Sliding session (Director ruling, 1 Oct 2026: the installed parent app never
+// logs a parent out while it is used). For a verified token the account row is
+// checked on every page request — disabled / removed / "signed out everywhere"
+// clears the cookie BEFORE the authed-funnel redirect, so a dead session can
+// never bounce login → dashboard → login. A live token older than a day is
+// re-issued with a fresh 400-day expiry on whichever response goes back.
+async function resolveParentSessionAction(
+  claims: ParentJwtClaims
+): Promise<ParentSessionAction> {
+  try {
+    const state = await getParentAccountState(createServiceRoleClient(), claims);
+    return decideParentSessionAction(claims, state);
+  } catch {
+    // Missing service-role credentials etc. — fail open, never log out.
+    return 'keep';
+  }
+}
+
+async function applyParentSessionAction(
+  res: NextResponse,
+  claims: ParentJwtClaims | null,
+  action: ParentSessionAction
+): Promise<NextResponse> {
+  if (action === 'clear') {
+    res.cookies.set(PARENT_SESSION_COOKIE, '', { path: '/', maxAge: 0 });
+    res.cookies.set(PARENT_ACTIVE_LEARNER_COOKIE, '', { path: '/', maxAge: 0 });
+  } else if (action === 'renew' && claims) {
+    try {
+      const fresh = await signParentSession({
+        sub: claims.sub,
+        learnerProfileId: claims.learnerProfileId,
+      });
+      res.cookies.set(PARENT_SESSION_COOKIE, fresh, parentSessionCookieOptions());
+    } catch {
+      // Renewal is best-effort; the current token stays valid.
+    }
+  }
+  return res;
+}
+
 async function handleParentPortal(request: NextRequest, currentPath: string) {
   const token = request.cookies.get(PARENT_SESSION_COOKIE)?.value;
-  const claims = await verifyParentSession(token);
+  let claims = await verifyParentSession(token);
+  let action: ParentSessionAction = 'keep';
+
+  if (claims) {
+    action = await resolveParentSessionAction(claims);
+    if (action === 'clear') claims = null;
+  }
 
   if (claims && PARENT_REDIRECT_WHEN_AUTHED.has(currentPath)) {
-    return NextResponse.redirect(new URL('/parent/dashboard', request.url));
+    return applyParentSessionAction(
+      NextResponse.redirect(new URL('/parent/dashboard', request.url)),
+      claims,
+      action
+    );
   }
 
   if (!claims && !PARENT_PUBLIC_PATHS.has(currentPath)) {
     const url = new URL('/parent/login', request.url);
     // Preserve the query string so deep links survive the login roundtrip
     url.searchParams.set('redirectedFrom', currentPath + request.nextUrl.search);
-    return NextResponse.redirect(url);
+    return applyParentSessionAction(NextResponse.redirect(url), claims, action);
   }
 
   const res = NextResponse.next();
   res.headers.set('Cache-Control', 'no-store, must-revalidate');
   res.headers.set('X-Content-Type-Options', 'nosniff');
   res.headers.set('X-Frame-Options', 'SAMEORIGIN');
-  return res;
+  return applyParentSessionAction(res, claims, action);
 }
 
 // Schools Network HM Portal — same dual-auth shape as the parent portal:

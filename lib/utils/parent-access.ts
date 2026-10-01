@@ -16,6 +16,7 @@ import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { PARENT_SESSION_COOKIE, verifyParentSession } from '@/lib/auth/parent-jwt';
 import { findLearnersByMobile, normalizeMobile } from '@/lib/utils/parent-identifier';
+import { getParentAccountState } from '@/lib/auth/parent-session-state';
 
 export interface ParentScope {
   parentAccountId: string; // the logged-in student's account
@@ -52,6 +53,14 @@ export async function resolveParentScope(
   if (!claims) return null;
 
   const db = createServiceRoleClient();
+
+  // Kill switch: a disabled / removed / signed-out-everywhere account is
+  // unauthenticated even while its (now sliding, 400-day) JWT is still valid.
+  const accountState = await getParentAccountState(db, claims);
+  if (accountState === 'error') {
+    throw new ParentAccessError('Failed to resolve parent scope', 500);
+  }
+  if (accountState === 'dead') return null;
 
   // The logged-in student's LIVE profile is the source of truth for contact.
   const { data: meRow, error } = await db
