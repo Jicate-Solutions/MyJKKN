@@ -17,6 +17,7 @@
 // CHECK) and the only part worth testing without a browser.
 
 import { istLocalInputToIso } from '@/lib/utils/date-format';
+import type { EventSourceLink } from './event-sources';
 import type {
   CreateEventDto,
   EventCategory,
@@ -245,6 +246,8 @@ export interface BuildEventDtoInput {
   endIso?: string;
   offCampus: boolean;
   venueResourceId: string;
+  /** Record this event was created from (event-sources.ts) → config.source. */
+  source?: EventSourceLink | null;
 }
 
 /**
@@ -268,6 +271,7 @@ export function buildCreateEventDto(input: BuildEventDtoInput): CreateEventDto {
     endIso,
     offCampus,
     venueResourceId,
+    source,
   } = input;
 
   const venueFields: Partial<CreateEventDto> = offCampus
@@ -347,6 +351,7 @@ export function buildCreateEventDto(input: BuildEventDtoInput): CreateEventDto {
             rules: preset.config.rules,
           }
         : {}),
+      ...(source ? { source } : {}),
     },
   };
 }

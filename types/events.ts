@@ -224,6 +224,8 @@ export interface Event {
   visibility: EventVisibility | null;
   venue_resource_id: string | null;
   venue_text: string | null;
+  /** Booked room, embedded by EventBaseService.getEvent only (null under RLS). */
+  venue_resource?: { id: string; name: string } | null;
   // Institutional event number (migration 20261118093000). `event_number` is a
   // GENERATED column — read-only, never send it in an Insert/Update DTO. Its
   // presence is what tells the UI the event's college is now frozen.
