@@ -1,0 +1,376 @@
+// HR intake helper — one test (at least) per finding of the PR #4163 review.
+// The session client is READ-ONLY here, exactly as production grants it, so any
+// write that does not go through the service role fails the test with 42501.
+
+import JSZip from 'jszip';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { IntakeRow } from '@/types/hr-intake';
+import {
+  acceptHigh,
+  AMBIGUOUS_RESUME_NOTE,
+  apply,
+  cleanupIdleBatches,
+  createBatch,
+  createUploadUrls,
+  decide,
+  discardBatch,
+  getBatch,
+  IntakeError,
+  prepareBatch,
+  SHARED_RESUME_NOTE,
+  type IntakeActor,
+  type IntakeDeps,
+} from '@/lib/services/hr/intake/intake-service';
+import { normaliseJobTitle } from '@/lib/hr/intake/normalise';
+import { FakeSupabase } from './fake-supabase';
+import fixture from './fixtures/open-jobs.json';
+
+const J = fixture.jobs;
+// Job titles live in the JSON fixture (the terminology gate reads .ts files).
+const GENERIC = fixture.titles.generic;
+const COLLEGE_1 = J.principal.institution_id;
+const COLLEGE_2 = J.admin_officer.institution_id;
+const PDF = (tag: string) => new TextEncoder().encode(`%PDF-1.4\n% ${tag}\n`);
+const tsv = (...lines: string[]) =>
+  new TextEncoder().encode(['File Name\tFirst Name\tEmail Address\tPhone Number\tJob', ...lines].join('\n'));
+
+const HR: IntakeActor = { id: 'u-hr-1', name: 'Kavitha Demo', institution_id: COLLEGE_1 };
+const HR2: IntakeActor = { id: 'u-hr-2', name: 'Suresh Demo', institution_id: COLLEGE_1 };
+const NO_HOME: IntakeActor = { id: 'u-hr-9', name: 'Floating Demo', institution_id: null };
+const SUPER: IntakeActor = { id: 'u-super', name: 'Director Demo', institution_id: null, is_super_admin: true };
+
+let fake: FakeSupabase;
+let upload: ReturnType<typeof vi.fn>;
+let deleteFile: ReturnType<typeof vi.fn>;
+let n: number;
+
+function deps(): IntakeDeps {
+  return { db: fake.asSession(), admin: fake.asClient(), upload: upload as never, deleteFile: deleteFile as never, extractor: null };
+}
+
+async function runBatch(files: { name: string; bytes: Uint8Array; type?: string }[], exportBytes: Uint8Array, actor: IntakeActor = HR) {
+  const d = deps();
+  const { batch } = await createBatch(d, actor, { name: 'e.tsv', bytes: exportBytes });
+  let uploaded: { name: string; path: string }[] = [];
+  if (files.length > 0) {
+    const { uploads } = await createUploadUrls(d, batch.id, {
+      files: files.map((f) => ({ name: f.name, size: f.bytes.byteLength, type: f.type ?? 'application/pdf' })),
+    });
+    uploads.forEach((u, i) => fake.objects.set(`hr-intake/${u.path}`, { bytes: files[i].bytes }));
+    uploaded = uploads.map((u) => ({ name: u.name, path: u.path }));
+  }
+  return prepareBatch(d, actor, batch.id, { uploaded });
+}
+
+const rowAt = (rows: IntakeRow[], i: number) => rows.find((r) => r.row_index === i)!;
+const rawRow = (id: string) => fake.table('hr_intake_rows').find((r) => r.id === id)!;
+
+beforeEach(() => {
+  fake = new FakeSupabase();
+  n = 0;
+  upload = vi.fn(async ({ file }: { file: File }) => {
+    n += 1;
+    return { url: `https://drive.example/file/${n}/${file.name}`, driveFileId: `drive-${n}` };
+  });
+  deleteFile = vi.fn(async () => true);
+  for (const j of [J.principal, J.english, J.history, J.admin_officer]) {
+    fake.table('hr_recruitment_jobs').push({
+      id: j.id, title: j.title, job_code: j.job_code, institution_id: j.institution_id, status: 'open',
+      closes_at: null, requirements: {}, institution: { name: j.institution_name }, department: null,
+    });
+  }
+  fake.table('institutions').push({ id: COLLEGE_1, name: 'Arts Demo College' }, { id: COLLEGE_2, name: 'Engineering Demo College' });
+});
+
+describe('B1 — every batch carries a college', () => {
+  it('uses the uploader’s home college and never asks the access check about NULL', async () => {
+    const { batch } = await createBatch(deps(), HR, { name: 'e.tsv', bytes: tsv('a.pdf\tA\ta@example.test\t9811111111\tPrincipal') }, COLLEGE_2);
+    expect(fake.table('hr_intake_batches').find((b) => b.id === batch.id)!.institution_id).toBe(COLLEGE_1);
+    expect(fake.rpcCalls.every((c) => (c.args as { check_institution_id: unknown }).check_institution_id != null)).toBe(true);
+  });
+
+  it('someone with no college must choose one: refused with the colleges they can choose from', async () => {
+    fake.reachable = (id) => id === COLLEGE_2;
+    const err = await createBatch(deps(), NO_HOME, { name: 'e.tsv', bytes: tsv('a.pdf\tA\ta@example.test\t9811111111\tPrincipal') })
+      .then(() => null, (e: unknown) => e as IntakeError);
+    expect(err).toBeInstanceOf(IntakeError);
+    expect(err).toMatchObject({ status: 400 });
+    expect(err?.details).toEqual({ needs_institution: true, institutions: [{ id: COLLEGE_2, name: 'Engineering Demo College' }] });
+    expect(fake.table('hr_intake_batches')).toHaveLength(0);
+  });
+
+  it('a chosen college they cannot reach is refused; one they can is used', async () => {
+    fake.reachable = (id) => id === COLLEGE_2;
+    const bytes = tsv('a.pdf\tA\ta@example.test\t9811111111\tPrincipal');
+    await expect(createBatch(deps(), NO_HOME, { name: 'e.tsv', bytes }, COLLEGE_1)).rejects.toMatchObject({ status: 403 });
+    await expect(createBatch(deps(), NO_HOME, { name: 'e.tsv', bytes }, 'not-a-uuid')).rejects.toMatchObject({ status: 403 });
+    const { batch } = await createBatch(deps(), NO_HOME, { name: 'e.tsv', bytes }, COLLEGE_2);
+    expect(fake.table('hr_intake_batches').find((b) => b.id === batch.id)!.institution_id).toBe(COLLEGE_2);
+  });
+});
+
+describe('M1 — one resume, one person', () => {
+  it('two different people naming the same file: neither gets it, both say why', async () => {
+    const { rows, batch } = await runBatch(
+      [{ name: 'cv.pdf', bytes: PDF('cv') }],
+      tsv('cv.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal', 'cv.pdf\tBala\tbala@example.test\t9822222222\tPrincipal'),
+    );
+    for (const i of [1, 2]) {
+      expect(rowAt(rows, i).resume).toMatchObject({ matched_upload: false, storage_path: null });
+      expect(rowAt(rows, i).proposal.reasons).toContain(SHARED_RESUME_NOTE);
+      expect(rowAt(rows, i).proposal.confidence).toBe('low');
+    }
+    const got = await getBatch(deps(), batch.id);
+    expect(got.skipped_files).toContainEqual({ file_name: 'cv.pdf', reason: 'Two different candidates name this file' });
+  });
+
+  it('the same person on two rows may share their one file', async () => {
+    const { rows } = await runBatch(
+      [{ name: 'cv.pdf', bytes: PDF('cv') }],
+      tsv('cv.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal', 'cv.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal'),
+    );
+    expect(rowAt(rows, 1).resume.matched_upload).toBe(true);
+    expect(rowAt(rows, 2).resume.matched_upload).toBe(true);
+  });
+
+  it('two uploaded files with the same name: the row pairs with neither', async () => {
+    const { rows, batch } = await runBatch(
+      [{ name: 'cv.pdf', bytes: PDF('one') }, { name: 'cv.pdf', bytes: PDF('two') }],
+      tsv('cv.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal'),
+    );
+    expect(rows[0].resume.matched_upload).toBe(false);
+    expect(rows[0].proposal.reasons).toContain(AMBIGUOUS_RESUME_NOTE);
+    expect(rows[0].proposal.reasons).not.toContain('Resume file was not in the upload');
+    const got = await getBatch(deps(), batch.id);
+    expect(got.skipped_files.filter((s) => s.reason.startsWith('Another uploaded file has the same name'))).toHaveLength(2);
+  });
+
+  it('a zip with x/Resume.pdf and y/Resume.pdf keeps them distinct and pairs neither', async () => {
+    const zip = new JSZip();
+    zip.file('x/Resume.pdf', PDF('x'));
+    zip.file('y/Resume.pdf', PDF('y'));
+    const bytes = await zip.generateAsync({ type: 'uint8array' });
+    const { rows } = await runBatch([{ name: 'all.zip', bytes, type: 'application/zip' }], tsv('Resume.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal'));
+    expect(rows[0].resume.matched_upload).toBe(false);
+    expect(rows[0].proposal.reasons).toContain(AMBIGUOUS_RESUME_NOTE);
+  });
+});
+
+async function decidedRow(email = 'asha@example.test') {
+  const { batch, rows } = await runBatch([{ name: 'cv.pdf', bytes: PDF('cv') }], tsv(`cv.pdf\tAsha\t${email}\t9811111111\tPrincipal`));
+  await decide(deps(), HR, rows[0].id, { action: 'file_under_job', job_id: J.principal.id });
+  return { batch, row: rows[0] };
+}
+
+describe('M2 — the database refuses the same person twice under one job', () => {
+  it('losing the race links the winner and deletes the orphan Drive copy', async () => {
+    const { batch, row } = await decidedRow();
+    // The other request files the same person while our Drive upload runs.
+    upload.mockImplementationOnce(async () => {
+      fake.table('hr_job_applications').push({ id: 'app-winner', job_id: J.principal.id, email: 'asha@example.test', source: 'cvviz_import' });
+      return { url: 'https://drive.example/file/x', driveFileId: 'drive-orphan' };
+    });
+    const { results } = await apply(deps(), HR, batch.id);
+    expect(results).toEqual([{ row_id: row.id, ok: true, application_id: 'app-winner', error: null }]);
+    expect(deleteFile).toHaveBeenCalledWith('drive-orphan');
+    expect(fake.table('hr_job_applications')).toHaveLength(1);
+    expect(rawRow(row.id).application_id).toBe('app-winner');
+  });
+});
+
+describe('M3 — a correction never touches another college’s rule', () => {
+  it('writes the rule for the job’s own college and leaves the other college’s rule as it was', async () => {
+    fake.table('hr_intake_match_rules').push({
+      id: 'rule-other', cvviz_job_title_norm: normaliseJobTitle(GENERIC), job_id: J.admin_officer.id,
+      institution_id: COLLEGE_2, created_by: 'u-other', created_by_name: 'Other College HR', times_used: 4, created_at: '2026-09-01T00:00:00Z',
+    });
+    const { rows } = await runBatch([], tsv(`\tAsha\tasha@example.test\t9811111111\t${GENERIC}`));
+    const res = await decide(deps(), HR, rows[0].id, { action: 'file_under_job', job_id: J.history.id });
+    expect(res.rule).toMatchObject({ job_id: J.history.id, created_by: HR.id });
+    const rules = fake.table('hr_intake_match_rules');
+    expect(rules).toHaveLength(2);
+    expect(rules.find((r) => r.id === 'rule-other')).toMatchObject({ job_id: J.admin_officer.id, institution_id: COLLEGE_2, created_by: 'u-other', created_by_name: 'Other College HR' });
+    expect(rules.find((r) => r.id !== 'rule-other')).toMatchObject({ institution_id: COLLEGE_1, job_id: J.history.id });
+  });
+
+  it('a later correction in the same college moves that college’s rule and its credit', async () => {
+    const { rows } = await runBatch([], tsv(`\tAsha\tasha@example.test\t9811111111\t${GENERIC}`));
+    await decide(deps(), HR, rows[0].id, { action: 'file_under_job', job_id: J.history.id });
+    const { rows: again } = await runBatch([], tsv(`\tBala\tbala@example.test\t9822222222\t${GENERIC}`), HR2);
+    const res = await decide(deps(), HR2, again[0].id, { action: 'file_under_job', job_id: J.english.id });
+    expect(res.rule).toMatchObject({ job_id: J.english.id, created_by: HR2.id });
+    expect(fake.table('hr_intake_match_rules')).toHaveLength(1);
+  });
+
+  it('a job with no college teaches no rule (no shared NULL-college rules); the decision stands', async () => {
+    fake.table('hr_recruitment_jobs').push({
+      id: 'a0000000-0000-4000-8000-0000000000ff', title: 'Floating Post', job_code: null, institution_id: null,
+      status: 'open', closes_at: null, requirements: {}, institution: null, department: null,
+    });
+    const { rows } = await runBatch([], tsv(`\tAsha\tasha@example.test\t9811111111\t${GENERIC}`));
+    const res = await decide(deps(), HR, rows[0].id, { action: 'file_under_job', job_id: 'a0000000-0000-4000-8000-0000000000ff' });
+    expect(res.row.decision?.job_id).toBe('a0000000-0000-4000-8000-0000000000ff');
+    expect(res.rule).toBeNull();
+    expect(res.rule_error).toMatch(/no college/);
+    expect(fake.table('hr_intake_match_rules')).toHaveLength(0);
+  });
+});
+
+describe('M4 — the server writes; filing trusts nothing it did not write', () => {
+  it('a whole batch, decided and filed, never writes through the session client', async () => {
+    const { batch } = await decidedRow();
+    await apply(deps(), HR, batch.id);
+    expect(fake.log.filter((l) => l.startsWith('REFUSED'))).toEqual([]);
+    expect(fake.table('hr_job_applications')).toHaveLength(1);
+  });
+
+  it('a resume path outside the row’s batch is refused, nothing uploaded', async () => {
+    const { batch, row } = await decidedRow();
+    rawRow(row.id).resume_storage_path = 'some-other-batch/cv.pdf';
+    const { results } = await apply(deps(), HR, batch.id);
+    expect(results[0]).toMatchObject({ ok: false, error: 'The stored resume is not part of this upload' });
+    rawRow(row.id).resume_storage_path = `${batch.id}/../x/cv.pdf`;
+    expect((await apply(deps(), HR, batch.id)).results[0].ok).toBe(false);
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it('a row with no recorded decider is refused', async () => {
+    const { batch, row } = await decidedRow();
+    rawRow(row.id).decided_by = null;
+    const { results } = await apply(deps(), HR, batch.id);
+    expect(results[0]).toMatchObject({ ok: false, error: expect.stringMatching(/no one has recorded a decision/i) });
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it('the name beside a decision is the deciding person’s, from the server', async () => {
+    const { row } = await decidedRow();
+    expect(rawRow(row.id)).toMatchObject({ decided_by: HR.id, decided_by_name: 'Kavitha Demo' });
+  });
+});
+
+describe('M5 — nothing unfileable is high; discard and idle clean-up', () => {
+  it('accept-high skips a high filing row whose resume copy is gone', async () => {
+    const { batch, rows } = await runBatch([{ name: 'cv.pdf', bytes: PDF('cv') }], tsv('cv.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal'));
+    expect(rows[0].proposal.confidence).toBe('high');
+    rawRow(rows[0].id).resume_storage_path = null;
+    expect(await acceptHigh(deps(), HR, batch.id)).toEqual({ decided: 0 });
+  });
+
+  it('no resume in the upload: proposed low, so accept-high leaves it', async () => {
+    const { batch, rows } = await runBatch([], tsv('cv.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal'));
+    expect(rows[0].proposal).toMatchObject({ action: 'file_under_job', confidence: 'low' });
+    expect(rows[0].proposal.reasons[0]).toBe('No resume uploaded');
+    expect(await acceptHigh(deps(), HR, batch.id)).toEqual({ decided: 0 });
+  });
+
+  it('only the uploader or a super admin may discard; discarding removes rows and resume copies', async () => {
+    const { batch } = await runBatch([{ name: 'cv.pdf', bytes: PDF('cv') }], tsv('cv.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal'));
+    expect(fake.objects.size).toBe(1);
+    await expect(discardBatch(deps(), HR2, batch.id)).rejects.toMatchObject({ status: 403 });
+    expect(await discardBatch(deps(), HR, batch.id)).toEqual({ ok: true, removed_files: 1 });
+    expect(fake.table('hr_intake_batches')).toHaveLength(0);
+    expect(fake.objects.size).toBe(0);
+    await expect(getBatch(deps(), batch.id)).rejects.toMatchObject({ status: 404 });
+
+    const second = await runBatch([], tsv('\tBala\tbala@example.test\t9822222222\tPrincipal'));
+    expect(await discardBatch(deps(), SUPER, second.batch.id)).toMatchObject({ ok: true });
+  });
+
+  it('closes a batch idle for 30 days and removes its copies; leaves an active one alone', async () => {
+    const idle = await runBatch([{ name: 'cv.pdf', bytes: PDF('cv') }], tsv('cv.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal'));
+    const active = await runBatch([{ name: 'cv2.pdf', bytes: PDF('cv2') }], tsv('cv2.pdf\tBala\tbala@example.test\t9822222222\tPrincipal'));
+    const old = '2026-08-01T00:00:00.000Z';
+    for (const b of fake.table('hr_intake_batches')) b.updated_at = old;
+    for (const r of fake.table('hr_intake_rows')) r.updated_at = r.batch_id === idle.batch.id ? old : new Date().toISOString();
+
+    const summary = await cleanupIdleBatches(fake.asClient(), new Date('2026-10-01T00:00:00.000Z'));
+    expect(summary).toMatchObject({ ok: true, checked: 2, closed: 1, files_removed: 1, failed: 0, count: 1 });
+    const batches = fake.table('hr_intake_batches');
+    expect(batches.find((b) => b.id === idle.batch.id)!.status).toBe('closed');
+    expect(batches.find((b) => b.id === active.batch.id)!.status).toBe('ready');
+    expect(fake.table('hr_intake_rows').find((r) => r.batch_id === idle.batch.id)!.resume_storage_path).toBeNull();
+    expect([...fake.objects.keys()].some((k) => k.includes(active.batch.id))).toBe(true);
+  });
+});
+
+describe('M6 — a failure after the batch is ready never deletes its rows', () => {
+  it('keeps the rows and the ready status', async () => {
+    const d = deps();
+    const { batch } = await createBatch(d, HR, { name: 'e.tsv', bytes: tsv('\tAsha\tasha@example.test\t9811111111\tPrincipal') });
+    // The first read of the rows happens only after the batch is marked ready.
+    fake.failures.set('hr_intake_rows.select', { message: 'connection reset' });
+    await expect(prepareBatch(d, HR, batch.id, { uploaded: [] })).rejects.toThrow(/connection reset/);
+    expect(fake.table('hr_intake_rows')).toHaveLength(1);
+    expect(fake.table('hr_intake_batches')[0]).toMatchObject({ status: 'ready' });
+  });
+});
+
+describe('M7 — "needs a new job" keeps the batch open, with its resume', () => {
+  it('does not close or drop resumes; the row can be filed once the job exists', async () => {
+    const { batch, rows } = await runBatch(
+      [{ name: 'a.pdf', bytes: PDF('a') }, { name: 'b.pdf', bytes: PDF('b') }],
+      tsv('a.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal', 'b.pdf\tBala\tbala@example.test\t9822222222\tPrincipal'),
+    );
+    await decide(deps(), HR, rowAt(rows, 1).id, { action: 'file_under_job', job_id: J.principal.id });
+    await decide(deps(), HR, rowAt(rows, 2).id, { action: 'needs_new_job' });
+    await apply(deps(), HR, batch.id);
+    let got = await getBatch(deps(), batch.id);
+    expect(got.batch.status).toBe('ready');
+    expect(rowAt(got.rows, 2).resume.storage_path).not.toBeNull();
+    expect([...fake.objects.keys()].some((k) => k.endsWith('b.pdf'))).toBe(true);
+
+    // HR opens the job (here: it already exists) and changes the row.
+    await decide(deps(), HR, rowAt(rows, 2).id, { action: 'file_under_job', job_id: J.history.id });
+    const { results } = await apply(deps(), HR, batch.id, [rowAt(rows, 2).id]);
+    expect(results[0].ok).toBe(true);
+    got = await getBatch(deps(), batch.id);
+    expect(got.batch.status).toBe('closed');
+  });
+});
+
+describe('minors', () => {
+  it('signed upload URLs never overwrite: upsert false, and a repeated name gets a fresh path', async () => {
+    const { batch } = await createBatch(deps(), HR, { name: 'e.tsv', bytes: tsv('cv.pdf\tA\ta@example.test\t9811111111\tPrincipal') });
+    const first = await createUploadUrls(deps(), batch.id, { files: [{ name: 'cv.pdf', size: 5, type: 'application/pdf' }] });
+    fake.objects.set(`hr-intake/${first.uploads[0].path}`, { bytes: PDF('a') });
+    const second = await createUploadUrls(deps(), batch.id, { files: [{ name: 'cv.pdf', size: 5, type: 'application/pdf' }] });
+    expect(second.uploads[0].path).not.toBe(first.uploads[0].path);
+    expect(fake.signedUploadOpts.every((o) => o.upsert === false)).toBe(true);
+  });
+
+  it('decide refuses while the row is being filed, and once it is filed', async () => {
+    const { batch, row } = await decidedRow();
+    rawRow(row.id).apply_claimed_at = new Date().toISOString();
+    await expect(decide(deps(), HR, row.id, { action: 'skip' })).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/being filed/) });
+    rawRow(row.id).apply_claimed_at = null;
+    await apply(deps(), HR, batch.id);
+    await expect(decide(deps(), HR, row.id, { action: 'skip' })).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('a failed filing never clears a claim another request holds', async () => {
+    const { batch, row } = await decidedRow();
+    const claim = new Date().toISOString();
+    rawRow(row.id).apply_claimed_at = claim;
+    fake.table('hr_recruitment_jobs').find((j) => j.id === J.principal.id)!.status = 'closed';
+    const { results } = await apply(deps(), HR, batch.id);
+    expect(results[0].ok).toBe(false);
+    expect(rawRow(row.id)).toMatchObject({ apply_claimed_at: claim, apply_error: null });
+  });
+
+  it('a resume that cannot be read is logged by batch and count, never by file name or path', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const d = { ...deps(), extractor: async () => { throw new Error('model timeout'); } };
+      const { batch } = await createBatch(d, HR, { name: 'e.tsv', bytes: tsv('Ravi_9876543210.pdf\tRavi\travi@example.test\t9811111111\tPrincipal') });
+      const { uploads } = await createUploadUrls(d, batch.id, { files: [{ name: 'Ravi_9876543210.pdf', size: 5, type: 'application/pdf' }] });
+      fake.objects.set(`hr-intake/${uploads[0].path}`, { bytes: PDF('r') });
+      await prepareBatch(d, HR, batch.id, { uploaded: uploads.map((u) => ({ name: u.name, path: u.path })) });
+      const logged = JSON.stringify(warn.mock.calls);
+      expect(logged).toContain('some resumes could not be read');
+      expect(logged).not.toContain('9876543210');
+      expect(logged).not.toContain('Ravi');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});

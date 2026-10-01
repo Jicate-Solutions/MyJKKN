@@ -9,6 +9,7 @@ import { Loader2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { useCreateIntakeBatch } from '@/hooks/hr/use-recruitment-intake';
+import { IntakeApiClientError, type IntakeCollegeChoice } from '@/lib/hr/intake/api-client';
 import { IntakeError } from './intake-states';
 
 const EXPORT_EXT = ['.csv', '.tsv', '.xlsx'];
@@ -46,6 +47,9 @@ export function IntakeUploadForm() {
   const [resumes, setResumes] = useState<File[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
   const [stepText, setStepText] = useState<string | null>(null);
+  // Shown only when the server says this person's profile has no college.
+  const [colleges, setColleges] = useState<IntakeCollegeChoice[] | null>(null);
+  const [collegeId, setCollegeId] = useState('');
 
   const resumeBytes = resumes.reduce((n, f) => n + f.size, 0);
 
@@ -54,10 +58,15 @@ export function IntakeUploadForm() {
     const issue = checkIntakeFiles(exportFile, resumes);
     setProblem(issue);
     if (issue || !exportFile) return;
+    if (colleges && !collegeId) {
+      setProblem('Choose which college this upload is for.');
+      return;
+    }
     try {
       const batch = await create.mutateAsync({
         exportFile,
         resumes,
+        institutionId: colleges ? collegeId : null,
         onProgress: (stage, done, total) =>
           setStepText(
             stage === 'export'
@@ -68,8 +77,9 @@ export function IntakeUploadForm() {
           ),
       });
       router.push(`/hr/recruitment/intake/${batch.id}`);
-    } catch {
-      // Shown below from create.error.
+    } catch (e) {
+      // Shown below from create.error. A "choose a college" answer also brings the choices.
+      if (e instanceof IntakeApiClientError && e.institutions) setColleges(e.institutions);
     }
   }
 
@@ -129,6 +139,39 @@ export function IntakeUploadForm() {
           </p>
         )}
       </div>
+
+      {colleges && (
+        <div className="space-y-2">
+          <Label htmlFor="intake-college" className="text-sm font-medium text-foreground">
+            3. Which college is this upload for?
+          </Label>
+          <p className="text-sm text-muted-foreground">
+            Your profile has no college, so choose one. Only HR of that college will see these candidates.
+          </p>
+          {colleges.length === 0 ? (
+            <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+              You do not have access to any college. Ask whoever manages roles to give you one.
+            </p>
+          ) : (
+            <select
+              id="intake-college"
+              value={collegeId}
+              onChange={(e) => {
+                setCollegeId(e.target.value);
+                setProblem(null);
+              }}
+              className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground"
+            >
+              <option value="">Choose a college…</option>
+              {colleges.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
 
       {problem && (
         <p role="alert" className="text-sm text-red-600 dark:text-red-400">

@@ -145,6 +145,30 @@ describe('routing by file type', () => {
     expect(create).not.toHaveBeenCalled();
   });
 
+  it('honours a non-Anthropic provider choice: reads nothing, says so once, never calls Claude', async () => {
+    const chat = await import('@/lib/services/platform/ai-clients/chat');
+    const { logger } = await import('@/lib/utils/enhanced-logger');
+    const resolve = vi.mocked(chat.resolveChatModel);
+    resolve.mockResolvedValue({
+      provider: 'anthropic',
+      model_id: 'claude-haiku-4-5',
+      resolved: { provider: 'google', model_id: 'gemini-2.5-flash' } as never,
+    });
+    vi.mocked(logger.warn).mockClear();
+    try {
+      const { client, create } = fakeClient(async () => reply(GOOD));
+      const read = createResumeExtractor({ client });
+      expect(await read({ fileName: 'a.pdf', bytes: bytes(), mimeType: 'application/pdf' })).toBeNull();
+      expect(await read({ fileName: 'b.pdf', bytes: bytes(), mimeType: 'application/pdf' })).toBeNull();
+      expect(create).not.toHaveBeenCalled();
+      expect(recordChatCall).not.toHaveBeenCalled();
+      const lines = vi.mocked(logger.warn).mock.calls.filter((c) => String(c[1]).includes('provider "google"'));
+      expect(lines).toHaveLength(1);
+    } finally {
+      resolve.mockResolvedValue({ provider: 'anthropic', model_id: 'claude-haiku-4-5', resolved: {} as never });
+    }
+  });
+
   it('returns null when no API key is configured and no client is given', async () => {
     const saved = { a: process.env.ANTHROPIC_API_KEY, c: process.env.CLAUDE_API_KEY };
     delete process.env.ANTHROPIC_API_KEY;
@@ -216,6 +240,21 @@ describe('cleaning the reply', () => {
       'Taught 2015 - 2019 at ABC, 120 learners',
     );
     expect(stripContactDetails('Ph 2234567')).toBe('');
+  });
+
+  it('strips the spaced, spelled-out, slashed, bracketed and non-Latin forms too', () => {
+    expect(stripContactDetails('Reach 98765/43210 anytime')).toBe('Reach anytime');
+    expect(stripContactDetails('Lecturer, john . doe @ gmail . com')).toBe('Lecturer');
+    expect(stripContactDetails('Lecturer (+91) 98765 43210')).toBe('Lecturer');
+    expect(stripContactDetails('Lecturer (+91) 98765 43210')).not.toContain('(');
+    expect(stripContactDetails('Profile linkedin.com/in/john-doe-123 shows more')).toBe('Profile shows more');
+    expect(stripContactDetails('Write to john at gmail dot com today')).toBe('Write to today');
+    // Devanagari and full-width digit runs of 10+.
+    expect(stripContactDetails('Call ९८७६५४३२१० now')).toBe('Call now');
+    expect(stripContactDetails('Call ９８７６５ ４３２１０ now')).toBe('Call now');
+    // Not contact details: degrees, places, ordinary "at", short numbers.
+    expect(stripContactDetails('B.Com/M.Com, Lecturer at St. Joseph College')).toBe('B.Com/M.Com, Lecturer at St. Joseph College');
+    expect(stripContactDetails('M.Sc. Physics, 2010/2014')).toBe('M.Sc. Physics, 2010/2014');
   });
 
   it('caps the summary at 160 characters and one sentence', () => {

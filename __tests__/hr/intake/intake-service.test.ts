@@ -56,9 +56,12 @@ function seedJobs(keys: (keyof typeof J)[] = ['principal', 'english', 'history',
   }
 }
 
+// The session client is READ-ONLY, as production grants it: every write in these
+// tests must go through the service role or it fails with 42501.
 function deps(extractor: ResumeExtractor | null = null): IntakeDeps {
-  return { db: fake.asClient(), admin: fake.asClient(), upload: upload as never, extractor };
+  return { db: fake.asSession(), admin: fake.asClient(), upload: upload as never, deleteFile: deleteFile as never, extractor };
 }
+let deleteFile: ReturnType<typeof vi.fn>;
 
 /** Post the export, upload the files the way the browser would, prepare. */
 async function runBatch(
@@ -96,6 +99,7 @@ const byIndex = (rows: IntakeRow[], i: number) => rows.find((r) => r.row_index =
 
 beforeEach(() => {
   fake = new FakeSupabase();
+  deleteFile = vi.fn(async () => true);
   n = 0;
   upload = vi.fn(async ({ file }: { file: File }) => {
     n += 1;
@@ -126,7 +130,9 @@ describe('a batch from upload to proposals', () => {
     expect(byIndex(rows, 4).resume.matched_upload).toBe(true);
     // Row 5: phone was a date; title fits one post by words only -> medium.
     expect(byIndex(rows, 5).candidate.phone_issue).toMatch(/date/);
-    expect(byIndex(rows, 5).proposal).toMatchObject({ job_id: J.store_keeper.id, confidence: 'medium' });
+    // Filing would refuse it (no usable phone), so it is never more than low (M5).
+    expect(byIndex(rows, 5).proposal).toMatchObject({ job_id: J.store_keeper.id, confidence: 'low' });
+    expect(byIndex(rows, 5).proposal.reasons[0]).toBe('Cannot be filed yet: no usable phone number');
     // Row 6: the general pool.
     expect(byIndex(rows, 6).proposal).toMatchObject({ action: 'needs_new_job', confidence: 'low' });
     // Row 7, 9, 10: exact or half-of-a-slash titles -> high.
@@ -174,7 +180,7 @@ describe('a batch from upload to proposals', () => {
     const { rows } = await runBatch(deps(extractor), files, new TextEncoder().encode(lines.join('\n')));
     expect(extractor).toHaveBeenCalledTimes(MAX_EXTRACTIONS_PER_BATCH);
     const capped = rows.filter((r) => r.proposal.reasons.some((x) => x.startsWith('Resume not read')));
-    expect(capped).toHaveLength(5);
+    expect(capped).toHaveLength(65 - MAX_EXTRACTIONS_PER_BATCH);
   });
 
   it('a resume reader that throws marks only that card', async () => {

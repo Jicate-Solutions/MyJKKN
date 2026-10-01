@@ -9,7 +9,8 @@ import type { ReactNode } from 'react';
 import type { IntakeBatch, IntakeOpenJob, IntakeRow } from '@/types/hr-intake';
 
 vi.mock('sonner', () => ({ toast: Object.assign(vi.fn(), { error: vi.fn(), success: vi.fn() }) }));
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
+const nav = vi.hoisted(() => ({ push: vi.fn() }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: nav.push }) }));
 vi.mock('next/link', () => ({
   default: ({ href, children, ...rest }: { href: string; children: ReactNode }) => (
     <a href={href} {...rest}>
@@ -22,6 +23,7 @@ import { CandidateCard } from '../candidate-card';
 import { BatchReview } from '../batch-review';
 import { BatchList } from '../batch-list';
 import { RulesList } from '../rules-list';
+import { IntakeUploadForm } from '../intake-upload-form';
 import { getIntakeBatch } from '@/lib/hr/intake/api-client';
 
 // ---------------------------------------------------------------------------
@@ -355,5 +357,66 @@ describe('RulesList', () => {
     expect(callsTo('/rules/rule-1', 'DELETE')).toHaveLength(0);
     fireEvent.click(screen.getByRole('button', { name: 'Yes, delete' }));
     await waitFor(() => expect(callsTo('/rules/rule-1', 'DELETE')).toHaveLength(1));
+  });
+});
+
+describe('Discard an upload (review fix M5)', () => {
+  it('asks in the page first, then deletes the batch and goes back to the list', async () => {
+    nav.push.mockClear();
+    handler = (url, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET' && url.endsWith('/batches/b1')) return json({ batch: BATCH, rows: [ROW1], open_jobs: JOBS });
+      if (method === 'DELETE' && url.endsWith('/batches/b1')) return json({ ok: true, removed_files: 1 });
+      return json({ error: `unexpected ${method} ${url}` }, 500);
+    };
+    renderWithQuery(<BatchReview batchId="b1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Discard this upload/ }));
+    expect(callsTo('/batches/b1', 'DELETE')).toHaveLength(0);
+    const group = screen.getByRole('group', { name: 'Confirm discard' });
+    fireEvent.click(within(group).getByRole('button', { name: 'Keep it' }));
+    expect(screen.queryByRole('group', { name: 'Confirm discard' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /Discard this upload/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, discard' }));
+    await waitFor(() => expect(callsTo('/batches/b1', 'DELETE')).toHaveLength(1));
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith('/hr/recruitment/intake'));
+  });
+});
+
+describe('Upload form: a college picker only when the server asks for one (review fix B1)', () => {
+  const exportFile = () => new File(['First Name,Email Address\nA,a@x.test'], 'cvviz.csv', { type: 'text/csv' });
+
+  it('shows no picker at first; after "choose a college" it lists the choices and sends the chosen one', async () => {
+    const posted: FormData[] = [];
+    handler = (url, init) => {
+      if (url.endsWith('/batches') && init?.method === 'POST') {
+        const form = init.body as FormData;
+        posted.push(form);
+        if (!form.get('institution_id')) {
+          return json({ error: 'Your profile has no college, so choose which college this upload is for.', needs_institution: true, institutions: [{ id: 'c2', name: 'Engineering Demo College' }] }, 400);
+        }
+        return json({ batch: { ...BATCH, id: 'b9', status: 'preparing' } }, 201);
+      }
+      if (url.endsWith('/batches/b9/prepare')) return json({ batch: { ...BATCH, id: 'b9' }, rows: [] });
+      return json({ error: `unexpected ${url}` }, 500);
+    };
+    nav.push.mockClear();
+    renderWithQuery(<IntakeUploadForm />);
+    expect(screen.queryByLabelText(/Which college is this upload for/)).toBeNull();
+
+    fireEvent.change(screen.getByLabelText(/The CVViZ export/), { target: { files: [exportFile()] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload and review' }));
+    const picker = await screen.findByLabelText(/Which college is this upload for/);
+    expect(within(picker).getByRole('option', { name: 'Engineering Demo College' })).toBeTruthy();
+
+    // Submitting again without choosing says so, and sends nothing.
+    fireEvent.click(screen.getByRole('button', { name: 'Upload and review' }));
+    expect(await screen.findByText('Choose which college this upload is for.')).toBeTruthy();
+    expect(posted).toHaveLength(1);
+
+    fireEvent.change(picker, { target: { value: 'c2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload and review' }));
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith('/hr/recruitment/intake/b9'));
+    expect(posted[1].get('institution_id')).toBe('c2');
   });
 });

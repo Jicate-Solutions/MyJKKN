@@ -6,14 +6,16 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { CheckCheck, ListChecks, Loader2, Send } from 'lucide-react';
+import { CheckCheck, ListChecks, Loader2, Send, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { ApplyResult, DecideRequest } from '@/types/hr-intake';
 import {
   useAcceptHighConfidence,
   useApplyIntake,
   useDecideIntakeRow,
+  useDiscardIntakeBatch,
   useIntakeBatch,
 } from '@/hooks/hr/use-recruitment-intake';
 import { CandidateCard } from './candidate-card';
@@ -29,6 +31,9 @@ export function BatchReview({ batchId }: { batchId: string }) {
   const decideMutation = useDecideIntakeRow(batchId);
   const acceptHigh = useAcceptHighConfidence(batchId);
   const apply = useApplyIntake(batchId);
+  const discard = useDiscardIntakeBatch(batchId);
+  const router = useRouter();
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [applyResults, setApplyResults] = useState<ApplyResult[] | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
 
@@ -78,6 +83,16 @@ export function BatchReview({ batchId }: { batchId: string }) {
       setApplyResults(results);
     } catch (e) {
       setApplyError(errorMessage(e));
+    }
+  }
+
+  async function handleDiscard() {
+    try {
+      await discard.mutateAsync();
+      toast.success('Upload discarded. Candidates already filed stay in MyJKKN.');
+      router.push('/hr/recruitment/intake');
+    } catch (e) {
+      toast.error(errorMessage(e));
     }
   }
 
@@ -159,6 +174,38 @@ export function BatchReview({ batchId }: { batchId: string }) {
           )}
           File decided candidates into MyJKKN ({summary.toApply.length})
         </Button>
+      </div>
+      <div>
+        {confirmDiscard ? (
+          <div
+            role="group"
+            aria-label="Confirm discard"
+            className="flex flex-col gap-2 rounded-lg border border-red-600/30 p-3 text-sm dark:border-red-400/30 sm:flex-row sm:items-center"
+          >
+            <p className="flex-1 text-foreground">
+              Discard this upload? Its cards and the resume copies are deleted. Candidates already filed into MyJKKN stay.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                disabled={discard.isPending}
+                onClick={() => void handleDiscard()}
+              >
+                {discard.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden="true" />}
+                Yes, discard
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setConfirmDiscard(false)}>
+                Keep it
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmDiscard(true)}>
+            <Trash2 className="mr-1.5 h-4 w-4" aria-hidden="true" /> Discard this upload
+          </Button>
+        )}
       </div>
       <p className="text-xs text-muted-foreground">
         Filing adds each decided candidate as an application under the chosen job, with their resume. Rows are filed one by one: if one fails, the others still go through.

@@ -1,7 +1,9 @@
 export const dynamic = 'force-dynamic';
 
 // GET  /api/hr/recruitment/intake/batches — the batches this person can see, newest first.
-// POST /api/hr/recruitment/intake/batches — multipart `export` (one .csv/.tsv/.xlsx).
+// POST /api/hr/recruitment/intake/batches — multipart `export` (one .csv/.tsv/.xlsx),
+//      plus `institution_id` ONLY for someone whose profile has no college. Without
+//      it, such a person gets 400 { error, needs_institution: true, institutions }.
 //      Parses it now and holds the rows; resumes follow through upload-urls,
 //      then prepare proposes. → 201 { batch } with status 'preparing'.
 
@@ -47,8 +49,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const chosen = form.get('institution_id');
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const { batch } = await createBatch(gate.deps, gate.actor, { name: file.name || 'export.csv', bytes });
+    const { batch } = await createBatch(
+      gate.deps,
+      gate.actor,
+      { name: file.name || 'export.csv', bytes },
+      typeof chosen === 'string' ? chosen : null,
+    );
     return NextResponse.json({ batch }, { status: 201 });
   } catch (err) {
     return intakeErrorResponse('POST batches', err);

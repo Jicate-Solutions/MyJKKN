@@ -6,6 +6,7 @@ import {
   PDF_MIME,
   isZipBytes,
   matchResumeFile,
+  matchResumeFileDetailed,
   safeStorageName,
   sniffResumeMime,
 } from '@/lib/hr/intake/resume-files';
@@ -63,5 +64,26 @@ describe('safeStorageName', () => {
     expect(safeStorageName('My CV (final).pdf')).toBe('My_CV_final_.pdf');
     expect(safeStorageName('../../etc/passwd')).toBe('etc_passwd');
     expect(safeStorageName('')).toBe('resume');
+  });
+
+  it('never yields ".." (collapses repeated dots)', () => {
+    expect(safeStorageName('Arun K..pdf')).toBe('Arun_K.pdf');
+    expect(safeStorageName('a....b.pdf')).not.toContain('..');
+  });
+});
+
+describe('matchResumeFileDetailed — one file, one person', () => {
+  it('two uploads with the same name pair with nobody and say why', () => {
+    expect(matchResumeFileDetailed('Resume.pdf', [f('Resume.pdf'), f('resume.PDF')])).toEqual({ file: null, ambiguous: true });
+  });
+
+  it('two zip entries in different folders with the same name are ambiguous, never the first', () => {
+    expect(matchResumeFileDetailed('Resume.pdf', [f('x/Resume.pdf'), f('y/Resume.pdf')])).toEqual({ file: null, ambiguous: true });
+    expect(matchResumeFileDetailed('Resume.pdf', [f('x/Resume.pdf')]).file?.name).toBe('x/Resume.pdf');
+  });
+
+  it('a clear single hit is not ambiguous; a name that fits nothing is neither', () => {
+    expect(matchResumeFileDetailed('cv.pdf', [f('cv.pdf'), f('other.pdf')])).toMatchObject({ ambiguous: false, file: { name: 'cv.pdf' } });
+    expect(matchResumeFileDetailed('nobody.pdf', [f('cv.pdf')])).toEqual({ file: null, ambiguous: false });
   });
 });

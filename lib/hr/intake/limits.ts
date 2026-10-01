@@ -26,8 +26,14 @@ export const UPLOAD_MIME_ALIASES: Record<string, string> = {
   'image/jpg': 'image/jpeg',
   'image/pjpeg': 'image/jpeg',
 };
-/** Resumes read by the AI per batch; the rest are proposed from the export alone. */
-export const MAX_EXTRACTIONS_PER_BATCH = 60;
+/**
+ * Resumes read by the AI per batch; the rest are proposed from the export alone.
+ * Sized to fit the prepare route's 300-second limit even in the worst case: every
+ * read takes the full 30-second timeout, three at a time -> 24 / 3 x 30 s = 240 s,
+ * leaving 60 s for the downloads, the zip and the row writes. (Was 60, which could
+ * take 600 s and be killed midway, losing the whole preparation.)
+ */
+export const MAX_EXTRACTIONS_PER_BATCH = 24;
 /** Resumes read at the same time. */
 export const EXTRACTION_CONCURRENCY = 3;
 /** Rows filed into MyJKKN at the same time (each is a Drive upload). */

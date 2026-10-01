@@ -33,32 +33,69 @@ export function stripNumericSuffix(name: string): string {
   return noExt.replace(/[_-]\d{6,}$/, '').replace(/[^a-z0-9]/g, '');
 }
 
-/** The uploaded file the export's "File Name" cell refers to, or null. */
-export function matchResumeFile<T extends { name: string }>(exportName: string | null, uploads: T[]): T | null {
-  if (!exportName) return null;
-  const lower = exportName.trim().toLowerCase();
-  const exact = uploads.find((u) => u.name.trim().toLowerCase() === lower);
+/** The last path segment: a zip entry "x/Resume.pdf" is compared as "Resume.pdf". */
+const baseOf = (name: string) => name.split('/').pop() ?? name;
+
+export interface ResumeMatch<T> {
+  /** The one file this row names, or null. */
+  file: T | null;
+  /**
+   * True when more than one uploaded file fits the name equally well. Nothing is
+   * paired then: a guess could put one person's resume on another's card.
+   */
+  ambiguous: boolean;
+}
+
+function one<T>(hits: T[]): ResumeMatch<T> | null {
+  if (hits.length === 1) return { file: hits[0], ambiguous: false };
+  if (hits.length > 1) return { file: null, ambiguous: true };
+  return null;
+}
+
+/**
+ * The uploaded file the export's "File Name" cell refers to. Tiers, strongest
+ * first; the first tier with any hit decides, and two hits there = ambiguous.
+ * Names are compared on their last path segment, so two zip entries
+ * "x/Resume.pdf" and "y/Resume.pdf" are BOTH hits for "Resume.pdf" (ambiguous),
+ * never silently the first one.
+ */
+export function matchResumeFileDetailed<T extends { name: string }>(
+  exportName: string | null,
+  uploads: T[],
+): ResumeMatch<T> {
+  const none: ResumeMatch<T> = { file: null, ambiguous: false };
+  if (!exportName) return none;
+  const wanted = baseOf(exportName.trim());
+  const lower = wanted.toLowerCase();
+  const exact = one(uploads.filter((u) => baseOf(u.name.trim()).toLowerCase() === lower));
   if (exact) return exact;
 
-  const stem = fileStem(exportName);
-  if (!stem) return null;
-  const sameStem = uploads.filter((u) => fileStem(u.name) === stem);
-  if (sameStem.length === 1) return sameStem[0];
-  if (sameStem.length > 1) return null;
+  const stem = fileStem(wanted);
+  if (!stem) return none;
+  const sameStem = one(uploads.filter((u) => fileStem(baseOf(u.name)) === stem));
+  if (sameStem) return sameStem;
 
   // CVViZ sometimes adds "_<long number>" to a name ("Image00732_1812345678901.pdf")
   // that the downloaded file does not carry, or the other way round.
-  const bare = stripNumericSuffix(exportName);
-  const sameBare = uploads.filter((u) => stripNumericSuffix(u.name) === bare);
-  if (bare && sameBare.length === 1) return sameBare[0];
-  if (sameBare.length > 1) return null;
+  const bare = stripNumericSuffix(wanted);
+  if (bare) {
+    const sameBare = one(uploads.filter((u) => stripNumericSuffix(baseOf(u.name)) === bare));
+    if (sameBare) return sameBare;
+  }
 
-  if (stem.length < MIN_CONTAINS_LEN) return null;
-  const contains = uploads.filter((u) => {
-    const s = fileStem(u.name);
-    return s.length >= MIN_CONTAINS_LEN && (s.includes(stem) || stem.includes(s));
-  });
-  return contains.length === 1 ? contains[0] : null;
+  if (stem.length < MIN_CONTAINS_LEN) return none;
+  const contains = one(
+    uploads.filter((u) => {
+      const s = fileStem(baseOf(u.name));
+      return s.length >= MIN_CONTAINS_LEN && (s.includes(stem) || stem.includes(s));
+    }),
+  );
+  return contains ?? none;
+}
+
+/** The uploaded file the export's "File Name" cell refers to, or null (also when ambiguous). */
+export function matchResumeFile<T extends { name: string }>(exportName: string | null, uploads: T[]): T | null {
+  return matchResumeFileDetailed(exportName, uploads).file;
 }
 
 /**
@@ -91,6 +128,11 @@ export function isZipBytes(bytes: Uint8Array): boolean {
 
 /** A storage-safe version of a file name: letters, digits, dot, dash, underscore. */
 export function safeStorageName(name: string): string {
-  const cleaned = name.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/_+/g, '_').replace(/^[._]+/, '');
+  const cleaned = name
+    .replace(/[^A-Za-z0-9._-]+/g, '_')
+    // "Arun K..pdf" -> "Arun_K.pdf": a storage path never carries "..".
+    .replace(/\.{2,}/g, '.')
+    .replace(/_+/g, '_')
+    .replace(/^[._]+/, '');
   return (cleaned || 'resume').slice(0, 120);
 }

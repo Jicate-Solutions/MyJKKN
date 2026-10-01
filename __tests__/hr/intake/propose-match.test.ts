@@ -208,3 +208,40 @@ describe('titleScore', () => {
     expect(titleScore('principal', 'Principal')).toBe(1);
   });
 });
+
+describe('a row filing would refuse is never high', () => {
+  const fits = (extra: Partial<Parameters<typeof proposeMatch>[0]>) =>
+    proposeMatch({ ...base, candidate: cand(J.principal.title), ...extra });
+
+  it('a clean row with its resume stays high', () => {
+    expect(fits({ resume_uploaded: true })).toMatchObject({ action: 'file_under_job', confidence: 'high' });
+  });
+
+  it('no email and no phone -> low, reason first', () => {
+    const p = fits({ candidate: cand(J.principal.title, { email: null, phone: null }), resume_uploaded: true });
+    expect(p).toMatchObject({ action: 'file_under_job', job_id: J.principal.id, confidence: 'low' });
+    expect(p.reasons[0]).toBe('Cannot be filed yet: no email or phone');
+  });
+
+  it('no usable phone, or no email, -> low with the specific reason', () => {
+    expect(fits({ candidate: cand(J.principal.title, { phone: null }), resume_uploaded: true }).reasons[0])
+      .toBe('Cannot be filed yet: no usable phone number');
+    expect(fits({ candidate: cand(J.principal.title, { email: null }), resume_uploaded: true }).confidence).toBe('low');
+  });
+
+  it('no resume uploaded -> low', () => {
+    const p = fits({ resume_uploaded: false });
+    expect(p.confidence).toBe('low');
+    expect(p.reasons[0]).toBe('No resume uploaded');
+  });
+
+  it('a skip or a merge is not capped (nothing is filed)', () => {
+    const p = proposeMatch({
+      ...base,
+      candidate: cand(J.principal.title, { email: null, phone: null }),
+      duplicate: { kind: 'existing_candidate', ref_id: 'c1', note: null },
+      resume_uploaded: false,
+    });
+    expect(p).toMatchObject({ action: 'merge_existing', confidence: 'high' });
+  });
+});

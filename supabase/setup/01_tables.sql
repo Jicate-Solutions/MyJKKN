@@ -11262,11 +11262,18 @@ COMMENT ON TABLE public.hr_leave_type_deletions IS
 ALTER TABLE public.hr_job_applications
   ADD COLUMN IF NOT EXISTS cvviz_profile_url text;
 
+-- One CVViZ import per person per job (review fix M2).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_job_applications_cvviz_job_email
+  ON public.hr_job_applications (job_id, lower(email))
+  WHERE source = 'cvviz_import' AND email IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS public.hr_intake_batches (
   id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   source           text NOT NULL DEFAULT 'cvviz_export' CHECK (source IN ('cvviz_export')),
   file_name        text NOT NULL CHECK (length(btrim(file_name)) > 0),
-  institution_id   uuid REFERENCES public.institutions(id) ON DELETE SET NULL,
+  -- NOT NULL: role_has_institution_access(NULL) is TRUE, so a college-less batch
+  -- would be visible to HR in every college (review fix B1).
+  institution_id   uuid NOT NULL REFERENCES public.institutions(id),
   created_by       uuid NOT NULL REFERENCES public.profiles(id),
   created_by_name  text,
   status           text NOT NULL DEFAULT 'preparing' CHECK (status IN ('preparing', 'ready', 'closed')),
@@ -11355,7 +11362,8 @@ CREATE TABLE IF NOT EXISTS public.hr_intake_match_rules (
   id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   cvviz_job_title_norm  text NOT NULL CHECK (length(btrim(cvviz_job_title_norm)) > 0),
   job_id                uuid NOT NULL REFERENCES public.hr_recruitment_jobs(id) ON DELETE CASCADE,
-  institution_id        uuid REFERENCES public.institutions(id) ON DELETE CASCADE,
+  -- The job's college; NOT NULL, no shared "every college" rules (review fix M3).
+  institution_id        uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
   created_by            uuid NOT NULL REFERENCES public.profiles(id),
   created_by_name       text,
   times_used            integer NOT NULL DEFAULT 0 CHECK (times_used >= 0),
@@ -11368,6 +11376,6 @@ COMMENT ON TABLE public.hr_intake_match_rules IS
   'HR intake helper: learned routing from a normalised CVViZ job title to a MyJKKN job, credited to the person whose correction created it. One per (title, institution).';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_intake_match_rules_title_institution
-  ON public.hr_intake_match_rules (cvviz_job_title_norm, institution_id) NULLS NOT DISTINCT;
+  ON public.hr_intake_match_rules (cvviz_job_title_norm, institution_id);
 CREATE INDEX IF NOT EXISTS idx_hr_intake_match_rules_job
   ON public.hr_intake_match_rules (job_id);

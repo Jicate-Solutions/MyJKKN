@@ -20,6 +20,10 @@
 // string field. The file name is never sent to the model or written to the log
 // (applicants often put their phone number in it).
 //
+// Provider: this reader only calls Claude. If the feature row names another
+// provider, it reads nothing and says so in ONE log line per batch, rather than
+// calling Claude with a model nobody chose.
+//
 // Never throws: no key, quota, a 30-second timeout or unreadable output all
 // return null and log under 'hr/intake'. The helper then shows the card without
 // a resume reading.
@@ -129,21 +133,32 @@ const USER_INSTRUCTION = 'Read this resume and return the JSON object.';
 const PLACEHOLDER =
   /^(<?\s*(unknown|n\/?a|na|none|null|nil|not (stated|specified|mentioned|available|provided|shown|given|applicable))\s*>?|-+|—|\?+)$/i;
 
-const EMAIL = /[A-Z0-9._%+-]+\s*(?:@|\[at\]|\(at\))\s*[A-Z0-9-]+(?:\s*(?:\.|\[dot\]|\(dot\))\s*[A-Z0-9-]+)+/gi;
+// An email, also spaced out ("john . doe @ gmail . com") or bracketed ("john [at] gmail [dot] com").
+const EMAIL =
+  /[A-Z0-9_%+-]+(?:(?:\s+\.\s+|\.)[A-Z0-9_%+-]+)*\s*(?:@|\[at\]|\(at\))\s*[A-Z0-9-]+(?:\s*(?:\.|\[dot\]|\(dot\)|\bdot\b)\s*[A-Z0-9-]+)+/gi;
+// Fully spelled out ("john at gmail dot com"). " dot " is required, so
+// "Lecturer at St. Joseph's" is never mistaken for an address.
+const SPELLED_EMAIL = /\b[A-Z0-9_%+-]+(?:(?:\s+\.\s+|\.)[A-Z0-9_%+-]+)*\s+at\s+[A-Z0-9-]+(?:\s+dot\s+[A-Z0-9-]+)+\b/gi;
 const URL = /\b(?:https?:\/\/|www\.)\S+/gi;
+// A bare web address with a path ("linkedin.com/in/john"). The host's first label
+// is 3+ characters, so degrees such as "B.Com/M.Com" are left alone.
+const BARE_LINK = /\b[A-Z0-9-]{3,}(?:\.[A-Z0-9-]+)*\.(?:com|in|org|net|io|co|me|edu|info)\/\S*/gi;
 // A labelled number of any length ("Mobile: 98765 43210", "Ph 2234567").
 const LABELLED_PHONE =
-  /\b(?:phone|mobile|mob|cell|ph|tel|telephone|contact(?:\s*no)?|whatsapp)\b\.?\s*(?:no\.?|number)?\s*[:.-]?\s*\+?\d[\d\s().-]{4,}\d/gi;
-// An unlabelled run with 10+ digits (Indian mobile, +91 mobile, STD landline).
-const DIGIT_RUN = /\+?\d[\d\s().-]{8,}\d/g;
+  /\b(?:phone|mobile|mob|cell|ph|tel|telephone|contact(?:\s*no)?|whatsapp)\b\.?\s*(?:no\.?|number)?\s*[:.-]?\s*\(?\+?\d[\d\s()./-]{4,}\d/gi;
+// An unlabelled run with 10+ digits in any script (Indian mobile, "(+91) 98765 43210",
+// "98765/43210", Devanagari or full-width digits), with any opening bracket it starts with.
+const DIGIT_RUN = /[(（]?[+＋]?\p{Nd}[\p{Nd}\s().\/（）-]{8,}\p{Nd}/gu;
 
 /** Remove anything that looks like contact details from one string. */
 export function stripContactDetails(value: string): string {
   return value
     .replace(EMAIL, ' ')
+    .replace(SPELLED_EMAIL, ' ')
     .replace(URL, ' ')
+    .replace(BARE_LINK, ' ')
     .replace(LABELLED_PHONE, ' ')
-    .replace(DIGIT_RUN, (run) => (run.replace(/\D/g, '').length >= 10 ? ' ' : run))
+    .replace(DIGIT_RUN, (run) => (run.replace(/\P{Nd}/gu, '').length >= 10 ? ' ' : run))
     .replace(/\(\s*\)|\[\s*\]/g, ' ')
     .replace(/\s+([,;:.])/g, '$1')
     .replace(/([,;:])(?:\s*[,;:])+/g, '$1')
@@ -264,6 +279,7 @@ function defaultClient(): ResumeModelClient | null {
 
 export function createResumeExtractor(opts: ResumeExtractorOptions = {}): ResumeExtractor {
   const timeoutMs = opts.timeoutMs ?? RESUME_TIMEOUT_MS;
+  let providerWarned = false;
 
   return async ({ fileName, bytes, mimeType }) => {
     const size = bytes?.byteLength ?? 0;
@@ -325,7 +341,22 @@ export function createResumeExtractor(opts: ResumeExtractorOptions = {}): Resume
     let modelId = 'claude-haiku-4-5';
     let startedAt = Date.now();
     try {
-      ({ model_id: modelId } = await resolveChatModel(HR_RESUME_EXTRACT_FEATURE));
+      const chosen = await resolveChatModel(HR_RESUME_EXTRACT_FEATURE);
+      // This reader only knows how to call Claude. If /admin/ai-models points the
+      // feature at another provider, honour that choice by NOT reading, rather than
+      // silently spending on a Claude model nobody picked. Said once per batch.
+      const configured = (chosen.resolved as { provider?: string } | undefined)?.provider ?? chosen.provider;
+      if (configured && configured !== 'anthropic') {
+        if (!providerWarned) {
+          providerWarned = true;
+          logger.warn(
+            LOG_MODULE,
+            `Resumes not read: ${HR_RESUME_EXTRACT_FEATURE} is set to provider "${configured}" on /admin/ai-models, and this reader only calls Claude. Set it to an Anthropic model to read resumes.`,
+          );
+        }
+        return null;
+      }
+      modelId = chosen.model_id;
       startedAt = Date.now();
 
       const controller = new AbortController();

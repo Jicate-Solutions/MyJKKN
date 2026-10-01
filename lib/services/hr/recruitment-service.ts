@@ -1469,7 +1469,9 @@ export class RecruitmentService {
     const screenDays: number[] = [];
     for (const a of apps) {
       byApp[a.status] += 1;
-      if (a.source === 'external_website') website += 1;
+      // CVViZ imports applied on the CVViZ careers page: careers-page side, like the
+      // website, never "internal" (the same rule promotion uses for source above).
+      if (a.source === 'external_website' || a.source === 'cvviz_import') website += 1;
       if (a.reviewed_at) {
         const days =
           (new Date(a.reviewed_at).getTime() - new Date(a.submitted_at).getTime()) / 86400000;

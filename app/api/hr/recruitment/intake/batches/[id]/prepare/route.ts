@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic';
-// Reading up to 60 resumes, three at a time, can take minutes.
+// Reading up to MAX_EXTRACTIONS_PER_BATCH (24) resumes, three at a time, can take
+// minutes; the cap is sized so even the worst case fits this limit (lib/hr/intake/limits.ts).
 export const maxDuration = 300;
 
 // POST /api/hr/recruitment/intake/batches/:id/prepare

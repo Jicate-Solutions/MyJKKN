@@ -39,6 +39,7 @@ export class FakeSupabase {
   /** `${table}.${op}` -> error returned once. */
   failures = new Map<string, Failure>();
   log: string[] = [];
+  signedUploadOpts: { path: string; upsert: boolean | undefined }[] = [];
 
   table(name: string): Row[] {
     this.tables[name] ??= [];
@@ -74,16 +75,46 @@ export class FakeSupabase {
           .filter((n) => !n.includes('/'));
         return { data: names.map((name) => ({ name })), error: null };
       },
-      createSignedUploadUrl: async (path: string) => ({
-        data: { signedUrl: `https://storage.example/upload/${path}?token=t`, token: `t-${path}`, path },
-        error: null,
-      }),
+      createSignedUploadUrl: async (path: string, opts?: { upsert?: boolean }) => {
+        this.signedUploadOpts.push({ path, upsert: opts?.upsert });
+        return {
+          data: { signedUrl: `https://storage.example/upload/${path}?token=t`, token: `t-${path}`, path },
+          error: null,
+        };
+      },
     }),
   };
+
+  /** role_has_institution_access answers from here; every college by default. */
+  reachable: ((institutionId: string) => boolean) | null = null;
+  rpcCalls: { name: string; args: unknown }[] = [];
+
+  async rpc(name: string, args: Record<string, unknown>) {
+    this.rpcCalls.push({ name, args });
+    if (name === 'role_has_institution_access') {
+      const id = args.check_institution_id as string | null;
+      // Like production: a NULL institution answers TRUE.
+      return { data: id == null ? true : this.reachable ? this.reachable(id) : true, error: null };
+    }
+    return { data: null, error: { message: `fake rpc(): unknown ${name}` } };
+  }
 
   /** What a client sees: one object can play both the session and the admin client. */
   asClient(): never {
     return this as never;
+  }
+
+  /**
+   * The signed-in person's session as production grants it: SELECT only on every
+   * table it touches. Any insert/update/delete through it fails with 42501, so a
+   * test proves every write goes through the service role.
+   */
+  asSession(): never {
+    return {
+      from: (name: string) => new Query(this, name, true),
+      rpc: (name: string, args: Record<string, unknown>) => this.rpc(name, args),
+      storage: { from: () => { throw new Error('the session client has no storage access'); } },
+    } as never;
   }
 }
 
@@ -96,7 +127,7 @@ class Query implements PromiseLike<{ data: unknown; error: Failure | null }> {
   private orderBy: { col: string; asc: boolean } | null = null;
   private limitN: number | null = null;
 
-  constructor(private db: FakeSupabase, private name: string) {}
+  constructor(private db: FakeSupabase, private name: string, private readOnly = false) {}
 
   select(_cols?: string) {
     if (this.op === 'select') return this;
@@ -125,6 +156,10 @@ class Query implements PromiseLike<{ data: unknown; error: Failure | null }> {
   }
 
   private run(): { data: unknown; error: Failure | null } {
+    if (this.readOnly && this.op !== 'select') {
+      this.db.log.push(`REFUSED session ${this.op} ${this.name}`);
+      return { data: null, error: { code: '42501', message: `permission denied for table ${this.name}` } };
+    }
     const failure = this.db.failures.get(`${this.name}.${this.op}`);
     if (failure) {
       this.db.failures.delete(`${this.name}.${this.op}`);
@@ -151,6 +186,20 @@ class Query implements PromiseLike<{ data: unknown; error: Failure | null }> {
         if (this.name === 'hr_intake_batches') row.skipped_files ??= [];
         if (this.name === 'hr_job_applications' && table.some((t) => t.id === row.id)) {
           return { data: null, error: { code: '23505', message: 'duplicate key' } };
+        }
+        // uq_hr_job_applications_cvviz_job_email
+        if (
+          this.name === 'hr_job_applications' && row.source === 'cvviz_import' && typeof row.email === 'string' &&
+          table.some((t) => t.source === 'cvviz_import' && t.job_id === row.job_id && String(t.email).toLowerCase() === String(row.email).toLowerCase())
+        ) {
+          return { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "uq_hr_job_applications_cvviz_job_email"' } };
+        }
+        // uq_hr_intake_match_rules_title_institution
+        if (
+          this.name === 'hr_intake_match_rules' &&
+          table.some((t) => t.cvviz_job_title_norm === row.cvviz_job_title_norm && t.institution_id === row.institution_id)
+        ) {
+          return { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "uq_hr_intake_match_rules_title_institution"' } };
         }
         table.push(row);
         out.push(row);
