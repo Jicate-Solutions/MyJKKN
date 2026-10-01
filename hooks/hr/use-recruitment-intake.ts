@@ -11,7 +11,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import type { DecideRequest } from '@/types/hr-intake';
 import {
-  acceptHighConfidence,
   applyIntakeBatch,
   createIntakeBatch,
   decideIntakeRow,
@@ -73,18 +72,6 @@ export function useDecideIntakeRow(batchId: string) {
       qc.invalidateQueries({ queryKey: intakeKeys.batches() });
       // A correction may have created or changed a learned rule.
       qc.invalidateQueries({ queryKey: intakeKeys.rules() });
-    },
-  });
-}
-
-export function useAcceptHighConfidence(batchId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    retry: false, // a failed action is never re-sent behind the person’s back
-    mutationFn: () => acceptHighConfidence(batchId),
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: intakeKeys.batch(batchId) });
-      qc.invalidateQueries({ queryKey: intakeKeys.batches() });
     },
   });
 }

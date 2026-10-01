@@ -8,11 +8,10 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { CheckCheck, ListChecks, Loader2, Send, Trash2 } from 'lucide-react';
+import { ListChecks, Loader2, Send, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { ApplyResult, DecideRequest } from '@/types/hr-intake';
 import {
-  useAcceptHighConfidence,
   useApplyIntake,
   useDecideIntakeRow,
   useDiscardIntakeBatch,
@@ -29,7 +28,6 @@ function errorMessage(e: unknown): string {
 export function BatchReview({ batchId }: { batchId: string }) {
   const { data, isLoading, isError, error, refetch } = useIntakeBatch(batchId);
   const decideMutation = useDecideIntakeRow(batchId);
-  const acceptHigh = useAcceptHighConfidence(batchId);
   const apply = useApplyIntake(batchId);
   const discard = useDiscardIntakeBatch(batchId);
   const router = useRouter();
@@ -61,17 +59,6 @@ export function BatchReview({ batchId }: { batchId: string }) {
     } catch (e) {
       toast.error(errorMessage(e));
       throw e;
-    }
-  }
-
-  async function handleAcceptHigh() {
-    try {
-      const decided = await acceptHigh.mutateAsync();
-      toast.success(
-        decided === 1 ? 'Accepted 1 candidate.' : `Accepted ${decided} candidates.`,
-      );
-    } catch (e) {
-      toast.error(errorMessage(e));
     }
   }
 
@@ -149,19 +136,6 @@ export function BatchReview({ batchId }: { batchId: string }) {
 
       {/* Batch actions */}
       <div className="flex flex-col gap-2 sm:flex-row">
-        <Button
-          type="button"
-          variant="outline"
-          disabled={summary.highUndecided === 0 || acceptHigh.isPending}
-          onClick={() => void handleAcceptHigh()}
-        >
-          {acceptHigh.isPending ? (
-            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden="true" />
-          ) : (
-            <CheckCheck className="mr-1.5 h-4 w-4" aria-hidden="true" />
-          )}
-          Accept all high-confidence ({summary.highUndecided})
-        </Button>
         <Button
           type="button"
           disabled={summary.toApply.length === 0 || apply.isPending}

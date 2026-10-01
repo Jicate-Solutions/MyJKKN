@@ -1,6 +1,6 @@
 // The intake service end to end against an in-memory database and storage:
 // export -> upload URLs -> prepare -> decide (rules learned and credited) ->
-// accept-high -> apply (per row, idempotent). RLS itself is proven against real
+// decide -> apply (per row, idempotent). RLS itself is proven against real
 // PostgreSQL in intake-schema.pg.test.ts.
 
 import { readFileSync } from 'fs';
@@ -9,7 +9,6 @@ import JSZip from 'jszip';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IntakeRow, ResumeExtract, ResumeExtractor } from '@/types/hr-intake';
 import {
-  acceptHigh,
   apply,
   createBatch,
   createUploadUrls,
@@ -383,25 +382,6 @@ describe('decide — every correction becomes a rule credited to its author', ()
     const { rule } = await decide(deps(), HR, byIndex(rows, 4).id, { action: 'file_under_job', job_id: J.history.id });
     await deleteRule(deps(), rule!.id);
     await expect(deleteRule(deps(), rule!.id)).rejects.toMatchObject({ status: 404 });
-  });
-});
-
-describe('accept-high', () => {
-  it('decides every undecided high proposal as it stands, and nothing else', async () => {
-    const { batch, rows } = await runBatch(deps(), RESUMES);
-    await decide(deps(), HR, byIndex(rows, 7).id, { action: 'skip' });
-    // The post for row 10 closes before anyone accepts it.
-    fake.table('hr_recruitment_jobs').find((j) => j.id === J.lab_tech.id)!.status = 'closed';
-    const { decided } = await acceptHigh(deps(), HR, batch.id);
-    // High "file under job": only row 1 now (rows 7 and 10 are at the other
-    // college, row 9's file name is generic). Row 7 was decided by hand.
-    expect(decided).toBe(1);
-    expect(byIndex((await getBatch(deps(), batch.id)).rows, 9).decision).toBeNull();
-    const after = (await getBatch(deps(), batch.id)).rows;
-    expect(byIndex(after, 1).decision).toMatchObject({ action: 'file_under_job', job_id: J.principal.id, corrected: false });
-    expect(byIndex(after, 7).decision?.action).toBe('skip');
-    expect(byIndex(after, 10).decision).toBeNull();
-    expect(byIndex(after, 4).decision).toBeNull();
   });
 });
 

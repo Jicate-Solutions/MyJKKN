@@ -6,7 +6,6 @@ import JSZip from 'jszip';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IntakeRow } from '@/types/hr-intake';
 import {
-  acceptHigh,
   AMBIGUOUS_RESUME_NOTE,
   apply,
   cleanupIdleBatches,
@@ -248,19 +247,10 @@ describe('M4 — the server writes; filing trusts nothing it did not write', () 
 });
 
 describe('M5 — nothing unfileable is high; discard and idle clean-up', () => {
-  it('accept-high skips a high filing row whose resume copy is gone', async () => {
-    // A file name that identifies the person (a generic "cv.pdf" is never high).
-    const { batch, rows } = await runBatch([{ name: 'Asha_Kumar.pdf', bytes: PDF('cv') }], tsv('Asha_Kumar.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal'));
-    expect(rows[0].proposal.confidence).toBe('high');
-    rawRow(rows[0].id).resume_storage_path = null;
-    expect(await acceptHigh(deps(), HR, batch.id)).toEqual({ decided: 0 });
-  });
-
-  it('no resume in the upload: proposed low, so accept-high leaves it', async () => {
+  it('no resume in the upload: proposed low', async () => {
     const { batch, rows } = await runBatch([], tsv('cv.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal'));
     expect(rows[0].proposal).toMatchObject({ action: 'file_under_job', confidence: 'low' });
     expect(rows[0].proposal.reasons[0]).toBe('No resume uploaded');
-    expect(await acceptHigh(deps(), HR, batch.id)).toEqual({ decided: 0 });
   });
 
   it('only the uploader or a super admin may discard; discarding removes rows and resume copies', async () => {
@@ -402,7 +392,6 @@ describe('second review (fresh blind review of d26076b5ac)', () => {
     fake.table('hr_job_applications').push({ id: 'app-old', email: 'asha@example.test', job_id: J.history.id });
     const { batch, rows } = await runBatch([{ name: 'cv.pdf', bytes: PDF('cv') }], tsv('cv.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal'));
     expect(rows[0].proposal).toMatchObject({ action: 'merge_existing', confidence: 'medium' });
-    expect(await acceptHigh(deps(), HR, batch.id)).toEqual({ decided: 0 });
     expect(rawRow(rows[0].id).resume_storage_path).not.toBeNull();
   });
 
@@ -460,9 +449,9 @@ describe('third review (fresh blind review of 2177cb0c9b)', () => {
     const second = rowAt(rows, 2);
     expect(second.proposal).toMatchObject({ action: 'skip', confidence: 'medium' });
     expect(second.proposal.reasons.join(' ')).toMatch(/check this is the same person/);
-    await acceptHigh(deps(), HR, batch.id);
     expect(rawRow(second.id).decision_action ?? null).toBeNull();
-    // HR files Bala too; the batch closes only once both are settled.
+    // HR files both; the batch closes only once both are settled.
+    await decide(deps(), HR, rowAt(rows, 1).id, { action: 'file_under_job', job_id: J.principal.id });
     await decide(deps(), HR, second.id, { action: 'file_under_job', job_id: J.principal.id });
     await apply(deps(), HR, batch.id);
     expect(fake.table('hr_job_applications').map((a) => a.email).sort()).toEqual(['asha@example.test', 'bala@example.test']);
@@ -529,7 +518,6 @@ describe('fourth review (fresh blind review of 67aa3e9cf5)', () => {
       expect(r.proposal.confidence).not.toBe('high');
       expect(r.proposal.reasons).toContain(SHARED_RESUME_NOTE);
     }
-    expect(await acceptHigh(deps(), HR, batch.id)).toEqual({ decided: 0 });
   });
 
   it('the same email on two rows may still share one file', async () => {
@@ -561,7 +549,6 @@ describe('fourth review (fresh blind review of 67aa3e9cf5)', () => {
     const { batch, row } = await decidedRow();
     fake.table('hr_intake_batches').find((b) => b.id === batch.id)!.status = 'preparing';
     await expect(decide(deps(), HR, row.id, { action: 'skip' })).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/being prepared/) });
-    await expect(acceptHigh(deps(), HR, batch.id)).rejects.toMatchObject({ status: 409 });
     await expect(apply(deps(), HR, batch.id)).rejects.toMatchObject({ status: 409 });
   });
 
@@ -598,7 +585,6 @@ describe('fifth review (fresh blind review of 885be087ac)', () => {
     expect(rows[0].proposal.job_id).toBe(J.english_eng.id);
     expect(rows[0].proposal.confidence).toBe('medium');
     expect(rows[0].proposal.reasons[0]).toMatch(/not the college this upload belongs to/);
-    expect(await acceptHigh(deps(), HR, batch.id)).toEqual({ decided: 0 });
     expect(fake.table('hr_job_applications')).toHaveLength(0);
   });
 });
@@ -620,7 +606,6 @@ describe('sixth review (fresh blind review of 7d6f297069)', () => {
     const second = rowAt(rows, 2);
     expect(second.proposal).toMatchObject({ action: 'skip', confidence: 'medium' });
     expect(second.proposal.reasons.join(' ')).toMatch(/open at more than one post/);
-    await acceptHigh(deps(), HR, batch.id);
     expect(rawRow(second.id).decision_action ?? null).toBeNull();
     expect(rawRow(second.id).resume_storage_path).not.toBeNull();
   });
@@ -631,18 +616,7 @@ describe('sixth review (fresh blind review of 7d6f297069)', () => {
     expect(fake.table('hr_intake_match_rules')).toHaveLength(1);
     const next = await runBatch([{ name: 'cv.pdf', bytes: PDF('cv') }], tsv(`cv.pdf\tBala\tbala@example.test\t9822222222\t${GENERIC}`), HR2);
     expect(next.rows[0].proposal).toMatchObject({ job_id: J.history.id, confidence: 'medium' });
-    expect(await acceptHigh(deps(), HR2, next.batch.id)).toEqual({ decided: 0 });
   });
 
-  it('accept-all only ever files people: even a sure repeat (high skip) waits for a person', async () => {
-    const { batch, rows } = await runBatch(
-      [{ name: 'Asha_Kumar.pdf', bytes: PDF('a') }],
-      tsv('Asha_Kumar.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal', '\tAsha\tasha@example.test\t9811111111\tPrincipal'),
-    );
-    expect(rowAt(rows, 2).proposal).toMatchObject({ action: 'skip', confidence: 'high' });
-    expect(await acceptHigh(deps(), HR, batch.id)).toEqual({ decided: 1 });
-    expect(rawRow(rowAt(rows, 1).id).decision_action).toBe('file_under_job');
-    expect(rawRow(rowAt(rows, 2).id).decision_action ?? null).toBeNull();
-  });
 });
 
