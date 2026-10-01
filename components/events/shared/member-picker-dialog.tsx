@@ -15,6 +15,10 @@
 // semesters) are broadly readable, so those load client-side like every other
 // dropdown in the app.
 //
+// A directory person may have no MyJKKN login (member_id NULL). They are only
+// selectable where a roster name is enough (committees pass allowNameOnly); an
+// in-charge or volunteer grant needs a login, so there they show disabled.
+//
 // Exports:
 //   <MemberDirectoryPicker>  role tabs + search + filters + results (controlled selection)
 //   <MemberPickerDialog>     the multi-select dialog wrapper (committees, in-charges)
@@ -50,6 +54,7 @@ import {
 
 export type DirectoryRole = 'staff' | 'student';
 
+/** A directory person WITH a MyJKKN login — member_id is their auth uid (profiles.id). */
 export interface DirectoryHit {
   id: string;
   member_id: string;
@@ -59,10 +64,29 @@ export interface DirectoryHit {
   role: DirectoryRole;
 }
 
+/**
+ * What the directory route actually returns: member_id is NULL for a person with
+ * no MyJKKN login (BUG-006132 — it used to fall back to the learner/staff ROW id,
+ * which no login matches and event_tasks.assigned_to's FK rejects).
+ */
+type DirectoryResult = Omit<DirectoryHit, 'member_id'> & { member_id: string | null };
+
 export interface PickedMember {
   member_id: string;
   name: string;
 }
+
+/**
+ * A person with no MyJKKN login, picked where a roster name is enough (committee
+ * members). Never offered where a login is required (in-charges, volunteers).
+ */
+export interface PickedNameOnly {
+  member_id: null;
+  name: string;
+}
+
+/** Selection key — the login id, or the source-row id for a name-only person. */
+const pickKey = (hit: DirectoryResult) => hit.member_id ?? `name-only:${hit.id}`;
 
 interface LookupRow {
   id: string;
@@ -81,11 +105,18 @@ const ALL = 'all';
 export function MemberDirectoryPicker({
   selectedIds,
   onPick,
+  onPickNameOnly,
   existingNames = [],
   maxHeightClass = '',
 }: {
+  /** Keys of picked people: the login id, or `name-only:<row id>` (see pickKey). */
   selectedIds: ReadonlySet<string>;
   onPick: (hit: DirectoryHit) => void;
+  /**
+   * When given, people with NO MyJKKN login are selectable and routed here as a
+   * name only. When omitted they are shown disabled — the host needs a login.
+   */
+  onPickNameOnly?: (hit: DirectoryResult) => void;
   /** Names already on the committee / roster — shown disabled. */
   existingNames?: string[];
   /** e.g. "max-h-56 overflow-y-auto" when the host has no outer scroll region. */
@@ -108,7 +139,7 @@ export function MemberDirectoryPicker({
   const [programs, setPrograms] = useState<LookupRow[]>([]);
   const [semesters, setSemesters] = useState<LookupRow[]>([]);
 
-  const [results, setResults] = useState<DirectoryHit[]>([]);
+  const [results, setResults] = useState<DirectoryResult[]>([]);
   const [loading, setLoading] = useState(false);
 
   const existingNameSet = useMemo(
@@ -408,14 +439,26 @@ export function MemberDirectoryPicker({
           </p>
         ) : (
           results.map((hit) => {
-            const isSelected = selectedIds.has(hit.member_id);
+            const key = pickKey(hit);
+            const isSelected = selectedIds.has(key);
             const alreadyMember = existingNameSet.has(hit.name.toLowerCase());
+            const loginId = hit.member_id;
+            // No login: selectable as a name only where the host allows it, else
+            // shown but disabled (an in-charge / volunteer grant needs a login).
+            const noLoginBlocked = !loginId && !onPickNameOnly;
             return (
               <button
-                key={hit.member_id}
+                key={key}
                 type="button"
-                disabled={alreadyMember}
-                onClick={() => onPick(hit)}
+                disabled={alreadyMember || noLoginBlocked}
+                title={
+                  noLoginBlocked
+                    ? 'This person has no MyJKKN login, so they cannot be picked here.'
+                    : undefined
+                }
+                onClick={() =>
+                  loginId ? onPick({ ...hit, member_id: loginId }) : onPickNameOnly?.(hit)
+                }
                 aria-pressed={isSelected}
                 className={`flex w-full items-center gap-3 border-b px-3 py-2.5 text-left last:border-0 disabled:opacity-50 ${
                   isSelected ? 'bg-emerald-50/60 dark:bg-emerald-950/40' : 'hover:bg-accent'
@@ -446,6 +489,13 @@ export function MemberDirectoryPicker({
                   {hit.email && (
                     <span className="block truncate text-xs text-muted-foreground">{hit.email}</span>
                   )}
+                  {!loginId && (
+                    <span className="block truncate text-xs text-amber-700 dark:text-amber-400">
+                      {noLoginBlocked
+                        ? 'No MyJKKN login — cannot be picked here'
+                        : 'No MyJKKN login — name only'}
+                    </span>
+                  )}
                 </span>
               </button>
             );
@@ -458,24 +508,35 @@ export function MemberDirectoryPicker({
 
 // ─── Multi-select dialog (committees, tournament in-charges) ─────────────────
 
+type PickedPerson = PickedMember | PickedNameOnly;
+
 function PickerBody({
   onClose,
   onAdd,
   isAdding,
   existingNames,
+  allowNameOnly,
 }: {
   onClose: () => void;
-  onAdd: (people: PickedMember[]) => void;
+  onAdd: (people: PickedPerson[]) => void;
   isAdding: boolean;
   existingNames: string[];
+  allowNameOnly: boolean;
 }) {
-  const [selected, setSelected] = useState<Map<string, PickedMember>>(new Map());
+  const [selected, setSelected] = useState<Map<string, PickedPerson>>(new Map());
 
-  const toggle = (hit: DirectoryHit) => {
+  const toggle = (hit: DirectoryResult) => {
+    const key = pickKey(hit);
     setSelected((prev) => {
       const next = new Map(prev);
-      if (next.has(hit.member_id)) next.delete(hit.member_id);
-      else next.set(hit.member_id, { member_id: hit.member_id, name: hit.name });
+      if (next.has(key)) next.delete(key);
+      else
+        next.set(
+          key,
+          hit.member_id
+            ? { member_id: hit.member_id, name: hit.name }
+            : { member_id: null, name: hit.name }
+        );
       return next;
     });
   };
@@ -487,16 +548,19 @@ function PickerBody({
       <div className="-mx-1 min-h-0 flex-1 space-y-3 overflow-y-auto px-1 py-1">
         {selected.size > 0 && (
           <div className="flex flex-wrap gap-1.5">
-            {[...selected.values()].map((p) => (
-              <Badge key={p.member_id} variant="secondary" className="gap-1 text-[11px]">
+            {[...selected.entries()].map(([key, p]) => (
+              <Badge key={key} variant="secondary" className="gap-1 text-[11px]">
                 {p.name}
+                {!p.member_id && (
+                  <span className="font-normal text-muted-foreground">(name only)</span>
+                )}
                 <button
                   type="button"
                   className="ml-0.5 text-muted-foreground hover:text-foreground"
                   onClick={() =>
                     setSelected((prev) => {
                       const next = new Map(prev);
-                      next.delete(p.member_id);
+                      next.delete(key);
                       return next;
                     })
                   }
@@ -512,6 +576,7 @@ function PickerBody({
         <MemberDirectoryPicker
           selectedIds={new Set(selected.keys())}
           onPick={toggle}
+          onPickNameOnly={allowNameOnly ? toggle : undefined}
           existingNames={existingNames}
         />
       </div>
@@ -538,19 +603,9 @@ function PickerBody({
   );
 }
 
-export function MemberPickerDialog({
-  open,
-  onClose,
-  onAdd,
-  isAdding = false,
-  committeeName,
-  existingNames = [],
-  title,
-  description,
-}: {
+interface MemberPickerDialogBaseProps {
   open: boolean;
   onClose: () => void;
-  onAdd: (people: PickedMember[]) => void;
   isAdding?: boolean;
   committeeName?: string;
   existingNames?: string[];
@@ -561,7 +616,30 @@ export function MemberPickerDialog({
   title?: string;
   /** Overrides the default blurb under the title. */
   description?: string;
-}) {
+}
+
+/**
+ * Login-only by default: in-charges are matched against auth.uid(), so a person
+ * with no MyJKKN login is shown disabled. `allowNameOnly` (committee rosters)
+ * lets them through as `{ member_id: null, name }` instead.
+ */
+type MemberPickerDialogProps = MemberPickerDialogBaseProps &
+  (
+    | { allowNameOnly?: false; onAdd: (people: PickedMember[]) => void }
+    | { allowNameOnly: true; onAdd: (people: (PickedMember | PickedNameOnly)[]) => void }
+  );
+
+export function MemberPickerDialog({
+  open,
+  onClose,
+  onAdd,
+  allowNameOnly = false,
+  isAdding = false,
+  committeeName,
+  existingNames = [],
+  title,
+  description,
+}: MemberPickerDialogProps) {
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="flex max-h-[92dvh] w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-lg p-4 sm:max-h-[85dvh] sm:w-full sm:max-w-xl sm:p-6">
@@ -578,9 +656,11 @@ export function MemberPickerDialog({
           <PickerBody
             key={committeeName ?? 'picker'}
             onClose={onClose}
-            onAdd={onAdd}
+            // Sound: without allowNameOnly the body never yields a name-only entry.
+            onAdd={onAdd as (people: PickedPerson[]) => void}
             isAdding={isAdding}
             existingNames={existingNames}
+            allowNameOnly={allowNameOnly}
           />
         )}
       </DialogContent>

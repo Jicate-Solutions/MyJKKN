@@ -30,6 +30,23 @@ export function getIncharges(event: Pick<Event, 'config'> | null | undefined): E
   return Array.isArray(raw) ? (raw as EventIncharge[]) : [];
 }
 
+/**
+ * Who may appoint/remove this tournament's in-charges (BUG-006177): super admin,
+ * sports.tournaments.manage or sports.tournaments.edit holders, or the event's
+ * creator. Being an in-charge alone is NOT enough — that would let an in-charge
+ * appoint more in-charges or evict whoever appointed them. Mirrors tier 1 of
+ * fn_guard_event_privileged_fields (migration 20270207094731).
+ */
+export function canAssignTournamentIncharge(opts: {
+  hasManagePerm: boolean;
+  hasEditPerm: boolean;
+  profileId: string | null;
+  createdBy: string | null | undefined;
+}): boolean {
+  const isCreator = !!opts.profileId && opts.createdBy === opts.profileId;
+  return opts.hasManagePerm || opts.hasEditPerm || isCreator;
+}
+
 export interface TournamentAccess {
   /** Full control: create/edit divisions, entries, fixtures, results, status. */
   canManage: boolean;
@@ -41,14 +58,14 @@ export interface TournamentAccess {
   isCommitteeMember: boolean;
   /** May only update committee tasks (committee member without manage rights). */
   isTaskOnly: boolean;
-  /** Only holders of the manage permission may appoint/remove in-charges. */
+  /** May appoint/remove in-charges — see canAssignTournamentIncharge. */
   canAssignIncharge: boolean;
   isLoading: boolean;
 }
 
 export function useTournamentAccess(
   eventId: string,
-  event?: Pick<Event, 'config'> | null
+  event?: (Pick<Event, 'config'> & Partial<Pick<Event, 'created_by'>>) | null
 ): TournamentAccess {
   const { profile } = useAuth();
   const { can, isSuperAdmin, isLoading: permsLoading } = usePermissions();
@@ -71,13 +88,17 @@ export function useTournamentAccess(
       const supabase = createClientSupabaseClient();
       const { data } = await (supabase as any)
         .from('event_committees')
-        .select('lead_id, lead_name, member_ids, member_names')
+        .select('lead_id, lead_ids, lead_name, member_ids, member_names')
         .eq('event_id', eventId);
       return (data ?? []).some((c: any) => {
         const ids: string[] = Array.isArray(c.member_ids) ? c.member_ids : [];
         const names: string[] = Array.isArray(c.member_names) ? c.member_names : [];
+        // lead_ids (migration 20261229090000) carries the committee's leads —
+        // committees routinely name two people, which lead_id cannot hold.
+        const leadIds: string[] = Array.isArray(c.lead_ids) ? c.lead_ids : [];
         return (
           c.lead_id === profileId ||
+          leadIds.includes(profileId as string) ||
           ids.includes(profileId as string) ||
           (!!userName && (c.lead_name === userName || names.includes(userName)))
         );
@@ -97,7 +118,12 @@ export function useTournamentAccess(
     isIncharge,
     isCommitteeMember: effectiveMember,
     isTaskOnly: !canManage && effectiveMember,
-    canAssignIncharge: hasManagePerm,
+    canAssignIncharge: canAssignTournamentIncharge({
+      hasManagePerm,
+      hasEditPerm: can('sports.tournaments.edit'),
+      profileId,
+      createdBy: event?.created_by,
+    }),
     isLoading: permsLoading || membershipLoading,
   };
 }

@@ -56,6 +56,10 @@ export default function HRLeaveTypesPage() {
   // dialog needs a row to render while its exit transition plays.
   const [flowFor, setFlowFor] = useState<HRLeaveType | null>(null);
   const [flowOpen, setFlowOpen] = useState(false);
+  // "Who approves eligibility" — its own open state so the two editors for one
+  // type never share a dialog instance (and therefore never share seeded steps).
+  const [eligibilityFlowFor, setEligibilityFlowFor] = useState<HRLeaveType | null>(null);
+  const [eligibilityFlowOpen, setEligibilityFlowOpen] = useState(false);
 
   // Tells the DataTable to re-run fetchDataFn after a mutation. See the prop's
   // doc comment on LeaveTypesDataTable for why invalidateQueries is not enough.
@@ -116,6 +120,11 @@ export default function HRLeaveTypesPage() {
   const handleApprovalFlow = useCallback((t: HRLeaveType) => {
     setFlowFor(t);
     setFlowOpen(true);
+  }, []);
+
+  const handleEligibilityFlow = useCallback((t: HRLeaveType) => {
+    setEligibilityFlowFor(t);
+    setEligibilityFlowOpen(true);
   }, []);
 
   /** The row menu only ASKS; the page owns the confirmation. */
@@ -232,6 +241,7 @@ export default function HRLeaveTypesPage() {
               onEdit={handleEdit}
               onAssign={handleAssign}
               onApprovalFlow={handleApprovalFlow}
+              onEligibilityFlow={handleEligibilityFlow}
               onArchive={handleRequestArchive}
               onActivate={handleActivate}
               onDelete={handleRequestDelete}
@@ -283,6 +293,13 @@ export default function HRLeaveTypesPage() {
           leaveType={flowFor}
           open={flowOpen}
           onOpenChange={setFlowOpen}
+        />
+
+        <LeaveApprovalFlowDialog
+          flowFor="leave_eligibility"
+          leaveType={eligibilityFlowFor}
+          open={eligibilityFlowOpen}
+          onOpenChange={setEligibilityFlowOpen}
         />
       </ContentLayout>
     </PermissionGuard>

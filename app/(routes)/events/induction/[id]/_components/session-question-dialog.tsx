@@ -36,7 +36,24 @@ function askedBy(q: HostQuestion): string {
   return q.register_number ? `${name} · ${q.register_number}` : name;
 }
 
-export function SessionQuestionDialog({ sessionId, sessionTitle }: { sessionId: string; sessionTitle: string }) {
+export function SessionQuestionDialog({
+  sessionId,
+  sessionTitle,
+  unansweredCount = 0,
+  onChanged,
+}: {
+  sessionId: string;
+  sessionTitle: string;
+  /**
+   * Questions still waiting on this session's board — the number the trigger wears.
+   * Supplied by the parent from ONE batched read for the whole session list, so adding
+   * the badge costs the page no extra round trips. Defaults to 0, which renders exactly
+   * today's plain icon; a caller that does not have the count yet loses nothing.
+   */
+  unansweredCount?: number;
+  /** Tell the parent to re-read the counts after the host answers or removes something. */
+  onChanged?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [boardId, setBoardId] = useState<string | null>(null);
   const [board, setBoard] = useState<HostBoard | null>(null);
@@ -73,6 +90,9 @@ export function SessionQuestionDialog({ sessionId, sessionTitle }: { sessionId: 
     const result = await SessionQuestionService.setState(q.id, state);
     if (!result.success) { toast.error(result.error ?? 'Could not update that question.'); return; }
     if (boardId) await refresh(boardId);
+    // The waiting count on the trigger behind this dialog is now stale — answering or
+    // removing a question is exactly what makes it drop. Ask the parent to re-read.
+    onChanged?.();
   }
 
   async function toggleBoard() {
@@ -85,11 +105,46 @@ export function SessionQuestionDialog({ sessionId, sessionTitle }: { sessionId: 
 
   const answered = board ? board.questions.filter((q) => q.state === 'answered').length : 0;
 
+  // What the TRIGGER says before anyone clicks it. This is the whole fix: until now the
+  // trigger was a bare ghost icon, byte-identical whether 0 questions were waiting or 32,
+  // and on production 77 questions across 13 boards sat unanswered for two weeks with no
+  // host ever told anyone had asked. A host should not have to go looking.
+  const waiting = Math.max(0, Number(unansweredCount) || 0);
+  // Capped at three glyphs so the pill can never grow wider than the 36px icon button —
+  // the lesson notification-bell.tsx learned the hard way with a raw 658. The exact
+  // number is one click away in the dialog, which lists every question.
+  const waitingLabel = waiting > 99 ? '99+' : String(waiting);
+  const triggerLabel = waiting > 0
+    ? `Questions — ${waiting} waiting for an answer`
+    : 'Questions';
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="icon" variant="ghost" title="Questions">
+        {/* `relative` anchors the count pill; without it the badge escapes to the row. */}
+        <Button size="icon" variant="ghost" className="relative" title={triggerLabel} aria-label={triggerLabel}>
           <MessagesSquare className="h-4 w-4" />
+          {waiting > 0 && (
+            // Shown ONLY when something is actually waiting — a "0" badge is noise that
+            // trains the eye to ignore the badge that matters.
+            //
+            // `destructive` and the shared '-top-1 -right-1' corner are deliberate reuse
+            // of notification-bell.tsx: it is this app's one established "N things want
+            // you" pill, so a host already reads it that way. It is also the only
+            // semantic colour design-system/MASTER.md certifies as keeping its meaning in
+            // BOTH themes (§ colour table) — amber and the chart slots would each need
+            // their own light/dark pairing to stay legible.
+            //
+            // aria-hidden because the count is already in the button's aria-label above;
+            // without it a screen reader announces the number twice, once with no context.
+            <Badge
+              aria-hidden="true"
+              variant="destructive"
+              className="absolute -top-1 -right-1 h-4 min-w-[1rem] w-auto flex items-center justify-center rounded-full px-1 py-0 text-[10px] font-bold leading-none tabular-nums ring-2 ring-background"
+            >
+              {waitingLabel}
+            </Badge>
+          )}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-h-[88vh] sm:max-w-2xl flex flex-col gap-3">

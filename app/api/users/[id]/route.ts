@@ -9,6 +9,7 @@ import { createClient } from '@supabase/supabase-js';
 import { UpdateUserRequest } from '@/types/users';
 import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
 import { RESOURCE_TYPES } from '@/types/activity';
+import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
 
 // Create admin client for user management
 const supabaseAdmin = createClient(
@@ -456,6 +457,10 @@ export async function PATCH(
         console.error('Error syncing user_roles from role change:', roleError);
         // Non-fatal — profiles.role is already updated
       }
+
+      // Adoption loop: a role was saved onto someone's account. profiles.role is
+      // already written above, so this counts even if the user_roles sync fell over.
+      await recordFeatureUse(supabase, FEATURE_KEYS.USERS_ASSIGN_ROLE);
     }
 
     // Handle multi-role updates if role_ids is provided

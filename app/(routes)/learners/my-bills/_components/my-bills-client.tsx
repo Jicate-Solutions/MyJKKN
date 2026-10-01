@@ -2,6 +2,7 @@
 
 import { useMemo, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   BarChart3,
   Bus,
@@ -31,6 +32,7 @@ import type { StudentBill } from '@/types/billing-schedule';
 import { PaymentSelectionModal } from '@/components/billing/payment-selection-modal';
 import { useConnectedFeeHeads } from '@/hooks/billing/use-connected-fee-heads';
 import { useTabParam } from '@/hooks/use-tab-param';
+import { MY_BILLS_RECEIPT_PARAM } from '@/lib/billing/payment-status-flow';
 import { FEE_HEAD_LABELS, fmtDate, groupByYear, inr, isOverdue } from './shared';
 import { ReceiptDialog, downloadMyReceiptPdf, type ReceiptPdfContext } from './receipt-dialog';
 
@@ -70,7 +72,27 @@ export function MyBillsClient({
 }: MyBillsClientProps) {
   const { totalDue, totalBilled, totalPaid, bills, receipts } = data;
   const [activeTab, setActiveTab] = useTabParam('outstanding', MY_BILLS_TABS);
-  const [viewReceipt, setViewReceipt] = useState<MyReceipt | null>(null);
+  // ?receipt=<id> — sent by /billing/payment/success so a learner who has just
+  // paid lands on that receipt's dialog (and its Download PDF) in one tap.
+  // Read once as the initial state; closing the dialog drops the param so a
+  // refresh doesn't reopen it.
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [viewReceipt, setViewReceipt] = useState<MyReceipt | null>(() => {
+    const id = searchParams.get(MY_BILLS_RECEIPT_PARAM);
+    return (id && receipts.find((r) => r.id === id)) || null;
+  });
+
+  const closeReceipt = () => {
+    setViewReceipt(null);
+    if (!searchParams.has(MY_BILLS_RECEIPT_PARAM)) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete(MY_BILLS_RECEIPT_PARAM);
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  };
+
   // Bill the student clicked "Pay" on — the modal opens scoped to its category.
   const [payBill, setPayBill] = useState<MyBill | null>(null);
 
@@ -325,7 +347,7 @@ export function MyBillsClient({
         </TabsContent>
       </Tabs>
 
-      <ReceiptDialog receipt={viewReceipt} ctx={pdfCtx} onClose={() => setViewReceipt(null)} />
+      <ReceiptDialog receipt={viewReceipt} ctx={pdfCtx} onClose={closeReceipt} />
 
       <PaymentSelectionModal
         open={!!payBill}

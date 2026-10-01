@@ -5,7 +5,7 @@
 // types/health-sports.ts — do NOT define parallel sport enums here.
 // Created: 2026-06-22 (Sports Tournament PR1).
 
-import type { SportLevel } from '@/types/health-sports';
+import { TEAM_SPORTS, type SportLevel } from '@/types/health-sports';
 import type { Event, EventStatus } from '@/types/events';
 
 // ============================================================================
@@ -84,6 +84,40 @@ export const DIVISION_GENDERS: { value: DivisionGender; label: string }[] = [
 ];
 
 /**
+ * Singles vs doubles for racket/board sports, stored on the division as
+ * `config.play_type` (no column — config is free-form jsonb). Unset means the
+ * sport's default: TEAM_SPORTS register teams, everything else individuals.
+ */
+export type DivisionPlayType = 'singles' | 'doubles';
+
+/** Sports that can be played as doubles — these get the Singles/Doubles toggle. */
+export const DOUBLES_SPORTS = ['Carrom', 'Badminton', 'Table Tennis', 'Tennis', 'Tennikoit'] as const;
+
+/** Players on one doubles entry. */
+export const DOUBLES_ROSTER_SIZE = 2;
+
+export const supportsDoubles = (sport: string | null | undefined) =>
+  (DOUBLES_SPORTS as readonly string[]).includes(sport ?? '');
+
+/** The division's explicit play type, or null when it follows the sport default. */
+export function divisionPlayType(
+  config: Record<string, unknown> | null | undefined
+): DivisionPlayType | null {
+  const v = config?.play_type;
+  return v === 'singles' || v === 'doubles' ? v : null;
+}
+
+/** True when entries in this division are teams (with a roster), not individuals. */
+export function isTeamDivision(d: {
+  sport: string;
+  config?: Record<string, unknown> | null;
+}): boolean {
+  const playType = divisionPlayType(d.config);
+  if (playType) return playType === 'doubles';
+  return (TEAM_SPORTS as readonly string[]).includes(d.sport);
+}
+
+/**
  * Cross-institution scope of a tournament — maps directly to the existing
  * `events.scope` column (CHECK: chapter|institution|all_jkkn). For tournaments
  * we expose the two meaningful options:
@@ -126,6 +160,8 @@ export type Tournament = Event & {
 /** Fields used to create the parent `events` row for a tournament. */
 export interface CreateTournamentDto {
   institution_id: string;
+  /** All host institutions, primary (institution_id) first. Null/omitted = single host. */
+  host_institution_ids?: string[] | null;
   name: string;
   description?: string;
   scope?: TournamentScope;
@@ -412,7 +448,8 @@ export interface FormFieldOption {
  * on the same form) satisfies `op` against `value`. */
 export interface FormFieldCondition {
   field: string;
-  op: 'eq' | 'neq' | 'contains' | 'not_empty' | 'empty';
+  /** 'in' = "is any of": `value` is a comma-separated list of option values. */
+  op: 'eq' | 'neq' | 'in' | 'contains' | 'not_empty' | 'empty';
   value: string;
 }
 
@@ -443,6 +480,12 @@ export interface EventRegistrationFormField {
    * while the form is still live.
    */
   media_url: string | null;
+  /**
+   * Profile attribute a signed-in registrant's answer is seeded from (see
+   * lib/services/events/registration/form-prefill.ts). NULL = no prefill.
+   * Always editable by the person — a convenience, not a lock.
+   */
+  prefill_source: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -453,6 +496,8 @@ export interface EventRegistrationFormSection {
   event_id: string;
   title: string;
   display_order: number;
+  /** Show the WHOLE section only when another field's answer matches. NULL = always. */
+  condition?: FormFieldCondition | null;
   created_at: string;
   updated_at: string;
   fields?: EventRegistrationFormField[];
@@ -477,6 +522,13 @@ export interface EventRegistrationForm {
   /** Registration closes at this moment. NULL = no end. */
   ends_at: string | null;
   display_order: number;
+  /**
+   * Built-in name/phone/email block on the public form: 'top' (default),
+   * 'bottom' (after the custom sections) or 'hidden' (read from the form's own
+   * fields). Optional in the type because rows predating the column read as
+   * undefined through some selects; treat undefined as 'top'.
+   */
+  contact_block?: 'top' | 'bottom' | 'hidden' | null;
   /**
    * Whether this form charges at all. Separate from the amount so a fee can be
    * switched off without destroying the price — and so "free" is distinguishable

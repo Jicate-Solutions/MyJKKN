@@ -17709,6 +17709,178 @@ export type Database = {
           },
         ]
       }
+      adoption_asks: {
+        Row: {
+          asked_at: string
+          created_at: string
+          feature_key: string
+          id: string
+          notification_id: string | null
+          user_id: string
+        }
+        Insert: {
+          asked_at?: string
+          created_at?: string
+          feature_key: string
+          id?: string
+          notification_id?: string | null
+          user_id: string
+        }
+        Update: {
+          asked_at?: string
+          created_at?: string
+          feature_key?: string
+          id?: string
+          notification_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "adoption_asks_feature_key_fkey"
+            columns: ["feature_key"]
+            isOneToOne: false
+            referencedRelation: "feature_registry"
+            referencedColumns: ["feature_key"]
+          },
+          {
+            foreignKeyName: "adoption_asks_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "adoption_asks_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "adoption_asks_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "adoption_asks_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      adoption_proposals: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          decided_at: string | null
+          decided_by: string | null
+          decided_option: string | null
+          feature_key: string
+          id: string
+          proposed_option: string
+          reasons: Json
+          recommendation: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          decided_at?: string | null
+          decided_by?: string | null
+          decided_option?: string | null
+          feature_key: string
+          id?: string
+          proposed_option: string
+          reasons?: Json
+          recommendation?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          decided_at?: string | null
+          decided_by?: string | null
+          decided_option?: string | null
+          feature_key?: string
+          id?: string
+          proposed_option?: string
+          reasons?: Json
+          recommendation?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "adoption_proposals_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "adoption_proposals_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "adoption_proposals_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "adoption_proposals_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "adoption_proposals_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "adoption_proposals_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "adoption_proposals_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "adoption_proposals_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "adoption_proposals_feature_key_fkey"
+            columns: ["feature_key"]
+            isOneToOne: false
+            referencedRelation: "feature_registry"
+            referencedColumns: ["feature_key"]
+          },
+        ]
+      }
       ahs_ay_rollback_20260724: {
         Row: {
           backed_up_at: string | null
@@ -26585,6 +26757,202 @@ export type Database = {
           },
         ]
       }
+      billing_bill_cancel_approval_flows: {
+        Row: {
+          approver_role_key: string | null
+          approver_user_id: string | null
+          created_at: string
+          created_by: string | null
+          flow_name: string
+          id: string
+          institution_id: string | null
+          is_active: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          approver_role_key?: string | null
+          approver_user_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          flow_name: string
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          approver_role_key?: string | null
+          approver_user_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          flow_name?: string
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_bill_cancel_approval_flows_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_bill_cancel_approval_flows_approver_user_id_fkey"
+            columns: ["approver_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_bill_cancel_request_actions: {
+        Row: {
+          action_type: string
+          actor_email: string | null
+          actor_id: string | null
+          actor_is_super_admin: boolean | null
+          actor_name: string | null
+          actor_role_name: string | null
+          created_at: string
+          id: string
+          notes: string | null
+          request_id: string
+        }
+        Insert: {
+          action_type: string
+          actor_email?: string | null
+          actor_id?: string | null
+          actor_is_super_admin?: boolean | null
+          actor_name?: string | null
+          actor_role_name?: string | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          request_id: string
+        }
+        Update: {
+          action_type?: string
+          actor_email?: string | null
+          actor_id?: string | null
+          actor_is_super_admin?: boolean | null
+          actor_name?: string | null
+          actor_role_name?: string | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          request_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_bill_cancel_request_actions_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "billing_bill_cancel_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_bill_cancel_requests: {
+        Row: {
+          amount: number
+          attachments: Json
+          bill_id: string | null
+          bill_snapshot: Json
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          decided_by_designation: string | null
+          decided_by_email: string | null
+          decided_by_is_super_admin: boolean | null
+          decided_by_name: string | null
+          decided_by_role: string | null
+          decision_notes: string | null
+          id: string
+          institution_id: string
+          reason: string
+          reason_code: string
+          request_number: string
+          requested_at: string
+          requested_by: string | null
+          requested_by_email: string | null
+          requested_by_name: string | null
+          requested_by_role: string | null
+          status: string
+          student_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          attachments?: Json
+          bill_id?: string | null
+          bill_snapshot?: Json
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          decided_by_designation?: string | null
+          decided_by_email?: string | null
+          decided_by_is_super_admin?: boolean | null
+          decided_by_name?: string | null
+          decided_by_role?: string | null
+          decision_notes?: string | null
+          id?: string
+          institution_id: string
+          reason: string
+          reason_code: string
+          request_number: string
+          requested_at?: string
+          requested_by?: string | null
+          requested_by_email?: string | null
+          requested_by_name?: string | null
+          requested_by_role?: string | null
+          status?: string
+          student_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          attachments?: Json
+          bill_id?: string | null
+          bill_snapshot?: Json
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          decided_by_designation?: string | null
+          decided_by_email?: string | null
+          decided_by_is_super_admin?: boolean | null
+          decided_by_name?: string | null
+          decided_by_role?: string | null
+          decision_notes?: string | null
+          id?: string
+          institution_id?: string
+          reason?: string
+          reason_code?: string
+          request_number?: string
+          requested_at?: string
+          requested_by?: string | null
+          requested_by_email?: string | null
+          requested_by_name?: string | null
+          requested_by_role?: string | null
+          status?: string
+          student_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_bill_cancel_requests_bill_id_fkey"
+            columns: ["bill_id"]
+            isOneToOne: false
+            referencedRelation: "billing_student_bills"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       billing_bill_cancellations: {
         Row: {
           amount_cancelled: number
@@ -26602,6 +26970,7 @@ export type Database = {
           institution_id: string
           reason: string
           reason_code: string
+          request_id: string | null
           student_id: string
         }
         Insert: {
@@ -26620,6 +26989,7 @@ export type Database = {
           institution_id: string
           reason: string
           reason_code: string
+          request_id?: string | null
           student_id: string
         }
         Update: {
@@ -26638,6 +27008,7 @@ export type Database = {
           institution_id?: string
           reason?: string
           reason_code?: string
+          request_id?: string | null
           student_id?: string
         }
         Relationships: [
@@ -33007,17 +33378,24 @@ export type Database = {
           answer: string | null
           answered_at: string | null
           answered_by: string
+          ask_after: string | null
           bug_id: string
           cluster_id: string | null
           created_at: string
           delivered_at: string | null
           deploy_sha: string | null
+          dropped_reason: string | null
           expires_at: string
+          fix_live_at: string | null
           fix_pr: string | null
           id: string
           kind: string
+          remind_at: string | null
+          reminded_at: string | null
           reporter_user_id: string
           sent_at: string | null
+          snooze_count: number
+          snoozed_until: string | null
           status: string
           updated_at: string
         }
@@ -33027,17 +33405,24 @@ export type Database = {
           answer?: string | null
           answered_at?: string | null
           answered_by?: string
+          ask_after?: string | null
           bug_id: string
           cluster_id?: string | null
           created_at?: string
           delivered_at?: string | null
           deploy_sha?: string | null
+          dropped_reason?: string | null
           expires_at?: string
+          fix_live_at?: string | null
           fix_pr?: string | null
           id?: string
           kind?: string
+          remind_at?: string | null
+          reminded_at?: string | null
           reporter_user_id: string
           sent_at?: string | null
+          snooze_count?: number
+          snoozed_until?: string | null
           status?: string
           updated_at?: string
         }
@@ -33047,17 +33432,24 @@ export type Database = {
           answer?: string | null
           answered_at?: string | null
           answered_by?: string
+          ask_after?: string | null
           bug_id?: string
           cluster_id?: string | null
           created_at?: string
           delivered_at?: string | null
           deploy_sha?: string | null
+          dropped_reason?: string | null
           expires_at?: string
+          fix_live_at?: string | null
           fix_pr?: string | null
           id?: string
           kind?: string
+          remind_at?: string | null
+          reminded_at?: string | null
           reporter_user_id?: string
           sent_at?: string | null
+          snooze_count?: number
+          snoozed_until?: string | null
           status?: string
           updated_at?: string
         }
@@ -33159,6 +33551,7 @@ export type Database = {
           fix_pattern: Json | null
           fix_pr: string | null
           id: string
+          no_reporter: number
           reporter_confirmed: string
           reporter_neg: number
           reporter_pos: number
@@ -33178,6 +33571,7 @@ export type Database = {
           fix_pattern?: Json | null
           fix_pr?: string | null
           id?: string
+          no_reporter?: number
           reporter_confirmed?: string
           reporter_neg?: number
           reporter_pos?: number
@@ -33197,6 +33591,7 @@ export type Database = {
           fix_pattern?: Json | null
           fix_pr?: string | null
           id?: string
+          no_reporter?: number
           reporter_confirmed?: string
           reporter_neg?: number
           reporter_pos?: number
@@ -33547,6 +33942,7 @@ export type Database = {
           module_name: string | null
           page_url: string
           priority: string | null
+          reopened_at: string | null
           reporter_ip: unknown
           reporter_user_agent: string | null
           reporter_user_id: string | null
@@ -33575,6 +33971,7 @@ export type Database = {
           module_name?: string | null
           page_url: string
           priority?: string | null
+          reopened_at?: string | null
           reporter_ip?: unknown
           reporter_user_agent?: string | null
           reporter_user_id?: string | null
@@ -33603,6 +34000,7 @@ export type Database = {
           module_name?: string | null
           page_url?: string
           priority?: string | null
+          reopened_at?: string | null
           reporter_ip?: unknown
           reporter_user_agent?: string | null
           reporter_user_id?: string | null
@@ -36317,6 +36715,168 @@ export type Database = {
           },
         ]
       }
+      cdc_drive_activity_log: {
+        Row: {
+          action: string
+          actor_id: string | null
+          actor_role: string | null
+          created_at: string
+          drive_id: string
+          id: string
+          ip_address: string | null
+          learner_id: string | null
+          new_value: Json | null
+          previous_value: Json | null
+          reason: string | null
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          actor_role?: string | null
+          created_at?: string
+          drive_id: string
+          id?: string
+          ip_address?: string | null
+          learner_id?: string | null
+          new_value?: Json | null
+          previous_value?: Json | null
+          reason?: string | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          actor_role?: string | null
+          created_at?: string
+          drive_id?: string
+          id?: string
+          ip_address?: string | null
+          learner_id?: string | null
+          new_value?: Json | null
+          previous_value?: Json | null
+          reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cdc_drive_activity_log_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_activity_log_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_activity_log_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_activity_log_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_activity_log_drive_id_fkey"
+            columns: ["drive_id"]
+            isOneToOne: false
+            referencedRelation: "cdc_drives"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_activity_log_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_activity_log_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_activity_log_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "tms_billable_learner"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_activity_log_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_learner_hostelites"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_activity_log_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_learner_hostelites_scoped"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_activity_log_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_learner_scope_violations"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_activity_log_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_stg_batch_ab"
+            referencedColumns: ["lp_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_activity_log_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_stg_realloc_base"
+            referencedColumns: ["lp_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_activity_log_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_stg_realloc_class"
+            referencedColumns: ["lp_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_activity_log_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_stg_realloc_resolved"
+            referencedColumns: ["lp_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_activity_log_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "vw_learner_payment_progress"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_activity_log_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "vw_learners_profile_fee_backfill_status"
+            referencedColumns: ["learner_id"]
+          },
+        ]
+      }
       cdc_drive_attendance: {
         Row: {
           attended: boolean
@@ -36327,9 +36887,12 @@ export type Database = {
           learner_id: string
           marked_by: string | null
           no_show_reason: string | null
+          remarks: string | null
           round_no: number
           round_type: Database["public"]["Enums"]["cdc_drive_round_type"] | null
+          status: string | null
           updated_at: string
+          updated_by: string | null
         }
         Insert: {
           attended?: boolean
@@ -36340,11 +36903,14 @@ export type Database = {
           learner_id: string
           marked_by?: string | null
           no_show_reason?: string | null
+          remarks?: string | null
           round_no: number
           round_type?:
             | Database["public"]["Enums"]["cdc_drive_round_type"]
             | null
+          status?: string | null
           updated_at?: string
+          updated_by?: string | null
         }
         Update: {
           attended?: boolean
@@ -36355,11 +36921,14 @@ export type Database = {
           learner_id?: string
           marked_by?: string | null
           no_show_reason?: string | null
+          remarks?: string | null
           round_no?: number
           round_type?:
             | Database["public"]["Enums"]["cdc_drive_round_type"]
             | null
+          status?: string | null
           updated_at?: string
+          updated_by?: string | null
         }
         Relationships: [
           {
@@ -36477,6 +37046,441 @@ export type Database = {
           {
             foreignKeyName: "cdc_drive_attendance_marked_by_fkey"
             columns: ["marked_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_attendance_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_attendance_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_attendance_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_attendance_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cdc_drive_coordinators: {
+        Row: {
+          assigned_at: string
+          assigned_by: string | null
+          drive_id: string
+          id: string
+          notified_at: string | null
+          staff_id: string
+          user_id: string | null
+        }
+        Insert: {
+          assigned_at?: string
+          assigned_by?: string | null
+          drive_id: string
+          id?: string
+          notified_at?: string | null
+          staff_id: string
+          user_id?: string | null
+        }
+        Update: {
+          assigned_at?: string
+          assigned_by?: string | null
+          drive_id?: string
+          id?: string
+          notified_at?: string | null
+          staff_id?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cdc_drive_coordinators_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_coordinators_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_coordinators_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_coordinators_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_coordinators_drive_id_fkey"
+            columns: ["drive_id"]
+            isOneToOne: false
+            referencedRelation: "cdc_drives"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_coordinators_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_coordinators_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_coordinators_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_coordinators_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_coordinators_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_coordinators_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_coordinators_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cdc_drive_document_batches: {
+        Row: {
+          batch_code: string
+          completed_at: string | null
+          document_type: string
+          drive_id: string
+          existing_found: number
+          failed: number
+          id: string
+          matched: number
+          multiple_match: number
+          no_match: number
+          results: Json
+          skipped: number
+          started_at: string
+          status: string
+          total_files: number
+          uploaded: number
+          uploaded_by: string | null
+        }
+        Insert: {
+          batch_code: string
+          completed_at?: string | null
+          document_type: string
+          drive_id: string
+          existing_found?: number
+          failed?: number
+          id?: string
+          matched?: number
+          multiple_match?: number
+          no_match?: number
+          results?: Json
+          skipped?: number
+          started_at?: string
+          status?: string
+          total_files?: number
+          uploaded?: number
+          uploaded_by?: string | null
+        }
+        Update: {
+          batch_code?: string
+          completed_at?: string | null
+          document_type?: string
+          drive_id?: string
+          existing_found?: number
+          failed?: number
+          id?: string
+          matched?: number
+          multiple_match?: number
+          no_match?: number
+          results?: Json
+          skipped?: number
+          started_at?: string
+          status?: string
+          total_files?: number
+          uploaded?: number
+          uploaded_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cdc_drive_document_batches_drive_id_fkey"
+            columns: ["drive_id"]
+            isOneToOne: false
+            referencedRelation: "cdc_drives"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_document_batches_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_document_batches_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_document_batches_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_document_batches_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cdc_drive_documents: {
+        Row: {
+          batch_id: string | null
+          document_type: string
+          drive_file_id: string
+          drive_folder_id: string | null
+          drive_id: string
+          file_name: string
+          id: string
+          is_current: boolean
+          learner_id: string
+          mime_type: string | null
+          original_name: string | null
+          register_number: string | null
+          roll_number: string | null
+          size_bytes: number | null
+          status: string
+          updated_at: string
+          upload_method: string
+          uploaded_at: string
+          uploaded_by: string | null
+          version: number
+        }
+        Insert: {
+          batch_id?: string | null
+          document_type: string
+          drive_file_id: string
+          drive_folder_id?: string | null
+          drive_id: string
+          file_name: string
+          id?: string
+          is_current?: boolean
+          learner_id: string
+          mime_type?: string | null
+          original_name?: string | null
+          register_number?: string | null
+          roll_number?: string | null
+          size_bytes?: number | null
+          status?: string
+          updated_at?: string
+          upload_method?: string
+          uploaded_at?: string
+          uploaded_by?: string | null
+          version?: number
+        }
+        Update: {
+          batch_id?: string | null
+          document_type?: string
+          drive_file_id?: string
+          drive_folder_id?: string | null
+          drive_id?: string
+          file_name?: string
+          id?: string
+          is_current?: boolean
+          learner_id?: string
+          mime_type?: string | null
+          original_name?: string | null
+          register_number?: string | null
+          roll_number?: string | null
+          size_bytes?: number | null
+          status?: string
+          updated_at?: string
+          upload_method?: string
+          uploaded_at?: string
+          uploaded_by?: string | null
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cdc_drive_documents_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "cdc_drive_document_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_documents_drive_id_fkey"
+            columns: ["drive_id"]
+            isOneToOne: false
+            referencedRelation: "cdc_drives"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_documents_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_documents_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_documents_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "tms_billable_learner"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_documents_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_learner_hostelites"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_documents_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_learner_hostelites_scoped"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_documents_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_learner_scope_violations"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_documents_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_stg_batch_ab"
+            referencedColumns: ["lp_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_documents_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_stg_realloc_base"
+            referencedColumns: ["lp_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_documents_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_stg_realloc_class"
+            referencedColumns: ["lp_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_documents_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_stg_realloc_resolved"
+            referencedColumns: ["lp_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_documents_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "vw_learner_payment_progress"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_documents_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "vw_learners_profile_fee_backfill_status"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_documents_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_documents_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_documents_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_documents_uploaded_by_fkey"
+            columns: ["uploaded_by"]
             isOneToOne: false
             referencedRelation: "users_profiles"
             referencedColumns: ["id"]
@@ -36804,6 +37808,352 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "users_profiles"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      cdc_drive_participants: {
+        Row: {
+          added_at: string
+          added_by: string | null
+          drive_id: string
+          id: string
+          learner_id: string
+          notified_at: string | null
+          remarks: string | null
+          removed_at: string | null
+          removed_by: string | null
+          source: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          added_at?: string
+          added_by?: string | null
+          drive_id: string
+          id?: string
+          learner_id: string
+          notified_at?: string | null
+          remarks?: string | null
+          removed_at?: string | null
+          removed_by?: string | null
+          source?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          added_at?: string
+          added_by?: string | null
+          drive_id?: string
+          id?: string
+          learner_id?: string
+          notified_at?: string | null
+          remarks?: string | null
+          removed_at?: string | null
+          removed_by?: string | null
+          source?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cdc_drive_participants_added_by_fkey"
+            columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_participants_added_by_fkey"
+            columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_participants_added_by_fkey"
+            columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_participants_added_by_fkey"
+            columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_participants_drive_id_fkey"
+            columns: ["drive_id"]
+            isOneToOne: false
+            referencedRelation: "cdc_drives"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_participants_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_participants_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_participants_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "tms_billable_learner"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_participants_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_learner_hostelites"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_participants_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_learner_hostelites_scoped"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_participants_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_learner_scope_violations"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_participants_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_stg_batch_ab"
+            referencedColumns: ["lp_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_participants_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_stg_realloc_base"
+            referencedColumns: ["lp_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_participants_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_stg_realloc_class"
+            referencedColumns: ["lp_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_participants_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_stg_realloc_resolved"
+            referencedColumns: ["lp_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_participants_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "vw_learner_payment_progress"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_participants_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "vw_learners_profile_fee_backfill_status"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_participants_removed_by_fkey"
+            columns: ["removed_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_participants_removed_by_fkey"
+            columns: ["removed_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_participants_removed_by_fkey"
+            columns: ["removed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_participants_removed_by_fkey"
+            columns: ["removed_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cdc_drive_selections: {
+        Row: {
+          decided_at: string
+          decided_by: string | null
+          decision: string
+          drive_id: string
+          id: string
+          learner_id: string
+          remarks: string | null
+          updated_at: string
+        }
+        Insert: {
+          decided_at?: string
+          decided_by?: string | null
+          decision: string
+          drive_id: string
+          id?: string
+          learner_id: string
+          remarks?: string | null
+          updated_at?: string
+        }
+        Update: {
+          decided_at?: string
+          decided_by?: string | null
+          decision?: string
+          drive_id?: string
+          id?: string
+          learner_id?: string
+          remarks?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cdc_drive_selections_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_selections_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_selections_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_selections_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_selections_drive_id_fkey"
+            columns: ["drive_id"]
+            isOneToOne: false
+            referencedRelation: "cdc_drives"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_selections_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_selections_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_selections_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "tms_billable_learner"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_selections_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_learner_hostelites"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_selections_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_learner_hostelites_scoped"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_selections_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_learner_scope_violations"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_selections_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_stg_batch_ab"
+            referencedColumns: ["lp_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_selections_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_stg_realloc_base"
+            referencedColumns: ["lp_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_selections_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_stg_realloc_class"
+            referencedColumns: ["lp_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_selections_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_stg_realloc_resolved"
+            referencedColumns: ["lp_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_selections_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "vw_learner_payment_progress"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "cdc_drive_selections_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "vw_learners_profile_fee_backfill_status"
+            referencedColumns: ["learner_id"]
           },
         ]
       }
@@ -37303,6 +38653,8 @@ export type Database = {
           job_location: string | null
           job_role_title: string | null
           location_url: string | null
+          participants_finalized_at: string | null
+          participants_finalized_by: string | null
           poster_url: string | null
           promo_video_url: string | null
           recruiter_id: string
@@ -37346,6 +38698,8 @@ export type Database = {
           job_location?: string | null
           job_role_title?: string | null
           location_url?: string | null
+          participants_finalized_at?: string | null
+          participants_finalized_by?: string | null
           poster_url?: string | null
           promo_video_url?: string | null
           recruiter_id: string
@@ -37389,6 +38743,8 @@ export type Database = {
           job_location?: string | null
           job_role_title?: string | null
           location_url?: string | null
+          participants_finalized_at?: string | null
+          participants_finalized_by?: string | null
           poster_url?: string | null
           promo_video_url?: string | null
           recruiter_id?: string
@@ -37500,6 +38856,34 @@ export type Database = {
             columns: ["industry_mentor_id"]
             isOneToOne: false
             referencedRelation: "industry_mentors"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drives_participants_finalized_by_fkey"
+            columns: ["participants_finalized_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "cdc_drives_participants_finalized_by_fkey"
+            columns: ["participants_finalized_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "cdc_drives_participants_finalized_by_fkey"
+            columns: ["participants_finalized_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cdc_drives_participants_finalized_by_fkey"
+            columns: ["participants_finalized_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
             referencedColumns: ["id"]
           },
           {
@@ -42745,12 +44129,14 @@ export type Database = {
       }
       commission_rate_card_payments: {
         Row: {
+          academic_year: number | null
+          advance_disposition: string | null
           amount: number
           consultant_id: string
           created_at: string
           created_by: string | null
           entry_type: string
-          group_id: string
+          group_id: string | null
           id: string
           notes: string | null
           paid_on: string
@@ -42760,12 +44146,14 @@ export type Database = {
           updated_by: string | null
         }
         Insert: {
+          academic_year?: number | null
+          advance_disposition?: string | null
           amount: number
           consultant_id: string
           created_at?: string
           created_by?: string | null
           entry_type?: string
-          group_id: string
+          group_id?: string | null
           id?: string
           notes?: string | null
           paid_on?: string
@@ -42775,12 +44163,14 @@ export type Database = {
           updated_by?: string | null
         }
         Update: {
+          academic_year?: number | null
+          advance_disposition?: string | null
           amount?: number
           consultant_id?: string
           created_at?: string
           created_by?: string | null
           entry_type?: string
-          group_id?: string
+          group_id?: string | null
           id?: string
           notes?: string | null
           paid_on?: string
@@ -42865,32 +44255,48 @@ export type Database = {
       commission_rate_card_slabs: {
         Row: {
           amount: number
+          consultant_id: string | null
           created_at: string
+          created_by: string | null
           group_id: string
           id: string
           max_count: number | null
           min_count: number
+          note: string | null
           updated_at: string
         }
         Insert: {
           amount: number
+          consultant_id?: string | null
           created_at?: string
+          created_by?: string | null
           group_id: string
           id?: string
           max_count?: number | null
           min_count: number
+          note?: string | null
           updated_at?: string
         }
         Update: {
           amount?: number
+          consultant_id?: string | null
           created_at?: string
+          created_by?: string | null
           group_id?: string
           id?: string
           max_count?: number | null
           min_count?: number
+          note?: string | null
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "commission_rate_card_slabs_consultant_id_fkey"
+            columns: ["consultant_id"]
+            isOneToOne: false
+            referencedRelation: "education_consultants"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "commission_rate_card_slabs_group_id_fkey"
             columns: ["group_id"]
@@ -46454,6 +47860,7 @@ export type Database = {
         Row: {
           applicant_email: string | null
           applicant_name: string
+          applicant_origin: string
           applicant_phone: string
           applicant_type: string
           course_event_id: string
@@ -46471,10 +47878,12 @@ export type Database = {
           profile_id: string | null
           status: string
           updated_at: string
+          jkkn_id: string | null
         }
         Insert: {
           applicant_email?: string | null
           applicant_name: string
+          applicant_origin?: string
           applicant_phone: string
           applicant_type: string
           course_event_id: string
@@ -46496,6 +47905,7 @@ export type Database = {
         Update: {
           applicant_email?: string | null
           applicant_name?: string
+          applicant_origin?: string
           applicant_phone?: string
           applicant_type?: string
           course_event_id?: string
@@ -50787,6 +52197,7 @@ export type Database = {
           external_members: Json
           id: string
           lead_id: string | null
+          lead_ids: string[]
           lead_name: string | null
           member_ids: string[] | null
           member_names: string[] | null
@@ -50801,6 +52212,7 @@ export type Database = {
           external_members?: Json
           id?: string
           lead_id?: string | null
+          lead_ids?: string[]
           lead_name?: string | null
           member_ids?: string[] | null
           member_names?: string[] | null
@@ -50815,6 +52227,7 @@ export type Database = {
           external_members?: Json
           id?: string
           lead_id?: string | null
+          lead_ids?: string[]
           lead_name?: string | null
           member_ids?: string[] | null
           member_names?: string[] | null
@@ -53760,6 +55173,7 @@ export type Database = {
           id: string
           mentioned_by: string
           mentioned_user_id: string
+          notified_at: string | null
         }
         Insert: {
           comment_id: string
@@ -53768,6 +55182,7 @@ export type Database = {
           id?: string
           mentioned_by?: string
           mentioned_user_id: string
+          notified_at?: string | null
         }
         Update: {
           comment_id?: string
@@ -53776,6 +55191,7 @@ export type Database = {
           id?: string
           mentioned_by?: string
           mentioned_user_id?: string
+          notified_at?: string | null
         }
         Relationships: [
           {
@@ -60321,6 +61737,161 @@ export type Database = {
             columns: ["page_id"]
             isOneToOne: false
             referencedRelation: "fb_pages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      feature_registry: {
+        Row: {
+          core_action: string
+          created_at: string
+          created_by: string | null
+          feature_key: string
+          intended_roles: string[]
+          module: string | null
+          shipped_at: string
+          source_pr: number | null
+          status: string
+          title: string
+          updated_at: string
+          usage_event_feature: string | null
+          usage_event_module: string | null
+          usage_event_type: string | null
+          usage_synced_at: string | null
+          usage_wired: boolean
+        }
+        Insert: {
+          core_action: string
+          created_at?: string
+          created_by?: string | null
+          feature_key: string
+          intended_roles?: string[]
+          module?: string | null
+          shipped_at?: string
+          source_pr?: number | null
+          status?: string
+          title: string
+          updated_at?: string
+          usage_event_feature?: string | null
+          usage_event_module?: string | null
+          usage_event_type?: string | null
+          usage_synced_at?: string | null
+          usage_wired?: boolean
+        }
+        Update: {
+          core_action?: string
+          created_at?: string
+          created_by?: string | null
+          feature_key?: string
+          intended_roles?: string[]
+          module?: string | null
+          shipped_at?: string
+          source_pr?: number | null
+          status?: string
+          title?: string
+          updated_at?: string
+          usage_event_feature?: string | null
+          usage_event_module?: string | null
+          usage_event_type?: string | null
+          usage_synced_at?: string | null
+          usage_wired?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "feature_registry_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "feature_registry_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "feature_registry_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "feature_registry_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      feature_usage: {
+        Row: {
+          count: number
+          day: string
+          feature_key: string
+          first_at: string
+          institution_id: string | null
+          last_at: string
+          role: string | null
+          user_id: string
+        }
+        Insert: {
+          count?: number
+          day: string
+          feature_key: string
+          first_at?: string
+          institution_id?: string | null
+          last_at?: string
+          role?: string | null
+          user_id: string
+        }
+        Update: {
+          count?: number
+          day?: string
+          feature_key?: string
+          first_at?: string
+          institution_id?: string | null
+          last_at?: string
+          role?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "feature_usage_feature_key_fkey"
+            columns: ["feature_key"]
+            isOneToOne: false
+            referencedRelation: "feature_registry"
+            referencedColumns: ["feature_key"]
+          },
+          {
+            foreignKeyName: "feature_usage_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "feature_usage_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "feature_usage_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "feature_usage_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -71548,6 +73119,7 @@ export type Database = {
           id: string
           is_cleared: boolean
           is_required: boolean
+          checklist_item_id: string | null
           item_key: string
           item_label: string
           notes: string | null
@@ -71563,6 +73135,7 @@ export type Database = {
           id?: string
           is_cleared?: boolean
           is_required?: boolean
+          checklist_item_id?: string | null
           item_key: string
           item_label: string
           notes?: string | null
@@ -71578,6 +73151,7 @@ export type Database = {
           id?: string
           is_cleared?: boolean
           is_required?: boolean
+          checklist_item_id?: string | null
           item_key?: string
           item_label?: string
           notes?: string | null
@@ -75201,7 +76775,6 @@ export type Database = {
           default_max_duration_days: number | null
           description: string | null
           id: string
-          institution_id: string
           is_active: boolean
           is_system: boolean
           leave_type_code: string
@@ -75220,7 +76793,6 @@ export type Database = {
           default_max_duration_days?: number | null
           description?: string | null
           id?: string
-          institution_id: string
           is_active?: boolean
           is_system?: boolean
           leave_type_code: string
@@ -75239,7 +76811,6 @@ export type Database = {
           default_max_duration_days?: number | null
           description?: string | null
           id?: string
-          institution_id?: string
           is_active?: boolean
           is_system?: boolean
           leave_type_code?: string
@@ -75250,64 +76821,7 @@ export type Database = {
           sort_order?: number
           updated_at?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "hostel_leave_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "case_graduation_readiness"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hostel_leave_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "institutions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hostel_leave_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_colleges"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hostel_leave_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "semester_hierarchy_health"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hostel_leave_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_cac_collaboration_isolation"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hostel_leave_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_cac_solution_funnel"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hostel_leave_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_hostel_institution_residents"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hostel_leave_types_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_institutions_needing_admission_counselors"
-            referencedColumns: ["institution_id"]
-          },
-        ]
+        Relationships: []
       }
       hostel_maintenance_requests: {
         Row: {
@@ -79938,6 +81452,176 @@ export type Database = {
           },
         ]
       }
+      hostel_damage_types: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          default_amount: number
+          id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          default_amount?: number
+          id?: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          default_amount?: number
+          id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      hostel_vacate_approvals: {
+        Row: {
+          acted_at: string
+          action: string
+          actor_id: string | null
+          id: string
+          remarks: string | null
+          step: string
+          vacate_request_id: string
+        }
+        Insert: {
+          acted_at?: string
+          action: string
+          actor_id?: string | null
+          id?: string
+          remarks?: string | null
+          step: string
+          vacate_request_id: string
+        }
+        Update: {
+          acted_at?: string
+          action?: string
+          actor_id?: string | null
+          id?: string
+          remarks?: string | null
+          step?: string
+          vacate_request_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_vacate_approvals_vacate_request_id_fkey"
+            columns: ["vacate_request_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_vacate_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hostel_vacate_damages: {
+        Row: {
+          amount: number
+          created_at: string
+          damage_name: string
+          damage_type_id: string | null
+          id: string
+          note: string | null
+          recorded_by: string | null
+          vacate_request_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          damage_name: string
+          damage_type_id?: string | null
+          id?: string
+          note?: string | null
+          recorded_by?: string | null
+          vacate_request_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          damage_name?: string
+          damage_type_id?: string | null
+          id?: string
+          note?: string | null
+          recorded_by?: string | null
+          vacate_request_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hostel_vacate_damages_damage_type_id_fkey"
+            columns: ["damage_type_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_damage_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_vacate_damages_vacate_request_id_fkey"
+            columns: ["vacate_request_id"]
+            isOneToOne: false
+            referencedRelation: "hostel_vacate_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hostel_vacate_checklist_items: {
+        Row: {
+          applies_to_reasons:
+            | Database["public"]["Enums"]["vacate_reason_enum"][]
+            | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_active: boolean
+          is_required: boolean
+          item_label: string
+          sort_order: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          applies_to_reasons?:
+            | Database["public"]["Enums"]["vacate_reason_enum"][]
+            | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          is_required?: boolean
+          item_label: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          applies_to_reasons?:
+            | Database["public"]["Enums"]["vacate_reason_enum"][]
+            | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          is_required?: boolean
+          item_label?: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       hostel_vacate_documents: {
         Row: {
           document_type: Database["public"]["Enums"]["vacate_document_type_enum"]
@@ -79990,6 +81674,15 @@ export type Database = {
           actual_vacate_date: string | null
           allocation_id: string
           approval_chain_run_id: string | null
+          approval_remarks: string | null
+          damage_total: number
+          fine_bill_id: string | null
+          room_inspected: boolean
+          approved_at: string | null
+          approved_by: string | null
+          bills_snapshot: Json | null
+          outstanding_at_approval: number | null
+          room_snapshot: Json | null
           cancelled_reason: string | null
           completed_at: string | null
           created_at: string
@@ -80020,6 +81713,15 @@ export type Database = {
           actual_vacate_date?: string | null
           allocation_id: string
           approval_chain_run_id?: string | null
+          approval_remarks?: string | null
+          damage_total?: number
+          fine_bill_id?: string | null
+          room_inspected?: boolean
+          approved_at?: string | null
+          approved_by?: string | null
+          bills_snapshot?: Json | null
+          outstanding_at_approval?: number | null
+          room_snapshot?: Json | null
           cancelled_reason?: string | null
           completed_at?: string | null
           created_at?: string
@@ -80050,6 +81752,15 @@ export type Database = {
           actual_vacate_date?: string | null
           allocation_id?: string
           approval_chain_run_id?: string | null
+          approval_remarks?: string | null
+          damage_total?: number
+          fine_bill_id?: string | null
+          room_inspected?: boolean
+          approved_at?: string | null
+          approved_by?: string | null
+          bills_snapshot?: Json | null
+          outstanding_at_approval?: number | null
+          room_snapshot?: Json | null
           cancelled_reason?: string | null
           completed_at?: string | null
           created_at?: string
@@ -85202,6 +86913,201 @@ export type Database = {
           },
         ]
       }
+      hr_leave_eligibilities: {
+        Row: {
+          approval_chain: Json
+          created_at: string
+          created_by: string | null
+          current_step: number
+          decided_at: string | null
+          decided_by: string | null
+          decision_note: string | null
+          documents: Json
+          employee_id: string
+          entitled_days: number | null
+          granted_directly: boolean
+          hr_organization_id: string
+          id: string
+          leave_type_id: string
+          reason: string | null
+          revoke_reason: string | null
+          revoked_at: string | null
+          revoked_by: string | null
+          status: string
+          updated_at: string
+          valid_from: string
+          valid_until: string | null
+        }
+        Insert: {
+          approval_chain?: Json
+          created_at?: string
+          created_by?: string | null
+          current_step?: number
+          decided_at?: string | null
+          decided_by?: string | null
+          decision_note?: string | null
+          documents?: Json
+          employee_id: string
+          entitled_days?: number | null
+          granted_directly?: boolean
+          hr_organization_id: string
+          id?: string
+          leave_type_id: string
+          reason?: string | null
+          revoke_reason?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+          status?: string
+          updated_at?: string
+          valid_from?: string
+          valid_until?: string | null
+        }
+        Update: {
+          approval_chain?: Json
+          created_at?: string
+          created_by?: string | null
+          current_step?: number
+          decided_at?: string | null
+          decided_by?: string | null
+          decision_note?: string | null
+          documents?: Json
+          employee_id?: string
+          entitled_days?: number | null
+          granted_directly?: boolean
+          hr_organization_id?: string
+          id?: string
+          leave_type_id?: string
+          reason?: string | null
+          revoke_reason?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+          status?: string
+          updated_at?: string
+          valid_from?: string
+          valid_until?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_leave_eligibilities_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hr_leave_eligibilities_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "hr_leave_eligibilities_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_eligibilities_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_eligibilities_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hr_leave_eligibilities_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "hr_leave_eligibilities_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_eligibilities_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_eligibilities_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_eligibilities_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "hr_leave_eligibilities_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_eligibilities_hr_organization_id_fkey"
+            columns: ["hr_organization_id"]
+            isOneToOne: false
+            referencedRelation: "hr_organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_eligibilities_leave_type_id_fkey"
+            columns: ["leave_type_id"]
+            isOneToOne: false
+            referencedRelation: "hr_leave_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_eligibilities_revoked_by_fkey"
+            columns: ["revoked_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hr_leave_eligibilities_revoked_by_fkey"
+            columns: ["revoked_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "hr_leave_eligibilities_revoked_by_fkey"
+            columns: ["revoked_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_eligibilities_revoked_by_fkey"
+            columns: ["revoked_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hr_leave_encashments: {
         Row: {
           academic_year_id: string | null
@@ -85852,6 +87758,7 @@ export type Database = {
           request_category: string
           requires_approval: boolean
           requires_documents: boolean
+          requires_eligibility: boolean
           skip_holidays: boolean
           skip_weekends: boolean
           sto_limit_mode: string
@@ -85898,6 +87805,7 @@ export type Database = {
           request_category?: string
           requires_approval?: boolean
           requires_documents?: boolean
+          requires_eligibility?: boolean
           skip_holidays?: boolean
           skip_weekends?: boolean
           sto_limit_mode?: string
@@ -85944,6 +87852,7 @@ export type Database = {
           request_category?: string
           requires_approval?: boolean
           requires_documents?: boolean
+          requires_eligibility?: boolean
           skip_holidays?: boolean
           skip_weekends?: boolean
           sto_limit_mode?: string
@@ -90388,6 +92297,8 @@ export type Database = {
           bank_account_number: string | null
           basic_pay: number
           business_working_days: number
+          casual_leave_days: number
+          comp_off_days: number
           created_at: string
           date_of_joining: string | null
           department_name: string | null
@@ -90400,7 +92311,10 @@ export type Database = {
           is_included: boolean
           net_pay: number
           on_duty_days: number
+          other_paid_leave_days: number
           paid_by_name: string | null
+          work_institution_id: string | null
+          work_institution_name: string | null
           paid_by_organization_id: string | null
           paid_days: number
           paid_leave_days: number
@@ -90425,6 +92339,8 @@ export type Database = {
           bank_account_number?: string | null
           basic_pay?: number
           business_working_days?: number
+          casual_leave_days?: number
+          comp_off_days?: number
           created_at?: string
           date_of_joining?: string | null
           department_name?: string | null
@@ -90437,7 +92353,10 @@ export type Database = {
           is_included?: boolean
           net_pay?: number
           on_duty_days?: number
+          other_paid_leave_days?: number
           paid_by_name?: string | null
+          work_institution_id?: string | null
+          work_institution_name?: string | null
           paid_by_organization_id?: string | null
           paid_days?: number
           paid_leave_days?: number
@@ -90462,6 +92381,8 @@ export type Database = {
           bank_account_number?: string | null
           basic_pay?: number
           business_working_days?: number
+          casual_leave_days?: number
+          comp_off_days?: number
           created_at?: string
           date_of_joining?: string | null
           department_name?: string | null
@@ -90474,7 +92395,10 @@ export type Database = {
           is_included?: boolean
           net_pay?: number
           on_duty_days?: number
+          other_paid_leave_days?: number
           paid_by_name?: string | null
+          work_institution_id?: string | null
+          work_institution_name?: string | null
           paid_by_organization_id?: string | null
           paid_days?: number
           paid_leave_days?: number
@@ -90695,9 +92619,11 @@ export type Database = {
           is_working_day: boolean
           notes: string | null
           required_minutes: number | null
+          role_key: string | null
           second_half_end: string | null
           second_half_start: string | null
           second_saturday_holiday: boolean
+          staff_id: string | null
           staff_scope: string
           updated_at: string
           updated_by: string | null
@@ -90720,9 +92646,11 @@ export type Database = {
           is_working_day?: boolean
           notes?: string | null
           required_minutes?: number | null
+          role_key?: string | null
           second_half_end?: string | null
           second_half_start?: string | null
           second_saturday_holiday?: boolean
+          staff_id?: string | null
           staff_scope: string
           updated_at?: string
           updated_by?: string | null
@@ -90745,9 +92673,11 @@ export type Database = {
           is_working_day?: boolean
           notes?: string | null
           required_minutes?: number | null
+          role_key?: string | null
           second_half_end?: string | null
           second_half_start?: string | null
           second_saturday_holiday?: boolean
+          staff_id?: string | null
           staff_scope?: string
           updated_at?: string
           updated_by?: string | null
@@ -90843,6 +92773,27 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_institutions_needing_admission_counselors"
             referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hr_shift_timings_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_shift_timings_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "hr_shift_timings_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_staff"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "hr_shift_timings_updated_by_fkey"
@@ -91291,6 +93242,76 @@ export type Database = {
             foreignKeyName: "hr_staff_payroll_staff_id_fkey"
             columns: ["staff_id"]
             isOneToOne: true
+            referencedRelation: "v_hr_staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_staff_photo_submissions: {
+        Row: {
+          approved_url: string | null
+          created_at: string
+          id: string
+          institution_id: string
+          review_note: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          staff_id: string
+          status: string
+          storage_path: string
+          submitted_at: string
+          submitted_by: string
+          updated_at: string
+        }
+        Insert: {
+          approved_url?: string | null
+          created_at?: string
+          id?: string
+          institution_id: string
+          review_note?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          staff_id: string
+          status?: string
+          storage_path: string
+          submitted_at?: string
+          submitted_by: string
+          updated_at?: string
+        }
+        Update: {
+          approved_url?: string | null
+          created_at?: string
+          id?: string
+          institution_id?: string
+          review_note?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          staff_id?: string
+          status?: string
+          storage_path?: string
+          submitted_at?: string
+          submitted_by?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_staff_photo_submissions_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_staff_photo_submissions_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "v_hr_attendance_institution_drift"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "hr_staff_photo_submissions_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
             referencedRelation: "v_hr_staff"
             referencedColumns: ["id"]
           },
@@ -94338,7 +96359,10 @@ export type Database = {
           customer_name: string | null
           customer_phone: string | null
           customer_type: string
+          device_label: string | null
+          device_serial: string | null
           expires_at: string
+          ezetap_txn_id: string | null
           finalize_claimed_at: string | null
           finalize_error: string | null
           gateway_fee_paise: number | null
@@ -94350,12 +96374,14 @@ export type Database = {
           last_inquiry_at: string | null
           late_credit: boolean
           method: string
+          p2p_request_id: string | null
           paid_at: string | null
           payer_bank: string | null
           payer_contact: string | null
           payer_email: string | null
           payer_vpa: string | null
           payer_wallet: string | null
+          pos_device_id: string | null
           provider: string
           qr_image_url: string | null
           razorpay_account_id: string | null
@@ -94381,7 +96407,10 @@ export type Database = {
           customer_name?: string | null
           customer_phone?: string | null
           customer_type?: string
+          device_label?: string | null
+          device_serial?: string | null
           expires_at: string
+          ezetap_txn_id?: string | null
           finalize_claimed_at?: string | null
           finalize_error?: string | null
           gateway_fee_paise?: number | null
@@ -94393,12 +96422,14 @@ export type Database = {
           last_inquiry_at?: string | null
           late_credit?: boolean
           method?: string
+          p2p_request_id?: string | null
           paid_at?: string | null
           payer_bank?: string | null
           payer_contact?: string | null
           payer_email?: string | null
           payer_vpa?: string | null
           payer_wallet?: string | null
+          pos_device_id?: string | null
           provider?: string
           qr_image_url?: string | null
           razorpay_account_id?: string | null
@@ -94424,7 +96455,10 @@ export type Database = {
           customer_name?: string | null
           customer_phone?: string | null
           customer_type?: string
+          device_label?: string | null
+          device_serial?: string | null
           expires_at?: string
+          ezetap_txn_id?: string | null
           finalize_claimed_at?: string | null
           finalize_error?: string | null
           gateway_fee_paise?: number | null
@@ -94436,12 +96470,14 @@ export type Database = {
           last_inquiry_at?: string | null
           late_credit?: boolean
           method?: string
+          p2p_request_id?: string | null
           paid_at?: string | null
           payer_bank?: string | null
           payer_contact?: string | null
           payer_email?: string | null
           payer_vpa?: string | null
           payer_wallet?: string | null
+          pos_device_id?: string | null
           provider?: string
           qr_image_url?: string | null
           razorpay_account_id?: string | null
@@ -94483,6 +96519,13 @@ export type Database = {
             columns: ["cashier_id"]
             isOneToOne: false
             referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ims_gateway_payments_pos_device_id_fkey"
+            columns: ["pos_device_id"]
+            isOneToOne: false
+            referencedRelation: "ims_pos_devices"
             referencedColumns: ["id"]
           },
           {
@@ -96707,6 +98750,192 @@ export type Database = {
           {
             foreignKeyName: "ims_lab_assignments_user_id_fkey"
             columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ims_pos_devices: {
+        Row: {
+          account_label: string | null
+          app_key_encrypted: string | null
+          created_at: string
+          created_by: string | null
+          device_kind: string
+          device_label: string
+          device_serial: string
+          environment: string
+          id: string
+          institution_id: string
+          is_active: boolean
+          last_error_at: string | null
+          last_error_code: string | null
+          last_error_message: string | null
+          last_push_at: string | null
+          store_id: string
+          updated_at: string
+          updated_by: string | null
+          username: string | null
+        }
+        Insert: {
+          account_label?: string | null
+          app_key_encrypted?: string | null
+          created_at?: string
+          created_by?: string | null
+          device_kind?: string
+          device_label: string
+          device_serial: string
+          environment?: string
+          id?: string
+          institution_id: string
+          is_active?: boolean
+          last_error_at?: string | null
+          last_error_code?: string | null
+          last_error_message?: string | null
+          last_push_at?: string | null
+          store_id: string
+          updated_at?: string
+          updated_by?: string | null
+          username?: string | null
+        }
+        Update: {
+          account_label?: string | null
+          app_key_encrypted?: string | null
+          created_at?: string
+          created_by?: string | null
+          device_kind?: string
+          device_label?: string
+          device_serial?: string
+          environment?: string
+          id?: string
+          institution_id?: string
+          is_active?: boolean
+          last_error_at?: string | null
+          last_error_code?: string | null
+          last_error_message?: string | null
+          last_push_at?: string | null
+          store_id?: string
+          updated_at?: string
+          updated_by?: string | null
+          username?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ims_pos_devices_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "ims_pos_devices_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "ims_pos_devices_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ims_pos_devices_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ims_pos_devices_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "ims_pos_devices_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ims_pos_devices_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "ims_pos_devices_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "ims_pos_devices_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_collaboration_isolation"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "ims_pos_devices_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_solution_funnel"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "ims_pos_devices_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_institution_residents"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "ims_pos_devices_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "ims_pos_devices_store_id_fkey"
+            columns: ["store_id"]
+            isOneToOne: false
+            referencedRelation: "ims_stores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ims_pos_devices_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "ims_pos_devices_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "ims_pos_devices_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ims_pos_devices_updated_by_fkey"
+            columns: ["updated_by"]
             isOneToOne: false
             referencedRelation: "users_profiles"
             referencedColumns: ["id"]
@@ -116620,6 +118849,7 @@ export type Database = {
           decided_by: string | null
           decision_note: string | null
           id: string
+          kind: string
           loop_key: string
           proposed: Json
           rationale: string | null
@@ -116633,6 +118863,7 @@ export type Database = {
           decided_by?: string | null
           decision_note?: string | null
           id?: string
+          kind?: string
           loop_key: string
           proposed: Json
           rationale?: string | null
@@ -116646,6 +118877,7 @@ export type Database = {
           decided_by?: string | null
           decision_note?: string | null
           id?: string
+          kind?: string
           loop_key?: string
           proposed?: Json
           rationale?: string | null
@@ -116747,6 +118979,50 @@ export type Database = {
           },
         ]
       }
+      loop_measurements: {
+        Row: {
+          bar_value: number | null
+          gap: string | null
+          id: string
+          loop_key: string
+          measured_at: string
+          met: boolean | null
+          run_id: string | null
+          status: string
+          value: number | null
+        }
+        Insert: {
+          bar_value?: number | null
+          gap?: string | null
+          id?: string
+          loop_key: string
+          measured_at?: string
+          met?: boolean | null
+          run_id?: string | null
+          status?: string
+          value?: number | null
+        }
+        Update: {
+          bar_value?: number | null
+          gap?: string | null
+          id?: string
+          loop_key?: string
+          measured_at?: string
+          met?: boolean | null
+          run_id?: string | null
+          status?: string
+          value?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "loop_measurements_loop_key_fkey"
+            columns: ["loop_key"]
+            isOneToOne: false
+            referencedRelation: "loop_registry"
+            referencedColumns: ["loop_key"]
+          },
+        ]
+      }
       loop_owner_scopes: {
         Row: {
           created_at: string
@@ -116840,6 +119116,11 @@ export type Database = {
       }
       loop_registry: {
         Row: {
+          bar: string | null
+          bar_kind: string | null
+          bar_miss_streak: number
+          bar_set_at: string | null
+          bar_set_by: string | null
           baseline_window: string | null
           counter_metric: string | null
           created_at: string
@@ -116860,6 +119141,11 @@ export type Database = {
           verdict_owner: string | null
         }
         Insert: {
+          bar?: string | null
+          bar_kind?: string | null
+          bar_miss_streak?: number
+          bar_set_at?: string | null
+          bar_set_by?: string | null
           baseline_window?: string | null
           counter_metric?: string | null
           created_at?: string
@@ -116880,6 +119166,11 @@ export type Database = {
           verdict_owner?: string | null
         }
         Update: {
+          bar?: string | null
+          bar_kind?: string | null
+          bar_miss_streak?: number
+          bar_set_at?: string | null
+          bar_set_by?: string | null
           baseline_window?: string | null
           counter_metric?: string | null
           created_at?: string
@@ -128925,6 +131216,72 @@ export type Database = {
         }
         Relationships: []
       }
+      notification_answers: {
+        Row: {
+          answer: string
+          answered_at: string
+          created_at: string
+          id: string
+          notification_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          answer: string
+          answered_at?: string
+          created_at?: string
+          id?: string
+          notification_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          answer?: string
+          answered_at?: string
+          created_at?: string
+          id?: string
+          notification_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_answers_notification_id_fkey"
+            columns: ["notification_id"]
+            isOneToOne: false
+            referencedRelation: "notifications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notification_answers_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "notification_answers_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "notification_answers_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notification_answers_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notification_audiences: {
         Row: {
           created_at: string | null
@@ -129206,6 +131563,7 @@ export type Database = {
           acted_by: string | null
           action_config: Json | null
           action_type: string | null
+          answer_options: Json | null
           body: string
           category: string | null
           created_at: string
@@ -129219,6 +131577,7 @@ export type Database = {
           metadata: Json | null
           priority: string | null
           requires_acknowledgment: boolean | null
+          requires_answer: boolean
           sent_at: string | null
           superseded_by: string | null
           targeting: Json
@@ -129231,6 +131590,7 @@ export type Database = {
           acted_by?: string | null
           action_config?: Json | null
           action_type?: string | null
+          answer_options?: Json | null
           body: string
           category?: string | null
           created_at?: string
@@ -129244,6 +131604,7 @@ export type Database = {
           metadata?: Json | null
           priority?: string | null
           requires_acknowledgment?: boolean | null
+          requires_answer?: boolean
           sent_at?: string | null
           superseded_by?: string | null
           targeting: Json
@@ -129256,6 +131617,7 @@ export type Database = {
           acted_by?: string | null
           action_config?: Json | null
           action_type?: string | null
+          answer_options?: Json | null
           body?: string
           category?: string | null
           created_at?: string
@@ -129269,6 +131631,7 @@ export type Database = {
           metadata?: Json | null
           priority?: string | null
           requires_acknowledgment?: boolean | null
+          requires_answer?: boolean
           sent_at?: string | null
           superseded_by?: string | null
           targeting?: Json
@@ -155024,6 +157387,7 @@ export type Database = {
           id: string
           mentioned_by: string
           mentioned_user_id: string
+          notified_at: string | null
           reservation_id: string
         }
         Insert: {
@@ -155032,6 +157396,7 @@ export type Database = {
           id?: string
           mentioned_by?: string
           mentioned_user_id: string
+          notified_at?: string | null
           reservation_id: string
         }
         Update: {
@@ -155040,6 +157405,7 @@ export type Database = {
           id?: string
           mentioned_by?: string
           mentioned_user_id?: string
+          notified_at?: string | null
           reservation_id?: string
         }
         Relationships: [
@@ -164055,6 +166421,157 @@ export type Database = {
           },
         ]
       }
+      sh_community_engagement_participants: {
+        Row: {
+          confirmation_status: string
+          confirmed_at: string | null
+          confirmed_by: string | null
+          created_at: string
+          decline_note: string | null
+          department_id: string
+          engagement_id: string
+          hours_contributed: number | null
+          id: string
+          institution_id: string | null
+          is_lead: boolean
+          updated_at: string
+        }
+        Insert: {
+          confirmation_status?: string
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          created_at?: string
+          decline_note?: string | null
+          department_id: string
+          engagement_id: string
+          hours_contributed?: number | null
+          id?: string
+          institution_id?: string | null
+          is_lead?: boolean
+          updated_at?: string
+        }
+        Update: {
+          confirmation_status?: string
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          created_at?: string
+          decline_note?: string | null
+          department_id?: string
+          engagement_id?: string
+          hours_contributed?: number | null
+          id?: string
+          institution_id?: string | null
+          is_lead?: boolean
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_community_engagement_participants_confirmed_by_fkey"
+            columns: ["confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sh_community_engagement_participants_confirmed_by_fkey"
+            columns: ["confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "sh_community_engagement_participants_confirmed_by_fkey"
+            columns: ["confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_community_engagement_participants_confirmed_by_fkey"
+            columns: ["confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_community_engagement_participants_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_community_engagement_participants_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "sh_community_engagements"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_community_engagement_participants_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "v_sh_community_engagements_awaiting_approval"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_community_engagement_participants_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "sh_community_engagement_participants_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_community_engagement_participants_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "sh_community_engagement_participants_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "sh_community_engagement_participants_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_collaboration_isolation"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "sh_community_engagement_participants_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_solution_funnel"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "sh_community_engagement_participants_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_institution_residents"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "sh_community_engagement_participants_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
       sh_community_engagements: {
         Row: {
           approval_status: string
@@ -164066,6 +166583,7 @@ export type Database = {
           department_id: string
           description: string | null
           engagement_date: string
+          event_id: string | null
           hours_spent: number
           id: string
           institution_id: string | null
@@ -164088,6 +166606,7 @@ export type Database = {
           department_id: string
           description?: string | null
           engagement_date: string
+          event_id?: string | null
           hours_spent: number
           id?: string
           institution_id?: string | null
@@ -164110,6 +166629,7 @@ export type Database = {
           department_id?: string
           description?: string | null
           engagement_date?: string
+          event_id?: string | null
           hours_spent?: number
           id?: string
           institution_id?: string | null
@@ -164156,6 +166676,27 @@ export type Database = {
             columns: ["department_id"]
             isOneToOne: false
             referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_community_engagements_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_community_engagements_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "learning_event_attendance"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "sh_community_engagements_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "marathon_events"
             referencedColumns: ["id"]
           },
           {
@@ -175907,6 +178448,9 @@ export type Database = {
           display_order: number
           district: string | null
           email: string
+          emergency_contact_name: string | null
+          emergency_contact_phone: string | null
+          emergency_contact_relationship: string | null
           employment_type: string
           experience_entries: Json
           experience_years: number
@@ -175978,6 +178522,9 @@ export type Database = {
           display_order?: number
           district?: string | null
           email: string
+          emergency_contact_name?: string | null
+          emergency_contact_phone?: string | null
+          emergency_contact_relationship?: string | null
           employment_type?: string
           experience_entries?: Json
           experience_years?: number
@@ -176049,6 +178596,9 @@ export type Database = {
           display_order?: number
           district?: string | null
           email?: string
+          emergency_contact_name?: string | null
+          emergency_contact_phone?: string | null
+          emergency_contact_relationship?: string | null
           employment_type?: string
           experience_entries?: Json
           experience_years?: number
@@ -178865,6 +181415,7 @@ export type Database = {
       }
       tms_attendance: {
         Row: {
+          booked_route_id: string | null
           created_at: string
           direction: string
           id: string
@@ -178882,6 +181433,7 @@ export type Database = {
           trip_date: string
         }
         Insert: {
+          booked_route_id?: string | null
           created_at?: string
           direction?: string
           id?: string
@@ -178899,6 +181451,7 @@ export type Database = {
           trip_date: string
         }
         Update: {
+          booked_route_id?: string | null
           created_at?: string
           direction?: string
           id?: string
@@ -178916,6 +181469,13 @@ export type Database = {
           trip_date?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "tms_attendance_booked_route_id_fkey"
+            columns: ["booked_route_id"]
+            isOneToOne: false
+            referencedRelation: "tms_route"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "tms_attendance_learner_id_fkey"
             columns: ["learner_id"]
@@ -179933,6 +182493,185 @@ export type Database = {
         }
         Relationships: []
       }
+      tms_fee_concession_log: {
+        Row: {
+          actions: Json
+          actor: string | null
+          after: Json
+          before: Json
+          created_at: string
+          id: string
+          person_id: string
+          rule_id: string
+          target_total: number
+          terms: Json
+          transport_year_id: string
+        }
+        Insert: {
+          actions: Json
+          actor?: string | null
+          after: Json
+          before: Json
+          created_at?: string
+          id?: string
+          person_id: string
+          rule_id: string
+          target_total: number
+          terms: Json
+          transport_year_id: string
+        }
+        Update: {
+          actions?: Json
+          actor?: string | null
+          after?: Json
+          before?: Json
+          created_at?: string
+          id?: string
+          person_id?: string
+          rule_id?: string
+          target_total?: number
+          terms?: Json
+          transport_year_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tms_fee_concession_log_rule_id_fkey"
+            columns: ["rule_id"]
+            isOneToOne: false
+            referencedRelation: "tms_fee_concession_rule"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tms_fee_concession_rule: {
+        Row: {
+          admission_year: number | null
+          annual_amount: number | null
+          created_at: string
+          created_by: string | null
+          id: string
+          institution_id: string | null
+          is_active: boolean
+          kind: string
+          label: string
+          percent: number | null
+          program_id: string | null
+          transport_year_id: string
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          admission_year?: number | null
+          annual_amount?: number | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean
+          kind: string
+          label: string
+          percent?: number | null
+          program_id?: string | null
+          transport_year_id: string
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          admission_year?: number | null
+          annual_amount?: number | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean
+          kind?: string
+          label?: string
+          percent?: number | null
+          program_id?: string | null
+          transport_year_id?: string
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tms_fee_concession_rule_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "tms_fee_concession_rule_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tms_fee_concession_rule_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_colleges"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "tms_fee_concession_rule_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "tms_fee_concession_rule_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_collaboration_isolation"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "tms_fee_concession_rule_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_cac_solution_funnel"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "tms_fee_concession_rule_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_hostel_institution_residents"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "tms_fee_concession_rule_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "v_institutions_needing_admission_counselors"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "tms_fee_concession_rule_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "case_graduation_readiness"
+            referencedColumns: ["programme_id"]
+          },
+          {
+            foreignKeyName: "tms_fee_concession_rule_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tms_fee_concession_rule_transport_year_id_fkey"
+            columns: ["transport_year_id"]
+            isOneToOne: false
+            referencedRelation: "tms_transport_year"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tms_fee_fine: {
         Row: {
           billing_student_bill_id: string | null
@@ -180103,6 +182842,7 @@ export type Database = {
         Row: {
           amount: number | null
           billable: boolean
+          concession_rule_id: string | null
           created_at: string
           created_by: string | null
           id: string
@@ -180117,6 +182857,7 @@ export type Database = {
         Insert: {
           amount?: number | null
           billable?: boolean
+          concession_rule_id?: string | null
           created_at?: string
           created_by?: string | null
           id?: string
@@ -180131,6 +182872,7 @@ export type Database = {
         Update: {
           amount?: number | null
           billable?: boolean
+          concession_rule_id?: string | null
           created_at?: string
           created_by?: string | null
           id?: string
@@ -180143,6 +182885,13 @@ export type Database = {
           updated_by?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "tms_fee_override_concession_rule_id_fkey"
+            columns: ["concession_rule_id"]
+            isOneToOne: false
+            referencedRelation: "tms_fee_concession_rule"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "tms_fee_override_transport_year_id_fkey"
             columns: ["transport_year_id"]
@@ -180576,6 +183325,60 @@ export type Database = {
         Relationships: []
       }
       tms_final_year_pharmacy_halffee_backup_20260915: {
+        Row: {
+          backed_up_at: string | null
+          fb_id: string | null
+          fee_bill: Json | null
+          instalments: Json | null
+          sb_id: string | null
+          student_bill: Json | null
+        }
+        Insert: {
+          backed_up_at?: string | null
+          fb_id?: string | null
+          fee_bill?: Json | null
+          instalments?: Json | null
+          sb_id?: string | null
+          student_bill?: Json | null
+        }
+        Update: {
+          backed_up_at?: string | null
+          fb_id?: string | null
+          fee_bill?: Json | null
+          instalments?: Json | null
+          sb_id?: string | null
+          student_bill?: Json | null
+        }
+        Relationships: []
+      }
+      tms_final_year_pharmacy_halffee_backup_20260917: {
+        Row: {
+          backed_up_at: string | null
+          fb_id: string | null
+          fee_bill: Json | null
+          instalments: Json | null
+          sb_id: string | null
+          student_bill: Json | null
+        }
+        Insert: {
+          backed_up_at?: string | null
+          fb_id?: string | null
+          fee_bill?: Json | null
+          instalments?: Json | null
+          sb_id?: string | null
+          student_bill?: Json | null
+        }
+        Update: {
+          backed_up_at?: string | null
+          fb_id?: string | null
+          fee_bill?: Json | null
+          instalments?: Json | null
+          sb_id?: string | null
+          student_bill?: Json | null
+        }
+        Relationships: []
+      }
+      tms_final_year_pharmacy_halffee_backup_20260917b: {
         Row: {
           backed_up_at: string | null
           fb_id: string | null
@@ -181405,6 +184208,339 @@ export type Database = {
             columns: ["route_id"]
             isOneToOne: false
             referencedRelation: "tms_route"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tms_inspection: {
+        Row: {
+          bus_distance_m: number | null
+          created_at: string
+          driver_staff_id: string | null
+          grounded: boolean
+          headcount_observed: number | null
+          id: string
+          inspected_by: string
+          inspector_lat: number | null
+          inspector_lng: number | null
+          location_status: string | null
+          notes: string | null
+          result: string | null
+          riders_boarded: number | null
+          riders_booked: number | null
+          riders_leg: string | null
+          route_id: string | null
+          started_at: string
+          status: string
+          submitted_at: string | null
+          updated_at: string
+          vehicle_id: string
+        }
+        Insert: {
+          bus_distance_m?: number | null
+          created_at?: string
+          driver_staff_id?: string | null
+          grounded?: boolean
+          headcount_observed?: number | null
+          id?: string
+          inspected_by: string
+          inspector_lat?: number | null
+          inspector_lng?: number | null
+          location_status?: string | null
+          notes?: string | null
+          result?: string | null
+          riders_boarded?: number | null
+          riders_booked?: number | null
+          riders_leg?: string | null
+          route_id?: string | null
+          started_at?: string
+          status?: string
+          submitted_at?: string | null
+          updated_at?: string
+          vehicle_id: string
+        }
+        Update: {
+          bus_distance_m?: number | null
+          created_at?: string
+          driver_staff_id?: string | null
+          grounded?: boolean
+          headcount_observed?: number | null
+          id?: string
+          inspected_by?: string
+          inspector_lat?: number | null
+          inspector_lng?: number | null
+          location_status?: string | null
+          notes?: string | null
+          result?: string | null
+          riders_boarded?: number | null
+          riders_booked?: number | null
+          riders_leg?: string | null
+          route_id?: string | null
+          started_at?: string
+          status?: string
+          submitted_at?: string | null
+          updated_at?: string
+          vehicle_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tms_inspection_inspected_by_fkey"
+            columns: ["inspected_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "tms_inspection_inspected_by_fkey"
+            columns: ["inspected_by"]
+            isOneToOne: false
+            referencedRelation: "mv_cluster_leaderboard_hods"
+            referencedColumns: ["hod_user_id"]
+          },
+          {
+            foreignKeyName: "tms_inspection_inspected_by_fkey"
+            columns: ["inspected_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tms_inspection_inspected_by_fkey"
+            columns: ["inspected_by"]
+            isOneToOne: false
+            referencedRelation: "users_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tms_inspection_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "tms_vehicle"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tms_inspection_checklist_item: {
+        Row: {
+          category: string
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_active: boolean
+          label: string
+          severity: string
+          sort_order: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          label: string
+          severity?: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          label?: string
+          severity?: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      tms_inspection_issue: {
+        Row: {
+          created_at: string
+          due_date: string | null
+          id: string
+          inspection_id: string
+          inspection_item_id: string | null
+          resolution_note: string | null
+          resolution_photo_paths: string[]
+          resolved_at: string | null
+          resolved_by: string | null
+          severity: string
+          status: string
+          title: string
+          updated_at: string
+          vehicle_id: string
+          verified_at: string | null
+          verified_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          inspection_id: string
+          inspection_item_id?: string | null
+          resolution_note?: string | null
+          resolution_photo_paths?: string[]
+          resolved_at?: string | null
+          resolved_by?: string | null
+          severity: string
+          status?: string
+          title: string
+          updated_at?: string
+          vehicle_id: string
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          inspection_id?: string
+          inspection_item_id?: string | null
+          resolution_note?: string | null
+          resolution_photo_paths?: string[]
+          resolved_at?: string | null
+          resolved_by?: string | null
+          severity?: string
+          status?: string
+          title?: string
+          updated_at?: string
+          vehicle_id?: string
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tms_inspection_issue_inspection_id_fkey"
+            columns: ["inspection_id"]
+            isOneToOne: false
+            referencedRelation: "tms_inspection"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tms_inspection_issue_inspection_item_id_fkey"
+            columns: ["inspection_item_id"]
+            isOneToOne: false
+            referencedRelation: "tms_inspection_item"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tms_inspection_issue_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "tms_vehicle"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tms_inspection_item: {
+        Row: {
+          category: string
+          checklist_item_id: string | null
+          id: string
+          inspection_id: string
+          label: string
+          note: string | null
+          photo_paths: string[]
+          result: string | null
+          severity: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          category: string
+          checklist_item_id?: string | null
+          id?: string
+          inspection_id: string
+          label: string
+          note?: string | null
+          photo_paths?: string[]
+          result?: string | null
+          severity: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+          checklist_item_id?: string | null
+          id?: string
+          inspection_id?: string
+          label?: string
+          note?: string | null
+          photo_paths?: string[]
+          result?: string | null
+          severity?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tms_inspection_item_checklist_item_id_fkey"
+            columns: ["checklist_item_id"]
+            isOneToOne: false
+            referencedRelation: "tms_inspection_checklist_item"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tms_inspection_item_inspection_id_fkey"
+            columns: ["inspection_id"]
+            isOneToOne: false
+            referencedRelation: "tms_inspection"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tms_inspection_learner_check: {
+        Row: {
+          boarded_today: boolean | null
+          booked_today: boolean | null
+          fees_ok: boolean | null
+          id: string
+          inspection_id: string
+          jkkn_id: string | null
+          learner_id: string | null
+          on_this_route: boolean | null
+          outcome: string
+          scanned_at: string
+        }
+        Insert: {
+          boarded_today?: boolean | null
+          booked_today?: boolean | null
+          fees_ok?: boolean | null
+          id?: string
+          inspection_id: string
+          jkkn_id?: string | null
+          learner_id?: string | null
+          on_this_route?: boolean | null
+          outcome: string
+          scanned_at?: string
+        }
+        Update: {
+          boarded_today?: boolean | null
+          booked_today?: boolean | null
+          fees_ok?: boolean | null
+          id?: string
+          inspection_id?: string
+          jkkn_id?: string | null
+          learner_id?: string | null
+          on_this_route?: boolean | null
+          outcome?: string
+          scanned_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tms_inspection_learner_check_inspection_id_fkey"
+            columns: ["inspection_id"]
+            isOneToOne: false
+            referencedRelation: "tms_inspection"
             referencedColumns: ["id"]
           },
         ]
@@ -200944,6 +204080,102 @@ export type Database = {
           source: string
         }[]
       }
+      fn_adoption_answers: {
+        Args: { p_feature_key: string; p_institution_id?: string }
+        Returns: Json
+      }
+      fn_adoption_ask_why: { Args: { p_feature_key: string }; Returns: Json }
+      fn_adoption_decide: {
+        Args: { p_option: string; p_proposal_id: string }
+        Returns: Json
+      }
+      fn_adoption_is_principal_of: {
+        Args: { p_institution_id: string }
+        Returns: boolean
+      }
+      fn_adoption_logins_daily: {
+        Args: { p_days?: number; p_institution_id?: string }
+        Returns: {
+          day: string
+          logins: number
+        }[]
+      }
+      fn_adoption_metrics: {
+        Args: { p_institution_id?: string; p_week_start?: string }
+        Returns: {
+          answers: Json
+          asked_count: number
+          core_action: string
+          ever_active: number
+          feature_key: string
+          intended_count: number
+          module: string
+          pct_ever: number
+          pct_weekly: number
+          role: string
+          shipped_at: string
+          source_pr: number
+          status: string
+          title: string
+          usage_bridged: boolean
+          usage_synced_at: string
+          usage_wired: boolean
+          week_start: string
+          weekly_active: number
+        }[]
+      }
+      fn_adoption_people: {
+        Args: { p_feature_key: string; p_institution_id?: string }
+        Returns: {
+          asked_at: string
+          email: string
+          ever_used: boolean
+          full_name: string
+          institution_id: string
+          last_day: string
+          role: string
+          total_count: number
+          user_id: string
+        }[]
+      }
+      fn_adoption_person_roles: {
+        Args: never
+        Returns: {
+          institution_id: string
+          is_super_admin: boolean
+          role: string
+          user_id: string
+        }[]
+      }
+      fn_adoption_propose: {
+        Args: {
+          p_feature_key: string
+          p_option: string
+          p_reasons?: Json
+          p_recommendation?: string
+        }
+        Returns: Json
+      }
+      fn_adoption_register: {
+        Args: {
+          p_core_action: string
+          p_event_feature?: string
+          p_event_module?: string
+          p_event_type?: string
+          p_feature_key: string
+          p_intended_roles?: string[]
+          p_module?: string
+          p_shipped_at?: string
+          p_source_pr?: number
+          p_title: string
+          p_usage_wired?: boolean
+        }
+        Returns: Json
+      }
+      fn_adoption_sync_usage_events: {
+        Args: { p_days?: number }
+        Returns: Json
+      }
       fn_advance_payout_batch: {
         Args: {
           p_actor: string
@@ -202723,10 +205955,16 @@ export type Database = {
         Args: { p_cluster_id: string }
         Returns: Json
       }
+      fn_bug_feedback_drop_gone_reporters: { Args: never; Returns: Json }
       fn_bug_feedback_prepare: {
         Args: { p_cluster_id: string; p_deploy_sha?: string; p_fix_pr?: string }
         Returns: Json
       }
+      fn_bug_feedback_release_queued: {
+        Args: { p_reporter_user_id: string }
+        Returns: number
+      }
+      fn_bug_feedback_snooze: { Args: { p_request_id: string }; Returns: Json }
       fn_bug_fix_outcome_record: {
         Args: { p_cluster_id: string }
         Returns: Json
@@ -202888,6 +206126,14 @@ export type Database = {
         Args: { p_user_id: string }
         Returns: boolean
       }
+      fn_can_be_tagged_on_event: {
+        Args: { p_event_id: string; p_user_id: string }
+        Returns: boolean
+      }
+      fn_can_be_tagged_on_reservation: {
+        Args: { p_reservation_id: string; p_user_id: string }
+        Returns: boolean
+      }
       fn_can_decide_receipt_cancellation: {
         Args: { p_request_id: string }
         Returns: boolean
@@ -202937,21 +206183,42 @@ export type Database = {
         Args: { p_booking_id: string }
         Returns: boolean
       }
-      fn_cancel_student_bill: {
+      fn_act_on_bill_cancellation: {
+        Args: { p_action: string; p_notes?: string; p_request_id: string }
+        Returns: { message: string; request_number: string; status: string }[]
+      }
+      fn_bill_cancel_eligibility: {
+        Args: { p_bill_ids: string[] }
+        Returns: {
+          bill_id: string
+          blocked_reason: string
+          eligible: boolean
+          pending_request_id: string
+          pending_request_number: string
+          receipt_numbers: string
+          receipted_amount: number
+        }[]
+      }
+      fn_can_decide_bill_cancellation: {
+        Args: { p_request_id: string }
+        Returns: boolean
+      }
+      fn_is_bill_cancel_approver: {
+        Args: { p_institution_id?: string }
+        Returns: boolean
+      }
+      fn_request_bill_cancellation: {
         Args: {
           p_attachments: Json
           p_bill_id: string
           p_reason: string
           p_reason_code: string
         }
-        Returns: {
-          amount_cancelled: number
-          bill_description: string
-          cancellation_id: string
-          cancelled_bill_id: string
-          institution_id: string
-          student_id: string
-        }[]
+        Returns: { request_id: string; request_number: string }[]
+      }
+      fn_withdraw_bill_cancellation: {
+        Args: { p_notes?: string; p_request_id: string }
+        Returns: undefined
       }
       fn_canonical_staff_name: { Args: { p_name: string }; Returns: string }
       fn_capgap_draft_tool: { Args: { p_id: string }; Returns: Json }
@@ -203569,6 +206836,71 @@ export type Database = {
           total_count: number
         }[]
       }
+      fn_cl_billing_audit_bill_class: {
+        Args: { p_category_name: string; p_fee_source: string; p_kind: string }
+        Returns: string
+      }
+      fn_cl_billing_audit_rows: {
+        Args: {
+          p_academic_year_id?: string
+          p_allocated_only?: boolean
+          p_block_id?: string
+          p_gender?: string
+          p_institution_ids?: string[]
+          p_program_id?: string
+          p_room_category_id?: string
+        }
+        Returns: {
+          out_band_fee: number
+          out_band_status: string
+          out_bed_number: string
+          out_bills: Json
+          out_block_id: string
+          out_block_name: string
+          out_category_mess_rate: number
+          out_category_room_rate: number
+          out_entitled_category_name: string
+          out_expected_mess_fee: number
+          out_expected_room_fee: number
+          out_expected_upgrade_fee: number
+          out_findings: string[]
+          out_full_name: string
+          out_gender: string
+          out_institution_id: string
+          out_institution_name: string
+          out_is_allocated: boolean
+          out_learner_id: string
+          out_lifecycle_status: string
+          out_mess_billed: number
+          out_mess_category_name: string
+          out_mess_due_date: string
+          out_mess_paid: number
+          out_mess_status: string
+          out_overdue_amount: number
+          out_overdue_count: number
+          out_program_name: string
+          out_register_number: string
+          out_roll_number: string
+          out_room_billed: number
+          out_room_due_date: string
+          out_room_number: string
+          out_room_paid: number
+          out_room_status: string
+          out_seated_category_name: string
+          out_semester_name: string
+          out_tagged_category_id: string
+          out_tagged_category_name: string
+          out_target_academic_year_name: string
+          out_total_billed: number
+          out_total_outstanding: number
+          out_total_paid: number
+          out_upgrade_billed: number
+          out_upgrade_due_date: string
+          out_upgrade_paid: number
+          out_upgrade_status: string
+          out_year_of_study: number
+        }[]
+      }
       fn_cl_category_room_sources: {
         Args: { p_category_id: string }
         Returns: {
@@ -203669,6 +207001,56 @@ export type Database = {
           p_allocation_id: string
           p_vacate_reason: Database["public"]["Enums"]["vacate_reason_enum"]
         }
+        Returns: Json
+      }
+      fn_cl_vacate_bill_status: {
+        Args: { p_request_id: string }
+        Returns: Json
+      }
+      fn_cl_vacate_cancel: {
+        Args: { p_reason: string; p_request_id: string }
+        Returns: Database["public"]["Tables"]["hostel_vacate_requests"]["Row"]
+      }
+      fn_cl_vacate_create: {
+        Args: {
+          p_allocation_id: string
+          p_medical_notes?: string
+          p_reason_text: string
+          p_reason_type: Database["public"]["Enums"]["vacate_reason_enum"]
+          p_requested_date: string
+        }
+        Returns: Database["public"]["Tables"]["hostel_vacate_requests"]["Row"]
+      }
+      fn_cl_vacate_reject: {
+        Args: { p_reason: string; p_request_id: string }
+        Returns: Database["public"]["Tables"]["hostel_vacate_requests"]["Row"]
+      }
+      fn_cl_vacate_scope_ok: {
+        Args: { p_allocation_id: string; p_institution_id: string }
+        Returns: boolean
+      }
+      fn_cl_vacate_set_item: {
+        Args: { p_cleared: boolean; p_item_id: string; p_notes?: string }
+        Returns: Database["public"]["Tables"]["hostel_clearance_items"]["Row"]
+      }
+      fn_cl_vacate_submit: {
+        Args: { p_request_id: string }
+        Returns: Database["public"]["Tables"]["hostel_vacate_requests"]["Row"]
+      }
+      fn_cl_vacate_advance: {
+        Args: { p_remarks?: string; p_request_id: string }
+        Returns: Json
+      }
+      fn_cl_vacate_complete_after_fine: {
+        Args: { p_request_id: string }
+        Returns: Json
+      }
+      fn_cl_vacate_recheck_bills: {
+        Args: { p_request_id: string }
+        Returns: Json
+      }
+      fn_cl_vacate_set_damages: {
+        Args: { p_lines: Json; p_no_damage: boolean; p_request_id: string }
         Returns: Json
       }
       fn_clarification_ask: {
@@ -203842,6 +207224,32 @@ export type Database = {
         Args: { p_date: string; p_institution_id: string; p_lookback?: number }
         Returns: number
       }
+      fn_community_cluster_totals: {
+        Args: never
+        Returns: {
+          avg_reach_joint: number
+          avg_reach_solo: number
+          initiatives: number
+          joint_initiatives: number
+          solo_initiatives: number
+          total_beneficiaries: number
+          total_hours: number
+        }[]
+      }
+      fn_community_college_totals: {
+        Args: never
+        Returns: {
+          beneficiaries_count: number
+          engagement_date: string
+          engagement_id: string
+          hours_contributed: number
+          institution_id: string
+          institution_name: string
+          is_shared: boolean
+          shared_with: number
+          title: string
+        }[]
+      }
       fn_compute_cohort_experiment: {
         Args: { p_cohort_id: string }
         Returns: Json
@@ -203969,6 +207377,17 @@ export type Database = {
         Args: { p_institution_id?: string; p_year?: number }
         Returns: Json
       }
+      fn_consultant_first_year_fee_collection: {
+        Args: { p_academic_year?: number; p_consultant_id: string }
+        Returns: {
+          balance_amount: number
+          fee_amount: number
+          institution_id: string
+          institution_name: string
+          learner_count: number
+          paid_amount: number
+        }[]
+      }
       fn_consultant_payout_readiness: {
         Args: { p_year: number }
         Returns: Json
@@ -203976,10 +207395,12 @@ export type Database = {
       fn_consultant_rate_card_earnings: {
         Args: { p_academic_year?: number; p_consultant_id: string }
         Returns: {
+          advance_applied: number
           balance_amount: number
           excess_amount: number
           group_id: string
           group_name: string
+          is_override: boolean
           paid_amount: number
           priority: number
           qualifying_count: number
@@ -204098,6 +207519,10 @@ export type Database = {
         Args: { p_staff_id: string }
         Returns: number
       }
+      fn_course_application_stats: {
+        Args: { p_course_event_id: string }
+        Returns: Json
+      }
       fn_course_approve_application: {
         Args: {
           p_application_id: string
@@ -204122,6 +207547,10 @@ export type Database = {
       }
       fn_course_reject_application: {
         Args: { p_application_id: string; p_decision_note?: string }
+        Returns: Json
+      }
+      fn_course_resolve_applicant: {
+        Args: { p_email?: string; p_phone?: string }
         Returns: Json
       }
       fn_cr_notify: {
@@ -204772,6 +208201,8 @@ export type Database = {
           p_employment_category_id: string
           p_institution_id: string
           p_on?: string
+          p_role_key?: string
+          p_staff_id?: string
           p_staff_scope: string
         }
         Returns: number
@@ -204795,6 +208226,7 @@ export type Database = {
         Returns: Json
       }
       fn_event_delete_blockers: { Args: { p_event_id: string }; Returns: Json }
+      fn_event_exists: { Args: { p_event_id: string }; Returns: boolean }
       fn_event_feedback_form_open: {
         Args: { p_form_id: string }
         Returns: boolean
@@ -204852,6 +208284,7 @@ export type Database = {
       fn_facility_teaching_naac_snapshot_refresh: { Args: never; Returns: Json }
       fn_faculty_metrics: { Args: never; Returns: Json }
       fn_fb_insights_summary: { Args: { p_days?: number }; Returns: Json }
+      fn_feature_used: { Args: { p_feature_key: string }; Returns: boolean }
       fn_flush_queued_leads: {
         Args: never
         Returns: {
@@ -205674,6 +209107,10 @@ export type Database = {
         }
       }
       fn_hr_delete_work_pattern: { Args: { p_id: string }; Returns: Json }
+      fn_hr_eligibility_step_approver_user_ids: {
+        Args: { p_eligibility_id: string }
+        Returns: string[]
+      }
       fn_hr_institution_included: {
         Args: { p_institution_id: string }
         Returns: boolean
@@ -205755,6 +209192,10 @@ export type Database = {
         Returns: Json
       }
       fn_hr_leave_department_ids: { Args: never; Returns: string[] }
+      fn_hr_leave_eligibility_ok: {
+        Args: { p_employee_id: string; p_leave_type_id: string }
+        Returns: boolean
+      }
       fn_hr_leave_final_step_index: { Args: { p_chain: Json }; Returns: number }
       fn_hr_leave_monthly_ledger: {
         Args: {
@@ -205793,6 +209234,22 @@ export type Database = {
           p_staff_id: string
         }
         Returns: number
+      }
+      fn_hr_leave_pick_flow: {
+        Args: {
+          p_employee_id: string
+          p_hr_org_id: string
+          p_leave_type_id: string
+        }
+        Returns: string
+      }
+      fn_hr_leave_pick_flow_for_group: {
+        Args: {
+          p_hr_org_id: string
+          p_leave_type_id: string
+          p_staff_group: string
+        }
+        Returns: string
       }
       fn_hr_leave_resync_pending_chains: {
         Args: { p_flow_id: string }
@@ -205845,6 +209302,7 @@ export type Database = {
           hr_organization_id: string
           institution_id: string
           organization_name: string
+          is_payroll_entity: boolean
         }[]
       }
       fn_hr_refresh_naac_evidence: { Args: never; Returns: Json }
@@ -205932,6 +209390,7 @@ export type Database = {
         }
         Returns: Json
       }
+      fn_hr_staff_group: { Args: { p_employee_id: string }; Returns: string }
       fn_hr_staff_institution_included: {
         Args: { p_staff_id: string }
         Returns: boolean
@@ -207454,6 +210913,7 @@ export type Database = {
           source: string
         }[]
       }
+      fn_is_any_eligibility_approver: { Args: never; Returns: boolean }
       fn_is_any_leave_approver: { Args: never; Returns: boolean }
       fn_is_assigned_administrator: { Args: never; Returns: boolean }
       fn_is_authority_role_key: {
@@ -207472,9 +210932,14 @@ export type Database = {
         Args: { p_cohort_id: string }
         Returns: boolean
       }
+      fn_is_configured_eligibility_approver: { Args: never; Returns: boolean }
       fn_is_configured_leave_approver: { Args: never; Returns: boolean }
       fn_is_counselor_on_duty: {
         Args: { p_check_date: string; p_counselor_id: string }
+        Returns: boolean
+      }
+      fn_is_designated_eligibility_approver: {
+        Args: { p_eligibility_id: string }
         Returns: boolean
       }
       fn_is_designated_leave_approver: {
@@ -207508,10 +210973,6 @@ export type Database = {
       fn_is_reservation_comment_admin: { Args: never; Returns: boolean }
       fn_is_reservation_comment_mention: {
         Args: { p_reservation_id: string }
-        Returns: boolean
-      }
-      fn_is_resource_reservation_mention: {
-        Args: { p_resource_id: string }
         Returns: boolean
       }
       fn_issue_jkkn_id: {
@@ -208072,9 +211533,30 @@ export type Database = {
         Args: { p_proposal_id: string }
         Returns: boolean
       }
+      fn_loop_bar_decide: {
+        Args: {
+          p_bar_override?: string
+          p_decision: string
+          p_note?: string
+          p_proposal_id: string
+        }
+        Returns: Json
+      }
+      fn_loop_bar_proposals_generate: { Args: never; Returns: Json }
       fn_loop_owner_for_institution: {
         Args: { p_institution_id: string; p_loop_key: string }
         Returns: string
+      }
+      fn_loop_record_measurement: {
+        Args: {
+          p_bar_value?: number
+          p_gap?: string
+          p_loop_key: string
+          p_met?: boolean
+          p_run_id?: string
+          p_value?: number
+        }
+        Returns: Json
       }
       fn_loop_set_owner: {
         Args: {
@@ -208814,6 +212296,10 @@ export type Database = {
       }
       fn_my_sf100_goal: { Args: { p_enrollment_id: string }; Returns: Json }
       fn_my_staff_ids: { Args: never; Returns: string[] }
+      fn_my_staff_upload_context: {
+        Args: { p_staff_id: string }
+        Returns: { staff_code: string; institution_name: string }[]
+      }
       fn_my_upgrade_mess_categories: {
         Args: never
         Returns: {
@@ -208937,6 +212423,10 @@ export type Database = {
         Returns: string
       }
       fn_norm_biometric_code: { Args: { p_code: string }; Returns: string }
+      fn_notification_answer: {
+        Args: { p_answer: string; p_notification_id: string }
+        Returns: Json
+      }
       fn_notification_compliance_rollup: { Args: never; Returns: Json }
       fn_notification_is_for_user: {
         Args: { p_targeting: Json; p_user_id: string }
@@ -208961,16 +212451,27 @@ export type Database = {
         Returns: {
           achieved_pct: number
           amount_to_threshold: number
+          app_billed: number
+          app_bills: number
+          app_paid: number
           basis_balance: number
           basis_billed: number
           basis_paid: number
+          blocked_reason: string
+          gate_bills: number
+          gate_in_program: boolean
+          gate_settled: number
           has_basis_due: boolean
           instalments_settled: number
           instalments_total: number
           learner_id: string
+          lifecycle_status: string
           meets_threshold: boolean
           next_due_amount: number
           next_due_date: string
+          pct_billed_to_date: number
+          rule_lines: Json
+          rule_to_admit: number
           target_code: string
           target_label: string
           threshold_basis: string
@@ -208978,6 +212479,9 @@ export type Database = {
           total_balance: number
           total_billed: number
           total_paid: number
+          uni_billed: number
+          uni_bills: number
+          uni_paid: number
         }[]
       }
       fn_onemark_apply_vault: {
@@ -210013,6 +213517,19 @@ export type Database = {
         Args: { p_seed: Json }
         Returns: Json
       }
+      fn_review_staff_photo_submission: {
+        Args: {
+          p_approve: boolean
+          p_note?: string
+          p_public_url?: string
+          p_submission_id: string
+        }
+        Returns: {
+          new_status: string
+          staff_id: string
+          submission_id: string
+        }[]
+      }
       fn_role_user_counts: {
         Args: never
         Returns: {
@@ -210115,6 +213632,8 @@ export type Database = {
           p_effective_from: string
           p_employment_category_id: string
           p_institution_id: string
+          p_role_key?: string
+          p_staff_id?: string
           p_staff_scope: string
         }
         Returns: number
@@ -211475,6 +214994,10 @@ export type Database = {
         Args: { p_question_id: string }
         Returns: Json
       }
+      fn_session_question_unanswered_counts: {
+        Args: { p_host_ids: string[]; p_host_type: string }
+        Returns: Json
+      }
       fn_set_cal_api_key: {
         Args: {
           p_api_key: string
@@ -211619,6 +215142,8 @@ export type Database = {
           p_gender: string
           p_institution_id: string
           p_is_teaching: boolean
+          p_role_keys?: string[]
+          p_staff_id?: string
           p_work_pattern_id?: string
         }
         Returns: {
@@ -211639,9 +215164,11 @@ export type Database = {
           is_working_day: boolean
           notes: string | null
           required_minutes: number | null
+          role_key: string | null
           second_half_end: string | null
           second_half_start: string | null
           second_saturday_holiday: boolean
+          staff_id: string | null
           staff_scope: string
           updated_at: string
           updated_by: string | null
@@ -212132,6 +215659,7 @@ export type Database = {
           staff_id: string
         }[]
       }
+      fn_staff_role_keys: { Args: { p_staff_id: string }; Returns: string[] }
       fn_staff_teaching_institutions: {
         Args: { p_staff_id: string }
         Returns: string[]
@@ -212169,6 +215697,10 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      fn_submit_my_staff_photo: {
+        Args: { p_storage_path: string }
+        Returns: string
       }
       fn_submit_referral: {
         Args: {
@@ -213234,6 +216766,132 @@ export type Database = {
         }
         Returns: Json
       }
+      get_billing_audit_fee_structure_match: {
+        Args: {
+          p_accommodation_type_ids?: string[]
+          p_admission_year?: number
+          p_category_ids?: string[]
+          p_degree_id?: string
+          p_department_id?: string
+          p_gender?: string
+          p_include_no_structure_institutions?: boolean
+          p_include_ok?: boolean
+          p_institution_ids?: string[]
+          p_issue?: string
+          p_lifecycle_statuses?: string[]
+          p_page?: number
+          p_page_size?: number
+          p_program_id?: string
+          p_schedule_mode?: string
+          p_search?: string
+          p_sort_by?: string
+          p_sort_dir?: string
+          p_structure_search?: string
+        }
+        Returns: {
+          out_admission_year: number
+          out_bill_count: number
+          out_bill_instalments: number
+          out_billed_amount: number
+          out_category_id: string
+          out_category_kind: string
+          out_category_name: string
+          out_expected_amount: number
+          out_expected_instalments: number
+          out_flag_amount_mismatch: boolean
+          out_flag_not_linked: boolean
+          out_flag_other_structure: boolean
+          out_flag_split_missing: boolean
+          out_full_name: string
+          out_institution_id: string
+          out_institution_name: string
+          out_issue: string
+          out_learner_id: string
+          out_lifecycle_status: string
+          out_no_structure_reason: string
+          out_paid_amount: number
+          out_program_name: string
+          out_roll_number: string
+          out_schedule_mode: string
+          out_structure_name: string
+          out_total_count: number
+        }[]
+      }
+      get_billing_audit_fee_structure_match_summary: {
+        Args: {
+          p_accommodation_type_ids?: string[]
+          p_admission_year?: number
+          p_category_ids?: string[]
+          p_degree_id?: string
+          p_department_id?: string
+          p_gender?: string
+          p_institution_ids?: string[]
+          p_lifecycle_statuses?: string[]
+          p_program_id?: string
+          p_schedule_mode?: string
+          p_structure_search?: string
+        }
+        Returns: Json
+      }
+      get_billing_audit_fee_structure_learners: {
+        Args: {
+          p_accommodation_type_ids?: string[]
+          p_admission_year?: number
+          p_category_ids?: string[]
+          p_degree_id?: string
+          p_department_id?: string
+          p_gender?: string
+          p_include_no_structure_institutions?: boolean
+          p_include_ok?: boolean
+          p_institution_ids?: string[]
+          p_issue?: string
+          p_lifecycle_statuses?: string[]
+          p_page?: number
+          p_page_size?: number
+          p_program_id?: string
+          p_schedule_mode?: string
+          p_search?: string
+          p_sort_by?: string
+          p_sort_dir?: string
+          p_structure_search?: string
+        }
+        Returns: {
+          out_admission_year: number
+          out_amount_mismatch: number
+          out_billed_total: number
+          out_expected_total: number
+          out_full_name: string
+          out_institution_id: string
+          out_institution_name: string
+          out_items: number
+          out_learner_id: string
+          out_lifecycle_status: string
+          out_missing_amount: number
+          out_missing_bill: number
+          out_no_structure: boolean
+          out_no_structure_reason: string
+          out_not_linked: number
+          out_ok: number
+          out_other_module: number
+          out_other_structure: number
+          out_paid_total: number
+          out_problems: number
+          out_program_name: string
+          out_roll_number: string
+          out_split_missing: number
+          out_structure_name: string
+          out_total_count: number
+          out_worst_issue: string
+        }[]
+      }
+      get_billing_audit_fee_structure_learner_detail: {
+        Args: { p_learner_id: string }
+        Returns: Json
+      }
+      fn_billing_generate_missing_structure_bills: {
+        Args: { p_dry_run?: boolean; p_learner_ids: string[] }
+        Returns: Json
+      }
       get_billing_audit_duplicate_years: {
         Args: {
           p_accommodation_type_ids?: string[]
@@ -213817,6 +217475,7 @@ export type Database = {
           user_id: string
         }[]
       }
+      get_blocking_items: { Args: { p_user_id: string }; Returns: Json }
       get_bug_leaderboard: {
         Args: never
         Returns: {
@@ -213882,6 +217541,86 @@ export type Database = {
       }
       get_campaigns_overview_stats: {
         Args: { p_end_date?: string; p_start_date?: string }
+        Returns: Json
+      }
+      get_cl_billing_audit_learners: {
+        Args: {
+          p_academic_year_id?: string
+          p_allocated_only?: boolean
+          p_block_id?: string
+          p_finding?: string
+          p_gender?: string
+          p_institution_ids?: string[]
+          p_page?: number
+          p_page_size?: number
+          p_program_id?: string
+          p_room_category_id?: string
+          p_search?: string
+          p_sort_by?: string
+          p_sort_dir?: string
+        }
+        Returns: {
+          out_band_fee: number
+          out_band_status: string
+          out_bed_number: string
+          out_bills: Json
+          out_block_id: string
+          out_block_name: string
+          out_category_mess_rate: number
+          out_category_room_rate: number
+          out_entitled_category_name: string
+          out_expected_mess_fee: number
+          out_expected_room_fee: number
+          out_expected_upgrade_fee: number
+          out_findings: string[]
+          out_full_name: string
+          out_gender: string
+          out_institution_id: string
+          out_institution_name: string
+          out_is_allocated: boolean
+          out_learner_id: string
+          out_lifecycle_status: string
+          out_mess_billed: number
+          out_mess_category_name: string
+          out_mess_due_date: string
+          out_mess_paid: number
+          out_mess_status: string
+          out_overdue_amount: number
+          out_overdue_count: number
+          out_program_name: string
+          out_register_number: string
+          out_roll_number: string
+          out_room_billed: number
+          out_room_due_date: string
+          out_room_number: string
+          out_room_paid: number
+          out_room_status: string
+          out_seated_category_name: string
+          out_semester_name: string
+          out_tagged_category_id: string
+          out_tagged_category_name: string
+          out_target_academic_year_name: string
+          out_total_billed: number
+          out_total_count: number
+          out_total_outstanding: number
+          out_total_paid: number
+          out_upgrade_billed: number
+          out_upgrade_due_date: string
+          out_upgrade_paid: number
+          out_upgrade_status: string
+          out_year_of_study: number
+        }[]
+      }
+      get_cl_billing_audit_summary: {
+        Args: {
+          p_academic_year_id?: string
+          p_allocated_only?: boolean
+          p_block_id?: string
+          p_gender?: string
+          p_institution_ids?: string[]
+          p_program_id?: string
+          p_room_category_id?: string
+        }
         Returns: Json
       }
       get_correct_faculty_by_course: {
@@ -214922,8 +218661,12 @@ export type Database = {
           approved_comp_off: number
           approved_leave: number
           approved_short_time_off: number
+          days_covered: number
+          days_in_month: number
+          first_covered_date: string
           institution_id: string
           institution_name: string
+          last_covered_date: string
           locked_at: string
           pending_comp_off: number
           pending_leave: number
@@ -214950,6 +218693,7 @@ export type Database = {
         Returns: number
       }
       hr_can_approve_leave: { Args: never; Returns: boolean }
+      hr_can_decide_eligibility: { Args: never; Returns: boolean }
       hr_comp_off_balance: { Args: { p_employee_id?: string }; Returns: Json }
       hr_comp_off_claims_biometric: {
         Args: { p_claim_ids: string[] }
@@ -215418,6 +219162,32 @@ export type Database = {
         }
         Returns: Json
       }
+      ims_pos_device_get_credentials: {
+        Args: { p_device_id: string; p_master_secret: string }
+        Returns: {
+          account_label: string
+          app_key: string
+          device_kind: string
+          device_label: string
+          device_serial: string
+          environment: string
+          id: string
+          institution_id: string
+          is_active: boolean
+          store_id: string
+          username: string
+        }[]
+      }
+      ims_pos_device_set_credentials: {
+        Args: {
+          p_actor?: string
+          p_app_key: string
+          p_device_id: string
+          p_master_secret: string
+          p_username: string
+        }
+        Returns: undefined
+      }
       ims_receive_into_destination: {
         Args: { p_shipment_id: string }
         Returns: undefined
@@ -215497,6 +219267,10 @@ export type Database = {
         Args: { d: string; inst_id: string }
         Returns: boolean
       }
+      is_cdc_drive_coordinator: {
+        Args: { p_drive_id: string }
+        Returns: boolean
+      }
       is_cdc_head_or_super: { Args: never; Returns: boolean }
       is_cdc_staff: { Args: never; Returns: boolean }
       is_date_blocked_by_leave: {
@@ -215545,6 +219319,12 @@ export type Database = {
       issue_gate_pass_for_service_request: {
         Args: { p_request_id: string }
         Returns: string
+      }
+      jkkn_id: {
+        Args: { "": Database["public"]["Tables"]["course_applications"]["Row"] }
+        Returns: {
+          error: true
+        } & "the function public.jkkn_id with parameter or with a single unnamed json/jsonb parameter, but no matches were found in the schema cache"
       }
       link_existing_profiles_to_approved_learners: {
         Args: never
@@ -215987,9 +219767,26 @@ export type Database = {
         Returns: boolean
       }
       sync_user_role_enum: { Args: never; Returns: undefined }
-      tms_approve_transport_vacate: {
-        Args: { p_approver: string; p_request_id: string }
+      tms_apply_fee_concession: {
+        Args: {
+          p_actor: string
+          p_person_id: string
+          p_reason: string
+          p_row_targets: Json
+          p_rule_id: string
+          p_terms: Json
+        }
         Returns: Json
+      }
+      tms_attendance_coverage: {
+        Args: { p_direction?: string; p_from: string; p_to: string }
+        Returns: {
+          days: Json
+          roster: number
+          route_id: string
+          route_name: string
+          route_number: string
+        }[]
       }
       tms_auto_close_attendance: {
         Args: { p_now?: string }
@@ -216005,6 +219802,10 @@ export type Database = {
         Returns: boolean
       }
       tms_expire_stale_trips: { Args: never; Returns: number }
+      tms_fee_concession_snapshot: {
+        Args: { p_person_id: string; p_year_id: string }
+        Returns: Json
+      }
       tms_mark_attendance: {
         Args: {
           p_actor: string
@@ -216020,6 +219821,106 @@ export type Database = {
           existing_status: string
           learner_id: string
           outcome: string
+        }[]
+      }
+      tms_report_institution_summary: {
+        Args: {
+          p_department_ids?: string[]
+          p_direction?: string
+          p_from: string
+          p_group?: string
+          p_institution_ids?: string[]
+          p_route_ids?: string[]
+          p_to: string
+        }
+        Returns: {
+          absent_marks: number
+          amount_owed: number
+          attendance_pct: number
+          boarded: number
+          boarded_total: number
+          booked: number
+          fees_no_bill: number
+          fees_paid: number
+          fees_unpaid: number
+          group_id: string
+          group_name: string
+          learners: number
+          no_show: number
+          parent_name: string
+          unmarked: number
+          without_booking: number
+        }[]
+      }
+      tms_report_learner_rows: {
+        Args: {
+          p_attendance?: string
+          p_booked?: string
+          p_department_ids?: string[]
+          p_direction?: string
+          p_fee?: string
+          p_from: string
+          p_institution_ids?: string[]
+          p_limit?: number
+          p_offset?: number
+          p_route_ids?: string[]
+          p_to: string
+        }
+        Returns: {
+          amount_owed: number
+          attendance: string
+          boarded_route_number: string
+          booked: boolean
+          booked_route_number: string
+          day: string
+          department_name: string
+          fee_state: string
+          institution_name: string
+          learner_id: string
+          learner_name: string
+          marked_at: string
+          marked_by_name: string
+          method: string
+          mobile: string
+          program_name: string
+          roll_number: string
+          route_name: string
+          route_number: string
+          stop_name: string
+          total_rows: number
+          usual_route_number: string
+          without_booking: boolean
+          wrong_bus: boolean
+        }[]
+      }
+      tms_report_route_summary: {
+        Args: {
+          p_department_ids?: string[]
+          p_direction?: string
+          p_from: string
+          p_institution_ids?: string[]
+          p_route_ids?: string[]
+          p_to: string
+        }
+        Returns: {
+          absent_marks: number
+          amount_owed: number
+          attendance_pct: number
+          auto_absent: number
+          boarded: number
+          boarded_total: number
+          booked: number
+          fees_no_bill: number
+          fees_paid: number
+          fees_unpaid: number
+          learners: number
+          no_show: number
+          route_id: string
+          route_name: string
+          route_number: string
+          service_days: number
+          unmarked: number
+          without_booking: number
         }[]
       }
       tms_request_auto_bill_run: {
@@ -217396,6 +221297,10 @@ export type Database = {
         | "pending_warden"
         | "pending_chief"
         | "pending_dues"
+        | "pending_principal"
+        | "pending_mess"
+        | "pending_cao"
+        | "pending_fine"
         | "approved"
         | "completed"
         | "rejected"
@@ -218957,6 +222862,10 @@ export const Constants = {
         "pending_warden",
         "pending_chief",
         "pending_dues",
+        "pending_principal",
+        "pending_mess",
+        "pending_cao",
+        "pending_fine",
         "approved",
         "completed",
         "rejected",

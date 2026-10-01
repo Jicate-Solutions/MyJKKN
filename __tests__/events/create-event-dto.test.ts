@@ -20,7 +20,10 @@ import {
   emptyCategoryDraft,
   emptyChiefGuestDraft,
   emptyEventCreateForm,
+  FORM_TAB_ORDER,
+  nextFormTab,
   numOrUndef,
+  prevFormTab,
   orUndef,
   resolveVisibility,
   toIso,
@@ -68,7 +71,8 @@ describe('helpers', () => {
 
   it('toIso reads datetime-local as LOCAL wall time, not UTC', () => {
     const iso = toIso('2026-01-05T09:00');
-    expect(iso).toBe(new Date('2026-01-05T09:00').toISOString());
+    // Read as IST (+05:30) regardless of the machine's zone: 09:00 IST = 03:30Z.
+    expect(iso).toBe('2026-01-05T03:30:00.000Z');
     // The whole point: the raw string is NOT passed through, or Postgres would
     // read it as naive and shift it by the timezone offset.
     expect(iso).not.toBe('2026-01-05T09:00');
@@ -138,8 +142,13 @@ describe('buildCreateEventDto — the fields the wizard used to drop', () => {
     );
     expect(dto.start_date).toBe('2026-02-01T03:30:00.000Z');
     expect(dto.end_date).toBe('2026-02-01T11:30:00.000Z');
-    expect(dto.registration_open_date).toBe(new Date('2026-01-01T09:00').toISOString());
-    expect(dto.registration_close_date).toBe(new Date('2026-01-20T17:00').toISOString());
+    // The wizard reads what the organiser typed as India time, whatever clock the
+    // server runs on (the fix in a9d4eaf88f). So 09:00 typed is 03:30 UTC. These
+    // are literals on purpose: the old expectation, new Date('…T09:00'), used the
+    // clock of the machine running the test — right on a Mac in India, 5.5 hours
+    // wrong on the UTC test runner, which held every open PR red on this gate.
+    expect(dto.registration_open_date).toBe('2026-01-01T03:30:00.000Z');
+    expect(dto.registration_close_date).toBe('2026-01-20T11:30:00.000Z');
     expect(dto.registration_open_date).not.toBe(dto.start_date);
   });
 });
@@ -194,6 +203,41 @@ describe('buildCreateEventDto — config', () => {
     expect(buildWith({ entry_fee: '' }).config).not.toHaveProperty('fee');
     // 0 is a real answer ("free"), not an absent one.
     expect(buildWith({ entry_fee: '0' }).config).toMatchObject({ fee: 0 });
+  });
+});
+
+describe('co-host institutions', () => {
+  it('writes every co-host with its name alongside the primary host', () => {
+    const dto = buildWith({
+      co_hosts: [
+        { id: 'inst-2', name: 'JKKN College of Pharmacy' },
+        { id: 'inst-3', name: 'JKKN Dental College' },
+      ],
+    });
+    expect(dto.institution_id).toBe('inst-1');
+    expect(dto.config).toMatchObject({
+      co_hosts: [
+        { id: 'inst-2', name: 'JKKN College of Pharmacy' },
+        { id: 'inst-3', name: 'JKKN Dental College' },
+      ],
+    });
+  });
+
+  it('drops the primary host if it was also ticked as a co-host', () => {
+    const dto = buildWith({
+      co_hosts: [
+        { id: 'inst-1', name: 'Primary' },
+        { id: 'inst-2', name: 'Other' },
+      ],
+    });
+    expect(dto.config?.co_hosts).toEqual([{ id: 'inst-2', name: 'Other' }]);
+  });
+
+  it('omits the key when there are no co-hosts', () => {
+    expect(buildWith({ co_hosts: [] }).config).not.toHaveProperty('co_hosts');
+    expect(
+      buildWith({ co_hosts: [{ id: 'inst-1', name: 'Primary' }] }).config,
+    ).not.toHaveProperty('co_hosts');
   });
 });
 
@@ -405,5 +449,28 @@ describe('validateEventForm', () => {
       formWith({ categories: [{ ...emptyCategoryDraft(), name: 'Junior', min_age: '18', max_age: '15' }] }),
     );
     expect(errors.categories).toBeTruthy();
+  });
+});
+
+describe('detail-tab walk (Save & Next)', () => {
+  it('walks Basics → … → Evidence and ends on Evidence', () => {
+    expect(FORM_TAB_ORDER).toEqual([
+      'basics',
+      'schedule',
+      'venue',
+      'people',
+      'registration',
+      'categories',
+      'evidence',
+    ]);
+    expect(nextFormTab('basics')).toBe('schedule');
+    expect(nextFormTab('categories')).toBe('evidence');
+    expect(nextFormTab('evidence')).toBeNull();
+  });
+
+  it('Back walks the tabs in reverse and leaves the step from Basics', () => {
+    expect(prevFormTab('evidence')).toBe('categories');
+    expect(prevFormTab('schedule')).toBe('basics');
+    expect(prevFormTab('basics')).toBeNull();
   });
 });

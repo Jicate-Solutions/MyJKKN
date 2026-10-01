@@ -22,6 +22,7 @@ export async function seedTransportServiceType(userId: string) {
     .from('service_types')
     .select('*, fields:service_type_fields(*), approval_steps:service_request_approval_steps(*)')
     .eq('slug', 'transport-request')
+    .eq('approval_steps.is_active', true)
     .maybeSingle();
 
   if (existing) {
@@ -113,6 +114,7 @@ export async function seedTransportServiceType(userId: string) {
     .from('service_types')
     .select('*, fields:service_type_fields(*), approval_steps:service_request_approval_steps(*)')
     .eq('id', serviceType.id)
+    .eq('approval_steps.is_active', true)
     .single();
 
   return result || serviceType;

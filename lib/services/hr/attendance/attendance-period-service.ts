@@ -25,6 +25,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getErrorMessage } from '@/lib/utils';
+import { recordFeatureUse } from '@/lib/usage/record';
 
 /** One institution's state for a month, as the console lists it. */
 export interface AttendancePeriodConsoleRow {
@@ -66,6 +67,24 @@ export interface AttendancePeriodConsoleRow {
   approved_comp_off: number;
   /** Days the evaluator could not judge — worth clearing before closing. */
   unprocessed_days: number;
+  /**
+   * HOW FAR THROUGH THE MONTH THE IMPORT REACHED. Distinct dates carrying any
+   * record, against the calendar length of the month.
+   *
+   * The biometric report is pulled fortnightly, so a month sits half imported
+   * for two weeks at a time and nothing here used to say so. It matters because
+   * the Salary Register computes
+   *
+   *     unpaid = business_working_days - paid_days
+   *
+   * against the FULL month — the basis does not shrink with the import. Closing
+   * a month with 15 of 30 days imported deducts roughly half a month's pay from
+   * everyone who worked it.
+   */
+  days_covered: number;
+  days_in_month: number;
+  first_covered_date: string | null;
+  last_covered_date: string | null;
 }
 
 /** The frozen day counts for one staff member. */
@@ -171,6 +190,12 @@ export class AttendancePeriodService {
       approved_short_time_off: num(r.approved_short_time_off),
       approved_comp_off: num(r.approved_comp_off),
       unprocessed_days: num(r.unprocessed_days),
+      days_covered: num(r.days_covered),
+      days_in_month: num(r.days_in_month),
+      // Dates, not counts — null when the month holds no records at all, which
+      // num() would flatten to 0 and print as a date.
+      first_covered_date: (r.first_covered_date as string | null) ?? null,
+      last_covered_date: (r.last_covered_date as string | null) ?? null,
     })) as AttendancePeriodConsoleRow[];
   }
 
@@ -202,6 +227,17 @@ export class AttendancePeriodService {
     });
 
     if (error) throw new Error(getErrorMessage(error));
+
+    // Adoption loop: HR froze this institution-month. Placed AFTER the RPC has
+    // already returned, so it cannot change what the close does — it only
+    // records that a person managed to do it. Once per college per month by
+    // design, so a low count is the correct count.
+    //
+    // The key is spelled out rather than taken from FEATURE_KEYS so this PR
+    // shares no line with the seven-key batch (#3966) and the two can land in
+    // either order. lib/services/admission/consultant-service.ts does the same.
+    await recordFeatureUse(supabase, 'hr.attendance_month_close');
+
     return data as AttendancePeriod;
   }
 

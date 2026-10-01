@@ -49,6 +49,7 @@ import {
   STO_LIMIT_MODE_LABELS,
   STO_LIMIT_PERIOD_LABELS,
   type HRLeaveType,
+  type LeaveApprovalFlow,
 } from '@/types/hr-leave-types';
 
 /** Renders '—' for null/undefined/'' so an empty column never looks like a bug. */
@@ -81,6 +82,130 @@ function formatDate(value: string | null): string | null {
   if (!value) return null;
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? value : format(d, 'dd MMM yyyy');
+}
+
+
+/**
+ * One flow's chain, rendered. Split out of ApprovalFlowSection so the same
+ * markup can show the All-staff chain and each staff-group override without
+ * three copies drifting apart.
+ *
+ * `testId` stays a prop because the All-staff block keeps the original
+ * `approval-flow-steps` id the detail test queries with getByTestId, which
+ * throws on more than one match.
+ */
+function FlowChain({
+  flow,
+  roleName,
+  testId,
+}: {
+  flow: LeaveApprovalFlow;
+  roleName: (key: string | null) => string | null;
+  testId: string;
+}) {
+  const isLadder = flow.step_source === 'role_ladder';
+  const chain = buildChain({
+    flow,
+    rungsAbove: isLadder ? (flow.role_ladder ?? []) : [],
+  });
+  const fallback = flow.fallback_approver;
+  const fallbackLabel = fallback
+    ? (fallback.approver_user_id ? fallback.approver_name : null) ??
+      roleName(fallback.approver_role)
+    : null;
+
+  return (
+    <div className="col-span-full" data-testid={testId}>
+      <p className="mb-1 text-xs text-muted-foreground">
+        Approvers, in order
+      </p>
+      {chain.length === 0 ? (
+        // A flow with no steps cannot complete; buildApprovalChain treats it
+        // as a configuration error rather than an auto-approval.
+        <p className="text-sm text-destructive">
+          This flow has no steps, so it can never complete.
+        </p>
+      ) : (
+        <ol className="space-y-1">
+          {chain.map((step, i) => {
+            const approvers = step.approvers ?? [];
+            // By configuration, not position — the step the engine lets grant.
+            const final = isFinalStep(chain, i);
+            return (
+              <li
+                key={`${step.step_order}-${i}`}
+                data-step={i + 1}
+                className="flex items-start gap-2 rounded-md border px-2 py-1.5 text-sm"
+              >
+                <span className="mt-0.5 text-xs text-muted-foreground">{i + 1}</span>
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <ul className="space-y-0.5">
+                    {approvers.map((a, j) => {
+                      /*
+                       * PRECEDENCE MIRRORS hr_trig_leave_enforce_approver: it
+                       * reads approver_user_id first and only falls through to
+                       * approver_role when that is null.
+                       *
+                       * approver_name alone is NOT the test. The seeded
+                       * organisation catch-alls carry approver_name 'HR /
+                       * Approving Authority' with approver_user_id null and
+                       * approver_role 'principal' — a generic label, not a
+                       * person. Preferring the name would tell all 58
+                       * inheriting types that a specific individual approves
+                       * them, when the Principal role is what gates the step.
+                       */
+                      const pinned = a.approver_user_id ? a.approver_name : null;
+                      const role = roleName(a.approver_role);
+                      return (
+                        <li key={j} className="flex flex-wrap items-center gap-x-2">
+                          <span className="font-medium">
+                            {pinned ?? role ?? 'Any permitted approver'}
+                          </span>
+                          {pinned ? (
+                            // A pinned person acts regardless of role, so the
+                            // role is context, not the gate.
+                            role && (
+                              <span className="text-xs text-muted-foreground">({role})</span>
+                            )
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              {role ? 'anyone holding this role' : 'any approver permitted to decide'}
+                            </span>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {approvers.length > 1 && (
+                    <p className="text-xs text-muted-foreground">
+                      {step.quorum === 'all'
+                        ? 'All of them must approve.'
+                        : final
+                          ? 'Any one of them can approve.'
+                          : 'Any one of them can clear this step.'}
+                    </p>
+                  )}
+                </div>
+                <Badge
+                  variant={final ? 'default' : 'outline'}
+                  className="shrink-0 text-[10px]"
+                >
+                  {final ? 'Approves' : 'Reviews'}
+                </Badge>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+      {isLadder && (
+        <p className="mt-1 text-xs text-muted-foreground">
+          Role ladder: each request starts at the rung above the applicant&apos;s
+          own role, so most applicants pass through fewer steps than this.
+          {fallbackLabel && ` Someone at the top rung goes to ${fallbackLabel}.`}
+        </p>
+      )}
+  </div>
+  );
 }
 
 /**
@@ -140,16 +265,17 @@ function ApprovalFlowSection({ t }: { t: HRLeaveType }) {
    *     applicant; passing every rung shows the route for someone who holds
    *     none of them, which is the longest one.
    */
-  const isLadder = effective.step_source === 'role_ladder';
-  const chain = buildChain({
-    flow: effective,
-    rungsAbove: isLadder ? (effective.role_ladder ?? []) : [],
-  });
-  const fallback = effective.fallback_approver;
-  const fallbackLabel = fallback
-    ? (fallback.approver_user_id ? fallback.approver_name : null) ??
-      roleName(fallback.approver_role)
-    : null;
+  /**
+   * EVERY AUDIENCE THIS LEAVE TYPE ROUTES, not just the default one.
+   *
+   * The base block is what an applicant gets when no group flow covers them.
+   * A Teaching or Non-teaching flow OVERRIDES it for that group only, so both
+   * are listed beside it — reading just the first block would tell somebody the
+   * wrong approver for half the staff.
+   */
+  const teaching = data?.teaching ?? null;
+  const nonTeaching = data?.nonTeaching ?? null;
+  const hasGroupFlows = Boolean(teaching || nonTeaching);
 
   return (
     <Section title="Approval flow">
@@ -169,96 +295,94 @@ function ApprovalFlowSection({ t }: { t: HRLeaveType }) {
           : 'Never'}
       </Field>
 
-      <div className="col-span-full" data-testid="approval-flow-steps">
-        <p className="mb-1 text-xs text-muted-foreground">
-          Approvers, in order
-        </p>
-        {chain.length === 0 ? (
-          // A flow with no steps cannot complete; buildApprovalChain treats it
-          // as a configuration error rather than an auto-approval.
-          <p className="text-sm text-destructive">
-            This flow has no steps, so it can never complete.
-          </p>
+      {/* Only labelled once an override exists. On the 66 types that route
+          everybody the same way, "All other team members" would invent a distinction
+          nobody made. */}
+      {hasGroupFlows && (
+        <p className="col-span-full -mb-2 text-xs font-medium">All other team members</p>
+      )}
+      <FlowChain
+        flow={effective}
+        roleName={roleName}
+        testId="approval-flow-steps"
+      />
+
+      {hasGroupFlows && (
+        <div className="col-span-full space-y-3">
+          {teaching && (
+            <div>
+              <p className="mb-1 text-xs font-medium">Teaching team members</p>
+              <FlowChain flow={teaching} roleName={roleName} testId="approval-flow-steps-teaching" />
+            </div>
+          )}
+          {nonTeaching && (
+            <div>
+              <p className="mb-1 text-xs font-medium">Non-teaching team members</p>
+              <FlowChain
+                flow={nonTeaching}
+                roleName={roleName}
+                testId="approval-flow-steps-non-teaching"
+              />
+            </div>
+          )}
+        </div>
+      )}
+    </Section>
+  );
+}
+
+/**
+ * Who decides ELIGIBILITY for a gated type (2026-09-21). Resolved the way
+ * LeaveEligibilityService.buildEligibilityChain does: the type's eligibility
+ * flow, else the institution's eligibility catch-all, else the LEAVE flow —
+ * a documented fallback, so that state is described, not flagged.
+ */
+function EligibilityFlowSection({ t }: { t: HRLeaveType }) {
+  const { data, isLoading } = useLeaveApprovalFlow(t.hr_organization_id, t.id, 'leave_eligibility');
+  const { data: roles } = useLeaveApproverRoles();
+
+  if (isLoading) {
+    return (
+      <Section title="Eligibility approvers">
+        <div className="col-span-full flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Resolving who approves eligibility…
+        </div>
+      </Section>
+    );
+  }
+
+  const effective = data?.effective ?? null;
+  if (!effective) {
+    return (
+      <Section title="Eligibility approvers">
+        <div className="col-span-full text-sm text-muted-foreground">
+          No eligibility approvers are set, so requests go to the leave approvers above. Set
+          some with <strong>Who approves eligibility</strong> on the row menu.
+        </div>
+      </Section>
+    );
+  }
+
+  const roleName = (key: string | null) =>
+    key ? (roles?.find((r) => r.role_key === key)?.role_name ?? null) : null;
+
+  return (
+    <Section title="Eligibility approvers">
+      <Field label="Source">
+        {data?.own ? (
+          <Badge variant="secondary">Own flow</Badge>
         ) : (
-          <ol className="space-y-1">
-            {chain.map((step, i) => {
-              const approvers = step.approvers ?? [];
-              // By configuration, not position — the step the engine lets grant.
-              const final = isFinalStep(chain, i);
-              return (
-                <li
-                  key={`${step.step_order}-${i}`}
-                  data-step={i + 1}
-                  className="flex items-start gap-2 rounded-md border px-2 py-1.5 text-sm"
-                >
-                  <span className="mt-0.5 text-xs text-muted-foreground">{i + 1}</span>
-                  <div className="min-w-0 flex-1 space-y-0.5">
-                    <ul className="space-y-0.5">
-                      {approvers.map((a, j) => {
-                        /*
-                         * PRECEDENCE MIRRORS hr_trig_leave_enforce_approver: it
-                         * reads approver_user_id first and only falls through to
-                         * approver_role when that is null.
-                         *
-                         * approver_name alone is NOT the test. The seeded
-                         * organisation catch-alls carry approver_name 'HR /
-                         * Approving Authority' with approver_user_id null and
-                         * approver_role 'principal' — a generic label, not a
-                         * person. Preferring the name would tell all 58
-                         * inheriting types that a specific individual approves
-                         * them, when the Principal role is what gates the step.
-                         */
-                        const pinned = a.approver_user_id ? a.approver_name : null;
-                        const role = roleName(a.approver_role);
-                        return (
-                          <li key={j} className="flex flex-wrap items-center gap-x-2">
-                            <span className="font-medium">
-                              {pinned ?? role ?? 'Any permitted approver'}
-                            </span>
-                            {pinned ? (
-                              // A pinned person acts regardless of role, so the
-                              // role is context, not the gate.
-                              role && (
-                                <span className="text-xs text-muted-foreground">({role})</span>
-                              )
-                            ) : (
-                              <span className="text-xs text-muted-foreground">
-                                {role ? 'anyone holding this role' : 'any approver permitted to decide'}
-                              </span>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                    {approvers.length > 1 && (
-                      <p className="text-xs text-muted-foreground">
-                        {step.quorum === 'all'
-                          ? 'All of them must approve.'
-                          : final
-                            ? 'Any one of them can approve.'
-                            : 'Any one of them can clear this step.'}
-                      </p>
-                    )}
-                  </div>
-                  <Badge
-                    variant={final ? 'default' : 'outline'}
-                    className="shrink-0 text-[10px]"
-                  >
-                    {final ? 'Approves' : 'Reviews'}
-                  </Badge>
-                </li>
-              );
-            })}
-          </ol>
+          <span className="text-muted-foreground">Institution eligibility flow</span>
         )}
-        {isLadder && (
-          <p className="mt-1 text-xs text-muted-foreground">
-            Role ladder: each request starts at the rung above the applicant&apos;s
-            own role, so most applicants pass through fewer steps than this.
-            {fallbackLabel && ` Someone at the top rung goes to ${fallbackLabel}.`}
-          </p>
-        )}
-      </div>
+      </Field>
+      <Field label="Flow name">{effective.flow_name}</Field>
+      <Field label="Escalates after">
+        {effective.escalate_after_hours > 0
+          ? `${effective.escalate_after_hours} hours`
+          : 'Never'}
+      </Field>
+      <FlowChain flow={effective} roleName={roleName} testId="eligibility-flow-steps" />
     </Section>
   );
 }
@@ -372,6 +496,7 @@ function LeaveTypeDetailContent({ t }: { t: HRLeaveType }) {
       </Section>
 
       <ApprovalFlowSection t={t} />
+      {t.requires_eligibility && <EligibilityFlowSection t={t} />}
 
       <Section title="Eligibility and validity">
         <Field label="Applies to">

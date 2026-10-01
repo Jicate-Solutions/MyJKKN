@@ -16,7 +16,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Plus, ArrowRight, Search } from 'lucide-react';
+import { Plus, ArrowRight, ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { useCdcDrives, useCdcLookups } from '@/hooks/cdc/use-cdc-drives';
 import { useMyCdcDrives } from '@/hooks/cdc/use-my-cdc-drives';
 import { useAuth } from '@/hooks/use-auth';
@@ -171,6 +172,10 @@ function LearnerDrivesList() {
 function CoordinatorDrivesList() {
   const [statusFilter, setStatusFilter] = useState<CdcDriveStatus | 'all'>('all');
   const [search, setSearch] = useState('');
+  // The query key follows the DEBOUNCED text, so typing "foxconn" is one request, not seven.
+  const debouncedSearch = useDebounceValue(search, 350);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 25;
 
   const { data: lookups } = useCdcLookups();
   const recruiterById = useMemo(() => {
@@ -186,9 +191,11 @@ function CoordinatorDrivesList() {
 
   const { data, isLoading, error } = useCdcDrives({
     status: statusFilter === 'all' ? undefined : statusFilter,
-    search: search || undefined,
-    pageSize: 50,
+    search: debouncedSearch.trim() || undefined,
+    page,
+    pageSize: PAGE_SIZE,
   });
+  const totalPages = data?.metadata.totalPages ?? 1;
 
   return (
     <PermissionGuard module="cdc.drives" action="view">
@@ -240,7 +247,10 @@ function CoordinatorDrivesList() {
                   key={opt.value}
                   size="sm"
                   variant={statusFilter === opt.value ? 'default' : 'outline'}
-                  onClick={() => setStatusFilter(opt.value)}
+                  onClick={() => {
+                    setStatusFilter(opt.value);
+                    setPage(1);
+                  }}
                 >
                   {opt.label}
                 </Button>
@@ -252,7 +262,10 @@ function CoordinatorDrivesList() {
                 placeholder="Search drives by title…"
                 className="pl-9"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
               />
             </div>
           </CardContent>
@@ -315,6 +328,22 @@ function CoordinatorDrivesList() {
                 ))}
               </div>
             )}
+            {data && data.metadata.total > PAGE_SIZE ? (
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-3 text-sm">
+                <span className="text-muted-foreground">
+                  {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, data.metadata.total)} of {data.metadata.total}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" disabled={page <= 1 || isLoading} onClick={() => setPage(page - 1)} aria-label="Previous page">
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <span className="text-muted-foreground">Page {page} / {totalPages}</span>
+                  <Button variant="outline" size="sm" disabled={page >= totalPages || isLoading} onClick={() => setPage(page + 1)} aria-label="Next page">
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       </div>

@@ -22,11 +22,12 @@
  * reading the row you are actually on.
  */
 
-import { useMemo, useState } from 'react';
-import { AlertTriangle, Loader2, Search, ShieldAlert, Trash2, X } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
+import { AlertTriangle, Loader2, ShieldAlert, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import { Button } from '@/components/ui/button';
+// Still used by the confirm dialog, where the institution code is typed out.
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -44,9 +45,39 @@ import { usePermissions } from '@/hooks/use-permissions';
 import {
   useBiometricImportBatches, useBiometricPurgePreview, usePurgeBiometricImport,
 } from '@/hooks/hr/use-biometric-import-purge';
+import { DataTable, type DataFetchParams, type DataFetchResult } from '@/components/data-table/data-table';
 import { biometricMonthLabel, type BiometricImportBatch } from '@/types/hr-biometric';
+import {
+  biometricBatchRowId, getBiometricBatchColumns, type BiometricBatchRow,
+} from './biometric-batch-columns';
 
 const VERDICT_ORDER = ['PRESENT', 'HALF_DAY', 'ABSENT', 'WEEKLY_OFF'];
+
+const EXPORT_CONFIG = {
+  entityName: 'imported-biometric-months',
+  columnMapping: {
+    machine_name: 'Machine institution',
+    machine_code: 'Machine code',
+    month_start: 'Month',
+    record_count: 'Day records',
+    staff_count: 'Team members',
+    staff_institution_count: 'Colleges touched',
+    exception_count: 'Exceptions',
+    open_exception_count: 'Open exceptions',
+    reconciled_count: 'Reconciled days',
+    regularization_count: 'Regularizations',
+    last_imported_at: 'Last imported',
+  },
+  columnWidths: [
+    { wch: 34 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 14 },
+    { wch: 16 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 22 },
+  ],
+  headers: [
+    'machine_name', 'machine_code', 'month_start', 'record_count', 'staff_count',
+    'staff_institution_count', 'exception_count', 'open_exception_count',
+    'reconciled_count', 'regularization_count', 'last_imported_at',
+  ],
+};
 
 /**
  * Six machines x every month imported, so the list grows by six rows a month and
@@ -63,7 +94,8 @@ export function BiometricPurgePanel() {
   const [target, setTarget] = useState<BiometricImportBatch | null>(null);
   const [typed, setTyped] = useState('');
 
-  const [search, setSearch] = useState('');
+  // Search moved into the DataTable's own toolbar; these three have no column
+  // to hang off (the flag is derived from four counts) so they stay local.
   const [institution, setInstitution] = useState('any');
   const [month, setMonth] = useState('any');
   const [flag, setFlag] = useState<BatchFlag>('any');
@@ -84,35 +116,73 @@ export function BiometricPurgePanel() {
     [rows],
   );
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return rows.filter((b) => {
-      if (institution !== 'any' && b.machine_institution_id !== institution) return false;
-      if (month !== 'any' && b.month_start !== month) return false;
-      if (flag === 'open_exceptions' && b.open_exception_count === 0) return false;
-      if (flag === 'multi_college' && b.staff_institution_count <= 1) return false;
-      if (flag === 'human_work' && b.reconciled_count === 0 && b.regularization_count === 0) return false;
-      if (q && !`${b.machine_name ?? ''} ${b.machine_code ?? ''}`.toLowerCase().includes(q)) return false;
-      return true;
-    });
-  }, [rows, search, institution, month, flag]);
+  /**
+   * THE TABLE READS THE HOOK, NOT THE RPC.
+   *
+   * fn_biometric_import_batches returns every month in one call — six machines
+   * times the months imported, so tens of rows, not thousands — and letting
+   * DataTable fetch it itself would put a second copy outside React Query,
+   * where invalidating the batches key could not reach it. That is precisely
+   * what has to work: finishing an import invalidates this key and the table
+   * must follow without a reload.
+   *
+   * So the fetch function is pure and in-memory over the hook's data, and
+   * because DataTable lists fetchDataFn in its own fetch dependencies
+   * (data-table.tsx:631), a new identity here re-runs it. The useCallback deps
+   * are therefore the refresh trigger: new batches, or a changed filter.
+   */
+  const fetchDataFn = useCallback(
+    async ({ page, limit, search: q, sort_by, sort_order }: DataFetchParams):
+      Promise<DataFetchResult<BiometricBatchRow>> => {
+      const needle = (q ?? '').trim().toLowerCase();
 
-  const totals = useMemo(
-    () => filtered.reduce(
-      (acc, b) => ({
-        records: acc.records + b.record_count,
-        exceptions: acc.exceptions + b.exception_count,
-      }),
-      { records: 0, exceptions: 0 },
-    ),
-    [filtered],
+      const matched = rows.filter((b) => {
+        if (institution !== 'any' && b.machine_institution_id !== institution) return false;
+        if (month !== 'any' && b.month_start !== month) return false;
+        if (flag === 'open_exceptions' && b.open_exception_count === 0) return false;
+        if (flag === 'multi_college' && b.staff_institution_count <= 1) return false;
+        if (flag === 'human_work' && b.reconciled_count === 0 && b.regularization_count === 0) return false;
+        if (needle && !`${b.machine_name ?? ''} ${b.machine_code ?? ''}`.toLowerCase().includes(needle)) return false;
+        return true;
+      });
+
+      if (sort_by) {
+        const dir = sort_order === 'desc' ? -1 : 1;
+        // sort_by is whatever column id the table hands back, so the row is
+        // indexed dynamically; BiometricImportBatch has no index signature.
+        matched.sort((a, b) => {
+          const av = (a as unknown as Record<string, unknown>)[sort_by];
+          const bv = (b as unknown as Record<string, unknown>)[sort_by];
+          if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+          return String(av ?? '').localeCompare(String(bv ?? '')) * dir;
+        });
+      }
+
+      const start = Math.max(0, (page - 1) * limit);
+      return {
+        success: true,
+        data: matched
+          .slice(start, start + limit)
+          .map((b) => ({ ...b, id: biometricBatchRowId(b) })),
+        pagination: {
+          page,
+          limit,
+          total_pages: Math.max(1, Math.ceil(matched.length / limit)),
+          total_items: matched.length,
+        },
+      };
+    },
+    [rows, institution, month, flag],
   );
 
-  const filtersOn =
-    search.trim() !== '' || institution !== 'any' || month !== 'any' || flag !== 'any';
+  const getColumns = useCallback(
+    () => getBiometricBatchColumns((row) => { setTarget(row); setTyped(''); }),
+    [],
+  );
+
+  const filtersOn = institution !== 'any' || month !== 'any' || flag !== 'any';
 
   const resetFilters = () => {
-    setSearch('');
     setInstitution('any');
     setMonth('any');
     setFlag('any');
@@ -198,32 +268,35 @@ export function BiometricPurgePanel() {
             Nothing has been imported yet.
           </p>
         ) : (
-          <>
-            <div className="space-y-3 rounded-md border bg-muted/20 p-3">
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search institution or code…"
-                    className="pl-9 pr-9"
-                    aria-label="Search imported months"
-                  />
-                  {search && (
-                    <button
-                      type="button"
-                      onClick={() => setSearch('')}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-muted"
-                      aria-label="Clear search"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
-
+          <DataTable<BiometricBatchRow, unknown>
+            getColumns={getColumns}
+            fetchDataFn={fetchDataFn}
+            idField="id"
+            // Deliberately no row selection: the typed-code confirm exists to
+            // force reading ONE row, and a tick box would hand back the bulk
+            // delete that friction is there to prevent.
+            config={{
+              enableRowSelection: false,
+              enableClickRowSelect: false,
+              enableDateFilter: false,
+              enableToolbar: true,
+              enableSearch: true,
+              enablePagination: true,
+              enableColumnVisibility: true,
+              enableColumnResizing: true,
+              enableUrlState: true,
+              enableExport: true,
+            }}
+            exportConfig={EXPORT_CONFIG}
+            pageSizeOptions={[10, 25, 50]}
+            // The three selects live outside the table's own state, so the
+            // table must go back to page 1 when they change — otherwise a
+            // narrower filter leaves the offset past the end of the result.
+            pageResetKey={`${institution}|${month}|${flag}`}
+            renderToolbarContent={() => (
+              <div className="flex flex-wrap items-center gap-2">
                 <Select value={institution} onValueChange={setInstitution}>
-                  <SelectTrigger aria-label="Filter by machine institution">
+                  <SelectTrigger className="h-8 w-[190px]" aria-label="Filter by machine institution">
                     <SelectValue placeholder="All institutions" />
                   </SelectTrigger>
                   <SelectContent>
@@ -235,7 +308,7 @@ export function BiometricPurgePanel() {
                 </Select>
 
                 <Select value={month} onValueChange={setMonth}>
-                  <SelectTrigger aria-label="Filter by month">
+                  <SelectTrigger className="h-8 w-[150px]" aria-label="Filter by month">
                     <SelectValue placeholder="All months" />
                   </SelectTrigger>
                   <SelectContent>
@@ -247,7 +320,7 @@ export function BiometricPurgePanel() {
                 </Select>
 
                 <Select value={flag} onValueChange={(v) => setFlag(v as BatchFlag)}>
-                  <SelectTrigger aria-label="Filter by what needs attention">
+                  <SelectTrigger className="h-8 w-[220px]" aria-label="Filter by what needs attention">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -257,100 +330,16 @@ export function BiometricPurgePanel() {
                     <SelectItem value="human_work">Holds manual corrections</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs text-muted-foreground">
-                  {filtered.length} of {rows.length} import(s)
-                  {filtered.length > 0 && (
-                    <> · {totals.records.toLocaleString('en-IN')} day record(s)
-                      {totals.exceptions > 0 && <> · {totals.exceptions.toLocaleString('en-IN')} exception(s)</>}
-                    </>
-                  )}
-                </p>
                 {filtersOn && (
-                  <Button variant="ghost" size="sm" onClick={resetFilters} className="h-7 text-xs">
+                  <Button variant="ghost" size="sm" onClick={resetFilters} className="h-8 text-xs">
+                    <X className="mr-1 h-3.5 w-3.5" />
                     Reset filters
                   </Button>
                 )}
               </div>
-            </div>
-
-            {filtered.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 rounded-md border bg-muted/30 p-6 text-center">
-                <p className="text-sm text-muted-foreground">No import matches these filters.</p>
-                <Button variant="outline" size="sm" onClick={resetFilters}>
-                  Clear filters
-                </Button>
-              </div>
-            ) : (
-              <div className="overflow-x-auto rounded-md border">
-                <table className="w-full min-w-[820px] text-sm">
-                  <thead className="bg-muted/50">
-                    <tr className="text-left">
-                      <th className="px-3 py-2 font-medium">Machine institution</th>
-                      <th className="px-3 py-2 font-medium">Month</th>
-                      <th className="px-3 py-2 text-right font-medium">Day records</th>
-                      <th className="px-3 py-2 text-right font-medium">Team members</th>
-                      <th className="px-3 py-2 text-right font-medium">Exceptions</th>
-                      <th className="px-3 py-2 font-medium">Last imported</th>
-                      <th className="px-3 py-2" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((b) => (
-                      <tr key={`${b.machine_institution_id}-${b.month_start}`} className="border-t align-top">
-                        <td className="px-3 py-2">
-                          <span className="block">{b.machine_name ?? 'Unknown institution'}</span>
-                          {b.machine_code && (
-                            <span className="block font-mono text-xs text-muted-foreground">{b.machine_code}</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2">{biometricMonthLabel(b.month_start)}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {b.record_count.toLocaleString('en-IN')}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {b.staff_count}
-                          {b.staff_institution_count > 1 && (
-                            <span className="block text-xs text-amber-700">
-                              across {b.staff_institution_count} colleges
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {b.exception_count.toLocaleString('en-IN')}
-                          {b.open_exception_count > 0 && (
-                            <span className="block text-xs text-muted-foreground">
-                              {b.open_exception_count} open
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-muted-foreground">
-                          {b.last_imported_at
-                            ? new Date(b.last_imported_at).toLocaleString('en-IN', {
-                                dateStyle: 'medium', timeStyle: 'short',
-                              })
-                            : '—'}
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                            onClick={() => { setTarget(b); setTyped(''); }}
-                          >
-                            <Trash2 className="mr-1.5 h-4 w-4" />
-                            Delete
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
             )}
-          </>
+          />
         )}
       </CardContent>
 

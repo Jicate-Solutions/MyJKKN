@@ -39,13 +39,23 @@ function Content() {
   const [tab, setTab] = useState('pending_review');
   const [rows, setRows] = useState<EmployerRequirementWithRoles[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await fetch(`/api/cdc/requirements?status=${tab}`, { cache: 'no-store' });
-      const json = await res.json();
-      setRows(res.ok ? (json.data ?? []) : []);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setRows([]);
+        setLoadError(json.error || `Could not load requirements (${res.status}).`);
+        return;
+      }
+      setRows(json.data ?? []);
+    } catch {
+      setRows([]);
+      setLoadError('Could not reach the server. Check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -78,6 +88,11 @@ function Content() {
 
       {loading ? (
         <div className="flex justify-center py-16"><BeatLoader color="#4f46e5" size={12} /></div>
+      ) : loadError ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 flex items-center justify-between gap-3">
+          <span>{loadError}</span>
+          <Button size="sm" variant="outline" onClick={() => load()}>Retry</Button>
+        </div>
       ) : rows.length === 0 ? (
         <Card><CardContent className="py-16 text-center text-slate-400">
           <Inbox className="mx-auto h-10 w-10 mb-3 opacity-50" />

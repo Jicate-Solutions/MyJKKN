@@ -22,7 +22,7 @@ export function StationaryAlerts({ eventId, alerts }: StationaryAlertsProps) {
       type: 'medical',
       severity: 'high',
       title: `Stationary runner - BIB ${runner.bib}`,
-      description: `Runner BIB ${runner.bib} has not sent a GPS update since ${new Date(runner.updated_at).toLocaleTimeString()}. Last known position: ${runner.lat.toFixed(5)}, ${runner.lng.toFixed(5)} at ${runner.distance_km.toFixed(2)} km.`,
+      description: `Runner BIB ${runner.bib} has not sent a GPS update since ${new Date(runner.updated_at).toLocaleTimeString(undefined, { timeZone: 'Asia/Kolkata' })}. Last known position: ${runner.lat.toFixed(5)}, ${runner.lng.toFixed(5)} at ${runner.distance_km.toFixed(2)} km.`,
       location: `Lat: ${runner.lat.toFixed(5)}, Lng: ${runner.lng.toFixed(5)}`,
       lat: runner.lat,
       lng: runner.lng,

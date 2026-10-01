@@ -50,11 +50,13 @@ export function useIndustryMentor(id: string) {
   const [mentor, setMentor] = useState<IndustryMentor | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Bumped by refetch(): the detail page calls it after a save so the view shows
+  // the saved values instead of the pre-edit copy.
+  const [version, setVersion] = useState(0);
 
   useEffect(() => {
     if (!id) return;
-    setLoading(true);
-    fetch(`/api/cdc/industry-mentors/${id}`)
+    fetch(`/api/cdc/industry-mentors/${id}`, { cache: 'no-store' })
       .then(async (res) => {
         if (!res.ok) {
           const err = await res.json().catch(() => ({ error: 'Not found' }));
@@ -68,9 +70,9 @@ export function useIndustryMentor(id: string) {
       })
       .catch((e) => setError((e as Error).message))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, version]);
 
-  return { mentor, loading, error };
+  return { mentor, loading, error, refetch: () => setVersion((v) => v + 1) };
 }
 
 export function useCreateIndustryMentor() {

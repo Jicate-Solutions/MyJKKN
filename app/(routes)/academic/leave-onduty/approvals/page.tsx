@@ -24,7 +24,7 @@ import {
   useApprovalStatistics,
   useAllApplicationsForSuperAdminByStatus,
   useSuperAdminApprovalStatistics,
-  useApplicationsByStatusForInstitution,
+  useMyApprovalQueue,
   useSponsorPendingApprovals,
   useProcessSponsorApproval,
 } from '@/hooks/academic/use-leave-onduty';
@@ -75,6 +75,7 @@ import { toast } from 'sonner';
 
 import { ApplicationDetailsDialog } from './_components/application-details-dialog';
 import { ForwardDialog } from './_components/forward-dialog';
+import { useDecideBatch } from '@/hooks/academic/use-leave-onduty-bulk';
 import { useTabParam } from '@/hooks/use-tab-param';
 
 const APPROVALS_TABS = ['pending', 'approved', 'rejected', 'all'] as const;
@@ -139,14 +140,11 @@ function ApprovalsPageInner() {
   const { data: superAdminApps, isLoading: superAdminLoading, error: superAdminError } =
     useAllApplicationsForSuperAdminByStatus(statusFilter, isSuperAdmin);
 
-  // Institution-based: fetch applications for user's institution/department
+  // Everyone else: the server resolves the queue from role + scope steps
+  // (department / institution / all institutions / hostel block), so a CAO
+  // sees every institution and a Warden sees only their block.
   const { data: institutionApps, isLoading: institutionLoading, error: institutionError } =
-    useApplicationsByStatusForInstitution(
-      statusFilter,
-      profile?.institution_id || null,
-      profile?.department_id || null,
-      !isSuperAdmin // Only enable for non-super admin
-    );
+    useMyApprovalQueue(statusFilter, !isSuperAdmin);
 
   // Stats hooks - only enable the relevant one
   const { data: approverStats } = useApprovalStatistics(
@@ -159,6 +157,8 @@ function ApprovalsPageInner() {
 
   const processApproval = useProcessApproval();
   const processForward = useProcessForward();
+  const decideBatch = useDecideBatch();
+  const [confirmBatchReject, setConfirmBatchReject] = useState<string | null>(null);
 
   const handleForwardSubmit = (forwardToId: string, comments: string) => {
     if (!selectedApplicationId || !profile?.id) return;
@@ -183,23 +183,12 @@ function ApprovalsPageInner() {
   const error = isSuperAdmin ? superAdminError : institutionError;
   const stats = isSuperAdmin ? superAdminStats : approverStats;
 
-  // Normalize data structure - both super admin and institution return applications directly
-  const normalizedApprovals = useMemo(() => {
-    const raw = isSuperAdmin ? (superAdminApps || []) : (institutionApps || []);
-
-    // On the Pending tab, non-super-admin approvers should only see rows
-    // where THEIR specific step is still pending. Without this the row
-    // stays in the queue after they approve (because the application's
-    // overall status stays 'pending' until all steps finish), inviting a
-    // second click that hits the "not authorized" error.
-    if (statusFilter !== 'pending' || isSuperAdmin || !profile?.id) return raw;
-    return (raw as any[]).filter((app: any) => {
-      const approvals = app.approvals ?? [];
-      return approvals.some(
-        (a: any) => a.approver_id === profile.id && a.status === 'pending'
-      );
-    });
-  }, [isSuperAdmin, superAdminApps, institutionApps, statusFilter, profile?.id]);
+  // The non-super-admin queue is already exactly "applications whose CURRENT
+  // step I can act on" (fn_lo_my_approval_queue), so no client-side filter.
+  const normalizedApprovals = useMemo(
+    () => (isSuperAdmin ? (superAdminApps || []) : (institutionApps || [])),
+    [isSuperAdmin, superAdminApps, institutionApps]
+  );
 
   const selectedApplication = normalizedApprovals?.find(
     (app: any) => app.id === selectedApplicationId
@@ -291,6 +280,18 @@ function ApprovalsPageInner() {
     setComments('');
     toast.success(`${selectedApps.length} application(s) ${bulkAction}`);
   };
+
+  // Facilitator batches with applications waiting on this approver.
+  const batchGroups = useMemo(() => {
+    const m = new Map<string, { id: string; title: string; count: number }>();
+    for (const a of normalizedApprovals as any[]) {
+      if (!a.batch_id || a.status !== 'pending') continue;
+      const g = m.get(a.batch_id) ?? { id: a.batch_id, title: a.batch?.title ?? 'Event batch', count: 0 };
+      g.count += 1;
+      m.set(a.batch_id, g);
+    }
+    return Array.from(m.values());
+  }, [normalizedApprovals]);
 
   // Create table columns
   const columns = useMemo(
@@ -402,7 +403,7 @@ function ApprovalsPageInner() {
                           {learnerName}
                         </span>
                         <Badge variant="outline" className="text-xs capitalize">
-                          {app.sub_category.replace(/_/g, ' ')}
+                          {app.leave_type?.name ?? app.sub_category?.replace(/_/g, ' ')}
                         </Badge>
                         {app.learner?.roll_number && (
                           <span className="text-xs text-muted-foreground">
@@ -568,6 +569,53 @@ function ApprovalsPageInner() {
           </div>
         </CardHeader>
         <CardContent className="p-6">
+          {statusFilter === 'pending' && batchGroups.length > 0 && (
+            <div className="mb-4 space-y-2">
+              {batchGroups.map((b) => (
+                <div
+                  key={b.id}
+                  className="flex flex-col gap-2 rounded-md border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="text-sm">
+                    <span className="font-medium">{b.title}</span>
+                    <Badge variant="secondary" className="ml-2">
+                      {b.count} pending
+                    </Badge>
+                    <span className="ml-2 text-muted-foreground">Facilitator batch</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      disabled={decideBatch.isPending}
+                      onClick={() => decideBatch.mutate({ batchId: b.id, action: 'approved' })}
+                    >
+                      Approve all
+                    </Button>
+                    {confirmBatchReject === b.id ? (
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        disabled={decideBatch.isPending}
+                        onClick={() => {
+                          decideBatch.mutate({ batchId: b.id, action: 'rejected' });
+                          setConfirmBatchReject(null);
+                        }}
+                      >
+                        Confirm reject all
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="outline" onClick={() => setConfirmBatchReject(b.id)}>
+                        Reject all
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <p className="text-xs text-muted-foreground">
+                Batch actions only apply to learners whose current step you can approve.
+              </p>
+            </div>
+          )}
           <DataTable
             columns={columns}
             data={normalizedApprovals || []}
@@ -774,7 +822,7 @@ function ApprovalsPageInner() {
                     : 'Unknown learner'}
                 </div>
                 <div className="text-xs text-muted-foreground capitalize">
-                  {sponsorAction.application.sub_category.replace(/_/g, ' ')} · {format(new Date(sponsorAction.application.start_date), 'MMM d, yyyy')}
+                  {sponsorAction.application.leave_type?.name ?? sponsorAction.application.sub_category?.replace(/_/g, ' ')} · {format(new Date(sponsorAction.application.start_date), 'MMM d, yyyy')}
                   {sponsorAction.application.start_date !== sponsorAction.application.end_date &&
                     ` – ${format(new Date(sponsorAction.application.end_date), 'MMM d, yyyy')}`}
                 </div>

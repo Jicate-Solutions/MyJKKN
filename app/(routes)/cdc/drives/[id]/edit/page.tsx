@@ -130,7 +130,7 @@ function EditContent({ params }: { params: Promise<{ id: string }> }) {
 
       {!terminal ? (
         <DriveForm
-          key={drive.updated_at}
+          key={drive.id}
           mode="edit"
           drive={drive}
           eligibility={data.eligibility}

@@ -36,12 +36,23 @@ import {
   useEndShiftTimingOverride,
   useShiftTimingOverrideList,
 } from '@/hooks/hr/use-shift-timings';
+// The role and person pickers already built for leave approval flows — the
+// same institution-scoped staff search and the same SECDEF role list an HR
+// admin can read. Imported across routes rather than copied.
+import { useLeaveApproverRoles } from '@/hooks/hr/use-leave-approval-flows';
+import { RolePicker } from '../leave-types/_components/role-picker';
+import { StaffPicker } from '../leave-types/_components/staff-picker';
+import type { StaffPickerOption } from '@/types/hr-leave-assignments';
 import { todayISO } from '@/lib/services/hr/attendance-recompute-service';
 import { toast } from 'sonner';
 
 import { cn, getErrorMessage } from '@/lib/utils';
-import { APPLICABLE_GENDER_OPTIONS, DAY_OF_WEEK_OPTIONS, toHHMM } from '@/types/hr-shift-timings';
-import type { ShiftApplicableGender, ShiftStaffScope } from '@/types/hr-shift-timings';
+import {
+  APPLICABLE_GENDER_OPTIONS, DAY_OF_WEEK_OPTIONS, OVERRIDE_KIND_OPTIONS, toHHMM,
+} from '@/types/hr-shift-timings';
+import type {
+  ShiftApplicableGender, ShiftOverrideKind, ShiftStaffScope,
+} from '@/types/hr-shift-timings';
 
 import { WeeklyTimingGrid } from './_components/weekly-timing-grid';
 import { CoverageWarning } from './_components/coverage-warning';
@@ -90,6 +101,16 @@ export default function ShiftTimingsPage() {
   const [overrideStaffType, setOverrideStaffType] =
     useState<'teaching' | 'non_teaching'>('teaching');
   const [overrideGender, setOverrideGender] = useState<ShiftApplicableGender>('female');
+  /**
+   * WHAT THE OVERRIDE NARROWS BY (2026-09-21). Category is the shape every
+   * override had until now and stays the default; Role and Individual are the
+   * two rungs added above it in fn_shift_timing_pick's ladder.
+   */
+  const [overrideKind, setOverrideKind] = useState<ShiftOverrideKind>('category');
+  const [roleKey, setRoleKey] = useState('');
+  // A one-element array because StaffPicker is a multi-select; the change
+  // handler keeps only the last click, which reads as single-select.
+  const [person, setPerson] = useState<StaffPickerOption[]>([]);
   // Declared BEFORE the institution-reset block below, which calls its setter.
   // A `const` is in its temporal dead zone until its own line runs, so leaving
   // this underneath would throw on the first institution change.
@@ -118,6 +139,9 @@ export default function ShiftTimingsPage() {
     setOverrideStaffType('teaching');
     setOverrideGender('female');
     setCategoryId('');
+    setOverrideKind('category');
+    setRoleKey('');
+    setPerson([]);
     setBuilderOpen(false);
   }
 
@@ -136,6 +160,9 @@ export default function ShiftTimingsPage() {
   const { data: overrides = [], isLoading: overridesLoading } =
     useShiftTimingOverrideList(institutionId || null);
   const endOverride = useEndShiftTimingOverride();
+  const { data: roles } = useLeaveApproverRoles();
+  const roleName = (key: string | null) =>
+    key ? (roles?.find((r) => r.role_key === key)?.role_name ?? key) : '';
 
   /**
    * Only categories matching the chosen staff type. A teaching category under
@@ -160,8 +187,37 @@ export default function ShiftTimingsPage() {
    * "All categories" is not a special scope — it is the ABSENCE of a category,
    * which is exactly what staff_scope teaching/non_teaching already means.
    */
-  const overrideScope: ShiftStaffScope = categoryId ? 'category' : overrideStaffType;
-  const overrideCategoryId = categoryId || null;
+  const overrideScope: ShiftStaffScope =
+    overrideKind === 'role'
+      ? 'role'
+      : overrideKind === 'staff'
+        ? 'staff'
+        : categoryId
+          ? 'category'
+          : overrideStaffType;
+  const overrideCategoryId = overrideKind === 'category' && categoryId ? categoryId : null;
+  const overrideRoleKey = overrideKind === 'role' ? roleKey || null : null;
+  const overrideStaffId = overrideKind === 'staff' ? (person[0]?.id ?? null) : null;
+  // A person has one gender; the row stores 'all' and the RPC enforces it.
+  const effectiveGender: ShiftApplicableGender =
+    overrideKind === 'staff' ? 'all' : overrideGender;
+  // Role and Individual need their discriminator before there is a week to
+  // edit; Category is always a valid (if general) target.
+  const builderReady =
+    overrideKind === 'category' ||
+    (overrideKind === 'role' ? Boolean(overrideRoleKey) : Boolean(overrideStaffId));
+  const matchesOverride = (o: {
+    staff_scope: ShiftStaffScope;
+    employment_category_id: string | null;
+    role_key: string | null;
+    staff_id: string | null;
+    applicable_gender: ShiftApplicableGender;
+  }) =>
+    o.staff_scope === overrideScope &&
+    (o.employment_category_id ?? null) === overrideCategoryId &&
+    (o.role_key ?? null) === overrideRoleKey &&
+    (o.staff_id ?? null) === overrideStaffId &&
+    o.applicable_gender === effectiveGender;
 
   /**
    * Everyone + All categories is not an override at all — it resolves to the
@@ -170,7 +226,10 @@ export default function ShiftTimingsPage() {
    * the general week from the Override tab is how an operator ends up changing
    * hours for people they never meant to touch.
    */
-  const overrideIsGeneralWeek = overrideGender === 'all' && !categoryId;
+  const overrideIsGeneralWeek = overrideKind === 'category' && overrideGender === 'all' && !categoryId;
+  // Two role overrides at one institution can both match a person who holds
+  // both roles; the newer effective_from wins. Said once, above the list.
+  const roleOverrideCount = overrides.filter((o) => o.staff_scope === 'role').length;
 
   /**
    * Open the builder on a FRESH combination.
@@ -185,6 +244,9 @@ export default function ShiftTimingsPage() {
     setCatSetFor('teaching');
     setCategoryId('');
     setOverrideGender('female');
+    setOverrideKind('category');
+    setRoleKey('');
+    setPerson([]);
     setBuilderOpen(true);
   };
 
@@ -203,11 +265,16 @@ export default function ShiftTimingsPage() {
       : sorted.map(short).join(', ');
   };
 
-  const overrideLabel = [
-    overrideStaffType === 'teaching' ? 'Teaching' : 'Non-teaching',
-    APPLICABLE_GENDER_OPTIONS.find((o) => o.value === overrideGender)?.label,
-    selectedCategory?.category_name ?? 'All categories',
-  ].join(' · ');
+  const overrideLabel =
+    overrideKind === 'role'
+      ? ['Role', overrideRoleKey ? roleName(overrideRoleKey) : '(pick a role)', genderLabel(overrideGender)].join(' · ')
+      : overrideKind === 'staff'
+        ? ['Individual', person[0] ? `${person[0].name}${person[0].staff_code ? ` · ${person[0].staff_code}` : ''}` : '(pick a person)'].join(' · ')
+        : [
+            overrideStaffType === 'teaching' ? 'Teaching' : 'Non-teaching',
+            APPLICABLE_GENDER_OPTIONS.find((o) => o.value === overrideGender)?.label,
+            selectedCategory?.category_name ?? 'All categories',
+          ].join(' · ');
 
   return (
     <PermissionGuard module="hr.shift_timings" action="manage">
@@ -311,11 +378,7 @@ export default function ShiftTimingsPage() {
                     ) : (
                       <div className="divide-y rounded-md border">
                         {overrides.map((o) => {
-                          const isEditing =
-                            builderOpen &&
-                            o.staff_scope === overrideScope &&
-                            (o.employment_category_id ?? null) === overrideCategoryId &&
-                            o.applicable_gender === overrideGender;
+                          const isEditing = builderOpen && matchesOverride(o);
                           // The staff type of a CATEGORY override comes from the
                           // category, not the row: staff_scope is 'category' there
                           // and says nothing about teaching.
@@ -326,7 +389,7 @@ export default function ShiftTimingsPage() {
                               : (o.staff_scope as 'teaching' | 'non_teaching');
                           return (
                             <div
-                              key={`${o.staff_scope}|${o.employment_category_id ?? 'all'}|${o.applicable_gender}`}
+                              key={`${o.staff_scope}|${o.employment_category_id ?? 'all'}|${o.role_key ?? ''}|${o.staff_id ?? ''}|${o.applicable_gender}`}
                               className={cn(
                                 'flex flex-wrap items-center justify-between gap-2 p-3',
                                 isEditing && 'bg-muted/50',
@@ -334,11 +397,29 @@ export default function ShiftTimingsPage() {
                             >
                               <div className="min-w-0">
                                 <p className="truncate text-sm font-medium">
-                                  {staffType === 'teaching' ? 'Teaching' : 'Non-teaching'}
-                                  {' \u00b7 '}
-                                  {genderLabel(o.applicable_gender)}
-                                  {' \u00b7 '}
-                                  {categoryName(o.employment_category_id)}
+                                  {o.staff_scope === 'role' ? (
+                                    <>
+                                      Role{' \u00b7 '}{roleName(o.role_key)}
+                                      {' \u00b7 '}{genderLabel(o.applicable_gender)}
+                                    </>
+                                  ) : o.staff_scope === 'staff' ? (
+                                    <>
+                                      Individual{' \u00b7 '}{o.person_name ?? 'Unnamed'}
+                                      {o.person_code && (
+                                        <span className="ml-1.5 font-mono text-xs text-muted-foreground">
+                                          {o.person_code}
+                                        </span>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <>
+                                      {staffType === 'teaching' ? 'Teaching' : 'Non-teaching'}
+                                      {' \u00b7 '}
+                                      {genderLabel(o.applicable_gender)}
+                                      {' \u00b7 '}
+                                      {categoryName(o.employment_category_id)}
+                                    </>
+                                  )}
                                 </p>
                                 <p className="text-xs text-muted-foreground">
                                   {o.first_half_start && o.second_half_end
@@ -356,13 +437,39 @@ export default function ShiftTimingsPage() {
                                   variant="outline"
                                   size="sm"
                                   onClick={() => {
-                                    setOverrideStaffType(staffType);
-                                    // Kept in step with the staff type, or the
-                                    // reset-on-change below would immediately wipe
-                                    // the category we are about to select.
-                                    setCatSetFor(staffType);
-                                    setCategoryId(o.employment_category_id ?? '');
-                                    setOverrideGender(o.applicable_gender);
+                                    if (o.staff_scope === 'role') {
+                                      setOverrideKind('role');
+                                      setRoleKey(o.role_key ?? '');
+                                      setPerson([]);
+                                      setCategoryId('');
+                                      setOverrideGender(o.applicable_gender);
+                                    } else if (o.staff_scope === 'staff') {
+                                      setOverrideKind('staff');
+                                      setRoleKey('');
+                                      setCategoryId('');
+                                      setPerson(
+                                        o.staff_id
+                                          ? [{
+                                              id: o.staff_id,
+                                              name: o.person_name ?? 'Unnamed',
+                                              staff_code: o.person_code,
+                                              department_name: null,
+                                            }]
+                                          : [],
+                                      );
+                                      setOverrideGender('all');
+                                    } else {
+                                      setOverrideKind('category');
+                                      setRoleKey('');
+                                      setPerson([]);
+                                      setOverrideStaffType(staffType);
+                                      // Kept in step with the staff type, or the
+                                      // reset-on-change below would immediately wipe
+                                      // the category we are about to select.
+                                      setCatSetFor(staffType);
+                                      setCategoryId(o.employment_category_id ?? '');
+                                      setOverrideGender(o.applicable_gender);
+                                    }
                                     setBuilderOpen(true);
                                   }}
                                 >
@@ -380,6 +487,8 @@ export default function ShiftTimingsPage() {
                                         institutionId,
                                         staffScope: o.staff_scope,
                                         employmentCategoryId: o.employment_category_id,
+                                        roleKey: o.role_key,
+                                        staffId: o.staff_id,
                                         applicableGender: o.applicable_gender,
                                       });
                                       // The override IS retired by this point, so a
@@ -407,6 +516,14 @@ export default function ShiftTimingsPage() {
                       </div>
                     )}
 
+                    {roleOverrideCount >= 2 && (
+                      <p className="text-xs text-muted-foreground">
+                        {roleOverrideCount} role overrides are in force here. A team member who
+                        holds more than one of those roles follows the override that became
+                        effective most recently.
+                      </p>
+                    )}
+
                     {/* ALWAYS RENDERED, never swapped out for the builder.
                         Previously this button was the `false` branch of the
                         builder's ternary, so opening the builder removed the
@@ -422,12 +539,7 @@ export default function ShiftTimingsPage() {
                       <>
                         <div className="flex items-center justify-between gap-2 border-t pt-4">
                           <p className="text-sm font-medium">
-                            {overrides.some(
-                              (o) =>
-                                o.staff_scope === overrideScope &&
-                                (o.employment_category_id ?? null) === overrideCategoryId &&
-                                o.applicable_gender === overrideGender,
-                            )
+                            {overrides.some(matchesOverride)
                               ? `Editing ${overrideLabel}`
                               : `New override — ${overrideLabel}`}
                           </p>
@@ -439,10 +551,94 @@ export default function ShiftTimingsPage() {
                             Close
                           </Button>
                         </div>
+                    {/* WHAT THIS OVERRIDE NARROWS BY. Picked first because it
+                        decides which pickers below make sense: a role spans
+                        categories, a person has one gender. */}
+                    <div className="max-w-md">
+                      <Label htmlFor="ov-kind">Override for</Label>
+                      <Select
+                        value={overrideKind}
+                        onValueChange={(v) => {
+                          const kind = v as ShiftOverrideKind;
+                          setOverrideKind(kind);
+                          // Never carry a discriminator across kinds: a role
+                          // left set while editing a person would be sent along
+                          // and refused by the RPC's shape check.
+                          setRoleKey('');
+                          setPerson([]);
+                          setCategoryId('');
+                          // A person carries no gender; leaving Individual
+                          // restores the Female default the tab opens on.
+                          if (kind === 'staff') setOverrideGender('all');
+                          else if (overrideKind === 'staff') setOverrideGender('female');
+                        }}
+                      >
+                        <SelectTrigger id="ov-kind" className="mt-1">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {OVERRIDE_KIND_OPTIONS.map((o) => (
+                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {OVERRIDE_KIND_OPTIONS.find((o) => o.value === overrideKind)?.hint}
+                      </p>
+                    </div>
+
+                    {overrideKind === 'role' && (
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div>
+                          <Label>Role</Label>
+                          <RolePicker
+                            roles={roles}
+                            value={roleKey}
+                            onChange={setRoleKey}
+                            placeholder="Select a role"
+                            className="mt-1"
+                            aria-label="Role"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="ov-role-gender">Gender</Label>
+                          <Select
+                            value={overrideGender}
+                            onValueChange={(v) => setOverrideGender(v as ShiftApplicableGender)}
+                          >
+                            <SelectTrigger id="ov-role-gender" className="mt-1">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {APPLICABLE_GENDER_OPTIONS.map((o) => (
+                                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    )}
+
+                    {overrideKind === 'staff' && (
+                      <div className="max-w-xl">
+                        <Label>Team member</Label>
+                        <div className="mt-1">
+                          <StaffPicker
+                            institutionId={institutionId}
+                            selected={person}
+                            // Single-select on a multi-select control: keep
+                            // only the most recent pick.
+                            onChange={(next) => setPerson(next.slice(-1))}
+                          />
+                        </div>
+                      </div>
+                    )}
+
                     {/* Three narrowings, coarsest first. Staff type comes first
                         because it filters the category list — a category
                         carries its own is_teaching, so offering all of them
                         under either type invites a contradictory pair. */}
+                    {overrideKind === 'category' && (
                     <div className="grid gap-4 sm:grid-cols-3">
                       <div>
                         <Label htmlFor="ov-staff-type">Staff type</Label>
@@ -500,12 +696,13 @@ export default function ShiftTimingsPage() {
                         </Select>
                       </div>
                     </div>
+                    )}
 
                     <p className="text-xs text-muted-foreground">
-                      Editing <strong>{overrideLabel}</strong>. An override wins over the
-                      general {overrideStaffType === 'teaching' ? 'Teaching' : 'Non-teaching'}{' '}
-                      week for exactly these staff. A named category beats a gender rule, so
-                      set the gender on the category itself when both should apply.
+                      Editing <strong>{overrideLabel}</strong>.{' '}
+                      {overrideKind === 'category'
+                        ? `An override wins over the general ${overrideStaffType === 'teaching' ? 'Teaching' : 'Non-teaching'} week for exactly these team members. A named category beats a gender rule, so set the gender on the category itself when both should apply.`
+                        : 'An individual override beats a role, a role beats a category, and a category beats the general week. If someone holds two roles that both have an override, the one that became effective most recently applies.'}
                     </p>
 
                     {overrideIsGeneralWeek && (
@@ -520,19 +717,29 @@ export default function ShiftTimingsPage() {
                       </Alert>
                     )}
 
-                    <WeeklyTimingGrid
-                      key={`${overrideScope}|${overrideCategoryId ?? 'all'}|${overrideGender}`}
-                      institutionId={institutionId}
-                      staffScope={overrideScope}
-                      employmentCategoryId={overrideCategoryId}
-                      applicableGender={overrideGender}
-                      scopeLabel={overrideLabel}
-                      effectiveFrom={effectiveFrom}
-                      onEffectiveFromChange={setEffectiveFrom}
-                      // Back to the list, where the override just written now
-                      // appears and Add another is one click away.
-                      onSaved={() => setBuilderOpen(false)}
-                    />
+                    {builderReady ? (
+                      <WeeklyTimingGrid
+                        key={`${overrideScope}|${overrideCategoryId ?? 'all'}|${overrideRoleKey ?? ''}|${overrideStaffId ?? ''}|${effectiveGender}`}
+                        institutionId={institutionId}
+                        staffScope={overrideScope}
+                        employmentCategoryId={overrideCategoryId}
+                        roleKey={overrideRoleKey}
+                        staffId={overrideStaffId}
+                        applicableGender={effectiveGender}
+                        scopeLabel={overrideLabel}
+                        effectiveFrom={effectiveFrom}
+                        onEffectiveFromChange={setEffectiveFrom}
+                        // Back to the list, where the override just written now
+                        // appears and Add another is one click away.
+                        onSaved={() => setBuilderOpen(false)}
+                      />
+                    ) : (
+                      <p className="rounded-md border bg-muted/30 p-4 text-sm text-muted-foreground">
+                        {overrideKind === 'role'
+                          ? 'Pick a role to load its week.'
+                          : 'Pick a team member to load their week.'}
+                      </p>
+                    )}
                       </>
                     )}
                   </TabsContent>

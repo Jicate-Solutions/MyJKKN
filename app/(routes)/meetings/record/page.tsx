@@ -112,13 +112,22 @@ export default async function MeetingRecordPage({ searchParams }: RecordPageProp
   // absent and the page records standalone rather than leaking that it exists.
   let attachedTo: { id: string; label: string; whenText: string } | null = null;
   let bookingMissing = false;
+  let bookingUnreadable = false;
   if (bookingUid) {
-    const { data: row } = await supabase
+    const { data: row, error: bookingErr } = await supabase
       .from('meeting_bookings')
       .select('id, uid, attendee_name, start_time, meeting_type_id')
       .eq('uid', bookingUid)
       .maybeSingle();
-    if (row) {
+    // A read that FAILED is not a meeting that does not exist. Until 22 Sep
+    // this kept only `data`, so a broken query told the host their meeting
+    // could not be found and quietly recorded the conversation against
+    // nothing — the recording of a real interview left hanging on no meeting,
+    // with a sentence on screen saying why that was untrue.
+    if (bookingErr) {
+      console.error(`[meetings/record] booking read failed for ${bookingUid}:`, bookingErr.message);
+      bookingUnreadable = true;
+    } else if (row) {
       const b = row as Record<string, unknown>;
       const { data: mt } = await supabase
         .from('meeting_types')
@@ -144,7 +153,13 @@ export default async function MeetingRecordPage({ searchParams }: RecordPageProp
           <MeetingRecorder canRecord={mayRecord === true} attachedTo={attachedTo} />
         </CardContent>
       </Card>
-      {bookingMissing ? (
+      {bookingUnreadable ? (
+        <p className="mt-4 text-sm text-amber-600 dark:text-amber-500">
+          This meeting could not be read just now, so a recording started here would be saved
+          on its own rather than against it. Reload the page before you start, or record
+          anyway and attach it to the meeting afterwards.
+        </p>
+      ) : bookingMissing ? (
         <p className="mt-4 text-sm text-muted-foreground">
           That meeting could not be found, so this recording will be saved on its own rather
           than against it. You can still record.

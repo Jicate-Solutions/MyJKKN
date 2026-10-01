@@ -66,6 +66,16 @@ export interface CourseWelcomeEmailParams {
   totalPayable: number;
   enrollmentNumber: string;
   instalments: CourseWelcomeInstalment[];
+  /** Which identity the enrolment was written against. Anything other than
+   *  'external' is somebody who already had a MyJKKN account, and the whole
+   *  sign-in half of this email has to change for them:
+   *  /auth/participant-login resolves a JKKN ID through
+   *  fn_resolve_participant_jkkn_id, which is scoped to
+   *  person_kind = 'external_participant' AND profiles.is_external_participant.
+   *  A staff member's or learner's number will not resolve there, so pointing
+   *  them at that page would be a dead end. Defaults to 'external', which is
+   *  what the reissue path always is. */
+  participantType?: 'learner' | 'staff' | 'external';
   /** True when an admin reissued the password for someone already enrolled.
    *  Changes the subject and opening line only — telling an existing
    *  participant "your application has been accepted" a second time is
@@ -122,7 +132,11 @@ function detailsCard(title: string, rows: { label: string; value: string }[]): s
 
 /** The credentials block. Visually separated because it is the one part the
  *  reader must not miss, and the one part they must act on. */
-function credentialsCard(jkknId: string, tempPassword: string | null): string {
+function credentialsCard(
+  jkknId: string,
+  tempPassword: string | null,
+  isExternal: boolean,
+): string {
   const passwordRow = tempPassword
     ? `
       <tr>
@@ -132,7 +146,11 @@ function credentialsCard(jkknId: string, tempPassword: string | null): string {
     : `
       <tr>
         <td colspan="2" style="padding:6px 0;color:#78350f;font-size:13px;">
-          Use the password you already set for your JKKN account.
+          ${
+            isExternal
+              ? 'Use the password you already set for your JKKN account.'
+              : 'Sign in the way you already do at JKKN — this is the JKKN ID you already hold, and no new password has been issued.'
+          }
         </td>
       </tr>`;
 
@@ -264,7 +282,13 @@ export class CourseWelcomeEmailService {
       return { success: false, skipped: true, skipReason: 'RESEND_API_KEY not configured' };
     }
 
-    const loginUrl = APP_URL ? `${APP_URL}/auth/participant-login` : '';
+    // Someone MyJKKN already knew keeps their own login, and their JKKN ID does
+    // not resolve at /auth/participant-login (see participantType above), so
+    // they are sent to the ordinary sign-in page instead.
+    const isExternal = (params.participantType ?? 'external') === 'external';
+    const loginUrl = APP_URL
+      ? `${APP_URL}${isExternal ? '/auth/participant-login' : '/auth/login'}`
+      : '';
 
     const dates = [formatDate(params.courseStartDate), formatDate(params.courseEndDate)]
       .filter(Boolean)
@@ -305,10 +329,13 @@ export class CourseWelcomeEmailService {
         Hi ${esc(params.participantName)},
       </p>
       ${opening}
-      ${credentialsCard(params.jkknId, params.tempPassword)}
+      ${credentialsCard(params.jkknId, params.tempPassword, isExternal)}
       <p style="margin:0 0 24px;color:#374151;font-size:14px;line-height:1.65;">
-        Sign in with your <strong>JKKN ID</strong> and password — not an email address —
-        to see your course and your payment schedule.
+        ${
+          isExternal
+            ? 'Sign in with your <strong>JKKN ID</strong> and password — not an email address — to see your course and your payment schedule.'
+            : 'Sign in to MyJKKN as you normally do and open <strong>My Courses</strong> to see this course and your payment schedule.'
+        }
       </p>
       ${actionButton(loginUrl, 'Sign in')}
       ${detailsCard('Your enrolment', courseRows)}

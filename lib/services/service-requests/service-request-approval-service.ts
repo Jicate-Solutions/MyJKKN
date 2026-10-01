@@ -52,6 +52,8 @@ export class ServiceRequestApprovalService {
         )
       `)
       .eq('id', requestId)
+      // Retired steps stay in the table as history FK targets only.
+      .eq('service_type.approval_steps.is_active', true)
       .single();
 
     if (reqError || !request) {
@@ -394,6 +396,7 @@ export class ServiceRequestApprovalService {
     const { data: matchingSteps } = await supabase
       .from('service_request_approval_steps')
       .select('step_order, service_type_id, approver_role, approver_user_ids')
+      .eq('is_active', true)
       .or(`approver_role.eq.${userRole},approver_user_ids.cs.{${userId}}`);
 
     if (!matchingSteps || matchingSteps.length === 0) {
@@ -476,6 +479,7 @@ export class ServiceRequestApprovalService {
     const { data: matchingSteps } = await supabase
       .from('service_request_approval_steps')
       .select('step_order, service_type_id, approver_role, approver_user_ids')
+      .eq('is_active', true)
       .or(`approver_role.eq.${userRole},approver_user_ids.cs.{${userId}}`);
 
     if (!matchingSteps || matchingSteps.length === 0) return 0;
@@ -534,6 +538,7 @@ export class ServiceRequestApprovalService {
       .select('approver_role, approver_user_ids')
       .eq('service_type_id', request.service_type_id)
       .eq('step_order', request.current_approval_step)
+      .eq('is_active', true)
       .maybeSingle();
 
     if (!step) return false;

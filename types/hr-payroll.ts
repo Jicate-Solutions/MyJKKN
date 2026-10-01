@@ -299,6 +299,25 @@ export interface HRSalaryRegisterRun {
   updated_at: string;
 }
 
+/**
+ * What a delete removed — returned to the caller so the toast and the activity
+ * log can say which register is gone after the row no longer exists.
+ */
+export interface HRSalaryRegisterDeletedRun {
+  id: string;
+  hr_organization_id: string;
+  organisation_name: string;
+  institution_id: string;
+  period_year: number;
+  period_month: number;
+  staff_total: number;
+  included_count: number;
+  total_net: number;
+  generated_at: string;
+  /** True when the run was already superseded — deleting it changed no month's live register. */
+  was_superseded: boolean;
+}
+
 export interface HRSalaryRegisterLine {
   id: string;
   run_id: string;
@@ -314,14 +333,28 @@ export interface HRSalaryRegisterLine {
   date_of_joining: string | null;
   bank_account_number: string | null;
 
-  // WHO BEARS THIS SALARY. The register is grouped by WORK location, so a row's
-  // payer can be a different institution — at Main Office all 121 are. Null is a
-  // real answer: 105 active staff have no payer recorded and are still paid.
+  // WHO BEARS THIS SALARY. Since 2026-09-23 the register is grouped by payer, so
+  // on new lines this is the run's own institution; older work-scoped lines can
+  // carry a different payer or null.
   paid_by_organization_id: string | null;
   paid_by_name: string | null;
+  // WHERE THIS PERSON WORKS, snapshotted. A paying institution's register can
+  // list people working elsewhere (Pharmacy pays 10 at Main Office). Null on
+  // lines generated before 2026-09-23.
+  work_institution_id: string | null;
+  work_institution_name: string | null;
 
   business_working_days: number;
+  /**
+   * The paid-leave TOTAL. The three below partition it exactly
+   * (casual + comp_off + other = paid_leave_days), which is what lets the
+   * detail table print them as columns and still add up.
+   */
   paid_leave_days: number;
+  casual_leave_days: number;
+  comp_off_days: number;
+  /** Clinical, PH.D, WFH — every paid type that is neither of the two above. */
+  other_paid_leave_days: number;
   unpaid_leave_days: number;
   on_duty_days: number;
   worked_days: number;

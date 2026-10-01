@@ -40,7 +40,7 @@ import { CDC_WILLINGNESS_NOTIFICATION_TYPE } from './drive-notifications';
 
 const IN_CHUNK = 200;
 const LEARNER_PROFILE_COLUMNS =
-  'id, first_name, last_name, register_number, roll_number, student_photo_url, institution_id, department_id, semester_id, student_email, college_email, student_mobile';
+  'id, first_name, last_name, register_number, roll_number, student_photo_url, institution_id, department_id, program_id, semester_id, student_email, college_email, student_mobile';
 
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -173,17 +173,22 @@ export async function buildAssignedLearners(
 
   // 4. Learner profiles + lookups.
   const learners = new Map<string, Record<string, unknown>>();
-  for (const ids of chunk(allIds, IN_CHUNK)) {
-    const { data, error } = await service.from('learners_profiles').select(LEARNER_PROFILE_COLUMNS).in('id', ids);
-    if (error) throw error;
-    (data ?? []).forEach((l) => learners.set(l.id as string, l as Record<string, unknown>));
-  }
+  // Independent 200-id pages → one parallel wave instead of N sequential reads.
+  await Promise.all(
+    chunk(allIds, IN_CHUNK).map(async (ids) => {
+      const { data, error } = await service.from('learners_profiles').select(LEARNER_PROFILE_COLUMNS).in('id', ids);
+      if (error) throw error;
+      (data ?? []).forEach((l) => learners.set(l.id as string, l as Record<string, unknown>));
+    })
+  );
   const pick = (k: string) =>
     Array.from(new Set(Array.from(learners.values()).map((l) => l[k] as string | null).filter(Boolean))) as string[];
   const instIds = pick('institution_id');
   const deptIds = pick('department_id');
   const semIds = pick('semester_id');
-  const [instRes, deptRes, semRes] = await Promise.all([
+  const programIds = pick('program_id');
+  const [programRes, instRes, deptRes, semRes] = await Promise.all([
+    programIds.length ? service.from('programs').select('id, program_name').in('id', programIds) : Promise.resolve({ data: [], error: null }),
     instIds.length ? service.from('institutions').select('id, name').in('id', instIds) : Promise.resolve({ data: [], error: null }),
     deptIds.length ? service.from('departments').select('id, department_name').in('id', deptIds) : Promise.resolve({ data: [], error: null }),
     semIds.length ? service.from('semesters').select('id, semester_name, semester_order').in('id', semIds) : Promise.resolve({ data: [], error: null }),
@@ -191,6 +196,9 @@ export async function buildAssignedLearners(
   if (instRes.error) throw instRes.error;
   if (deptRes.error) throw deptRes.error;
   if (semRes.error) throw semRes.error;
+  // Program names are display-only: a lookup failure must not take the roster down.
+  if (programRes.error) console.warn('[cdc/drive-assigned] program lookup failed:', programRes.error.message);
+  const programName = new Map((programRes.data ?? []).map((r: any) => [r.id as string, r.program_name as string]));
   const instName = new Map((instRes.data ?? []).map((r: any) => [r.id as string, r.name as string]));
   const deptName = new Map((deptRes.data ?? []).map((r: any) => [r.id as string, r.department_name as string]));
   const semInfo = new Map(
@@ -235,6 +243,8 @@ export async function buildAssignedLearners(
       institution_id: (l?.institution_id as string | null) ?? null,
       institution_name: l?.institution_id ? instName.get(l.institution_id as string) ?? null : null,
       department_name: l?.department_id ? deptName.get(l.department_id as string) ?? null : null,
+      program_id: (l?.program_id as string | null) ?? null,
+      program_name: l?.program_id ? programName.get(l.program_id as string) ?? null : null,
       semester_order: sem?.order ?? null,
       semester_label: sem ? (sem.order != null ? `Semester ${sem.order}` : sem.name) : null,
       email,

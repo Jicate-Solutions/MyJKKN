@@ -25,6 +25,7 @@ export function ScheduleTab({
   badTimes,
   tooManyDays,
   maxDays,
+  showRequired = false,
 }: {
   form: EventCreateForm;
   set: <K extends keyof EventCreateForm>(field: K, value: EventCreateForm[K]) => void;
@@ -36,7 +37,14 @@ export function ScheduleTab({
   badTimes: boolean;
   tooManyDays: boolean;
   maxDays: number;
+  /** After a failed "Save & Next": mark the missing mandatory fields inline. */
+  showRequired?: boolean;
 }) {
+  const required = !offCampus;
+  const dateMissing = showRequired && required && !form.event_date;
+  const startMissing = showRequired && required && !form.start_time;
+  const endMissing = showRequired && required && !form.end_time;
+  const bad = 'border-destructive focus-visible:ring-destructive';
   return (
     <div className="space-y-3 rounded-lg border p-3">
       <div className="flex items-center justify-between">
@@ -63,7 +71,12 @@ export function ScheduleTab({
             type="date"
             value={form.event_date}
             onChange={(e) => set('event_date', e.target.value)}
+            aria-invalid={dateMissing || undefined}
+            className={dateMissing ? bad : undefined}
           />
+          {dateMissing && (
+            <p className="text-xs text-destructive">Set the date this event is conducted on.</p>
+          )}
         </div>
         {multiDay && (
           <div className="space-y-1.5">
@@ -92,7 +105,10 @@ export function ScheduleTab({
             type="time"
             value={form.start_time}
             onChange={(e) => set('start_time', e.target.value)}
+            aria-invalid={startMissing || undefined}
+            className={startMissing ? bad : undefined}
           />
+          {startMissing && <p className="text-xs text-destructive">Start time is required.</p>}
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="end_time" className="text-xs">
@@ -104,10 +120,19 @@ export function ScheduleTab({
             type="time"
             value={form.end_time}
             onChange={(e) => set('end_time', e.target.value)}
+            aria-invalid={endMissing || undefined}
+            className={endMissing ? bad : undefined}
           />
+          {endMissing && <p className="text-xs text-destructive">End time is required.</p>}
         </div>
       </div>
 
+      {required && !showRequired && daySlotCount === 0 && (
+        <p className="text-xs text-muted-foreground">
+          Date, start and end time are required for an on-campus event — the room is held
+          for these hours.
+        </p>
+      )}
       {badDayRange && (
         <p className="text-xs text-destructive">
           The last day must be on or after the first day.

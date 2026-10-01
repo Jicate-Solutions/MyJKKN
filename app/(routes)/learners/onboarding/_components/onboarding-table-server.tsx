@@ -26,6 +26,7 @@ import {
 import { ArrowRight, ArrowUpDown, UserCheck, Loader2 } from 'lucide-react';
 import { getOnboardingColumns } from './columns';
 import { PaymentThresholdBanner } from './payment-threshold-banner';
+import { AwaitingPaymentExportButton } from './awaiting-payment-export-button';
 import type {
   OnboardingProfileRow,
   OnboardingTier,
@@ -247,6 +248,8 @@ export function OnboardingTableServer({
           </SelectContent>
         </Select>
 
+        {tier === 'awaiting_payment' && <AwaitingPaymentExportButton />}
+
         {/* On the Ready to Activate tier the useful bulk action is activation,
             not "assign academic info" — those fields are already filled, which
             is precisely why the rows are in this tier. */}
@@ -287,12 +290,7 @@ export function OnboardingTableServer({
     );
   };
 
-  // Columns are rebuilt when the basis changes, not on every render: the basis
-  // comes from admission_statuses and is constant for the life of a page.
-  const columns = useMemo(
-    () => getOnboardingColumns(tier, paymentSummary?.threshold_basis ?? 'due_to_date'),
-    [tier, paymentSummary?.threshold_basis]
-  );
+  const columns = useMemo(() => getOnboardingColumns(tier), [tier]);
 
   return (
     <>
@@ -315,7 +313,12 @@ export function OnboardingTableServer({
           enableDateFilter: false,
           enableExport: false,
           enableRowSelection: true,
-          enableSearch: false
+          enableSearch: false,
+          // Columns keep their declared widths and the table scrolls sideways;
+          // otherwise the multi-line fee / Blocked At cells are squeezed and cut.
+          fixedColumnWidths: true,
+          // Own key so sizes dragged on other tables never leak in here.
+          columnResizingTableId: 'learners-onboarding'
         }}
         renderToolbarContent={renderCustomToolbar}
       />

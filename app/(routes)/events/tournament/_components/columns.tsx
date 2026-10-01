@@ -10,7 +10,7 @@
 // under the (clickable) name, and transitions live in the actions dropdown.
 
 import type { ColumnDef } from '@tanstack/react-table';
-import { format } from 'date-fns';
+import { formatIstDate } from '@/lib/utils/date-format';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Building2, Globe } from 'lucide-react';
@@ -74,7 +74,7 @@ export const getColumns = (options: TournamentColumnOptions): ColumnDef<Event>[]
       cell: ({ row }) => {
         const v = row.getValue('start_date') as string | null;
         return (
-          <span className="text-sm">{v ? format(new Date(v), 'd MMM yyyy') : '—'}</span>
+          <span className="text-sm">{v ? formatIstDate(v) : '—'}</span>
         );
       },
     },
@@ -85,7 +85,7 @@ export const getColumns = (options: TournamentColumnOptions): ColumnDef<Event>[]
       cell: ({ row }) => {
         const v = row.getValue('end_date') as string | null;
         return (
-          <span className="text-sm">{v ? format(new Date(v), 'd MMM yyyy') : '—'}</span>
+          <span className="text-sm">{v ? formatIstDate(v) : '—'}</span>
         );
       },
     },

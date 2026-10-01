@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Separator } from '@/components/ui/separator';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { IST_TIME_ZONE } from '@/lib/utils/date-format';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
@@ -300,6 +301,7 @@ function TaskRow({
               {new Date(task.due_date).toLocaleDateString('en-IN', {
                 day: '2-digit',
                 month: 'short',
+                timeZone: IST_TIME_ZONE,
               })}
             </span>
           )}
@@ -376,6 +378,7 @@ function TaskRow({
             ? new Date(task.due_date).toLocaleDateString('en-IN', {
                 day: '2-digit',
                 month: 'short',
+                timeZone: IST_TIME_ZONE,
               })
             : '—'}
         </span>

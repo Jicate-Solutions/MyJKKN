@@ -1465,6 +1465,7 @@ CREATE POLICY "bills_select_scoped" ON billing_student_bills
                     SELECT id FROM billing_categories WHERE visible_to_learners
                 )
             )
+            AND fn_learner_bill_year_visible(academic_year_id)
         )
     );
 
@@ -1486,6 +1487,8 @@ CREATE POLICY "Students can view their own bills" ON billing_student_bills
                 SELECT id FROM billing_categories WHERE visible_to_learners
             )
         )
+        -- Updated: 2026-09-29 - advance-year window (past + current + ONE next AY).
+        AND fn_learner_bill_year_visible(academic_year_id)
     );
 
 CREATE POLICY "bills_insert_admin" ON billing_student_bills
@@ -7248,6 +7251,94 @@ CREATE POLICY platform_policies_social_attr_update ON public.platform_policies
     AND user_has_permission('social.attribution.edit')
   );
 
+-- ── Pay rows readable only with the salary key ──────────────────────────────
+-- Updated: 2026-09-29 - Mirror of 20270506090000_hr_pay_policies_readable_only_with_salary_view.sql
+--   (FILE ONLY, not applied). platform_policies_select is `auth.uid() IS NOT NULL`,
+--   so every signed-in account could read every college's pay matrix. These
+--   RESTRICTIVE policies are ANDed with every permissive SELECT policy: for the three
+--   pay keys (hr.pay_scales, hr.allowances_and_increments, hr.salary_suggestion_rule)
+--   a row needs admin, or hr.payroll.salary.view AND a college row
+--   (scope_type 'institution') of a college the caller can access
+--   (role_has_institution_access). Group-wide (NULL scope) pay rows are admin-only.
+--   Every other key is unchanged.
+-- Updated: 2026-09-29 - round 2 (W12 review): college scoping added.
+-- Updated: 2026-09-29 - hr.salary_suggestion_rule added to the locked keys.
+DROP POLICY IF EXISTS platform_policies_pay_keys_restricted ON public.platform_policies;
+CREATE POLICY platform_policies_pay_keys_restricted ON public.platform_policies
+  AS RESTRICTIVE
+  FOR SELECT
+  TO authenticated, anon
+  USING (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule')
+    OR (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (
+      scope_type = 'institution'
+      AND scope_id IS NOT NULL
+      AND (SELECT public.user_has_permission('hr.payroll.salary.view'))
+      AND public.role_has_institution_access(scope_id)
+    )
+  );
+
+DROP POLICY IF EXISTS hr_policy_audit_log_pay_keys_restricted ON public.hr_policy_audit_log;
+CREATE POLICY hr_policy_audit_log_pay_keys_restricted ON public.hr_policy_audit_log
+  AS RESTRICTIVE
+  FOR SELECT
+  TO authenticated, anon
+  USING (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule')
+    OR (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (
+      scope_type = 'institution'
+      AND scope_id IS NOT NULL
+      AND (SELECT public.user_has_permission('hr.payroll.salary.view'))
+      AND public.role_has_institution_access(scope_id)
+    )
+  );
+
+-- ── Compensation keys writable only by a super admin ────────────────────────
+-- Updated: 2026-09-29 - Mirror of 20270506090000 section 6 (FILE ONLY, not applied).
+--   platform_policies_insert / _update / _delete are `is_super_admin() OR is_admin()`,
+--   so an admin could change the pay matrix straight through PostgREST, skipping the
+--   super-admin-only editors and the hr_policy_audit_log row. These RESTRICTIVE
+--   policies let hr.pay_scales, hr.allowances_and_increments, hr.salary_suggestion_rule
+--   and hr.motivation_fund rows be written only by is_super_admin(). Every other key is
+--   unchanged. TO authenticated, anon: the service role (BYPASSRLS) is unaffected.
+DROP POLICY IF EXISTS platform_policies_pay_keys_insert_super_admin_only ON public.platform_policies;
+CREATE POLICY platform_policies_pay_keys_insert_super_admin_only ON public.platform_policies
+  AS RESTRICTIVE
+  FOR INSERT
+  TO authenticated, anon
+  WITH CHECK (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule', 'hr.motivation_fund')
+    OR (SELECT public.is_super_admin())
+  );
+
+DROP POLICY IF EXISTS platform_policies_pay_keys_update_super_admin_only ON public.platform_policies;
+CREATE POLICY platform_policies_pay_keys_update_super_admin_only ON public.platform_policies
+  AS RESTRICTIVE
+  FOR UPDATE
+  TO authenticated, anon
+  USING (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule', 'hr.motivation_fund')
+    OR (SELECT public.is_super_admin())
+  )
+  WITH CHECK (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule', 'hr.motivation_fund')
+    OR (SELECT public.is_super_admin())
+  );
+
+DROP POLICY IF EXISTS platform_policies_pay_keys_delete_super_admin_only ON public.platform_policies;
+CREATE POLICY platform_policies_pay_keys_delete_super_admin_only ON public.platform_policies
+  AS RESTRICTIVE
+  FOR DELETE
+  TO authenticated, anon
+  USING (
+    policy_key NOT IN ('hr.pay_scales', 'hr.allowances_and_increments', 'hr.salary_suggestion_rule', 'hr.motivation_fund')
+    OR (SELECT public.is_super_admin())
+  );
+
 -- =====================================================================
 -- Global Calendar module (Phase 1) — mirror of 20260623100000_calendar_module_tables.sql
 -- =====================================================================
@@ -9966,8 +10057,23 @@ CREATE POLICY hr_salary_register_runs_select
     )
   );
 
-CREATE POLICY hr_salary_register_runs_write
-  ON public.hr_salary_register_runs FOR ALL TO authenticated
+DROP POLICY IF EXISTS hr_salary_register_runs_write  ON public.hr_salary_register_runs;
+DROP POLICY IF EXISTS hr_salary_register_runs_insert ON public.hr_salary_register_runs;
+DROP POLICY IF EXISTS hr_salary_register_runs_update ON public.hr_salary_register_runs;
+DROP POLICY IF EXISTS hr_salary_register_runs_delete ON public.hr_salary_register_runs;
+
+CREATE POLICY hr_salary_register_runs_insert
+  ON public.hr_salary_register_runs FOR INSERT TO authenticated
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (
+      (SELECT public.user_has_permission('hr.payroll.register.manage'))
+      AND (SELECT public.role_has_institution_access(institution_id))
+    )
+  );
+
+CREATE POLICY hr_salary_register_runs_update
+  ON public.hr_salary_register_runs FOR UPDATE TO authenticated
   USING (
     (SELECT public.is_super_admin())
     OR (
@@ -9982,6 +10088,10 @@ CREATE POLICY hr_salary_register_runs_write
       AND (SELECT public.role_has_institution_access(institution_id))
     )
   );
+
+CREATE POLICY hr_salary_register_runs_delete
+  ON public.hr_salary_register_runs FOR DELETE TO authenticated
+  USING ((SELECT public.is_super_admin()));
 
 CREATE POLICY hr_salary_register_runs_service_role
   ON public.hr_salary_register_runs FOR ALL TO service_role
@@ -10001,8 +10111,25 @@ CREATE POLICY hr_salary_register_lines_select
     )
   );
 
-CREATE POLICY hr_salary_register_lines_write
-  ON public.hr_salary_register_lines FOR ALL TO authenticated
+DROP POLICY IF EXISTS hr_salary_register_lines_write  ON public.hr_salary_register_lines;
+DROP POLICY IF EXISTS hr_salary_register_lines_insert ON public.hr_salary_register_lines;
+DROP POLICY IF EXISTS hr_salary_register_lines_update ON public.hr_salary_register_lines;
+DROP POLICY IF EXISTS hr_salary_register_lines_delete ON public.hr_salary_register_lines;
+
+CREATE POLICY hr_salary_register_lines_insert
+  ON public.hr_salary_register_lines FOR INSERT TO authenticated
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR EXISTS (
+      SELECT 1 FROM public.hr_salary_register_runs r
+       WHERE r.id = hr_salary_register_lines.run_id
+         AND (SELECT public.user_has_permission('hr.payroll.register.manage'))
+         AND (SELECT public.role_has_institution_access(r.institution_id))
+    )
+  );
+
+CREATE POLICY hr_salary_register_lines_update
+  ON public.hr_salary_register_lines FOR UPDATE TO authenticated
   USING (
     (SELECT public.is_super_admin())
     OR EXISTS (
@@ -10021,6 +10148,10 @@ CREATE POLICY hr_salary_register_lines_write
          AND (SELECT public.role_has_institution_access(r.institution_id))
     )
   );
+
+CREATE POLICY hr_salary_register_lines_delete
+  ON public.hr_salary_register_lines FOR DELETE TO authenticated
+  USING ((SELECT public.is_super_admin()));
 
 CREATE POLICY hr_salary_register_lines_service_role
   ON public.hr_salary_register_lines FOR ALL TO service_role
@@ -11070,3 +11201,379 @@ CREATE POLICY reservation_communications_insert ON public.reservation_communicat
 
 REVOKE ALL ON public.reservation_communications FROM anon, PUBLIC;
 GRANT SELECT, INSERT ON public.reservation_communications TO authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Leave eligibility approval flow (flow_for = 'leave_eligibility') — 2026-09-21
+-- Mirror of supabase/migrations/20261225110000_leave_eligibility_approval_flow.sql
+-- ---------------------------------------------------------------------------
+DROP POLICY IF EXISTS hr_approval_flows_leave_read ON public.hr_approval_flows;
+CREATE POLICY hr_approval_flows_leave_read
+  ON public.hr_approval_flows
+  FOR SELECT
+  USING (
+    flow_for IN ('leave_approval', 'leave_eligibility')
+    AND hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids()))
+  );
+
+-- ── Config seed: learners.activate_on_first_present.enabled — ships ON ──────
+-- Row created by 20260821030000_attendance_activates_learner.sql (OFF) and
+-- switched ON by 20260919010000_enable_activate_learner_on_first_present.sql
+-- after the Director's decision of 2026-09-18 23:48. Seeded here 2026-09-19
+-- because setup/ never carried the row: a database rebuilt from these files
+-- would have had the trigger (04_triggers.sql) with no switch to read, so
+-- fn_get_policy_bool would fall back to its `false` default and the 2026-08-11
+-- rule would be silently off in every fresh environment.
+--
+-- ON CONFLICT DO NOTHING, so a re-apply can never switch OFF a switch somebody
+-- deliberately turned off on a given database.
+INSERT INTO platform_policies
+  (policy_key, scope_type, scope_id, value, description, data_type, enum_options, is_system) VALUES
+('learners.activate_on_first_present.enabled', 'global', NULL, 'true'::jsonb,
+  'MASTER SWITCH — ON since 2026-09-18. A learner sitting at `reserved` or `admitted` is moved to `active` the FIRST time they are marked PRESENT (Director ruling 2026-08-11, chosen again on 2026-09-18 over the induction-completion alternative). NOT RETROACTIVE: the trigger fires on an attendance write, so Present marks already recorded activate nobody — a learner activates at their NEXT one. Turning this OFF stops all future automatic activation and reverses nothing already done. While ON, a `reserved` learner can reach `active` WITHOUT clearing the 30% / 60% fee thresholds in admission_statuses; every activation is audited to learners_profile_status_history with reason_code first_present_attendance and fee_thresholds_bypassed: true.',
+  'boolean', NULL, true)
+ON CONFLICT (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid)) DO NOTHING;
+
+
+-- ── learner_activation_failures — admin-gated read, no client write path ────
+-- Updated: 2026-09-19 - Added with the table (01_tables.sql) in repair round 1
+-- of PR #3924. Migration: 20260919005000_harden_first_present_activation.sql.
+--
+-- Same gate that already guards `learners_profile_status_history`: whoever can
+-- read a learner's status history can read the activations that did NOT happen.
+-- No INSERT/UPDATE/DELETE policy — rows are written by SECURITY DEFINER only,
+-- from inside the attendance trigger's exception handler.
+ALTER TABLE public.learner_activation_failures ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS learner_activation_failures_select ON public.learner_activation_failures;
+CREATE POLICY learner_activation_failures_select
+  ON public.learner_activation_failures
+  FOR SELECT
+  TO authenticated
+  USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('learners.profiles.view')
+        AND role_has_institution_access(institution_id))
+  );
+
+REVOKE ALL    ON public.learner_activation_failures FROM anon, PUBLIC;
+GRANT  SELECT ON public.learner_activation_failures TO authenticated;
+
+-- =====================================================================
+-- Updated: 2026-09-24 - Adoption loop E: adoption_reminders RLS (super admins read; no direct writes)
+-- Source of truth for apply: supabase/migrations/20270324090000_adoption_daily_ask_and_remind.sql
+-- Spec: specs/2026-09-16-adoption-loop.md rulings 2, 6, 9, 10
+-- =====================================================================
+-- Read: super admins only (who was reminded is per-person data, ruling 7).
+-- No INSERT/UPDATE/DELETE policy on purpose — rows come only from
+-- fn_adoption_remind_core (SECURITY DEFINER).
+DROP POLICY IF EXISTS "adoption_reminders_select_super_admin" ON public.adoption_reminders;
+CREATE POLICY "adoption_reminders_select_super_admin" ON public.adoption_reminders
+  FOR SELECT TO authenticated USING ((SELECT is_super_admin()));
+
+-- ============================================================================
+-- Bill cancel request flow — SELECT-only RLS; flows writable by super admin
+-- Migration: 20260928100000_bill_cancel_request_flow.sql
+-- ============================================================================
+-- ---------------------------------------------------------------------------
+-- 3. RLS -- SELECT-only everywhere except flows (super admin writes). Every
+--    request/decision write goes through the RPCs below, so the history cannot
+--    be edited by whoever it incriminates.
+-- ---------------------------------------------------------------------------
+DROP POLICY IF EXISTS billing_bill_cancel_requests_select ON public.billing_bill_cancel_requests;
+CREATE POLICY billing_bill_cancel_requests_select
+  ON public.billing_bill_cancel_requests FOR SELECT TO authenticated
+  USING (
+    (SELECT is_super_admin())
+    OR requested_by = (SELECT auth.uid())
+    OR (
+      ((SELECT user_has_permission('billing.schedule.view'))
+        OR (SELECT user_has_permission('billing.schedule.cancel.request')))
+      AND role_has_institution_access(institution_id)
+    )
+    OR public.fn_is_bill_cancel_approver(institution_id)
+  );
+
+DROP POLICY IF EXISTS billing_bill_cancel_actions_select ON public.billing_bill_cancel_request_actions;
+CREATE POLICY billing_bill_cancel_actions_select
+  ON public.billing_bill_cancel_request_actions FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.billing_bill_cancel_requests r
+      WHERE r.id = billing_bill_cancel_request_actions.request_id
+        AND (
+          (SELECT is_super_admin())
+          OR r.requested_by = (SELECT auth.uid())
+          OR (
+            ((SELECT user_has_permission('billing.schedule.view'))
+              OR (SELECT user_has_permission('billing.schedule.cancel.request')))
+            AND role_has_institution_access(r.institution_id)
+          )
+          OR public.fn_is_bill_cancel_approver(r.institution_id)
+        )
+    )
+  );
+
+DROP POLICY IF EXISTS billing_bill_cancel_flows_select ON public.billing_bill_cancel_approval_flows;
+CREATE POLICY billing_bill_cancel_flows_select
+  ON public.billing_bill_cancel_approval_flows FOR SELECT TO authenticated
+  USING (
+    (SELECT is_super_admin())
+    OR (SELECT user_has_permission('billing.schedule.view'))
+    OR (SELECT user_has_permission('billing.schedule.cancel.request'))
+    OR (SELECT public.fn_is_bill_cancel_approver(NULL))
+  );
+
+DROP POLICY IF EXISTS billing_bill_cancel_flows_write ON public.billing_bill_cancel_approval_flows;
+CREATE POLICY billing_bill_cancel_flows_write
+  ON public.billing_bill_cancel_approval_flows FOR ALL TO authenticated
+  USING ((SELECT is_super_admin()))
+  WITH CHECK ((SELECT is_super_admin()));
+
+GRANT SELECT ON public.billing_bill_cancel_requests TO authenticated;
+GRANT SELECT ON public.billing_bill_cancel_request_actions TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.billing_bill_cancel_approval_flows TO authenticated;
+
+
+-- ============================================================================
+-- Updated: 2026-09-29 - Salary revisions: ask -> principal's check -> the Director's yes or no
+-- Row level security: SELECT policies only; every write is a function. Copied from supabase/migrations/20270519090000_hr_salary_revision_requests.sql,
+-- which carries the full reasoning (the Director's 16 rulings of 29 Sep 2026).
+-- ============================================================================
+-- ----------------------------------------------------------------------------
+-- 10. Row level security — SELECT only; every write is a function above
+-- ----------------------------------------------------------------------------
+ALTER TABLE public.hr_salary_revision_requests       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hr_salary_revision_comments       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hr_salary_revision_decision_notes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hr_salary_revision_outcomes       ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_salary_revision_requests_select ON public.hr_salary_revision_requests;
+CREATE POLICY hr_salary_revision_requests_select ON public.hr_salary_revision_requests
+  FOR SELECT TO authenticated
+  USING (public.fn_hr_salary_revision_can_see(staff_id, institution_id, department_id, asked_by));
+
+DROP POLICY IF EXISTS hr_salary_revision_comments_select ON public.hr_salary_revision_comments;
+CREATE POLICY hr_salary_revision_comments_select ON public.hr_salary_revision_comments
+  FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.hr_salary_revision_requests r WHERE r.id = request_id));
+
+-- RULING 14: the asker, the principal of an HOD's request, the Director.
+DROP POLICY IF EXISTS hr_salary_revision_decision_notes_select ON public.hr_salary_revision_decision_notes;
+CREATE POLICY hr_salary_revision_decision_notes_select ON public.hr_salary_revision_decision_notes
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.fn_hr_salary_revision_can_approve())
+    OR EXISTS (
+      SELECT 1 FROM public.hr_salary_revision_requests r
+       WHERE r.id = request_id
+         AND (r.asked_by = auth.uid()
+              OR (r.route = 'via_principal'
+                  AND (SELECT public.user_has_permission('hr.payroll.salary_revision.college_check'))
+                  AND r.institution_id = ANY (public.fn_my_staff_institution_ids())
+                  AND NOT (r.staff_id = ANY (public.fn_my_staff_ids())))))
+  );
+
+-- RULING 5: the person sees their own outcome — which exists only after a yes.
+DROP POLICY IF EXISTS hr_salary_revision_outcomes_select ON public.hr_salary_revision_outcomes;
+CREATE POLICY hr_salary_revision_outcomes_select ON public.hr_salary_revision_outcomes
+  FOR SELECT TO authenticated
+  USING (
+    staff_id = ANY (public.fn_my_staff_ids())
+    OR (SELECT public.fn_hr_salary_revision_can_approve())
+  );
+
+DROP POLICY IF EXISTS hr_salary_revision_requests_service_role ON public.hr_salary_revision_requests;
+CREATE POLICY hr_salary_revision_requests_service_role ON public.hr_salary_revision_requests
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS hr_salary_revision_comments_service_role ON public.hr_salary_revision_comments;
+CREATE POLICY hr_salary_revision_comments_service_role ON public.hr_salary_revision_comments
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS hr_salary_revision_decision_notes_service_role ON public.hr_salary_revision_decision_notes;
+CREATE POLICY hr_salary_revision_decision_notes_service_role ON public.hr_salary_revision_decision_notes
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS hr_salary_revision_outcomes_service_role ON public.hr_salary_revision_outcomes;
+CREATE POLICY hr_salary_revision_outcomes_service_role ON public.hr_salary_revision_outcomes
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+REVOKE ALL ON public.hr_salary_revision_requests, public.hr_salary_revision_comments,
+              public.hr_salary_revision_decision_notes, public.hr_salary_revision_outcomes
+  FROM anon, PUBLIC;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.hr_salary_revision_requests, public.hr_salary_revision_comments,
+              public.hr_salary_revision_decision_notes, public.hr_salary_revision_outcomes
+  FROM authenticated;
+GRANT SELECT ON public.hr_salary_revision_requests, public.hr_salary_revision_comments,
+               public.hr_salary_revision_decision_notes, public.hr_salary_revision_outcomes
+  TO authenticated;
+GRANT ALL ON public.hr_salary_revision_requests, public.hr_salary_revision_comments,
+            public.hr_salary_revision_decision_notes, public.hr_salary_revision_outcomes
+  TO service_role;
+
+-- ============================================================================
+-- 2026-09-30 hostel vacate: block-aware SELECT, RPC-only writes
+-- (source of truth: supabase/migrations/20260930240000_hostel_vacate_bill_gate_dynamic_checklist.sql)
+-- ============================================================================
+-- ─── 4. RLS on the vacate tables ───────────────────────────────────────────
+-- SELECT becomes block-aware (wardens own a block, not an institution).
+-- INSERT/UPDATE by staff go through the RPCs below, so the direct paths shrink
+-- to admin (+ the submitter editing their own draft).
+DROP POLICY IF EXISTS hvr_select_permission ON public.hostel_vacate_requests;
+CREATE POLICY hvr_select_permission ON public.hostel_vacate_requests FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('campus_living.vacate_requests.view'))
+        AND public.fn_cl_vacate_scope_ok(institution_id, allocation_id))
+    OR ((SELECT public.user_has_permission('campus_living.vacate_requests.view_own'))
+        AND (submitted_by_id = (SELECT auth.uid()) OR learner_id = (SELECT auth.uid())))
+  );
+
+DROP POLICY IF EXISTS hvr_insert_permission ON public.hostel_vacate_requests;
+CREATE POLICY hvr_insert_permission ON public.hostel_vacate_requests FOR INSERT TO authenticated
+  WITH CHECK ((SELECT public.is_super_admin()) OR (SELECT public.is_admin()));
+
+DROP POLICY IF EXISTS hvr_update_permission ON public.hostel_vacate_requests;
+CREATE POLICY hvr_update_permission ON public.hostel_vacate_requests FOR UPDATE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (submitted_by_id = (SELECT auth.uid()) AND status = 'draft')
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (submitted_by_id = (SELECT auth.uid()) AND status = 'draft')
+  );
+
+DROP POLICY IF EXISTS hci_select_permission ON public.hostel_clearance_items;
+CREATE POLICY hci_select_permission ON public.hostel_clearance_items FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR EXISTS (
+      SELECT 1 FROM public.hostel_vacate_requests r
+       WHERE r.id = hostel_clearance_items.vacate_request_id
+         AND (
+           ((SELECT public.user_has_permission('campus_living.vacate_requests.view'))
+             AND public.fn_cl_vacate_scope_ok(r.institution_id, r.allocation_id))
+           OR ((SELECT public.user_has_permission('campus_living.vacate_requests.view_own'))
+             AND (r.submitted_by_id = (SELECT auth.uid()) OR r.learner_id = (SELECT auth.uid())))
+         )
+    )
+  );
+
+DROP POLICY IF EXISTS hci_insert_permission ON public.hostel_clearance_items;
+CREATE POLICY hci_insert_permission ON public.hostel_clearance_items FOR INSERT TO authenticated
+  WITH CHECK ((SELECT public.is_super_admin()) OR (SELECT public.is_admin()));
+
+DROP POLICY IF EXISTS hci_update_permission ON public.hostel_clearance_items;
+CREATE POLICY hci_update_permission ON public.hostel_clearance_items FOR UPDATE TO authenticated
+  USING ((SELECT public.is_super_admin()) OR (SELECT public.is_admin()))
+  WITH CHECK ((SELECT public.is_super_admin()) OR (SELECT public.is_admin()));
+
+DROP POLICY IF EXISTS hvd_select_permission ON public.hostel_vacate_documents;
+CREATE POLICY hvd_select_permission ON public.hostel_vacate_documents FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR EXISTS (
+      SELECT 1 FROM public.hostel_vacate_requests r
+       WHERE r.id = hostel_vacate_documents.vacate_request_id
+         AND (
+           ((SELECT public.user_has_permission('campus_living.vacate_requests.view'))
+             AND public.fn_cl_vacate_scope_ok(r.institution_id, r.allocation_id))
+           OR ((SELECT public.user_has_permission('campus_living.vacate_requests.view_own'))
+             AND (r.submitted_by_id = (SELECT auth.uid()) OR r.learner_id = (SELECT auth.uid())))
+         )
+    )
+  );
+
+DROP POLICY IF EXISTS hvd_insert_permission ON public.hostel_vacate_documents;
+CREATE POLICY hvd_insert_permission ON public.hostel_vacate_documents FOR INSERT TO authenticated
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR EXISTS (
+      SELECT 1 FROM public.hostel_vacate_requests r
+       WHERE r.id = hostel_vacate_documents.vacate_request_id
+         AND r.status = 'draft'
+         AND r.submitted_by_id = (SELECT auth.uid())
+    )
+  );
+
+-- Allow deleting master vacate checklist items.
+-- Safe for requests already in flight: hostel_clearance_items keeps its own copy
+-- of label / required flag, and checklist_item_id is ON DELETE SET NULL, so a
+-- deleted master item only detaches from the history.
+DROP POLICY IF EXISTS hvci_delete ON public.hostel_vacate_checklist_items;
+CREATE POLICY hvci_delete ON public.hostel_vacate_checklist_items FOR DELETE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (SELECT public.user_has_permission('campus_living.vacate_checklist.manage'))
+  );
+
+-- ═══ 2026-10-01: vacate approval chain + room damage + fine bill (20261001100000/110000) ═══
+DROP POLICY IF EXISTS hdt_select ON public.hostel_damage_types;
+CREATE POLICY hdt_select ON public.hostel_damage_types FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (SELECT public.user_has_permission('campus_living.damage_types.manage'))
+    OR (SELECT public.user_has_permission('campus_living.vacate_requests.view'))
+  );
+
+DROP POLICY IF EXISTS hdt_insert ON public.hostel_damage_types;
+CREATE POLICY hdt_insert ON public.hostel_damage_types FOR INSERT TO authenticated
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (SELECT public.user_has_permission('campus_living.damage_types.manage'))
+  );
+
+DROP POLICY IF EXISTS hdt_update ON public.hostel_damage_types;
+CREATE POLICY hdt_update ON public.hostel_damage_types FOR UPDATE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (SELECT public.user_has_permission('campus_living.damage_types.manage'))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (SELECT public.user_has_permission('campus_living.damage_types.manage'))
+  );
+
+DROP POLICY IF EXISTS hvdm_select ON public.hostel_vacate_damages;
+CREATE POLICY hvdm_select ON public.hostel_vacate_damages FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR EXISTS (
+      SELECT 1 FROM public.hostel_vacate_requests r
+       WHERE r.id = hostel_vacate_damages.vacate_request_id
+         AND (
+           ((SELECT public.user_has_permission('campus_living.vacate_requests.view'))
+             AND public.fn_cl_vacate_scope_ok(r.institution_id, r.allocation_id))
+           OR ((SELECT public.user_has_permission('campus_living.vacate_requests.view_own'))
+             AND (r.submitted_by_id = (SELECT auth.uid()) OR r.learner_id = (SELECT auth.uid())))
+         )
+    )
+  );
+
+DROP POLICY IF EXISTS hva_select ON public.hostel_vacate_approvals;
+CREATE POLICY hva_select ON public.hostel_vacate_approvals FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR EXISTS (
+      SELECT 1 FROM public.hostel_vacate_requests r
+       WHERE r.id = hostel_vacate_approvals.vacate_request_id
+         AND (
+           ((SELECT public.user_has_permission('campus_living.vacate_requests.view'))
+             AND public.fn_cl_vacate_scope_ok(r.institution_id, r.allocation_id))
+           OR ((SELECT public.user_has_permission('campus_living.vacate_requests.view_own'))
+             AND (r.submitted_by_id = (SELECT auth.uid()) OR r.learner_id = (SELECT auth.uid())))
+         )
+    )
+  );
+

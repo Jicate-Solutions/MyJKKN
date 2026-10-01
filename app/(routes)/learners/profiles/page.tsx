@@ -27,6 +27,7 @@ import { CreateMissingProfilesButton } from './_components/create-missing-profil
 import { BulkUploadProfilesDialogEnhanced } from './_components/bulk-upload-profiles-dialog-enhanced';
 import { BulkUploadLearnerImages } from './_components/bulk-upload-learner-images';
 import { BulkEditActiveDialog } from './_components/bulk-edit-exited-dialog';
+import { IdCardDataDialog } from './_components/id-card-data-dialog';
 import { getLearnerProfiles } from './_data/get-learner-profiles';
 import { TableSkeleton } from '@/components/Loading';
 import { createClient } from '@/lib/supabase/server';
@@ -187,6 +188,7 @@ export default async function ProfilesPage({ searchParams }: ProfilesPageProps) 
                 institutionId={params.institution_id as string | undefined}
               />
               <BulkEditActiveDialog />
+              <IdCardDataDialog />
 
               <Button variant="outline" asChild>
                 <Link href="/learners/profiles/promotion">

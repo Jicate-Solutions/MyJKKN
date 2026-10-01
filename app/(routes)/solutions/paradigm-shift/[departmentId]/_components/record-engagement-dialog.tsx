@@ -5,9 +5,15 @@
  *
  * The SDGs are checkboxes, not a Select: `sdg_goals` is a multi-value column,
  * and Radix Select is single-value with a documented empty-string footgun
- * (scripts/ci/check-radix-select-empty-values.sh). The one Select on this form —
- * the optional solution link — uses an explicit sentinel for "none" rather than
- * the empty string for the same reason.
+ * (scripts/ci/check-radix-select-empty-values.sh). Both Selects on this form —
+ * the optional solution link and the optional event link — use an explicit
+ * sentinel for "none" rather than the empty string for the same reason, and the
+ * one multi-value picker (the other departments that ran the initiative) is a
+ * cmdk combobox rather than a Select at all.
+ *
+ * TWO OPTIONAL FIELDS BELONG TO A SUBSTRATE THAT SHIPS SEPARATELY — naming
+ * other departments, and linking the initiative to an event. Neither is
+ * offered unless this build can actually save it; see ./engagement-participants.
  */
 
 import { useState } from 'react';
@@ -43,6 +49,12 @@ import {
   SDG_GOALS,
   todayLocalISO,
 } from '@/lib/services/solutions/societal-service';
+import {
+  participantsSupport,
+  useAddEngagementParticipants,
+  useLinkEngagementToEvent,
+} from './engagement-participants';
+import { EngagementEventField, JointDepartmentsField, NO_EVENT } from './joint-work-fields';
 
 /** Radix Select rejects value=""; this is the "no solution linked" option. */
 const NO_SOLUTION = '__none__';
@@ -70,11 +82,23 @@ export function RecordEngagementDialog({
   const [beneficiaries, setBeneficiaries] = useState('');
   const [goals, setGoals] = useState<string[]>([]);
   const [solutionId, setSolutionId] = useState<string>(NO_SOLUTION);
+  const [jointDepartmentIds, setJointDepartmentIds] = useState<string[]>([]);
+  const [eventId, setEventId] = useState<string>(NO_EVENT);
   const [formError, setFormError] = useState<string | null>(null);
 
   const { data: solutionOptions = [], error: solutionOptionsError } =
     useDepartmentSolutionOptions(departmentId, open);
   const record = useRecordCommunityEngagement();
+  const addParticipants = useAddEngagementParticipants();
+  const linkEvent = useLinkEngagementToEvent();
+
+  // Asked of the build, not assumed of it. The substrate for joint departments
+  // and the event link ships separately, so this form must be able to say "not
+  // here yet" rather than offer a field whose value goes nowhere.
+  const support = participantsSupport();
+
+  /** One submission is in flight across all three writes, not just the first. */
+  const busy = record.isPending || addParticipants.isPending || linkEvent.isPending;
 
   const reset = () => {
     setTitle('');
@@ -84,6 +108,8 @@ export function RecordEngagementDialog({
     setBeneficiaries('');
     setGoals([]);
     setSolutionId(NO_SOLUTION);
+    setJointDepartmentIds([]);
+    setEventId(NO_EVENT);
     setFormError(null);
   };
 
@@ -129,7 +155,7 @@ export function RecordEngagementDialog({
     }
 
     try {
-      await record.mutateAsync({
+      const engagement = await record.mutateAsync({
         department_id: departmentId,
         institution_id: institutionId,
         solution_id: solutionId === NO_SOLUTION ? null : solutionId,
@@ -140,7 +166,68 @@ export function RecordEngagementDialog({
         beneficiaries_count: beneficiariesValue,
         sdg_goals: goals,
       });
-      toast.success('Recorded. It now waits for a head of department to approve it.');
+
+      /**
+       * THE ENTRY IS SAVED BY THIS POINT. The two follow-up writes can still
+       * fail on their own, and when one does the coordinator must not be told
+       * "recorded" and left believing three departments were named. The dialog
+       * closes either way — re-submitting the same form would create a second
+       * copy of the initiative, which is exactly the double-counting this
+       * feature exists to stop — and the message says precisely which half
+       * landed and which did not.
+       */
+      const partialFailures: string[] = [];
+      // What the database actually created, never what the form asked for. A
+      // department already on the initiative is returned as `alreadyNamed`, not
+      // as `added`, and announcing the ask would let "all three were already
+      // named, nothing happened" read as "three departments named".
+      let namedCount = 0;
+
+      if (jointDepartmentIds.length > 0 && support.canAdd) {
+        try {
+          const outcome = await addParticipants.mutateAsync({
+            engagementId: engagement.id,
+            departmentIds: jointDepartmentIds,
+          });
+          namedCount = outcome?.added?.length ?? 0;
+        } catch (err: unknown) {
+          partialFailures.push(
+            `the other departments were not named (${
+              err instanceof Error ? err.message : 'the write was refused'
+            })`
+          );
+        }
+      }
+
+      if (eventId !== NO_EVENT && support.canLinkEvent) {
+        try {
+          await linkEvent.mutateAsync({ engagementId: engagement.id, eventId });
+        } catch (err: unknown) {
+          partialFailures.push(
+            `the event was not linked (${
+              err instanceof Error ? err.message : 'the write was refused'
+            })`
+          );
+        }
+      }
+
+      if (partialFailures.length > 0) {
+        toast.error(
+          `The entry was saved, but ${partialFailures.join(' and ')}. Do not record it again — ` +
+            'open the entry and add what is missing, or ask an administrator.',
+          { duration: 15000 }
+        );
+      } else if (namedCount > 0) {
+        toast.success(
+          `Recorded, and ${namedCount} other department${
+            namedCount === 1 ? '' : 's'
+          } named. Each one confirms its own part; until it does, it counts towards nobody. ` +
+            'The entry itself still waits for a head of department to approve it.'
+        );
+      } else {
+        toast.success('Recorded. It now waits for a head of department to approve it.');
+      }
+
       close(false);
     } catch (err: unknown) {
       // Rule 27: the database's refusal is shown, never swallowed into a
@@ -256,6 +343,21 @@ export function RecordEngagementDialog({
             )}
           </div>
 
+          <JointDepartmentsField
+            recordingDepartmentId={departmentId}
+            selectedDepartmentIds={jointDepartmentIds}
+            onChange={setJointDepartmentIds}
+            disabled={busy}
+            supported={support.canAdd}
+          />
+
+          <EngagementEventField
+            value={eventId}
+            onChange={setEventId}
+            disabled={busy}
+            supported={support.canLinkEvent}
+          />
+
           <div className="space-y-2">
             <Label>Sustainable Development Goals addressed (optional)</Label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-56 overflow-y-auto rounded-md border border-border p-3">
@@ -292,11 +394,11 @@ export function RecordEngagementDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => close(false)} disabled={record.isPending}>
+          <Button variant="outline" onClick={() => close(false)} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={record.isPending}>
-            {record.isPending ? 'Submitting…' : 'Submit for approval'}
+          <Button onClick={handleSubmit} disabled={busy}>
+            {busy ? 'Submitting…' : 'Submit for approval'}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -3,7 +3,15 @@
 // CaseFormBuilder — the canonical visual editor for a clinical_case.
 // Used by both /pde/faculty/cases/new and /pde/faculty/cases/[id]/edit.
 //
-// Tabs: Patient Details · Questions · Domain Weights · Metadata
+// Tabs: Patient Details · Stages · Questions · Domain Weights · Metadata
+//
+// STAGES ARE OPTIONAL. Add none and the case is flat — one patient scenario and
+// a list of questions, exactly as clinical cases worked before stages existed,
+// and exactly how every case authored to date still works.
+//
+// Add stages and the case becomes a progressive vignette: each stage carries
+// its own clinical narrative and figure, every question is assigned to a stage,
+// and a learner must pass each stage before the next opens.
 
 import { useRef, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -20,10 +28,21 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Plus, AlertTriangle, CheckCircle2, Upload, Loader2 } from 'lucide-react';
+import {
+  Plus,
+  AlertTriangle,
+  CheckCircle2,
+  Upload,
+  Loader2,
+  ChevronUp,
+  ChevronDown,
+  Trash2,
+} from 'lucide-react';
 import { stripImageMetadata } from '@/lib/services/pde/strip-image-metadata';
+import { validateClinicalQuestion } from '@/lib/services/pde/clinical-question-validation';
 import type {
   CreateClinicalCaseInput,
+  CreateClinicalCaseStageInput,
   CreateClinicalQuestionInput,
   ClinicalCaseScenario,
   DomainWeights,
@@ -127,7 +146,10 @@ export function CaseFormBuilder({
       ? initialValue.questions
       : [NEW_QUESTION(0)]
   );
-  const [tab, setTab] = useState<'patient' | 'questions' | 'weights' | 'metadata'>(
+  const [stages, setStages] = useState<CreateClinicalCaseStageInput[]>(
+    initialValue?.stages ?? []
+  );
+  const [tab, setTab] = useState<'patient' | 'stages' | 'questions' | 'weights' | 'metadata'>(
     'patient'
   );
   const [error, setError] = useState<string | null>(null);
@@ -188,6 +210,49 @@ export function CaseFormBuilder({
   const updateQuestion = (i: number, next: CreateClinicalQuestionInput) =>
     setQuestions((qs) => qs.map((q, idx) => (idx === i ? next : q)));
 
+  // ── Stages ────────────────────────────────────────────────────────────────
+  // A question points at its stage by INDEX, so reordering or deleting a stage
+  // has to re-point the questions in the same breath. Getting this wrong would
+  // silently move a question into the wrong stage — and in a staged case the
+  // wrong stage can be one that states the answer.
+
+  const addStage = () =>
+    setStages((ss) => [
+      ...ss,
+      { title: `Stage ${ss.length + 1}`, scenario_text: '', image_url: null, order_index: ss.length + 1 },
+    ]);
+
+  const updateStage = (i: number, patch: Partial<CreateClinicalCaseStageInput>) =>
+    setStages((ss) => ss.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
+
+  const removeStage = (i: number) => {
+    setStages((ss) => ss.filter((_s, idx) => idx !== i).map((s, idx) => ({ ...s, order_index: idx + 1 })));
+    setQuestions((qs) =>
+      qs.map((q) => {
+        if (typeof q.stage_index !== 'number') return q;
+        if (q.stage_index === i) return { ...q, stage_index: null }; // orphaned — validate() catches it
+        return q.stage_index > i ? { ...q, stage_index: q.stage_index - 1 } : q;
+      })
+    );
+  };
+
+  const moveStage = (i: number, delta: -1 | 1) => {
+    const target = i + delta;
+    if (target < 0 || target >= stages.length) return;
+    setStages((ss) => {
+      const next = [...ss];
+      [next[i], next[target]] = [next[target], next[i]];
+      return next.map((s, idx) => ({ ...s, order_index: idx + 1 }));
+    });
+    setQuestions((qs) =>
+      qs.map((q) => {
+        if (q.stage_index === i) return { ...q, stage_index: target };
+        if (q.stage_index === target) return { ...q, stage_index: i };
+        return q;
+      })
+    );
+  };
+
   const moveQuestion = (i: number, delta: -1 | 1) => {
     setQuestions((qs) => {
       const target = i + delta;
@@ -210,10 +275,28 @@ export function CaseFormBuilder({
     if (!scenario.hopi) return 'History of presenting illness (HOPI) is required.';
     if (!weightsValid) return `Domain weights must sum to 100 (currently ${weightsSum.toFixed(1)}).`;
     if (questions.length === 0) return 'At least one question is required.';
+    for (let i = 0; i < stages.length; i++) {
+      if (!stages[i].title.trim()) return `Stage ${i + 1}: a title is required.`;
+      if (!(stages[i].scenario_text || '').trim()) {
+        return `Stage ${i + 1}: this stage needs its own clinical scenario text.`;
+      }
+      if (!questions.some((q) => q.stage_index === i)) {
+        return `Stage ${i + 1} has no questions. A learner cannot pass a stage with nothing to answer.`;
+      }
+    }
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
       if (!q.question_text.trim()) return `Q${i + 1}: question text is required.`;
       if (!q.metadata.ground_truth.trim()) return `Q${i + 1}: ground truth is required.`;
+      if (stages.length > 0) {
+        if (
+          typeof q.stage_index !== 'number' ||
+          q.stage_index < 0 ||
+          q.stage_index >= stages.length
+        ) {
+          return `Q${i + 1}: choose which stage this question belongs to.`;
+        }
+      }
       if (q.question_type === 'mcq_warmup') {
         if (!q.options || q.options.length < 2) return `Q${i + 1}: MCQ requires at least 2 options.`;
         if (!q.options.some((o) => o.is_correct)) return `Q${i + 1}: mark one option as correct.`;
@@ -224,6 +307,11 @@ export function CaseFormBuilder({
           return `Q${i + 1}: draw at least one region on the image.`;
         }
       }
+      // The three progressive-vignette formats are checked by the same function
+      // the API uses, so the editor and the server cannot drift apart on what
+      // counts as a well-formed answer key.
+      const fmtErr = validateClinicalQuestion(q, `Q${i + 1}`);
+      if (fmtErr) return fmtErr;
     }
     return null;
   };
@@ -247,6 +335,7 @@ export function CaseFormBuilder({
       time_limit_minutes: timeLimit ?? undefined,
       pass_threshold: passThreshold,
       questions,
+      stages,
     });
   };
 
@@ -266,8 +355,11 @@ export function CaseFormBuilder({
       <Card>
         <CardContent className="p-4">
           <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
-            <TabsList className="flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-4 sm:gap-0 sm:overflow-visible mb-4">
+            <TabsList className="flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-5 sm:gap-0 sm:overflow-visible mb-4">
               <TabsTrigger value="patient">Patient Details</TabsTrigger>
+              <TabsTrigger value="stages">
+                Stages {stages.length > 0 ? `(${stages.length})` : ''}
+              </TabsTrigger>
               <TabsTrigger value="questions">Questions ({questions.length})</TabsTrigger>
               <TabsTrigger value="weights">
                 Weights {weightsValid ? '✓' : '⚠'}
@@ -543,6 +635,101 @@ export function CaseFormBuilder({
               </div>
             </TabsContent>
 
+            {/* Stages */}
+            <TabsContent value="stages" className="space-y-3">
+              <Alert>
+                <AlertDescription className="text-xs">
+                  Stages are optional. With none, this case is a single scenario followed by
+                  its questions — how clinical cases have always worked. Add stages to build a
+                  progressive vignette: each stage gets its own scenario text and figure, and a
+                  learner must pass one stage before the next opens. Use that when a later
+                  stage states a finding the earlier one asks about.
+                </AlertDescription>
+              </Alert>
+
+              {stages.map((s, i) => (
+                <div key={i} className="border rounded-md p-4 bg-card space-y-3">
+                  <div className="flex justify-between items-center gap-3">
+                    <p className="text-sm font-medium">Stage {i + 1}</p>
+                    <div className="flex gap-1">
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        aria-label={`Move stage ${i + 1} earlier`}
+                        disabled={i === 0}
+                        onClick={() => moveStage(i, -1)}
+                      >
+                        <ChevronUp className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        aria-label={`Move stage ${i + 1} later`}
+                        disabled={i === stages.length - 1}
+                        onClick={() => moveStage(i, 1)}
+                      >
+                        <ChevronDown className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        aria-label={`Remove stage ${i + 1}`}
+                        onClick={() => removeStage(i)}
+                        className="text-red-600 hover:text-red-700"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label className="text-xs">Stage title</Label>
+                    <Input
+                      value={s.title}
+                      onChange={(e) => updateStage(i, { title: e.target.value })}
+                      placeholder="e.g. Clinical presentation"
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Learners see this title only once the stage opens, so it is safe for it to
+                      name the finding.
+                    </p>
+                  </div>
+
+                  <div>
+                    <Label className="text-xs">Clinical scenario for this stage</Label>
+                    <Textarea
+                      rows={4}
+                      value={s.scenario_text || ''}
+                      onChange={(e) => updateStage(i, { scenario_text: e.target.value })}
+                      placeholder="e.g. A punch biopsy is performed from the perilesional mucosa. Tzanck smear preparation reveals acantholytic cells."
+                    />
+                  </div>
+
+                  <div>
+                    <Label className="text-xs">Figure for this stage (image URL, optional)</Label>
+                    <Input
+                      value={s.image_url || ''}
+                      onChange={(e) => updateStage(i, { image_url: e.target.value || null })}
+                      placeholder="https://… — copy a confirmed image URL from Patient Details"
+                    />
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    {questions.filter((q) => q.stage_index === i).length} question(s) in this
+                    stage. Assign questions on the Questions tab.
+                  </p>
+                </div>
+              ))}
+
+              <Button variant="outline" onClick={addStage} className="w-full">
+                <Plus className="mr-2 h-4 w-4" />
+                {stages.length === 0 ? 'Turn this into a staged case' : 'Add another stage'}
+              </Button>
+            </TabsContent>
+
             {/* Questions */}
             <TabsContent value="questions" className="space-y-3">
               {questions.map((q, i) => (
@@ -554,6 +741,7 @@ export function CaseFormBuilder({
                   onChange={(next) => updateQuestion(i, next)}
                   onRemove={() => removeQuestion(i)}
                   onMove={(delta) => moveQuestion(i, delta)}
+                  stageTitles={stages.map((s) => s.title)}
                 />
               ))}
               <Button variant="outline" onClick={addQuestion} className="w-full">

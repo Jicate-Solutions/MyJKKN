@@ -44,6 +44,10 @@ export interface SaveWeekParams {
   institutionId: string;
   staffScope: ShiftStaffScope;
   employmentCategoryId?: string | null;
+  /** Non-null iff staffScope === 'role' — a custom_roles.role_key. */
+  roleKey?: string | null;
+  /** Non-null iff staffScope === 'staff'. The RPC forces gender to 'all'. */
+  staffId?: string | null;
   /** Defaults to 'all'. A Female save never touches the Everyone week. */
   applicableGender?: ShiftApplicableGender;
   /** ISO date. Today (or earlier) corrects in place; a future date supersedes. */
@@ -55,6 +59,11 @@ export interface SaveWeekParams {
 export interface ShiftTimingOverrideSummary {
   staff_scope: ShiftStaffScope;
   employment_category_id: string | null;
+  role_key: string | null;
+  staff_id: string | null;
+  /** The person's name and code for a 'staff' row; null otherwise. */
+  person_name: string | null;
+  person_code: string | null;
   applicable_gender: ShiftApplicableGender;
   /** From the first working day of the week — see listOverrides. */
   first_half_start: string | null;
@@ -67,6 +76,10 @@ export interface EndOverrideParams {
   institutionId: string;
   staffScope: ShiftStaffScope;
   employmentCategoryId?: string | null;
+  /** Non-null iff staffScope === 'role' — a custom_roles.role_key. */
+  roleKey?: string | null;
+  /** Non-null iff staffScope === 'staff'. The RPC forces gender to 'all'. */
+  staffId?: string | null;
   applicableGender: ShiftApplicableGender;
   /** Defaults to today. Exclusive: the override stops applying ON this date. */
   on?: string;
@@ -76,6 +89,10 @@ export interface GetWeekParams {
   institutionId: string;
   staffScope: ShiftStaffScope;
   employmentCategoryId?: string | null;
+  /** Non-null iff staffScope === 'role' — a custom_roles.role_key. */
+  roleKey?: string | null;
+  /** Non-null iff staffScope === 'staff'. The RPC forces gender to 'all'. */
+  staffId?: string | null;
   /** Defaults to 'all'. Must reach the React Query key — see ShiftTimingFilters. */
   applicableGender?: ShiftApplicableGender;
   /** ISO date. Defaults to today. */
@@ -156,6 +173,15 @@ export class ShiftTimingService {
     query = params.employmentCategoryId
       ? query.eq('employment_category_id', params.employmentCategoryId)
       : query.is('employment_category_id', null);
+    // The two discriminators added on 2026-09-21 get the same treatment: omit
+    // either and a role week and a person week for the same institution would
+    // hydrate on top of each other.
+    query = params.roleKey
+      ? query.eq('role_key', params.roleKey)
+      : query.is('role_key', null);
+    query = params.staffId
+      ? query.eq('staff_id', params.staffId)
+      : query.is('staff_id', null);
 
     const { data, error } = await query;
     if (error) throw error;
@@ -209,9 +235,11 @@ export class ShiftTimingService {
     asOf?: string,
   ): Promise<ShiftTimingOverrideSummary[]> {
     const on = asOf ?? today();
+    // The person embed names an Individual override in the list; PostgREST
+    // cannot type an aliased embed, hence the cast below.
     const { data, error } = await supabase
       .from('hr_shift_timings')
-      .select('*')
+      .select('*, person:staff_id ( first_name, last_name, staff_id )')
       .eq('institution_id', institutionId)
       .eq('is_active', true)
       .lte('effective_from', on)
@@ -220,14 +248,25 @@ export class ShiftTimingService {
 
     if (error) throw error;
 
-    const byKey = new Map<string, HRShiftTiming[]>();
-    for (const row of (data ?? []) as HRShiftTiming[]) {
+    type PersonEmbed = { first_name?: string | null; last_name?: string | null; staff_id?: string | null };
+    type RowWithPerson = HRShiftTiming & { person?: PersonEmbed | PersonEmbed[] | null };
+
+    const byKey = new Map<string, RowWithPerson[]>();
+    for (const row of (data ?? []) as unknown as RowWithPerson[]) {
       // The GENERAL weeks are not overrides — they are what an override
       // overrides. Excluded here so the list only shows things that can be
-      // added and removed.
-      const isGeneral = row.staff_scope !== 'category' && row.applicable_gender === 'all';
+      // added and removed. Role and person rows are always overrides.
+      const isGeneral =
+        (row.staff_scope === 'teaching' || row.staff_scope === 'non_teaching') &&
+        row.applicable_gender === 'all';
       if (isGeneral) continue;
-      const key = `${row.staff_scope}|${row.employment_category_id ?? ''}|${row.applicable_gender}`;
+      const key = [
+        row.staff_scope,
+        row.employment_category_id ?? '',
+        row.role_key ?? '',
+        row.staff_id ?? '',
+        row.applicable_gender,
+      ].join('|');
       const bucket = byKey.get(key);
       if (bucket) bucket.push(row);
       else byKey.set(key, [row]);
@@ -236,9 +275,18 @@ export class ShiftTimingService {
     return [...byKey.values()].map((rows) => {
       const first = rows[0];
       const working = rows.filter((r) => r.is_working_day);
+      // An embed arrives as an object or a one-element array depending on the
+      // relationship PostgREST inferred; normalise both.
+      const person = Array.isArray(first.person) ? first.person[0] : first.person;
       return {
         staff_scope: first.staff_scope,
         employment_category_id: first.employment_category_id,
+        role_key: first.role_key ?? null,
+        staff_id: first.staff_id ?? null,
+        person_name: person
+          ? [person.first_name, person.last_name].filter(Boolean).join(' ').trim() || null
+          : null,
+        person_code: person?.staff_id ?? null,
         applicable_gender: first.applicable_gender,
         // The window shown in the list. Taken from the first working day rather
         // than asserted to be uniform: a week may legitimately differ on
@@ -268,6 +316,8 @@ export class ShiftTimingService {
       p_staff_scope: params.staffScope,
       p_employment_category_id: params.employmentCategoryId ?? null,
       p_applicable_gender: params.applicableGender,
+      p_role_key: params.roleKey ?? null,
+      p_staff_id: params.staffId ?? null,
       ...(params.on ? { p_on: params.on } : {}),
     });
     if (error) throw error;
@@ -310,6 +360,8 @@ export class ShiftTimingService {
       p_effective_from: params.effectiveFrom,
       p_days: payload,
       p_applicable_gender: params.applicableGender ?? 'all',
+      p_role_key: params.roleKey ?? null,
+      p_staff_id: params.staffId ?? null,
     });
 
     if (error) throw error;

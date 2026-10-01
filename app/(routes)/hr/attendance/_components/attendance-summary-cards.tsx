@@ -12,7 +12,9 @@
  * undifferentiated "Leave", and nothing added up to a total.
  *
  * The primary row is an equation, left to right:
- *   Working Days ← Present + Paid Leave (+ holiday) ... minus LOP → Total Paid.
+ *   Business Working Days ← Present + Paid Leave ... minus LOP → Total Paid.
+ * Business working days = calendar days − week offs − holidays, and a holiday
+ * is neither counted nor paid — the salary register's unit (HR, 2026-09-22).
  * The secondary row keeps the raw counts for anyone reconciling a day.
  *
  * RED MEANS ONE THING. Only LOP is tinted, and only when it is non-zero, so a
@@ -77,6 +79,15 @@ function Card({
   );
 }
 
+/** "5 week off, 3 holidays excluded" — only the parts that are non-zero. */
+function excludedHint(weeklyOff: number, holiday: number): string | undefined {
+  const parts = [
+    weeklyOff > 0 ? `${weeklyOff} week off` : null,
+    holiday > 0 ? `${holiday} holiday${holiday === 1 ? '' : 's'}` : null,
+  ].filter(Boolean);
+  return parts.length > 0 ? `${parts.join(', ')} excluded` : undefined;
+}
+
 export function AttendanceSummaryCards({
   summary,
   closed,
@@ -98,14 +109,19 @@ export function AttendanceSummaryCards({
         )}
       >
         <Card
-          label="Working days"
+          label="Business working days"
           value={d(summary.workingDays)}
-          hint={summary.weeklyOff > 0 ? `${summary.weeklyOff} week off excluded` : undefined}
+          hint={excludedHint(summary.weeklyOff, summary.holiday)}
           closed={closed}
         />
         <Card label="Present" value={d(summary.present)} closed={closed} />
 
-        <Card label="Paid leave" value={d(summary.paidLeaveTotal)} closed={closed}>
+        <Card
+          label="Paid leave"
+          value={d(summary.paidLeaveTotal)}
+          hint="all paid leave types"
+          closed={closed}
+        >
           {summary.paidLeaveByType.length > 0 && (
             <p className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
               {summary.paidLeaveByType.map((b) => (
@@ -153,8 +169,8 @@ export function AttendanceSummaryCards({
         {closed && <span className="font-medium text-foreground">This month is closed. </span>}
         {d(summary.totalPaid)} paid + {d(summary.lop)} loss of pay
         {summary.pending > 0 ? ` + ${d(summary.pending)} not processed` : ''} ={' '}
-        {d(summary.totalPaid + summary.lop + summary.pending)} of {d(summary.workingDays)} working
-        days.
+        {d(summary.totalPaid + summary.lop + summary.pending)} of {d(summary.workingDays)} business
+        working days.
       </p>
     </div>
   );

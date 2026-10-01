@@ -49,31 +49,17 @@ import {
   validatePeople,
 } from '@/components/events/shared/event-people-fields';
 import { useUpdateGeneralEvent } from '@/hooks/events/use-general-events';
+import { isoToIstLocalInput, istLocalInputToIso } from '@/lib/utils/date-format';
 import { useEventAcademicTypes } from '@/hooks/events/use-event-academic-types';
 
 /** ISO timestamp / date string → yyyy-MM-dd for <input type="date">. */
 const toDateInput = (v: string | null | undefined) => (v ? v.slice(0, 10) : '');
 
-/** timestamptz → value for <input type="datetime-local"> in local wall time. */
-function toLocalInput(iso: string | null | undefined): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-/**
- * datetime-local → ISO. `new Date('2026-01-05T09:00')` parses as LOCAL time —
- * what the organizer typed — and toISOString converts to UTC for storage.
- * Sending the raw string would hand Postgres a naive timestamp and shift it by
- * the timezone offset (a 5:30h drift in this deployment).
- */
-function toIso(local: string): string | undefined {
-  if (!local.trim()) return undefined;
-  const d = new Date(local);
-  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
-}
+// datetime-local ⇄ ISO, both pinned to IST (lib/utils/date-format.ts): the
+// organizer's typed time is India time whatever their browser's zone, and the
+// value shown back is the same wall-clock time.
+const toLocalInput = (iso: string | null | undefined) => isoToIstLocalInput(iso);
+const toIso = (local: string): string | undefined => istLocalInputToIso(local) ?? undefined;
 
 /** '' → undefined so an untouched optional field is omitted, not blanked. */
 const orUndef = (v: string) => (v.trim() ? v.trim() : undefined);
@@ -380,6 +366,17 @@ function EditGeneralEventForm({ event, onClose }: { event: Event; onClose: () =>
 
         {/* ── Where ── */}
         <div className="grid grid-cols-1 gap-4 border-t pt-4 sm:grid-cols-2">
+          {/* On-campus room lives in venue_resource_id (held via Resource
+              Management) — shown read-only; changing it needs a new hold. */}
+          {event.venue_resource_id && (
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label>Booked room</Label>
+              <Input value={event.venue_resource?.name ?? 'Room booked'} disabled />
+              <p className="text-xs text-muted-foreground">
+                To change the room, update the booking in Resource Management.
+              </p>
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="ge-venue">Venue</Label>
             <Input

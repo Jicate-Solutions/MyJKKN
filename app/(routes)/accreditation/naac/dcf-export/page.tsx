@@ -152,7 +152,11 @@ function useEvidenceCountsByMetric(institutionId: string | 'cluster') {
 }
 
 export default function NAACDCFExportPage() {
-  const { isSuperAdmin, isLoading: permsLoading } = usePermissions();
+  const { isSuperAdmin, can, isLoading: permsLoading } = usePermissions();
+  // The catalog key accreditation.naac.dcf_export exists for exactly this page;
+  // gating on isSuperAdmin alone refused every role that holds it (ceo,
+  // managing_director).
+  const canExport = isSuperAdmin || can('accreditation.naac.dcf_export');
 
   const [institutionId, setInstitutionId] = useState<string>('');
   const [submissionType, setSubmissionType] =
@@ -177,7 +181,7 @@ export default function NAACDCFExportPage() {
     );
   }
 
-  if (!isSuperAdmin) {
+  if (!canExport) {
     return (
       <ContentLayout title="NAAC DCF / AQAR Export">
         <PageBreadcrumb
@@ -190,10 +194,11 @@ export default function NAACDCFExportPage() {
         />
         <Alert variant="destructive">
           <ShieldAlert className="h-4 w-4" />
-          <AlertTitle>Super-admin access required</AlertTitle>
+          <AlertTitle>Export permission required</AlertTitle>
           <AlertDescription>
-            NAAC DCF 2025 / AQAR submission exports are gated to super-admins.
-            Ask the Director's office or IQAC Chairman to run this export.
+            NAAC DCF 2025 / AQAR submission exports need the
+            accreditation.naac.dcf_export permission. Ask the Director's office
+            or IQAC Chairman to run this export.
           </AlertDescription>
         </Alert>
       </ContentLayout>

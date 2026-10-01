@@ -26,6 +26,12 @@ const NO_STORE = { 'Cache-Control': 'private, no-store' } as const;
 const str = (v: unknown): string | null =>
   typeof v === 'string' && v.trim() ? v.trim() : null;
 
+/** How the feature is judged: every week, or once a term for a seasonal one
+ *  like a timetable. Weekly is the default, and the database accepts nothing
+ *  else — so a third word is refused HERE with a sentence a person can read,
+ *  rather than reaching the RPC as a constraint violation. */
+const CADENCES = new Set(['weekly', 'term', 'event']);
+
 export async function POST(request: Request) {
   await connection();
 
@@ -68,6 +74,22 @@ export async function POST(request: Request) {
     );
   }
 
+  // Absent means weekly: every feature labelled before cadence existed is
+  // judged by the week, and leaving the field off must not change that.
+  const cadence =
+    body?.cadence === undefined || body?.cadence === null
+      ? 'weekly'
+      : typeof body.cadence === 'string'
+        ? body.cadence.trim()
+        : '';
+
+  if (!CADENCES.has(cadence)) {
+    return NextResponse.json(
+      { error: 'Cadence must be weekly or term.' },
+      { status: 400, headers: NO_STORE }
+    );
+  }
+
   // Roles default to 'all' — every signed-in person — which is what the RPC
   // defaults to as well. An empty array would mean the same thing to the
   // metrics query, but sending the explicit default keeps the stored label
@@ -92,6 +114,11 @@ export async function POST(request: Request) {
     p_module: typeof body?.module === 'string' && body.module.trim() ? body.module.trim() : null,
     p_source_pr: sourcePr,
     p_shipped_at: typeof body?.shipped_at === 'string' && body.shipped_at ? body.shipped_at : null,
+    p_cadence: cadence,
+    // A reason = "labelled, but deliberately not measured". Null clears an
+    // earlier skip and puts the feature back into the numbers, which is why an
+    // empty box must send null rather than an empty string.
+    p_skip_reason: str(body?.skip_reason),
     // Where usage comes from: a route calling fn_feature_used (usage_wired) and/or
     // the existing usage log (module [+ feature] [+ event type]). Neither given =
     // labelled but not measured, never judged dead.

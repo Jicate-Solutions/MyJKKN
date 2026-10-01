@@ -112,7 +112,7 @@ const formatDay = (value: string | null) => {
   const d = new Date(value);
   return Number.isNaN(d.getTime())
     ? null
-    : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
 };
 
 const cleanText = (value: unknown): string | null => {

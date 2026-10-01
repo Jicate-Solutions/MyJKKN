@@ -154,7 +154,6 @@ export function EditJobForm({ job }: { job: HRRecruitmentJob }) {
   const [status, setStatus] = useState<JobStatus>(job.status);
   const [positionsOpen, setPositionsOpen] = useState(job.positions_open ?? 1);
   const [positionsFilled, setPositionsFilled] = useState(job.positions_filled ?? 0);
-  const [isPublic, setIsPublic] = useState(job.is_public ?? false);
 
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -242,7 +241,6 @@ export function EditJobForm({ job }: { job: HRRecruitmentJob }) {
           positions_open: positionsOpen,
           positions_filled: positionsFilled,
           status,
-          is_public: isPublic,
         },
       });
       toast.success('Job posting updated');
@@ -259,7 +257,7 @@ export function EditJobForm({ job }: { job: HRRecruitmentJob }) {
     country, locationState, city, zipCode, educationLevel,
     minExpYears, maxExpYears, minSalary, maxSalary, salaryCurrency,
     salaryDuration, displaySalary, description, qualifications, skills,
-    departmentId, positionsOpen, positionsFilled, status, isPublic,
+    departmentId, positionsOpen, positionsFilled, status,
     updateJob, job.id, router, scrollToSection,
   ]);
 
@@ -383,14 +381,6 @@ export function EditJobForm({ job }: { job: HRRecruitmentJob }) {
                 />
               </div>
 
-              <div className="flex items-center justify-between">
-                <Label className="text-xs text-muted-foreground">Public on /careers</Label>
-                <Switch
-                  checked={isPublic}
-                  onCheckedChange={setIsPublic}
-                  aria-label="Public on careers page"
-                />
-              </div>
             </div>
           </div>
         </aside>
@@ -935,16 +925,6 @@ export function EditJobForm({ job }: { job: HRRecruitmentJob }) {
                         Math.min(positionsOpen, Math.max(0, parseInt(e.target.value) || 0))
                       )
                     }
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sm">Public on /careers</Label>
-                <div className="flex items-center h-10">
-                  <Switch
-                    checked={isPublic}
-                    onCheckedChange={setIsPublic}
-                    aria-label="Public on careers page"
                   />
                 </div>
               </div>

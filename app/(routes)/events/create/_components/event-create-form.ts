@@ -16,6 +16,8 @@
 // real rules (local time → UTC, '' → undefined, scope → visibility, the venue
 // CHECK) and the only part worth testing without a browser.
 
+import { istLocalInputToIso } from '@/lib/utils/date-format';
+import type { EventSourceLink } from './event-sources';
 import type {
   CreateEventDto,
   EventCategory,
@@ -49,15 +51,15 @@ export { emptyChiefGuestDraft } from '@/components/events/shared/event-people-fi
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
- * datetime-local → ISO. `new Date('2026-01-05T09:00')` parses as LOCAL time —
- * what the organizer typed — and toISOString converts to UTC for storage.
+ * datetime-local → ISO, read as IST. Event times are institutional: "09:00"
+ * means 09:00 in India whichever zone the organizer's laptop is set to. The
+ * earlier `new Date(local)` read the string in the BROWSER's zone, so the same
+ * typed value stored a different instant on a UTC-configured machine.
  * Sending the raw string would hand Postgres a naive timestamp and shift it by
  * the timezone offset (a 5:30h drift in this deployment).
  */
 export function toIso(local: string): string | undefined {
-  if (!local.trim()) return undefined;
-  const d = new Date(local);
-  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+  return istLocalInputToIso(local) ?? undefined;
 }
 
 /** '' → undefined so an untouched optional field is omitted, not written blank. */
@@ -129,6 +131,12 @@ export function emptyCategoryDraft(): EventCategoryDraft {
 export interface EventCreateForm {
   // Basics
   name: string;
+  /**
+   * Co-host institutions, alongside the primary host (`institution_id`). The
+   * primary host still owns fees and room approvals; co-hosts are recorded in
+   * `events.config.co_hosts` with their names so no lookup is needed to label them.
+   */
+  co_hosts: { id: string; name: string }[];
   tagline: string;
   theme: string;
   description: string;
@@ -168,6 +176,7 @@ export interface EventCreateForm {
 export function emptyEventCreateForm(): EventCreateForm {
   return {
     name: '',
+    co_hosts: [],
     tagline: '',
     theme: '',
     description: '',
@@ -244,6 +253,8 @@ export interface BuildEventDtoInput {
   endIso?: string;
   offCampus: boolean;
   venueResourceId: string;
+  /** Record this event was created from (event-sources.ts) → config.source. */
+  source?: EventSourceLink | null;
 }
 
 /**
@@ -267,6 +278,7 @@ export function buildCreateEventDto(input: BuildEventDtoInput): CreateEventDto {
     endIso,
     offCampus,
     venueResourceId,
+    source,
   } = input;
 
   const venueFields: Partial<CreateEventDto> = offCampus
@@ -317,6 +329,11 @@ export function buildCreateEventDto(input: BuildEventDtoInput): CreateEventDto {
       // can surface this event. No schema change — `events.config` already exists.
       home,
       format,
+      // Co-host institutions. The primary host is filtered out in case the
+      // organizer switched the primary to one they had already ticked.
+      ...(form.co_hosts.some((h) => h.id !== institutionId)
+        ? { co_hosts: form.co_hosts.filter((h) => h.id !== institutionId) }
+        : {}),
       // Which Event Logistics tabs this event uses. An EMPTY selection is
       // omitted, not written as [], because EventLogistics reads "no key" as
       // "show everything" — writing [] would mean "show nothing".
@@ -346,6 +363,7 @@ export function buildCreateEventDto(input: BuildEventDtoInput): CreateEventDto {
             rules: preset.config.rules,
           }
         : {}),
+      ...(source ? { source } : {}),
     },
   };
 }
@@ -402,6 +420,29 @@ export type FormTabKey =
   | 'registration'
   | 'categories'
   | 'evidence';
+
+/** Detail tabs in the order the organizer walks them with "Save & Next". */
+export const FORM_TAB_ORDER: FormTabKey[] = [
+  'basics',
+  'schedule',
+  'venue',
+  'people',
+  'registration',
+  'categories',
+  'evidence',
+];
+
+/** The tab after `key`, or null on the last one (where "Create event" lives). */
+export function nextFormTab(key: FormTabKey): FormTabKey | null {
+  const i = FORM_TAB_ORDER.indexOf(key);
+  return i >= 0 && i < FORM_TAB_ORDER.length - 1 ? FORM_TAB_ORDER[i + 1] : null;
+}
+
+/** The tab before `key`, or null on the first one (where Back leaves the step). */
+export function prevFormTab(key: FormTabKey): FormTabKey | null {
+  const i = FORM_TAB_ORDER.indexOf(key);
+  return i > 0 ? FORM_TAB_ORDER[i - 1] : null;
+}
 
 export function validateEventForm(form: EventCreateForm): Partial<Record<FormTabKey, string>> {
   const errors: Partial<Record<FormTabKey, string>> = {};

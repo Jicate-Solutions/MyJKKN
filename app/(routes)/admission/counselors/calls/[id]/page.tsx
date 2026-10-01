@@ -343,7 +343,7 @@ function IntelligenceCard({ callId }: { callId: string }) {
             <AlertCircle className="h-4 w-4" />
             <span>
               {intel?.analyze_status === 'failed'
-                ? 'Analysis failed for this recording.'
+                ? 'This recording was not analysed.'
                 : 'No analysis available for this call.'}
             </span>
           </div>

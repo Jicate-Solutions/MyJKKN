@@ -24,6 +24,7 @@ import { TimetableFiltersClient } from './_components/timetable-filters-client';
 import { SuperAdminControlsClient } from './_components/super-admin-controls-client';
 import { timetablesSearchParamsSchema } from './_components/data-table-schema';
 import { getTimetables } from './_data/get-timetables';
+import { resolveTimetableListScope } from './_data/list-scope';
 import { TableSkeleton } from '@/components/Loading';
 import { createClient } from '@/lib/supabase/server';
 
@@ -87,13 +88,14 @@ export default async function TimetablesPage({
     academicYearId: search.academic_year_id || undefined,
     degreeId: search.degree_id || undefined,
     programId: search.program_id || undefined,
-    departmentId:
-      search.department_id ||
-      ((userProfile?.role === 'hod' || userProfile?.role === 'faculty') &&
-      userProfile?.department_id &&
-      !isSuperAdmin
-        ? userProfile.department_id
-        : undefined),
+    // HOD/faculty default to their own department, but a timetable they
+    // created in another department still lists (BUG-005845).
+    ...resolveTimetableListScope({
+      urlDepartmentId: search.department_id || undefined,
+      userId: user?.id,
+      profile: userProfile,
+      isSuperAdmin
+    }),
     semesterId: search.semester || undefined,
     sectionId: search.section || undefined,
     isActive:

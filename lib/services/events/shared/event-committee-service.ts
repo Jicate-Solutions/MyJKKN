@@ -6,6 +6,10 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import {
+  buildDesignations,
+  withoutDesignation,
+} from '@/lib/utils/events/committee-designations';
 import type {
   MarathonCommittee,
   MarathonTask,
@@ -109,26 +113,52 @@ export class EventCommitteeService {
     }
   }
 
+  /**
+   * Edit a committee's name, description and each person's designation
+   * (BUG-004626). Designations are rebuilt for the people on the committee
+   * right now, so stale keys for departed members are dropped.
+   */
+  static editCommittee(
+    committee: MarathonCommittee,
+    edits: { name: string; description: string; designations: Record<string, string> }
+  ) {
+    const people = [
+      ...(committee.member_names ?? []),
+      ...(committee.external_members ?? []).map((g) => g.name),
+    ];
+    return this.updateCommittee(committee.id, {
+      event_id: committee.event_id,
+      name: edits.name.trim(),
+      description: edits.description.trim() || null,
+      member_designations: buildDesignations(people, edits.designations),
+    });
+  }
+
   // --- Internal (JKKN) members ----------------------------------------------
 
   /**
    * Add MyJKKN users (picked from the member directory) to a committee.
    * Appends member_names and — when the arrays are index-aligned — member_ids
-   * (staff profile_id / learner id), so the RLS membership checks
+   * (the person's login id, profiles.id), so the RLS membership checks
    * (auth.uid() = ANY(member_ids) OR full_name = ANY(member_names)) both work.
+   * A person with no MyJKKN login (member_id null) gets a NULL id slot, which
+   * keeps the arrays aligned and matches no login (BUG-006132).
    * Committees with legacy free-text names (ids shorter than names) keep their
    * misaligned ids untouched and rely on the name match.
    */
   static addInternalMembers(
     committee: MarathonCommittee,
-    people: { member_id: string; name: string }[]
+    people: { member_id: string | null; name: string }[]
   ) {
     const names = committee.member_names ?? [];
     const ids = committee.member_ids ?? [];
     const nameSet = new Set(names.map((n) => n.toLowerCase()));
     const idSet = new Set(ids);
     const fresh = people.filter(
-      (p) => p.name.trim() && !nameSet.has(p.name.trim().toLowerCase()) && !idSet.has(p.member_id)
+      (p) =>
+        p.name.trim() &&
+        !nameSet.has(p.name.trim().toLowerCase()) &&
+        !(p.member_id && idSet.has(p.member_id))
     );
     if (fresh.length === 0) return Promise.resolve(committee);
 
@@ -137,7 +167,8 @@ export class EventCommitteeService {
       member_names: [...names, ...fresh.map((p) => p.name.trim())],
     };
     if (ids.length === names.length) {
-      payload.member_ids = [...ids, ...fresh.map((p) => p.member_id)];
+      // member_ids is uuid[] — NULL elements are valid; the TS type predates them.
+      payload.member_ids = [...ids, ...fresh.map((p) => p.member_id)] as string[];
     }
     return this.updateCommittee(committee.id, payload);
   }
@@ -148,6 +179,11 @@ export class EventCommitteeService {
     const payload: Record<string, unknown> = {
       event_id: committee.event_id,
       member_names: names,
+      // The departing member's designation goes with them (BUG-004626).
+      member_designations: withoutDesignation(
+        committee.member_designations,
+        (committee.member_names ?? [])[index]
+      ),
     };
     // member_ids is a parallel array when members were picked from the directory —
     // drop the same slot so the two arrays stay index-aligned.
@@ -156,6 +192,38 @@ export class EventCommitteeService {
       payload.member_ids = ids.filter((_, i) => i !== index);
     }
     return this.updateCommittee(committee.id, payload as Partial<MarathonCommittee>);
+  }
+
+  // --- Leads ----------------------------------------------------------------
+
+  /**
+   * Replace a committee's leads with the people picked from the directory.
+   *
+   * lead_ids is what the database checks when a lead adds a task to their own
+   * committee (migration 20261229090000). lead_name is kept in step because it
+   * is what the card prints and what the name-matching read policies compare
+   * against; leaving it stale would show one set of names and admit another.
+   *
+   * A person with no MyJKKN login (member_id null) cannot be a lead — leading
+   * means writing tasks, which needs an account — so they are dropped from
+   * lead_ids and kept only in the printed name.
+   */
+  static setLeads(
+    committee: MarathonCommittee,
+    people: { member_id: string | null; name: string }[]
+  ) {
+    const named = people.map((p) => p.name.trim()).filter(Boolean);
+    const ids = people
+      .map((p) => p.member_id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+    return this.updateCommittee(committee.id, {
+      event_id: committee.event_id,
+      lead_ids: ids,
+      lead_name: named.length > 0 ? named.join(' & ') : null,
+      // The legacy single-lead column follows the first pick so anything still
+      // reading lead_id (older policies, the marathon board) stays truthful.
+      lead_id: ids[0] ?? null,
+    } as Partial<MarathonCommittee>);
   }
 
   // --- External (non-JKKN) members — decision #8 ---------------------------
@@ -175,6 +243,10 @@ export class EventCommitteeService {
     return this.updateCommittee(committee.id, {
       event_id: committee.event_id,
       external_members: list,
+      member_designations: withoutDesignation(
+        committee.member_designations,
+        (committee.external_members ?? [])[index]?.name
+      ),
     } as Partial<MarathonCommittee>);
   }
 

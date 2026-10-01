@@ -267,6 +267,8 @@ export interface RefundAttachmentUploadOptions {
   institutionName: string;
   requestRef: string; // request_number, or 'draft-<studentId>' before initiation
   file: File;
+  /** Top-level folder; defaults to 'Billing Refunds'. Commission payments use their own. */
+  rootFolder?: string;
 }
 
 /** Upload a refund supporting document to <ROOT>/Billing Refunds/<Institution>/<RequestRef>. */
@@ -275,7 +277,11 @@ export async function uploadRefundAttachment(
 ): Promise<{ name: string; driveFileId: string; url: string }> {
   if (!isDriveConfigured()) throw new Error('Google Drive is not configured.');
   const drive = createDriveClient();
-  const folderId = await ensureFolderPath(drive, ['Billing Refunds', opts.institutionName, opts.requestRef]);
+  const folderId = await ensureFolderPath(drive, [
+    opts.rootFolder ?? 'Billing Refunds',
+    opts.institutionName,
+    opts.requestRef,
+  ]);
   const buffer = Buffer.from(await opts.file.arrayBuffer());
   const safeName = (opts.file.name || 'file').replace(/[\r\n]/g, ' ').slice(0, 200);
   const storedName = `${Date.now()}-${safeName}`;
@@ -340,6 +346,61 @@ export async function uploadRoomConditionPhoto(
   if (!fileId) throw new Error('Drive upload returned no file id.');
   return {
     name: opts.file.name || storedName,
+    driveFileId: fileId,
+    url: created.data.webViewLink ?? `https://drive.google.com/file/d/${fileId}/view`,
+  };
+}
+
+export interface EventBudgetAttachmentUploadOptions {
+  eventId: string;
+  eventName: string;
+  file: File;
+}
+
+export interface EventBudgetAttachmentUploadResult {
+  name: string;
+  driveFileId: string;
+  url: string;
+}
+
+/**
+ * Upload a budget line's bill / quotation / receipt (BUG-004627) to
+ *   <ROOT> / Event Budgets / <Event name> [<id8>] / file
+ * and grant anyone-with-link read, as procurement invoices do — budget bills
+ * are business documents, not personal data. Returns the metadata the caller
+ * stores on event_budget_items (receipt_url / receipt_drive_file_id / receipt_name).
+ */
+export async function uploadEventBudgetAttachment(
+  opts: EventBudgetAttachmentUploadOptions
+): Promise<EventBudgetAttachmentUploadResult> {
+  if (!isDriveConfigured()) throw new Error('Google Drive is not configured.');
+  const drive = createDriveClient();
+
+  const eventFolder = `${(opts.eventName || 'Event').slice(0, 80).trim()} [${opts.eventId.slice(0, 8)}]`;
+  const folderId = await ensureFolderPath(drive, ['Event Budgets', eventFolder]);
+
+  const buffer = Buffer.from(await opts.file.arrayBuffer());
+  const safeName = (opts.file.name || 'attachment').replace(/[\r\n]/g, ' ').slice(0, 200);
+  const storedName = `${Date.now()}-${safeName}`;
+
+  const created = await drive.files.create({
+    requestBody: { name: storedName, parents: [folderId] },
+    media: { mimeType: opts.file.type || 'application/octet-stream', body: Readable.from(buffer) },
+    fields: 'id, webViewLink',
+    supportsAllDrives: true,
+  });
+
+  const fileId = created.data.id;
+  if (!fileId) throw new Error('Drive upload returned no file id.');
+
+  await drive.permissions.create({
+    fileId,
+    requestBody: { role: 'reader', type: 'anyone' },
+    supportsAllDrives: true,
+  });
+
+  return {
+    name: safeName,
     driveFileId: fileId,
     url: created.data.webViewLink ?? `https://drive.google.com/file/d/${fileId}/view`,
   };
@@ -650,6 +711,89 @@ export async function uploadCdcDriveCircular(
   return {
     name: opts.file.name || safeName,
     driveFileId: fileId,
+    url: created.data.webViewLink ?? `https://drive.google.com/file/d/${fileId}/view`,
+    mimeType: opts.file.type || 'application/octet-stream',
+    sizeBytes: buffer.byteLength,
+  };
+}
+
+// ============================================================================
+// CDC — per-learner drive documents (offer / appointment / joining letters …)
+// ============================================================================
+
+export interface CdcDriveDocumentUploadOptions {
+  /** Recruiter / company name. */
+  companyName: string | null;
+  /** cdc_drives.drive_date (yyyy-mm-dd) or null. */
+  driveDate: string | null;
+  /** Sub-folder inside the drive folder, e.g. "Offer Letters". */
+  typeFolder: string;
+  /** Exact name to store the file under (already sanitised + versioned by the caller). */
+  storedName: string;
+  file: File;
+  /**
+   * Drive folder id already recorded for this drive + document type. When given,
+   * the CDC / Campus Drives / {Company} / {Type} walk (up to four sequential
+   * Drive list calls on a cold server) is skipped entirely.
+   */
+  knownFolderId?: string | null;
+}
+
+export interface CdcDriveDocumentUploadResult {
+  driveFileId: string;
+  driveFolderId: string;
+  url: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+/** "25 Sep 2026" from a yyyy-mm-dd string, without dragging the server timezone in. */
+function cdcFolderDate(value: string | null): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value ?? '');
+  if (!m) return 'Undated';
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${m[3]} ${months[parseInt(m[2], 10) - 1] ?? m[2]} ${m[1]}`;
+}
+
+/**
+ * Upload one learner document to
+ *   CDC / Campus Drives / {Company} - {Drive Date} / {Type Folder} / {storedName}
+ *
+ * Folders are created on first use. NO PUBLIC PERMISSION: offer and joining
+ * letters carry personal + salary details, so the bytes are served only by
+ * /api/cdc/drives/[id]/documents/[docId] after the viewer is authorised.
+ */
+export async function uploadCdcDriveDocument(
+  opts: CdcDriveDocumentUploadOptions,
+): Promise<CdcDriveDocumentUploadResult> {
+  if (!isDriveConfigured()) throw new Error('Google Drive is not configured for this server.');
+  const drive = createDriveClient();
+
+  const company = (opts.companyName || 'Unassigned recruiter').replace(/[\r\n/]/g, ' ').trim().slice(0, 80);
+  // Folder resolution and reading the upload into memory are independent.
+  const [folderId, buffer] = await Promise.all([
+    opts.knownFolderId
+      ? Promise.resolve(opts.knownFolderId)
+      : ensureFolderPath(drive, ['CDC', 'Campus Drives', `${company} - ${cdcFolderDate(opts.driveDate)}`, opts.typeFolder]),
+    opts.file.arrayBuffer().then((ab) => Buffer.from(ab)),
+  ]);
+
+  const created = await drive.files.create({
+    requestBody: { name: opts.storedName, parents: [folderId] },
+    media: {
+      mimeType: opts.file.type || 'application/octet-stream',
+      body: Readable.from(buffer),
+    },
+    fields: 'id, webViewLink',
+    supportsAllDrives: true,
+  });
+
+  const fileId = created.data.id;
+  if (!fileId) throw new Error('Drive upload returned no file id.');
+
+  return {
+    driveFileId: fileId,
+    driveFolderId: folderId,
     url: created.data.webViewLink ?? `https://drive.google.com/file/d/${fileId}/view`,
     mimeType: opts.file.type || 'application/octet-stream',
     sizeBytes: buffer.byteLength,

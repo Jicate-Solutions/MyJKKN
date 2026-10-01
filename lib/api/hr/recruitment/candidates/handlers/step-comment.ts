@@ -4,6 +4,7 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { RecruitmentService } from '@/lib/services/hr/recruitment-service';
+import { getErrorMessage } from '@/lib/utils';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -53,8 +54,10 @@ export async function PATCH(
     return NextResponse.json({ data: updated });
   } catch (err) {
     console.error('[hr/recruitment/candidates/:id/step-comment] error', err);
+    // The RPC's refusal is a PostgrestError — a plain object, not an Error — so the
+    // old `instanceof Error` test showed the approver "Unknown error" (BUG-006075).
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Unknown error' },
+      { error: getErrorMessage(err) },
       { status: 400 }
     );
   }

@@ -32,6 +32,7 @@ export function VenueTab({
   dayCount,
   dayLabel,
   timeRangeLabel,
+  showRequired = false,
 }: {
   form: EventCreateForm;
   set: <K extends keyof EventCreateForm>(field: K, value: EventCreateForm[K]) => void;
@@ -45,12 +46,17 @@ export function VenueTab({
   dayCount: number;
   dayLabel: (iso: string) => string;
   timeRangeLabel: (startIso: string, endIso: string) => string;
+  /** After a failed "Save & Next": mark the missing mandatory field inline. */
+  showRequired?: boolean;
 }) {
+  const placeMissing = showRequired && offCampus && !form.venue.trim();
+  const roomMissing = showRequired && !offCampus && !venueResourceId;
   return (
     <div className="space-y-3 rounded-lg border p-3">
       <div className="flex items-center justify-between">
         <Label className="flex items-center gap-1.5">
-          <MapPin className="h-4 w-4 opacity-60" /> Venue
+          <MapPin className="h-4 w-4 opacity-60" /> Venue{' '}
+          <span className="text-destructive">*</span>
         </Label>
         <label
           htmlFor="off-campus"
@@ -72,7 +78,12 @@ export function VenueTab({
               placeholder="e.g. City Convention Centre, or an online link"
               value={form.venue}
               onChange={(e) => set('venue', e.target.value)}
+              aria-invalid={placeMissing || undefined}
+              className={placeMissing ? 'border-destructive focus-visible:ring-destructive' : undefined}
             />
+            {placeMissing && (
+              <p className="text-xs text-destructive">Type the venue for this off-campus event.</p>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="venue_address" className="text-xs">
@@ -91,7 +102,18 @@ export function VenueTab({
         </div>
       ) : (
         <div className="space-y-3">
-          <VenueRoomPicker value={venueResourceId} onChange={onVenueResourceChange} />
+          <div
+            className={
+              roomMissing ? 'rounded-md border border-destructive/60 bg-destructive/5 p-2' : undefined
+            }
+          >
+            <VenueRoomPicker value={venueResourceId} onChange={onVenueResourceChange} />
+            {roomMissing && (
+              <p className="mt-1.5 text-xs text-destructive">
+                Pick a room for this on-campus event — or switch on &ldquo;Off-campus&rdquo;.
+              </p>
+            )}
+          </div>
 
           {checking && (
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground">

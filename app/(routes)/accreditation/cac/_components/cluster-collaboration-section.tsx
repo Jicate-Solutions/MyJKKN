@@ -5,8 +5,9 @@
 // The council could already see itself — its roster, its meetings — and it could
 // see each institution's metrics beside each other. What it had never been able
 // to see is the thing a cluster body exists for: whether the colleges actually
-// work with one another. These four panels answer that from records the platform
-// already holds. Nothing new is stored; every figure is derived at read time.
+// work with one another. These panels answer that from records the platform
+// already holds — teaching, rooms, shared course titles, and the community work
+// the colleges do. Nothing new is stored; every figure is derived at read time.
 //
 // FOUR DECISIONS SHAPE EVERY LINE HERE.
 //
@@ -59,7 +60,20 @@ import {
   Unplug,
   ArrowRight,
   AlertTriangle,
+  HeartHandshake,
 } from 'lucide-react';
+import {
+  useCacCommunityClusterTotals,
+  useCacCommunityCollegeRows,
+} from '../_lib/use-cac-community';
+import {
+  reachComparison,
+  communityVolume,
+  beneficiaryAsymmetry,
+  aggregateColleges,
+  collegesByName,
+  READABLE_INITIATIVES,
+} from '../_lib/community-collaboration';
 import {
   useCacSolutionFunnel,
   useCacExchangeEdges,
@@ -905,6 +919,334 @@ function IsolationPanel() {
 }
 
 // ----------------------------------------------------------------------------
+// PANEL 5 — community work done together.
+//
+// THE HEADLINE IS REACH PER INITIATIVE, JOINT AGAINST SOLO — never the count of
+// joint initiatives. The Director rejected a joint-count on 2026-09-18 with the
+// reason attached: three colleges can rubber-stamp their names onto one camp and
+// every joint count in the cluster rises without one extra person being reached.
+// Reach per initiative cannot be inflated that way. That is decision 3 —
+// volume alone is never the verdict — applied to a new panel, and it is why
+// there is no "most collaborative college" here and why the table below is
+// ordered by name rather than by any figure in it.
+//
+// THE ASYMMETRY IS EXPLAINED ON SCREEN (Director decision D2). Each
+// participating college shows the FULL beneficiary count of a shared
+// initiative, while the cluster counts that initiative once. The per-college
+// column therefore adds up to more than the cluster figure, deliberately. A
+// council member who notices that without an explanation reads it as a bug, so
+// the sentence sits next to the numbers rather than in a footnote — and it is
+// derived, so it states the shape the data is actually in rather than the shape
+// it is expected to be in.
+//
+// ON THE EMPTIES HERE, WHICH REASON AND WHY. `sh_community_engagements` exists,
+// is reachable, and is read as definer like every other figure on this page —
+// so an absence can only mean "nothing recorded yet". It cannot mean "nothing
+// captures this": something does, and saying otherwise would send a reader to
+// fix an engineering gap that is really a data-entry gap. It cannot mean
+// "outside what you can see" either: the read is cluster-wide for everyone.
+// The register held 0 rows on production on 2026-09-18, so today this panel
+// renders entirely as reasons — which is the honest reading of an empty
+// register and not a finding about any college.
+//
+// ONE MORE ABSENCE, WHICH IS NOT A FOURTH REASON. A recorded initiative that
+// counted nobody is a MEASURED zero, not an empty register, so it is labelled
+// "no one counted" rather than "nothing recorded yet". That is not a new member
+// of the council's three reasons — those answer "why is there no figure"; this
+// one answers "the figure is zero and here is what that zero means". Hiding the
+// 0 and then giving the wrong reason for hiding it would be the no-bare-zero
+// rule failing in its own name.
+// ----------------------------------------------------------------------------
+
+function CommunityCollaborationPanel() {
+  const cluster = useCacCommunityClusterTotals();
+  const colleges = useCacCommunityCollegeRows();
+
+  const totals = cluster.data ?? null;
+  // One row per (college, initiative) out of the function; one line per college
+  // on screen. The fold happens in the pure module, not here.
+  const rows = useMemo(() => colleges.data ?? [], [colleges.data]);
+  const perCollege = useMemo(() => aggregateColleges(rows), [rows]);
+
+  // All four derived in the pure module, where they can be exercised without a
+  // database — the same split every other panel here uses.
+  const reach = useMemo(() => reachComparison(totals), [totals]);
+  const volume = useMemo(() => communityVolume(totals), [totals]);
+  const asymmetry = useMemo(
+    () => beneficiaryAsymmetry(totals, perCollege),
+    [totals, perCollege],
+  );
+  const ordered = useMemo(() => collegesByName(perCollege), [perCollege]);
+
+  const error = cluster.error ?? colleges.error;
+  const isLoading = cluster.isLoading || colleges.isLoading;
+
+  // Fixed order, joint first, not dependent on which figure is larger.
+  const sides = [
+    {
+      key: 'joint' as const,
+      label: 'Reached per shared initiative',
+      side: reach.joint,
+      meaning: 'Work more than one college took part in.',
+    },
+    {
+      key: 'solo' as const,
+      label: 'Reached per single-college initiative',
+      side: reach.solo,
+      meaning: 'Work one college did on its own.',
+    },
+  ];
+
+  return (
+    <PanelShell
+      icon={<HeartHandshake className="h-4 w-4 text-amber-600" />}
+      title="Community work done together"
+      lead="Outreach the colleges recorded, read as how far a shared initiative reaches compared with one a college runs alone."
+    >
+      {error ? (
+        <ReadFailed what="The community reading" error={error} />
+      ) : isLoading ? (
+        <Skeleton className="h-48 w-full" />
+      ) : (
+        <>
+          {/* THE HEADLINE. Two cards, same size, same weight, fixed order. */}
+          <div className="grid gap-2 sm:grid-cols-2">
+            {sides.map((s) => (
+              <div key={s.key} className="rounded-md border bg-card p-3">
+                <div className="text-xs text-muted-foreground">{s.label}</div>
+                <div className="mt-1">
+                  <Figure
+                    value={s.side.value}
+                    reason={s.side.empty}
+                    suffix="people"
+                  />
+                </div>
+                <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                  {s.meaning}{' '}
+                  {s.side.initiatives > 0
+                    ? `Averaged over ${s.side.initiatives.toLocaleString()} ${
+                        s.side.initiatives === 1 ? 'initiative' : 'initiatives'
+                      }.`
+                    : 'No initiative of this kind is on record.'}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {/* The verdict sentence, and the refusal to draw one when the
+              averages are too thin to be a pattern. */}
+          <div className="rounded-md border bg-muted/30 p-3 text-sm">
+            {reach.verdict === 'nothing-recorded' ? (
+              <p>
+                No community work is recorded yet, so there is nothing to
+                compare. The register is open and reachable — this is an unused
+                register, not a cluster that does no outreach.
+              </p>
+            ) : reach.verdict === 'only-joint-recorded' ? (
+              <p>
+                Only shared initiatives are on record, so there is nothing to set
+                them against. The comparison needs both kinds.
+              </p>
+            ) : reach.verdict === 'only-solo-recorded' ? (
+              <p>
+                Only single-college initiatives are on record. Nothing shared has
+                been recorded, so no comparison can be drawn.
+              </p>
+            ) : reach.thinSides.length > 0 ? (
+              <p>
+                Both figures are shown above, and no difference is drawn between
+                them: the{' '}
+                {reach.thinSides
+                  .map((s) => (s === 'joint' ? 'shared' : 'single-college'))
+                  .join(' and ')}{' '}
+                side rests on fewer than {READABLE_INITIATIVES} initiatives. An
+                average over one or two pieces of work is an anecdote, and
+                printing a percentage against it would make it look like a
+                finding.
+              </p>
+            ) : reach.differencePct === null ? (
+              <p>
+                Both kinds are on record, but one of them counted nobody reached,
+                so the two cannot be expressed as a difference. The figures above
+                are what is known.
+              </p>
+            ) : reach.verdict === 'level' ? (
+              <p>
+                A shared initiative reaches the same number of people as one a
+                college runs alone.
+              </p>
+            ) : (
+              // BOTH directions are stated against the SAME base — the
+              // single-college figure — because that is the base the
+              // percentage was computed against. Flipping the sentence round
+              // ("a single-college initiative reaches N% more") while keeping
+              // the number would be arithmetically false: 80 against 100 is
+              // 20% below, but 100 against 80 is 25% above.
+              <p>
+                A shared initiative reaches{' '}
+                <span className="font-semibold">
+                  {Math.abs(reach.differencePct)}%
+                </span>{' '}
+                {reach.verdict === 'joint-reaches-further' ? 'more' : 'fewer'}{' '}
+                people than one a college runs alone.
+              </p>
+            )}
+            <p className="mt-1 text-xs text-muted-foreground">
+              This is reach per initiative and not a count of shared initiatives,
+              on purpose. Three colleges can put their names on one camp, which
+              raises every count in the cluster without one extra person being
+              reached; an average reach cannot be raised that way.
+            </p>
+          </div>
+
+          {/* Volume, below the headline rather than above it. */}
+          <div className="grid gap-2 sm:grid-cols-2">
+            {volume.map((v) => (
+              <div key={v.key} className="rounded-md border bg-card p-3">
+                <div className="text-xs text-muted-foreground">{v.label}</div>
+                <div className="mt-1">
+                  <Figure value={v.value} reason={v.empty} />
+                </div>
+                <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                  {v.meaning}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {ordered.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No institution has recorded community work yet, so there is no
+              per-college reading to draw.
+            </p>
+          ) : (
+            <>
+              <div className="overflow-x-auto rounded-md border">
+                <table className="w-full min-w-max border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/50 text-xs">
+                      <th className="px-3 py-2 text-left font-medium">Institution</th>
+                      <th className="px-3 py-2 text-right font-medium">Initiatives</th>
+                      <th className="px-3 py-2 text-right font-medium">Of those, shared</th>
+                      <th className="px-3 py-2 text-right font-medium">People reached</th>
+                      {/* Named for its source. This is `hours_contributed` —
+                          what each of this college's departments confirmed for
+                          its own people — and NOT the cluster card's
+                          `hours_spent`, which is the effort recorded once for
+                          the initiative. Two quantities, so they are worded
+                          apart and are not expected to reconcile. */}
+                      <th className="px-3 py-2 text-right font-medium">
+                        Hours its departments confirmed
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ordered.map((r) => (
+                      <tr
+                        key={r.institution_id ?? r.institution_name ?? 'unknown'}
+                        className="border-b last:border-0"
+                      >
+                        <td className="px-3 py-2">
+                          {r.institution_name ??
+                            'An institution with no row on record'}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {r.initiatives > 0 ? (
+                            r.initiatives.toLocaleString()
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              nothing recorded yet
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {r.shared_initiatives > 0 ? (
+                            r.shared_initiatives.toLocaleString()
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              none shared
+                            </span>
+                          )}
+                        </td>
+                        {/* A college with initiatives on record and nothing in
+                            these columns has COUNTED nobody, which is not the
+                            same fact as an empty register — and saying the
+                            wrong one of the two is the failure the no-bare-zero
+                            rule exists to prevent, one step along. */}
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {r.beneficiaries > 0 ? (
+                            r.beneficiaries.toLocaleString()
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              {r.initiatives > 0
+                                ? 'no one counted'
+                                : 'nothing recorded yet'}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {r.hours > 0 ? (
+                            r.hours.toLocaleString()
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              {r.initiatives > 0
+                                ? 'no hours recorded'
+                                : 'nothing recorded yet'}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* THE ASYMMETRY SENTENCE, next to the column it is about. */}
+              {asymmetry.shape === 'colleges-exceed-cluster' && (
+                <p className="text-xs text-muted-foreground">
+                  The people-reached column adds up to{' '}
+                  {asymmetry.collegesSum.toLocaleString()}, which is{' '}
+                  {asymmetry.gap.toLocaleString()} more than the cluster figure of{' '}
+                  {asymmetry.clusterTotal.toLocaleString()} above. That is
+                  deliberate, not a fault: a shared initiative is counted in full
+                  for every college that took part in it and once for the
+                  cluster, and{' '}
+                  {asymmetry.collegesSharing.toLocaleString()}{' '}
+                  {asymmetry.collegesSharing === 1
+                    ? 'institution has'
+                    : 'institutions have'}{' '}
+                  recorded taking part in shared work.
+                </p>
+              )}
+              {asymmetry.shape === 'equal' && (
+                <p className="text-xs text-muted-foreground">
+                  The people-reached column and the cluster figure agree, which
+                  happens when no initiative has been recorded as shared. Once
+                  one is, the column will add up to more than the cluster figure
+                  — a shared initiative is counted in full for each college that
+                  took part and once for the cluster.
+                </p>
+              )}
+              {asymmetry.shape === 'cluster-exceeds-colleges' && (
+                <p className="text-xs text-muted-foreground">
+                  The cluster figure of{' '}
+                  {asymmetry.clusterTotal.toLocaleString()} is{' '}
+                  {asymmetry.gap.toLocaleString()} higher than the column above
+                  adds up to. The colleges&apos; figures should never total less
+                  than the cluster&apos;s, so this points at recorded work that no
+                  institution is attached to rather than at a reading of any
+                  college.
+                </p>
+              )}
+            </>
+          )}
+        </>
+      )}
+    </PanelShell>
+  );
+}
+
+// ----------------------------------------------------------------------------
 // The section.
 // ----------------------------------------------------------------------------
 
@@ -917,7 +1259,7 @@ export function ClusterCollaborationSection() {
           What the cluster does together
         </CardTitle>
         <p className="mt-2 text-sm text-muted-foreground">
-          Four readings drawn from records the platform already holds. Nothing
+          Readings drawn from records the platform already holds. Nothing
           here is entered by anyone and nothing is stored — each figure is worked
           out at the moment the page loads, so it cannot go stale against the data
           it describes. As everywhere on this page there is no score, no total and
@@ -930,6 +1272,7 @@ export function ClusterCollaborationSection() {
         <ExchangeMapPanel />
         <CurriculumOverlapPanel />
         <IsolationPanel />
+        <CommunityCollaborationPanel />
 
         <p className="text-[11px] italic text-muted-foreground">
           Every panel here is the whole cluster, the same for everyone on the

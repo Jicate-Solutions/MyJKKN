@@ -266,6 +266,10 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/health', 'Health'],
   ['/ims', 'IMS'],
   ['/events', 'Events'],
+  // Longer prefix first, per the scan rule above: '/my-courses' must not fall
+  // through to a shorter match. It is the participant's own portal and belongs
+  // to the same module as the admin console.
+  ['/my-courses', 'Courses'],
   ['/courses', 'Courses'],
   ['/audit', 'System'],
   ['/staff', 'Staff'],

@@ -13,6 +13,14 @@ interface FeedbackPrompt {
   kind?: 'fix_check' | 'still_open';
   display_id: string | null;
   description: string;
+  /**
+   * Same-origin relative path the report was filed from, already stripped of
+   * its origin and cache-buster by the API (lib/bug-reports/safe-report-href).
+   * Absent or null when the stored URL could not be reduced to a safe path.
+   */
+  href?: string | null;
+  /** The reporter's own screenshot, vetted server-side. Null when there is none. */
+  screenshot_url?: string | null;
   status: 'sent' | 'delivered' | 'answered';
   answer: 'fixed' | 'not_fixed' | null;
   expires_at: string;
@@ -123,6 +131,45 @@ export function FixedForYouPrompts({ bugId }: { bugId?: string }) {
               <span className='font-mono text-xs font-semibold'>{p.display_id ?? '—'}</span>
               <p className='text-xs text-muted-foreground truncate'>{p.description}</p>
             </div>
+
+            {/* The reminder itself. A display_id and four truncated words cannot
+                tell a reporter which bug this is — their own screenshot can, and
+                the path takes them back to where they hit it. Both are optional:
+                with neither, this block is absent and the row is unchanged.
+                `basis-full` puts them on their own lines, above the buttons. */}
+            {(p.screenshot_url || p.href) && (
+              <div className='basis-full min-w-0 space-y-1.5'>
+                {p.screenshot_url && (
+                  <a
+                    href={p.screenshot_url}
+                    target='_blank'
+                    rel='noopener noreferrer'
+                    className='block w-fit max-w-full'
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={p.screenshot_url}
+                      alt={
+                        p.display_id
+                          ? `Screenshot you attached to ${p.display_id}`
+                          : 'Screenshot you attached to this report'
+                      }
+                      loading='lazy'
+                      className='max-h-[180px] max-w-full w-auto rounded border object-contain'
+                    />
+                  </a>
+                )}
+                {p.href && (
+                  <a
+                    href={p.href}
+                    className='inline-block text-xs font-medium underline underline-offset-2 text-emerald-800 hover:text-emerald-900 dark:text-emerald-200 dark:hover:text-emerald-100'
+                  >
+                    Open the page where you reported this
+                  </a>
+                )}
+              </div>
+            )}
+
             <div className='flex items-center gap-1.5 shrink-0'>
               {/* still_open: 'fixed' means "no, it works now" (closes the report);
                   'not_fixed' means "yes, still happening" (keeps it open). Same

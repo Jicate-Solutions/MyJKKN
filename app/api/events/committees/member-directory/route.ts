@@ -19,6 +19,8 @@ export const dynamic = 'force-dynamic';
 //   - requires a search term (≥2 chars) OR an institution filter — never dumps
 //     the whole directory. Returns at most 50 rows of directory-level fields
 //     (name, designation/program, institutional email).
+//
+// member_id is the person's login id (profiles.id) or NULL — see MemberDirectoryHit.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser, createServiceRoleClient } from '@/lib/supabase/server';
@@ -31,12 +33,15 @@ export interface MemberDirectoryHit {
   /** Source-row id (staff.id / learners_profiles.id). */
   id: string;
   /**
-   * The person's AUTH UID (profiles.id) when they have a login, else the source-row id.
+   * The person's AUTH UID (profiles.id), or NULL when they have no MyJKKN login.
    * This is what gets stored in event_committees.member_ids / lead_id,
    * events.config->'incharges'[].member_id and event_volunteer_checkins.member_id —
-   * all of which are compared against auth.uid() by RLS and the fn_is_event_* helpers.
+   * all of which are compared against auth.uid() by RLS and the fn_is_event_* helpers,
+   * and event_tasks.assigned_to has a hard FK to profiles(id). So it is NEVER the
+   * source-row id: a learners_profiles.id here is a value no login can match and
+   * that the task FK rejects (BUG-006132). Callers treat NULL as "name only".
    */
-  member_id: string;
+  member_id: string | null;
   name: string;
   email: string | null;
   subtitle: string;
@@ -94,9 +99,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       const { data, error } = await query.order('first_name', { ascending: true }).limit(50);
       if (error) throw error;
 
+      // staff.profile_id is the only link — profiles has no staff back-link
+      // column — so a staff row without it has no resolvable login.
       results = ((data ?? []) as any[]).map((s) => ({
         id: s.id,
-        member_id: s.profile_id ?? s.id,
+        member_id: s.profile_id ?? null,
         name: `${s.first_name ?? ''} ${s.last_name ?? ''}`.trim(),
         email: s.institution_email ?? null,
         subtitle: [s.designation, s.department?.department_name, s.institution?.name]
@@ -125,17 +132,36 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       query = applyInstitutionFilterToQuery(query, filter);
       const { data, error } = await query.order('first_name', { ascending: true }).limit(50);
       if (error) throw error;
+      const rows = (data ?? []) as any[];
 
-      results = ((data ?? []) as any[]).map((l) => ({
+      // learners_profiles.profile_id is the UNRELIABLE direction of the login link
+      // (NULL for ~1,121 active learners who do have a login); profiles.learner_id is
+      // the one that is kept. Resolve every unlinked row on this page in one query.
+      const unlinked = rows.filter((l) => !l.profile_id).map((l) => l.id as string);
+      const loginByLearner = new Map<string, string>();
+      if (unlinked.length > 0) {
+        const { data: logins, error: loginError } = await (svc as any)
+          .from('profiles')
+          .select('id, learner_id, is_active')
+          .in('learner_id', unlinked);
+        if (loginError) throw loginError;
+        // A learner with duplicate auth rows: prefer the active one.
+        for (const p of (logins ?? []) as { id: string; learner_id: string; is_active: boolean }[]) {
+          if (!loginByLearner.has(p.learner_id) || p.is_active) loginByLearner.set(p.learner_id, p.id);
+        }
+      }
+
+      results = rows.map((l) => ({
         id: l.id,
-        // MUST be the auth uid, not learners_profiles.id — every per-event gate
+        // MUST be the auth uid, never learners_profiles.id — every per-event gate
         // (fn_is_event_incharge, fn_is_event_committee_member, fn_has_any_tournament_role,
-        // useTournamentAccess) compares this to auth.uid(). Storing the learner row id
-        // made student in-charges/committee members silently unauthorized: the checks
-        // returned false, so the module stayed invisible with no error anywhere.
-        // Mirrors the staff branch above (s.profile_id ?? s.id). The ?? fallback keeps
-        // learners with no login link (202 of 4,179 active) selectable as roster names.
-        member_id: l.profile_id ?? l.id,
+        // useTournamentAccess) compares this to auth.uid(), and event_tasks.assigned_to
+        // is an FK to profiles(id). The old `?? l.id` fallback stored learner row ids
+        // for learners whose forward link was NULL: they were silently not members,
+        // and assigning them a task failed with 23503 (BUG-006132). A learner that
+        // resolves through neither link has no login: NULL, and the picker offers
+        // them as a name only.
+        member_id: l.profile_id ?? loginByLearner.get(l.id) ?? null,
         name: `${l.first_name ?? ''} ${l.last_name ?? ''}`.trim(),
         email: l.college_email ?? null,
         subtitle: [l.register_number, l.program?.program_name, l.department?.department_name]

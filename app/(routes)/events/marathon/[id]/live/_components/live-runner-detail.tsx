@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { useRunnerDetail } from '@/hooks/events/marathon/use-marathon-live-ops';
 import { Loader2, MapPin, Timer, Footprints, CheckCircle2 } from 'lucide-react';
-import { format } from 'date-fns';
+import { formatIstTime } from '@/lib/utils/date-format';
 
 interface LiveRunnerDetailProps {
   eventId: string;
@@ -130,7 +130,7 @@ export function LiveRunnerDetail({ eventId, bib, onClose }: LiveRunnerDetailProp
                     </div>
                   </div>
                   <p className="text-[10px] text-muted-foreground mt-2 text-right">
-                    Last update: {format(new Date(data.position.updated_at), 'HH:mm:ss')}
+                    Last update: {formatIstTime(data.position.updated_at, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
                   </p>
                 </CardContent>
               </Card>
@@ -169,7 +169,7 @@ export function LiveRunnerDetail({ eventId, bib, onClose }: LiveRunnerDetailProp
                           )}
                         </div>
                         <span className="text-xs text-muted-foreground font-mono shrink-0">
-                          {format(new Date(scan.scanned_at), 'HH:mm:ss')}
+                          {formatIstTime(scan.scanned_at, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
                         </span>
                       </div>
                     ))}

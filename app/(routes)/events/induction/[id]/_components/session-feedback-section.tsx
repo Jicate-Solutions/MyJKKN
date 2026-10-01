@@ -321,7 +321,7 @@ export function SessionFeedbackSection({
                         )}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                        {new Date(r.submitted_at).toLocaleString()}
+                        {new Date(r.submitted_at).toLocaleString(undefined, { timeZone: 'Asia/Kolkata' })}
                       </TableCell>
                     </TableRow>
                   ))}

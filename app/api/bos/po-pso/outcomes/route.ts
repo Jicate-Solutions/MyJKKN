@@ -3,13 +3,13 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
   resolveBosBoardScope,
   hasAnyBosPermission,
-  isBosReadAllObserver,
   BOS_LOOKUP_VIEW_KEYS,
 } from '@/lib/utils/bos/bos-access';
 import {
   canReadProgrammeOutcomes,
   canWriteProgrammeOutcomes,
   createOutcome,
+  isPoPsoReadAll,
   listOutcomes,
   resolveProgrammeOutcomeTarget,
   updateOutcome,
@@ -55,11 +55,15 @@ async function authorize(
 
   const scope = await resolveBosBoardScope(user.id);
   const db = createServiceRoleClient();
-  const target = await resolveProgrammeOutcomeTarget(db, {
-    institutionsId: body.institutions_id,
-    regulationId: body.regulation_id,
-    programmeCode: body.programme_code,
-  });
+  const target = await resolveProgrammeOutcomeTarget(
+    db,
+    {
+      institutionsId: body.institutions_id,
+      regulationId: body.regulation_id,
+      programmeCode: body.programme_code,
+    },
+    { preferDepartmentIds: scope.hodDepartmentIds }
+  );
   if (!target) return { error: NextResponse.json({ error: 'Unknown institution' }, { status: 400 }) };
 
   if (!(await canWriteProgrammeOutcomes(scope, user.id, target))) {
@@ -93,12 +97,16 @@ export async function GET(request: NextRequest) {
 
     const scope = await resolveBosBoardScope(user.id);
     const hasView = await hasAnyBosPermission(user.id, BOS_LOOKUP_VIEW_KEYS);
-    const seeAll = scope.isSuperAdmin || isBosReadAllObserver(scope, hasView);
+    const seeAll = isPoPsoReadAll(scope, hasView);
 
     // Service-role SELECT — CAS sibling rows may be hidden from the caller's
     // RLS context; canReadProgrammeOutcomes is the CAS-aware authz.
     const db = createServiceRoleClient();
-    const target = await resolveProgrammeOutcomeTarget(db, { institutionsId, regulationId, programmeCode });
+    const target = await resolveProgrammeOutcomeTarget(
+      db,
+      { institutionsId, regulationId, programmeCode },
+      { preferDepartmentIds: scope.hodDepartmentIds }
+    );
     if (!target) return NextResponse.json({ data: { pos: [], psos: [], can_edit: false, programme: null } });
 
     if (!(await canReadProgrammeOutcomes(supabase, scope, target, seeAll))) {

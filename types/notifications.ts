@@ -89,6 +89,10 @@ export interface CreateNotificationRequest {
   targeting: NotificationTargeting;
   requires_acknowledgment?: boolean;
   acknowledgment_deadline_hours?: number;
+  // "Must answer" (2026-09-16): recipients pick one of answer_options on the
+  // blocking screen before they can use the app. 2-6 short strings.
+  requires_answer?: boolean;
+  answer_options?: string[];
   action_type?: ActionType;
   action_config?: ActionConfig;
 }
@@ -128,7 +132,14 @@ export interface AcknowledgmentRecipient {
   escalation_level: number;
 }
 
+/** What the blocking screen is showing: a mandatory notice to acknowledge, a
+ *  "must answer" announcement, or the reporter's own "is this fixed for you?"
+ *  question. Rows come from get_blocking_items (2026-09-16). */
+export type BlockingItemKind = 'ack' | 'answer' | 'bug_feedback';
+
 export interface UnacknowledgedNotification {
+  /** Absent on older payloads — treat as 'ack'. */
+  kind?: BlockingItemKind;
   id: string;
   notification_id: string;
   title: string;
@@ -144,6 +155,14 @@ export interface UnacknowledgedNotification {
     attachments?: NotificationAttachment[];
     [key: string]: any;
   };
+  /** kind 'answer' only */
+  answer_options?: string[];
+  /** kind 'bug_feedback' only */
+  request_id?: string;
+  bug_id?: string;
+  display_id?: string | null;
+  snooze_count?: number;
+  can_snooze?: boolean;
 }
 
 // ==================== ACTION REQUIRED SYSTEM ====================
