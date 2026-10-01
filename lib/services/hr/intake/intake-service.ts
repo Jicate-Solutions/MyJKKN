@@ -870,6 +870,8 @@ export async function prepareBatch(
         duplicate,
         duplicate_of_job_title: same ? byIndex.get(same.ref_row_index)?.candidate.cvviz_job_title ?? null : null,
         duplicate_of_row_index: same?.ref_row_index ?? null,
+        duplicate_of_candidate: same ? byIndex.get(same.ref_row_index)?.candidate ?? null : null,
+        duplicate_of_resume_uploaded: same ? !!pairing.get(same.ref_row_index) : undefined,
         openJobs: jobs,
         rules: rulesForMatch,
         extra_reasons: extra,
@@ -1096,6 +1098,29 @@ export async function decide(
   if (error) throw dbFail('save the decision', error);
   if (!data) throw new IntakeError('This candidate was filed, or is being filed, a moment ago; refresh to see it.', 409);
 
+  // The batch may have closed between the check above and this write. A closed
+  // batch has (or is about to have) no resumes, so the decision cannot stand:
+  // put the row back as it was and say so.
+  const { data: after, error: afterErr } = await deps.admin
+    .from('hr_intake_batches').select('status').eq('id', row.batch_id).maybeSingle();
+  if (afterErr || (after as { status?: string } | null)?.status === 'closed') {
+    await deps.admin
+      .from('hr_intake_rows')
+      .update({
+        decision_action: row.decision_action,
+        decision_job_id: row.decision_job_id,
+        decided_by: row.decided_by,
+        decided_by_name: row.decided_by_name,
+        decided_at: row.decided_at,
+        decision_corrected: row.decision_corrected,
+        applied_at: row.applied_at,
+        apply_error: row.apply_error,
+      })
+      .eq('id', row.id)
+      .eq('decided_at', now.toISOString());
+    throw new IntakeError('This batch was closed a moment ago; refresh to see it.', 409);
+  }
+
   let rule: IntakeMatchRule | null = null;
   let ruleError: string | null = null;
   const norm = row.cvviz_job_title_norm ?? normaliseJobTitle(row.candidate.cvviz_job_title ?? '');
@@ -1320,24 +1345,46 @@ async function fileOne(deps: IntakeDeps, row: RowRecord, job: LoadedJob | undefi
  * (an idle batch is closed after IDLE_BATCH_DAYS by cleanupIdleBatches).
  */
 async function closeIfFinished(deps: IntakeDeps, batchId: string): Promise<void> {
-  const rows = await loadRows(deps, batchId);
-  const finished = rows.every(
-    (r) =>
-      r.decision_action &&
-      r.decision_action !== 'needs_new_job' &&
-      (r.decision_action !== 'file_under_job' || r.application_id),
-  );
-  if (!finished) return;
+  const settled = (rows: RowRecord[]) =>
+    rows.every(
+      (r) =>
+        r.decision_action &&
+        r.decision_action !== 'needs_new_job' &&
+        (r.decision_action !== 'file_under_job' || r.application_id),
+    );
+  if (!settled(await loadRows(deps, batchId))) return;
+
+  // Close FIRST, then look again: a decision saved between the first look and
+  // the close (a skip changed to "file under job") reopens the batch, and
+  // decide() undoes any decision that lands after the close. Only then are the
+  // resumes removed, so no unsettled row ever loses its resume.
+  const { data: closed, error: closeErr } = await deps.admin
+    .from('hr_intake_batches')
+    .update({ status: 'closed' })
+    .eq('id', batchId)
+    .eq('status', 'ready')
+    .select('id');
+  if (closeErr || !closed || closed.length === 0) return;
+  const reopen = async (why: string) => {
+    await deps.admin.from('hr_intake_batches').update({ status: 'ready' }).eq('id', batchId);
+    console.warn('[hr/intake] batch reopened', { batchId, why });
+  };
+  let after: RowRecord[];
+  try {
+    after = await loadRows(deps, batchId);
+  } catch (e) {
+    return reopen((e as Error)?.message ?? 'rows not re-read');
+  }
+  if (!settled(after)) return reopen('a row changed while closing');
+
   // Everything under the batch folder, not only the paths on rows: an upload
   // never sent to prepare would otherwise stay in storage for ever.
   try {
     await removeBatchFiles(deps.admin, batchId);
   } catch (e) {
-    console.warn('[hr/intake] resume copies not removed; batch stays open', { batchId, message: (e as Error)?.message });
-    return;
+    return reopen(`resume copies not removed: ${(e as Error)?.message}`);
   }
   await deps.admin.from('hr_intake_rows').update({ resume_storage_path: null }).eq('batch_id', batchId);
-  await deps.admin.from('hr_intake_batches').update({ status: 'closed' }).eq('id', batchId);
 }
 
 export async function apply(

@@ -60,8 +60,25 @@ describe('proposeMatch — duplicates come first', () => {
       duplicate_of_job_title: J.principal.title,
       duplicate_of_row_index: 1,
     });
-    expect(p).toMatchObject({ action: 'skip', confidence: 'high', job_id: null });
+    // A shared phone alone is not proof of the same person: never high.
+    expect(p).toMatchObject({ action: 'skip', confidence: 'medium', job_id: null });
     expect(p.reasons[0]).toBe('Same person as row 1 in this file (same phone number)');
+    expect(p.reasons[1]).toMatch(/check this is the same person/);
+  });
+
+  it('is high only with the same email and an earlier row that can itself be filed', () => {
+    const me = cand(J.principal.title);
+    const input = {
+      ...base,
+      candidate: me,
+      duplicate: { kind: 'same_file' as const, ref_id: 'row-1', note: 'Same person as row 1 in this file (same email)' },
+      duplicate_of_job_title: J.principal.title,
+      duplicate_of_row_index: 1,
+      duplicate_of_candidate: { email: me.email?.toUpperCase() ?? null, phone: me.phone },
+    };
+    expect(proposeMatch({ ...input, duplicate_of_resume_uploaded: true }).confidence).toBe('high');
+    expect(proposeMatch({ ...input, duplicate_of_resume_uploaded: false }).confidence).toBe('medium');
+    expect(proposeMatch({ ...input, duplicate_of_candidate: { email: me.email, phone: null } }).confidence).toBe('medium');
   });
 
   it('flags when the same person applied to a different post on that row', () => {

@@ -11215,10 +11215,13 @@ CREATE TABLE IF NOT EXISTS public.hr_intake_rows (
   created_at                 timestamptz NOT NULL DEFAULT now(),
   updated_at                 timestamptz NOT NULL DEFAULT now(),
 
-  CONSTRAINT hr_intake_rows_batch_row_unique UNIQUE (batch_id, row_index),
-  CONSTRAINT hr_intake_rows_file_needs_job
-    CHECK (decision_action IS DISTINCT FROM 'file_under_job' OR decision_job_id IS NOT NULL)
+  CONSTRAINT hr_intake_rows_batch_row_unique UNIQUE (batch_id, row_index)
+  -- No CHECK tying "file_under_job" to a job: decision_job_id is SET NULL when
+  -- a job is deleted, and such a CHECK would then refuse the job's deletion for
+  -- ever. Filing refuses a row whose job is gone instead.
 );
+-- A database that ran an earlier draft of this migration carries the CHECK.
+ALTER TABLE public.hr_intake_rows DROP CONSTRAINT IF EXISTS hr_intake_rows_file_needs_job;
 
 COMMENT ON TABLE public.hr_intake_rows IS
   'HR intake helper: one export row. proposal_* is what the helper suggests; decision_* is what a person chose; application_id is the hr_job_applications row it was filed as.';
