@@ -32,6 +32,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PayrollPolicies } from '@/lib/services/hr/payroll/deduction-engine';
 import { BASIC_NOT_RECORDED } from '@/lib/hr/payroll/lop-engine';
 import {
+  firstDayOfMonth,
   lastDayOfMonth,
   pickSalaryInForce,
   salaryChainNewestFirst,
@@ -275,22 +276,41 @@ describe('the month rule: the pay in force for the month, by effective_from', ()
   ];
 
   it('a raise dated 1 October does NOT pay September, even though it is the newest row', () => {
-    expect(pickSalaryInForce(chain, '2026-09-30').row?.gross).toBe(6000);
+    expect(pickSalaryInForce(chain, '2026-09-01', '2026-09-30').row?.gross).toBe(6000);
   });
 
   it('the raise pays October and every month after', () => {
-    expect(pickSalaryInForce(chain, '2026-10-31').row?.gross).toBe(7000);
-    expect(pickSalaryInForce(chain, '2027-03-31').row?.gross).toBe(7000);
+    expect(pickSalaryInForce(chain, '2026-10-01', '2026-10-31').row?.gross).toBe(7000);
+    expect(pickSalaryInForce(chain, '2027-03-01', '2027-03-31').row?.gross).toBe(7000);
   });
 
-  it('a raise starting mid-month pays that whole month (in force by its last day)', () => {
-    const mid = [chain[0], { ...chain[1], effective_from: '2026-09-15' }];
-    expect(pickSalaryInForce(mid, '2026-09-30').row?.gross).toBe(7000);
+  it('a raise starting mid-month does NOT pay that month: the pay in force on the 1st does (Director, 1 Oct)', () => {
+    const mid = [chain[0], { ...chain[1], effective_from: '2026-10-17' }];
+    expect(pickSalaryInForce(mid, '2026-10-01', '2026-10-31').row?.gross).toBe(6000);
+    expect(pickSalaryInForce(mid, '2026-11-01', '2026-11-30').row?.gross).toBe(7000);
+  });
+
+  it('a raise on the 1st pays that month', () => {
+    expect(pickSalaryInForce(chain, '2026-10-01', '2026-10-31').row?.gross).toBe(7000);
+  });
+
+  it('a new joiner whose first salary starts mid-month is paid by it for that month', () => {
+    const joiner = [{ id: 'j', staff_id: 'p', effective_from: '2026-10-17', superseded_by: null, gross: 25000 }];
+    expect(pickSalaryInForce(joiner, '2026-10-01', '2026-10-31').row?.gross).toBe(25000);
+    expect(pickSalaryInForce(joiner, '2026-09-01', '2026-09-30')).toEqual({ row: null, startsAfter: '2026-10-17' });
+  });
+
+  it('a joiner corrected within their first month: the correction pays it', () => {
+    const rows = [
+      { id: 'typo', staff_id: 'p', effective_from: '2026-10-17', superseded_by: 'fixed', gross: 52000 },
+      { id: 'fixed', staff_id: 'p', effective_from: '2026-10-17', superseded_by: null, gross: 25000 },
+    ];
+    expect(pickSalaryInForce(rows, '2026-10-01', '2026-10-31').row?.gross).toBe(25000);
   });
 
   it('an empty effective_from counts as in force since forever', () => {
     const rows = [{ id: 'x', staff_id: 'p', effective_from: null, superseded_by: null, gross: 22000 }];
-    expect(pickSalaryInForce(rows, '1999-01-31').row?.gross).toBe(22000);
+    expect(pickSalaryInForce(rows, '1999-01-01', '1999-01-31').row?.gross).toBe(22000);
   });
 
   it('an empty effective_from on an OLD row still yields to a newer row that has started', () => {
@@ -298,8 +318,8 @@ describe('the month rule: the pay in force for the month, by effective_from', ()
       { id: 'old', staff_id: 'p', effective_from: null, superseded_by: 'new', gross: 5000 },
       { id: 'new', staff_id: 'p', effective_from: '2026-06-01', superseded_by: null, gross: 9000 },
     ];
-    expect(pickSalaryInForce(rows, '2026-05-31').row?.gross).toBe(5000);
-    expect(pickSalaryInForce(rows, '2026-06-30').row?.gross).toBe(9000);
+    expect(pickSalaryInForce(rows, '2026-05-01', '2026-05-31').row?.gross).toBe(5000);
+    expect(pickSalaryInForce(rows, '2026-06-01', '2026-06-30').row?.gross).toBe(9000);
   });
 
   it('two rows with the same start date: the one that replaced the other wins (a correction)', () => {
@@ -307,13 +327,13 @@ describe('the month rule: the pay in force for the month, by effective_from', ()
       { id: 'typo', staff_id: 'p', effective_from: '2026-09-01', superseded_by: 'fixed', gross: 70000 },
       { id: 'fixed', staff_id: 'p', effective_from: '2026-09-01', superseded_by: null, gross: 7000 },
     ];
-    expect(pickSalaryInForce(rows, '2026-09-30').row?.gross).toBe(7000);
+    expect(pickSalaryInForce(rows, '2026-09-01', '2026-09-30').row?.gross).toBe(7000);
   });
 
   it('nothing started by the month: no row, and the date pay starts', () => {
     const rows = [{ id: 'x', staff_id: 'p', effective_from: '2026-10-01', superseded_by: null }];
-    expect(pickSalaryInForce(rows, '2026-09-30')).toEqual({ row: null, startsAfter: '2026-10-01' });
-    expect(pickSalaryInForce([], '2026-09-30')).toEqual({ row: null, startsAfter: null });
+    expect(pickSalaryInForce(rows, '2026-09-01', '2026-09-30')).toEqual({ row: null, startsAfter: '2026-10-01' });
+    expect(pickSalaryInForce([], '2026-09-01', '2026-09-30')).toEqual({ row: null, startsAfter: null });
   });
 
   it('a pointer loop cannot hang the payroll', () => {
@@ -322,7 +342,12 @@ describe('the month rule: the pay in force for the month, by effective_from', ()
       { id: 'b', staff_id: 'p', effective_from: '2026-02-01', superseded_by: 'a' },
     ];
     expect(salaryChainNewestFirst(rows)).toHaveLength(2);
-    expect(pickSalaryInForce(rows, '2026-03-31').row?.id).toBe('b');
+    expect(pickSalaryInForce(rows, '2026-03-01', '2026-03-31').row?.id).toBe('b');
+  });
+
+  it('the first day of a month', () => {
+    expect(firstDayOfMonth(2026, 9)).toBe('2026-09-01');
+    expect(firstDayOfMonth(2026, 12)).toBe('2026-12-01');
   });
 
   it('the last day of a month, leap years included', () => {

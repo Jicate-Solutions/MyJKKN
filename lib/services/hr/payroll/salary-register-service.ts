@@ -41,7 +41,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getErrorMessage } from '@/lib/utils';
 import { resolveTds } from '@/lib/hr/payroll/tds-slabs';
-import { lastDayOfMonth, pickSalaryInForce } from '@/lib/hr/payroll/salary-in-force';
+import { firstDayOfMonth, lastDayOfMonth, pickSalaryInForce } from '@/lib/hr/payroll/salary-in-force';
 import { TdsSlabService } from '@/lib/services/hr/payroll/tds-slab-service';
 import type {
   HRSalaryRegisterDeletedRun,
@@ -555,7 +555,8 @@ const SALARY_PAGE = 500;
  * THE MONTH RULE, defined once (Director ruling, 30 Sep 2026). The row that
  * pays a month is the one IN FORCE for that month by effective_from, walking
  * the superseded_by chain, not simply the newest row: a raise dated 1 October
- * does not pay September. The rule itself is pickSalaryInForce in
+ * does not pay September, and one dated 17 October first pays November
+ * (in force on the 1st; Director, 1 Oct 2026). The rule itself is pickSalaryInForce in
  * lib/hr/payroll/salary-in-force.ts; this loads each person's whole salary
  * history and applies it.
  *
@@ -597,11 +598,12 @@ export async function loadSalaryRowsInForce(
     }
   }
 
+  const firstDay = firstDayOfMonth(year, month);
   const lastDay = lastDayOfMonth(year, month);
   const rows: CurrentSalaryRow[] = [];
   const startsAfterMonth = new Map<string, string>();
   for (const [staffId, list] of history) {
-    const { row, startsAfter } = pickSalaryInForce(list, lastDay);
+    const { row, startsAfter } = pickSalaryInForce(list, firstDay, lastDay);
     if (row) rows.push(row);
     else if (startsAfter) startsAfterMonth.set(staffId, startsAfter);
   }

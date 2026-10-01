@@ -20,15 +20,21 @@
  *
  *   1. Walk the chain from the row nobody has replaced (superseded_by IS NULL)
  *      back through the rows it replaced.
- *   2. The first row whose effective_from is on or before the month's LAST DAY
- *      pays the month.
- *   3. effective_from NULL means "in force since forever": some older rows were
+ *   2. The first row whose effective_from is on or before the month's FIRST
+ *      DAY pays the month (Director ruling, 1 Oct 2026: "a raise from 17
+ *      October shows from the November payslip"; no split by days, no
+ *      back-pay).
+ *   3. Only if NO row is in force on the 1st (a new joiner whose first salary
+ *      starts mid-month), the newest row started by the month's LAST day pays
+ *      it; attendance then pays only the days worked. Without this a person
+ *      joining on the 17th would get nothing for their first month.
+ *   4. effective_from NULL means "in force since forever": some older rows were
  *      written before the column was filled.
  *
  * So a raise dated 1 October never pays September, even if September is paid
- * on 2 October, after the raise was recorded. A raise dated 15 September pays
- * all of September: the month is paid at one rate, the one in force by its
- * last day (the payroll has no mid-month split today).
+ * on 2 October, after the raise was recorded. A raise dated 15 September does
+ * NOT pay September either: September is paid at the rate in force on
+ * 1 September, and the raise shows from the October payslip.
  *
  * If NO row has started by the month's last day, nothing pays that month and
  * `startsAfter` says when pay starts, so the screens can say so instead of
@@ -42,6 +48,11 @@ export interface SalaryChainRow {
   effective_from?: string | null;
   superseded_by?: string | null;
   created_at?: string | null;
+}
+
+/** 'YYYY-MM-DD' for the first day of a month. `month` is 1-12. */
+export function firstDayOfMonth(year: number, month: number): string {
+  return `${year}-${String(month).padStart(2, '0')}-01`;
 }
 
 /** 'YYYY-MM-DD' for the last day of a month. `month` is 1-12. */
@@ -114,18 +125,27 @@ export function salaryChainNewestFirst<T extends SalaryChainRow>(rows: T[]): T[]
 }
 
 /**
- * The row that pays the month ending `lastDay`, or null with the date pay
- * starts. See the header for the rule.
+ * The row that pays the month from `firstDay` to `lastDay`, or null with the
+ * date pay starts. See the header for the rule.
  */
 export function pickSalaryInForce<T extends SalaryChainRow>(
   rows: T[],
+  firstDay: string,
   lastDay: string,
 ): { row: T | null; startsAfter: string | null } {
   if (rows.length === 0) return { row: null, startsAfter: null };
 
-  for (const r of salaryChainNewestFirst(rows)) {
+  const chain = salaryChainNewestFirst(rows);
+  // Rule 2: the pay in force on the 1st.
+  for (const r of chain) {
     const from = dateOf(r.effective_from);
-    if (from === null || from <= lastDay) return { row: r, startsAfter: null };
+    if (from === null || from <= firstDay) return { row: r, startsAfter: null };
+  }
+  // Rule 3: nothing was in force on the 1st, so this is the person's first
+  // month: their first salary pays it (attendance pays only the days worked).
+  for (const r of chain) {
+    const from = dateOf(r.effective_from);
+    if (from !== null && from <= lastDay) return { row: r, startsAfter: null };
   }
 
   // Every row starts after the month: pay begins on the earliest of them.
