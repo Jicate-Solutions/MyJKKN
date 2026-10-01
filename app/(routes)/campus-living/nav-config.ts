@@ -44,7 +44,6 @@ const config: ModuleNavConfig = {
         '/campus-living/blocks',
         '/campus-living/wardens',
         '/campus-living/allocations',
-        '/campus-living/vacate-requests',
       ],
       children: [
         {
@@ -118,6 +117,16 @@ const config: ModuleNavConfig = {
           icon: 'FileText',
           href: '/campus-living/allocations/onboarding/templates',
         },
+      ],
+    },
+    {
+      // Approver-facing queue (principal, CAO, …) — separate from Residents so
+      // roles without hostel access land on a bar that only shows their pages.
+      label: 'Requests',
+      icon: 'ClipboardList',
+      href: '/campus-living/vacate-requests',
+      matchPaths: ['/campus-living/vacate-requests'],
+      children: [
         {
           label: 'Vacate Requests',
           icon: 'LogOut',

@@ -2887,13 +2887,24 @@ export function GetPages(pathname: string): MenuGroup[] {
           active:
             pathname.startsWith('/campus-living/residents')
             || pathname.startsWith('/campus-living/blocks')
-            || pathname.startsWith('/campus-living/wardens')
-            || pathname.startsWith('/campus-living/vacate-requests'),
+            || pathname.startsWith('/campus-living/wardens'),
           icon: UsersRound,
           submenus: [
             { href: '/campus-living/residents', label: 'Residents', active: pathname.startsWith('/campus-living/residents') },
             { href: '/campus-living/blocks', label: 'Blocks', active: pathname.startsWith('/campus-living/blocks') },
             { href: '/campus-living/wardens', label: 'Wardens', active: pathname.startsWith('/campus-living/wardens') },
+          ]
+        },
+        {
+          // Approval-queue pages for non-hostel approvers (principal, CAO, …).
+          // Kept out of "Residents & Rooms" so a role holding only
+          // campus_living.vacate_requests.view sees just this row. Row shows
+          // when any submenu is allowed (see gating note above).
+          href: '/campus-living/vacate-requests',
+          label: 'Requests',
+          active: pathname.startsWith('/campus-living/vacate-requests'),
+          icon: ClipboardList,
+          submenus: [
             { href: '/campus-living/vacate-requests', label: 'Vacate Requests', active: pathname.startsWith('/campus-living/vacate-requests') },
           ]
         },
@@ -2988,26 +2999,22 @@ export function GetPages(pathname: string): MenuGroup[] {
           ]
         },
         {
+          // Maintenance + Safety & Wellness share one row (mirrors the
+          // "Facility" tab group in nav-config.ts) to keep the section under
+          // the sidebar validator's 15-row cap after "Requests" was added.
           href: '/campus-living/maintenance',
-          label: 'Maintenance',
-          active: pathname.startsWith('/campus-living/maintenance'),
+          label: 'Facility',
+          active:
+            pathname.startsWith('/campus-living/maintenance')
+            || pathname.startsWith('/campus-living/safety')
+            || pathname.startsWith('/campus-living/wellness')
+            || pathname.startsWith('/campus-living/health'),
           icon: Wrench,
           submenus: [
             { href: '/campus-living/maintenance', label: 'Maintenance', active: pathname === '/campus-living/maintenance' },
             { href: '/campus-living/maintenance/preventive', label: 'Preventive', active: pathname === '/campus-living/maintenance/preventive' },
             { href: '/campus-living/maintenance/preventive/tasks', label: 'Preventive Tasks', active: pathname.startsWith('/campus-living/maintenance/preventive/tasks') },
             { href: '/campus-living/maintenance/contracts', label: 'Contracts', active: pathname.startsWith('/campus-living/maintenance/contracts') },
-          ]
-        },
-        {
-          href: '/campus-living/safety',
-          label: 'Safety & Wellness',
-          active:
-            pathname.startsWith('/campus-living/safety')
-            || pathname.startsWith('/campus-living/wellness')
-            || pathname.startsWith('/campus-living/health'),
-          icon: Shield,
-          submenus: [
             { href: '/campus-living/safety', label: 'Safety', active: pathname === '/campus-living/safety' },
             { href: '/campus-living/safety/incidents', label: 'Incidents', active: pathname.startsWith('/campus-living/safety/incidents') },
             { href: '/campus-living/safety/inspections', label: 'Inspections', active: pathname.startsWith('/campus-living/safety/inspections') },
