@@ -82,11 +82,8 @@ export function DepartmentFilters({
   }, [searchParams.institution_id]);
 
   const handleInstitutionChange = (value: string) => {
+    // The filter client also clears degree_id when institution changes.
     onFilterChange('institution_id', value === 'all' ? undefined : value);
-    // Reset degree when institution changes
-    if (searchParams.degree_id) {
-      onFilterChange('degree_id', undefined);
-    }
   };
 
   const hasActiveFilters = !!(

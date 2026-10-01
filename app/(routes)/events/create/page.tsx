@@ -86,6 +86,13 @@ import {
   validateEventForm,
 } from './_components/event-create-form';
 import type { EventCreateForm, FormTabKey } from './_components/event-create-form';
+import { SourcePicker } from './_components/source-picker';
+import type {
+  EventSourceLink,
+  EventSourcePrefill,
+  EventSourceType,
+} from './_components/event-sources';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 type Step = 'format' | 'home' | 'preset' | 'details';
 const STEP_ORDER: Step[] = ['format', 'home', 'preset', 'details'];
@@ -114,6 +121,24 @@ export default function CreateEventPage() {
   const { profile } = useAuth();
   const { selectedInstitutionId } = useUserInstitutionAccess();
   const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
+
+  // Every active college, for the joint hosts. `institutions` above is only what
+  // this user may file an event under (an HOD sees just their own college), but
+  // they can still run it jointly with any other college. Falls back to the
+  // accessible list if the fetch fails, which is what the picker showed before.
+  const [allInstitutions, setAllInstitutions] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/events/host-institutions')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (!cancelled && Array.isArray(json?.data)) setAllInstitutions(json.data);
+      })
+      .catch((err) => console.error('[events/create] could not load all institutions:', err));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // HOST INSTITUTION — the college that owns this event. It is what `institution_id`
   // is set to, and what the booking spine compares the room's owner against to decide
@@ -162,6 +187,40 @@ export default function CreateEventPage() {
   const [clashes, setClashes] = useState<EventVenueClash[]>([]);
   const [checking, setChecking] = useState(false);
   const [inchargePickerOpen, setInchargePickerOpen] = useState(false);
+
+  // "Create from an existing record" (event-sources.ts). The link rides into
+  // config.source; the prefill only seeds the form — every field stays editable.
+  const [sourceType, setSourceType] = useState<EventSourceType | null>(null);
+  const [source, setSource] = useState<EventSourceLink | null>(null);
+
+  const applySource = async (prefill: EventSourcePrefill) => {
+    setSource(prefill.source);
+    setForm((prev) => ({ ...prev, ...prefill.form }));
+    if (prefill.form.last_day) setMultiDay(true);
+    if (prefill.offCampus !== null) setOffCampus(prefill.offCampus);
+    if (!prefill.roomName) {
+      toast.success(`Prefilled from "${prefill.source.label}"`);
+      return;
+    }
+    // Source modules store the room as free text; match it to a real
+    // Resource Management room so it can be held. Exact name only — a fuzzy
+    // match could silently book the wrong hall.
+    const { data } = await createClientSupabaseClient()
+      .from('resources')
+      .select('id, name')
+      .ilike('name', prefill.roomName.replace(/[%_\\]/g, '\\$&'))
+      .limit(2);
+    if (data && data.length === 1) {
+      setVenueResourceId(data[0].id);
+      toast.success(`Prefilled from "${prefill.source.label}" — room: ${data[0].name}`);
+    } else {
+      setVenueResourceId('');
+      toast(
+        `Prefilled from "${prefill.source.label}". Couldn't match the room "${prefill.roomName}" — pick it on the Venue tab.`,
+        { icon: '⚠️', duration: 7000 },
+      );
+    }
+  };
 
   // The room is held at the Resource Management grain: the same hours on EACH day
   // of the event, never one continuous multi-day block.
@@ -384,6 +443,7 @@ export default function CreateEventPage() {
         endIso,
         offCampus,
         venueResourceId,
+        source,
       });
       const created = await EventBaseService.createEvent(dto);
 
@@ -688,6 +748,7 @@ export default function CreateEventPage() {
                     form={form}
                     set={set}
                     institutions={institutions}
+                    allInstitutions={allInstitutions}
                     institutionId={institutionId}
                     institutionsLoading={institutionsLoading}
                     onHostChange={setHostOverride}
@@ -699,6 +760,15 @@ export default function CreateEventPage() {
                 </>
               ) : (
                 <Tabs value={tab} onValueChange={(v) => setTab(v as FormTabKey)}>
+                  <div className="mb-4">
+                    <SourcePicker
+                      sourceType={sourceType}
+                      onSourceTypeChange={setSourceType}
+                      linked={source}
+                      onPick={applySource}
+                      onClear={() => setSource(null)}
+                    />
+                  </div>
                   <TabsList className="mb-4 flex h-auto flex-wrap justify-start gap-1">
                     {DETAIL_TABS.map((t, i) => (
                       <TabsTrigger key={t.key} value={t.key} className="gap-1.5 text-xs">
@@ -725,6 +795,7 @@ export default function CreateEventPage() {
                       form={form}
                       set={set}
                       institutions={institutions}
+                      allInstitutions={allInstitutions}
                       institutionId={institutionId}
                       institutionsLoading={institutionsLoading}
                       onHostChange={setHostOverride}

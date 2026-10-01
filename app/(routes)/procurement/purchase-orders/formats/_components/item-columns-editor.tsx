@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Plus, Trash2, ChevronUp, ChevronDown } from 'lucide-react';
-import type { PoItemColumnDef, PoFieldAlign, PoFieldFormat } from '@/types/procurement';
+import type { PoItemColumnDef, PoFieldAlign, PoFieldFormat, PoFieldSource } from '@/types/procurement';
 import { generateFieldKey } from './slug';
 
 interface ItemColumnsEditorProps {
@@ -71,10 +71,10 @@ export function ItemColumnsEditor({ columns, onChange }: ItemColumnsEditorProps)
         <div>
           <Label className="text-base font-semibold">Item Table Columns</Label>
           <p className="hidden text-xs text-muted-foreground sm:block">
-            The line-item table on the PO document. Order here is the print order.
+            The line-item table on the order document. Order here is the print order.
           </p>
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={addColumn} className="gap-1">
+        <Button type="button" variant="outline" size="sm" onClick={addColumn} className="h-10 gap-1 sm:h-8">
           <Plus className="h-4 w-4" />
           Add Column
         </Button>
@@ -82,7 +82,7 @@ export function ItemColumnsEditor({ columns, onChange }: ItemColumnsEditorProps)
 
       {columns.length === 0 && (
         <p className="text-sm text-muted-foreground text-center py-4">
-          No columns added yet. Add the columns this vendor&apos;s PO needs (e.g. HSN/SAC, GST%, MRP, ISBN).
+          No columns added yet. Add the columns this vendor&apos;s order needs (e.g. HSN/SAC, GST%, MRP, ISBN).
         </p>
       )}
 
@@ -93,10 +93,10 @@ export function ItemColumnsEditor({ columns, onChange }: ItemColumnsEditorProps)
             <CardContent className="p-4">
               <div className="flex items-start gap-2">
                 <div className="flex flex-col gap-1 pt-1">
-                  <Button type="button" variant="ghost" size="icon" className="h-6 w-6" aria-label="Move column up" onClick={() => moveColumn(index, 'up')} disabled={index === 0}>
+                  <Button type="button" variant="ghost" size="icon" className="h-10 w-10 sm:h-6 sm:w-6" aria-label="Move column up" onClick={() => moveColumn(index, 'up')} disabled={index === 0}>
                     <ChevronUp className="h-3 w-3" />
                   </Button>
-                  <Button type="button" variant="ghost" size="icon" className="h-6 w-6" aria-label="Move column down" onClick={() => moveColumn(index, 'down')} disabled={index === columns.length - 1}>
+                  <Button type="button" variant="ghost" size="icon" className="h-10 w-10 sm:h-6 sm:w-6" aria-label="Move column down" onClick={() => moveColumn(index, 'down')} disabled={index === columns.length - 1}>
                     <ChevronDown className="h-3 w-3" />
                   </Button>
                 </div>
@@ -120,7 +120,7 @@ export function ItemColumnsEditor({ columns, onChange }: ItemColumnsEditorProps)
                           const key = col.key || generateFieldKey(col.label) || 'field';
                           updateColumn(index, { source: `item_extra.${key}`, key });
                         } else {
-                          updateColumn(index, { source: v, key: v });
+                          updateColumn(index, { source: v as PoFieldSource, key: v });
                         }
                       }}
                     >
@@ -180,7 +180,7 @@ export function ItemColumnsEditor({ columns, onChange }: ItemColumnsEditorProps)
                   </div>
 
                   <div className="lg:col-span-1 flex items-end justify-end">
-                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700" aria-label="Remove column" onClick={() => removeColumn(index)}>
+                    <Button type="button" variant="ghost" size="icon" className="h-10 w-10 text-red-500 hover:text-red-700 sm:h-8 sm:w-8" aria-label="Remove column" onClick={() => removeColumn(index)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>

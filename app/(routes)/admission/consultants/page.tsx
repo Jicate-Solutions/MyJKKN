@@ -167,6 +167,22 @@ function ConsultantsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
+
+  // Team-member / learner referrers open the full consultant page. Their
+  // consultant row is created on first open (fn_ensure_referrer_consultant).
+  const [openingReferrer, setOpeningReferrer] = useState<string | null>(null);
+  const openReferrer = async (type: 'internal' | 'student', personId: string) => {
+    setOpeningReferrer(personId);
+    try {
+      const res = await fetch(`/api/admission/consultants/referrers/${type}/${personId}`, { method: 'POST' });
+      const body = await res.json();
+      if (!res.ok || !body?.consultant_id) throw new Error(body?.error || 'Could not open this referrer');
+      router.push(`/admission/consultants/${body.consultant_id}`);
+    } catch (err: any) {
+      toast.error(err.message || 'Could not open this referrer');
+      setOpeningReferrer(null);
+    }
+  };
   const { institutions, selectedInstitutionId, loading: accessLoading, canAccessAllInstitutions } = useUserInstitutionAccess();
   // Single-institution users filter to their institution.
   // Global users (super_admin / admission role) get undefined → no filter → see all consultants.
@@ -568,17 +584,22 @@ function ConsultantsPageContent() {
                       {referrerRows.map((r) => (
                         <TableRow key={r.referrer_id}>
                           <TableCell>
-                            <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => openReferrer(r.type, r.referrer_id)}
+                              disabled={openingReferrer === r.referrer_id}
+                              className="flex items-center gap-3 group text-left disabled:opacity-60"
+                            >
                               <Avatar className="h-10 w-10">
                                 <AvatarFallback>
                                   {r.name.split(' ').map((n) => n[0]).join('').slice(0, 3).toUpperCase()}
                                 </AvatarFallback>
                               </Avatar>
                               <div>
-                                <div className="font-medium">{r.name}</div>
+                                <div className="font-medium group-hover:text-primary group-hover:underline">{r.name}</div>
                                 {r.detail && <div className="text-sm text-muted-foreground">{r.detail}</div>}
                               </div>
-                            </div>
+                            </button>
                           </TableCell>
                           <TableCell>
                             <div className="space-y-1">

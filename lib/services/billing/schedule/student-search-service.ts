@@ -436,7 +436,10 @@ export class StudentSearchService {
           accountant:profiles!fk_billing_receipts_accountant(id, full_name),
           receipt_items:billing_receipt_items(
             *,
-            bill:billing_student_bills(*)
+            bill:billing_student_bills(
+              *,
+              item_category:billing_categories(id, category_name, kind)
+            )
           ),
           refunds:billing_refunds(*)
         `
@@ -458,7 +461,10 @@ export class StudentSearchService {
               `
             *,
             creator:profiles!fk_billing_discounts_created_by(id, full_name),
-            bill:billing_student_bills(*)
+            bill:billing_student_bills(
+              *,
+              item_category:billing_categories(id, category_name, kind)
+            )
           `
             )
             .in('bill_id', billIds)
