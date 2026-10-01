@@ -256,15 +256,6 @@ export async function decideIntakeRow(rowId: string, req: DecideRequest): Promis
   return { row: body.row, ruleError: body.rule_error ?? null };
 }
 
-export async function acceptHighConfidence(batchId: string): Promise<number> {
-  const body = await call(
-    `/batches/${encodeURIComponent(batchId)}/accept-high`,
-    jsonInit('POST', {}),
-    (b): b is { decided: number } => isObj(b) && typeof b.decided === 'number',
-  );
-  return body.decided;
-}
-
 export async function applyIntakeBatch(
   batchId: string,
   rowIds?: string[],

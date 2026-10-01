@@ -43,8 +43,8 @@ export interface ProposeInput {
   duplicate_of_row_index?: number | null;
   /**
    * The college the upload belongs to. A proposal for a job at ANOTHER college
-   * is never high: one "Accept all high" tap would file the person where the
-   * uploading college cannot even see them.
+   * is never high: filed there, the person would be where the uploading
+   * college cannot even see them.
    */
   batch_institution_id?: string | null;
   /** How the resume's file name matched (resume-files tiers); 'contains' is only a similar name. */
@@ -232,7 +232,7 @@ function scoreJobs(input: ProposeInput, cvTitle: string): Scored[] {
 /**
  * The proposal for one row. A "file under job" proposal for a row filing would
  * refuse (no email or phone, no resume) is never high or medium: it is capped at
- * low, with the reason first, so "Accept all high-confidence" never picks it up.
+ * low, with the reason first.
  */
 export function proposeMatch(input: ProposeInput): IntakeProposal {
   const p = requirePositiveEvidence(input, capOtherCollege(input, proposeFromEvidence(input)));
@@ -266,8 +266,9 @@ const subjectWordsOf = (...values: (string | null | undefined)[]) =>
   );
 
 /**
- * "High" means one "Accept all high" tap may file the person, so it needs
- * POSITIVE evidence, not just the absence of a contradiction:
+ * "High" tells HR the helper is sure, so it needs POSITIVE evidence, not just
+ * the absence of a contradiction (HR still decides every card; there is no
+ * bulk accept):
  * - the resume was paired by its own name, not only a similar one;
  * - when the post names a subject (in its title or department), the CVViZ
  *   title, the resume's subject or the qualification names it too, and none of
@@ -336,9 +337,9 @@ function proposeFromEvidence(input: ProposeInput): IntakeProposal {
       reasons.push(`This row is for "${cvTitle}"; ${where} is for "${other || 'no job'}". File it too if both posts matter.`);
     }
     // High only when this is surely the same person (same email, not just a
-    // shared phone) AND the row it defers to can itself be filed; otherwise one
-    // "Accept all high" tap could skip the only fileable row, or a different
-    // person who shares a family or agency phone.
+    // shared phone) AND the row it defers to can itself be filed; otherwise a
+    // confident skip could hide the only fileable row, or a different person
+    // who shares a family or agency phone.
     const first = input.duplicate_of_candidate ?? null;
     const sameEmail = !!input.candidate.email && !!first?.email
       && input.candidate.email.toLowerCase() === first.email.toLowerCase();
@@ -361,7 +362,7 @@ function proposeFromEvidence(input: ProposeInput): IntakeProposal {
       ? 'Already applied in MyJKKN'
       : 'Already a candidate in MyJKKN';
     // Never high: the earlier record may be for another job or another college,
-    // and linking files nothing new, so "Accept all high" must not decide it.
+    // and linking files nothing new.
     return empty('merge_existing', 'medium', [
       input.duplicate.note ?? fallback,
       'Check the earlier record is for this job before linking; if not, file this one too',

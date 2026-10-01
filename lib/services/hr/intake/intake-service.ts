@@ -978,7 +978,7 @@ async function recordRuleUse(deps: IntakeDeps, use: Map<string, number>): Promis
 }
 
 // ---------------------------------------------------------------------------
-// decide / acceptHigh
+// decide
 // ---------------------------------------------------------------------------
 
 async function loadRow(deps: IntakeDeps, rowId: string): Promise<RowRecord> {
@@ -1154,60 +1154,6 @@ export async function decide(
     }
   }
   return { row: toIntakeRow(data as RowRecord), rule, rule_error: ruleError };
-}
-
-export async function acceptHigh(deps: IntakeDeps, actor: IntakeActor, batchId: string): Promise<{ decided: number }> {
-  const batch = await loadBatchRecord(deps, batchId);
-  if (batch.status !== 'ready') throw new IntakeError(batch.status === 'closed' ? 'This batch is closed.' : 'This batch is still being prepared.', 409);
-  const rows = (await loadRows(deps, batchId)).filter(
-    (r) =>
-      !r.decision_action &&
-      !r.application_id &&
-      r.proposal_confidence === 'high' &&
-      // Bulk accept only ever FILES people. A skip or a link drops a card from
-      // filing for good, so each one is a person's own tap, never a bulk one.
-      r.proposal_action === 'file_under_job' &&
-      // Never accept a filing that filing itself would refuse (rows from before
-      // the cap, or a resume copy that has since gone).
-      (r.proposal_action !== 'file_under_job' || filingBlockers(r.candidate, !!r.resume_storage_path).length === 0),
-  );
-  if (rows.length === 0) return { decided: 0 };
-
-  const needsJob = rows.some((r) => r.proposal_action === 'file_under_job');
-  const open = needsJob ? new Set((await loadOpenJobs(deps)).map((j) => j.id)) : new Set<string>();
-  const groups = new Map<string, { action: IntakeAction; jobId: string | null; ids: string[] }>();
-  for (const r of rows) {
-    if (r.proposal_action === 'file_under_job' && (!r.proposal_job_id || !open.has(r.proposal_job_id))) continue;
-    const key = `${r.proposal_action}|${r.proposal_job_id ?? ''}`;
-    const g = groups.get(key) ?? { action: r.proposal_action, jobId: r.proposal_job_id, ids: [] };
-    g.ids.push(r.id);
-    groups.set(key, g);
-  }
-
-  const at = nowOf(deps).toISOString();
-  let decided = 0;
-  for (const g of groups.values()) {
-    for (const chunk of chunkIdsForIn(g.ids, 100)) {
-      const { data, error } = await deps.admin
-        .from('hr_intake_rows')
-        .update({
-          decision_action: g.action,
-          decision_job_id: g.action === 'file_under_job' ? g.jobId : null,
-          decided_by: actor.id,
-          decided_by_name: actor.name,
-          decided_at: at,
-          decision_corrected: false,
-        })
-        .eq('batch_id', batchId)
-        .in('id', chunk)
-        .is('decision_action', null)
-        .is('application_id', null)
-        .select('id');
-      if (error) throw dbFail('save the decisions', error);
-      decided += (data ?? []).length;
-    }
-  }
-  return { decided };
 }
 
 // ---------------------------------------------------------------------------

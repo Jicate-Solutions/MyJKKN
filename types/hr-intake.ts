@@ -175,7 +175,6 @@ export interface IntakeOpenJob {
 // GET    /batches                 → { batches: IntakeBatch[] }            (newest first, own + same-scope)
 // GET    /batches/:id             → { batch: IntakeBatch, rows: IntakeRow[], open_jobs: IntakeOpenJob[] }
 // POST   /rows/:id/decide         { action: IntakeAction, job_id?: string | null } → { row: IntakeRow }
-// POST   /batches/:id/accept-high { } → { decided: number }   (accepts every undecided HIGH-confidence proposal)
 // POST   /batches/:id/apply       { row_ids?: string[] } → { results: { row_id: string; ok: boolean; application_id: string | null; error: string | null }[] }
 // GET    /rules                   → { rules: IntakeMatchRule[] }
 // DELETE /rules/:id               → { ok: true }

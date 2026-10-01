@@ -246,22 +246,12 @@ describe('BatchReview', () => {
     });
   });
 
-  it('Accept all high-confidence shows how many and posts once', async () => {
-    const decidedHigh = makeRow({
-      id: 'r4',
-      row_index: 4,
-      decision: { action: 'file_under_job', job_id: 'job-1', decided_by: 'u1', decided_by_name: 'Priya S', decided_at: '2026-10-01T00:00:00Z', corrected: false },
-    });
-    // r1 + r3 are undecided HIGH; r2 is MEDIUM; r4 is already decided.
-    serve([ROW1, ROW2, ROW3, decidedHigh], (url) =>
-      url.endsWith('/batches/b1/accept-high') ? json({ decided: 2 }) : (undefined as unknown as Response),
-    );
+  it('there is no bulk accept: every card is decided by a person', async () => {
+    serve([ROW1, ROW2]);
     renderWithQuery(<BatchReview batchId="b1" />);
-    const btn = await screen.findByRole('button', { name: 'Accept all high-confidence (2)' });
-    fireEvent.click(btn);
-    await waitFor(() => expect(callsTo('/batches/b1/accept-high')).toHaveLength(1));
+    await screen.findByRole('article', { name: /Candidate 1/ });
+    expect(screen.queryByRole('button', { name: /Accept all/i })).toBeNull();
   });
-
   it('filing reports every row on its own — one filed, one refused with its reason', async () => {
     const decision = { action: 'file_under_job' as const, job_id: 'job-1', decided_by: 'u1', decided_by_name: 'Priya S', decided_at: '2026-10-01T00:00:00Z', corrected: false };
     const a = { ...ROW1, decision };

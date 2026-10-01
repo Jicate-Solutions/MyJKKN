@@ -118,8 +118,6 @@ export interface IntakeSummary {
   duplicates: number;
   decided: number;
   filed: number;
-  /** Undecided rows the "Accept all high-confidence" button would take. */
-  highUndecided: number;
   /** Decided rows not yet filed — what "File decided candidates" sends. */
   toApply: string[];
 }
@@ -132,7 +130,6 @@ export function summarise(rows: IntakeRow[]): IntakeSummary {
     duplicates: 0,
     decided: 0,
     filed: 0,
-    highUndecided: 0,
     toApply: [],
   };
   for (const r of rows) {
@@ -143,8 +140,6 @@ export function summarise(rows: IntakeRow[]): IntakeSummary {
     if (r.duplicate.kind !== 'none') s.duplicates += 1;
     if (r.decision) s.decided += 1;
     if (filed) s.filed += 1;
-    // Matches the server: bulk accept only ever files people.
-    if (!r.decision && r.proposal.confidence === 'high' && r.proposal.action === 'file_under_job') s.highUndecided += 1;
     // Only cards decided "file under job": the others have nothing to file.
     if (r.decision?.action === 'file_under_job' && !filed) s.toApply.push(r.id);
   }
