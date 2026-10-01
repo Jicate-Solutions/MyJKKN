@@ -67,7 +67,11 @@ export const MOVED_ON_MESSAGE =
  */
 export function isMovedOnError(e: unknown): boolean {
   const msg = e instanceof Error ? e.message : typeof e === 'string' ? e : '';
-  return /^Invalid review status transition/.test(msg) || /^A send-back must go one step back/.test(msg);
+  return (
+    /^Invalid review status transition/.test(msg) ||
+    /^A send-back must go one step back/.test(msg) ||
+    /^Someone else just changed this appraisal/.test(msg)
+  );
 }
 
 /** A person on the board: name when it can be read, otherwise a neutral label. */

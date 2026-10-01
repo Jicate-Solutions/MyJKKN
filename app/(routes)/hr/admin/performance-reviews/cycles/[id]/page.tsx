@@ -90,6 +90,17 @@ export default function HrPerformanceReviewCycleDetailPage() {
   const [policy, setPolicy] = useState<HRPerformanceReviewPolicy | null>(null);
   const [selected, setSelected] = useState<HRPerformanceReview | null>(null);
   const [approverProfileId, setApproverProfileId] = useState<string | null>(null);
+  // Director ruling, 1 Oct 2026: only the Director list sees Sign off. Other
+  // super admins can still open a signed-off appraisal. Fails closed: until
+  // the database answers, or if it cannot, the button stays hidden.
+  const [isTheDirector, setIsTheDirector] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    supabase.rpc('fn_is_the_director').then(({ data, error }) => {
+      if (alive) setIsTheDirector(!error && data === true);
+    });
+    return () => { alive = false; };
+  }, [supabase]);
 
   // Blind second ratings on this round's appraisals, and the names of the
   // people asked. They feed only the agreement report below.
@@ -479,10 +490,15 @@ export default function HrPerformanceReviewCycleDetailPage() {
                         </td>
                         <td className="py-2 pr-4">
                           <SuperAdminOnly>
-                          {(r.status === 'supervisor_reviewed' || r.status === 'sedc_reviewed' || r.status === 'final_approved') && (
+                          {(r.status === 'supervisor_reviewed' ||
+                            (r.status === 'sedc_reviewed' && isTheDirector) ||
+                            r.status === 'final_approved') && (
                             <Button variant="outline" size="sm" onClick={() => setSelected(r)}>
                               {r.status === 'sedc_reviewed' ? 'Sign off' : r.status === 'final_approved' ? 'View sign-off' : 'Committee review'}
                             </Button>
+                          )}
+                          {r.status === 'sedc_reviewed' && !isTheDirector && (
+                            <span className="text-xs text-muted-foreground">Waiting for the Director</span>
                           )}
                           </SuperAdminOnly>
                         </td>
