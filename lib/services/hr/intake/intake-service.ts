@@ -376,15 +376,20 @@ export async function listBatches(deps: IntakeDeps): Promise<IntakeBatch[]> {
     .limit(50);
   if (error) throw dbFail('read the batches', error);
   const batches = (data ?? []) as BatchRecord[];
-  const rows = await selectInChunks<{ batch_id: string; decided_at: string | null; application_id: string | null }>(
-    batches.map((b) => b.id),
-    (chunk) => deps.db.from('hr_intake_rows').select('batch_id, decided_at, application_id').in('batch_id', chunk),
-  ).catch((e) => {
-    throw dbFail('count the decided rows', e);
-  });
-  return batches.map((b) => {
-    const mine = rows.filter((r) => r.batch_id === b.id);
-    return toIntakeBatch(b, countDecided(mine), countApplied(mine));
+  // Counted by the database, not by fetching rows: a read returns at most
+  // 1,000 rows, so fetched rows would understate a big upload.
+  const countWhere = async (batchId: string, column: 'decided_at' | 'application_id') => {
+    const { count, error: countErr } = await deps.db
+      .from('hr_intake_rows')
+      .select('id', { count: 'exact', head: true })
+      .eq('batch_id', batchId)
+      .not(column, 'is', null);
+    if (countErr) throw dbFail('count the decided rows', countErr);
+    return count ?? 0;
+  };
+  return mapLimit(batches, 5, async (b) => {
+    const [decided, applied] = await Promise.all([countWhere(b.id, 'decided_at'), countWhere(b.id, 'application_id')]);
+    return toIntakeBatch(b, decided, applied);
   });
 }
 
@@ -1478,7 +1483,25 @@ export async function discardBatch(
     throw e;
   }
   const { data, error } = await deps.admin.from('hr_intake_batches').delete().eq('id', batchId).select('id');
-  if (error) throw dbFail('discard the batch', error);
+  if (error) {
+    // The resume copies are already gone. Leave the batch closed, its cards
+    // pointing at no file, and the claim released, so a second try can
+    // discard it at once instead of waiting for the claim to expire.
+    const { error: rowsErr } = await deps.admin.from('hr_intake_rows').update({ resume_storage_path: null }).eq('batch_id', batchId);
+    const { error: closeErr } = await deps.admin
+      .from('hr_intake_batches')
+      .update({ status: 'closed', parsed_rows: null, prepare_claimed_at: null })
+      .eq('id', batchId);
+    if (closeErr) await deps.admin.from('hr_intake_batches').update({ prepare_claimed_at: null }).eq('id', batchId);
+    if (rowsErr || closeErr) {
+      console.warn('[hr/intake] discard left the batch half done', { batchId, rows: rowsErr?.message, close: closeErr?.message });
+    }
+    const message = (error as { message?: string }).message ?? 'unknown error';
+    throw new IntakeError(
+      `The resume copies were removed, but the upload itself could not be deleted (${message}). ${closeErr ? 'Try' : 'It is now closed; try'} discarding it again.`,
+      500,
+    );
+  }
   if (!data || data.length === 0) throw new IntakeError('Batch not found, or you do not have access to it.', 404);
   return { ok: true, removed_files: removed };
 }
@@ -1488,13 +1511,16 @@ export interface IdleCleanupSummary {
   checked: number;
   closed: number;
   files_removed: number;
+  /** Files that reached a closed or discarded batch's folder after it was cleared. */
+  late_files_removed: number;
   failed: number;
   count: number;
 }
 
 /**
  * Close every batch nobody has touched for IDLE_BATCH_DAYS (batch AND rows), and
- * remove its resume copies. Run daily by the AI-routine dispatcher
+ * remove its resume copies. Then empty the folders of closed and discarded
+ * batches that a late upload reached (removeLateUploads). Run daily by the AI-routine dispatcher
  * ('hr-intake-cleanup'). Service role only; no person is involved.
  */
 export async function cleanupIdleBatches(admin: SupabaseClient, now: Date = new Date()): Promise<IdleCleanupSummary> {
@@ -1508,7 +1534,7 @@ export async function cleanupIdleBatches(admin: SupabaseClient, now: Date = new 
     .limit(200);
   if (error) throw dbFail('read the idle batches', error);
   const batches = (data ?? []) as { id: string; updated_at: string }[];
-  const summary: IdleCleanupSummary = { ok: true, checked: batches.length, closed: 0, files_removed: 0, failed: 0, count: 0 };
+  const summary: IdleCleanupSummary = { ok: true, checked: batches.length, closed: 0, files_removed: 0, late_files_removed: 0, failed: 0, count: 0 };
   for (const b of batches) {
     try {
       const { data: rows, error: rowsErr } = await admin.from('hr_intake_rows').select('updated_at').eq('batch_id', b.id);
@@ -1529,8 +1555,40 @@ export async function cleanupIdleBatches(admin: SupabaseClient, now: Date = new 
       console.warn('[hr/intake] idle batch not closed', { batchId: b.id, message: (e as Error)?.message });
     }
   }
+  try {
+    summary.late_files_removed = await removeLateUploads(admin);
+  } catch (e) {
+    summary.failed += 1;
+    console.warn('[hr/intake] late uploads not removed', { message: (e as Error)?.message });
+  }
   summary.count = summary.closed;
   return summary;
+}
+
+/**
+ * A signed upload URL stays valid for a while after it is issued, so a slow
+ * upload can land after its batch was closed or discarded, in a folder nothing
+ * reads or clears again. Every top-level folder of the bucket is a batch id:
+ * one whose batch is closed or gone is emptied here. A folder whose batch is
+ * still open is left alone, and so is anything not named like a batch.
+ */
+async function removeLateUploads(admin: SupabaseClient): Promise<number> {
+  const folders: string[] = [];
+  const PAGE = 1000;
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await admin.storage.from(INTAKE_BUCKET).list('', { limit: PAGE, offset });
+    if (error) throw new IntakeError(`Could not list the upload folders: ${error.message}`, 500);
+    folders.push(...(data ?? []).map((o) => o.name).filter(isUuid));
+    if ((data ?? []).length < PAGE) break;
+  }
+  if (folders.length === 0) return 0;
+  // Throws on a failed read: a batch that could not be read is never taken for gone.
+  const batches = await selectInChunks<{ id: string; status: string }>(folders, (chunk) =>
+    admin.from('hr_intake_batches').select('id, status').in('id', chunk));
+  const open = new Set(batches.filter((b) => b.status !== 'closed').map((b) => b.id));
+  let removed = 0;
+  for (const id of folders) if (!open.has(id)) removed += await removeBatchFiles(admin, id);
+  return removed;
 }
 
 // ---------------------------------------------------------------------------
