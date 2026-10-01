@@ -15,7 +15,7 @@
 //       is not stored, so age stands in for "about to hold up the month");
 //     - any approved/rejected notice the requester missed goes now (14 days).
 //
-// Windows are platform_policies rows (seeded by 20270523090000). Every notice
+// Windows are platform_policies rows (seeded by 20270613101133). Every notice
 // is claimed in hr_duty_notices before it is sent, so re-running this route —
 // or the event hooks racing it — never sends one twice. People on approved
 // leave today are skipped and reached on a later run.
@@ -30,6 +30,7 @@ export const maxDuration = 120;
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import {
+  ladderCoversDuty,
   loadThresholds,
   profilesOnLeave,
   runOnboardingSweep,
@@ -51,6 +52,9 @@ export async function GET(request: NextRequest) {
   try {
     const thresholds = await loadThresholds(supabase);
     const onLeave = await profilesOnLeave(supabase, todayIst(now));
+    // When the HR chase ladder is on and owns A3, it sends the regularisation
+    // chases; this run still sends the submitted/decided notices.
+    const ladderOwnsA3 = await ladderCoversDuty(supabase, thresholds.chaseLadderSwitch, 'A3');
 
     // Independent duties: one failing must not stop the other.
     const [onboarding, regularization] = await Promise.all([
@@ -58,7 +62,7 @@ export async function GET(request: NextRequest) {
         errors.push(`onboarding: ${err instanceof Error ? err.message : String(err)}`);
         return null;
       }),
-      runRegularizationSweep(supabase, now, thresholds.regularization, onLeave).catch((err) => {
+      runRegularizationSweep(supabase, now, thresholds.regularization, onLeave, ladderOwnsA3).catch((err) => {
         errors.push(`regularization: ${err instanceof Error ? err.message : String(err)}`);
         return null;
       }),

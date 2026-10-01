@@ -442,7 +442,7 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "configKnobs": "platform_policies hr.onboarding.step_reminder_after_working_days (2), hr.onboarding.joining_soon_days (3), hr.regularization.reminder_after_hours (48), hr.regularization.hr_head_notice_after_days (4). Day/time editable at /admin/ai-routines.",
     "sideEffects": "SENDS in-app notifications (notifications + user_notifications). Records every notice in hr_duty_notices, whose UNIQUE key makes each one fire at most once; people on approved leave today are skipped and reached on a later run.",
     "safeToManualTrigger": false,
-    "notes": "Auth: Bearer only. Seeded by 20270523090000 (minute_of_day 607, days {1..6} — never Sunday, never at night). Marked not-safe because it messages people; a repeat run itself sends nothing new, since the ledger refuses repeats."
+    "notes": "Auth: Bearer only. Seeded by 20270613101133 (minute_of_day 607, days {1..6} — never Sunday, never at night). Marked not-safe because it messages people; a repeat run itself sends nothing new, since the ledger refuses repeats."
   },
   {
     "id": "hr-policy-promote-detector",
