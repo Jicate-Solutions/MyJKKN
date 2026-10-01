@@ -36,6 +36,7 @@ import {
   type NudgeKind,
   type SentNudge,
 } from './harness-selection';
+import { applyLadderHandoff } from './ladder-handoff';
 
 type Db = SupabaseClient<any, any, any>;
 
@@ -301,6 +302,8 @@ export interface HarnessRunSummary {
   noRecipient: Record<NudgeKind, number>;
   alreadyClaimed: number;
   failed: number;
+  /** Approval reminders/escalations left to the HR chase ladder (it covers duty R5). */
+  handedToLadder: number;
 }
 
 function zero(): Record<NudgeKind, number> {
@@ -422,15 +425,17 @@ export async function runRecruitmentHarness(db: Db, now: Date = new Date()): Pro
   }
 
   // --- decide -------------------------------------------------------------------
-  const nudges: Nudge[] = [
+  const selected: Nudge[] = [
     ...selectApprovalNudges(candidates, sent, dir, now),
     ...selectScorecardNudges(interviews, submitted, candidateOf, sent, dir, now),
     ...selectOfferNudges(candidates, packageFixedAt, jobCreatorOf, hrEditorsOf, sent, dir, now),
   ];
+  // When the HR chase ladder is on and covers R5, it owns approval chasing.
+  const { nudges, handedToLadder } = await applyLadderHandoff(db, selected);
 
   // --- send ---------------------------------------------------------------------
   const summary: HarnessRunSummary = {
-    due: zero(), sent: zero(), noRecipient: zero(), alreadyClaimed: 0, failed: 0,
+    due: zero(), sent: zero(), noRecipient: zero(), alreadyClaimed: 0, failed: 0, handedToLadder,
   };
   for (const n of nudges) {
     summary.due[n.kind] += 1;
