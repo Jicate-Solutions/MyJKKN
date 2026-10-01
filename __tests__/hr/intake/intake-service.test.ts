@@ -312,10 +312,11 @@ describe('decide — every correction becomes a rule credited to its author', ()
     expect(res.rule).toMatchObject({ cvviz_job_title_norm: normaliseJobTitle(fixture.titles.generic), job_id: J.history.id, created_by: HR.id, created_by_name: 'Kavitha Demo', times_used: 0 });
     expect(res.rule_error).toBeNull();
 
-    // Next batch: the same CVViZ title is routed by the rule, high, and the card credits her.
+    // Next batch: the same CVViZ title is routed by the rule and the card credits
+    // her. The generic title also fits other posts, so it is medium, not high.
     const next = await runBatch(deps(), RESUMES);
     const p = byIndex(next.rows, 4).proposal;
-    expect(p).toMatchObject({ action: 'file_under_job', job_id: J.history.id, confidence: 'high', rule_id: res.rule!.id, rule_author_name: 'Kavitha Demo' });
+    expect(p).toMatchObject({ action: 'file_under_job', job_id: J.history.id, confidence: 'medium', rule_id: res.rule!.id, rule_author_name: 'Kavitha Demo' });
     // Rows 4 and 8 both carry "Assistant Professor" in some case: both shaped by the rule.
     const rules = await listRules(deps());
     expect(rules).toHaveLength(1);

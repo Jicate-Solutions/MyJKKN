@@ -46,7 +46,7 @@ export function actionLine(
     case 'needs_new_job':
       return 'No open job fits — a new job posting is needed first';
     case 'skip':
-      return 'Skip — not a real candidate';
+      return 'Skip — nothing is filed for this card';
   }
 }
 

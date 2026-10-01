@@ -63,6 +63,7 @@
     "generic_caps": "ASSISTANT PROFESSOR",
     "associate": "Associate Professor - English",
     "vice_principal": "Vice Principal, ",
-    "combo": "Lab Technician/Research Assistant"
+    "combo": "Lab Technician/Research Assistant",
+    "unmatched": "Guest Lecturer in Humanities"
   }
 }
