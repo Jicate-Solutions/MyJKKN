@@ -14,6 +14,7 @@ import {
   experienceBand,
   filtersFromParams,
   filtersToParams,
+  sortRows,
   summarize,
   type PipelineFilters,
 } from '@/app/(routes)/hr/recruitment/candidates/_lib/pipeline-model';
@@ -139,18 +140,23 @@ describe('experience bands', () => {
 
 describe('URL round-trip', () => {
   it('writes only non-default values and reads them back', () => {
-    const value = f({ q: 'asha', category: 'medical', stage: 'shortlisted', emergency: true, size: 50, page: 3 });
+    const value = f({ q: 'asha', category: 'medical', stage: 'shortlisted', emergency: true });
     const params = filtersToParams(value);
-    expect(params.toString()).toBe('q=asha&category=medical&stage=shortlisted&emergency=1&page=3&size=50');
+    expect(params.toString()).toBe('q=asha&category=medical&stage=shortlisted&emergency=1');
     expect(filtersFromParams(params)).toEqual(value);
+  });
+
+  it("keeps the DataTable's own keys and drops cleared filters", () => {
+    const base = new URLSearchParams('page=3&pageSize=50&sortBy=name&stage=rejected');
+    expect(filtersToParams(f({ category: 'medical' }), base).toString())
+      .toBe('page=3&pageSize=50&sortBy=name&category=medical');
   });
 
   it('drops custom dates unless the range is custom, and ignores junk', () => {
     expect(filtersToParams(f({ applied: '30', from: '2026-01-01' })).has('from')).toBe(false);
-    const junk = filtersFromParams(new URLSearchParams('category=bogus&size=7&page=-2&from=yesterday'));
+    const junk = filtersFromParams(new URLSearchParams('category=bogus&stage=nope&from=yesterday'));
     expect(junk.category).toBe('all');
-    expect(junk.size).toBe(25);
-    expect(junk.page).toBe(1);
+    expect(junk.stage).toBe('all');
     expect(junk.from).toBeNull();
   });
 
@@ -166,5 +172,30 @@ describe('summarize', () => {
       candidates: [cand('c1', { status: 'joined' })],
     }));
     expect(summarize(rows, NOW)).toEqual({ total: 3, newThisWeek: 1, inApproval: 0, joined: 1, websiteShare: 33 });
+  });
+});
+
+describe('sortRows — by table column', () => {
+  const rows = buildPipelineRows(data({
+    applications: [
+      app('a1', { first_name: 'Zara', experience_months: 10 }),
+      app('a2', { first_name: 'Bala', experience_months: 50, submitted_at: '2026-06-01T00:00:00Z' }),
+    ],
+    candidates: [cand('c1', { name: 'Mani', submitted_at: '2026-09-30T00:00:00Z' })],
+  }));
+  const names = (rs: typeof rows) => rs.map((r) => r.name.split(' ')[0]);
+
+  it('sorts by name both ways', () => {
+    expect(names(sortRows(rows, 'name', 'asc'))).toEqual(['Bala', 'Mani', 'Zara']);
+    expect(names(sortRows(rows, 'name', 'desc'))).toEqual(['Zara', 'Mani', 'Bala']);
+  });
+
+  it('keeps blank experience last in either direction', () => {
+    expect(names(sortRows(rows, 'experienceMonths', 'desc'))).toEqual(['Bala', 'Zara', 'Mani']);
+    expect(names(sortRows(rows, 'experienceMonths', 'asc'))).toEqual(['Zara', 'Bala', 'Mani']);
+  });
+
+  it("falls back to applied date for the table's default 'created_at'", () => {
+    expect(names(sortRows(rows, 'created_at', 'desc'))).toEqual(['Mani', 'Zara', 'Bala']);
   });
 });

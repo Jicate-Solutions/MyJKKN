@@ -31,9 +31,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
+import { DataTable, type DataFetchParams } from '@/components/data-table/data-table';
 import { useRecruitmentPipeline } from '@/hooks/hr/use-recruitment';
 import { useAlumniSignalBulk } from '@/hooks/hr/use-alumni-signal-bulk';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -47,19 +45,24 @@ import { stageMeta, type StageKey } from '../approvals/[jobId]/_components/stage
 import {
   CHIP_ORDER,
   EXPORT_HEADERS,
-  SORT_LABELS,
+  PAGE_SIZES,
   buildPipelineRows,
   computeView,
   countAdvancedFilters,
   filtersFromParams,
   filtersToParams,
+  sortRows,
   summarize,
   toExportRows,
   type PipelineFilters,
-  type SortKey,
+  type PipelineRow,
 } from './_lib/pipeline-model';
 import { ActiveFilterChips, CandidatesFiltersPanel } from './_components/candidates-filters-panel';
-import { CandidatesTable } from './_components/candidates-table';
+import {
+  CandidateMobileCard,
+  INITIAL_COLUMN_VISIBILITY,
+  getCandidateColumns,
+} from './_components/candidates-columns';
 
 const APPROVE_PERMISSION = ['hr.recruitment.approve'];
 
@@ -84,12 +87,12 @@ function AllCandidatesInner() {
 
   const setFilters = useCallback(
     (patch: Partial<PipelineFilters>) => {
-      // Any change other than paging starts again from page 1.
-      const next = { ...filters, ...patch, page: 'page' in patch ? patch.page! : 1 };
-      const qs = filtersToParams(next).toString();
+      // The DataTable's own keys (page, pageSize, sortBy, …) are kept; its
+      // pageResetKey below sends it back to page 1 when these filters change.
+      const qs = filtersToParams({ ...filters, ...patch }, new URLSearchParams(searchParams.toString())).toString();
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     },
-    [filters, pathname, router],
+    [filters, pathname, router, searchParams],
   );
 
   // The search box is local so typing stays smooth; it reaches the URL after a pause.
@@ -108,25 +111,59 @@ function AllCandidatesInner() {
   const view = useMemo(() => computeView(rows, filters), [rows, filters]);
   const summary = useMemo(() => summarize(view.filtered), [view.filtered]);
 
-  const pages = Math.max(1, Math.ceil(view.filtered.length / filters.size));
-  const page = Math.min(filters.page, pages);
-  const pageRows = view.filtered.slice((page - 1) * filters.size, page * filters.size);
-
-  const { data: alumni } = useAlumniSignalBulk(pageRows.map((r) => r.email));
+  // JKKN-history badges for the rows on screen; the table reports its page here.
+  const [pageEmails, setPageEmails] = useState<string[]>([]);
+  const { data: alumni } = useAlumniSignalBulk(pageEmails);
 
   // Approvers get the job workspace link; everyone else the job page.
   const { hasAnyPermission: canApprove } = usePermissions(APPROVE_PERMISSION);
 
   const advancedCount = countAdvancedFilters(filters);
 
+  // The DataTable pages and sorts the already-filtered rows in memory.
+  const fetchData = useCallback(
+    async (params: DataFetchParams) => {
+      const sorted = sortRows(view.filtered, params.sort_by, params.sort_order === 'asc' ? 'asc' : 'desc');
+      const total = sorted.length;
+      const totalPages = Math.max(1, Math.ceil(total / params.limit));
+      const page = Math.min(Math.max(1, params.page), totalPages);
+      const data = sorted.slice((page - 1) * params.limit, page * params.limit);
+      setPageEmails(data.map((r) => r.email));
+      return {
+        success: true,
+        data,
+        pagination: { page, limit: params.limit, total_pages: totalPages, total_items: total },
+      };
+    },
+    [view.filtered],
+  );
+  const fetchByIds = useCallback(
+    async (ids: number[] | string[]) => {
+      const wanted = new Set((ids as (string | number)[]).map(String));
+      return rows.filter((r) => wanted.has(r.key));
+    },
+    [rows],
+  );
+  const fetchAll = useCallback(
+    async (params: DataFetchParams) =>
+      sortRows(view.filtered, params.sort_by, params.sort_order === 'asc' ? 'asc' : 'desc'),
+    [view.filtered],
+  );
+  const getColumns = useCallback(
+    () => getCandidateColumns({ canApprove, alumni }),
+    [canApprove, alumni],
+  );
+  // Changes whenever the page's own filters change, so the table returns to page 1.
+  const pageResetKey = useMemo(() => filtersToParams(filters).toString(), [filters]);
+
   const [exporting, setExporting] = useState(false);
-  const handleExport = async () => {
-    if (view.filtered.length === 0) return;
+  const handleExport = async (target: PipelineRow[]) => {
+    if (target.length === 0) return;
     setExporting(true);
     try {
       const aoa = [
         [...EXPORT_HEADERS],
-        ...toExportRows(view.filtered, {
+        ...toExportRows(target, {
           stage: (s) => stageMeta(s).label,
           category: (c) => ROLE_CATEGORY_LABELS[c] ?? c,
           jobType: (t) => JOB_TYPE_LABELS[t] ?? t,
@@ -138,7 +175,7 @@ function AllCandidatesInner() {
       ws['!freeze'] = { ySplit: 1 };
       XLSX.utils.book_append_sheet(wb, ws, 'Candidates');
       await XLSX.writeFile(wb, `recruitment-candidates-${new Date().toISOString().slice(0, 10)}.xlsx`);
-      toast.success(`Exported ${view.filtered.length} candidate${view.filtered.length === 1 ? '' : 's'}`);
+      toast.success(`Exported ${target.length} candidate${target.length === 1 ? '' : 's'}`);
     } catch (e) {
       console.error('[all-candidates] export failed', e);
       toast.error('Could not build the Excel file. Please try again.');
@@ -169,7 +206,7 @@ function AllCandidatesInner() {
           </div>
           <Button
             variant="outline"
-            onClick={handleExport}
+            onClick={() => handleExport(view.filtered)}
             disabled={exporting || view.filtered.length === 0}
             className="w-full sm:w-auto"
           >
@@ -234,16 +271,6 @@ function AllCandidatesInner() {
             />
           </div>
           <div className="flex gap-2">
-            <Select value={filters.sort} onValueChange={(v) => setFilters({ sort: v as SortKey })}>
-              <SelectTrigger className="w-full sm:w-[170px]" aria-label="Sort">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
-                  <SelectItem key={k} value={k}>{SORT_LABELS[k]}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
             <Button
               variant={panelOpen ? 'secondary' : 'outline'}
               onClick={() => setPanelOpen((o) => !o)}
@@ -300,15 +327,49 @@ function AllCandidatesInner() {
             </CardContent>
           </Card>
         ) : (
-          <CandidatesTable
-            rows={pageRows}
-            total={view.filtered.length}
-            page={page}
-            size={filters.size}
-            canApprove={canApprove}
-            alumni={alumni}
-            onPage={(p) => setFilters({ page: p })}
-            onSize={(n) => setFilters({ size: n })}
+          <DataTable<PipelineRow, unknown>
+            fetchDataFn={fetchData}
+            fetchByIdsFn={fetchByIds}
+            fetchAllItemsFn={fetchAll}
+            getColumns={getColumns}
+            idField="key"
+            pageSizeOptions={PAGE_SIZES}
+            pageResetKey={pageResetKey}
+            initialColumnVisibility={INITIAL_COLUMN_VISIBILITY}
+            renderMobileRow={(r) => (
+              <CandidateMobileCard
+                row={r}
+                canApprove={canApprove}
+                alumni={alumni?.[r.email.toLowerCase().trim()] ?? null}
+              />
+            )}
+            exportConfig={{ entityName: 'candidates', columnMapping: {}, columnWidths: [], headers: [] }}
+            config={{
+              enableUrlState: true,
+              enableSearch: false,
+              enableDateFilter: false,
+              enableExport: false,
+              enableRowSelection: true,
+              enableColumnVisibility: true,
+              enableColumnResizing: true,
+              columnResizingTableId: 'hr-recruitment-all-candidates',
+            }}
+            renderToolbarContent={({ selectedRows, totalSelectedCount, resetSelection }) =>
+              totalSelectedCount > 0 ? (
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={exporting}
+                    onClick={() => handleExport(selectedRows)}
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Export selected ({totalSelectedCount})
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={resetSelection}>Clear selection</Button>
+                </div>
+              ) : null
+            }
           />
         )}
       </div>

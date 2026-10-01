@@ -42,7 +42,9 @@ export const SOURCE_LABELS: Record<PipelineSource, string> = {
   direct: 'Direct Submission',
 };
 
-export interface PipelineRow {
+// A type alias, not an interface: the shared DataTable requires an index-signature
+// compatible row type, which interfaces never are.
+export type PipelineRow = {
   key: string;
   applicationId: string | null;
   candidateId: string | null;
@@ -67,7 +69,7 @@ export interface PipelineRow {
   institutionName: string | null;
   /** How many rows share this email — the person applied to that many jobs. */
   applicationsByPerson: number;
-}
+};
 
 export function buildPipelineRows(data: RecruitmentPipelineResponse): PipelineRow[] {
   const jobById = new Map(data.jobs.map((j) => [j.id, j] as const));
@@ -178,15 +180,6 @@ export const APPLIED_WITHIN_LABELS: Record<AppliedWithin, string> = {
   custom: 'Custom range',
 };
 
-export type SortKey = 'newest' | 'oldest' | 'name' | 'experience';
-
-export const SORT_LABELS: Record<SortKey, string> = {
-  newest: 'Newest first',
-  oldest: 'Oldest first',
-  name: 'Name (A–Z)',
-  experience: 'Most experience',
-};
-
 export interface PipelineFilters {
   q: string;
   category: RoleCategory | 'all';
@@ -206,12 +199,10 @@ export interface PipelineFilters {
   hasResume: boolean;
   emergency: boolean;
   multiJob: boolean;
-  sort: SortKey;
-  page: number;
-  size: number;
 }
 
-export const PAGE_SIZES = [25, 50, 100] as const;
+/** Page sizes offered by the table; 10 is the default (DataTable's own). */
+export const PAGE_SIZES = [10, 25, 50, 100];
 
 export const EMPTY_FILTERS: PipelineFilters = {
   q: '',
@@ -231,9 +222,6 @@ export const EMPTY_FILTERS: PipelineFilters = {
   hasResume: false,
   emergency: false,
   multiJob: false,
-  sort: 'newest',
-  page: 1,
-  size: 25,
 };
 
 /** The advanced-panel keys — what "Clear all" resets and the badge counts. */
@@ -297,22 +285,48 @@ export function rowMatches(
   return true;
 }
 
-export function sortRows(rows: PipelineRow[], sort: SortKey): PipelineRow[] {
-  const out = [...rows];
-  switch (sort) {
-    case 'oldest':
-      return out.sort((a, b) => Date.parse(a.submittedAt) - Date.parse(b.submittedAt));
-    case 'name':
-      return out.sort((a, b) => a.name.localeCompare(b.name));
-    case 'experience':
-      return out.sort((a, b) => (b.experienceMonths ?? -1) - (a.experienceMonths ?? -1));
-    default:
-      return out.sort((a, b) => Date.parse(b.submittedAt) - Date.parse(a.submittedAt));
+/** Column ids the table can sort by (DataTable passes these as sort_by). */
+export type SortColumn =
+  | 'name' | 'jobTitle' | 'institutionName' | 'roleCategory' | 'qualification'
+  | 'experienceMonths' | 'source' | 'stage' | 'submittedAt' | 'applicationsByPerson';
+
+const STAGE_RANK = new Map(CHIP_ORDER.map((s, i) => [s, i] as const));
+
+function sortValue(r: PipelineRow, by: SortColumn): string | number | null {
+  switch (by) {
+    case 'name': return r.name.toLowerCase();
+    case 'jobTitle': return r.jobTitle.toLowerCase();
+    case 'institutionName': return r.institutionName?.toLowerCase() ?? null;
+    case 'roleCategory': return r.roleCategory;
+    case 'qualification': return r.qualification?.toLowerCase() ?? null;
+    case 'experienceMonths': return r.experienceMonths;
+    case 'source': return r.source;
+    case 'stage': return STAGE_RANK.get(r.stage) ?? 99;
+    case 'applicationsByPerson': return r.applicationsByPerson;
+    default: return Date.parse(r.submittedAt);
   }
 }
 
+/**
+ * Sort by a table column. Unknown columns (DataTable's default 'created_at')
+ * sort by applied date. Blank values always go last, whichever the direction.
+ */
+export function sortRows(rows: PipelineRow[], by: string, order: 'asc' | 'desc' = 'desc'): PipelineRow[] {
+  const col = by as SortColumn;
+  const dir = order === 'asc' ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const va = sortValue(a, col);
+    const vb = sortValue(b, col);
+    if (va === null && vb === null) return 0;
+    if (va === null) return 1;
+    if (vb === null) return -1;
+    if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
+    return String(va).localeCompare(String(vb)) * dir;
+  });
+}
+
 export interface PipelineView {
-  /** Every filter applied, sorted — what the table pages through and Export writes. */
+  /** Every filter applied, newest first — what the table pages through and Export writes. */
   filtered: PipelineRow[];
   categoryCounts: Map<RoleCategory | 'all', number>;
   stageCounts: Map<StageKey | 'all', number>;
@@ -335,7 +349,7 @@ export function computeView(rows: PipelineRow[], f: PipelineFilters, now: number
     if (rowMatches(r, f, now)) filtered.push(r);
   }
 
-  return { filtered: sortRows(filtered, f.sort), categoryCounts, stageCounts };
+  return { filtered, categoryCounts, stageCounts };
 }
 
 export interface PipelineSummary {
@@ -378,7 +392,6 @@ const JOB_STATUS_VALUES: JobStatus[] = ['draft', 'open', 'on_hold', 'closed', 'f
 const SOURCE_VALUES = Object.keys(SOURCE_LABELS) as PipelineSource[];
 const EXPERIENCE_VALUES = Object.keys(EXPERIENCE_BAND_LABELS) as ExperienceBand[];
 const APPLIED_VALUES = Object.keys(APPLIED_WITHIN_LABELS) as AppliedWithin[];
-const SORT_VALUES = Object.keys(SORT_LABELS) as SortKey[];
 const STAGE_VALUES = CHIP_ORDER.filter((s): s is StageKey => s !== 'all');
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -388,8 +401,6 @@ function oneOf<T extends string>(v: string | null, allowed: readonly T[]): T | n
 
 /** Unknown or malformed params fall back to their defaults — a stale link never errors. */
 export function filtersFromParams(p: URLSearchParams): PipelineFilters {
-  const size = Number(p.get('size'));
-  const page = Number(p.get('page'));
   return {
     q: (p.get('q') ?? '').slice(0, 100),
     category: oneOf(p.get('category'), CATEGORY_VALUES) ?? 'all',
@@ -408,15 +419,17 @@ export function filtersFromParams(p: URLSearchParams): PipelineFilters {
     hasResume: p.get('hasResume') === '1',
     emergency: p.get('emergency') === '1',
     multiJob: p.get('multiJob') === '1',
-    sort: oneOf(p.get('sort'), SORT_VALUES) ?? 'newest',
-    page: Number.isInteger(page) && page > 0 ? page : 1,
-    size: (PAGE_SIZES as readonly number[]).includes(size) ? size : 25,
   };
 }
 
-/** Only non-default values are written, so a clean view has a clean URL. */
-export function filtersToParams(f: PipelineFilters): URLSearchParams {
-  const p = new URLSearchParams();
+/**
+ * Writes the page's own filters onto `base` (the current URL params), keeping
+ * the keys the DataTable owns there (page, pageSize, sortBy, sortOrder,
+ * columnVisibility). Only non-default values are written.
+ */
+export function filtersToParams(f: PipelineFilters, base?: URLSearchParams): URLSearchParams {
+  const p = new URLSearchParams(base);
+  for (const key of Object.keys(EMPTY_FILTERS)) p.delete(key);
   for (const key of Object.keys(EMPTY_FILTERS) as (keyof PipelineFilters)[]) {
     const v = f[key];
     if (v === EMPTY_FILTERS[key] || v === null || v === '') continue;
