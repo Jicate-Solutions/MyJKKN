@@ -4,12 +4,14 @@
  * Gate: hr.recruitment.create (or super admin / admin), checked with the
  * caller's own session — the same RPCs the RLS policies use, so the route and
  * the database agree on who is in. Scope is then enforced by RLS on every
- * intake table and on hr_recruitment_jobs.
+ * intake table and on hr_recruitment_jobs: the session client only READS;
+ * every write is the service's, after that read (see intake-service.ts).
+ * The actor's name comes from profiles here, on the server.
  */
 
 import { NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { uploadResumeToJobFolder } from '@/lib/google/drive-upload';
+import { deleteDriveFile, uploadResumeToJobFolder } from '@/lib/google/drive-upload';
 import type { ResumeExtractor } from '@/types/hr-intake';
 import { IntakeError, type IntakeActor, type IntakeDeps } from '@/lib/services/hr/intake/intake-service';
 import { UploadLimitError } from '@/lib/services/hr/intake/expand-upload';
@@ -59,14 +61,17 @@ export async function intakeContext(
       id: user.id,
       name: (profile?.full_name as string | null | undefined) ?? null,
       institution_id: (profile?.institution_id as string | null | undefined) ?? null,
+      is_super_admin: superAdmin.data === true,
     },
-    deps: { db: session, admin: serviceClient, upload: uploadResumeToJobFolder, extractor },
+    deps: { db: session, admin: serviceClient, upload: uploadResumeToJobFolder, deleteFile: deleteDriveFile, extractor },
   };
 }
 
 /** Every refusal as { error } with a real status code (rule #27). */
 export function intakeErrorResponse(where: string, err: unknown): NextResponse {
-  if (err instanceof IntakeError) return NextResponse.json({ error: err.message }, { status: err.status });
+  if (err instanceof IntakeError) {
+    return NextResponse.json({ ...(err.details ?? {}), error: err.message }, { status: err.status });
+  }
   if (err instanceof UploadLimitError) return NextResponse.json({ error: err.message }, { status: 413 });
   console.error(`[hr/recruitment/intake] ${where}`, err);
   return NextResponse.json(

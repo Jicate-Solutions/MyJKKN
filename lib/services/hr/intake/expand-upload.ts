@@ -44,6 +44,14 @@ export async function expandZip(zipName: string, bytes: Uint8Array, budget: numb
   if (entries.length > budget) {
     throw new UploadLimitError(`"${zipName}" holds more files than the ${LIMITS_TEXT.files}-resume limit allows. Upload at most ${LIMITS_TEXT.files} at a time.`);
   }
+  // Two entries "x/Resume.pdf" and "y/Resume.pdf" must stay two different names:
+  // an entry keeps its bare file name only when no other entry shares it.
+  const baseCount = new Map<string, number>();
+  for (const e of entries) {
+    const b = baseName(e.name).toLowerCase();
+    baseCount.set(b, (baseCount.get(b) ?? 0) + 1);
+  }
+  const nameOf = (path: string) => ((baseCount.get(baseName(path).toLowerCase()) ?? 0) > 1 ? path : baseName(path));
   const out: UploadedFile[] = [];
   for (const entry of entries) {
     // Check the size the zip declares BEFORE inflating, so a small zip that
@@ -52,7 +60,7 @@ export async function expandZip(zipName: string, bytes: Uint8Array, budget: numb
     if (typeof declared === 'number') checkResumeSize(baseName(entry.name), declared);
     const inner = await entry.async('uint8array');
     checkResumeSize(baseName(entry.name), inner.byteLength);
-    out.push({ name: baseName(entry.name), bytes: inner });
+    out.push({ name: nameOf(entry.name), bytes: inner });
   }
   return out;
 }

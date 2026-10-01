@@ -16,6 +16,7 @@ import {
   createIntakeBatch,
   decideIntakeRow,
   deleteIntakeRule,
+  discardIntakeBatch,
   getIntakeBatch,
   listIntakeBatches,
   listIntakeRules,
@@ -92,6 +93,18 @@ export function useApplyIntake(batchId: string) {
     // Refresh even after a failure: some rows may have been filed before it.
     onSettled: () => {
       qc.invalidateQueries({ queryKey: intakeKeys.batch(batchId) });
+      qc.invalidateQueries({ queryKey: intakeKeys.batches() });
+    },
+  });
+}
+
+/** Discards a batch, then refreshes the list it no longer belongs to. */
+export function useDiscardIntakeBatch(batchId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => discardIntakeBatch(batchId),
+    onSuccess: () => {
+      qc.removeQueries({ queryKey: intakeKeys.batch(batchId) });
       qc.invalidateQueries({ queryKey: intakeKeys.batches() });
     },
   });

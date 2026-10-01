@@ -11,8 +11,11 @@
 -- Shared shape: types/hr-intake.ts. Server: lib/services/hr/intake/intake-service.ts.
 -- Routes: app/api/hr/recruitment/intake/**.
 --
--- TIER: ADDITIVE + ONE WIDENED CHECK. 3 new tables, 1 private bucket (no client policy), 1 new
--- nullable column on hr_job_applications, the source CHECK widened by one value.
+-- TIER: ADDITIVE + ONE WIDENED CHECK + ONE PARTIAL UNIQUE INDEX. 3 new tables
+-- (read-only for signed-in people; the server writes them with the service
+-- role), 1 private bucket (no client policy), 1 new nullable column on
+-- hr_job_applications, the source CHECK widened by one value, and a unique
+-- index on (job_id, lower(email)) for source 'cvviz_import' rows only.
 -- No function, no SECURITY DEFINER, no data rewritten.
 --
 -- FILE ONLY at PR time. Application to production is Director-gated.
@@ -67,16 +70,51 @@ ALTER TABLE public.hr_job_applications
 COMMENT ON COLUMN public.hr_job_applications.cvviz_profile_url IS
   'CVViZ "Candidate Profile Link" for rows filed by the HR intake helper (source = cvviz_import). NULL for every other source.';
 
+-- One CVViZ import per person per job, enforced by the database, the same
+-- shape as the careers page's uq_hr_job_applications_external_job_email
+-- (20260922000646). Two "apply" calls racing past the service's own check can
+-- then never file the same person twice; the loser gets 23505 and links the
+-- winner's application instead.
+--
+-- Checked BEFORE the index is built: if rows already break it, stop and name
+-- them rather than failing on an anonymous unique violation.
+DO $$
+DECLARE
+  v_dupes text;
+BEGIN
+  SELECT string_agg(format('job %s / %s (%s rows)', job_id, email_l, n), '; ')
+    INTO v_dupes
+    FROM (
+      SELECT job_id, lower(email) AS email_l, count(*) AS n
+        FROM public.hr_job_applications
+       WHERE source = 'cvviz_import' AND email IS NOT NULL
+       GROUP BY job_id, lower(email)
+      HAVING count(*) > 1
+    ) d;
+  IF v_dupes IS NOT NULL THEN
+    RAISE EXCEPTION 'hr_job_applications already holds the same CVViZ import twice: %. Merge or remove the extra rows before applying.', v_dupes;
+  END IF;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_job_applications_cvviz_job_email
+  ON public.hr_job_applications (job_id, lower(email))
+  WHERE source = 'cvviz_import' AND email IS NOT NULL;
+
 -- ============================================================================
 -- 2. Batches: one upload of one export
 -- ============================================================================
--- institution_id is the uploader's home institution at upload time. It decides
--- who else may see the batch (same-scope HR); the uploader always sees their own.
+-- institution_id is the college the upload belongs to: the uploader's home
+-- college, or — for someone with none — a college they chose and can reach. It
+-- decides who else may see the batch (same-college HR); the uploader always
+-- sees their own. NOT NULL on purpose: the live role_has_institution_access()
+-- answers TRUE for a NULL id ("system-wide record"), so a batch without a
+-- college would be readable by HR in every college. The policies below also
+-- test "institution_id IS NOT NULL" before calling it, as a second wall.
 CREATE TABLE IF NOT EXISTS public.hr_intake_batches (
   id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   source           text NOT NULL DEFAULT 'cvviz_export' CHECK (source IN ('cvviz_export')),
   file_name        text NOT NULL CHECK (length(btrim(file_name)) > 0),
-  institution_id   uuid REFERENCES public.institutions(id) ON DELETE SET NULL,
+  institution_id   uuid NOT NULL REFERENCES public.institutions(id),
   created_by       uuid NOT NULL REFERENCES public.profiles(id),
   created_by_name  text,
   status           text NOT NULL DEFAULT 'preparing' CHECK (status IN ('preparing', 'ready', 'closed')),
@@ -173,13 +211,16 @@ CREATE INDEX IF NOT EXISTS idx_hr_intake_rows_application
 -- Born from a person's correction and credited to them. One rule per
 -- normalised title per institution: two colleges may each route the same CVViZ
 -- title to their own job, and neither can see or overwrite the other's rule.
--- institution_id is the job's institution; the INSERT/UPDATE policies refuse a
--- rule whose institution does not match its job (as the writer can see it).
+-- institution_id is the job's institution, NOT NULL: there are no shared
+-- "every college" rules (a NULL here would be visible everywhere, see section 2).
+-- The server writes rules (service role) only for a job the person can see,
+-- with that job's own college; a correction never moves or deletes another
+-- college's rule.
 CREATE TABLE IF NOT EXISTS public.hr_intake_match_rules (
   id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   cvviz_job_title_norm  text NOT NULL CHECK (length(btrim(cvviz_job_title_norm)) > 0),
   job_id                uuid NOT NULL REFERENCES public.hr_recruitment_jobs(id) ON DELETE CASCADE,
-  institution_id        uuid REFERENCES public.institutions(id) ON DELETE CASCADE,
+  institution_id        uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
   created_by            uuid NOT NULL REFERENCES public.profiles(id),
   created_by_name       text,
   times_used            integer NOT NULL DEFAULT 0 CHECK (times_used >= 0),
@@ -192,7 +233,7 @@ COMMENT ON TABLE public.hr_intake_match_rules IS
   'HR intake helper: learned routing from a normalised CVViZ job title to a MyJKKN job, credited to the person whose correction created it. One per (title, institution).';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_intake_match_rules_title_institution
-  ON public.hr_intake_match_rules (cvviz_job_title_norm, institution_id) NULLS NOT DISTINCT;
+  ON public.hr_intake_match_rules (cvviz_job_title_norm, institution_id);
 CREATE INDEX IF NOT EXISTS idx_hr_intake_match_rules_job
   ON public.hr_intake_match_rules (job_id);
 
@@ -219,22 +260,53 @@ CREATE TRIGGER hr_intake_match_rules_updated_at
 -- ============================================================================
 -- Names, emails and phone numbers of people applying for jobs: the anonymous
 -- key never reaches any of these tables.
+--
+-- READ-ONLY for signed-in people. A signed-in client may SELECT what its
+-- policies allow, and nothing else: no INSERT, UPDATE or DELETE grant at all,
+-- so no column (a resume path, a decision, who decided it, a rule's college)
+-- can be written straight through PostgREST. Every write is made by the server
+-- with the service role, inside lib/services/hr/intake/intake-service.ts, and
+-- only AFTER the person's own session has shown it can see the batch, the row
+-- or the job (the SELECT policies below are that check). Names written beside
+-- a decision or an upload come from profiles on the server, never from the
+-- browser.
 ALTER TABLE public.hr_intake_batches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.hr_intake_rows ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.hr_intake_match_rules ENABLE ROW LEVEL SECURITY;
 
-REVOKE ALL ON public.hr_intake_batches FROM anon, PUBLIC;
-REVOKE ALL ON public.hr_intake_rows FROM anon, PUBLIC;
-REVOKE ALL ON public.hr_intake_match_rules FROM anon, PUBLIC;
+REVOKE ALL ON public.hr_intake_batches FROM anon, PUBLIC, authenticated;
+REVOKE ALL ON public.hr_intake_rows FROM anon, PUBLIC, authenticated;
+REVOKE ALL ON public.hr_intake_match_rules FROM anon, PUBLIC, authenticated;
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_intake_batches TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_intake_rows TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_intake_match_rules TO authenticated;
+GRANT SELECT ON public.hr_intake_batches TO authenticated;
+GRANT SELECT ON public.hr_intake_rows TO authenticated;
+GRANT SELECT ON public.hr_intake_match_rules TO authenticated;
+
+GRANT ALL ON public.hr_intake_batches TO service_role;
+GRANT ALL ON public.hr_intake_rows TO service_role;
+GRANT ALL ON public.hr_intake_match_rules TO service_role;
+
+-- Write policies from an earlier draft of this file, if any were created: the
+-- grants above already refuse the writes; dropping them keeps the catalog honest.
+DROP POLICY IF EXISTS hr_intake_batches_insert ON public.hr_intake_batches;
+DROP POLICY IF EXISTS hr_intake_batches_update ON public.hr_intake_batches;
+DROP POLICY IF EXISTS hr_intake_batches_delete ON public.hr_intake_batches;
+DROP POLICY IF EXISTS hr_intake_rows_insert ON public.hr_intake_rows;
+DROP POLICY IF EXISTS hr_intake_rows_update ON public.hr_intake_rows;
+DROP POLICY IF EXISTS hr_intake_rows_delete ON public.hr_intake_rows;
+DROP POLICY IF EXISTS hr_intake_match_rules_insert ON public.hr_intake_match_rules;
+DROP POLICY IF EXISTS hr_intake_match_rules_update ON public.hr_intake_match_rules;
+DROP POLICY IF EXISTS hr_intake_match_rules_delete ON public.hr_intake_match_rules;
 
 -- The gate is hr.recruitment.create (the people who bring candidates in),
 -- scoped like the recruitment screens: institution access through
 -- role_has_institution_access(), super admins and admins first. No role name
 -- is written anywhere; Role Management decides who holds the key.
+--
+-- "institution_id IS NOT NULL AND" comes before every role_has_institution_access()
+-- call: that function answers TRUE for NULL, so without the guard a row with no
+-- college would be visible to HR in every college. The columns are NOT NULL as
+-- well; the guard is the second wall, not the only one.
 
 -- 6a. Batches: the uploader, or anyone holding the key for the batch's college.
 DROP POLICY IF EXISTS hr_intake_batches_select ON public.hr_intake_batches;
@@ -245,77 +317,22 @@ CREATE POLICY hr_intake_batches_select ON public.hr_intake_batches
     OR (SELECT public.is_admin())
     OR ((SELECT public.user_has_permission('hr.recruitment.create'))
         AND (created_by = (SELECT auth.uid())
-             OR public.role_has_institution_access(institution_id)))
+             OR (institution_id IS NOT NULL
+                 AND public.role_has_institution_access(institution_id))))
   );
 
-DROP POLICY IF EXISTS hr_intake_batches_insert ON public.hr_intake_batches;
-CREATE POLICY hr_intake_batches_insert ON public.hr_intake_batches
-  FOR INSERT TO authenticated
-  WITH CHECK (
-    created_by = (SELECT auth.uid())
-    AND (
-      (SELECT public.is_super_admin())
-      OR (SELECT public.is_admin())
-      OR ((SELECT public.user_has_permission('hr.recruitment.create'))
-          AND (institution_id IS NULL OR public.role_has_institution_access(institution_id)))
-    )
-  );
-
-DROP POLICY IF EXISTS hr_intake_batches_update ON public.hr_intake_batches;
-CREATE POLICY hr_intake_batches_update ON public.hr_intake_batches
-  FOR UPDATE TO authenticated
-  USING (
-    (SELECT public.is_super_admin())
-    OR (SELECT public.is_admin())
-    OR ((SELECT public.user_has_permission('hr.recruitment.create'))
-        AND (created_by = (SELECT auth.uid())
-             OR public.role_has_institution_access(institution_id)))
-  )
-  WITH CHECK (
-    (SELECT public.is_super_admin())
-    OR (SELECT public.is_admin())
-    OR ((SELECT public.user_has_permission('hr.recruitment.create'))
-        AND (created_by = (SELECT auth.uid())
-             OR public.role_has_institution_access(institution_id)))
-  );
-
--- Delete: only the uploader (the server removes a batch whose preparation broke).
-DROP POLICY IF EXISTS hr_intake_batches_delete ON public.hr_intake_batches;
-CREATE POLICY hr_intake_batches_delete ON public.hr_intake_batches
-  FOR DELETE TO authenticated
-  USING (
-    (SELECT public.is_super_admin())
-    OR (SELECT public.is_admin())
-    OR ((SELECT public.user_has_permission('hr.recruitment.create'))
-        AND created_by = (SELECT auth.uid()))
-  );
-
--- 6b. Rows follow their batch: whoever can see the batch can see and decide
--- its rows. The EXISTS runs under the caller's own batch policy above.
+-- 6b. Rows follow their batch: whoever can see the batch can see its rows. The
+-- EXISTS runs under the caller's own batch policy above.
 DROP POLICY IF EXISTS hr_intake_rows_select ON public.hr_intake_rows;
 CREATE POLICY hr_intake_rows_select ON public.hr_intake_rows
   FOR SELECT TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.hr_intake_batches b WHERE b.id = hr_intake_rows.batch_id));
+  USING (EXISTS (
+    SELECT 1 FROM public.hr_intake_batches b
+     WHERE b.id = hr_intake_rows.batch_id
+       AND b.institution_id IS NOT NULL
+  ));
 
-DROP POLICY IF EXISTS hr_intake_rows_insert ON public.hr_intake_rows;
-CREATE POLICY hr_intake_rows_insert ON public.hr_intake_rows
-  FOR INSERT TO authenticated
-  WITH CHECK (EXISTS (SELECT 1 FROM public.hr_intake_batches b WHERE b.id = hr_intake_rows.batch_id));
-
-DROP POLICY IF EXISTS hr_intake_rows_update ON public.hr_intake_rows;
-CREATE POLICY hr_intake_rows_update ON public.hr_intake_rows
-  FOR UPDATE TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.hr_intake_batches b WHERE b.id = hr_intake_rows.batch_id))
-  WITH CHECK (EXISTS (SELECT 1 FROM public.hr_intake_batches b WHERE b.id = hr_intake_rows.batch_id));
-
-DROP POLICY IF EXISTS hr_intake_rows_delete ON public.hr_intake_rows;
-CREATE POLICY hr_intake_rows_delete ON public.hr_intake_rows
-  FOR DELETE TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.hr_intake_batches b WHERE b.id = hr_intake_rows.batch_id));
-
--- 6c. Rules: visible and editable within the college of the job they point at.
--- A write must name the institution its job really belongs to, as the writer
--- can see that job; a write is always credited to the writer.
+-- 6c. Rules: visible within the college of the job they point at.
 DROP POLICY IF EXISTS hr_intake_match_rules_select ON public.hr_intake_match_rules;
 CREATE POLICY hr_intake_match_rules_select ON public.hr_intake_match_rules
   FOR SELECT TO authenticated
@@ -323,58 +340,7 @@ CREATE POLICY hr_intake_match_rules_select ON public.hr_intake_match_rules
     (SELECT public.is_super_admin())
     OR (SELECT public.is_admin())
     OR ((SELECT public.user_has_permission('hr.recruitment.create'))
-        AND public.role_has_institution_access(institution_id))
-  );
-
-DROP POLICY IF EXISTS hr_intake_match_rules_insert ON public.hr_intake_match_rules;
-CREATE POLICY hr_intake_match_rules_insert ON public.hr_intake_match_rules
-  FOR INSERT TO authenticated
-  WITH CHECK (
-    created_by = (SELECT auth.uid())
-    AND EXISTS (
-      SELECT 1 FROM public.hr_recruitment_jobs j
-       WHERE j.id = hr_intake_match_rules.job_id
-         AND j.institution_id IS NOT DISTINCT FROM hr_intake_match_rules.institution_id
-    )
-    AND (
-      (SELECT public.is_super_admin())
-      OR (SELECT public.is_admin())
-      OR ((SELECT public.user_has_permission('hr.recruitment.create'))
-          AND public.role_has_institution_access(institution_id))
-    )
-  );
-
-DROP POLICY IF EXISTS hr_intake_match_rules_update ON public.hr_intake_match_rules;
-CREATE POLICY hr_intake_match_rules_update ON public.hr_intake_match_rules
-  FOR UPDATE TO authenticated
-  USING (
-    (SELECT public.is_super_admin())
-    OR (SELECT public.is_admin())
-    OR ((SELECT public.user_has_permission('hr.recruitment.create'))
-        AND public.role_has_institution_access(institution_id))
-  )
-  WITH CHECK (
-    created_by = (SELECT auth.uid())
-    AND EXISTS (
-      SELECT 1 FROM public.hr_recruitment_jobs j
-       WHERE j.id = hr_intake_match_rules.job_id
-         AND j.institution_id IS NOT DISTINCT FROM hr_intake_match_rules.institution_id
-    )
-    AND (
-      (SELECT public.is_super_admin())
-      OR (SELECT public.is_admin())
-      OR ((SELECT public.user_has_permission('hr.recruitment.create'))
-          AND public.role_has_institution_access(institution_id))
-    )
-  );
-
-DROP POLICY IF EXISTS hr_intake_match_rules_delete ON public.hr_intake_match_rules;
-CREATE POLICY hr_intake_match_rules_delete ON public.hr_intake_match_rules
-  FOR DELETE TO authenticated
-  USING (
-    (SELECT public.is_super_admin())
-    OR (SELECT public.is_admin())
-    OR ((SELECT public.user_has_permission('hr.recruitment.create'))
+        AND institution_id IS NOT NULL
         AND public.role_has_institution_access(institution_id))
   );
 
@@ -388,7 +354,9 @@ CREATE POLICY hr_intake_match_rules_delete ON public.hr_intake_match_rules
 --   hr-intake/<batch id>/<file name>
 -- (Vercel caps a request body near 4.5 MB, so resumes cannot ride in the
 -- export's own request.) Only the server reads the bucket, with the service
--- role. The copies live only while the batch is open; closing it removes them.
+-- role. The copies live only while the batch is open; closing it removes them,
+-- discarding it removes them, and a batch untouched for 30 days is closed by the
+-- daily 'hr-intake-cleanup' routine (20270613101319), which removes them too.
 -- At filing time the resume is copied to the job's Drive folder like any
 -- careers application.
 --

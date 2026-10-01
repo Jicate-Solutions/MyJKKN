@@ -10,17 +10,21 @@
  * row with source 'cvviz_import'. Each row succeeds or fails on its own.
  *
  * TWO CLIENTS, ON PURPOSE.
- *   db    — the caller's own session. Every intake table, every job read and
- *           every rule write goes through it, so RLS decides what this person can
- *           see and change (hr.recruitment.create + institution access).
- *   admin — the service role, for exactly four things: the private 'hr-intake'
- *           bucket (no client storage policy exists), duplicate lookups across
- *           every college (a person who applied at another college is still the
- *           same person), the hr_job_applications insert (its INSERT policy only
- *           admits applicants filing for themselves — the careers path uses the
- *           service role for the same reason), and the rule usage counter.
- *           Every admin WRITE happens only after the session client has shown
- *           that this person can see the batch, the row and the job.
+ *   db    — the caller's own session, READ-ONLY. Every intake table and every
+ *           job is read through it, so RLS decides what this person can see
+ *           (hr.recruitment.create + institution access). Signed-in people hold
+ *           no INSERT/UPDATE/DELETE grant on the intake tables at all, so no
+ *           column can be written straight through PostgREST.
+ *   admin — the service role. EVERY write to the intake tables, the private
+ *           'hr-intake' bucket (no client storage policy exists), duplicate
+ *           lookups across every college (a person who applied at another
+ *           college is still the same person), and the hr_job_applications
+ *           insert (its INSERT policy only admits applicants filing for
+ *           themselves — the careers path uses the service role likewise).
+ *           Every admin WRITE happens only AFTER the session client has shown
+ *           that this person can see the batch, the row and the job, and every
+ *           name written beside a decision comes from the person's profile on
+ *           the server (IntakeActor), never from the request.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -46,10 +50,10 @@ import type {
 import { findSameFileDuplicates } from '@/lib/hr/intake/dedupe';
 import { isGeneralPool, normaliseJobTitle, phoneVariants } from '@/lib/hr/intake/normalise';
 import { IntakeParseError, parseExport, type ParsedRow } from '@/lib/hr/intake/parse-export';
-import { proposeMatch, type MatchJob } from '@/lib/hr/intake/propose-match';
+import { filingBlockers, proposeMatch, type MatchJob } from '@/lib/hr/intake/propose-match';
 import {
   isZipBytes,
-  matchResumeFile,
+  matchResumeFileDetailed,
   safeStorageName,
   sniffResumeMime,
   type UploadedFile,
@@ -71,7 +75,12 @@ export const INTAKE_BUCKET = 'hr-intake';
 
 /** A refusal with the HTTP status the route should answer with. */
 export class IntakeError extends Error {
-  constructor(message: string, public readonly status: number) {
+  constructor(
+    message: string,
+    public readonly status: number,
+    /** Extra fields for the response body, e.g. the colleges a person may choose from. */
+    public readonly details?: Record<string, unknown>,
+  ) {
     super(message);
     this.name = 'IntakeError';
   }
@@ -79,18 +88,36 @@ export class IntakeError extends Error {
 
 export interface IntakeActor {
   id: string;
+  /** From profiles.full_name, read on the server. */
   name: string | null;
   institution_id: string | null;
+  is_super_admin?: boolean;
 }
 
 export interface IntakeDeps {
   db: SupabaseClient;
   admin: SupabaseClient;
   upload: typeof uploadResumeToJobFolder;
+  /** Removes a Drive file; used to clean up after losing a filing race. Best effort. */
+  deleteFile?: (fileId: string) => Promise<boolean>;
   extractor: ResumeExtractor | null;
   now?: () => Date;
   newId?: () => string;
 }
+
+/** A college the person may file an upload under. */
+export interface IntakeInstitutionChoice {
+  id: string;
+  name: string;
+}
+
+/** Batches with no activity for this long are closed and their resume copies removed. */
+export const IDLE_BATCH_DAYS = 30;
+
+/** Card reasons when a resume could not be paired safely (one file, one person). */
+export const AMBIGUOUS_RESUME_NOTE = 'Two uploaded files share this name — upload them with distinct names';
+export const SHARED_RESUME_NOTE =
+  'Another candidate in this export names the same resume file — upload each person’s resume with a distinct name';
 
 export interface SkippedFile {
   file_name: string;
@@ -444,11 +471,66 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return out;
 }
 
+/**
+ * True when this person's session can reach the college. Asked of the same
+ * function the RLS policies use, with a NON-NULL id only: that function answers
+ * TRUE for NULL, so a missing id is refused here before it is ever asked.
+ */
+async function canReachInstitution(deps: IntakeDeps, institutionId: string): Promise<boolean> {
+  if (!isUuid(institutionId)) return false;
+  const { data, error } = await deps.db.rpc('role_has_institution_access', { check_institution_id: institutionId });
+  if (error) throw dbFail('check your access to that college', error);
+  return data === true;
+}
+
+/** The colleges this person can file an upload under, by name. */
+export async function accessibleInstitutions(deps: IntakeDeps): Promise<IntakeInstitutionChoice[]> {
+  const { data, error } = await deps.db.from('institutions').select('id, name').order('name', { ascending: true }).limit(200);
+  if (error) throw dbFail('read the colleges', error);
+  const all = ((data ?? []) as { id: string; name: string | null }[]).filter((i) => isUuid(i.id));
+  const out: IntakeInstitutionChoice[] = [];
+  for (const i of all) {
+    if (await canReachInstitution(deps, i.id)) out.push({ id: i.id, name: i.name ?? 'Unnamed college' });
+  }
+  return out;
+}
+
+/**
+ * The college a new upload belongs to: the uploader's home college; for someone
+ * with none, the college they chose, provided they can reach it. Never NULL — a
+ * batch with no college would be visible to HR in every college.
+ */
+async function resolveBatchInstitution(
+  deps: IntakeDeps,
+  actor: IntakeActor,
+  chosen: string | null | undefined,
+): Promise<string> {
+  if (actor.institution_id) return actor.institution_id;
+  const pick = typeof chosen === 'string' ? chosen.trim() : '';
+  if (!pick) {
+    throw new IntakeError(
+      'Your profile has no college, so choose which college this upload is for.',
+      400,
+      { needs_institution: true, institutions: await accessibleInstitutions(deps) },
+    );
+  }
+  if (!(await canReachInstitution(deps, pick))) {
+    throw new IntakeError(
+      'You cannot add candidates for that college. Choose one of the colleges you work with.',
+      403,
+      { needs_institution: true, institutions: await accessibleInstitutions(deps) },
+    );
+  }
+  return pick;
+}
+
 export async function createBatch(
   deps: IntakeDeps,
   actor: IntakeActor,
   exportFile: UploadedFile,
+  chosenInstitutionId?: string | null,
 ): Promise<{ batch: IntakeBatch }> {
+  const institutionId = await resolveBatchInstitution(deps, actor, chosenInstitutionId);
   let parsed: ParsedRow[];
   try {
     parsed = parseExport(exportFile.name, exportFile.bytes);
@@ -456,13 +538,13 @@ export async function createBatch(
     if (e instanceof IntakeParseError) throw new IntakeError(e.message, 400);
     throw e;
   }
-  const { data, error } = await deps.db
+  const { data, error } = await deps.admin
     .from('hr_intake_batches')
     .insert({
       id: idOf(deps),
       source: 'cvviz_export',
       file_name: exportFile.name.slice(0, 255),
-      institution_id: actor.institution_id,
+      institution_id: institutionId,
       created_by: actor.id,
       created_by_name: actor.name,
       status: 'preparing',
@@ -528,7 +610,8 @@ export async function createUploadUrls(
   const { data: present, error: listErr } = await deps.admin.storage.from(INTAKE_BUCKET).list(batchId, { limit: 1000 });
   if (listErr) throw new IntakeError(`Could not check the files already uploaded: ${listErr.message}`, 500);
   const presentPaths = new Set((present ?? []).map((o) => `${batchId}/${o.name}`));
-  const taken = new Set<string>();
+  // A path already in storage is taken too: the signed URLs never overwrite (upsert: false).
+  const taken = new Set<string>(presentPaths);
   const planned = checked.map((f) => ({ ...f, path: uniquePath(batchId, f.name, taken) }));
   const newCount = planned.filter((p) => !presentPaths.has(p.path)).length;
   if (presentPaths.size + newCount > MAX_RESUME_FILES) {
@@ -537,8 +620,9 @@ export async function createUploadUrls(
 
   const uploads: UploadUrlResponse['uploads'] = [];
   for (const p of planned) {
-    // upsert: uploading the same file name again replaces it rather than failing.
-    const { data, error } = await deps.admin.storage.from(INTAKE_BUCKET).createSignedUploadUrl(p.path, { upsert: true });
+    // upsert: false — a signed URL can only create a new object, never replace
+    // one already uploaded to this batch (the path above is always fresh).
+    const { data, error } = await deps.admin.storage.from(INTAKE_BUCKET).createSignedUploadUrl(p.path, { upsert: false });
     if (error || !data) throw new IntakeError(`Could not prepare the upload for "${p.name}": ${error?.message ?? 'no URL returned'}`, 500);
     uploads.push({ name: p.name, path: data.path ?? p.path, signed_url: data.signedUrl, token: data.token, content_type: p.contentType });
   }
@@ -636,10 +720,11 @@ export async function prepareBatch(
   const parsed = Array.isArray(batch.parsed_rows) ? batch.parsed_rows : null;
   if (!parsed) throw new IntakeError('The export rows of this batch are missing. Upload the export again.', 409);
 
-  // Claim the batch so two prepare calls cannot run at once.
+  // Claim the batch so two prepare calls cannot run at once. The session read
+  // above (loadBatchRecord) is the access check; the write is the server's.
   const now = nowOf(deps);
   const stale = new Date(now.getTime() - APPLY_CLAIM_TTL_MS).toISOString();
-  const { data: claimed, error: claimErr } = await deps.db
+  const { data: claimed, error: claimErr } = await deps.admin
     .from('hr_intake_batches')
     .update({ prepare_claimed_at: now.toISOString() })
     .eq('id', batchId)
@@ -651,30 +736,67 @@ export async function prepareBatch(
     throw new IntakeError('This batch is already being prepared. Try again in a minute.', 409);
   }
 
+  // Set once the batch is marked ready. After that the rows ARE the batch: a
+  // later step failing (tidying storage, counting rule use, re-reading) must
+  // never trigger the clean-up below, which would delete every row.
+  let committed = false;
   try {
     const { files, skipped, zipPaths, junkPaths } = await collectUploads(deps, batchId, uploaded);
 
-    // --- pair each row with its resume ---
+    // --- duplicates earlier in this file (needed to decide who may share a file) ---
+    const sameFile = findSameFileDuplicates(parsed);
+    const personOf = (rowIndex: number) => sameFile.get(rowIndex)?.ref_row_index ?? rowIndex;
+
+    // --- pair each row with its resume: one file, one person ---
     const pairing = new Map<number, StoredResume | null>();
-    const used = new Set<StoredResume>();
+    const ambiguousRows = new Set<number>();
+    const ambiguousFiles = new Set<StoredResume>();
+    const sharedRows = new Set<number>();
     for (const row of parsed) {
-      const hit = matchResumeFile(row.file_name, files);
-      pairing.set(row.row_index, hit);
-      if (hit) used.add(hit);
+      const m = matchResumeFileDetailed(row.file_name, files);
+      if (m.ambiguous) {
+        ambiguousRows.add(row.row_index);
+        // Every upload that fits this name equally well is part of the clash.
+        for (const f of files) if (matchResumeFileDetailed(row.file_name, [f]).file) ambiguousFiles.add(f);
+      }
+      pairing.set(row.row_index, m.file);
     }
+    // A file may serve several rows only when they are the SAME person (rows of
+    // one same-file duplicate group). Named by two different people, it pairs with
+    // neither: a guess could file one person's resume under another's name.
+    const peopleByFile = new Map<StoredResume, Set<number>>();
+    for (const [rowIndex, f] of pairing) {
+      if (!f) continue;
+      const set = peopleByFile.get(f) ?? new Set<number>();
+      set.add(personOf(rowIndex));
+      peopleByFile.set(f, set);
+    }
+    for (const [rowIndex, f] of pairing) {
+      if (f && (peopleByFile.get(f)?.size ?? 0) > 1) {
+        pairing.set(rowIndex, null);
+        sharedRows.add(rowIndex);
+      }
+    }
+    const used = new Set<StoredResume>();
+    for (const f of pairing.values()) if (f) used.add(f);
     const unusedPaths: string[] = [];
     for (const f of files) {
-      if (!used.has(f)) {
-        skipped.push({ file_name: f.name, reason: 'No row in the export names this file' });
-        unusedPaths.push(f.path);
-      }
+      if (used.has(f)) continue;
+      skipped.push({
+        file_name: f.name,
+        reason: ambiguousFiles.has(f)
+          ? 'Another uploaded file has the same name — upload them with distinct names'
+          : [...peopleByFile.keys()].includes(f)
+            ? 'Two different candidates name this file'
+            : 'No row in the export names this file',
+      });
+      unusedPaths.push(f.path);
     }
 
     // --- what the helper compares against ---
     const [jobs, rules] = await Promise.all([loadOpenJobs(deps), loadRules(deps)]);
 
-    // --- duplicates: earlier in this file, then already in MyJKKN ---
-    const sameFile = findSameFileDuplicates(parsed);
+    // --- duplicates already in MyJKKN ---
     const existing = await findExistingRecords(
       deps.admin,
       parsed
@@ -697,15 +819,18 @@ export async function prepareBatch(
     const extracts = new Map<StoredResume, ResumeExtract | 'unreadable' | null>();
     if (deps.extractor) {
       const extractor = deps.extractor;
+      let failed = 0;
       const results = await mapLimit(toRead, EXTRACTION_CONCURRENCY, async (s) => {
         try {
           return await extractor({ fileName: s.name, bytes: s.bytes, mimeType: s.mime });
-        } catch (e) {
-          console.warn('[hr/intake] resume extraction did not complete', { path: s.path, message: (e as Error)?.message });
+        } catch {
+          // No file name or path in the log: applicants put phone numbers in them.
+          failed += 1;
           return 'unreadable' as const;
         }
       });
       toRead.forEach((s, i) => extracts.set(s, results[i] ?? null));
+      if (failed > 0) console.warn('[hr/intake] some resumes could not be read', { batchId, failed, attempted: toRead.length });
     }
 
     // --- one proposal per row ---
@@ -718,7 +843,13 @@ export async function prepareBatch(
       const read = s ? extracts.get(s) : undefined;
       const extract = read && read !== 'unreadable' ? read : null;
       const extra: string[] = [];
-      if (row.file_name && !s) extra.push('Resume file was not in the upload');
+      if (ambiguousRows.has(row.row_index)) {
+        extra.push(AMBIGUOUS_RESUME_NOTE);
+      } else if (sharedRows.has(row.row_index)) {
+        extra.push(SHARED_RESUME_NOTE);
+      } else if (row.file_name && !s) {
+        extra.push('Resume file was not in the upload');
+      }
       if (s && overCap.has(s) && deps.extractor) extra.push(`Resume not read: this batch already had ${MAX_EXTRACTIONS_PER_BATCH} read`);
       if (read === 'unreadable') extra.push('Could not read the resume');
 
@@ -737,6 +868,7 @@ export async function prepareBatch(
         openJobs: jobs,
         rules: rulesForMatch,
         extra_reasons: extra,
+        resume_uploaded: !!s,
       });
       if (proposal.rule_id) ruleUse.set(proposal.rule_id, (ruleUse.get(proposal.rule_id) ?? 0) + 1);
 
@@ -765,36 +897,41 @@ export async function prepareBatch(
     });
 
     // A previous attempt that broke halfway may have left rows: start clean.
-    const { error: clearErr } = await deps.db.from('hr_intake_rows').delete().eq('batch_id', batchId);
+    const { error: clearErr } = await deps.admin.from('hr_intake_rows').delete().eq('batch_id', batchId);
     if (clearErr) throw dbFail('clear an earlier attempt', clearErr);
     // Earliest rows first, so a same-file pointer always names a row already written.
     for (const chunk of chunkIdsForIn(records, 100)) {
-      const { error } = await deps.db.from('hr_intake_rows').insert(chunk);
+      const { error } = await deps.admin.from('hr_intake_rows').insert(chunk);
       if (error) throw dbFail('save the batch rows', error);
     }
 
-    const { data: ready, error: readyErr } = await deps.db
+    const { data: ready, error: readyErr } = await deps.admin
       .from('hr_intake_batches')
       .update({ status: 'ready', skipped_files: skipped, parsed_rows: null, prepare_claimed_at: null })
       .eq('id', batchId)
       .select(BATCH_COLUMNS)
       .single();
     if (readyErr || !ready) throw dbFail('finish preparing the batch', readyErr);
+    committed = true;
 
-    // The zips (now expanded), and files no row uses, are not kept.
+    // Nothing below may undo the batch: each step only logs when it fails.
     const drop = [...zipPaths, ...junkPaths, ...unusedPaths];
     if (drop.length > 0) {
       const { error } = await deps.admin.storage.from(INTAKE_BUCKET).remove(drop);
-      if (error) console.warn('[hr/intake] unused uploads not removed', { batchId, message: error.message });
+      if (error) console.warn('[hr/intake] unused uploads not removed', { batchId, count: drop.length, message: error.message });
     }
-    await recordRuleUse(deps, ruleUse);
+    await recordRuleUse(deps, ruleUse).catch((e) => {
+      console.warn('[hr/intake] rule usage not recorded', { batchId, message: (e as Error)?.message });
+    });
 
     const rows = await loadRows(deps, batchId);
     return { batch: toIntakeBatch(ready as BatchRecord, 0, 0), rows: rows.map(toIntakeRow) };
   } catch (e) {
-    // Leave the batch preparable again: no half-written rows, claim released.
-    await deps.db.from('hr_intake_rows').delete().eq('batch_id', batchId);
-    await deps.db.from('hr_intake_batches').update({ prepare_claimed_at: null }).eq('id', batchId);
+    if (!committed) {
+      // Leave the batch preparable again: no half-written rows, claim released.
+      await deps.admin.from('hr_intake_rows').delete().eq('batch_id', batchId);
+      await deps.admin.from('hr_intake_batches').update({ prepare_claimed_at: null }).eq('id', batchId);
+    }
     throw e;
   }
 }
@@ -842,10 +979,11 @@ export function correctionTeachesRule(
 }
 
 /**
- * One rule per normalised title within what this person can see: a correction
- * replaces the rule they can see (moving it to the new job and crediting them)
- * and retires any other visible rule for the same title. Writes go through the
- * session client, so RLS refuses a rule for a job outside the person's colleges.
+ * Remember a correction as a rule for the job's own college. A college's rule
+ * for this title is moved to the new job and credited to this person, or a new
+ * one is written. Rules of OTHER colleges are never moved or deleted, and there
+ * are no college-less rules. The job came from loadOpenJobs, i.e. this person's
+ * session can see it; the write itself is the server's (service role).
  */
 export async function learnRule(
   deps: IntakeDeps,
@@ -853,35 +991,51 @@ export async function learnRule(
   norm: string,
   job: Pick<MatchJob, 'id' | 'title' | 'institution_id'>,
 ): Promise<IntakeMatchRule> {
-  const { data: visible, error } = await deps.db
-    .from('hr_intake_match_rules')
-    .select('id, institution_id')
-    .eq('cvviz_job_title_norm', norm);
-  if (error) throw dbFail('read the match rules', error);
-  const list = (visible ?? []) as { id: string; institution_id: string | null }[];
-  const keep = list.find((r) => r.institution_id === job.institution_id) ?? list[0];
+  const institutionId = job.institution_id;
+  if (!institutionId) {
+    throw new IntakeError('This job belongs to no college, so the correction cannot be remembered for next time.', 400);
+  }
+  const RULE_COLUMNS = 'id, cvviz_job_title_norm, job_id, institution_id, created_by, created_by_name, created_at, times_used';
   const fields = {
     cvviz_job_title_norm: norm,
     job_id: job.id,
-    institution_id: job.institution_id,
+    institution_id: institutionId,
     created_by: actor.id,
     created_by_name: actor.name,
     times_used: 0,
     last_used_at: null,
   };
-  const others = list.filter((r) => r !== keep).map((r) => r.id);
-  if (others.length > 0) {
-    const { error: delErr } = await deps.db.from('hr_intake_match_rules').delete().in('id', others);
-    if (delErr) throw dbFail('replace the older match rule', delErr);
+  const findMine = async () => {
+    const { data, error } = await deps.admin
+      .from('hr_intake_match_rules')
+      .select('id')
+      .eq('cvviz_job_title_norm', norm)
+      .eq('institution_id', institutionId)
+      .limit(1);
+    if (error) throw dbFail('read the match rules', error);
+    return ((data ?? [])[0] as { id: string } | undefined)?.id ?? null;
+  };
+  const update = (id: string) =>
+    deps.admin.from('hr_intake_match_rules').update(fields).eq('id', id).select(RULE_COLUMNS).single();
+
+  const existing = await findMine();
+  let { data: saved, error: saveErr } = existing
+    ? await update(existing)
+    : await deps.admin.from('hr_intake_match_rules').insert(fields).select(RULE_COLUMNS).single();
+  if (saveErr && (saveErr as { code?: string }).code === '23505') {
+    // Someone else in the same college taught the same title a moment ago: take it over.
+    const raced = await findMine();
+    if (raced) ({ data: saved, error: saveErr } = await update(raced));
   }
-  const query = keep
-    ? deps.db.from('hr_intake_match_rules').update(fields).eq('id', keep.id)
-    : deps.db.from('hr_intake_match_rules').insert(fields);
-  const { data: saved, error: saveErr } = await query
-    .select('id, cvviz_job_title_norm, job_id, institution_id, created_by, created_by_name, created_at, times_used')
-    .single();
-  if (saveErr) throw dbFail('save the match rule', saveErr);
+  if (saveErr || !saved) throw dbFail('save the match rule', saveErr);
   return ruleToContract(saved as RuleRecord, job.title);
+}
+
+/** True while another request holds the row's filing claim. */
+function claimIsFresh(claimedAt: string | null, now: Date): boolean {
+  if (!claimedAt) return false;
+  const t = Date.parse(claimedAt);
+  return Number.isFinite(t) && t > now.getTime() - APPLY_CLAIM_TTL_MS;
 }
 
 export async function decide(
@@ -899,10 +1053,15 @@ export async function decide(
     throw new IntakeError('Pick the job to file this candidate under.', 400);
   }
 
+  // The session reads are the access check: this person can see the row and its batch.
   const row = await loadRow(deps, rowId);
   const batch = await loadBatchRecord(deps, row.batch_id);
   if (batch.status === 'closed') throw new IntakeError('This batch is closed.', 409);
   if (row.application_id) throw new IntakeError('Already filed in MyJKKN; it cannot be changed here.', 409);
+  const now = nowOf(deps);
+  if (claimIsFresh(row.apply_claimed_at, now)) {
+    throw new IntakeError('This candidate is being filed right now. Wait a minute, then refresh.', 409);
+  }
 
   let job: LoadedJob | undefined;
   if (action === 'file_under_job') {
@@ -911,24 +1070,26 @@ export async function decide(
   }
 
   const corrected = action !== row.proposal_action || (action === 'file_under_job' && jobId !== row.proposal_job_id);
-  const { data, error } = await deps.db
+  const stale = new Date(now.getTime() - APPLY_CLAIM_TTL_MS).toISOString();
+  const { data, error } = await deps.admin
     .from('hr_intake_rows')
     .update({
       decision_action: action,
       decision_job_id: jobId,
       decided_by: actor.id,
       decided_by_name: actor.name,
-      decided_at: nowOf(deps).toISOString(),
+      decided_at: now.toISOString(),
       decision_corrected: corrected,
       applied_at: null,
       apply_error: null,
     })
     .eq('id', row.id)
     .is('application_id', null)
+    .or(`apply_claimed_at.is.null,apply_claimed_at.lt.${stale}`)
     .select('*')
     .maybeSingle();
   if (error) throw dbFail('save the decision', error);
-  if (!data) throw new IntakeError('Already filed in MyJKKN; it cannot be changed here.', 409);
+  if (!data) throw new IntakeError('This candidate was filed, or is being filed, a moment ago; refresh to see it.', 409);
 
   let rule: IntakeMatchRule | null = null;
   let ruleError: string | null = null;
@@ -949,7 +1110,13 @@ export async function acceptHigh(deps: IntakeDeps, actor: IntakeActor, batchId: 
   const batch = await loadBatchRecord(deps, batchId);
   if (batch.status === 'closed') throw new IntakeError('This batch is closed.', 409);
   const rows = (await loadRows(deps, batchId)).filter(
-    (r) => !r.decision_action && !r.application_id && r.proposal_confidence === 'high',
+    (r) =>
+      !r.decision_action &&
+      !r.application_id &&
+      r.proposal_confidence === 'high' &&
+      // Never accept a filing that filing itself would refuse (rows from before
+      // the cap, or a resume copy that has since gone).
+      (r.proposal_action !== 'file_under_job' || filingBlockers(r.candidate, !!r.resume_storage_path).length === 0),
   );
   if (rows.length === 0) return { decided: 0 };
 
@@ -968,7 +1135,7 @@ export async function acceptHigh(deps: IntakeDeps, actor: IntakeActor, batchId: 
   let decided = 0;
   for (const g of groups.values()) {
     for (const chunk of chunkIdsForIn(g.ids, 100)) {
-      const { data, error } = await deps.db
+      const { data, error } = await deps.admin
         .from('hr_intake_rows')
         .update({
           decision_action: g.action,
@@ -978,8 +1145,10 @@ export async function acceptHigh(deps: IntakeDeps, actor: IntakeActor, batchId: 
           decided_at: at,
           decision_corrected: false,
         })
+        .eq('batch_id', batchId)
         .in('id', chunk)
         .is('decision_action', null)
+        .is('application_id', null)
         .select('id');
       if (error) throw dbFail('save the decisions', error);
       decided += (data ?? []).length;
@@ -1003,17 +1172,33 @@ async function existingApplicationId(admin: SupabaseClient, jobId: string, email
   return ((data ?? [])[0] as { id: string } | undefined)?.id ?? null;
 }
 
+/** A resume path the server itself wrote for this row's batch: "<batch id>/<one safe name>". */
+export function isOwnResumePath(batchId: string, path: string | null): path is string {
+  if (!path || !path.startsWith(`${batchId}/`) || path.includes('..')) return false;
+  const rest = path.slice(batchId.length + 1);
+  return rest.length > 0 && !rest.includes('/');
+}
+
 async function fileOne(deps: IntakeDeps, row: RowRecord, job: LoadedJob | undefined): Promise<ApplyResult> {
+  /** Set when THIS request holds the row's filing claim; only then may it release it. */
+  let claimedAt: string | null = null;
   const fail = async (message: string): Promise<ApplyResult> => {
-    await deps.db
-      .from('hr_intake_rows')
-      .update({ apply_error: message, applied_at: nowOf(deps).toISOString(), apply_claimed_at: null })
+    const patch: Record<string, unknown> = { apply_error: message, applied_at: nowOf(deps).toISOString() };
+    let q = deps.admin.from('hr_intake_rows').update(claimedAt ? { ...patch, apply_claimed_at: null } : patch)
       .eq('id', row.id)
       .is('application_id', null);
+    if (claimedAt) {
+      q = q.eq('apply_claimed_at', claimedAt);
+    } else {
+      // Never touch a row another request is filing right now.
+      const stale = new Date(nowOf(deps).getTime() - APPLY_CLAIM_TTL_MS).toISOString();
+      q = q.or(`apply_claimed_at.is.null,apply_claimed_at.lt.${stale}`);
+    }
+    await q;
     return { row_id: row.id, ok: false, application_id: null, error: message };
   };
   const done = async (applicationId: string): Promise<ApplyResult> => {
-    const { error } = await deps.db
+    const { error } = await deps.admin
       .from('hr_intake_rows')
       .update({ application_id: applicationId, applied_at: nowOf(deps).toISOString(), apply_error: null, apply_claimed_at: null })
       .eq('id', row.id);
@@ -1026,10 +1211,13 @@ async function fileOne(deps: IntakeDeps, row: RowRecord, job: LoadedJob | undefi
   };
 
   const c = row.candidate;
+  if (!row.decided_by || !row.decided_at) return fail('No one has recorded a decision for this row; decide it again');
   if (!job) return fail('The job is no longer open, or you do not have access to it');
   if (!c.email) return fail('No email address in the export, so it cannot be filed');
   if (!c.phone) return fail(`No usable phone number (${c.phone_issue ?? 'missing'})`);
   if (!row.resume_storage_path) return fail('No resume file was uploaded for this row');
+  if (!isOwnResumePath(row.batch_id, row.resume_storage_path)) return fail('The stored resume is not part of this upload');
+  const resumePath = row.resume_storage_path;
 
   try {
     const already = await existingApplicationId(deps.admin, job.id, c.email);
@@ -1038,7 +1226,7 @@ async function fileOne(deps: IntakeDeps, row: RowRecord, job: LoadedJob | undefi
     // Claim the row so a second, concurrent apply cannot file it again.
     const now = nowOf(deps);
     const stale = new Date(now.getTime() - APPLY_CLAIM_TTL_MS).toISOString();
-    const { data: claimed, error: claimErr } = await deps.db
+    const { data: claimed, error: claimErr } = await deps.admin
       .from('hr_intake_rows')
       .update({ apply_claimed_at: now.toISOString() })
       .eq('id', row.id)
@@ -1049,8 +1237,9 @@ async function fileOne(deps: IntakeDeps, row: RowRecord, job: LoadedJob | undefi
     if (!claimed || claimed.length === 0) {
       return { row_id: row.id, ok: false, application_id: null, error: 'Already being filed by another request' };
     }
+    claimedAt = now.toISOString();
 
-    const { data: blob, error: dlErr } = await deps.admin.storage.from(INTAKE_BUCKET).download(row.resume_storage_path);
+    const { data: blob, error: dlErr } = await deps.admin.storage.from(INTAKE_BUCKET).download(resumePath);
     if (dlErr || !blob) return fail(`Could not open the stored resume: ${dlErr?.message ?? 'missing'}`);
     const bytes = new Uint8Array(await blob.arrayBuffer());
     const mime = sniffResumeMime(bytes) ?? 'application/octet-stream';
@@ -1087,8 +1276,17 @@ async function fileOne(deps: IntakeDeps, row: RowRecord, job: LoadedJob | undefi
       })
       .select('id')
       .single();
+    if (insErr && (insErr as { code?: string }).code === '23505') {
+      // Lost a race: the same person was filed under this job a moment ago
+      // (uq_hr_job_applications_cvviz_job_email). Ours never committed, so its
+      // Drive copy is an orphan; the row is linked to the winner instead.
+      if (deps.deleteFile) await deps.deleteFile(uploaded.driveFileId).catch(() => false);
+      const winner = await existingApplicationId(deps.admin, job.id, c.email).catch(() => null);
+      if (winner) return done(winner);
+      return fail('This person was filed under this job by another request, but that application could not be found');
+    }
     if (insErr || !inserted) {
-      // Same choice as the careers path: an insert error may still have
+      // Same choice as the careers path: any other insert error may still have
       // committed, so the Drive file is kept rather than deleted.
       console.error('[hr/intake] application insert did not complete; Drive file kept', {
         driveFileId: uploaded.driveFileId, jobId: job.id, code: (insErr as { code?: string } | null)?.code,
@@ -1101,11 +1299,19 @@ async function fileOne(deps: IntakeDeps, row: RowRecord, job: LoadedJob | undefi
   }
 }
 
-/** Close the batch once every row is decided and every filing row is filed; drop the resume copies. */
+/**
+ * Close the batch once every row is settled, and drop the resume copies. A row
+ * decided "needs a new job" is NOT settled: HR may open that job and change the
+ * row to "file under job", which needs its resume, so the batch stays open
+ * (an idle batch is closed after IDLE_BATCH_DAYS by cleanupIdleBatches).
+ */
 async function closeIfFinished(deps: IntakeDeps, batchId: string): Promise<void> {
   const rows = await loadRows(deps, batchId);
   const finished = rows.every(
-    (r) => r.decision_action && (r.decision_action !== 'file_under_job' || r.application_id),
+    (r) =>
+      r.decision_action &&
+      r.decision_action !== 'needs_new_job' &&
+      (r.decision_action !== 'file_under_job' || r.application_id),
   );
   if (!finished) return;
   const paths = rows.map((r) => r.resume_storage_path).filter((p): p is string => !!p);
@@ -1115,9 +1321,9 @@ async function closeIfFinished(deps: IntakeDeps, batchId: string): Promise<void>
       console.warn('[hr/intake] resume copies not removed; batch stays open', { batchId, message: error.message });
       return;
     }
-    await deps.db.from('hr_intake_rows').update({ resume_storage_path: null }).eq('batch_id', batchId);
+    await deps.admin.from('hr_intake_rows').update({ resume_storage_path: null }).eq('batch_id', batchId);
   }
-  await deps.db.from('hr_intake_batches').update({ status: 'closed' }).eq('id', batchId);
+  await deps.admin.from('hr_intake_batches').update({ status: 'closed' }).eq('id', batchId);
 }
 
 export async function apply(
@@ -1170,6 +1376,97 @@ export async function apply(
 }
 
 // ---------------------------------------------------------------------------
+// Discard and idle clean-up
+// ---------------------------------------------------------------------------
+
+/** Every object stored under the batch's folder, removed. Returns how many. */
+async function removeBatchFiles(admin: SupabaseClient, batchId: string): Promise<number> {
+  const { data, error } = await admin.storage.from(INTAKE_BUCKET).list(batchId, { limit: 1000 });
+  if (error) throw new IntakeError(`Could not list the stored resumes: ${error.message}`, 500);
+  const paths = (data ?? []).map((o) => `${batchId}/${o.name}`);
+  if (paths.length === 0) return 0;
+  const { error: rmErr } = await admin.storage.from(INTAKE_BUCKET).remove(paths);
+  if (rmErr) throw new IntakeError(`Could not remove the stored resumes: ${rmErr.message}`, 500);
+  return paths.length;
+}
+
+/**
+ * Throw a batch away: its rows and its resume copies. Applications already filed
+ * from it stay in MyJKKN. Only the person who uploaded it, or a super admin.
+ */
+export async function discardBatch(
+  deps: IntakeDeps,
+  actor: IntakeActor,
+  batchId: string,
+): Promise<{ ok: true; removed_files: number }> {
+  const batch = await loadBatchRecord(deps, batchId);
+  if (batch.created_by !== actor.id && !actor.is_super_admin) {
+    throw new IntakeError('Only the person who uploaded this batch, or a super admin, can discard it.', 403);
+  }
+  const rows = await loadRows(deps, batchId);
+  const now = nowOf(deps);
+  if (rows.some((r) => claimIsFresh(r.apply_claimed_at, now))) {
+    throw new IntakeError('A candidate in this batch is being filed right now. Try again in a minute.', 409);
+  }
+  // Files first: if they cannot be removed, the batch stays so nothing is orphaned.
+  const removed = await removeBatchFiles(deps.admin, batchId);
+  const { data, error } = await deps.admin.from('hr_intake_batches').delete().eq('id', batchId).select('id');
+  if (error) throw dbFail('discard the batch', error);
+  if (!data || data.length === 0) throw new IntakeError('Batch not found, or you do not have access to it.', 404);
+  return { ok: true, removed_files: removed };
+}
+
+export interface IdleCleanupSummary {
+  ok: true;
+  checked: number;
+  closed: number;
+  files_removed: number;
+  failed: number;
+  count: number;
+}
+
+/**
+ * Close every batch nobody has touched for IDLE_BATCH_DAYS (batch AND rows), and
+ * remove its resume copies. Run daily by the AI-routine dispatcher
+ * ('hr-intake-cleanup'). Service role only; no person is involved.
+ */
+export async function cleanupIdleBatches(admin: SupabaseClient, now: Date = new Date()): Promise<IdleCleanupSummary> {
+  const cutoff = new Date(now.getTime() - IDLE_BATCH_DAYS * 86_400_000).toISOString();
+  const { data, error } = await admin
+    .from('hr_intake_batches')
+    .select('id, updated_at')
+    .neq('status', 'closed')
+    .lt('updated_at', cutoff)
+    .order('updated_at', { ascending: true })
+    .limit(200);
+  if (error) throw dbFail('read the idle batches', error);
+  const batches = (data ?? []) as { id: string; updated_at: string }[];
+  const summary: IdleCleanupSummary = { ok: true, checked: batches.length, closed: 0, files_removed: 0, failed: 0, count: 0 };
+  for (const b of batches) {
+    try {
+      const { data: rows, error: rowsErr } = await admin.from('hr_intake_rows').select('updated_at').eq('batch_id', b.id);
+      if (rowsErr) throw rowsErr;
+      // A decision or filing in the window means the batch is still in use.
+      if (((rows ?? []) as { updated_at: string }[]).some((r) => r.updated_at >= cutoff)) continue;
+      summary.files_removed += await removeBatchFiles(admin, b.id);
+      const { error: rErr } = await admin.from('hr_intake_rows').update({ resume_storage_path: null }).eq('batch_id', b.id);
+      if (rErr) throw rErr;
+      const { error: bErr } = await admin
+        .from('hr_intake_batches')
+        .update({ status: 'closed', parsed_rows: null, prepare_claimed_at: null })
+        .eq('id', b.id);
+      if (bErr) throw bErr;
+      summary.closed += 1;
+    } catch (e) {
+      summary.failed += 1;
+      console.warn('[hr/intake] idle batch not closed', { batchId: b.id, message: (e as Error)?.message });
+    }
+  }
+  summary.count = summary.closed;
+  return summary;
+}
+
+// ---------------------------------------------------------------------------
 // Rules
 // ---------------------------------------------------------------------------
 
@@ -1186,8 +1483,13 @@ export async function listRules(deps: IntakeDeps): Promise<IntakeMatchRule[]> {
 }
 
 export async function deleteRule(deps: IntakeDeps, ruleId: string): Promise<void> {
-  if (!isUuid(ruleId)) throw new IntakeError('Rule not found, or you do not have access to it.', 404);
-  const { data, error } = await deps.db.from('hr_intake_match_rules').delete().eq('id', ruleId).select('id');
+  const notFound = new IntakeError('Rule not found, or you do not have access to it.', 404);
+  if (!isUuid(ruleId)) throw notFound;
+  // The session read is the access check (a rule of a college this person reaches).
+  const { data: seen, error: readErr } = await deps.db.from('hr_intake_match_rules').select('id').eq('id', ruleId).maybeSingle();
+  if (readErr) throw dbFail('read the rule', readErr);
+  if (!seen) throw notFound;
+  const { data, error } = await deps.admin.from('hr_intake_match_rules').delete().eq('id', ruleId).select('id');
   if (error) throw dbFail('delete the rule', error);
-  if (!data || data.length === 0) throw new IntakeError('Rule not found, or you do not have access to it.', 404);
+  if (!data || data.length === 0) throw notFound;
 }

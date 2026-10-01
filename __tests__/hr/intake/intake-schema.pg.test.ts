@@ -52,9 +52,12 @@ $$;
 CREATE FUNCTION public.user_has_permission(permission_name text) RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT permission_name = ANY (string_to_array(COALESCE(current_setting('test.perms', true), ''), ','));
 $$;
-CREATE FUNCTION public.role_has_institution_access(p_institution_id uuid) RETURNS boolean LANGUAGE sql STABLE AS $$
-  SELECT p_institution_id IS NOT NULL
-     AND p_institution_id::text = ANY (string_to_array(COALESCE(current_setting('test.institutions', true), ''), ','));
+-- Like production (latest definition: 20261201110000_counselling_code_blank_sibling_guard.sql),
+-- a NULL institution answers TRUE ("system-wide record"). The policies must not
+-- rely on it answering FALSE.
+CREATE FUNCTION public.role_has_institution_access(check_institution_id uuid) RETURNS boolean LANGUAGE sql STABLE AS $$
+  SELECT check_institution_id IS NULL
+      OR check_institution_id::text = ANY (string_to_array(COALESCE(current_setting('test.institutions', true), ''), ','));
 $$;
 CREATE FUNCTION public.set_updated_at() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN NEW.updated_at = now(); RETURN NEW; END $$;
@@ -261,130 +264,166 @@ describe('the anonymous key reaches nothing', () => {
   });
 });
 
-describe('batches and rows: the uploader, or HR of the same college', () => {
-  it('scopes reads and writes by permission and college', async () => {
-    const batchA = await as(hrA, async () => {
-      expect(await state(`INSERT INTO public.hr_intake_batches (file_name, created_by, institution_id) VALUES ('e', $1, $2)`, [HR_A2, INST_A])).toBe('42501');
-      return (await newBatch(HR_A, INST_A))[0].id;
-    }, true);
+describe('one CVViZ import per person per job (M2)', () => {
+  it('a second cvviz_import for the same job and email (any case) is refused; other sources are not', async () => {
+    await client.query('BEGIN');
+    expect(await state(`INSERT INTO public.hr_job_applications (job_id, email, source) VALUES ($1, 'Dup@Example.test', 'cvviz_import')`, [JOB_A])).toBeNull();
+    expect(await state(`INSERT INTO public.hr_job_applications (job_id, email, source) VALUES ($1, 'dup@example.test', 'cvviz_import')`, [JOB_A])).toBe('23505');
+    // The same person under another job, or arriving through another source, is not this index's business.
+    expect(await state(`INSERT INTO public.hr_job_applications (job_id, email, source) VALUES ($1, 'dup@example.test', 'cvviz_import')`, [JOB_B])).toBeNull();
+    expect(await state(`INSERT INTO public.hr_job_applications (job_id, email, source) VALUES ($1, 'dup@example.test', 'internal')`, [JOB_A])).toBeNull();
+    await client.query('ROLLBACK');
+  });
+
+  it('stops, naming them, when existing rows already break it', async () => {
+    await q(`DROP INDEX public.uq_hr_job_applications_cvviz_job_email`);
+    await q(
+      `INSERT INTO public.hr_job_applications (job_id, email, source) VALUES ($1, 'twice@example.test', 'cvviz_import'), ($1, 'TWICE@example.test', 'cvviz_import')`,
+      [JOB_A],
+    );
+    let stderr = '';
+    try {
+      psql(['-d', DBNAME, '-f', MIGRATION]);
+    } catch (e) {
+      stderr = String((e as { stderr?: string }).stderr ?? '');
+    }
+    expect(stderr).toContain('already holds the same CVViZ import twice');
+    expect(stderr).toContain('twice@example.test (2 rows)');
+    await q(`DELETE FROM public.hr_job_applications WHERE lower(email) = 'twice@example.test'`);
+    psql(['-d', DBNAME, '-f', MIGRATION]);
+    expect(await q(`SELECT 1 FROM pg_indexes WHERE indexname = 'uq_hr_job_applications_cvviz_job_email'`)).toHaveLength(1);
+  });
+});
+
+describe('signed-in people can only read; the server writes (M4)', () => {
+  it.each(['hr_intake_batches', 'hr_intake_rows', 'hr_intake_match_rules'])(
+    '%s: no INSERT, UPDATE or DELETE for authenticated, even for an admin',
+    async (t) => {
+      for (const p of [hrA, admin]) {
+        await as(p, async () => {
+          expect(await state(`INSERT INTO public.${t} DEFAULT VALUES`)).toBe('42501');
+          expect(await state(`UPDATE public.${t} SET updated_at = now()`)).toBe('42501');
+          expect(await state(`DELETE FROM public.${t}`)).toBe('42501');
+          expect(await state(`SELECT 1 FROM public.${t}`)).toBeNull();
+        });
+      }
+    },
+  );
+
+  it('no write policy is left behind', async () => {
+    const pols = await q<{ policyname: string; cmd: string }>(
+      `SELECT policyname, cmd FROM pg_policies WHERE tablename IN ('hr_intake_batches', 'hr_intake_rows', 'hr_intake_match_rules')`,
+    );
+    expect(pols.map((p) => p.cmd).sort()).toEqual(['SELECT', 'SELECT', 'SELECT']);
+  });
+});
+
+describe('batches and rows: the uploader, or HR of the same college (B1)', () => {
+  it('a batch must carry a college', async () => {
+    await client.query('BEGIN');
+    expect(await state(`INSERT INTO public.hr_intake_batches (file_name, created_by, institution_id) VALUES ('e', $1, NULL)`, [HR_A])).toBe('23502');
+    await client.query('ROLLBACK');
+  });
+
+  it('scopes reads by permission and college', async () => {
+    const batchA = (await newBatch(HR_A, INST_A))[0].id;
+    await q(
+      `INSERT INTO public.hr_intake_rows (batch_id, row_index, candidate, proposal_action, proposal_confidence) VALUES ($1, 1, '{}', 'skip', 'high')`,
+      [batchA],
+    );
+    // A filing decision must name its job (a CHECK, whoever writes).
+    await client.query('BEGIN');
+    expect(await state(
+      `INSERT INTO public.hr_intake_rows (batch_id, row_index, candidate, proposal_action, proposal_confidence, decision_action) VALUES ($1, 2, '{}', 'skip', 'high', 'file_under_job')`,
+      [batchA],
+    )).toBe('23514');
+    await client.query('ROLLBACK');
 
     await as(hrA, async () => {
       expect(await q(`SELECT id FROM public.hr_intake_batches`)).toHaveLength(1);
-      expect(await state(
-        `INSERT INTO public.hr_intake_rows (batch_id, row_index, candidate, proposal_action, proposal_confidence) VALUES ($1, 1, '{}', 'skip', 'high')`,
-        [batchA],
-      )).toBeNull();
-      // A filing decision must name its job.
-      expect(await state(
-        `INSERT INTO public.hr_intake_rows (batch_id, row_index, candidate, proposal_action, proposal_confidence, decision_action) VALUES ($1, 2, '{}', 'skip', 'high', 'file_under_job')`,
-        [batchA],
-      )).toBe('23514');
-    }, true);
-
-    // Same college, other HR person: sees and can decide.
+      expect(await q(`SELECT id FROM public.hr_intake_rows`)).toHaveLength(1);
+    });
+    // Same college, other HR person: sees it.
     await as(hrA2, async () => {
       expect(await q(`SELECT id FROM public.hr_intake_batches`)).toHaveLength(1);
-      expect(await q(`UPDATE public.hr_intake_rows SET decision_action = 'skip' WHERE batch_id = $1 RETURNING id`, [batchA])).toHaveLength(1);
+      expect(await q(`SELECT id FROM public.hr_intake_rows`)).toHaveLength(1);
     });
-
-    // Another college: sees nothing, changes nothing, cannot add rows.
+    // Another college: sees nothing.
     await as(hrB, async () => {
       expect(await q(`SELECT id FROM public.hr_intake_batches`)).toHaveLength(0);
       expect(await q(`SELECT id FROM public.hr_intake_rows`)).toHaveLength(0);
-      expect(await q(`UPDATE public.hr_intake_batches SET status = 'closed' WHERE id = $1 RETURNING id`, [batchA])).toHaveLength(0);
-      expect(await state(
-        `INSERT INTO public.hr_intake_rows (batch_id, row_index, candidate, proposal_action, proposal_confidence) VALUES ($1, 9, '{}', 'skip', 'high')`,
-        [batchA],
-      )).toBe('42501');
     });
-
     // Holding only the view permission is not enough.
     await as(nobody, async () => {
       expect(await q(`SELECT id FROM public.hr_intake_batches`)).toHaveLength(0);
-      expect(await state(`INSERT INTO public.hr_intake_batches (file_name, created_by, institution_id) VALUES ('e', $1, $2)`, [NOBODY, INST_A])).toBe('42501');
     });
-
-    // Only the uploader may delete a batch (the server's clean-up after a broken upload).
-    await as(hrA2, async () => {
-      expect(await q(`DELETE FROM public.hr_intake_batches WHERE id = $1 RETURNING id`, [batchA])).toHaveLength(0);
-    });
-    await as(hrA, async () => {
-      expect(await q(`DELETE FROM public.hr_intake_batches WHERE id = $1 RETURNING id`, [batchA])).toHaveLength(1);
-    });
+    await q(`DELETE FROM public.hr_intake_batches WHERE id = $1`, [batchA]);
   });
-});
 
-describe('match rules: within the college of their job, always credited to the writer', () => {
-  it('scopes rules and refuses a rule whose college is not its job’s', async () => {
-    const ruleA = await as(hrA, async () => {
-      expect(await state(
-        `INSERT INTO public.hr_intake_match_rules (cvviz_job_title_norm, job_id, institution_id, created_by) VALUES ('post x', $1, $2, $3)`,
-        [JOB_A, INST_B, HR_A],
-      )).toBe('42501');
-      expect(await state(
-        `INSERT INTO public.hr_intake_match_rules (cvviz_job_title_norm, job_id, institution_id, created_by) VALUES ('post x', $1, $2, $3)`,
-        [JOB_A, INST_A, HR_A2],
-      )).toBe('42501');
-      const r = await q<{ id: string }>(
-        `INSERT INTO public.hr_intake_match_rules (cvviz_job_title_norm, job_id, institution_id, created_by) VALUES ('post x', $1, $2, $3) RETURNING id`,
-        [JOB_A, INST_A, HR_A],
+  it('even if a batch with no college existed, HR elsewhere could not read it (the guard, not only NOT NULL)', async () => {
+    // Remove the first wall inside a transaction to prove the second one holds
+    // against a role_has_institution_access() that answers TRUE for NULL.
+    await client.query('BEGIN');
+    try {
+      await client.query(`ALTER TABLE public.hr_intake_batches ALTER COLUMN institution_id DROP NOT NULL`);
+      const { rows } = await client.query<{ id: string }>(
+        `INSERT INTO public.hr_intake_batches (file_name, created_by, institution_id) VALUES ('orphan', $1, NULL) RETURNING id`,
+        [HR_A],
       );
-      return r[0].id;
-    }, true);
+      await client.query(
+        `INSERT INTO public.hr_intake_rows (batch_id, row_index, candidate, proposal_action, proposal_confidence) VALUES ($1, 1, '{}', 'skip', 'high')`,
+        [rows[0].id],
+      );
+      // The stub really does answer TRUE for NULL, like production.
+      expect((await client.query(`SELECT public.role_has_institution_access(NULL) AS ok`)).rows[0].ok).toBe(true);
 
-    await as(hrA, async () => {
-      // One rule per title per college.
-      expect(await state(
-        `INSERT INTO public.hr_intake_match_rules (cvviz_job_title_norm, job_id, institution_id, created_by) VALUES ('post x', $1, $2, $3)`,
-        [JOB_A, INST_A, HR_A],
-      )).toBe('23505');
-    });
-
-    await as(hrB, async () => {
-      expect(await q(`SELECT id FROM public.hr_intake_match_rules`)).toHaveLength(0);
-      // A job in another college is invisible, so a rule for it is refused.
-      expect(await state(
-        `INSERT INTO public.hr_intake_match_rules (cvviz_job_title_norm, job_id, institution_id, created_by) VALUES ('post y', $1, $2, $3)`,
-        [JOB_A, INST_B, HR_B],
-      )).toBe('42501');
-      // The same title may route to this college's own job.
-      expect(await state(
-        `INSERT INTO public.hr_intake_match_rules (cvviz_job_title_norm, job_id, institution_id, created_by) VALUES ('post x', $1, $2, $3)`,
-        [JOB_B, INST_B, HR_B],
-      )).toBeNull();
-      expect(await q(`DELETE FROM public.hr_intake_match_rules WHERE id = $1 RETURNING id`, [ruleA])).toHaveLength(0);
-    });
-
-    await as(hrA2, async () => {
-      // A colleague cannot leave the credit with someone else while changing the rule...
-      expect(await state(`UPDATE public.hr_intake_match_rules SET job_id = $1 WHERE id = $2`, [JOB_A, ruleA])).toBe('42501');
-      // ...but taking the correction as their own is allowed.
-      expect(await q(`UPDATE public.hr_intake_match_rules SET created_by = $1 WHERE id = $2 RETURNING id`, [HR_A2, ruleA])).toHaveLength(1);
-    });
-
-    // Even someone who reaches both colleges cannot file a rule under the wrong one.
-    await as(hrAB, async () => {
-      expect(await state(
-        `INSERT INTO public.hr_intake_match_rules (cvviz_job_title_norm, job_id, institution_id, created_by) VALUES ('post w', $1, $2, $3)`,
-        [JOB_A, INST_B, HR_A],
-      )).toBe('42501');
-      expect(await state(`UPDATE public.hr_intake_match_rules SET institution_id = $1, created_by = $2 WHERE id = $3`, [INST_B, HR_A, ruleA])).toBe('42501');
-    });
-
-    // A job with no college: one rule per title there too (NULLS NOT DISTINCT).
-    await as(admin, async () => {
-      expect(await state(
-        `INSERT INTO public.hr_intake_match_rules (cvviz_job_title_norm, job_id, institution_id, created_by) VALUES ('post z', $1, NULL, $2)`,
-        [JOB_NONE, ADMIN],
-      )).toBeNull();
-      expect(await state(
-        `INSERT INTO public.hr_intake_match_rules (cvviz_job_title_norm, job_id, institution_id, created_by) VALUES ('post z', $1, NULL, $2)`,
-        [JOB_NONE, ADMIN],
-      )).toBe('23505');
-    });
+      await client.query('SAVEPOINT as_b');
+      await client.query('SET LOCAL ROLE authenticated');
+      await client.query(
+        `SELECT set_config('test.acting_uid', $1, true), set_config('test.perms', $2, true), set_config('test.institutions', $3, true), set_config('test.admin', 'false', true)`,
+        [HR_B, hrB.perms, INST_B],
+      );
+      expect((await client.query(`SELECT id FROM public.hr_intake_batches`)).rows).toHaveLength(0);
+      expect((await client.query(`SELECT id FROM public.hr_intake_rows`)).rows).toHaveLength(0);
+      await client.query('ROLLBACK TO SAVEPOINT as_b');
+    } finally {
+      await client.query('ROLLBACK');
+    }
   });
 });
 
+describe('match rules: within the college of their job (B1, M3)', () => {
+  it('a rule must carry a college, one per title per college, visible only there', async () => {
+    await client.query('BEGIN');
+    expect(await state(
+      `INSERT INTO public.hr_intake_match_rules (cvviz_job_title_norm, job_id, institution_id, created_by) VALUES ('post z', $1, NULL, $2)`,
+      [JOB_NONE, ADMIN],
+    )).toBe('23502');
+    await client.query('ROLLBACK');
+
+    await q(
+      `INSERT INTO public.hr_intake_match_rules (cvviz_job_title_norm, job_id, institution_id, created_by) VALUES ('post x', $1, $2, $3)`,
+      [JOB_A, INST_A, HR_A],
+    );
+    await client.query('BEGIN');
+    expect(await state(
+      `INSERT INTO public.hr_intake_match_rules (cvviz_job_title_norm, job_id, institution_id, created_by) VALUES ('post x', $1, $2, $3)`,
+      [JOB_A, INST_A, HR_A2],
+    )).toBe('23505');
+    // The same title may route to another college's own job.
+    expect(await state(
+      `INSERT INTO public.hr_intake_match_rules (cvviz_job_title_norm, job_id, institution_id, created_by) VALUES ('post x', $1, $2, $3)`,
+      [JOB_B, INST_B, HR_B],
+    )).toBeNull();
+    await client.query('ROLLBACK');
+
+    await as(hrA, async () => expect(await q(`SELECT id FROM public.hr_intake_match_rules`)).toHaveLength(1));
+    await as(hrB, async () => expect(await q(`SELECT id FROM public.hr_intake_match_rules`)).toHaveLength(0));
+    await as(nobody, async () => expect(await q(`SELECT id FROM public.hr_intake_match_rules`)).toHaveLength(0));
+    await as(hrAB, async () => expect(await q(`SELECT id FROM public.hr_intake_match_rules`)).toHaveLength(1));
+    await q(`DELETE FROM public.hr_intake_match_rules`);
+  });
+});
 describe('the resume bucket', () => {
   it('is private with a 10 MB limit and resume types only', async () => {
     const [b] = await q<{ public: boolean; file_size_limit: string; allowed_mime_types: string[] }>(

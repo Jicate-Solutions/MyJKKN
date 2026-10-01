@@ -45,6 +45,29 @@ export interface ProposeInput {
   rules: IntakeMatchRule[];
   /** Extra notes the caller wants on the card (e.g. "Resume not read"). Appended last. */
   extra_reasons?: string[];
+  /**
+   * Whether a resume file was paired with this row. Filing needs one, so when
+   * this is explicitly false a "file under job" proposal is capped at low.
+   * Left undefined, the resume is not considered.
+   */
+  resume_uploaded?: boolean;
+}
+
+/**
+ * Why this row cannot be filed as it stands (filing refuses it), or [] when it
+ * can. Mirrors the refusals in the service's fileOne: an email, a usable phone
+ * number and an uploaded resume are all required.
+ */
+export function filingBlockers(
+  candidate: Pick<IntakeCandidate, 'email' | 'phone'>,
+  resumeUploaded: boolean | undefined,
+): string[] {
+  const out: string[] = [];
+  if (!candidate.email && !candidate.phone) out.push('Cannot be filed yet: no email or phone');
+  else if (!candidate.email) out.push('Cannot be filed yet: no email address');
+  else if (!candidate.phone) out.push('Cannot be filed yet: no usable phone number');
+  if (resumeUploaded === false) out.push('No resume uploaded');
+  return out;
 }
 
 /** Score at or above which a single clear winner is proposed with high confidence. */
@@ -194,7 +217,20 @@ function scoreJobs(input: ProposeInput, cvTitle: string): Scored[] {
   });
 }
 
+/**
+ * The proposal for one row. A "file under job" proposal for a row filing would
+ * refuse (no email or phone, no resume) is never high or medium: it is capped at
+ * low, with the reason first, so "Accept all high-confidence" never picks it up.
+ */
 export function proposeMatch(input: ProposeInput): IntakeProposal {
+  const p = proposeFromEvidence(input);
+  if (p.action !== 'file_under_job') return p;
+  const blockers = filingBlockers(input.candidate, input.resume_uploaded);
+  if (blockers.length === 0) return p;
+  return { ...p, confidence: 'low', reasons: [...blockers, ...p.reasons] };
+}
+
+function proposeFromEvidence(input: ProposeInput): IntakeProposal {
   const extra = input.extra_reasons ?? [];
   const cvTitle = input.candidate.cvviz_job_title ?? '';
 

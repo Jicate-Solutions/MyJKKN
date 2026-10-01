@@ -21,14 +21,33 @@ import type {
 
 export const INTAKE_API_BASE = '/api/hr/recruitment/intake';
 
+/** A college the uploader may choose, sent by the server when it needs one. */
+export interface IntakeCollegeChoice {
+  id: string;
+  name: string;
+}
+
 export class IntakeApiClientError extends Error {
   readonly status: number;
+  /** Set when the server needs the uploader to choose a college: the ones they may choose. */
+  readonly institutions: IntakeCollegeChoice[] | null;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, institutions: IntakeCollegeChoice[] | null = null) {
     super(message);
     this.name = 'IntakeApiClientError';
     this.status = status;
+    this.institutions = institutions;
   }
+}
+
+function collegeChoices(body: unknown): IntakeCollegeChoice[] | null {
+  if (!body || typeof body !== 'object') return null;
+  const b = body as { needs_institution?: unknown; institutions?: unknown };
+  if (b.needs_institution !== true || !Array.isArray(b.institutions)) return null;
+  return b.institutions.filter(
+    (i): i is IntakeCollegeChoice =>
+      !!i && typeof (i as IntakeCollegeChoice).id === 'string' && typeof (i as IntakeCollegeChoice).name === 'string',
+  );
 }
 
 export interface IntakeBatchDetail {
@@ -77,7 +96,7 @@ async function call<T>(
 
   if (!res.ok) {
     const reason = serverReason(body);
-    if (reason) throw new IntakeApiClientError(reason, res.status);
+    if (reason) throw new IntakeApiClientError(reason, res.status, collegeChoices(body));
     if (res.status === 401) {
       throw new IntakeApiClientError('Your sign-in has expired. Sign in again and retry.', 401);
     }
@@ -161,10 +180,14 @@ export type IntakeUploadStage = 'export' | 'resumes' | 'reading';
  *      three at a time;
  *   3. prepare pairs the files with rows, reads the resumes and proposes.
  * `resumes` is 0..n PDF/DOC/DOCX/JPG/PNG files, or exactly one .zip.
+ * When the uploader has no college, step 1 fails with an IntakeApiClientError
+ * whose `institutions` lists the colleges to choose from; retry with institutionId.
  */
 export async function createIntakeBatch(input: {
   exportFile: File;
   resumes: File[];
+  /** Only for someone whose profile has no college; the server asks for it when needed. */
+  institutionId?: string | null;
   onProgress?: (stage: IntakeUploadStage, done: number, total: number) => void;
   uploader?: IntakeFileUploader;
 }): Promise<IntakeBatch> {
@@ -174,6 +197,7 @@ export async function createIntakeBatch(input: {
   progress('export', 0, 1);
   const form = new FormData();
   form.append('export', input.exportFile);
+  if (input.institutionId) form.append('institution_id', input.institutionId);
   const created = await call(
     '/batches',
     { method: 'POST', body: form },
@@ -251,6 +275,15 @@ export async function applyIntakeBatch(
     (b): b is { results: ApplyResult[] } => isObj(b) && Array.isArray(b.results),
   );
   return body.results;
+}
+
+/** Throws a batch away (its rows and resume copies). Filed applications stay. */
+export async function discardIntakeBatch(batchId: string): Promise<void> {
+  await call(
+    `/batches/${encodeURIComponent(batchId)}`,
+    { method: 'DELETE' },
+    (b): b is { ok: true } => isObj(b) && b.ok === true,
+  );
 }
 
 export async function listIntakeRules(): Promise<IntakeMatchRule[]> {
