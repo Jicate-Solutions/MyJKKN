@@ -277,7 +277,20 @@ function dbFail(what: string, error: unknown): IntakeError {
 
 /** Open jobs this person can see (RLS on hr_recruitment_jobs), still accepting applications. */
 async function loadOpenJobs(deps: IntakeDeps): Promise<LoadedJob[]> {
-  const { data, error } = await deps.db
+  return loadOpenJobsVia(deps, deps.db);
+}
+
+/**
+ * Every college's open jobs, read by the server ONLY to judge how sure a
+ * proposal is ("the same post is also open at another college"). Never offered
+ * as a choice: choices come from loadOpenJobs, through the person's own access.
+ */
+async function loadAllOpenJobs(deps: IntakeDeps): Promise<LoadedJob[]> {
+  return loadOpenJobsVia(deps, deps.admin);
+}
+
+async function loadOpenJobsVia(deps: IntakeDeps, client: SupabaseClient): Promise<LoadedJob[]> {
+  const { data, error } = await client
     .from('hr_recruitment_jobs')
     .select('id, title, job_code, institution_id, requirements, closes_at, institution:institutions(name), department:departments(department_name)')
     .eq('status', 'open')
@@ -808,7 +821,7 @@ export async function prepareBatch(
     }
 
     // --- what the helper compares against ---
-    const [jobs, rules] = await Promise.all([loadOpenJobs(deps), loadRules(deps)]);
+    const [jobs, rules, allJobs] = await Promise.all([loadOpenJobs(deps), loadRules(deps), loadAllOpenJobs(deps)]);
 
     // --- duplicates already in MyJKKN ---
     const existing = await findExistingRecords(
@@ -881,6 +894,7 @@ export async function prepareBatch(
         duplicate_of_row_index: same?.ref_row_index ?? null,
         duplicate_of_candidate: same ? byIndex.get(same.ref_row_index)?.candidate ?? null : null,
         batch_institution_id: batch.institution_id,
+        all_open_jobs: allJobs,
         resume_match: s ? matchTier.get(row.row_index) ?? null : null,
         duplicate_of_resume_uploaded: same ? !!pairing.get(same.ref_row_index) : undefined,
         openJobs: jobs,
