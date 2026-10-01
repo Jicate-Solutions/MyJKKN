@@ -10,6 +10,11 @@
 //
 // SUPER ADMIN ONLY. Anyone else gets an explicit refusal card (rule #27) — no
 // silent redirect. The requester's name is shown here and nowhere else.
+//
+// Ruling, 1 Oct 2026: a requester who has left JKKN (no matched profile, or an
+// inactive / login-disabled one) shows a grey 'Has left JKKN' label. The
+// Director still decides; an approved one is raised on behalf of the college
+// office, and the departed person is never messaged.
 
 import { AlertCircle } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -17,7 +22,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { PageHeader } from '@/components/page-header';
 import { Card, CardContent } from '@/components/ui/card';
 import { createClient } from '@/lib/supabase/server';
-import { PENDING_MD_STATUS } from '@/lib/instasolver/old-purchase-requests';
+import { PENDING_MD_STATUS, requesterOnScreen } from '@/lib/instasolver/old-purchase-requests';
 import {
   OldPurchaseRequestsClient,
   type OldRequestView,
@@ -79,7 +84,7 @@ export default async function OldPurchaseRequestsPage() {
       `legacy_id, details, clean_category, clean_site, clean_area, legacy_location, priority,
        photo_url, requested_at, requested_at_is_bulk_load, reporter_name, reporter_profile_id, decision,
        institution:institutions(name),
-       reporter:profiles!reporter_profile_id(full_name)`
+       reporter:profiles!reporter_profile_id(full_name, is_active, is_login_disabled)`
     )
     .eq('legacy_status', PENDING_MD_STATUS)
     .or('decision.is.null,decision.eq.approving')
@@ -108,11 +113,8 @@ export default async function OldPurchaseRequestsPage() {
     requestedAt: (r.requested_at as string | null) ?? null,
     bulkLoaded: Boolean(r.requested_at_is_bulk_load),
     college: (Array.isArray(r.institution) ? r.institution[0]?.name : r.institution?.name) ?? null,
-    askedBy:
-      (Array.isArray(r.reporter) ? r.reporter[0]?.full_name : r.reporter?.full_name) ??
-      (r.reporter_name as string | null) ??
-      null,
-    requesterMatched: Boolean(r.reporter_profile_id),
+    // Ruling 1 Oct 2026: a requester who has left JKKN gets a grey label.
+    ...requesterOnScreen(r),
     inProgress: r.decision === 'approving',
   }));
 

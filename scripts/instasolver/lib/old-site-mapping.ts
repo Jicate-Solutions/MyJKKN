@@ -320,6 +320,12 @@ export interface MappingContext {
   categories: CleanCategories;
   /** lower-cased email -> MyJKKN profiles.id. Empty when matching was not run. */
   profileIdByEmail: Map<string, string>;
+  /**
+   * Matched profiles that are inactive or login-disabled — people who no
+   * longer work or study at JKKN (ruling 1 Oct 2026). Their id stays on the
+   * history row; their imported job carries no reporter.
+   */
+  leftProfileIds?: ReadonlySet<string>;
   /** lower-cased email -> name, from the old site's own profiles (for assigned_to). */
   oldNameByEmail: Map<string, string>;
   notesByIssue: Map<number, OldAdminNote[]>;
@@ -448,6 +454,19 @@ export type IssueRow = ReturnType<typeof buildIssueRow>;
 export const IMPORTED_FROM = 'old-instasolver';
 
 /**
+ * Director ruling, 1 Oct 2026: the old reporter has LEFT JKKN when no MyJKKN
+ * profile matched their email, or the matched profile is inactive or
+ * login-disabled. Their job is still created (normal routing for its college
+ * and place), but with no reporter — so nobody is told it was fixed.
+ */
+export function reporterHasLeft(
+  row: Pick<IssueRow, 'reporter_profile_id'>,
+  leftProfileIds: ReadonlySet<string>
+): boolean {
+  return !row.reporter_profile_id || leftProfileIds.has(row.reporter_profile_id);
+}
+
+/**
  * The CreateWalkTaskInput for one OPEN old record.
  *
  * isUnsafe is ALWAYS false, whatever the old severity said. 1,733 of the 2,021
@@ -460,8 +479,13 @@ export const IMPORTED_FROM = 'old-instasolver';
  * storage, not in the private campus-walk bucket, and the fix screen and the
  * photo-retention cron both treat photo_storage_path as a path in that bucket.
  * The old URL goes in the description and in metadata.legacy_photo_url.
+ *
+ * reporterLeft (ruling 1 Oct 2026, see reporterHasLeft): no reporter_id and no
+ * raised-by person, so the 'fixed' message goes to nobody; the task carries
+ * only the non-personal flag metadata.reporter_left = true.
  */
-export function buildWalkTaskInput(row: IssueRow): CreateWalkTaskInput {
+export function buildWalkTaskInput(row: IssueRow, reporterLeft: boolean): CreateWalkTaskInput {
+  const reporterId = reporterLeft ? null : row.reporter_profile_id;
   const details = collapse(row.details) || 'Old InstaSolver report (no details recorded)';
   const prefix = row.needs_still_broken_check ? STILL_BROKEN_PREFIX : '';
   const room = 160 - prefix.length;
@@ -486,12 +510,12 @@ export function buildWalkTaskInput(row: IssueRow): CreateWalkTaskInput {
     isUnsafe: false,
     category: row.clean_category ?? undefined,
     institutionId: row.institution_id,
-    raisedByProfileId: row.reporter_profile_id,
+    raisedByProfileId: reporterId,
     extraMetadata: {
       front_door: 'instasolver',
       imported_from: IMPORTED_FROM,
       legacy_instasolver_id: row.legacy_id,
-      ...(row.reporter_profile_id ? { reporter_id: row.reporter_profile_id } : {}),
+      ...(reporterId ? { reporter_id: reporterId } : { reporter_left: true }),
       location: place || row.legacy_location || null,
       legacy_severity: row.severity,
       legacy_reported_at: row.reported_at,

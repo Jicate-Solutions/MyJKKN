@@ -16,7 +16,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   BULK_REJECT_OLDER_THAN_DAYS,
   buildPurchaseRequestDto,
+  departedRequesterNote,
+  hasLeftJkkn,
   isOlderThanBulkCutoff,
+  requesterOnScreen,
   itemLabel,
   oldRequestMarker,
   rejectionBell,
@@ -157,5 +160,51 @@ describe('reject reason, bell text and the two-year cutoff', () => {
     expect(isOlderThanBulkCutoff(new Date(now.getTime() - (BULK_REJECT_OLDER_THAN_DAYS + 1) * day).toISOString(), now)).toBe(true);
     expect(isOlderThanBulkCutoff(new Date(now.getTime() - 400 * day).toISOString(), now)).toBe(false);
     expect(isOlderThanBulkCutoff(null, now)).toBe(false);
+  });
+});
+
+describe('requesters who have left JKKN (Director answers, 1 Oct 2026)', () => {
+  it('left = no profile, an inactive one, or a login-disabled one', () => {
+    expect(hasLeftJkkn(null)).toBe(true);
+    expect(hasLeftJkkn({ is_active: false, is_login_disabled: false })).toBe(true);
+    expect(hasLeftJkkn({ is_active: true, is_login_disabled: true })).toBe(true);
+    expect(hasLeftJkkn({ is_active: true, is_login_disabled: false })).toBe(false);
+  });
+
+  it("the screen marks them 'Has left JKKN' and keeps the name only for the Director", () => {
+    expect(
+      requesterOnScreen({ reporter_profile_id: 'p1', reporter: { full_name: 'A Person', is_active: false, is_login_disabled: false } })
+    ).toEqual({ askedBy: 'A Person', requesterLeft: true });
+    expect(
+      requesterOnScreen({ reporter_profile_id: 'p1', reporter: [{ full_name: 'A Person', is_active: true, is_login_disabled: false }] })
+    ).toEqual({ askedBy: 'A Person', requesterLeft: false });
+    expect(requesterOnScreen({ reporter_profile_id: null, reporter: null, reporter_name: 'Old Name' })).toEqual({
+      askedBy: 'Old Name',
+      requesterLeft: true,
+    });
+  });
+
+  it("the Procurement note names the requester's ROLE only", () => {
+    expect(departedRequesterNote('store_admin')).toBe(
+      'Originally asked for by a store admin who has since left JKKN; raised on behalf of the college office.'
+    );
+    expect(departedRequesterNote(null)).toContain('role not recorded');
+    const dto = buildPurchaseRequestDto(
+      {
+        legacy_id: 5,
+        institution_id: 'inst-1',
+        details: 'Chairs',
+        cause: null,
+        clean_category: null,
+        clean_site: null,
+        clean_area: null,
+        legacy_location: null,
+        priority: null,
+        requested_at: null,
+      },
+      { role: 'librarian' }
+    );
+    expect(dto.notes).toContain('a librarian who has since left JKKN');
+    expect(dto.notes).toContain(oldRequestMarker(5));
   });
 });

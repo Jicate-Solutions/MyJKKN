@@ -20,6 +20,12 @@
  * a row. Mobile numbers and emails are not written anywhere; emails are used
  * in memory only, to match reporters to MyJKKN profiles.
  *
+ * REPORTERS WHO HAVE LEFT (ruling 1 Oct 2026). A reporter with no active
+ * MyJKKN profile (none matched, or the match is inactive / login-disabled)
+ * still gets their job created, routed normally, but with no reporter_id —
+ * so no 'fixed' message is sent — and the flag metadata.reporter_left = true.
+ * The dry run prints how many.
+ *
  * DATABASE. The dry run reads the database only when SUPABASE_SERVICE_ROLE_KEY
  * and NEXT_PUBLIC_SUPABASE_URL are in the environment, and then only to match
  * reporter emails to profiles. Without them it runs fully offline and says the
@@ -42,6 +48,7 @@ import {
   mapInstitution,
   normaliseKey,
   parseArgs,
+  reporterHasLeft,
   type CleanCategories,
   type CleanPlaces,
   type InstitutionMapFile,
@@ -71,21 +78,44 @@ function printTally(title: string, map: Map<string, number>) {
   for (const [k, v] of [...map.entries()].sort((a, b) => b[1] - a[1])) out(`  ${k}: ${v}`);
 }
 
+/**
+ * email -> profile id, plus the matched ids whose person has LEFT JKKN
+ * (inactive or login-disabled — the same eligibility rule as #4062's
+ * fn_seed_application_approvals). When one email matches several profiles,
+ * an active one wins.
+ */
 async function matchProfiles(
   db: SupabaseClient,
   emails: string[]
-): Promise<Map<string, string>> {
-  const found = new Map<string, string>();
+): Promise<{ profileIdByEmail: Map<string, string>; leftProfileIds: Set<string> }> {
+  const found = new Map<string, { id: string; active: boolean }>();
   for (let i = 0; i < emails.length; i += BATCH) {
     const batch = emails.slice(i, i + BATCH);
-    const { data, error } = await db.from('profiles').select('id, email').in('email', batch);
+    const { data, error } = await db
+      .from('profiles')
+      .select('id, email, is_active, is_login_disabled')
+      .in('email', batch);
     if (error) throw new Error(`profile match failed: ${error.message}`);
-    for (const p of (data ?? []) as Array<{ id: string; email: string | null }>) {
+    for (const p of (data ?? []) as Array<{
+      id: string;
+      email: string | null;
+      is_active: boolean | null;
+      is_login_disabled: boolean | null;
+    }>) {
       const key = normaliseKey(p.email);
-      if (key && !found.has(key)) found.set(key, p.id);
+      if (!key) continue;
+      const active = p.is_active === true && p.is_login_disabled !== true;
+      const prev = found.get(key);
+      if (!prev || (!prev.active && active)) found.set(key, { id: p.id, active });
     }
   }
-  return found;
+  const profileIdByEmail = new Map<string, string>();
+  const leftProfileIds = new Set<string>();
+  for (const [email, p] of found) {
+    profileIdByEmail.set(email, p.id);
+    if (!p.active) leftProfileIds.add(p.id);
+  }
+  return { profileIdByEmail, leftProfileIds };
 }
 
 function stripNeverWrites<T extends Record<string, unknown>>(row: T, keys: readonly string[]): T {
@@ -151,7 +181,9 @@ async function main() {
         .filter(Boolean)
     ),
   ];
-  const profileIdByEmail = db ? await matchProfiles(db, spellings) : new Map<string, string>();
+  const { profileIdByEmail, leftProfileIds } = db
+    ? await matchProfiles(db, spellings)
+    : { profileIdByEmail: new Map<string, string>(), leftProfileIds: new Set<string>() };
 
   const notesByIssue = new Map<number, OldAdminNote[]>();
   const notesByRequirement = new Map<number, OldAdminNote[]>();
@@ -166,6 +198,7 @@ async function main() {
     places,
     categories,
     profileIdByEmail,
+    leftProfileIds,
     oldNameByEmail: new Map(
       oldProfiles
         .filter((p) => p.email_id && p.full_name)
@@ -192,6 +225,12 @@ async function main() {
     out(`reporters (distinct emails): ${emails.length} — match to MyJKKN profiles: NOT CHECKED (no service-role key in the environment)`);
   }
   out(`open jobs -> Campus Walk tasks: ${openRows.length} (of which 'Check if still broken': ${openRows.filter((r) => r.needs_still_broken_check).length})`);
+  if (db) {
+    const left = openRows.filter((r) => reporterHasLeft(r, leftProfileIds)).length;
+    out(`open jobs whose reporter has left JKKN (created with no reporter; nobody is told it was fixed): ${left}`);
+  } else {
+    out(`open jobs whose reporter has left JKKN: NOT CHECKED (no service-role key in the environment)`);
+  }
 
   const tasksByCollege = new Map<string, number>();
   const unmapped = new Map<string, number>();
@@ -231,7 +270,7 @@ async function main() {
   );
   out('history upserted.');
 
-  const t = await createTasks(db, openRows);
+  const t = await createTasks(db, openRows, leftProfileIds);
   out(`tasks: created ${t.created}, already linked ${t.alreadyLinked}, re-linked ${t.relinked}, failed ${t.failed}`);
   if (t.failed > 0) process.exitCode = 1;
 }

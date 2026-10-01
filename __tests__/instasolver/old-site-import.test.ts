@@ -33,6 +33,7 @@ import {
   mapInstitution,
   normaliseKey,
   parseArgs,
+  reporterHasLeft,
   type CleanCategories,
   type CleanPlaces,
   type InstitutionMapFile,
@@ -215,16 +216,21 @@ describe('history rows', () => {
   });
 });
 
+const NONE_LEFT: ReadonlySet<string> = new Set();
+/** The importer's own call: left-ness decided by reporterHasLeft. */
+const taskFor = (row: ReturnType<typeof buildIssueRow>, left: ReadonlySet<string> = NONE_LEFT) =>
+  buildWalkTaskInput(row, reporterHasLeft(row, left));
+
 describe('the Campus Walk task for an open job', () => {
   it('is NEVER unsafe, whatever the old severity said', () => {
-    const input = buildWalkTaskInput(buildIssueRow(issue({ severity: 'Critical' }), ctx()));
+    const input = taskFor(buildIssueRow(issue({ severity: 'Critical' }), ctx()));
     expect(input.isUnsafe).toBe(false);
     expect(input.kind).toBe('symptom');
     expect(input.extraMetadata).toMatchObject({ legacy_severity: 'Critical' });
   });
 
   it('carries the import markers and never an old photo as a bucket path', () => {
-    const input = buildWalkTaskInput(buildIssueRow(issue(), ctx()));
+    const input = taskFor(buildIssueRow(issue(), ctx()));
     expect(input.extraMetadata).toMatchObject({
       front_door: 'instasolver',
       imported_from: 'old-instasolver',
@@ -238,20 +244,47 @@ describe('the Campus Walk task for an open job', () => {
   });
 
   it("leaves reporter_id out when nobody matched", () => {
-    const input = buildWalkTaskInput(buildIssueRow(issue({ email_id: 'nobody@example.test' }), ctx()));
+    const input = taskFor(buildIssueRow(issue({ email_id: 'nobody@example.test' }), ctx()));
     expect(input.extraMetadata).not.toHaveProperty('reporter_id');
   });
 
+  // Director ruling, 1 Oct 2026: a reporter who no longer works or studies at
+  // JKKN still gets the job created, but with nobody to tell it was fixed.
+  it('a reporter whose matched profile is inactive or login-disabled has LEFT: no reporter_id, no raised-by, reporter_left flag', () => {
+    const row = buildIssueRow(issue(), ctx({ leftProfileIds: new Set(['profile-1']) }));
+    expect(row.reporter_profile_id).toBe('profile-1'); // history keeps the match
+    const input = taskFor(row, new Set(['profile-1']));
+    expect(input.extraMetadata).not.toHaveProperty('reporter_id');
+    expect(input.extraMetadata).toMatchObject({ reporter_left: true, front_door: 'instasolver' });
+    expect(input.raisedByProfileId).toBeNull();
+    expect(input.institutionId).toBe(DENTAL); // still routed to its own college
+    expect(JSON.stringify(input)).not.toContain('reporter.one@example.test');
+  });
+
+  it('a reporter with no matched profile has LEFT too', () => {
+    const row = buildIssueRow(issue({ email_id: 'nobody@example.test' }), ctx());
+    expect(reporterHasLeft(row, NONE_LEFT)).toBe(true);
+    const input = taskFor(row);
+    expect(input.extraMetadata).toMatchObject({ reporter_left: true });
+    expect(input.raisedByProfileId).toBeNull();
+  });
+
+  it('an active reporter has not left: reporter_id set, no reporter_left flag', () => {
+    const row = buildIssueRow(issue(), ctx());
+    expect(reporterHasLeft(row, NONE_LEFT)).toBe(false);
+    expect(taskFor(row).extraMetadata).not.toHaveProperty('reporter_left');
+  });
+
   it("titles a job older than a year 'Check if still broken'", () => {
-    const old = buildWalkTaskInput(buildIssueRow(issue({ date: '2025-06-01T00:00:00Z' }), ctx()));
+    const old = taskFor(buildIssueRow(issue({ date: '2025-06-01T00:00:00Z' }), ctx()));
     expect(old.title.startsWith(STILL_BROKEN_PREFIX)).toBe(true);
     expect(old.extraMetadata).toMatchObject({ needs_still_broken_check: true });
-    const recent = buildWalkTaskInput(buildIssueRow(issue(), ctx()));
+    const recent = taskFor(buildIssueRow(issue(), ctx()));
     expect(recent.title.startsWith(STILL_BROKEN_PREFIX)).toBe(false);
   });
 
   it('keeps the title to one line of 160 characters', () => {
-    const input = buildWalkTaskInput(buildIssueRow(issue({ issue_details: 'x'.repeat(500) }), ctx()));
+    const input = taskFor(buildIssueRow(issue({ issue_details: 'x'.repeat(500) }), ctx()));
     expect(input.title.length).toBeLessThanOrEqual(160);
   });
 });
@@ -313,7 +346,7 @@ describe('createTasks never creates a task twice', () => {
     const { db, updates } = fakeDb({ 1: 'task-already' }, { 2: 'task-orphan' });
     const createTask = vi.fn(async () => ({ taskId: 'task-new', attachmentId: null }));
 
-    const result = await createTasks(db, [rowFor(1), rowFor(2), rowFor(3)], createTask);
+    const result = await createTasks(db, [rowFor(1), rowFor(2), rowFor(3)], NONE_LEFT, createTask);
 
     expect(result).toEqual({ created: 1, alreadyLinked: 1, relinked: 1, failed: 0 });
     expect(createTask).toHaveBeenCalledTimes(1);
@@ -326,14 +359,25 @@ describe('createTasks never creates a task twice', () => {
   it('a second run over the same rows creates nothing', async () => {
     const { db } = fakeDb({ 1: 't1', 2: 't2' }, {});
     const createTask = vi.fn();
-    const result = await createTasks(db, [rowFor(1), rowFor(2)], createTask as any);
+    const result = await createTasks(db, [rowFor(1), rowFor(2)], NONE_LEFT, createTask as any);
     expect(result.created).toBe(0);
     expect(createTask).not.toHaveBeenCalled();
   });
 
+  it("creates a departed reporter's job without naming them (ruling 1 Oct 2026)", async () => {
+    const { db } = fakeDb({}, {});
+    const createTask = vi.fn(async () => ({ taskId: 'task-left', attachmentId: null }));
+    const result = await createTasks(db, [rowFor(4)], new Set(['profile-1']), createTask);
+    expect(result.created).toBe(1);
+    const input = (createTask.mock.calls[0] as unknown[])[1] as ReturnType<typeof buildWalkTaskInput>;
+    expect(input.raisedByProfileId).toBeNull();
+    expect(input.extraMetadata).not.toHaveProperty('reporter_id');
+    expect(input.extraMetadata).toMatchObject({ reporter_left: true });
+  });
+
   it('counts a failed create and does not write a link', async () => {
     const { db, updates } = fakeDb({}, {});
-    const result = await createTasks(db, [rowFor(9)], vi.fn(async () => null));
+    const result = await createTasks(db, [rowFor(9)], NONE_LEFT, vi.fn(async () => null));
     expect(result.failed).toBe(1);
     expect(updates).toEqual([]);
   });

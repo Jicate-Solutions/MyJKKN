@@ -19,7 +19,7 @@ import {
   type CreateWalkTaskInput,
   type CreateWalkTaskResult,
 } from '@/lib/services/campus-walk/campus-walk-service';
-import { IMPORTED_FROM, buildWalkTaskInput, type IssueRow } from './old-site-mapping';
+import { IMPORTED_FROM, buildWalkTaskInput, reporterHasLeft, type IssueRow } from './old-site-mapping';
 
 const BATCH = 200;
 
@@ -37,6 +37,8 @@ const err = (line: string) => process.stderr.write(`${line}\n`);
 export async function createTasks(
   db: SupabaseClient,
   openRows: IssueRow[],
+  /** Matched profiles that are inactive or login-disabled (ruling 1 Oct 2026). */
+  leftProfileIds: ReadonlySet<string>,
   createTask: CreateTask = createWalkTask
 ): Promise<CreateTasksResult> {
   const result: CreateTasksResult = { created: 0, alreadyLinked: 0, relinked: 0, failed: 0 };
@@ -76,7 +78,7 @@ export async function createTasks(
     if (taskId) {
       result.relinked++;
     } else {
-      const created = await createTask(db, buildWalkTaskInput(row));
+      const created = await createTask(db, buildWalkTaskInput(row, reporterHasLeft(row, leftProfileIds)));
       taskId = created?.taskId ?? null;
       if (!taskId) {
         err(`[instasolver-import] task not created (old #${row.legacy_id})`);

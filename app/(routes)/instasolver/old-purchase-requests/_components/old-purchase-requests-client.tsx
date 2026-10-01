@@ -36,7 +36,8 @@ export interface OldRequestView {
   bulkLoaded: boolean;
   college: string | null;
   askedBy: string | null;
-  requesterMatched: boolean;
+  /** Ruling 1 Oct 2026: no active MyJKKN profile — never messaged; approve raises it for the college office. */
+  requesterLeft: boolean;
   inProgress: boolean;
 }
 
@@ -189,7 +190,7 @@ export function OldPurchaseRequestsClient({ initialRows }: { initialRows: OldReq
           <CardContent className="space-y-3 border-t pt-4">
             <p className="text-sm">
               This closes <span className="font-medium">{oldCount}</span> request(s) and tells each person
-              who asked (when they have a MyJKKN login). The reason below goes to them.
+              who asked (when they still work or study at JKKN). The reason below goes to them.
             </p>
             <Input
               value={bulkReason}
@@ -239,6 +240,11 @@ export function OldPurchaseRequestsClient({ initialRows }: { initialRows: OldReq
                   {row.category && <Badge variant="secondary">{row.category}</Badge>}
                   {row.priority && <Badge variant="outline">{row.priority}</Badge>}
                   {row.inProgress && <Badge variant="outline">Being approved…</Badge>}
+                  {row.requesterLeft && (
+                    <Badge variant="outline" className="border-transparent bg-muted text-muted-foreground">
+                      Has left JKKN
+                    </Badge>
+                  )}
                 </div>
                 <p className="text-sm text-muted-foreground">
                   {row.college ?? 'College not known'}
@@ -246,7 +252,7 @@ export function OldPurchaseRequestsClient({ initialRows }: { initialRows: OldReq
                 </p>
                 <p className="text-sm text-muted-foreground">
                   Asked by {row.askedBy ?? 'unknown'}
-                  {row.requesterMatched ? '' : ' (no MyJKKN login found — raised in your name if approved)'} ·
+                  {row.requesterLeft ? ' (if approved, raised on behalf of the college office; they are not told)' : ''} ·
                   raised {raisedOnLabel(row.requestedAt)}
                   {age !== null ? ` · ${age} days ago` : ''}
                   {row.bulkLoaded ? ' (bulk-loaded; real date unknown)' : ''}
@@ -258,7 +264,11 @@ export function OldPurchaseRequestsClient({ initialRows }: { initialRows: OldReq
                       autoFocus
                       value={reason}
                       maxLength={REASON_MAX}
-                      placeholder="One-line reason (the person who asked will see it)"
+                      placeholder={
+                        row.requesterLeft
+                          ? 'One-line reason (not sent — they have left JKKN)'
+                          : 'One-line reason (the person who asked will see it)'
+                      }
                       onChange={(e) => setReason(e.target.value)}
                       aria-label="Reason for rejecting"
                     />

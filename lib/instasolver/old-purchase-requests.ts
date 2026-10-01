@@ -87,12 +87,63 @@ export function isOlderThanBulkCutoff(iso: string | null, now: Date = new Date()
 }
 
 /**
+ * Director ruling, 1 Oct 2026: the person who asked has LEFT JKKN when no
+ * MyJKKN profile matched them, or the matched profile is inactive or
+ * login-disabled (the same eligibility rule as #4062). A departed person is
+ * never messaged, and an approved request is raised on behalf of the college
+ * office instead of them.
+ */
+export function hasLeftJkkn(
+  profile: { is_active?: boolean | null; is_login_disabled?: boolean | null } | null | undefined
+): boolean {
+  if (!profile) return true;
+  return profile.is_active !== true || profile.is_login_disabled === true;
+}
+
+/** The page's read of one row's requester, as the screen shows it. */
+export interface RequesterOnScreen {
+  askedBy: string | null;
+  requesterLeft: boolean;
+}
+
+type JoinedProfile = { full_name?: string | null; is_active?: boolean | null; is_login_disabled?: boolean | null };
+
+/**
+ * Who asked, and whether they have left JKKN (grey 'Has left JKKN' label),
+ * from a row read with `reporter:profiles!reporter_profile_id(full_name,
+ * is_active, is_login_disabled)`. No matched profile = left.
+ */
+export function requesterOnScreen(r: {
+  reporter_name?: string | null;
+  reporter_profile_id?: string | null;
+  reporter?: JoinedProfile | JoinedProfile[] | null;
+}): RequesterOnScreen {
+  const p = Array.isArray(r.reporter) ? r.reporter[0] ?? null : r.reporter ?? null;
+  return {
+    askedBy: p?.full_name ?? r.reporter_name ?? null,
+    requesterLeft: !r.reporter_profile_id || hasLeftJkkn(p),
+  };
+}
+
+/** The Procurement note for a departed requester: their ROLE only, never their name. */
+export function departedRequesterNote(role: string | null | undefined): string {
+  const label = String(role ?? '').replace(/[_-]+/g, ' ').trim().toLowerCase();
+  return label
+    ? `Originally asked for by a ${label} who has since left JKKN; raised on behalf of the college office.`
+    : 'Originally asked for by someone who has since left JKKN (role not recorded); raised on behalf of the college office.';
+}
+
+/**
  * The CreatePurchaseRequestDto for an approved old request: one NEW-ITEM line
  * (no catalogue item), quantity 1 because the old site never asked for one,
  * and the old details as the line's reason (createPurchaseRequest refuses a
- * new-item line without a reason).
+ * new-item line without a reason). `departed` (ruling 1 Oct 2026) adds a note
+ * naming the original requester's role only.
  */
-export function buildPurchaseRequestDto(row: OldRequestForPr): CreatePurchaseRequestDto {
+export function buildPurchaseRequestDto(
+  row: OldRequestForPr,
+  departed?: { role: string | null }
+): CreatePurchaseRequestDto {
   if (!row.institution_id) {
     throw new Error('This old request has no college, so a purchase request cannot be raised for it.');
   }
@@ -106,6 +157,7 @@ export function buildPurchaseRequestDto(row: OldRequestForPr): CreatePurchaseReq
     notes: [
       `From old InstaSolver, raised ${raisedOnLabel(row.requested_at)}.`,
       row.priority ? `Old priority: ${row.priority}.` : '',
+      departed ? departedRequesterNote(departed.role) : '',
       'Quantity and cost were not recorded on the old site — please confirm them.',
       oldRequestMarker(row.legacy_id),
     ]

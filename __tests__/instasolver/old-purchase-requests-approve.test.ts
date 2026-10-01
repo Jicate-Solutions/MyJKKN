@@ -12,6 +12,13 @@
 //  - a tab whose claim was taken over has its extra request withdrawn;
 //  - a row stuck at 'approving' can be rejected once the claim is stale;
 //  - a request carrying the marker but raised by someone else is ignored.
+//
+// Pinned (Director answers, 1 Oct 2026) — a requester who has LEFT JKKN (no
+// matched profile, or an inactive / login-disabled one):
+//  - is never belled (reject, bulk reject);
+//  - an approved one is raised on behalf of the college office (its Store
+//    Administrator, else another procurement.request_create holder there,
+//    else the Director), with a note naming the requester's role only.
 // ============================================================================
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -50,6 +57,10 @@ class FakeQuery implements PromiseLike<{ data: any; error: null }> {
   like(c: string, pattern: string) {
     const needle = pattern.replace(/^%|%$/g, '');
     this.filters.push((r) => String(r[c] ?? '').includes(needle));
+    return this;
+  }
+  contains(c: string, obj: Record<string, unknown>) {
+    this.filters.push((r) => Object.entries(obj).every(([k, v]) => (r[c] ?? {})[k] === v));
     return this;
   }
   lt(c: string, v: string) {
@@ -151,12 +162,32 @@ function pr(id: string, status: string, over: Row = {}): Row {
 const row = () => db.legacy_instasolver_requirements[0];
 const prById = (id: string) => db.procurement_purchase_requests.find((p) => p.id === id)!;
 
+function person(id: string, over: Row = {}): Row {
+  return {
+    id,
+    role: 'librarian',
+    institution_id: 'inst-1',
+    is_active: true,
+    is_login_disabled: false,
+    is_super_admin: false,
+    ...over,
+  };
+}
+
 beforeEach(() => {
   bell.mockClear();
   db = {
     legacy_instasolver_requirements: [legacyRow()],
     procurement_purchase_requests: [],
     procurement_purchase_request_items: [],
+    // The old requester still works here unless a test says otherwise.
+    profiles: [person('u-old'), person(DIRECTOR, { is_super_admin: true, role: 'super_admin' })],
+    custom_roles: [
+      { id: 'r-store', role_key: 'store_admin', is_active: true, permissions: { 'procurement.request_create': true } },
+      { id: 'r-buyer', role_key: 'purchase_clerk', is_active: true, permissions: { 'procurement.request_create': true } },
+      { id: 'r-plain', role_key: 'library_reader', is_active: true, permissions: { 'procurement.view': true } },
+    ],
+    user_roles: [],
   };
 });
 
@@ -337,6 +368,114 @@ describe('reject on a row stuck at "approving"', () => {
     expect(json.already_done).toBe(true);
     expect(row().decision).toBe('approved');
     expect(bell).not.toHaveBeenCalled();
+  });
+});
+
+describe('a requester who has LEFT JKKN (Director answers, 1 Oct 2026)', () => {
+  const holds = (userId: string, roleId: string) => db.user_roles.push({ user_id: userId, role_id: roleId });
+  const leave = (over: Row = { is_active: false }) => Object.assign(db.profiles[0], over);
+
+  it('approve is raised on behalf of the college Store Administrator, with the role only in the note', async () => {
+    leave();
+    db.profiles.push(person('u-store-b', { role: 'store_admin' }), person('u-store-a', { role: 'store_admin' }));
+    holds('u-store-b', 'r-store');
+    holds('u-store-a', 'r-store');
+    const { status, json } = await call({ action: 'begin', legacy_id: ID });
+    expect(status).toBe(200);
+    expect(json.requested_by).toBe('u-store-a'); // stable order: first by id
+    expect(json.on_behalf_of).toBe('college_office');
+    expect(json.requester_left).toBe(true);
+    expect(json.dto.notes).toContain('a librarian who has since left JKKN');
+    expect(json.dto.notes).toContain('on behalf of the college office');
+    expect(json.dto.notes).not.toContain('u-old');
+  });
+
+  it('a login-disabled requester has left too', async () => {
+    leave({ is_login_disabled: true });
+    db.profiles.push(person('u-store-a', { role: 'store_admin' }));
+    holds('u-store-a', 'r-store');
+    const { json } = await call({ action: 'begin', legacy_id: ID });
+    expect(json.requested_by).toBe('u-store-a');
+  });
+
+  it('prefers the Store Administrator over another procurement holder; skips other colleges, departed holders and super admins', async () => {
+    leave();
+    db.profiles.push(
+      person('u-0buyer'),
+      person('u-1other-college', { institution_id: 'inst-2' }),
+      person('u-2gone', { is_active: false }),
+      person('u-3super', { is_super_admin: true }),
+      person('u-4plain')
+    );
+    holds('u-0buyer', 'r-buyer');
+    holds('u-1other-college', 'r-store');
+    holds('u-2gone', 'r-store');
+    holds('u-3super', 'r-store');
+    holds('u-4plain', 'r-plain');
+    let { json } = await call({ action: 'begin', legacy_id: ID });
+    expect(json.requested_by).toBe('u-0buyer'); // no eligible Store Administrator -> the procurement holder
+    await call({ action: 'release', legacy_id: ID, claimed_at: json.claimed_at });
+
+    db.profiles.push(person('u-9store'));
+    holds('u-9store', 'r-store');
+    ({ json } = await call({ action: 'begin', legacy_id: ID }));
+    expect(json.requested_by).toBe('u-9store');
+  });
+
+  it('with nobody at the college office, it is raised in the Director\'s name; no profile = role not recorded', async () => {
+    row().reporter_profile_id = null;
+    const { json } = await call({ action: 'begin', legacy_id: ID });
+    expect(json.requested_by).toBe(DIRECTOR);
+    expect(json.on_behalf_of).toBe('director');
+    expect(json.requester_left).toBe(true);
+    expect(json.dto.notes).toContain('someone who has since left JKKN (role not recorded)');
+  });
+
+  it('complete records a request raised for the office, and refuses one raised by another office holder', async () => {
+    leave();
+    db.profiles.push(person('u-store-a'), person('u-store-b'));
+    holds('u-store-a', 'r-store');
+    holds('u-store-b', 'r-store');
+    const b = (await call({ action: 'begin', legacy_id: ID })).json;
+    db.procurement_purchase_requests.push(pr('pr-other', 'submitted', { requested_by: 'u-store-b' }));
+    const refused = await call({ action: 'complete', legacy_id: ID, purchase_request_id: 'pr-other', claimed_at: b.claimed_at });
+    expect(refused.status).toBe(422);
+    db.procurement_purchase_requests.push(pr('pr-office', 'submitted', { requested_by: 'u-store-a' }));
+    const ok = await call({ action: 'complete', legacy_id: ID, purchase_request_id: 'pr-office', claimed_at: b.claimed_at });
+    expect(ok.status).toBe(200);
+    expect(row().imported_purchase_request_id).toBe('pr-office');
+  });
+
+  it('an active requester is unchanged: raised in their own name, no note about leaving', async () => {
+    const { json } = await call({ action: 'begin', legacy_id: ID });
+    expect(json.requested_by).toBe('u-old');
+    expect(json.requester_left).toBe(false);
+    expect(json.dto.notes).not.toContain('left JKKN');
+  });
+
+  it('reject never messages a departed person (inactive or login-disabled)', async () => {
+    for (const over of [{ is_active: false }, { is_active: true, is_login_disabled: true }]) {
+      bell.mockClear();
+      db.legacy_instasolver_requirements = [legacyRow()];
+      leave(over);
+      const { status, json } = await call({ action: 'reject', legacy_id: ID, reason: 'Not needed now' });
+      expect(status).toBe(200);
+      expect(json.requester_notified).toBe(false);
+      expect(bell).not.toHaveBeenCalled();
+    }
+  });
+
+  it('bulk reject bells only the people still at JKKN', async () => {
+    db.legacy_instasolver_requirements = [
+      legacyRow({ legacy_id: 1, requested_at: '2023-01-01T00:00:00.000Z' }),
+      legacyRow({ legacy_id: 2, requested_at: '2023-01-01T00:00:00.000Z', reporter_profile_id: 'u-gone' }),
+    ];
+    db.profiles.push(person('u-gone', { is_active: false }));
+    const { json } = await call({ action: 'bulk_reject', reason: 'Older than two years' });
+    expect(json.rejected).toBe(2);
+    expect(json.belled).toBe(1);
+    expect(bell).toHaveBeenCalledTimes(1);
+    expect((bell.mock.calls[0][1] as { recipientIds: string[] }).recipientIds).toEqual(['u-old']);
   });
 });
 

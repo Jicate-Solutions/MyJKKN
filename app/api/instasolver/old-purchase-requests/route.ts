@@ -32,6 +32,15 @@
 //
 // REJECT stores the reason and bells the old requester when they matched a
 // MyJKKN profile. BULK_REJECT does the same for everything older than two years.
+//
+// REQUESTERS WHO HAVE LEFT (Director ruling, 1 Oct 2026). Checked LIVE on every
+// call: no matched profile, or one that is inactive or login-disabled, means
+// the person has left JKKN. They are NEVER messaged (a failed status lookup
+// counts as "do not message"). The Director still approves or rejects; an
+// approved one is raised on behalf of that college's office — an active
+// Store Administrator there, else another active holder of
+// procurement.request_create there, else the Director — with a note naming the
+// original requester's role only.
 // ============================================================================
 
 export const dynamic = 'force-dynamic';
@@ -45,6 +54,7 @@ import {
   STALE_CLAIM_MINUTES,
   buildPurchaseRequestDto,
   bulkRejectCutoff,
+  hasLeftJkkn,
   itemLabel,
   oldRequestMarker,
   rejectionBell,
@@ -120,9 +130,136 @@ function toMarked(raw: Record<string, unknown>): MarkedRequest {
   };
 }
 
-/** Who the Procurement request for this row is raised by: the matched old requester, else the claimer. */
-function expectedRequester(row: LegacyRow, fallback: string): string {
-  return row.reporter_profile_id ?? row.decided_by ?? fallback;
+/** Ids per .in() — keeps the PostgREST URL well under its length limit. */
+const IN_CHUNK = 150;
+
+type ProfileStatus = {
+  id: string;
+  role: string | null;
+  institution_id: string | null;
+  is_active: boolean | null;
+  is_login_disabled: boolean | null;
+  is_super_admin: boolean | null;
+};
+const PROFILE_STATUS_COLUMNS = 'id, role, institution_id, is_active, is_login_disabled, is_super_admin';
+
+async function profileStatuses(
+  admin: SupabaseClient,
+  ids: string[]
+): Promise<Map<string, ProfileStatus> | null> {
+  const out = new Map<string, ProfileStatus>();
+  const unique = [...new Set(ids.filter(Boolean))];
+  for (let i = 0; i < unique.length; i += IN_CHUNK) {
+    const { data, error } = await admin
+      .from('profiles')
+      .select(PROFILE_STATUS_COLUMNS)
+      .in('id', unique.slice(i, i + IN_CHUNK));
+    if (error) return null;
+    for (const p of (data ?? []) as ProfileStatus[]) out.set(p.id, p);
+  }
+  return out;
+}
+
+/** The ids among `ids` that still work or study at JKKN. A failed lookup = nobody (never message on doubt). */
+async function stillAtJkkn(admin: SupabaseClient, ids: string[]): Promise<Set<string>> {
+  const statuses = await profileStatuses(admin, ids);
+  if (!statuses) return new Set();
+  return new Set([...statuses.values()].filter((p) => !hasLeftJkkn(p)).map((p) => p.id));
+}
+
+/**
+ * The college office an approved request from a departed person is raised on
+ * behalf of: an active, login-enabled Store Administrator of that college,
+ * else another active holder there of a role granting
+ * procurement.request_create. Super admins are left out (the Director is the
+ * caller's own fallback). Ordered so repeated calls agree: Store Administrator
+ * first, then by profile id.
+ */
+async function findCollegeOffice(admin: SupabaseClient, institutionId: string | null): Promise<string | null> {
+  if (!institutionId) return null;
+  const { data: roles, error: roleErr } = await admin
+    .from('custom_roles')
+    .select('id, role_key')
+    .eq('is_active', true)
+    .contains('permissions', { 'procurement.request_create': true });
+  if (roleErr) return null;
+  const roleList = (roles ?? []) as Array<{ id: string; role_key: string }>;
+  if (roleList.length === 0) return null;
+  const storeRoleIds = new Set(roleList.filter((r) => r.role_key === 'store_admin').map((r) => r.id));
+
+  const { data: held, error: heldErr } = await admin
+    .from('user_roles')
+    .select('user_id, role_id')
+    .in('role_id', roleList.map((r) => r.id));
+  if (heldErr) return null;
+  const rank = new Map<string, number>();
+  for (const h of (held ?? []) as Array<{ user_id: string; role_id: string }>) {
+    const r = storeRoleIds.has(h.role_id) ? 0 : 1;
+    rank.set(h.user_id, Math.min(rank.get(h.user_id) ?? 1, r));
+  }
+  // The legacy single-role column, for Store Administrators set up before user_roles.
+  const { data: legacy } = await admin
+    .from('profiles')
+    .select('id')
+    .eq('institution_id', institutionId)
+    .eq('role', 'store_admin');
+  for (const p of (legacy ?? []) as Array<{ id: string }>) rank.set(p.id, 0);
+  if (rank.size === 0) return null;
+
+  const statuses = await profileStatuses(admin, [...rank.keys()]);
+  if (!statuses) return null;
+  const eligible = [...statuses.values()]
+    .filter((p) => p.institution_id === institutionId && !hasLeftJkkn(p) && p.is_super_admin !== true)
+    .sort((a, b) => (rank.get(a.id) ?? 1) - (rank.get(b.id) ?? 1) || a.id.localeCompare(b.id));
+  return eligible[0]?.id ?? null;
+}
+
+type Requester = {
+  /** Who the Procurement request is raised by. */
+  requestedBy: string;
+  /** Set when the old requester has left JKKN: their role, for the note (never the name). */
+  departed: { role: string | null } | null;
+  onBehalfOf: 'requester' | 'college_office' | 'director';
+};
+
+/** Who an approved old request is raised by, decided live (ruling 1 Oct 2026). */
+async function resolveRequester(
+  admin: SupabaseClient,
+  row: LegacyRow,
+  userId: string
+): Promise<Requester | { error: string }> {
+  let role: string | null = null;
+  if (row.reporter_profile_id) {
+    const statuses = await profileStatuses(admin, [row.reporter_profile_id]);
+    if (!statuses) return { error: 'Could not check who asked for this one. Try again.' };
+    const p = statuses.get(row.reporter_profile_id);
+    if (p && !hasLeftJkkn(p)) {
+      return { requestedBy: p.id, departed: null, onBehalfOf: 'requester' };
+    }
+    role = p?.role ?? null;
+  }
+  const office = await findCollegeOffice(admin, row.institution_id);
+  return office
+    ? { requestedBy: office, departed: { role }, onBehalfOf: 'college_office' }
+    : { requestedBy: userId, departed: { role }, onBehalfOf: 'director' };
+}
+
+/**
+ * Who a marked request for this row may have been raised by: the person the
+ * request is raised by now, the old requester (raised before they left), and
+ * the Director who claimed it / is calling. Never every office holder — a
+ * marker typed into someone else's own request must not count.
+ */
+async function allowedRequesters(
+  admin: SupabaseClient,
+  row: LegacyRow,
+  userId: string
+): Promise<string[] | { error: string }> {
+  const who = await resolveRequester(admin, row, userId);
+  if ('error' in who) return who;
+  const ids = [who.requestedBy, row.reporter_profile_id];
+  if (who.departed) ids.push(row.decided_by, userId);
+  return [...new Set(ids.filter((id): id is string => Boolean(id)))];
 }
 
 /** A draft with its lines in: finish it exactly as createPurchaseRequest would have. */
@@ -158,14 +295,16 @@ async function withdraw(admin: SupabaseClient, id: string, fromStatuses: string[
 async function settleMarked(
   admin: SupabaseClient,
   row: LegacyRow,
-  fallbackRequester: string,
+  userId: string,
   drafts: 'look' | 'finish' | 'cancel'
 ): Promise<{ raisedId: string | null } | { error: string }> {
+  const requesters = await allowedRequesters(admin, row, userId);
+  if ('error' in requesters) return requesters;
   const { data, error } = await admin
     .from(PR_TABLE)
     .select(PR_MARKED_COLUMNS)
     .like('notes', `%${oldRequestMarker(row.legacy_id)}%`)
-    .eq('requested_by', expectedRequester(row, fallbackRequester))
+    .in('requested_by', requesters)
     .order('created_at', { ascending: true });
   if (error) return { error: 'Could not check Procurement for this one. Try again.' };
   const marked = ((data ?? []) as Array<Record<string, unknown>>)
@@ -218,8 +357,15 @@ async function markApproved(
     .eq('decision', 'approving');
 }
 
-async function bellRequester(admin: SupabaseClient, row: LegacyRow, reason: string, userId: string) {
-  if (!row.reporter_profile_id) return false;
+/** `atJkkn`: the ids that still work or study at JKKN — a departed person is never messaged. */
+async function bellRequester(
+  admin: SupabaseClient,
+  row: LegacyRow,
+  reason: string,
+  userId: string,
+  atJkkn: ReadonlySet<string>
+) {
+  if (!row.reporter_profile_id || !atJkkn.has(row.reporter_profile_id)) return false;
   try {
     const bell = rejectionBell(itemLabel(row), reason, row.requested_at);
     await createBellNotification(admin, {
@@ -292,9 +438,13 @@ export async function POST(request: NextRequest) {
     if (upErr) return fail('Could not save the rejections. Nothing was changed.', 503);
 
     const done = new Set(((updated ?? []) as Array<{ legacy_id: number }>).map((r) => r.legacy_id));
+    const atJkkn = await stillAtJkkn(
+      admin,
+      list.filter((r) => done.has(r.legacy_id)).map((r) => r.reporter_profile_id ?? '')
+    );
     let belled = 0;
     for (const row of list) {
-      if (done.has(row.legacy_id) && (await bellRequester(admin, row, reason, userId))) belled++;
+      if (done.has(row.legacy_id) && (await bellRequester(admin, row, reason, userId, atJkkn))) belled++;
     }
     return NextResponse.json({ success: true, rejected: done.size, belled });
   }
@@ -363,7 +513,8 @@ export async function POST(request: NextRequest) {
     if (error) return fail('Could not save the rejection. Try again.', 503);
     if (!updated || updated.length === 0) return fail('Someone decided this one a moment ago.', 409);
 
-    const belled = await bellRequester(admin, row, reason, userId);
+    const atJkkn = await stillAtJkkn(admin, row.reporter_profile_id ? [row.reporter_profile_id] : []);
+    const belled = await bellRequester(admin, row, reason, userId, atJkkn);
     return NextResponse.json({ success: true, decision: 'rejected', requester_notified: belled });
   }
 
@@ -391,9 +542,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const who = await resolveRequester(admin, row, userId);
+    if ('error' in who) return fail(who.error, 503);
+
     let dto;
     try {
-      dto = buildPurchaseRequestDto(row);
+      dto = buildPurchaseRequestDto(row, who.departed ?? undefined);
     } catch (e: unknown) {
       return fail(e instanceof Error ? e.message : 'This old request cannot be raised.', 422);
     }
@@ -420,9 +574,11 @@ export async function POST(request: NextRequest) {
       // Sent back on 'complete' / 'release' so a tab whose claim was taken
       // over cannot record (or free) someone else's approval.
       claimed_at: (claimed[0] as { decision_claimed_at: string | null }).decision_claimed_at,
-      // On behalf of the old requester when they matched a MyJKKN profile,
-      // otherwise the Director himself.
-      requested_by: row.reporter_profile_id ?? userId,
+      // On behalf of the old requester while they are still at JKKN; for one
+      // who has left, the college office (else the Director himself).
+      requested_by: who.requestedBy,
+      on_behalf_of: who.onBehalfOf,
+      requester_left: who.departed !== null,
       dto,
     });
   }
@@ -434,11 +590,14 @@ export async function POST(request: NextRequest) {
 
     const { data: prData } = await admin.from(PR_TABLE).select(PR_MARKED_COLUMNS).eq('id', prId).maybeSingle();
     const pr = prData ? toMarked(prData as Record<string, unknown>) : null;
-    // This tab raised it on behalf of the matched old requester, else as itself.
+    // This tab raised it on behalf of the old requester, the college office or itself.
+    const requesters = await allowedRequesters(admin, row, userId);
+    if ('error' in requesters) return fail(requesters.error, 503);
     if (
       !pr ||
       !String(pr.notes ?? '').includes(oldRequestMarker(legacyId)) ||
-      pr.requested_by !== (row.reporter_profile_id ?? userId)
+      !pr.requested_by ||
+      !requesters.includes(pr.requested_by)
     ) {
       return fail('That purchase request does not belong to this old request.', 422);
     }
