@@ -26,6 +26,8 @@ import {
   incrementBlocked,
   missingAreas,
   parseCollegialityExample,
+  parseDirectorRatings,
+  parseDirectorReason,
   parseRatings,
   parseSentBackReason,
   resolveAreas,
@@ -56,10 +58,18 @@ export function ReviewDecisionPanel({
   const areas = useMemo(() => resolveAreas(), []);
   const isCommitteeStep = review.status === 'supervisor_reviewed';
   const isDirectorStep = review.status === 'sedc_reviewed';
+  // 1 Oct: a signed-off appraisal opens read-only, so the Director's recorded
+  // change and his reason can be read back beside the committee's (blind
+  // review: the change was written but no screen could show it).
+  const isClosed = review.status === 'final_approved';
 
   const selfRatings = parseRatings(review.self_appraisal_jsonb, areas);
   const supRatings = parseRatings(review.supervisor_review_jsonb, areas);
   const sedcRatings = parseRatings(review.sedc_review_jsonb, areas);
+  // 30 Sep: the Director's changes as recorded beside the committee's (read-only for everyone).
+  const recordedDirector = parseDirectorRatings(review.director_review_jsonb, areas);
+  const hasRecordedDirector = Object.keys(recordedDirector).length > 0;
+  const recordedReason = parseDirectorReason(review.director_review_jsonb);
 
   // Committee starts from the supervisor's ratings — normalising means
   // adjusting what the department said, not starting from a blank sheet.
@@ -72,8 +82,19 @@ export function ReviewDecisionPanel({
   );
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
+  // 30 Sep: at sign-off the Director may change a rating. Starts from the
+  // committee's; only areas he changes are recorded, with his reason.
+  const [directorRatings, setDirectorRatings] = useState<AppraisalRatingMap>(sedcRatings);
+  const [directorReason, setDirectorReason] = useState('');
+  const changedAreas = areas.filter((a) => directorRatings[a] && directorRatings[a] !== sedcRatings[a]);
 
-  const approvedRatings = isDirectorStep ? sedcRatings : ratings;
+  // What the sign-off approves (or approved): the committee's ratings with
+  // the Director's changes laid over. Once closed, the recorded changes.
+  const approvedRatings = isDirectorStep
+    ? { ...sedcRatings, ...directorRatings }
+    : isClosed
+      ? { ...sedcRatings, ...recordedDirector }
+      : ratings;
   const previewScore = deriveAppraisalScore(
     approvedRatings, areas, resolveRatingPoints(policy), policy,
   );
@@ -95,7 +116,7 @@ export function ReviewDecisionPanel({
         ratings,
         collegiality_example: example,
         normalisation_notes: notes,
-      });
+      }, review.updated_at);
       toast.success('Sent to the Director for sign-off.');
       onDone(updated);
     } catch (e) {
@@ -110,6 +131,17 @@ export function ReviewDecisionPanel({
       toast.error('Your profile could not be identified, so this cannot be signed off.');
       return;
     }
+    if (changedAreas.length > 0 && directorReason.trim().length < 10) {
+      toast.error('Say why you changed a rating (at least 10 characters). It is recorded beside the committee\'s.');
+      return;
+    }
+    // The same rule the committee lives by: a Below in Collegiality needs a
+    // written example, whoever gives it (blind review, 1 Oct).
+    // Only when HIS change is the Below: a committee Below already carries the committee's example.
+    if (changedAreas.includes('collegiality') && collegialityExampleMissing(approvedRatings, example, policy)) {
+      toast.error('A Below in Collegiality needs a written example.');
+      return;
+    }
     setBusy(true);
     try {
       // The service re-reads the person's own college rule for the stored
@@ -117,6 +149,11 @@ export function ReviewDecisionPanel({
       const updated = await PerformanceReviewService.finalApprove(supabase, review.id, {
         final_remarks: notes,
         approver_profile_id: approverProfileId,
+        director_ratings: changedAreas.length > 0 ? directorRatings : undefined,
+        director_reason: changedAreas.length > 0 ? directorReason : undefined,
+        director_collegiality_example:
+          changedAreas.includes('collegiality') && approvedRatings.collegiality === 'below' ? example : undefined,
+        expected_updated_at: review.updated_at,
       });
       toast.success('Appraisal approved and closed.');
       onDone(updated);
@@ -131,7 +168,7 @@ export function ReviewDecisionPanel({
     const to = isDirectorStep ? 'supervisor_reviewed' : 'self_submitted';
     setBusy(true);
     try {
-      const updated = await PerformanceReviewService.sendBack(supabase, review.id, to, notes);
+      const updated = await PerformanceReviewService.sendBack(supabase, review.id, to, notes, review.updated_at);
       toast.success('Sent back for rework.');
       onDone(updated);
     } catch (e) {
@@ -145,7 +182,7 @@ export function ReviewDecisionPanel({
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
         <CardTitle className="text-base">
-          {isDirectorStep ? 'Director sign-off' : 'Committee review'}
+          {isClosed ? 'Signed off' : isDirectorStep ? 'Director sign-off' : 'Committee review'}
         </CardTitle>
         <Button variant="outline" size="sm" onClick={onClose}>
           <ArrowLeft className="h-4 w-4" />
@@ -172,6 +209,7 @@ export function ReviewDecisionPanel({
                 <th className="py-2 pr-4">Self</th>
                 <th className="py-2 pr-4">Supervisor</th>
                 <th className="py-2 pr-4">Committee</th>
+                {hasRecordedDirector && <th className="py-2 pr-4">Director</th>}
               </tr>
             </thead>
             <tbody>
@@ -181,11 +219,33 @@ export function ReviewDecisionPanel({
                   <td className="py-2 pr-4"><RatingBadge rating={selfRatings[a]} /></td>
                   <td className="py-2 pr-4"><RatingBadge rating={supRatings[a]} /></td>
                   <td className="py-2 pr-4"><RatingBadge rating={sedcRatings[a]} /></td>
+                  {hasRecordedDirector && (
+                    <td className="py-2 pr-4" data-testid={`director-rating-${a}`}>
+                      {recordedDirector[a]
+                        ? <RatingBadge rating={recordedDirector[a]} />
+                        : <span className="text-xs text-muted-foreground">as the committee</span>}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+
+        {hasRecordedDirector && (
+          <div className="rounded-md border p-3 text-sm" data-testid="director-change-note">
+            <p className="font-semibold">
+              The Director changed {Object.keys(recordedDirector).map((a) => AREA_LABELS[a as keyof typeof AREA_LABELS]).join(', ')}
+            </p>
+            <p className="mt-1 text-muted-foreground">{recordedReason || 'No reason was recorded.'}</p>
+          </div>
+        )}
+        {isClosed && review.final_remarks && (
+          <div className="rounded-md border p-3 text-sm" data-testid="final-remarks">
+            <p className="font-semibold">The Director&rsquo;s remarks</p>
+            <p className="mt-1 text-muted-foreground">{review.final_remarks}</p>
+          </div>
+        )}
 
         {/* What the person wrote, readable — the table above shows only bands. */}
         <details className="rounded-md border border-border p-3">
@@ -218,6 +278,41 @@ export function ReviewDecisionPanel({
           </div>
         )}
 
+        {isDirectorStep && (
+          <div className="border-t pt-4">
+            <h4 className="text-sm font-semibold">Your rating, if you change the committee&rsquo;s</h4>
+            <p className="mt-1 mb-3 text-xs text-muted-foreground">
+              Pre-filled from the committee. Change only what you decide differently; the
+              committee&rsquo;s rating stays recorded beside yours.
+            </p>
+            <RatingPicker
+              idPrefix="director"
+              areas={areas}
+              value={directorRatings}
+              onChange={setDirectorRatings}
+              collegialityExample={example}
+              onCollegialityExampleChange={setExample}
+              policy={policy}
+              prior={sedcRatings}
+              priorLabel="Committee"
+            />
+            {changedAreas.length > 0 && (
+              <div className="mt-3">
+                <Label htmlFor="director-reason">Why you changed {changedAreas.length === 1 ? 'this rating' : 'these ratings'}</Label>
+                <Textarea
+                  id="director-reason"
+                  rows={2}
+                  className="mt-1"
+                  value={directorReason}
+                  onChange={(e) => setDirectorReason(e.target.value)}
+                  placeholder="Recorded beside the committee's rating. At least 10 characters."
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {!isClosed && (
         <div className="border-t pt-4">
           <Label htmlFor="decision-notes">
             {isDirectorStep ? 'Your remarks' : 'Normalisation notes'}
@@ -235,6 +330,7 @@ export function ReviewDecisionPanel({
             }
           />
         </div>
+        )}
 
         {/* What the ratings become for promotion — stated, not hidden. */}
         <div className="rounded-md border border-border bg-muted/30 p-3 text-xs">
@@ -244,8 +340,14 @@ export function ReviewDecisionPanel({
           <p className="mt-1 text-muted-foreground">
             {previewScore === null
               ? 'Every area must be rated before this can be approved.'
-              : `Promotion reads this as ${previewScore} out of 100. That number exists only to ` +
-                'order candidates; it is not the appraisal result and is not shown to the team member.'}
+              : isClosed && review.final_score !== null
+                ? `The recorded promotion score is ${review.final_score} out of 100.` +
+                  (review.final_score !== previewScore
+                    ? ` Today's college rule would read the same ratings as ${previewScore}; the recorded figure is the one that governed.`
+                    : '') +
+                  ' That number exists only to order candidates; it is not the appraisal result and is not shown to the team member.'
+                : `Promotion reads this as ${previewScore} out of 100. That number exists only to ` +
+                  'order candidates; it is not the appraisal result and is not shown to the team member.'}
           </p>
           {blocked && (
             <p className="mt-2 font-medium text-amber-700 dark:text-amber-300">
@@ -256,6 +358,7 @@ export function ReviewDecisionPanel({
           )}
         </div>
 
+        {!isClosed && (
         <div className="flex flex-wrap gap-2 border-t pt-4">
           {isCommitteeStep && (
             <Button onClick={submitCommittee} disabled={busy}>
@@ -284,6 +387,7 @@ export function ReviewDecisionPanel({
             </p>
           )}
         </div>
+        )}
       </CardContent>
     </Card>
   );

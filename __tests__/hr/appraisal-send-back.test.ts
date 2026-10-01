@@ -28,6 +28,7 @@ function fakeClient(row: Record<string, unknown>) {
         sent.update = payload;
         return {
           eq: () => ({
+            eq: () => ({ select: () => ({ maybeSingle: async () => ({ data: { ...row, ...payload }, error: null }) }) }),
             select: () => ({ single: async () => ({ data: { ...row, ...payload }, error: null }) }),
           }),
         };

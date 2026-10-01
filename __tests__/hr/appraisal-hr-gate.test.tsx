@@ -83,7 +83,7 @@ describe('the pages use the gate, and keep #4081 controls super-admin only', () 
   });
 
   it('keeps the Committee review / Sign off buttons and moving the round on super-admin only', () => {
-    for (const marker of ["'Sign off' : 'Committee review'", 'Move to {cycleStatusLabel']) {
+    for (const marker of ["? 'Sign off' :", 'Move to {cycleStatusLabel']) {
       const at = detail.indexOf(marker);
       expect(at, marker).toBeGreaterThan(-1);
       const open = detail.lastIndexOf('<SuperAdminOnly>', at);

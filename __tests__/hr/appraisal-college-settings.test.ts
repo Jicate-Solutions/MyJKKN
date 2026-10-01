@@ -64,13 +64,13 @@ function fakeClient(opts: {
         }),
         update: (payload: Record<string, unknown>) => {
           fake.update = payload;
-          return {
-            eq: () => ({
-              select: () => ({
-                single: async () => ({ data: { ...opts.review, ...payload }, error: null }),
-              }),
+          const done = {
+            select: () => ({
+              single: async () => ({ data: { ...opts.review, ...payload }, error: null }),
+              maybeSingle: async () => ({ data: { ...opts.review, ...payload }, error: null }),
             }),
           };
+          return { eq: () => ({ ...done, eq: () => done }) };
         },
       };
     },

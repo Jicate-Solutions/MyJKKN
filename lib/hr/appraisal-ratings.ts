@@ -384,3 +384,39 @@ export function parseSentBackReason(payload: unknown, from: SentBackBy): string 
   if (p.sent_back_by !== from) return '';
   return typeof p.sent_back_reason === 'string' ? p.sent_back_reason.trim() : '';
 }
+
+/**
+ * 30 Sep 2026: only the areas where the Director's rating differs from the
+ * committee's. Unrated or identical areas are not overrides.
+ */
+export function directorOverrides(
+  committee: AppraisalRatingMap,
+  director: AppraisalRatingMap | undefined,
+  areas: readonly AppraisalArea[],
+): AppraisalRatingMap {
+  const out: AppraisalRatingMap = {};
+  if (!director) return out;
+  for (const area of areas) {
+    const d = director[area];
+    if (d && d !== committee[area]) out[area] = d;
+  }
+  return out;
+}
+
+/** 30 Sep 2026: the Director's ratings as recorded beside the committee's, or none. */
+export function parseDirectorRatings(
+  payload: Record<string, unknown> | null | undefined,
+  areas: readonly AppraisalArea[],
+): AppraisalRatingMap {
+  // The payload carries { ratings: {...} }, the same shape as every tier's
+  // JSONB, so the same reader applies.
+  return parseRatings(payload ?? null, areas);
+}
+
+/** The reason the Director recorded with his change, or null. */
+export function parseDirectorReason(
+  payload: Record<string, unknown> | null | undefined,
+): string | null {
+  const r = payload?.reason;
+  return typeof r === 'string' && r.trim() !== '' ? r.trim() : null;
+}
