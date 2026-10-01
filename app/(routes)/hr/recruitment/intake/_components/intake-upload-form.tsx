@@ -12,7 +12,8 @@ import { useCreateIntakeBatch } from '@/hooks/hr/use-recruitment-intake';
 import { IntakeApiClientError, type IntakeCollegeChoice } from '@/lib/hr/intake/api-client';
 import { IntakeError } from './intake-states';
 
-const EXPORT_EXT = ['.csv', '.tsv', '.xlsx'];
+// The same list the server reads (parseExport).
+const EXPORT_EXT = ['.csv', '.tsv', '.txt', '.xlsx', '.xls'];
 const RESUME_EXT = ['.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png'];
 
 const ext = (name: string) => {
@@ -29,7 +30,7 @@ function sizeText(bytes: number): string {
 export function checkIntakeFiles(exportFile: File | null, resumes: File[]): string | null {
   if (!exportFile) return 'Choose the CVViZ export file first.';
   if (!EXPORT_EXT.includes(ext(exportFile.name))) {
-    return `The export must be a .csv, .tsv or .xlsx file — "${exportFile.name}" is not.`;
+    return `The export must be a .csv, .tsv, .txt, .xlsx or .xls file — "${exportFile.name}" is not.`;
   }
   const zips = resumes.filter((f) => ext(f.name) === '.zip');
   if (zips.length > 0 && resumes.length > 1) {
