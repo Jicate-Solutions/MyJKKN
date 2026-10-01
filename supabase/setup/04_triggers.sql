@@ -2830,3 +2830,11 @@ CREATE TRIGGER trg_zz_vacate_on_bill_cleared
   )
   EXECUTE FUNCTION public.trg_vacate_on_bill_cleared();
 
+
+-- Mirror of migration 20261020020000_hr_leave_type_default_entitlement_sync.sql
+DROP TRIGGER IF EXISTS trg_hr_leave_types_default_entitlement_sync ON public.hr_leave_types;
+CREATE TRIGGER trg_hr_leave_types_default_entitlement_sync
+  AFTER UPDATE OF default_entitled_days ON public.hr_leave_types
+  FOR EACH ROW
+  WHEN (OLD.default_entitled_days IS DISTINCT FROM NEW.default_entitled_days)
+  EXECUTE FUNCTION public.trg_hr_leave_type_default_entitlement_sync();
