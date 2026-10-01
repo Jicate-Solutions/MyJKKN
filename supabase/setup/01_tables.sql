@@ -10624,6 +10624,30 @@ ALTER TABLE public.hr_salary_revision_requests
   ADD CONSTRAINT hr_srr_cancelled_has_note
   CHECK ((status = 'cancelled') = (cancelled_at IS NOT NULL AND cancel_note IS NOT NULL));
 
+-- Updated: 2026-10-01 - 20271003101503: the account a request was about when it
+-- was asked, so "own" and "on the Director list" cannot be dodged by changing
+-- staff.profile_id afterwards (backfilled in the migration), and the stamp on
+-- a decision made under the rulings of 1 Oct 2026.
+ALTER TABLE public.hr_salary_revision_requests
+  ADD COLUMN IF NOT EXISTS subject_profile_id uuid,
+  ADD COLUMN IF NOT EXISTS decided_under_rules boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS subject_was_list_member boolean;
+
+COMMENT ON COLUMN public.hr_salary_revision_requests.subject_was_list_member IS
+  '1 Oct 2026: whether the person was on the Director list when it was asked (backfilled for older requests '
+  'from the list as it stood when 20271003101503 was applied). "On the list" means then OR now, so taking '
+  'someone off the list does not open their raise. Migration 20271003101503.';
+
+COMMENT ON COLUMN public.hr_salary_revision_requests.decided_under_rules IS
+  '1 Oct 2026: true when the latest decision on it passed the rulings of 1 Oct 2026 (stamped by approve_one, '
+  'director_decide and college_decide). A stamped yes is always written; only an unstamped (older) yes is '
+  'judged by today''s rules and held back if it breaks them. Migration 20271003101503.';
+
+COMMENT ON COLUMN public.hr_salary_revision_requests.subject_profile_id IS
+  '1 Oct 2026: the account (staff.profile_id) the request was about when it was asked; never changed after. '
+  'Requests asked before 20271003101503 carry the link as it stood when that file was applied. "Own" and '
+  '"on the Director list" match this OR the link as it is now.';
+
 
 -- RULING 10: one open request per person. 'approved' counts as open: until the
 -- new pay is written, a second yes could be applied on top of the first.

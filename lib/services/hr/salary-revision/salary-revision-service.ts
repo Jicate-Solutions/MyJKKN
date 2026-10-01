@@ -30,7 +30,7 @@ import {
   todayInIST,
   type SalarySuggestionInputsRow,
 } from '@/lib/services/hr/pay-bands/salary-suggestion-service';
-import { bandWarning, toAmount, type SalaryRevisionRow } from '@/lib/hr/salary-revision';
+import { bandWarning, toAmount, type HeldApprovalRow, type SalaryRevisionRow } from '@/lib/hr/salary-revision';
 
 export const RPC = {
   people: 'fn_hr_salary_revision_people',
@@ -42,6 +42,7 @@ export const RPC = {
   directorDecide: 'fn_hr_salary_revision_director_decide',
   approveMany: 'fn_hr_salary_revision_director_approve_many',
   applyDue: 'fn_hr_salary_revision_apply_due',
+  held: 'fn_hr_salary_revision_held_approvals',
   inputs: 'hr_salary_revision_suggestion_inputs',
 } as const;
 
@@ -249,6 +250,13 @@ export const SalaryRevisionService = {
     const { data, error } = await supabase.rpc(RPC.approveMany, { p_request_ids: ids });
     if (error) fail(error);
     return data as number;
+  },
+
+  /** 1 Oct 2026: yeses given before the rules that break them. Director list only (42501 otherwise). */
+  async held(supabase: Pick<SupabaseClient, 'rpc'>) {
+    const { data, error } = await supabase.rpc(RPC.held);
+    if (error) fail(error);
+    return (data ?? []) as HeldApprovalRow[];
   },
 
   /** Writes any approved raise whose start date has come. Idempotent. */

@@ -106,9 +106,17 @@ CREATE FUNCTION t.login(p uuid) RETURNS text LANGUAGE sql AS $$
 $$;
 CREATE FUNCTION t.try(q text) RETURNS text LANGUAGE plpgsql AS $$
 BEGIN EXECUTE q; RETURN 'ok'; EXCEPTION WHEN OTHERS THEN RETURN SQLSTATE; END $$;
+-- 1 Oct 2026: the same, but the message, so a probe can tell WHICH rule refused.
+CREATE FUNCTION t.msg(q text) RETURNS text LANGUAGE plpgsql AS $$
+BEGIN EXECUTE q; RETURN 'ok'; EXCEPTION WHEN OTHERS THEN RETURN SQLSTATE || ' ' || SQLERRM; END $$;
 CREATE FUNCTION t.check(p_name text, p_ok boolean, p_detail text DEFAULT NULL) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
   RAISE NOTICE '%', CASE WHEN p_ok IS TRUE THEN 'PASS ' ELSE 'FAIL ' END || p_name
                     || CASE WHEN p_ok IS TRUE OR p_detail IS NULL THEN '' ELSE '  [' || p_detail || ']' END;
 END $$;
+-- 1 Oct 2026: the decider yes/no is service_role-only (no screen asks it);
+-- the probe asks it as the owner, with the caller's JWT still in place.
+-- plpgsql, so the seed also loads on a database without 20271003101503 yet.
+CREATE FUNCTION t.is_decider() RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN RETURN public.fn_hr_salary_revision_is_list_member_raise_decider(); END $$;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA t TO anon, authenticated;

@@ -29,8 +29,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useApproveMany, useSalaryRevisionList } from '@/hooks/hr/use-salary-revisions';
-import { changeText, longDate, toAmount } from '@/lib/hr/salary-revision';
+import { useApproveMany, useHeldApprovals, useSalaryRevisionList } from '@/hooks/hr/use-salary-revisions';
+import { changeText, heldReasonInWords, longDate, toAmount } from '@/lib/hr/salary-revision';
 import { firstOfNextMonthIST } from '@/lib/hr/raise-effective-date';
 import {
   BandWarning,
@@ -49,6 +49,8 @@ export default function ApproveSalaryRevisionsPage() {
   const canApprove = canAccess('hr.payroll.salary_revision', 'approve');
   const list = useSalaryRevisionList('director', canApprove);
   const approveMany = useApproveMany();
+  // 1 Oct 2026: answered for the Director list only; anyone else sees nothing.
+  const held = useHeldApprovals(canApprove);
   const [ticked, setTicked] = useState<Set<string>>(new Set());
   const [confirming, setConfirming] = useState(false);
 
@@ -59,8 +61,11 @@ export default function ApproveSalaryRevisionsPage() {
     () => rows.filter((r) => r.status !== 'waiting_director' && r.status !== 'waiting_principal').slice(0, 25),
     [rows],
   );
-  const tickedWaiting = waiting.filter((r) => ticked.has(r.id));
-  const allTicked = waiting.length > 0 && tickedWaiting.length === waiting.length;
+  // 1 Oct 2026: only rows he may decide get a tick box, so "Tick all" never
+  // sends his own raise, or a list member's he may not decide.
+  const decidable = useMemo(() => waiting.filter((r) => r.can_decide), [waiting]);
+  const tickedWaiting = decidable.filter((r) => ticked.has(r.id));
+  const allTicked = decidable.length > 0 && tickedWaiting.length === decidable.length;
 
   if (!permsLoading && !canApprove) {
     return <NoAccess title='Approve Salary Revisions' what='the final yes or no on salary revisions' />;
@@ -136,7 +141,8 @@ export default function ApproveSalaryRevisionsPage() {
                     <TableHead className='w-10'>
                       <Checkbox
                         checked={allTicked}
-                        onCheckedChange={(v) => setTicked(v ? new Set(waiting.map((r) => r.id)) : new Set())}
+                        disabled={decidable.length === 0}
+                        onCheckedChange={(v) => setTicked(v ? new Set(decidable.map((r) => r.id)) : new Set())}
                         aria-label='Tick all'
                       />
                     </TableHead>
@@ -152,11 +158,13 @@ export default function ApproveSalaryRevisionsPage() {
                   {waiting.map((r) => (
                     <TableRow key={r.id} data-state={ticked.has(r.id) ? 'selected' : undefined}>
                       <TableCell>
-                        <Checkbox
-                          checked={ticked.has(r.id)}
-                          onCheckedChange={(v) => toggle(r.id, v === true)}
-                          aria-label={`Tick ${r.person_name}`}
-                        />
+                        {r.can_decide && (
+                          <Checkbox
+                            checked={ticked.has(r.id)}
+                            onCheckedChange={(v) => toggle(r.id, v === true)}
+                            aria-label={`Tick ${r.person_name}`}
+                          />
+                        )}
                       </TableCell>
                       <TableCell>
                         <div className='font-medium'>{r.person_name}</div>
@@ -164,6 +172,12 @@ export default function ApproveSalaryRevisionsPage() {
                           {[r.designation, r.institution_name].filter(Boolean).join(' · ')} · asked by {r.asked_by_name}
                         </div>
                         <div className='mt-1'><RevisionFlags row={r} /></div>
+                        {!r.can_decide && (
+                          <p className='mt-1 text-xs text-muted-foreground' data-testid='not-yours'>
+                            Not yours to decide: it is your own raise, or a raise for someone on the
+                            Director list, which only the Director himself decides.
+                          </p>
+                        )}
                       </TableCell>
                       <TableCell className='text-right tabular-nums'>{rupees(r.current_monthly_gross)}</TableCell>
                       <TableCell className='text-right tabular-nums'>
@@ -189,6 +203,32 @@ export default function ApproveSalaryRevisionsPage() {
                 </TableBody>
               </Table>
             </div>
+          )}
+
+          {held.data && held.data.length > 0 && (
+            <section className='mt-8' data-testid='held-approvals'>
+              <h2 className='mb-2 text-base font-semibold'>Approved before the 1 October rules, held back ({held.data.length})</h2>
+              <p className='mb-3 text-sm text-muted-foreground'>
+                These were approved in a way the rules no longer allow. A new pay that was not yet
+                written stays unwritten. Nothing about them is changed; they are listed for you to see.
+              </p>
+              <ul className='divide-y divide-border rounded-md border border-border text-sm'>
+                {held.data.map((h) => (
+                  <li key={h.id} className='flex flex-wrap items-center justify-between gap-2 px-3 py-2'>
+                    <span>
+                      <span className='font-medium'>{h.person_name}</span>
+                      <span className='text-muted-foreground'> · {heldReasonInWords(h.why)} ({h.decided_by_name ?? 'someone'})</span>
+                    </span>
+                    <span className='flex items-center gap-2'>
+                      <span className='tabular-nums'>{rupees(h.final_monthly_gross)}</span>
+                      <span className='text-xs text-muted-foreground'>
+                        {h.status === 'applied' ? 'Already in the pay' : 'New pay not written'}
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
 
           {withPrincipal.length > 0 && (
