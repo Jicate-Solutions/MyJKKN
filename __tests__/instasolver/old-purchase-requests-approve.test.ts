@@ -33,6 +33,7 @@ class FakeQuery implements PromiseLike<{ data: any; error: null }> {
   private filters: Array<(r: Row) => boolean> = [];
   private patch: Row | null = null;
   private cols: string | null = null;
+  private window: [number, number] | null = null;
   constructor(private table: string) {}
   select(cols: string) {
     this.cols = cols;
@@ -70,11 +71,17 @@ class FakeQuery implements PromiseLike<{ data: any; error: null }> {
   order() {
     return this;
   }
+  range(from: number, to: number) {
+    this.window = [from, to];
+    return this;
+  }
   limit() {
     return this;
   }
   private run() {
-    const rows = (db[this.table] ?? []).filter((r) => this.filters.every((f) => f(r)));
+    const all = (db[this.table] ?? []).filter((r) => this.filters.every((f) => f(r)));
+    // Like PostgREST: at most 1000 rows a call.
+    const rows = this.window ? all.slice(this.window[0], Math.min(this.window[1] + 1, this.window[0] + 1000)) : all.slice(0, 1000);
     if (this.patch) for (const r of rows) Object.assign(r, this.patch);
     if (this.cols === null) return null;
     return rows.map((r) => {
@@ -388,6 +395,15 @@ describe('a requester who has LEFT JKKN (Director answers, 1 Oct 2026)', () => {
     expect(json.dto.notes).toContain('a librarian who has since left JKKN');
     expect(json.dto.notes).toContain('on behalf of the college office');
     expect(json.dto.notes).not.toContain('u-old');
+  });
+
+  it('finds the Store Administrator past the first 1000 role holders (paged read)', async () => {
+    leave();
+    for (let i = 0; i < 1200; i++) holds(`u-elsewhere-${String(i).padStart(4, '0')}`, 'r-buyer');
+    db.profiles.push(person('u-zz-store'));
+    holds('u-zz-store', 'r-store');
+    const { json } = await call({ action: 'begin', legacy_id: ID });
+    expect(json.requested_by).toBe('u-zz-store');
   });
 
   it('a login-disabled requester has left too', async () => {

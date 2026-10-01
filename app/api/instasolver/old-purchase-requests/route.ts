@@ -132,6 +132,8 @@ function toMarked(raw: Record<string, unknown>): MarkedRequest {
 
 /** Ids per .in() — keeps the PostgREST URL well under its length limit. */
 const IN_CHUNK = 150;
+/** Rows per page when reading role holders (PostgREST's default cap is 1000). */
+const HOLDER_PAGE = 1000;
 
 type ProfileStatus = {
   id: string;
@@ -187,15 +189,23 @@ async function findCollegeOffice(admin: SupabaseClient, institutionId: string | 
   if (roleList.length === 0) return null;
   const storeRoleIds = new Set(roleList.filter((r) => r.role_key === 'store_admin').map((r) => r.id));
 
-  const { data: held, error: heldErr } = await admin
-    .from('user_roles')
-    .select('user_id, role_id')
-    .in('role_id', roleList.map((r) => r.id));
-  if (heldErr) return null;
+  // Paged: PostgREST returns at most 1000 rows a call, and a broad role
+  // granted procurement.request_create could hide this college's holder.
   const rank = new Map<string, number>();
-  for (const h of (held ?? []) as Array<{ user_id: string; role_id: string }>) {
-    const r = storeRoleIds.has(h.role_id) ? 0 : 1;
-    rank.set(h.user_id, Math.min(rank.get(h.user_id) ?? 1, r));
+  for (let from = 0; ; from += HOLDER_PAGE) {
+    const { data: held, error: heldErr } = await admin
+      .from('user_roles')
+      .select('user_id, role_id')
+      .in('role_id', roleList.map((r) => r.id))
+      .order('user_id', { ascending: true })
+      .range(from, from + HOLDER_PAGE - 1);
+    if (heldErr) return null;
+    const page = (held ?? []) as Array<{ user_id: string; role_id: string }>;
+    for (const h of page) {
+      const r = storeRoleIds.has(h.role_id) ? 0 : 1;
+      rank.set(h.user_id, Math.min(rank.get(h.user_id) ?? 1, r));
+    }
+    if (page.length < HOLDER_PAGE) break;
   }
   // The legacy single-role column, for Store Administrators set up before user_roles.
   const { data: legacy } = await admin
