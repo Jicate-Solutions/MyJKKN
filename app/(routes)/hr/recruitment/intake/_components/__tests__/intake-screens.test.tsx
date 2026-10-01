@@ -388,10 +388,15 @@ describe('Upload form: a college picker only when the server asks for one (revie
         return json({ batch: { ...BATCH, id: 'b9', status: 'preparing' } }, 201);
       }
       if (url.endsWith('/batches/b9/prepare')) return json({ batch: { ...BATCH, id: 'b9' }, rows: [] });
+      // The list says one home college; the server then asks anyway (e.g. the home college was removed).
+      if (url.endsWith('/institutions')) return json({ institutions: [{ id: 'c1', name: 'Arts Demo College' }], home_institution_id: 'c1' });
       return json({ error: `unexpected ${url}` }, 500);
     };
     nav.push.mockClear();
     renderWithQuery(<IntakeUploadForm />);
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: 'Upload and review' }) as HTMLButtonElement).disabled).toBe(false),
+    );
     expect(screen.queryByLabelText(/Which college is this upload for/)).toBeNull();
 
     fireEvent.change(screen.getByLabelText(/The CVViZ export/), { target: { files: [exportFile()] } });
@@ -493,10 +498,63 @@ describe('Upload form: any college this person can reach (Director ruling, 1 Oct
     nav.push.mockClear();
     renderWithQuery(<IntakeUploadForm />);
     await waitFor(() => expect(callsTo('/institutions', 'GET')).toHaveLength(1));
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: 'Upload and review' }) as HTMLButtonElement).disabled).toBe(false),
+    );
     expect(screen.queryByLabelText(/Which college is this upload for/)).toBeNull();
     fireEvent.change(screen.getByLabelText(/The CVViZ export/), { target: { files: [exportFile()] } });
     fireEvent.click(screen.getByRole('button', { name: 'Upload and review' }));
     await waitFor(() => expect(nav.push).toHaveBeenCalledWith('/hr/recruitment/intake/b9'));
     expect(posted[0].get('institution_id')).toBeNull();
+  });
+});
+
+describe('Upload form: the college list must load before anything is sent (round 3)', () => {
+  const exportFile = () => new File(['First Name,Email Address\nA,a@x.test'], 'cvviz.csv', { type: 'text/csv' });
+  const submitButton = () => screen.getByRole('button', { name: /Upload and review|Loading your colleges/ }) as HTMLButtonElement;
+
+  it('while the list loads, the upload button is off', async () => {
+    handler = (url) => (url.endsWith('/institutions') ? new Promise<Response>(() => undefined) : json({ error: 'unexpected' }, 500));
+    renderWithQuery(<IntakeUploadForm />);
+    await waitFor(() => expect(callsTo('/institutions', 'GET')).toHaveLength(1));
+    fireEvent.change(screen.getByLabelText(/The CVViZ export/), { target: { files: [exportFile()] } });
+    expect(submitButton().disabled).toBe(true);
+    fireEvent.click(submitButton());
+    expect(callsTo('/batches')).toHaveLength(0);
+  });
+
+  it('when the list fails, it says so plainly and sends nothing (never a silent home-college upload)', async () => {
+    handler = (url) => (url.endsWith('/institutions') ? json({ error: 'Could not read the colleges' }, 500) : json({ error: 'unexpected' }, 500));
+    renderWithQuery(<IntakeUploadForm />);
+    expect(await screen.findByText(/Could not load the colleges you can upload for/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/The CVViZ export/), { target: { files: [exportFile()] } });
+    expect(submitButton().disabled).toBe(true);
+    fireEvent.click(submitButton());
+    expect(callsTo('/batches')).toHaveLength(0);
+  });
+
+  it('after a refusal for the college picked, the picker goes back to the home college', async () => {
+    handler = (url, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET' && url.endsWith('/institutions')) {
+        return json({ institutions: [{ id: 'c1', name: 'Arts Demo College' }, { id: 'c2', name: 'Engineering Demo College' }], home_institution_id: 'c1' });
+      }
+      if (method === 'POST' && url.endsWith('/batches')) {
+        return json({
+          error: 'You cannot add candidates for that college. Choose one of the colleges you work with.',
+          needs_institution: true,
+          institutions: [{ id: 'c1', name: 'Arts Demo College' }],
+        }, 403);
+      }
+      return json({ error: `unexpected ${method} ${url}` }, 500);
+    };
+    renderWithQuery(<IntakeUploadForm />);
+    const picker = (await screen.findByLabelText(/Which college is this upload for/)) as HTMLSelectElement;
+    fireEvent.change(screen.getByLabelText(/The CVViZ export/), { target: { files: [exportFile()] } });
+    fireEvent.change(picker, { target: { value: 'c2' } });
+    expect(picker.value).toBe('c2');
+    fireEvent.click(screen.getByRole('button', { name: 'Upload and review' }));
+    expect(await screen.findByText(/You cannot add candidates for that college/)).toBeTruthy();
+    await waitFor(() => expect((screen.getByLabelText(/Which college is this upload for/) as HTMLSelectElement).value).toBe('c1'));
   });
 });

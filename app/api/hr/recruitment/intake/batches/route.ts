@@ -1,9 +1,12 @@
 export const dynamic = 'force-dynamic';
 
 // GET  /api/hr/recruitment/intake/batches — the batches this person can see, newest first.
-// POST /api/hr/recruitment/intake/batches — multipart `export` (one .csv/.tsv/.xlsx),
-//      plus `institution_id` ONLY for someone whose profile has no college. Without
-//      it, such a person gets 400 { error, needs_institution: true, institutions }.
+// POST /api/hr/recruitment/intake/batches — multipart `export` (one .csv/.tsv/.txt/.xlsx/.xls),
+//      plus an optional `institution_id`: any college this person's access reaches
+//      (Director ruling, 1 Oct); without it, their home college. A college they
+//      cannot reach -> 403, and someone with no home college who sends none -> 400,
+//      both with { needs_institution: true, institutions } (the colleges they may
+//      choose); an id of no college -> 400 "That college does not exist".
 //      Parses it now and holds the rows; resumes follow through upload-urls,
 //      then prepare proposes. → 201 { batch } with status 'preparing'.
 

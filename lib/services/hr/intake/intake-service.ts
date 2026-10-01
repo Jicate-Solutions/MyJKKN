@@ -509,11 +509,9 @@ export async function accessibleInstitutions(deps: IntakeDeps): Promise<IntakeIn
   const { data, error } = await deps.db.from('institutions').select('id, name').order('name', { ascending: true }).limit(200);
   if (error) throw dbFail('read the colleges', error);
   const all = ((data ?? []) as { id: string; name: string | null }[]).filter((i) => isUuid(i.id));
-  const out: IntakeInstitutionChoice[] = [];
-  for (const i of all) {
-    if (await canReachInstitution(deps, i.id)) out.push({ id: i.id, name: i.name ?? 'Unnamed college' });
-  }
-  return out;
+  // One access check per college, a few at a time; the order (by name) is kept.
+  const reach = await mapLimit(all, 8, (i) => canReachInstitution(deps, i.id));
+  return all.filter((_, k) => reach[k]).map((i) => ({ id: i.id, name: i.name ?? 'Unnamed college' }));
 }
 
 /**
@@ -537,6 +535,12 @@ async function resolveBatchInstitution(
       400,
       { needs_institution: true, institutions: await accessibleInstitutions(deps) },
     );
+  }
+  if (isUuid(pick)) {
+    // An id of no college: say so, rather than fail on the batch's foreign key.
+    const { data: known, error: knownErr } = await deps.admin.from('institutions').select('id').eq('id', pick).maybeSingle();
+    if (knownErr) throw dbFail('check that college', knownErr);
+    if (!known) throw new IntakeError('That college does not exist.', 400);
   }
   if (!(await canReachInstitution(deps, pick))) {
     throw new IntakeError(
@@ -1573,7 +1577,12 @@ export async function cleanupIdleBatches(admin: SupabaseClient, now: Date = new 
     }
   }
   try {
-    summary.late_files_removed = await removeLateUploads(admin, now);
+    const late = await removeLateUploads(admin, now);
+    summary.late_files_removed = late.removed;
+    if (!late.complete) {
+      summary.failed += 1;
+      console.warn('[hr/intake] late-upload listing stopped', { pages: LATE_UPLOAD_MAX_PAGES });
+    }
   } catch (e) {
     summary.failed += 1;
     console.warn('[hr/intake] late uploads not removed', { message: (e as Error)?.message });
@@ -1596,22 +1605,30 @@ export async function cleanupIdleBatches(admin: SupabaseClient, now: Date = new 
  */
 const LATE_UPLOAD_SETTLE_MS = 60 * 60 * 1000;
 
-async function removeLateUploads(admin: SupabaseClient, now: Date): Promise<number> {
+/** Listing pages read per sweep; past this the listing stops and the sweep reports it. */
+const LATE_UPLOAD_MAX_PAGES = 100;
+
+async function removeLateUploads(admin: SupabaseClient, now: Date): Promise<{ removed: number; complete: boolean }> {
   const folders: string[] = [];
   const PAGE = 1000;
+  let complete = false;
   // Until an empty page: storage may return fewer entries than asked for.
-  for (let offset = 0; ; ) {
+  for (let offset = 0, pages = 0; pages < LATE_UPLOAD_MAX_PAGES; pages += 1) {
     const { data, error } = await admin.storage.from(INTAKE_BUCKET).list('', { limit: PAGE, offset });
     if (error) throw new IntakeError(`Could not list the upload folders: ${error.message}`, 500);
     const page = data ?? [];
-    if (page.length === 0) break;
+    if (page.length === 0) {
+      complete = true;
+      break;
+    }
     folders.push(...page.map((o) => o.name).filter(isUuid));
     offset += page.length;
   }
-  if (folders.length === 0) return 0;
-  const settledBefore = new Date(now.getTime() - LATE_UPLOAD_SETTLE_MS).toISOString();
+  if (folders.length === 0) return { removed: 0, complete };
+  // Compared as instants: the database writes "+00:00", JavaScript writes "Z".
+  const settledBefore = now.getTime() - LATE_UPLOAD_SETTLE_MS;
   const closedForGood = (b: { status: string; updated_at: string } | null | undefined) =>
-    !!b && b.status === 'closed' && b.updated_at < settledBefore;
+    !!b && b.status === 'closed' && Date.parse(b.updated_at) < settledBefore;
   // Throws on a failed read: a batch that could not be read is never taken for gone.
   const batches = await selectInChunks<{ id: string; status: string; updated_at: string }>(folders, (chunk) =>
     admin.from('hr_intake_batches').select('id, status, updated_at').in('id', chunk));
@@ -1628,7 +1645,7 @@ async function removeLateUploads(admin: SupabaseClient, now: Date): Promise<numb
     }
     removed += await removeBatchFiles(admin, id);
   }
-  return removed;
+  return { removed, complete };
 }
 
 // ---------------------------------------------------------------------------

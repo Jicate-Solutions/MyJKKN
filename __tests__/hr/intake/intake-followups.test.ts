@@ -5,6 +5,7 @@
 import { randomUUID } from 'crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  accessibleInstitutions,
   cleanupIdleBatches,
   createBatch,
   createUploadUrls,
@@ -293,5 +294,58 @@ describe('Director ruling (1 Oct): HR may upload for any college their role lets
     const { batch } = await choose(HR, null);
     expect(collegeOf(batch.id)).toBe(COLLEGE_1);
     expect(fake.rpcCalls.every((c) => (c.args as { check_institution_id: unknown }).check_institution_id != null)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Third round: last notes before push.
+// ---------------------------------------------------------------------------
+
+describe('round 3: the college choice', () => {
+  it('a well-formed id of a college that does not exist is a 400, not a database error', async () => {
+    fake.reachable = null; // all-colleges access answers yes for any id
+    const err = await createBatch(deps(), HR, { name: 'e.tsv', bytes: ASHA() }, randomUUID())
+      .then(() => null, (e: unknown) => e as Error & { status?: number });
+    expect(err?.status).toBe(400);
+    expect(err?.message).toBe('That college does not exist.');
+    expect(fake.table('hr_intake_batches')).toHaveLength(0);
+  });
+
+  it('the access checks for the college list run side by side, not one after another', async () => {
+    const realRpc = fake.rpc.bind(fake);
+    let inFlight = 0;
+    let most = 0;
+    fake.rpc = (async (name: string, args: Record<string, unknown>) => {
+      inFlight += 1;
+      most = Math.max(most, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight -= 1;
+      return realRpc(name, args);
+    }) as typeof fake.rpc;
+    const list = await accessibleInstitutions(deps());
+    expect(list.map((c) => c.id).sort()).toEqual([COLLEGE_1, COLLEGE_2, COLLEGE_3].sort());
+    expect(most).toBeGreaterThan(1);
+  });
+});
+
+describe('round 3: the late-upload sweep', () => {
+  it('judges "closed an hour ago" by time, not by how the timestamp is written', async () => {
+    const now = new Date('2026-10-01T11:00:00.000Z');
+    const { batch } = await runBatch([], ASHA());
+    // 15:00 India time is 09:30 UTC: closed ninety minutes before `now`.
+    Object.assign(fake.table('hr_intake_batches').find((b) => b.id === batch.id)!, {
+      status: 'closed', updated_at: '2026-10-01T15:00:00+05:30',
+    });
+    fake.objects.set(`hr-intake/${batch.id}/late.pdf`, { bytes: PDF('late') });
+    expect(await cleanupIdleBatches(fake.asClient(), now)).toMatchObject({ late_files_removed: 1, failed: 0 });
+    expect(hasFile(batch.id)).toBe(false);
+  });
+
+  it('stops listing after 100 pages and reports it as a failure', async () => {
+    fake.listMax = 1;
+    for (let i = 0; i < 101; i += 1) fake.objects.set(`hr-intake/${randomUUID()}/late.pdf`, { bytes: PDF(String(i)) });
+    const summary = await cleanupIdleBatches(fake.asClient(), new Date());
+    expect(summary).toMatchObject({ late_files_removed: 100, failed: 1 });
+    expect([...fake.objects.keys()]).toHaveLength(1);
   });
 });
