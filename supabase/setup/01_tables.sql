@@ -10985,3 +10985,29 @@ BEGIN
 END $$;
 
 
+
+-- ----------------------------------------------------------------------------
+-- hr_pay_destination_changes (2026-10-01)
+-- Source: 20270614090000_hr_pay_destination_changes.sql
+-- Updated: 2026-10-01 - Director ruling: every bank / paying-trust change goes on a weekly list to the Director list
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.hr_pay_destination_changes (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  staff_id    uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  kind        text NOT NULL CHECK (kind IN ('bank', 'payer')),
+  -- auth.uid() of whoever made the change; NULL = a system job (service role).
+  changed_by  uuid,
+  changed_at  timestamptz NOT NULL DEFAULT now(),
+  -- bank:  { holder, account_last4, ifsc, bank }   (never the full number)
+  -- payer: { organization_id, organization_name }
+  -- NULL before = first time recorded; NULL after = removed.
+  before      jsonb,
+  after       jsonb,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_hr_pay_destination_changes_changed_at
+  ON public.hr_pay_destination_changes (changed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hr_pay_destination_changes_staff
+  ON public.hr_pay_destination_changes (staff_id, changed_at DESC);

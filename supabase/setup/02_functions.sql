@@ -76229,3 +76229,159 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.trg_hr_leave_type_default_entitlement_sync() FROM PUBLIC, anon, authenticated;
 
+
+-- ----------------------------------------------------------------------------
+-- pay-destination change log: functions (2026-10-01)
+-- Source: 20270614090000_hr_pay_destination_changes.sql
+-- Updated: 2026-10-01 - Director ruling: every bank / paying-trust change goes on a weekly list to the Director list
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_hr_bank_destination_json(
+  p_holder text, p_account text, p_ifsc text, p_bank text
+)
+RETURNS jsonb
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public
+AS $$
+  SELECT jsonb_build_object(
+    'holder', p_holder,
+    'account_last4', CASE WHEN p_account IS NULL THEN NULL ELSE right(p_account, 4) END,
+    'ifsc', p_ifsc,
+    'bank', p_bank
+  );
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_bank_destination_json(text, text, text, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_bank_destination_json(text, text, text, text) TO authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_log_bank_destination_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_before jsonb;
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    SELECT public.fn_hr_bank_destination_json(b.account_holder_name, b.account_number, b.ifsc_code, b.bank_name)
+      INTO v_before
+      FROM public.hr_staff_bank_accounts b
+     WHERE b.superseded_by = NEW.id AND b.id <> NEW.id
+     ORDER BY b.created_at DESC
+     LIMIT 1;
+    INSERT INTO public.hr_pay_destination_changes (staff_id, kind, changed_by, before, after)
+    VALUES (NEW.staff_id, 'bank', auth.uid(), v_before,
+            public.fn_hr_bank_destination_json(NEW.account_holder_name, NEW.account_number, NEW.ifsc_code, NEW.bank_name));
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'UPDATE' THEN
+    IF OLD.account_number      IS DISTINCT FROM NEW.account_number
+    OR OLD.ifsc_code           IS DISTINCT FROM NEW.ifsc_code
+    OR OLD.account_holder_name IS DISTINCT FROM NEW.account_holder_name
+    OR OLD.bank_name           IS DISTINCT FROM NEW.bank_name THEN
+      INSERT INTO public.hr_pay_destination_changes (staff_id, kind, changed_by, before, after)
+      VALUES (NEW.staff_id, 'bank', auth.uid(),
+              public.fn_hr_bank_destination_json(OLD.account_holder_name, OLD.account_number, OLD.ifsc_code, OLD.bank_name),
+              public.fn_hr_bank_destination_json(NEW.account_holder_name, NEW.account_number, NEW.ifsc_code, NEW.bank_name));
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  RETURN NULL;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_log_bank_destination_change() FROM anon, PUBLIC, authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_log_payer_destination_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_before jsonb;
+  v_after  jsonb;
+  v_staff  uuid;
+BEGIN
+  IF TG_OP = 'UPDATE' AND OLD.hr_organization_id IS NOT DISTINCT FROM NEW.hr_organization_id THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP IN ('UPDATE', 'DELETE') THEN
+    SELECT jsonb_build_object('organization_id', o.id, 'organization_name', o.name)
+      INTO v_before FROM public.hr_organizations o WHERE o.id = OLD.hr_organization_id;
+    v_before := COALESCE(v_before, jsonb_build_object('organization_id', OLD.hr_organization_id, 'organization_name', NULL));
+  END IF;
+  IF TG_OP IN ('INSERT', 'UPDATE') THEN
+    SELECT jsonb_build_object('organization_id', o.id, 'organization_name', o.name)
+      INTO v_after FROM public.hr_organizations o WHERE o.id = NEW.hr_organization_id;
+    v_after := COALESCE(v_after, jsonb_build_object('organization_id', NEW.hr_organization_id, 'organization_name', NULL));
+  END IF;
+
+  v_staff := CASE WHEN TG_OP = 'DELETE' THEN OLD.staff_id ELSE NEW.staff_id END;
+  -- A staff delete cascades here; the log row would cascade away with it.
+  IF EXISTS (SELECT 1 FROM public.staff s WHERE s.id = v_staff) THEN
+    INSERT INTO public.hr_pay_destination_changes (staff_id, kind, changed_by, before, after)
+    VALUES (v_staff, 'payer', auth.uid(), v_before, v_after);
+  END IF;
+
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_log_payer_destination_change() FROM anon, PUBLIC, authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_pay_destination_changes(p_since timestamptz)
+RETURNS TABLE (
+  change_id       uuid,
+  staff_id        uuid,
+  staff_name      text,
+  staff_code      text,
+  college         text,
+  kind            text,
+  before          jsonb,
+  after           jsonb,
+  changed_by_name text,
+  changed_at      timestamptz
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT (public.fn_is_the_director() OR COALESCE(auth.role(), '') = 'service_role') THEN
+    RAISE EXCEPTION 'Only the Director list can read the bank and payer change list.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  RETURN QUERY
+  SELECT c.id,
+         c.staff_id,
+         NULLIF(trim(concat_ws(' ', s.first_name, s.last_name)), '') AS staff_name,
+         s.staff_id::text,
+         i.name::text,
+         c.kind,
+         c.before,
+         c.after,
+         CASE WHEN c.changed_by IS NULL THEN 'a system job'
+              ELSE COALESCE(NULLIF(trim(p.full_name), ''), p.email, 'unknown account') END,
+         c.changed_at
+    FROM public.hr_pay_destination_changes c
+    JOIN public.staff s ON s.id = c.staff_id
+    LEFT JOIN public.institutions i ON i.id = s.institution_id
+    LEFT JOIN public.profiles p ON p.id = c.changed_by
+   WHERE c.changed_at >= COALESCE(p_since, now() - interval '7 days')
+   ORDER BY c.changed_at DESC
+   LIMIT 2000;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_hr_pay_destination_changes(timestamptz) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_hr_pay_destination_changes(timestamptz) TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.fn_hr_pay_destination_changes(timestamptz) IS
+  'Bank-account and paying-trust changes since p_since (default 7 days), newest first, with the person, their college and who made the change. Director list or service_role only. Migration 20270614090000.';

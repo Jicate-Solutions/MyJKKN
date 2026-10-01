@@ -436,6 +436,22 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "notes": "Rules-based, no LLM. All logic is in the SECURITY DEFINER RPC fn_accreditation_committee_term_warnings (migration 20260809103200, service_role only). Fires via the AI-routine dispatcher (ai_routine_schedules row 'committee-term-reminders' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron, which is already at its 100-entry ceiling. Auth: CRON_SECRET (Bearer or ?secret=). Idempotent on notifications.idempotency_key keyed by (member, term_end, threshold, audience), so each warning is sent exactly ONCE EVER rather than once per day — an extended term produces new keys and is warned again. Marked unsafe-to-manual because a run delivers notifications naming real people to real cluster officers. Every real term today ends 2027-03-31, so the honest nightly answer is 'nothing due' — the response therefore always reports `examined` alongside `candidates`, and `unreachable` when a warning had nobody who could act, because a quiet zero must not be mistakable for a quiet failure."
   },
   {
+      "id": "hr-pay-destination-weekly",
+      "name": "HR — Weekly Bank and Paying-Trust Change List",
+      "category": "misc-ai",
+      "type": "cron",
+      "schedule": "Weekly · Monday 08:17 IST (editable via dispatcher)",
+      "triggerPath": "/api/cron/hr-pay-destination-weekly",
+      "callsClaude": false,
+      "featureKey": null,
+      "featureKeyNote": "Rules-based SQL list over hr_pay_destination_changes; the route resolves no model.",
+      "whatItDoes": "Every Monday, one in-app notice to everyone on the Director list naming each bank-account and paying-trust change of the last 7 days: whose, from what to what (account numbers masked to the last 4 digits), and who made it. Sent even when nothing changed. The notice links to the list on Employee Salaries, which only the Director list can see. Director ruling 1 Oct 2026: the HR head may change where pay goes, and every such change reaches the Director weekly.",
+      "configKnobs": "Recipients = platform_policies 'platform.the_director_profile_ids' (the Director list), read at run time. Window = last 7 days. Day/time editable at /admin/ai-routines (ai_routine_schedules row 'hr-pay-destination-weekly'). No model, no LLM.",
+      "sideEffects": "WRITES one in-app notification (notifications + user_notifications fan-out) to the Director list, expiring after 8 days. Reads hr_pay_destination_changes through fn_hr_pay_destination_changes (service_role), staff, institutions, profiles. The log itself is written by triggers on hr_staff_bank_accounts and hr_staff_payroll (migration 20270614090000), not by this route.",
+      "safeToManualTrigger": false,
+      "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'hr-pay-destination-weekly', seeded by migration 20270614090000: Monday, minute_of_day 497 = 08:17 IST, off the :00/:30 marks), NOT a raw vercel.json cron (that list is at its plan cap). Auth: CRON_SECRET as Authorization: Bearer only, constant-time. Idempotent per IST week. Fails LOUD (500) when the Director list is unreadable or empty, so a notice to nobody lands in last_status. Marked unsafe-to-manual because a run notifies real leadership."
+  },
+  {
     "id": "solutions-director-digest",
     "name": "Solutions Hub — Weekly Director Digest",
     "category": "misc-ai",

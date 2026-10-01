@@ -2838,3 +2838,18 @@ CREATE TRIGGER trg_hr_leave_types_default_entitlement_sync
   FOR EACH ROW
   WHEN (OLD.default_entitled_days IS DISTINCT FROM NEW.default_entitled_days)
   EXECUTE FUNCTION public.trg_hr_leave_type_default_entitlement_sync();
+
+-- ----------------------------------------------------------------------------
+-- pay-destination change log: triggers (2026-10-01)
+-- Source: 20270614090000_hr_pay_destination_changes.sql
+-- Updated: 2026-10-01 - Director ruling: every bank / paying-trust change goes on a weekly list to the Director list
+-- ----------------------------------------------------------------------------
+DROP TRIGGER IF EXISTS trg_hr_log_bank_destination_change ON public.hr_staff_bank_accounts;
+CREATE TRIGGER trg_hr_log_bank_destination_change
+  AFTER INSERT OR UPDATE ON public.hr_staff_bank_accounts
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_log_bank_destination_change();
+
+DROP TRIGGER IF EXISTS trg_hr_log_payer_destination_change ON public.hr_staff_payroll;
+CREATE TRIGGER trg_hr_log_payer_destination_change
+  AFTER INSERT OR UPDATE OF hr_organization_id OR DELETE ON public.hr_staff_payroll
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_log_payer_destination_change();
