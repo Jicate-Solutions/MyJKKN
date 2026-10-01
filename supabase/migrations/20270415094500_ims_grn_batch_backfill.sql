@@ -1,4 +1,4 @@
--- 20270415090000_ims_grn_batch_backfill.sql
+-- 20270415094500_ims_grn_batch_backfill.sql
 --
 -- BUG-005900 / BUG-005901: approveGRN inserted ims_stock_batches without the
 -- NOT NULL columns quantity_available and entry_date, so every insert failed
