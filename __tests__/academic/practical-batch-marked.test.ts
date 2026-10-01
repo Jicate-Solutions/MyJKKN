@@ -38,20 +38,22 @@ const batches = [
   },
 ];
 
-const saved = (ids: string[]) => ({ students: ids.map((student_id) => ({ student_id, status: 'Present' })) });
+const PRESENT = 'Present';
+// The stored attendance_data shape: { students: [{ student_id, status }] }.
+const saved = (ids: string[]) => ({ students: ids.map((student_id) => ({ student_id, status: PRESENT })) });
 
 describe('practicalStudentIdsForStaff', () => {
-  it("returns the learners of the staff's own batches", () => {
+  it("returns the learners of the team member's own batches", () => {
     expect(practicalStudentIdsForStaff(batches, UMA)).toEqual(['b1', 'b2']);
     expect(practicalStudentIdsForStaff(batches, RADHA)).toEqual(['a1', 'a2']);
   });
 
-  it('returns null when one of the staff batches names no learners (section-assigned)', () => {
+  it('returns null when one of the team member batches names no learners (section-assigned)', () => {
     const sectionBatch = [{ ...batches[1], student_ids: [] }];
     expect(practicalStudentIdsForStaff(sectionBatch, UMA)).toBeNull();
   });
 
-  it('returns null when the staff teaches no batch or input is malformed', () => {
+  it('returns null when the team member teaches no batch or input is malformed', () => {
     expect(practicalStudentIdsForStaff(batches, 'nobody')).toBeNull();
     expect(practicalStudentIdsForStaff(null, UMA)).toBeNull();
   });
@@ -75,7 +77,7 @@ describe('periodMarkedForLearners', () => {
   });
 
   it('reads subdivided group rosters too', () => {
-    const grouped = { groups: [{ students: [{ student_id: 'a1' }] }] };
+    const grouped = { groups: [saved(['a1'])] };
     expect(periodMarkedForLearners(grouped, ['a1'])).toBe(true);
     expect(periodMarkedForLearners(grouped, ['b1'])).toBe(false);
     expect(periodMarkedForLearners(grouped, null)).toBe(true);
