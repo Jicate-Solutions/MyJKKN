@@ -59,6 +59,19 @@ const config: ModuleNavConfig = {
           href: '/hr/recruitment/jobs',
           matchPaths: ['/hr/recruitment/jobs'],
         },
+        {
+          label: 'Bring in Candidates',
+          icon: 'FileUp',
+          href: '/hr/recruitment/intake',
+          matchPaths: ['/hr/recruitment/intake'],
+        },
+        {
+          // What the intake helper learned from people's corrections, and from whom.
+          label: 'Learned Rules',
+          icon: 'ListChecks',
+          href: '/hr/recruitment/intake/rules',
+          matchPaths: ['/hr/recruitment/intake/rules'],
+        },
         // Candidates list page not yet built (only [id] detail exists).
         // Removed 2026-05-11 so the nav-config-href-audit gate ships
         // as-enforcing. app/(routes)/hr/recruitment/candidates/page.tsx now
