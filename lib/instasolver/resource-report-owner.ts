@@ -97,7 +97,7 @@ async function resolveCaretaker(
     .in('id', staffIds);
   // A failed read is "could not tell", not "no caretaker" — throw so the
   // caller falls through WITHOUT flagging the item as caretaker-less.
-  if (staffErr) throw new Error(`caretaker staff lookup failed: ${staffErr.message}`);
+  if (staffErr) throw new Error(`caretaker personnel lookup failed: ${staffErr.message}`);
   const profileByStaff = new Map<string, string>();
   for (const row of (staffRows ?? []) as Array<{
     id: string;

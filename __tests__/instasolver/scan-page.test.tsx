@@ -22,7 +22,7 @@ vi.mock('@/lib/instasolver/resource-report', async (importOriginal) => {
 });
 
 vi.mock('@/components/layout/content-layout', () => ({
-  ContentLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  ContentLayout: (props: any) => <div {...props} />,
 }));
 vi.mock('@/components/navigation', () => ({ PageBreadcrumb: () => null }));
 vi.mock('@/app/(routes)/instasolver/r/[token]/_components/scan-report-client', () => ({

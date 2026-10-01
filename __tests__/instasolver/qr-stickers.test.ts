@@ -127,7 +127,7 @@ beforeEach(() => {
       { id: R2, name: 'Projector', institution_id: DENTAL, qr_code_token: null, custom_attributes: null },
       {
         id: R3,
-        name: 'Lab 2',
+        name: 'Seminar hall 2',
         institution_id: DENTAL,
         qr_code_token: 'res_bbbbbbbbbbbbbbbb',
         custom_attributes: { instasolver_sticker_printed_at: '2026-09-30T10:00:00.000Z' },
