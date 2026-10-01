@@ -40,6 +40,8 @@ export class FakeSupabase {
   failures = new Map<string, Failure>();
   log: string[] = [];
   signedUploadOpts: { path: string; upsert: boolean | undefined }[] = [];
+  /** Called after every update that changed rows: lets a test interleave another request. */
+  afterUpdate: ((table: string, patch: unknown) => void) | null = null;
 
   table(name: string): Row[] {
     this.tables[name] ??= [];
@@ -211,6 +213,7 @@ class Query implements PromiseLike<{ data: unknown; error: Failure | null }> {
         out.push(r);
       }
       this.db.log.push(`update ${this.name} ${out.length}`);
+      if (out.length > 0) this.db.afterUpdate?.(this.name, this.payload);
     } else {
       const keep: Row[] = [];
       for (const r of table) (match(r) ? out : keep).push(r);

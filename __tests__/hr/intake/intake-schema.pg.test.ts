@@ -331,12 +331,16 @@ describe('batches and rows: the uploader, or HR of the same college (B1)', () =>
       `INSERT INTO public.hr_intake_rows (batch_id, row_index, candidate, proposal_action, proposal_confidence) VALUES ($1, 1, '{}', 'skip', 'high')`,
       [batchA],
     );
-    // A filing decision must name its job (a CHECK, whoever writes).
+    // A job that a card was decided under can still be deleted: the card keeps
+    // its decision with no job (filing refuses it), and nothing blocks the delete.
     await client.query('BEGIN');
-    expect(await state(
-      `INSERT INTO public.hr_intake_rows (batch_id, row_index, candidate, proposal_action, proposal_confidence, decision_action) VALUES ($1, 2, '{}', 'skip', 'high', 'file_under_job')`,
-      [batchA],
-    )).toBe('23514');
+    const gone = (await q<{ id: string }>(`INSERT INTO public.hr_recruitment_jobs (title, institution_id) VALUES ('Short-lived', $1) RETURNING id`, [INST_A]))[0].id;
+    await q(
+      `INSERT INTO public.hr_intake_rows (batch_id, row_index, candidate, proposal_action, proposal_confidence, decision_action, decision_job_id) VALUES ($1, 2, '{}', 'skip', 'high', 'file_under_job', $2)`,
+      [batchA, gone],
+    );
+    expect(await state(`DELETE FROM public.hr_recruitment_jobs WHERE id = $1`, [gone])).toBeNull();
+    expect((await q<{ j: string | null }>(`SELECT decision_job_id AS j FROM public.hr_intake_rows WHERE batch_id = $1 AND row_index = 2`, [batchA]))[0].j).toBeNull();
     await client.query('ROLLBACK');
 
     await as(hrA, async () => {

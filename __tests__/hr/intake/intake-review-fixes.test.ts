@@ -449,3 +449,70 @@ describe('second review (fresh blind review of d26076b5ac)', () => {
     expect(fake.table('hr_intake_batches')).toHaveLength(1);
   });
 });
+
+describe('third review (fresh blind review of 2177cb0c9b)', () => {
+  it('blocker 1: two people sharing one phone are never auto-skipped; both are filed', async () => {
+    const { batch, rows } = await runBatch(
+      [{ name: 'a.pdf', bytes: PDF('a') }, { name: 'b.pdf', bytes: PDF('b') }],
+      tsv('a.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal', 'b.pdf\tBala\tbala@example.test\t9811111111\tPrincipal'),
+    );
+    const second = rowAt(rows, 2);
+    expect(second.proposal).toMatchObject({ action: 'skip', confidence: 'medium' });
+    expect(second.proposal.reasons.join(' ')).toMatch(/check this is the same person/);
+    await acceptHigh(deps(), HR, batch.id);
+    expect(rawRow(second.id).decision_action ?? null).toBeNull();
+    // HR files Bala too; the batch closes only once both are settled.
+    await decide(deps(), HR, second.id, { action: 'file_under_job', job_id: J.principal.id });
+    await apply(deps(), HR, batch.id);
+    expect(fake.table('hr_job_applications').map((a) => a.email).sort()).toEqual(['asha@example.test', 'bala@example.test']);
+  });
+
+  it('blocker 1: the same email twice is high only when the earlier row can be filed', async () => {
+    const ok = await runBatch([{ name: 'a.pdf', bytes: PDF('a') }], tsv('a.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal', '\tAsha\tasha@example.test\t9811111111\tPrincipal'));
+    expect(rowAt(ok.rows, 2).proposal).toMatchObject({ action: 'skip', confidence: 'high' });
+    // Earlier row has no resume; the later one does: never auto-skip the later one.
+    const bad = await runBatch([{ name: 'b.pdf', bytes: PDF('b') }], tsv('\tAsha\tasha2@example.test\t9811111112\tPrincipal', 'b.pdf\tAsha\tasha2@example.test\t9811111112\tPrincipal'));
+    expect(rowAt(bad.rows, 2).proposal).toMatchObject({ action: 'skip', confidence: 'medium' });
+    expect(rowAt(bad.rows, 2).proposal.reasons.join(' ')).toMatch(/earlier row cannot be filed/);
+  });
+
+  it('blocker 2: a card changed to "file under job" while the batch closes reopens it, resume kept', async () => {
+    const { batch, rows } = await runBatch(
+      [{ name: 'a.pdf', bytes: PDF('a') }, { name: 'b.pdf', bytes: PDF('b') }],
+      tsv('a.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal', 'b.pdf\tBala\tbala@example.test\t9822222222\tPrincipal'),
+    );
+    const [first, second] = [rowAt(rows, 1), rowAt(rows, 2)];
+    await decide(deps(), HR, first.id, { action: 'file_under_job', job_id: J.principal.id });
+    await decide(deps(), HR, second.id, { action: 'skip' });
+    // Right after the close is written, HR2 changes the skip to "file under job".
+    let flipped = false;
+    fake.afterUpdate = (table, patch) => {
+      if (!flipped && table === 'hr_intake_batches' && (patch as { status?: string }).status === 'closed') {
+        flipped = true;
+        Object.assign(rawRow(second.id), { decision_action: 'file_under_job', decision_job_id: J.principal.id, decided_at: new Date().toISOString() });
+      }
+    };
+    await apply(deps(), HR, batch.id);
+    expect(fake.table('hr_intake_batches').find((b) => b.id === batch.id)!.status).toBe('ready');
+    expect(rawRow(second.id).resume_storage_path).not.toBeNull();
+    // Filing it later works and then closes the batch.
+    const { results } = await apply(deps(), HR, batch.id, [second.id]);
+    expect(results[0].ok).toBe(true);
+    expect(fake.table('hr_intake_batches').find((b) => b.id === batch.id)!.status).toBe('closed');
+  });
+
+  it('blocker 2: a decision that lands after the batch closed is undone and refused', async () => {
+    const { row } = await decidedRow();
+    const raw = rawRow(row.id);
+    const before = { decision_action: raw.decision_action, decision_job_id: raw.decision_job_id, decided_at: raw.decided_at };
+    let closedOnce = false;
+    fake.afterUpdate = (table) => {
+      if (!closedOnce && table === 'hr_intake_rows') {
+        closedOnce = true;
+        fake.table('hr_intake_batches').find((b) => b.id === row.batch_id)!.status = 'closed';
+      }
+    };
+    await expect(decide(deps(), HR2, row.id, { action: 'skip' })).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/closed a moment ago/) });
+    expect(rawRow(row.id)).toMatchObject(before);
+  });
+});

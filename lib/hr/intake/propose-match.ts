@@ -41,6 +41,10 @@ export interface ProposeInput {
   duplicate_of_job_title?: string | null;
   /** For a same_file row: that row's 1-based number. */
   duplicate_of_row_index?: number | null;
+  /** For a same_file row: the candidate on the row it points at. */
+  duplicate_of_candidate?: Pick<IntakeCandidate, 'email' | 'phone'> | null;
+  /** For a same_file row: whether that row has a resume paired. */
+  duplicate_of_resume_uploaded?: boolean;
   openJobs: MatchJob[];
   rules: IntakeMatchRule[];
   /** Extra notes the caller wants on the card (e.g. "Resume not read"). Appended last. */
@@ -243,7 +247,18 @@ function proposeFromEvidence(input: ProposeInput): IntakeProposal {
       const where = input.duplicate_of_row_index ? `row ${input.duplicate_of_row_index}` : 'that row';
       reasons.push(`This row is for "${cvTitle}"; ${where} is for "${other || 'no job'}". File it too if both posts matter.`);
     }
-    return empty('skip', differentJob ? 'medium' : 'high', [...reasons, ...extra]);
+    // High only when this is surely the same person (same email, not just a
+    // shared phone) AND the row it defers to can itself be filed; otherwise one
+    // "Accept all high" tap could skip the only fileable row, or a different
+    // person who shares a family or agency phone.
+    const first = input.duplicate_of_candidate ?? null;
+    const sameEmail = !!input.candidate.email && !!first?.email
+      && input.candidate.email.toLowerCase() === first.email.toLowerCase();
+    const firstBlockers = first ? filingBlockers(first, input.duplicate_of_resume_uploaded) : ['unknown'];
+    if (!sameEmail) reasons.push('Only the phone number or name matches: check this is the same person before skipping');
+    else if (firstBlockers.length > 0) reasons.push('The earlier row cannot be filed as it stands: decide which row to file');
+    const sure = !differentJob && sameEmail && firstBlockers.length === 0;
+    return empty('skip', sure ? 'high' : 'medium', [...reasons, ...extra]);
   }
 
   // 2. Already in MyJKKN.
