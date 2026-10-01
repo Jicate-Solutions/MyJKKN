@@ -1,30 +1,49 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { classifyAuthResult } from '@/lib/auth/auth-retry';
 import AIChip from '@/components/ui/ai-chip';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
+
+// The PWA's start_url. A momentary network error here used to send a signed-in
+// person to the sign-in page on every launch that caught a weak signal. Now
+// only a TRULY missing session goes to sign-in; anything else shows
+// "Reconnecting…" and tries again (backing off to 15 s, and at once when the
+// device comes back online).
+const MAX_RETRY_DELAY_MS = 15_000;
 
 export default function RootPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
+  const [reconnecting, setReconnecting] = useState(false);
+  // The "Try again now" button calls whatever retry the effect last armed.
+  const retryNow = useRef<() => void>(() => {});
 
   useEffect(() => {
-    const handleRoleBasedRedirect = async () => {
-      try {
-        // Clear any stale cache for users who visited the old version
-        if (typeof window !== 'undefined') {
-          // Force clear Next.js router cache
-          if ('caches' in window) {
-            caches.keys().then((names) => {
-              names.forEach((name) => {
-                caches.delete(name);
-              });
-            });
-          }
-        }
+    let cancelled = false;
+    let inFlight = false;
+    let attempt = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
+    const scheduleRetry = () => {
+      if (cancelled) return;
+      setReconnecting(true);
+      const delay = Math.min(1000 * 2 ** attempt, MAX_RETRY_DELAY_MS);
+      attempt += 1;
+      timer = setTimeout(() => {
+        void handleRoleBasedRedirect();
+      }, delay);
+    };
+
+    const handleRoleBasedRedirect = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      if (timer) clearTimeout(timer);
+      timer = undefined;
+
+      try {
         const supabase = createClientSupabaseClient();
 
         // Get current user
@@ -32,9 +51,15 @@ export default function RootPage() {
           data: { user },
           error: userError
         } = await supabase.auth.getUser();
+        if (cancelled) return;
 
-        if (userError || !user) {
-          // No user, redirect to login
+        const verdict = classifyAuthResult(user, userError);
+        if (verdict === 'retry') {
+          scheduleRetry();
+          return;
+        }
+        if (verdict === 'signed-out' || !user) {
+          // Truly no session — the only case that belongs at sign-in.
           router.replace('/auth/login');
           return;
         }
@@ -45,6 +70,14 @@ export default function RootPage() {
           .select('role, profile_completed')
           .eq('id', user.id)
           .single();
+        if (cancelled) return;
+
+        // A failed READ is not "no profile" (PGRST116 is): retry instead of
+        // sending a signed-in person to complete their profile again.
+        if (profileError && profileError.code !== 'PGRST116') {
+          scheduleRetry();
+          return;
+        }
 
         if (profileError || !profile) {
           // Profile not found, redirect to complete profile
@@ -85,17 +118,34 @@ export default function RootPage() {
             destination = `/dashboard?v=${timestamp}`;
         }
 
+        setReconnecting(false);
         router.replace(destination);
       } catch (error) {
+        // A thrown error (fetch failure, offline) is not "signed out" — retry.
         console.error('Error in role-based redirect:', error);
-        // Fallback to login
-        router.replace('/auth/login');
+        scheduleRetry();
       } finally {
-        setIsLoading(false);
+        inFlight = false;
+        if (!cancelled) setIsLoading(false);
       }
     };
 
-    handleRoleBasedRedirect();
+    const retryImmediately = () => {
+      // Only while a retry is waiting — never re-run a redirect already made.
+      if (timer === undefined) return;
+      attempt = 0;
+      void handleRoleBasedRedirect();
+    };
+
+    retryNow.current = retryImmediately;
+    window.addEventListener('online', retryImmediately);
+    void handleRoleBasedRedirect();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      window.removeEventListener('online', retryImmediately);
+    };
   }, [router]);
 
   return (
@@ -105,10 +155,26 @@ export default function RootPage() {
           <AIChip animated={true} showDescription={false} />
         </div>
         <h1 className='text-2xl font-bold mb-2'>Welcome to MyJKKN</h1>
-        {isLoading && (
-          <p className='text-muted-foreground animate-pulse'>
-            Loading your dashboard...
-          </p>
+        {reconnecting ? (
+          <div role='status' aria-live='polite' className='space-y-3'>
+            <p className='text-muted-foreground animate-pulse'>Reconnecting…</p>
+            <p className='text-sm text-muted-foreground'>
+              You are still signed in. We will keep trying.
+            </p>
+            <button
+              type='button'
+              onClick={() => retryNow.current()}
+              className='text-sm font-semibold text-emerald-700 underline dark:text-emerald-400'
+            >
+              Try again now
+            </button>
+          </div>
+        ) : (
+          isLoading && (
+            <p className='text-muted-foreground animate-pulse'>
+              Loading your dashboard...
+            </p>
+          )
         )}
       </div>
     </div>
