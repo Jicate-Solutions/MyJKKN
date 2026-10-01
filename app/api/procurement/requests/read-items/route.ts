@@ -46,10 +46,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(result);
   } catch (err) {
     console.error('[procurement read-items] failed:', err);
+    // Anthropic reports an exhausted account as a 400, not a billing status — don't blame the file.
+    const outOfCredit = err instanceof Anthropic.APIError && /credit balance/i.test(err.message);
     const message =
       err instanceof Anthropic.RateLimitError
         ? 'The AI reader is busy — please try again in a minute.'
-        : err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError
+        : outOfCredit || err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError
           ? 'AI reading is not available right now — please add the items by hand.'
           : err instanceof Anthropic.BadRequestError
             ? 'The AI could not open this file — try saving it as PDF or Excel.'
