@@ -32,6 +32,7 @@ import {
   GetPages,
   GetRoleBasedPages,
   MENU_PERMISSIONS,
+  isStudentPortalRoute,
   type RolePermissionData,
 } from '@/lib/sidebarMenuLink';
 import { validateSidebar } from '@/lib/sidebar-validator';
@@ -217,8 +218,29 @@ describe('Wave 3 — the hub door Lane N did NOT open', () => {
     expect(academic!.menus.length).toBe(13);
   });
 
+  // Mirrors scripts/check-sidebar-health.ts, which validates the FILTERED view
+  // a super admin gets (student-portal rows stripped), not the raw GetPages()
+  // config. Since the Learners admin regroup (7070d4df06, 29 Sep) the raw
+  // Learners group holds 15 rows — 11 learner-portal rows plus 4 admin rows —
+  // which no single audience is served. The learner audience the super-admin
+  // probe strips is checked separately, holding every key a portal row asks for.
   it('keeps the whole sidebar free of blocking structural issues', () => {
-    const errors = validateSidebar(GetPages('/')).filter((i) => i.severity === 'error');
-    expect(errors.map((e) => `${e.groupLabel}: ${e.count}`)).toEqual([]);
+    const blocking = (role: RolePermissionData) =>
+      validateSidebar(GetRoleBasedPages('/', role))
+        .filter((i) => i.severity === 'error')
+        .map((e) => `${e.groupLabel}: ${e.count}`);
+
+    expect(blocking({ role_key: 'super_admin', permissions: {} })).toEqual([]);
+
+    const portalKeys = Object.entries(MENU_PERMISSIONS)
+      .filter(([href]) => isStudentPortalRoute(href))
+      .flatMap(([, key]) => [key].flat())
+      .filter((key): key is string => typeof key === 'string');
+    const learner: RolePermissionData = {
+      role_key: 'student',
+      permissions: Object.fromEntries(portalKeys.map((key) => [key, true])),
+    };
+    expect(portalKeys.length).toBeGreaterThan(0);
+    expect(blocking(learner)).toEqual([]);
   });
 });

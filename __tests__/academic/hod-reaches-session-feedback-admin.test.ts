@@ -48,10 +48,16 @@ const TEACHING_ROLE: RolePermissionData = {
   },
 };
 
+// Since the Academic regroup (3645d38644, 29 Sep) the link is a child of the
+// 'Session Feedback' accordion, not a top-level row, so search both levels.
 function hasAdminLane(role: RolePermissionData): boolean {
   return GetRoleBasedPages(ADMIN_LANE, role)
     .flatMap((group) => group.menus)
-    .some((menu) => menu.href === ADMIN_LANE);
+    .some(
+      (menu) =>
+        menu.href === ADMIN_LANE ||
+        menu.submenus.some((sub) => sub.href === ADMIN_LANE),
+    );
 }
 
 describe('leadership reaches the per-faculty session-feedback roll-up', () => {
