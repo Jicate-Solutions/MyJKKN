@@ -248,12 +248,36 @@ These are proposed and need confirmation in §8:
 
 ---
 
-## 8. Decisions needed
+## 8. Decisions
 
-1. **Archive vs full import.** This spec recommends archive tables plus selective promotion (§5.1) rather than pushing all 24,934 rows into the live workflow tables. Confirm.
-2. **Promotion rule** in §5.5: "status 5 + an application in the last 12 months". Confirm or name the jobs.
-3. **Department → institution map:** who reviews the 79-row sheet?
-4. **Resume storage:** about 25k PDFs (estimated 5–10 GB) go to the Shared Drive. Confirm Drive quota, or keep only the resumes of joined and shortlisted candidates.
-5. **PII retention:** keep applicants from 2022 (4+ years old)? A retention cut-off (for example, purge applications older than 3 years that were never shortlisted) would cut volume by about 45%.
-6. **Stale CVViZ tasks** (1,714 open, 2022–23): archive only, not recreated. Confirm.
-7. **Rotate the DTO CVViZ password.** It was shared in chat.
+### Decided by DTO on 2026-10-01
+
+1. **Archive + selective promotion: APPROVED.**
+   - All CVViZ history goes to the read-only `hr_cvviz_*` tables.
+   - Only still-active jobs, and their applications, are promoted into the live `hr_recruitment_jobs` / `hr_job_applications`.
+2. **Access is institution-wise, following the CVViZ user roles. Admins see everything.**
+   - Roles with access to **all** institutions: Super Admin, Admin, JKKN Admins, HR Head, Digital Transformation Officer and Incharges, Career Page Admins.
+   - Roles with access to **one institution**:
+     - Principal roles, institution taken from the role name.
+     - JICATE Admins → JICATE.
+     - Department Heads and JKKN Heads → the institution(s) of the jobs they handled in CVViZ.
+   - Users with no CVViZ jobs (19) are assigned manually.
+   - **The same rule picks the reviewer of each institution's department map:** the active principal-role user of that institution, with admins able to review any. Institutions with no active principal in CVViZ (CAS, COE, JS, MO) are reviewed by an admin.
+   - Archive RLS = `hr.recruitment.view` AND `role_has_institution_access(institution_id)`. Rows with no institution (talent pool, B10) are admin-only.
+   - In MyJKKN, what a user sees comes from their **MyJKKN** role's institution scope, not from CVViZ.
+   - So, before each batch goes live, the User Access sheet is used to check or set each recruiter's MyJKKN role:
+     - users marked "ALL" get an all-institution HR role;
+     - users marked "INSTITUTION" get `hr.recruitment.view` scoped to their institution code(s).
+   - The review workbook `cvviz_institution_mapping_review.xlsx` has three sheets: Institutions with reviewers, Department Map (79 rows), and User Access (106 rows). It lives in the session scratchpad and is **not** committed, because it holds emails.
+3. **Resume storage: APPROVED.** All 24,934 PDFs (about 5–10 GB) go to the Shared Drive.
+4. **Retention: keep ALL applications.** There is no cut-off, and all 24,934 are imported. The purge rule in `hr_recruitment_purge_log` is not applied to archive rows.
+
+### Still open
+
+5. **Promotion rule** in §5.5: "status 5 + an application in the last 12 months". Confirm or name the jobs.
+6. **CAS Self vs Aided:**
+   - 15 CAS departments exist under both institutions.
+   - The 2 departments marked SF go to Self.
+   - The CAS reviewer picks Self or Aided per department, or per job.
+7. **Stale CVViZ tasks** (1,714 open, 2022–23): archive only, not recreated. Confirm.
+8. **Rotate the DTO CVViZ password.** It was shared in chat.

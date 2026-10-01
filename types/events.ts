@@ -186,6 +186,8 @@ export function inductionStatusLabel(status: string): string {
 export interface Event {
   id: string;
   institution_id: string;
+  /** All host institutions, primary (institution_id) included; null = single host. */
+  host_institution_ids?: string[] | null;
   event_type: EventType;
   name: string;
   slug: string;
@@ -365,6 +367,8 @@ export interface EventPaymentTransaction {
 
 export interface CreateEventDto {
   institution_id: string;
+  /** All host institutions, primary included (tournaments). Fees settle to institution_id only. */
+  host_institution_ids?: string[] | null;
   event_type: EventType;
   name: string;
   slug: string;
