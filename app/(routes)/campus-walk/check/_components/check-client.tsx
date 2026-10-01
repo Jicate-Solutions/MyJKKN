@@ -5,9 +5,11 @@
  *
  * The person holding the phone is a lab assistant, an electrician or a
  * caretaker standing next to the item. Two big buttons:
- *   · All OK — needs ONE photo taken now with the camera. Closes the job.
- *     (The input asks for the camera, like the fix screen; the server also
- *     refuses a photo already used to close another check.)
+ *   · All OK — needs ONE photo of the item. Closes the job. The photo may be
+ *     taken with the camera OR chosen from the phone's gallery (Director,
+ *     1 Oct 2026, overruling camera-only), so the input has NO `capture`
+ *     attribute. The server still refuses a photo already used to close
+ *     another check, so one photo cannot close two checks.
  *   · Found a problem — one line saying what is wrong, photo optional. The job
  *     becomes an ordinary repair for the same person.
  *
@@ -75,7 +77,7 @@ export function CheckClient({ ticket }: { ticket: CheckTicket }) {
     async (action: 'all_ok' | 'problem') => {
       if (sending) return;
       if (action === 'all_ok' && !photo) {
-        setError('All OK needs one photo of the item. Tap "Add a photo" first.');
+        setError('All OK needs one photo of the item. Tap "Take or choose a photo" first.');
         return;
       }
       if (action === 'problem' && note.trim().length < 4) {
@@ -145,7 +147,6 @@ export function CheckClient({ ticket }: { ticket: CheckTicket }) {
             ref={fileRef}
             type="file"
             accept="image/*"
-            capture="environment"
             className="hidden"
             onChange={(e) => void onPick(e)}
           />
@@ -160,7 +161,7 @@ export function CheckClient({ ticket }: { ticket: CheckTicket }) {
             disabled={preparing || sending}
           >
             {preparing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
-            {photo ? 'Change the photo' : 'Take a photo'}
+            {photo ? 'Change the photo' : 'Take or choose a photo'}
           </Button>
 
           {mode === 'problem' ? (
