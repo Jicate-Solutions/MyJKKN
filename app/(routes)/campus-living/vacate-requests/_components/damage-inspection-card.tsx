@@ -67,7 +67,7 @@ export function DamageInspectionCard({
     setLines((prev) =>
       prev.map((l) =>
         l.key === key
-          ? { ...l, damage_type_id: typeId, amount: l.amount || String(type?.default_amount ?? '') }
+          ? { ...l, damage_type_id: typeId, amount: String(type?.default_amount ?? '') }
           : l,
       ),
     );
