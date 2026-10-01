@@ -48,7 +48,7 @@ export interface ProposeInput {
    */
   batch_institution_id?: string | null;
   /** How the resume's file name matched (resume-files tiers); 'contains' is only a similar name. */
-  resume_match?: 'exact' | 'stem' | 'number' | 'contains' | null;
+  resume_match?: 'exact' | 'stem' | 'number' | 'contains' | 'generic' | null;
   /** For a same_file row: the candidate on the row it points at. */
   duplicate_of_candidate?: Pick<IntakeCandidate, 'email' | 'phone'> | null;
   /** For a same_file row: whether that row has a resume paired. */
@@ -247,7 +247,11 @@ const POST_WORDS = new Set([
   'professor', 'lecturer', 'teacher', 'faculty', 'officer', 'technician', 'staff', 'clerk', 'manager', 'principal',
   'director', 'dean', 'coordinator', 'executive', 'trainer', 'instructor', 'lab', 'laboratory', 'department',
   'dept', 'section', 'office', 'administrative', 'administration', 'admin', 'general', 'support', 'keeper', 'store',
+  // Terms of appointment, not subjects.
+  'guest', 'visiting', 'contract', 'temporary', 'permanent', 'adhoc', 'part', 'full', 'time',
 ]);
+/** Words that qualify a subject without changing it ("English Literature" is English). */
+const SUBJECT_FLUFF = new Set(['literature', 'studies', 'language', 'languages', 'applied']);
 /** Words in a qualification that name no subject ("M.Sc.", "Ph.D.", "Master of Arts"). */
 const DEGREE_WORDS = new Set([
   'master', 'masters', 'bachelor', 'bachelors', 'degree', 'diploma', 'doctorate', 'doctor', 'philosophy', 'phil',
@@ -255,7 +259,11 @@ const DEGREE_WORDS = new Set([
   'mtech', 'net', 'set', 'slet', 'gate', 'graduate', 'post', 'pg', 'ug', 'honours', 'hons', 'education',
 ]);
 const subjectWordsOf = (...values: (string | null | undefined)[]) =>
-  new Set(values.flatMap((v) => titleTokens(v ?? '')).filter((t) => t.length >= 4 && !DEGREE_WORDS.has(t) && !RANK_WORDS.has(t)));
+  new Set(
+    values
+      .flatMap((v) => titleTokens(v ?? ''))
+      .filter((t) => t.length >= 4 && !DEGREE_WORDS.has(t) && !RANK_WORDS.has(t) && !POST_WORDS.has(t) && !SUBJECT_FLUFF.has(t)),
+  );
 
 /**
  * "High" means one "Accept all high" tap may file the person, so it needs
@@ -272,20 +280,35 @@ function requirePositiveEvidence(input: ProposeInput, p: IntakeProposal): Intake
   if (input.resume_match === 'contains') {
     return down('Resume matched only by a similar file name: check it is this person\u2019s');
   }
+  if (input.resume_match === 'generic') {
+    return down('The resume file has a generic name: check it is this person\u2019s');
+  }
   const job = input.openJobs.find((j) => j.id === p.job_id);
   if (!job) return p;
   const postSubject = new Set(
     [...titleTokens(job.title), ...titleTokens(job.department_name ?? '')].filter(
-      (t) => !POST_WORDS.has(t) && !RANK_WORDS.has(t),
+      (t) => !POST_WORDS.has(t) && !RANK_WORDS.has(t) && !SUBJECT_FLUFF.has(t),
     ),
   );
   if (postSubject.size === 0) return p;
-  const evidence = subjectWordsOf(input.extract?.subject, input.candidate.qualification, input.extract?.qualification);
-  const named = intersects(titleTokens(input.candidate.cvviz_job_title ?? ''), postSubject);
-  if (evidence.size > 0 && !intersects(evidence, postSubject)) {
-    return down(`The resume or qualification (${[...evidence].join(', ')}) does not match this post's subject`);
+  // Each source that names a subject must name EXACTLY the post's subject:
+  // sharing one word is not enough ("Civil Engineering" is not "Mechanical
+  // Engineering"; "Child Health Nursing" is not "Medical Surgical Nursing").
+  const cvSubject = new Set(
+    titleTokens(input.candidate.cvviz_job_title ?? '').filter((t) => !POST_WORDS.has(t) && !RANK_WORDS.has(t) && !SUBJECT_FLUFF.has(t)),
+  );
+  const sources: [string, Set<string>][] = [
+    ['The CVViZ job title', cvSubject],
+    ['The resume\u2019s subject', subjectWordsOf(input.extract?.subject)],
+    ['The qualification', subjectWordsOf(input.candidate.qualification, input.extract?.qualification)],
+  ];
+  const named = sources.filter(([, words]) => words.size > 0);
+  const sameSet = (a: Set<string>, b: Set<string>) => a.size === b.size && [...a].every((w) => b.has(w));
+  const differs = named.find(([, words]) => !sameSet(words, postSubject));
+  if (differs) {
+    return down(`${differs[0]} (${[...differs[1]].join(' ')}) is not exactly this post\u2019s subject (${[...postSubject].join(' ')}): check before filing`);
   }
-  if (!named && !intersects(evidence, postSubject)) {
+  if (named.length === 0) {
     return down('Nothing in the CVViZ title or the resume names this post\u2019s subject: check before filing');
   }
   return p;

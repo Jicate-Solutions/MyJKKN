@@ -216,15 +216,14 @@ describe('proposeMatch — scoring open jobs', () => {
     const p = proposeMatch({ ...base, candidate: cand(T.combo) });
     // The post is in a named department the title does not mention: not high on the title alone.
     expect(p).toMatchObject({ job_id: J.lab_tech.id, confidence: 'medium' });
-    expect(p.reasons[0]).toMatch(/names this post.s subject/);
-    const withQual = proposeMatch({ ...base, candidate: cand(T.combo, { qualification: `M.Sc. ${J.lab_tech.department_name}` }) });
+    const withQual = proposeMatch({ ...base, candidate: cand(J.lab_tech.title, { qualification: `M.Sc. ${J.lab_tech.department_name}` }) });
     expect(withQual).toMatchObject({ job_id: J.lab_tech.id, confidence: 'high' });
   });
 
   it('a qualification or resume subject that points elsewhere keeps a fitting title off high', () => {
-    const p = proposeMatch({ ...base, candidate: cand(T.combo, { qualification: 'M.Sc. Physics' }) });
+    const p = proposeMatch({ ...base, candidate: cand(J.lab_tech.title, { qualification: 'M.Sc. Physics' }) });
     expect(p).toMatchObject({ job_id: J.lab_tech.id, confidence: 'medium' });
-    expect(p.reasons[0]).toMatch(/\(physics\) does not match this post/);
+    expect(p.reasons[0]).toMatch(/\(physics\) is not exactly this post.s subject/);
     const exact = proposeMatch({ ...base, candidate: cand(J.history.title), extract: extract('Chemistry') });
     expect(exact).toMatchObject({ job_id: J.history.id, confidence: 'medium' });
   });
@@ -299,3 +298,28 @@ describe('a row filing would refuse is never high', () => {
     expect(p).toMatchObject({ action: 'merge_existing', confidence: 'medium' });
   });
 });
+
+describe('eighth review: sharing one word is not the same subject', () => {
+  const post = (title: string, department: string | null): MatchJob => ({
+    id: 'a0000000-0000-4000-8000-0000000000e1', title, institution_id: J.principal.institution_id,
+    institution_name: J.principal.institution_name, department_name: department, qualifications: [],
+  });
+  const only = (j: MatchJob) => ({ ...base, openJobs: [j], resume_match: 'exact' as const });
+  it('Civil Engineering is not Mechanical Engineering (title or resume subject)', () => {
+    const mech = post(T.mech_post, 'Mechanical Engineering');
+    expect(proposeMatch({ ...only(mech), candidate: cand(T.civil_cv) }).confidence).not.toBe('high');
+    expect(proposeMatch({ ...only(mech), candidate: cand(T.generic), extract: extract('Civil Engineering') }).confidence).not.toBe('high');
+    expect(proposeMatch({ ...only(mech), candidate: cand(T.mech_post) }).confidence).toBe('high');
+  });
+  it('Child Health Nursing is not Medical Surgical Nursing; Pharmaceutical Analysis is not Pharmaceutical Chemistry', () => {
+    const nursing = post(T.nursing_post, null);
+    expect(proposeMatch({ ...only(nursing), candidate: cand(T.nursing_cv) }).confidence).not.toBe('high');
+    const pharm = post(T.pharm_post, null);
+    expect(proposeMatch({ ...only(pharm), candidate: cand(T.pharm_cv) }).confidence).not.toBe('high');
+  });
+  it('"English Literature" is still English', () => {
+    const eng = post(T.english_post, 'English');
+    expect(proposeMatch({ ...only(eng), candidate: cand(T.generic), extract: extract('English Literature') }).confidence).toBe('high');
+  });
+});
+

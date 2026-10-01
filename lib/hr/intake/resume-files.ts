@@ -49,7 +49,7 @@ export interface ResumeMatch<T> {
    * only by CVViZ's "_<long number>"; 'contains' is only a similar name, which
    * may be someone else's file (never enough for a high proposal).
    */
-  tier?: 'exact' | 'stem' | 'number' | 'contains';
+  tier?: 'exact' | 'stem' | 'number' | 'contains' | 'generic';
 }
 
 function one<T>(hits: T[], tier: NonNullable<ResumeMatch<T>['tier']>): ResumeMatch<T> | null {
@@ -77,19 +77,31 @@ export function matchResumeFileDetailed<T extends { name: string }>(
   if (!exportName) return none;
   const wanted = baseOf(exportName.trim());
   const lower = wanted.toLowerCase();
-  const exact = one(uploads.filter((u) => baseOf(u.name.trim()).toLowerCase() === lower), 'exact');
+  // A name that is only generic words ("Resume.pdf", "CV.docx") matches, but is
+  // reported as 'generic': it may be anyone's file.
+  const generic = identifying(fileStem(wanted)).length < 3;
+  const exact = one(uploads.filter((u) => baseOf(u.name.trim()).toLowerCase() === lower), generic ? 'generic' : 'exact');
   if (exact) return exact;
 
   const stem = fileStem(wanted);
   if (!stem) return none;
-  const sameStem = one(uploads.filter((u) => fileStem(baseOf(u.name)) === stem), 'stem');
+  const sameStem = one(uploads.filter((u) => fileStem(baseOf(u.name)) === stem), generic ? 'generic' : 'stem');
   if (sameStem) return sameStem;
 
   // CVViZ sometimes adds "_<long number>" to a name ("Image00732_1812345678901.pdf")
   // that the downloaded file does not carry, or the other way round.
+  // Only ONE side may carry the number: two different numbers are two different
+  // files ("Resume_181…901" is not "Resume_181…955"), and a generic bare name
+  // ("Resume") never matches this way.
   const bare = stripNumericSuffix(wanted);
-  if (bare) {
-    const sameBare = one(uploads.filter((u) => stripNumericSuffix(baseOf(u.name)) === bare), 'number');
+  if (bare && bare.replace(GENERIC_NAME_WORDS, '').length >= 4) {
+    const sameBare = one(
+      uploads.filter((u) => {
+        const s = fileStem(baseOf(u.name));
+        return (bare !== stem && s === bare) || (bare === stem && stripNumericSuffix(baseOf(u.name)) === stem && s !== stem);
+      }),
+      'number',
+    );
     if (sameBare) return sameBare;
   }
 

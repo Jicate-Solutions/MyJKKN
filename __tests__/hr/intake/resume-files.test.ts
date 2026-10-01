@@ -101,8 +101,26 @@ describe('a generic name never stands in for a person\u2019s file (seventh revie
     expect(m.tier).toBe('contains');
   });
   it('reports how the name matched', () => {
-    expect(matchResumeFileDetailed('A.pdf', [f('a.PDF')]).tier).toBe('exact');
+    expect(matchResumeFileDetailed('Arun_Kumar.pdf', [f('arun_kumar.PDF')]).tier).toBe('exact');
+    expect(matchResumeFileDetailed('Resume.pdf', [f('Resume.pdf')]).tier).toBe('generic');
+    expect(matchResumeFileDetailed('My_CV_2025_Updated_2.pdf', [f('My_CV_2025_Updated_2.pdf')]).tier).toBe('generic');
     expect(matchResumeFileDetailed('Image00732_1812345678901.pdf', [f('Image00732.pdf')]).tier).toBe('number');
+  });
+});
+
+describe('numbered names (eighth review)', () => {
+  const f = (name: string) => ({ name });
+  it('two different numbers are two different files', () => {
+    expect(matchResumeFileDetailed('Resume_1812345678901.pdf', [f('Resume_1812345678955.pdf')]).file).toBeNull();
+    expect(matchResumeFileDetailed('IMG_20250830_101010.jpg', [f('IMG_20250830_202020.jpg')]).file).toBeNull();
+    expect(matchResumeFileDetailed('Asha_Kumar_1812345678901.pdf', [f('Asha_Kumar_1812345678955.pdf')]).file).toBeNull();
+  });
+  it('a generic bare name never matches a numbered one', () => {
+    expect(matchResumeFileDetailed('Resume_1812345678901.pdf', [f('Resume.pdf')]).file).toBeNull();
+  });
+  it('one side carrying the number still matches', () => {
+    expect(matchResumeFileDetailed('Asha_Kumar_1812345678901.pdf', [f('Asha_Kumar.pdf')]).tier).toBe('number');
+    expect(matchResumeFileDetailed('Asha_Kumar.pdf', [f('Asha_Kumar_1812345678901.pdf')]).tier).toBe('number');
   });
 });
 
