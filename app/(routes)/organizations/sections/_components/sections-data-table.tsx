@@ -69,9 +69,11 @@ export function SectionsDataTable({ search }: SectionsDataTableProps) {
         sortBy: params.sort_by || undefined,
         sortOrder: (params.sort_order as 'asc' | 'desc') || undefined,
         institution_id: search.institution_id,
+        degree_id: search.degree_id,
+        department_id: search.department_id,
         program_id: search.program_id,
         semester_id: search.semester_id,
-        status: search.status
+        isActive: search.status ? search.status === 'active' : undefined
       };
 
       const { data, metadata } = await SectionService.getSections(filters);

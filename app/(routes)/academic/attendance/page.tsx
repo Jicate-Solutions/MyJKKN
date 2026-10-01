@@ -15,7 +15,6 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
-import { format } from 'date-fns';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
@@ -27,6 +26,7 @@ import { SectionSelectionModal } from './_components/section-selection-modal';
 import { formatTimeRange } from '@/utils/time-format';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { resolvePeriodSectionId } from '@/lib/utils/academic/attendance-section-scope';
+import { istBusinessDate } from '@/lib/utils/date-format';
 import type {
   AttendanceSearchContext,
   AttendancePeriodOption
@@ -77,12 +77,14 @@ export default function AttendancePage() {
   const { checkStaffPermissions } = useAttendanceRoster();
 
   // Set client flag and initial attendance date on client side to avoid hydration mismatch
+  // "Today" is India's date, not the browser's: a laptop left on a US timezone
+  // opened the page on yesterday until 12:30 IST (BUG-006152).
   useEffect(() => {
     setIsClient(true);
     if (!searchContext.attendance_date) {
       setSearchContext((prev) => ({
         ...prev,
-        attendance_date: format(new Date(), 'yyyy-MM-dd')
+        attendance_date: istBusinessDate()
       }));
     }
   }, [searchContext.attendance_date]);

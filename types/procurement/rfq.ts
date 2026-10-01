@@ -9,6 +9,7 @@ export type RfqStatus =
   | 'sent'
   | 'quotations_received'
   | 'compared'
+  | 'pending_award_approval'
   | 'awarded'
   | 'closed'
   | 'cancelled';
@@ -28,6 +29,12 @@ export interface ProcurementRfq {
   reviewed_by: string | null;
   reviewed_at: string | null;
   review_notes: string | null;
+  // Super Admin award approval (the single final sign-off).
+  award_submitted_by: string | null;
+  award_submitted_at: string | null;
+  award_approved_by: string | null;
+  award_approved_at: string | null;
+  award_rejection_reason: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -36,6 +43,10 @@ export interface ProcurementRfq {
   source_request?: { request_number: string } | null;
   item_count?: number;
   vendor_count?: number;
+  /** List view: quotations received so far. */
+  quote_count?: number;
+  /** List view: what is being bought, so a row reads "Keyboard × 5". */
+  item_preview?: Array<{ item_name: string; quantity: number }>;
 }
 
 export interface ProcurementRfqItem {
@@ -79,14 +90,17 @@ export interface RfqFilters {
 }
 
 export const RFQ_STATUS_CONFIG: Record<RfqStatus, { label: string; color: string }> = {
-  draft: { label: 'Draft', color: 'gray' },
-  pending_review: { label: 'Pending Review', color: 'amber' },
-  approved: { label: 'Approved', color: 'green' },
-  rejected: { label: 'Rejected', color: 'red' },
-  sent: { label: 'Sent to Vendors', color: 'blue' },
-  quotations_received: { label: 'Quotations Received', color: 'indigo' },
-  compared: { label: 'Compared', color: 'purple' },
-  awarded: { label: 'Awarded', color: 'green' },
+  // Plain stages: a quotation is never really a "draft" to the people using it.
+  // pending_review / approved / rejected / sent are the retired review gate.
+  draft: { label: 'Waiting for quotes', color: 'blue' },
+  pending_review: { label: 'Waiting for quotes', color: 'blue' },
+  approved: { label: 'Waiting for quotes', color: 'blue' },
+  rejected: { label: 'Sent back', color: 'red' },
+  sent: { label: 'Waiting for quotes', color: 'blue' },
+  quotations_received: { label: 'Comparing quotes', color: 'purple' },
+  compared: { label: 'Comparing quotes', color: 'purple' },
+  pending_award_approval: { label: 'Waiting for Super Admin', color: 'amber' },
+  awarded: { label: 'Ordered', color: 'green' },
   closed: { label: 'Closed', color: 'gray' },
   cancelled: { label: 'Cancelled', color: 'red' },
 };

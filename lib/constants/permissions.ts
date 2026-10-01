@@ -757,7 +757,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'learners.leave_onduty.apply', label: 'Apply for Leave/OnDuty (Students)' },
       { key: 'learners.leave_onduty.view', label: 'View My Applications (Students)' },
       { key: 'learners.leave_onduty.edit', label: 'Edit My Applications (Students)' },
-      { key: 'learners.leave_onduty.cancel', label: 'Cancel My Applications (Students)' }
+      { key: 'learners.leave_onduty.cancel', label: 'Cancel My Applications (Students)' },
+      { key: 'learners.leave_onduty.apply_bulk', label: 'Apply On-Duty for Learners in Bulk (Facilitator, own institution)' },
+
+      // Learner Leave Types + Approval Flows (global settings, 2027-04)
+      { key: 'learners.leave_types.view', label: 'View Learner Leave Types & Approval Flows' },
+      { key: 'learners.leave_types.manage', label: 'Manage Learner Leave Types & Approval Flows' }
     ]
   },
   {
@@ -791,11 +796,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.schedule.create', label: 'Create Schedule' },
       { key: 'billing.schedule.update', label: 'Update Schedule' },
       { key: 'billing.schedule.delete', label: 'Delete Schedule' },
-      // Cancelling a bill writes off money, so it is deliberately NOT
-      // billing.schedule.update: that key is held by 6 roles and also covers
-      // fixing a typo. fn_cancel_student_bill gates on THIS key, and a trigger
-      // rejects any other route into status='cancelled'.
-      { key: 'billing.schedule.cancel', label: 'Cancel Bills' },
+      // Cancelling a bill writes off money, so it is a REQUEST that an approver
+      // decides (migration 20260928100000). This key only lets a role RAISE the
+      // request (fn_request_bill_cancellation); who DECIDES comes from
+      // billing_bill_cancel_approval_flows, not a key. Held by Chief Accountant
+      // + Accountant Assistant. The old direct billing.schedule.cancel key was
+      // retired with fn_cancel_student_bill.
+      { key: 'billing.schedule.cancel.request', label: 'Request Bill Cancellation' },
       // Bulk bill creation: the "Bulk Create" button on /billing/schedule and
       // the /billing/schedule/bulk-create flow (pick many learners, or upload
       // an Excel of bills). Separate from billing.schedule.create so the bulk
@@ -1014,6 +1021,29 @@ export const PERMISSION_CATEGORIES = [
       // their OWN row — reading your own pay needs no HR permission.
       { key: 'hr.payroll.salary.view', label: 'View Employee Salary' },
       { key: 'hr.payroll.salary.manage', label: 'Manage Employee Salary' },
+
+      // ── Salary revisions: ask, check, approve (2026-09-29) ───────────────
+      // The Director's 16 rulings of 29 Sep 2026, built by
+      // 20270519090000_hr_salary_revision_requests.sql. SIX keys, because the
+      // rulings name three different scopes of asking and two different acts
+      // of deciding, and MENU_PERMISSIONS takes one key per page:
+      //   .ask                  opens "Salary Revisions" (the page key only)
+      //   .ask_own_college      principal: ask for people in their own college
+      //   .ask_own_department   HOD: ask for their own department (goes via the principal)
+      //   .ask_anyone           HR head: ask for anyone
+      //   .college_check        principal: agree to or stop an HOD's request
+      //   .approve              the final yes. Granted to NOBODY: the Director is
+      //                         a super admin and passes is_super_admin().
+      // The migration grants the first five to principal / hod / hr_head by
+      // role_key. A principal or HOD holding them sees the PAY of their own
+      // people inside these screens only (ruling 8) — Employee Salaries itself
+      // stays on hr.payroll.salary.view.
+      { key: 'hr.payroll.salary_revision.ask', label: 'Open Salary Revisions' },
+      { key: 'hr.payroll.salary_revision.ask_own_college', label: 'Ask for a Salary Revision (Own College)' },
+      { key: 'hr.payroll.salary_revision.ask_own_department', label: 'Ask for a Salary Revision (Own Department)' },
+      { key: 'hr.payroll.salary_revision.ask_anyone', label: 'Ask for a Salary Revision (Anyone)' },
+      { key: 'hr.payroll.salary_revision.college_check', label: "Principal's Check of Salary Revisions" },
+      { key: 'hr.payroll.salary_revision.approve', label: 'Approve Salary Revisions (Final Yes)' },
 
       // ── Employee bank account (2026-08-21) ───────────────────────────────
       // A THIRD pair, not a reuse of the salary keys. Amount and destination
@@ -1560,6 +1590,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.consultants.analytics.view', label: 'View Consultant Analytics' },
       { key: 'admission.consultants.commissions.view', label: 'View Commissions' },
       { key: 'admission.consultants.commissions.manage', label: 'Manage Commissions & Payouts' },
+      { key: 'admission.consultants.commissions.configure', label: 'Configure Commission Payment Approvals' },
       { key: 'admission.consultants.referrals.view', label: 'View Referrals' },
       { key: 'admission.consultants.rewards.view', label: 'View Rewards' },
       { key: 'admission.consultants.rewards.manage', label: 'Manage Rewards Configuration' },
@@ -2187,11 +2218,20 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.vacate_requests.view_own', label: 'View Own Vacate Requests (Student / Resident)' },
       { key: 'campus_living.vacate_requests.submit', label: 'Submit Own Vacate Request' },
       { key: 'campus_living.vacate_requests.submit_on_behalf', label: 'Submit Vacate Request on Behalf of Student' },
-      { key: 'campus_living.vacate_requests.approve_warden', label: 'Warden Approve Vacate Request' },
-      { key: 'campus_living.vacate_requests.approve_chief', label: 'Chief Warden Approve Vacate Request' },
-      { key: 'campus_living.vacate_requests.mark_clearance', label: 'Mark Dues Clearance Items' },
-      { key: 'campus_living.vacate_requests.finalize', label: 'Finalize Vacate (trigger hostel_allocations.vacate)' },
+      // 2026-09-30: flow is now draft -> warden (bill gate + checklist) -> auto-vacate.
+      // approve_warden = approve/reject (approval vacates the bed); mark_clearance = tick checklist items.
+      // approve_chief / finalize belong to the retired chief + dues stages and gate nothing new.
+      { key: 'campus_living.vacate_requests.approve_warden', label: 'Warden Approve / Reject Vacate Request (approval auto-vacates)' },
+      { key: 'campus_living.vacate_requests.approve_chief', label: 'Chief Warden Approve Vacate Request (retired stage)' },
+      { key: 'campus_living.vacate_requests.mark_clearance', label: 'Tick Vacate Clearance Checklist Items' },
+      { key: 'campus_living.vacate_requests.finalize', label: 'Finalize Vacate (retired stage)' },
       { key: 'campus_living.vacate_requests.cancel', label: 'Cancel Vacate Request (Admin / Hostel Office)' },
+      { key: 'campus_living.vacate_checklist.manage', label: 'Manage Vacate Checklist Items (settings)' },
+      // 2026-10-01: chain is now bills (auto) -> principal -> warden (checklist + room damage) -> mess -> CAO -> [fine paid] -> vacated.
+      { key: 'campus_living.vacate_requests.approve_principal', label: 'Principal Approve / Reject Vacate Request' },
+      { key: 'campus_living.vacate_requests.approve_mess', label: 'Mess In-charge Clearance Approve / Reject Vacate Request' },
+      { key: 'campus_living.vacate_requests.approve_cao', label: 'CAO Final Approve / Reject Vacate Request (raises the damage fine)' },
+      { key: 'campus_living.damage_types.manage', label: 'Manage Hostel Damage Types (settings)' },
 
       // Wardens
       { key: 'campus_living.wardens.view', label: 'View Wardens' },
@@ -2805,6 +2845,11 @@ export const PERMISSION_CATEGORIES = [
       // tables (registrations, payment transactions, tournament matches …), so
       // it is deliberately not bundled into any existing events key.
       { key: 'events.delete', label: 'Delete Events (permanent — cascades registrations & payments)' },
+      // Edit any event in your institution (2026-09-28). Before this key, edit
+      // was ownership-only (creator / super admin), so Role Management had
+      // nothing to grant. DB authority: events_edit_permission_update, scoped by
+      // role_has_institution_access. Mirrored client-side in canEditEvent().
+      { key: 'events.edit', label: 'Edit Any Event in Your Institution (details, status, visibility)' },
       // Target sections (2026-09-07). Grants writing event_target_classes — the
       // sections an event is aimed at. Reading them rides events.view, so a
       // coordinator who can see an event can see who it is for; only changing
@@ -2995,6 +3040,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'ims.settings.stores.manage', label: 'Manage IMS Stores' },
       { key: 'ims.settings.suppliers.manage', label: 'Manage Suppliers' },
       { key: 'ims.settings.units.manage', label: 'Manage Units & Unit Conversions' },
+      { key: 'ims.settings.pos_devices.manage', label: 'Manage POS Payment Terminals' },
 
       // Store Kits (PR-K2, 2026-07-12) — per-group item kits at the central
       // store. Spec: specs/store-kit-entitlements-spec-2026-07-12.md.

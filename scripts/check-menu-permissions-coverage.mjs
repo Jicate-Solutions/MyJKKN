@@ -54,6 +54,7 @@ const ALWAYS_VISIBLE = new Set([
   '/learners/my-bills',             // isStudentPortalRoute (/learners/my- prefix)
   '/learners/my-induction',         // isStudentPortalRoute (/learners/my- prefix)
   '/learners/my-marks',             // isStudentPortalRoute (/learners/my- prefix)
+  '/learners/my-syllabus',          // isStudentPortalRoute (/learners/my- prefix)
 ]);
 
 // UUID normalization — mirror of normalizeRoute() in sidebarMenuLink.ts. When

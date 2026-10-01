@@ -13,7 +13,6 @@
  * No editor logic is rewritten; same `campus_living.settings.view` gate, no new key.
  */
 
-import { useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -25,13 +24,11 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { PermissionError } from '@/components/errors/permission-error';
 
-// Reuse — leave types editor (self-fetching table + form dialog)
-import { HostelLeaveTypesDataTable } from '../leave-types/_components/hostel-leave-types-data-table';
-import { HostelLeaveTypeFormDialog } from '../leave-types/_components/hostel-leave-type-form-dialog';
+import Link from 'next/link';
 
 // Inline — the extracted chrome-less section editors (each renders its own heading + cards)
 import { CurfewSection } from '../curfew/_components/-curfew-section';
@@ -65,7 +62,6 @@ function SectionDivider() {
 }
 
 export default function PoliciesWorkflowsConfigPage() {
-  const [leaveTypeCreate, setLeaveTypeCreate] = useState(false);
 
   return (
     // Super-admin / hostel-admin gate (fail-closed; super-admins bypass). Matches the
@@ -125,12 +121,17 @@ export default function PoliciesWorkflowsConfigPage() {
                 title='Leave types'
                 description='Leave categories for hostelers — max duration, parent consent, warden approval flow and attachment requirements. System defaults are seeded per institution and cannot be deleted.'
                 action={
-                  <Button onClick={() => setLeaveTypeCreate(true)}>
-                    <Plus className='h-4 w-4 mr-2' /> Add leave type
+                  <Button asChild variant='outline'>
+                    <Link href='/academic/leave-onduty/settings?tab=types'>
+                      Manage leave types <ExternalLink className='h-4 w-4 ml-2' />
+                    </Link>
                   </Button>
                 }
               />
-              <HostelLeaveTypesDataTable />
+              <p className='text-sm text-muted-foreground'>
+                Hostel leave types are now part of the one global Learner Leave Types
+                list, managed from Learner Leave &amp; On-Duty settings.
+              </p>
             </CardContent>
           </Card>
 
@@ -148,13 +149,6 @@ export default function PoliciesWorkflowsConfigPage() {
 
           {/* General settings — inline */}
           <GeneralSettingsSection />
-
-          {/* Dialogs */}
-          <HostelLeaveTypeFormDialog
-            open={leaveTypeCreate}
-            onOpenChange={setLeaveTypeCreate}
-            mode='create'
-          />
         </div>
       </ContentLayout>
     </PermissionGuard>

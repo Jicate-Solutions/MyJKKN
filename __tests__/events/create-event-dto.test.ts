@@ -206,6 +206,41 @@ describe('buildCreateEventDto — config', () => {
   });
 });
 
+describe('co-host institutions', () => {
+  it('writes every co-host with its name alongside the primary host', () => {
+    const dto = buildWith({
+      co_hosts: [
+        { id: 'inst-2', name: 'JKKN College of Pharmacy' },
+        { id: 'inst-3', name: 'JKKN Dental College' },
+      ],
+    });
+    expect(dto.institution_id).toBe('inst-1');
+    expect(dto.config).toMatchObject({
+      co_hosts: [
+        { id: 'inst-2', name: 'JKKN College of Pharmacy' },
+        { id: 'inst-3', name: 'JKKN Dental College' },
+      ],
+    });
+  });
+
+  it('drops the primary host if it was also ticked as a co-host', () => {
+    const dto = buildWith({
+      co_hosts: [
+        { id: 'inst-1', name: 'Primary' },
+        { id: 'inst-2', name: 'Other' },
+      ],
+    });
+    expect(dto.config?.co_hosts).toEqual([{ id: 'inst-2', name: 'Other' }]);
+  });
+
+  it('omits the key when there are no co-hosts', () => {
+    expect(buildWith({ co_hosts: [] }).config).not.toHaveProperty('co_hosts');
+    expect(
+      buildWith({ co_hosts: [{ id: 'inst-1', name: 'Primary' }] }).config,
+    ).not.toHaveProperty('co_hosts');
+  });
+});
+
 describe('in-charges — an ACCESS GRANT, not a label', () => {
   it('writes config.incharges in the exact shape fn_is_event_incharge reads', () => {
     // The SECURITY DEFINER function matches auth.uid() against
