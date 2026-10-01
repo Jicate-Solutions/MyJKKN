@@ -85,6 +85,57 @@ export function mergeJoinedReports(
   return { ...mine, additional_reports: [...ours, ...late].slice(-MAX_JOINED_REPORTS) };
 }
 
+/** How long one "Someone also reported" line may run on My reports. */
+export const ALSO_REPORTED_MAX_CHARS = 300;
+
+function entryIsViewer(entry: any, viewerId: string): boolean {
+  return entry?.reporter_id === viewerId || entry?.raised_by_profile_id === viewerId;
+}
+
+/**
+ * The other reporters' WORDS this viewer may see on My reports, shown as
+ * "Someone also reported: …" (Director's ruling, 1 Oct 2026 — closes D10).
+ *
+ *  · The person who FILED it sees every later joined note.
+ *  · Someone who JOINED it sees the earlier reporters' words: the original
+ *    description, then every note joined before their own first one.
+ *
+ * Words only. Names, ids, timestamps and photos (so nobody learns who uploaded
+ * what) never leave this function — it returns plain strings. The viewer's own
+ * words are left out; blank notes are skipped. Array order of
+ * metadata.additional_reports is append order (mergeJoinedReports only adds
+ * late arrivals at the end), so "earlier" is "before in the array".
+ */
+export function alsoReportedWordsOf(opts: {
+  description: string | null | undefined;
+  metadata: Record<string, any> | null | undefined;
+  viewerId: string;
+  viewerFiled: boolean;
+}): string[] {
+  const list: any[] = Array.isArray((opts.metadata ?? {}).additional_reports)
+    ? ((opts.metadata as any).additional_reports as any[])
+    : [];
+  const words: string[] = [];
+  const push = (text: unknown) => {
+    if (typeof text !== 'string') return;
+    const t = text.trim();
+    if (!t) return;
+    words.push(t.length > ALSO_REPORTED_MAX_CHARS ? `${t.slice(0, ALSO_REPORTED_MAX_CHARS - 1).trimEnd()}…` : t);
+  };
+
+  if (opts.viewerFiled) {
+    for (const entry of list) if (!entryIsViewer(entry, opts.viewerId)) push(entry?.note);
+    return words;
+  }
+
+  push(opts.description);
+  for (const entry of list) {
+    if (entryIsViewer(entry, opts.viewerId)) break;
+    push(entry?.note);
+  }
+  return words;
+}
+
 /** Storage paths of the photos people attached when they joined the report. */
 export function joinedReportPhotoPaths(metadata: Record<string, any> | null | undefined): string[] {
   const list = Array.isArray((metadata ?? {}).additional_reports) ? (metadata as any).additional_reports : [];

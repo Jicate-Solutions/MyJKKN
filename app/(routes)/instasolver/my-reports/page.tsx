@@ -26,6 +26,10 @@
 // ── D10 ─────────────────────────────────────────────────────────────────────
 // The reporter sees the job and the photos, never who fixed it: the rows are
 // built field by field and no name leaves the server.
+// Director's ruling, 1 Oct 2026: people who report the same job see each
+// other's WORDS as "Someone also reported: …" — a joiner sees the earlier
+// reporters' words, the person who filed it sees the later notes
+// (alsoReportedWordsOf). Never a name, an id, or whose photo is whose.
 //
 // Gated like the other InstaSolver pages: signed in, plus the
 // MENU_PERMISSIONS entry ('instasolver.view') in lib/sidebarMenuLink.ts.
@@ -40,6 +44,7 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
   NOT_FIXED_WINDOW_DAYS,
   REPORT_STATUS_LABEL,
+  alsoReportedWordsOf,
   canSayNotFixed,
   reportStatusOf,
 } from '@/lib/campus-walk/my-reports';
@@ -51,7 +56,7 @@ const BUCKET = 'campus-walk';
 const SIGNED_URL_TTL_SECONDS = 60 * 30;
 const LIMIT = 100;
 
-const SELECT = 'id, title, status_key, due_date, completed_at, created_at, metadata';
+const SELECT = 'id, title, description, status_key, due_date, completed_at, created_at, metadata';
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
@@ -198,6 +203,12 @@ export default async function MyReportsPage() {
       // A joined report is told and shown, but the button stays with the
       // person who filed it (app/api/campus-walk/not-fixed/route.ts).
       joined: !ownIds.has(r.id as string),
+      alsoReported: alsoReportedWordsOf({
+        description: (r.description as string | null) ?? null,
+        metadata: m,
+        viewerId: user.id,
+        viewerFiled: ownIds.has(r.id as string),
+      }),
       canSayNotFixed:
         ownIds.has(r.id as string) && canSayNotFixed({ status_key: r.status_key, completed_at: r.completed_at }),
     };
