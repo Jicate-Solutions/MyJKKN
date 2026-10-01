@@ -103,11 +103,13 @@ export function useSaveLearnerLeaveFlow() {
       leaveTypeId,
       institutionId,
       steps,
+      flowResidency = null,
     }: {
       leaveTypeId: string;
       institutionId: string | null;
       steps: Pick<LearnerLeaveFlowStep, 'role_id' | 'scope'>[];
-    }) => LearnerLeaveTypeService.saveFlow(leaveTypeId, institutionId, steps),
+      flowResidency?: 'day_scholar' | 'hostel' | null;
+    }) => LearnerLeaveTypeService.saveFlow(leaveTypeId, institutionId, steps, flowResidency),
     onSuccess: (_d, v) => {
       qc.invalidateQueries({ queryKey: LEARNER_LEAVE_TYPE_KEYS.flows(v.leaveTypeId) });
       toast.success(v.steps.length ? 'Approval flow saved' : 'Approval flow removed');

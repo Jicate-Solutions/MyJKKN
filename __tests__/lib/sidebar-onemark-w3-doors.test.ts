@@ -204,14 +204,17 @@ describe('Wave 3 doors — the proxy trie narrows the whole results subtree', ()
 });
 
 describe('Wave 3 — the hub door Lane N did NOT open', () => {
-  it('holds the Academic group at 14 top-level rows, one below the validator cap', () => {
+  it('holds the Academic group at 13 top-level rows (regrouped module-wise 2027-04), under the validator cap', () => {
     const academic = GetPages('/').find((g) => g.groupLabel === ACADEMIC_GROUP);
     expect(academic, 'the Academic group vanished').toBeDefined();
     // A 15th row makes validateSidebar raise a BLOCKING issue and check:sidebar
     // fails the build for every module. Lane N's two new entries are children of
     // 'Foundation Programme' for exactly this reason, and the flat learner door
     // to /foundation/onemark was reported instead of forced.
-    expect(academic!.menus.length).toBe(14);
+    // 2027-04: the Academic group was regrouped into module accordions and the
+    // Foundation rows moved to their own 'Foundation' group, so this dropped from
+    // 14 to 13. The hub door mentioned above could now be added deliberately.
+    expect(academic!.menus.length).toBe(13);
   });
 
   it('keeps the whole sidebar free of blocking structural issues', () => {

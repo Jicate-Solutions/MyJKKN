@@ -72,7 +72,8 @@ export default function IdCardBatchPrintPage() {
             <strong>Address Check</strong> rules flag — is framed in{' '}
             <span className="font-semibold text-red-600">red</span> on the card and listed at the
             top of the preview. Learners without an activated account are skipped and reported.
-            Each card uses one ribbon panel and takes about 15 seconds; follow progress on the{' '}
+            Each card takes about a minute and a half at the current station cadence and uses one
+            ribbon set (two if the driver is not on “YMCO / K”); follow progress on the{' '}
             <strong>Print Queue</strong> page.
           </p>
         </div>
