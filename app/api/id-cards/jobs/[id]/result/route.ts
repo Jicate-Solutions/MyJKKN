@@ -3,9 +3,18 @@ export const dynamic = 'force-dynamic';
 // POST /api/id-cards/jobs/:id/result
 // Phase 1C — agent-token only. Report the terminal outcome of a print job.
 //
-// Body: { success: boolean, error_message?: string | null }
+// Body: { success: boolean, error_message?: string | null, timings?: {...} }
 // success=true  → status='printed', result={success:true,error_message:null}
 // success=false → status='failed',  result={success:false,error_message:"..."}
+//
+// TIMING (additive, 2026-10-01): result also carries `reported_at` (server
+// clock) so the queue can split each card's cycle into "printing" (picked_up_at
+// → reported_at) and "waiting for the next pickup" (reported_at → next job's
+// picked_up_at). The 30 Sept batch ran at a median 101 s per card with a
+// 99–107 s spread — a fixed cycle, far above the printer's own duplex time —
+// and nothing recorded which side of the cycle the time went to. A bridge may
+// additionally send `timings` { render_ms, print_ms, poll_interval_s } which
+// are stored verbatim; older bridges that omit it are unaffected.
 //
 // We only allow the transition from sent_to_agent → (printed|failed). Any other
 // source state is treated as a stale/conflicting report and rejected with 409
@@ -22,7 +31,14 @@ const paramsSchema = z.string().uuid();
 
 const bodySchema = z.object({
   success: z.boolean(),
-  error_message: z.string().max(2000).nullable().optional()
+  error_message: z.string().max(2000).nullable().optional(),
+  timings: z
+    .object({
+      render_ms: z.number().int().nonnegative().optional(),
+      print_ms: z.number().int().nonnegative().optional(),
+      poll_interval_s: z.number().nonnegative().optional()
+    })
+    .optional()
 });
 
 export async function POST(
@@ -56,7 +72,7 @@ export async function POST(
       );
     }
 
-    const { success, error_message = null } = parsedBody.data;
+    const { success, error_message = null, timings } = parsedBody.data;
 
     if (!success && (error_message === null || error_message.trim() === '')) {
       return jsonError(
@@ -72,7 +88,12 @@ export async function POST(
       .from('id_card_print_jobs')
       .update({
         status: success ? 'printed' : 'failed',
-        result: { success, error_message: success ? null : error_message }
+        result: {
+          success,
+          error_message: success ? null : error_message,
+          reported_at: new Date().toISOString(),
+          ...(timings ? { timings } : {})
+        }
       })
       .eq('id', parsedId.data)
       .eq('status', 'sent_to_agent')
