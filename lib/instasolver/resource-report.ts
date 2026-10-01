@@ -67,6 +67,16 @@ export const DESCRIPTION_MAX = 500;
  */
 const TOKEN_PATTERN = /^res_[0-9a-f]{16,64}$/i;
 
+/**
+ * Director ruling (1 Oct 2026): a room without a sticker is reported through
+ * the normal InstaSolver broken-thing form, where the reporter picks the room.
+ * The scan page's cards that cannot open the sticker form link straight to it.
+ */
+export const NO_STICKER_LINK = {
+  href: '/instasolver/broken',
+  label: 'No sticker here? Report it from InstaSolver',
+} as const;
+
 export function isValidQrToken(token: unknown): token is string {
   return typeof token === 'string' && TOKEN_PATTERN.test(token.trim());
 }

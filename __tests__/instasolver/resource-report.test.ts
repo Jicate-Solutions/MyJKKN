@@ -174,7 +174,7 @@ describe('resolveResourceReportOwner — caretaker, then estate office, then pri
       caretaker_user_ids: ['st-care'],
       institution_id: 'inst-1',
     });
-    expect(owner).toEqual({ profileId: 'care-p', source: 'caretaker' });
+    expect(owner).toEqual({ profileId: 'care-p', source: 'caretaker', caretakerMissing: false });
   });
 
   it('skips a caretaker with no active personnel record, then prefers the EAO of the item’s own college', async () => {
@@ -185,7 +185,7 @@ describe('resolveResourceReportOwner — caretaker, then estate office, then pri
       institution_id: 'inst-1',
     });
     // eao-other-p is older (first in the global order) but from another college.
-    expect(owner).toEqual({ profileId: 'eao-home-p', source: 'estate_office' });
+    expect(owner).toEqual({ profileId: 'eao-home-p', source: 'estate_office', caretakerMissing: true });
   });
 
   it('falls back to the principal only when no EAO resolves', async () => {
@@ -195,7 +195,7 @@ describe('resolveResourceReportOwner — caretaker, then estate office, then pri
       caretaker_user_ids: [],
       institution_id: 'inst-1',
     });
-    expect(owner).toEqual({ profileId: 'principal-p', source: 'principal' });
+    expect(owner).toEqual({ profileId: 'principal-p', source: 'principal', caretakerMissing: true });
     expect(principalsByInstitution).toHaveBeenCalledWith(expect.anything(), ['inst-1']);
   });
 
@@ -206,7 +206,45 @@ describe('resolveResourceReportOwner — caretaker, then estate office, then pri
     const owner = await resolveResourceReportOwner(makeDb(tables, log) as any, {
       institution_id: 'inst-1',
     });
-    expect(owner).toEqual({ profileId: null, source: 'none' });
+    expect(owner).toEqual({ profileId: null, source: 'none', caretakerMissing: true });
+  });
+
+  it('flags a caretaker who left JKKN (inactive personnel record) as missing — the job goes to the estate office', async () => {
+    const { resolveResourceReportOwner } = await vi.importActual<typeof import('@/lib/instasolver/resource-report-owner')>('@/lib/instasolver/resource-report-owner');
+    const owner = await resolveResourceReportOwner(makeDb(tables, log) as any, {
+      caretaker_user_id: 'st-gone',
+      institution_id: 'inst-1',
+    });
+    expect(owner.source).toBe('estate_office');
+    expect(owner.caretakerMissing).toBe(true);
+  });
+
+  it('does NOT flag "no caretaker" when the caretaker lookup itself failed', async () => {
+    const base = makeDb(tables, log);
+    const failingStaff = {
+      from(t: string) {
+        if (t === 'staff') {
+          const c: any = { select: () => c, in: async () => ({ data: null, error: { message: 'boom' } }) };
+          return c;
+        }
+        return base.from(t);
+      },
+    };
+    const { resolveResourceReportOwner } = await vi.importActual<typeof import('@/lib/instasolver/resource-report-owner')>('@/lib/instasolver/resource-report-owner');
+    const owner = await resolveResourceReportOwner(failingStaff as any, {
+      caretaker_user_id: 'st-care',
+      institution_id: 'inst-1',
+    });
+    expect(owner.caretakerMissing).toBe(false);
+  });
+
+  it('uses the ITEM’s college for the estate office and the principal, never the reporter’s', async () => {
+    tables.profiles = tables.profiles.filter((p) => p.role !== 'executive_admin_officer');
+    principalsByInstitution.mockResolvedValue(new Map([['inst-pharm', ['principal-p']]]));
+    const { resolveResourceReportOwner } = await vi.importActual<typeof import('@/lib/instasolver/resource-report-owner')>('@/lib/instasolver/resource-report-owner');
+    const owner = await resolveResourceReportOwner(makeDb(tables, log) as any, { institution_id: 'inst-pharm' });
+    expect(principalsByInstitution).toHaveBeenCalledWith(expect.anything(), ['inst-pharm']);
+    expect(owner.source).toBe('principal');
   });
 
   it('orders caretaker ids single column first, deduplicated', async () => {
@@ -304,7 +342,7 @@ describe('POST /api/instasolver/resource-report', () => {
       profiles: [{ id: 'care-p', full_name: 'Care Taker' }],
     };
     getUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
-    resolveOwner.mockResolvedValue({ profileId: 'care-p', source: 'caretaker' });
+    resolveOwner.mockResolvedValue({ profileId: 'care-p', source: 'caretaker', caretakerMissing: false });
     createWalkTask.mockResolvedValue({
       taskId: 'task-new',
       attachmentId: null,
@@ -544,6 +582,107 @@ describe('POST /api/instasolver/resource-report', () => {
   it('needs at least 3 characters', async () => {
     const res = await post({ token: TOKEN, description: 'no' });
     expect(res.status).toBe(400);
+  });
+
+  // ── Director answers, 1 Oct 2026 ───────────────────────────────────────────
+  it('a reporter from ANOTHER college files against the ITEM’s college: task, owner chain and ledger', async () => {
+    // The mocked reporter's profile is at inst-1; the scanned item is at Pharmacy.
+    adminTables.resources = [{ ...structuredClone(RESOURCE), institution_id: 'inst-pharm' }];
+    await post({ token: TOKEN, description: 'Fan is broken' });
+    expect(createWalkTask.mock.calls[0][1].institutionId).toBe('inst-pharm');
+    expect(resolveOwner.mock.calls[0][1].institution_id).toBe('inst-pharm');
+    const mine = adminTables.instasolver_report_ledger.filter((r) => r.reporter_id === 'user-1');
+    expect(mine[0].institution_id).toBe('inst-pharm');
+  });
+
+  it('an item with no college stays with no college — never credited to the reporter’s', async () => {
+    adminTables.resources = [{ ...structuredClone(RESOURCE), institution_id: null }];
+    await post({ token: TOKEN, description: 'Fan is broken' });
+    expect(createWalkTask.mock.calls[0][1].institutionId).toBeNull();
+    const mine = adminTables.instasolver_report_ledger.filter((r) => r.reporter_id === 'user-1');
+    expect(mine).toHaveLength(1);
+    expect(mine[0].institution_id).toBeNull();
+  });
+
+  describe('no active caretaker — the estate office gets the job AND a note to assign one', () => {
+    beforeEach(() => {
+      resolveOwner.mockResolvedValue({ profileId: 'eao-p', source: 'estate_office', caretakerMissing: true });
+      createWalkTask.mockResolvedValue({
+        taskId: 'task-new',
+        attachmentId: null,
+        dueDate: '2026-10-03',
+        accountableProfileId: 'eao-p',
+      });
+    });
+
+    const noteCalls = () =>
+      createBellNotification.mock.calls.filter((c) => c[1].category === 'instasolver:no-caretaker');
+
+    it('sends the job bell and a separate note linking the item’s resource page', async () => {
+      const res = await post({ token: TOKEN, description: 'Fan is broken' });
+      expect(res.status).toBe(200);
+      expect(createWalkTask.mock.calls[0][1].accountableProfileId).toBe('eao-p');
+      expect(createBellNotification).toHaveBeenCalledTimes(2);
+      const [note] = noteCalls();
+      expect(note[1].recipientIds).toEqual(['eao-p']);
+      expect(note[1].title).toContain('This item has no caretaker — please assign one: Ceiling fan');
+      expect(note[1].title).toContain('Room 104');
+      expect(note[1].url).toBe('/resource-management/resources/res-1');
+      expect(note[1].idempotencyKey).toMatch(/^instasolver:no-caretaker:res-1:\d+$/);
+      expect(note[1].createdBy).not.toBe('user-1');
+    });
+
+    it('sends at most one note per item per 30 days', async () => {
+      adminTables.notifications = [
+        {
+          category: 'instasolver:no-caretaker',
+          metadata: { resource_id: 'res-1' },
+          created_at: new Date(Date.now() - 10 * 86_400_000).toISOString(),
+        },
+      ];
+      await post({ token: TOKEN, description: 'Fan is broken' });
+      expect(noteCalls()).toHaveLength(0);
+      // The job itself still reaches the estate office.
+      expect(createBellNotification).toHaveBeenCalledTimes(1);
+    });
+
+    it('sends a fresh note once the last one is more than 30 days old', async () => {
+      adminTables.notifications = [
+        {
+          category: 'instasolver:no-caretaker',
+          metadata: { resource_id: 'res-1' },
+          created_at: new Date(Date.now() - 40 * 86_400_000).toISOString(),
+        },
+      ];
+      await post({ token: TOKEN, description: 'Fan is broken' });
+      expect(noteCalls()).toHaveLength(1);
+    });
+
+    it('a note for ANOTHER item does not silence this one', async () => {
+      adminTables.notifications = [
+        {
+          category: 'instasolver:no-caretaker',
+          metadata: { resource_id: 'res-OTHER' },
+          created_at: new Date().toISOString(),
+        },
+      ];
+      await post({ token: TOKEN, description: 'Fan is broken' });
+      expect(noteCalls()).toHaveLength(1);
+    });
+
+    it('sends no note when the caretaker lookup failed rather than found nobody', async () => {
+      resolveOwner.mockResolvedValue({ profileId: 'eao-p', source: 'estate_office', caretakerMissing: false });
+      await post({ token: TOKEN, description: 'Fan is broken' });
+      expect(noteCalls()).toHaveLength(0);
+    });
+
+    it('two reports in the same window carry the SAME database key (the unique index dedupes a race)', async () => {
+      const { noCaretakerIdempotencyKey } = await vi.importActual<typeof import('@/lib/instasolver/no-caretaker-note')>('@/lib/instasolver/no-caretaker-note');
+      const windowStart = 30 * 86_400_000 * 700;
+      expect(noCaretakerIdempotencyKey('res-1', windowStart)).toBe(noCaretakerIdempotencyKey('res-1', windowStart + 29 * 86_400_000));
+      expect(noCaretakerIdempotencyKey('res-1', windowStart)).not.toBe(noCaretakerIdempotencyKey('res-1', windowStart + 30 * 86_400_000));
+      expect(noCaretakerIdempotencyKey('res-1', windowStart)).not.toBe(noCaretakerIdempotencyKey('res-2', windowStart));
+    });
   });
 });
 

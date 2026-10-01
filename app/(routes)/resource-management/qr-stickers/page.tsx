@@ -5,21 +5,24 @@
 //
 // Director rulings (30 Sep – 1 Oct 2026): a QR sticker in every room; scanning
 // it opens /instasolver/r/<token> with the room and item already filled in.
-// The estate office picks a college and a category and prints A4 sheets.
+// Stickers are printed and stuck by ONE central team — JKKN Main Office — for
+// every college (1 Oct 2026). So this page lets that team pick ANY college and
+// shows, per college, the rooms and items still without a printed sticker.
 //
 // Each sticker's QR encodes the FULL URL, so any phone camera opens the report
 // page directly. (The older single-item label sheet on the resource detail
 // page encodes the bare token for the in-app scanner — those stickers are not
 // replaced by this page, and a phone camera cannot open them as a link.)
 //
-// Resources with no qr_code_token get one through qrCodeService's existing
-// generate-or-fetch method before printing. That is a write, so the page needs
-// resources.resources.edit; row-level security still decides which rows the
-// signed-in person can read and update.
+// Everything goes through /api/instasolver/qr-stickers: a Main Office person's
+// own row-level security only shows Main Office's rooms, so the route checks
+// who is asking (super admin, or Main Office + resources.resources.edit) and
+// then reads and writes for any college. Anyone else gets the route's reason
+// on a card (rule #27).
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import QRCode from 'qrcode';
-import { AlertCircle, Loader2, Printer, QrCode } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Loader2, Printer, QrCode } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -31,16 +34,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { usePermissions } from '@/hooks/use-permissions';
-import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ParentCategoryService } from '@/lib/services/resource-management/parent-category-service';
-import { qrCodeService } from '@/lib/services/resource-management/qr-code-service';
 import { formatPlace, stickerUrl } from '@/lib/instasolver/resource-report';
 
 const ALL = 'all';
+const API = '/api/instasolver/qr-stickers';
 /** 3 × 5 = 15 stickers per A4 sheet: big enough to scan from a metre away. */
 const PER_SHEET = 15;
+
+type Show = 'unprinted' | 'all';
+
+interface College {
+  id: string;
+  name: string;
+  total: number;
+  unprinted: number;
+}
 
 interface StickerRow {
   id: string;
@@ -50,6 +59,7 @@ interface StickerRow {
   floor_number: string | null;
   room_number: string | null;
   qr_code_token: string | null;
+  printed_at: string | null;
 }
 
 interface Sticker {
@@ -60,18 +70,19 @@ interface Sticker {
 }
 
 export default function QrStickersPage() {
-  const { canAccess, isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
-  const { institutions } = useUserInstitutionAccess();
-  const canPrint = isSuperAdmin || canAccess('resources.resources', 'edit');
-
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const [colleges, setColleges] = useState<College[]>([]);
   const [institutionId, setInstitutionId] = useState<string>('');
   const [categoryId, setCategoryId] = useState<string>(ALL);
+  const [show, setShow] = useState<Show>('unprinted');
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
   const [rows, setRows] = useState<StickerRow[]>([]);
-  const [loadingRows, setLoadingRows] = useState(false);
+  const [loadingRows, setLoadingRows] = useState(true);
   const [preparing, setPreparing] = useState(false);
+  const [marking, setMarking] = useState(false);
   const [stickers, setStickers] = useState<Sticker[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     ParentCategoryService.getParentCategoriesForSelect()
@@ -79,60 +90,66 @@ export default function QrStickersPage() {
       .catch(() => setError('Could not load the categories. Refresh to try again.'));
   }, []);
 
-  useEffect(() => {
-    if (!institutionId && institutions.length > 0) {
-      setInstitutionId(institutions[0].institution_id);
-    }
-  }, [institutions, institutionId]);
-
   const loadRows = useCallback(async () => {
-    if (!institutionId) return;
     setLoadingRows(true);
     setError(null);
     setStickers([]);
     try {
-      const supabase = createClientSupabaseClient();
-      let query = (supabase as any)
-        .from('resources')
-        .select('id, name, building_number, block_number, floor_number, room_number, qr_code_token')
-        .eq('institution_id', institutionId)
-        .order('name', { ascending: true })
-        .limit(1000);
-      if (categoryId !== ALL) query = query.eq('parent_category_id', categoryId);
-      const { data, error: qErr } = await query;
-      if (qErr) throw qErr;
-      setRows((data ?? []) as StickerRow[]);
-    } catch {
-      setError('Could not load the rooms and items for this college.');
+      const qs = new URLSearchParams({ show });
+      if (institutionId) qs.set('institution_id', institutionId);
+      if (categoryId !== ALL) qs.set('category_id', categoryId);
+      const res = await fetch(`${API}?${qs.toString()}`, { cache: 'no-store' });
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 401 || res.status === 403) {
+        setRefusal(body.error ?? 'You don\'t have access to print stickers.');
+        return;
+      }
+      if (!res.ok || !body.success) throw new Error(body.error ?? 'load_failed');
+      setColleges(body.colleges ?? []);
+      setRows(body.rows ?? []);
+    } catch (e: unknown) {
+      setError(e instanceof Error && e.message !== 'load_failed' ? e.message : 'Could not load the rooms and items for this college.');
       setRows([]);
     } finally {
       setLoadingRows(false);
     }
-  }, [institutionId, categoryId]);
+  }, [institutionId, categoryId, show]);
 
   useEffect(() => {
     void loadRows();
   }, [loadRows]);
 
-  const missingTokens = useMemo(() => rows.filter((r) => !r.qr_code_token).length, [rows]);
+  const missingTokens = rows.filter((r) => !r.qr_code_token).length;
+
+  const post = useCallback(
+    async (action: 'prepare' | 'mark_printed', ids: string[]) => {
+      const res = await fetch(API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, institution_id: institutionId, resource_ids: ids }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.success) throw new Error(body.error ?? 'Something went wrong. Please try again.');
+      return body;
+    },
+    [institutionId]
+  );
 
   const prepare = useCallback(async () => {
     setPreparing(true);
     setError(null);
+    setNotice(null);
     try {
+      const body = await post('prepare', rows.map((r) => r.id));
+      const prepared = (body.rows ?? []) as StickerRow[];
       const out: Sticker[] = [];
-      let failed = 0;
-      for (const row of rows) {
-        let token = row.qr_code_token;
-        if (!token) {
-          try {
-            token = await qrCodeService.generateQrTokenForResource(row.id);
-          } catch {
-            failed += 1;
-            continue;
-          }
+      let missing = 0;
+      for (const row of prepared) {
+        if (!row.qr_code_token) {
+          missing += 1;
+          continue;
         }
-        const qrDataUrl = await QRCode.toDataURL(stickerUrl(token), {
+        const qrDataUrl = await QRCode.toDataURL(stickerUrl(row.qr_code_token), {
           width: 320,
           margin: 1,
           errorCorrectionLevel: 'M',
@@ -140,27 +157,37 @@ export default function QrStickersPage() {
         out.push({ id: row.id, name: row.name, place: formatPlace(row), qrDataUrl });
       }
       setStickers(out);
-      if (failed > 0) {
+      if (missing > 0) {
         setError(
-          `${failed} item${failed === 1 ? '' : 's'} had no sticker code and one could not be created, so they are left out.`
+          `${missing} item${missing === 1 ? '' : 's'} had no sticker code and one could not be created, so they are left out.`
         );
       }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Could not prepare the stickers.');
     } finally {
       setPreparing(false);
     }
-  }, [rows]);
+  }, [post, rows]);
 
-  if (permissionsLoading) {
-    return (
-      <ContentLayout title="QR stickers">
-        <div className="flex items-center gap-2 py-10 text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading…
-        </div>
-      </ContentLayout>
-    );
-  }
+  // Marked only when someone says the sheets came out of the printer — a print
+  // dialog can be cancelled, so the Print button itself records nothing.
+  const markPrinted = useCallback(async () => {
+    setMarking(true);
+    setError(null);
+    try {
+      const body = await post('mark_printed', stickers.map((s) => s.id));
+      setNotice(
+        `${body.marked} marked as printed.${body.skipped ? ` ${body.skipped} could not be marked — try again.` : ''}`
+      );
+      await loadRows();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Could not mark them as printed.');
+    } finally {
+      setMarking(false);
+    }
+  }, [post, stickers, loadRows]);
 
-  if (!canPrint) {
+  if (refusal) {
     return (
       <ContentLayout title="QR stickers">
         <Card className="mt-6">
@@ -168,10 +195,7 @@ export default function QrStickersPage() {
             <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
             <div>
               <p className="font-medium">You don&apos;t have access to print stickers</p>
-              <p className="text-sm text-muted-foreground">
-                Printing stickers needs permission to edit resources. Ask your estate office or an
-                administrator.
-              </p>
+              <p className="text-sm text-muted-foreground">{refusal}</p>
             </div>
           </CardContent>
         </Card>
@@ -181,6 +205,8 @@ export default function QrStickersPage() {
 
   const sheets: Sticker[][] = [];
   for (let i = 0; i < stickers.length; i += PER_SHEET) sheets.push(stickers.slice(i, i + PER_SHEET));
+  const college = colleges.find((c) => c.id === institutionId) ?? null;
+  const unprintedRows = rows.filter((r) => !r.printed_at);
 
   return (
     <ContentLayout title="QR stickers">
@@ -258,10 +284,12 @@ export default function QrStickersPage() {
 
       <div className="space-y-4 print:hidden">
         <p className="text-sm text-muted-foreground">
-          Pick a college and a category, prepare the stickers, then print. Stick one in each room or
-          on each item — scanning it opens the InstaSolver report page with the place filled in.
+          The central team at JKKN Main Office prints the stickers for every college. Pick a college
+          and a category, prepare the stickers, print them, then mark them as printed. Stick one in
+          each room or on each item — scanning it opens the InstaSolver report page with the place
+          filled in.
         </p>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-3">
           <div className="space-y-1.5">
             <Label>College</Label>
             <Select value={institutionId || undefined} onValueChange={setInstitutionId}>
@@ -269,9 +297,9 @@ export default function QrStickersPage() {
                 <SelectValue placeholder="Choose a college" />
               </SelectTrigger>
               <SelectContent>
-                {institutions.map((inst) => (
-                  <SelectItem key={inst.institution_id} value={inst.institution_id}>
-                    {inst.institution_name}
+                {colleges.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name} — {c.unprinted} without a sticker
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -293,10 +321,22 @@ export default function QrStickersPage() {
               </SelectContent>
             </Select>
           </div>
+          <div className="space-y-1.5">
+            <Label>Show</Label>
+            <Select value={show} onValueChange={(v) => setShow(v as Show)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="unprinted">Not printed yet</SelectItem>
+                <SelectItem value="all">All, including printed</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <Button onClick={prepare} disabled={loadingRows || preparing || rows.length === 0}>
+          <Button onClick={prepare} disabled={!institutionId || loadingRows || preparing || rows.length === 0}>
             {preparing ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
@@ -307,6 +347,14 @@ export default function QrStickersPage() {
           <Button variant="outline" onClick={() => window.print()} disabled={stickers.length === 0}>
             <Printer className="mr-2 h-4 w-4" /> Print {sheets.length} sheet
             {sheets.length === 1 ? '' : 's'}
+          </Button>
+          <Button variant="outline" onClick={markPrinted} disabled={stickers.length === 0 || marking}>
+            {marking ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <CheckCircle2 className="mr-2 h-4 w-4" />
+            )}
+            Mark {stickers.length} as printed
           </Button>
           {loadingRows ? (
             <span className="text-sm text-muted-foreground">Loading…</span>
@@ -323,8 +371,38 @@ export default function QrStickersPage() {
             <span>{error}</span>
           </div>
         ) : null}
-        {!loadingRows && rows.length === 0 && institutionId ? (
-          <p className="text-sm text-muted-foreground">No rooms or items found for this choice.</p>
+        {notice ? (
+          <div className="flex items-start gap-2 rounded-md border border-green-600/40 bg-green-50 px-3 py-2 text-sm text-green-800 dark:bg-green-950/40 dark:text-green-200">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{notice}</span>
+          </div>
+        ) : null}
+
+        {institutionId && !loadingRows ? (
+          <Card>
+            <CardContent className="space-y-2 py-4">
+              <p className="font-medium">
+                Rooms and items still without a printed sticker
+                {college ? ` — ${college.name}` : ''}: {unprintedRows.length}
+                {categoryId !== ALL ? ' in this category' : ''}
+              </p>
+              {unprintedRows.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Every room and item here has a printed sticker.</p>
+              ) : (
+                <ul className="max-h-72 space-y-1 overflow-y-auto text-sm">
+                  {unprintedRows.map((r) => (
+                    <li key={r.id} className="flex flex-wrap gap-x-2">
+                      <span className="font-medium">{r.name}</span>
+                      {formatPlace(r) ? <span className="text-muted-foreground">{formatPlace(r)}</span> : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        ) : null}
+        {!institutionId && !loadingRows ? (
+          <p className="text-sm text-muted-foreground">Choose a college to see its rooms and items.</p>
         ) : null}
       </div>
 

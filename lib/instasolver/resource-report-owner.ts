@@ -38,6 +38,14 @@ export interface ReportOwner {
   /** profiles.id of the owner, or null when nobody in the chain resolved. */
   profileId: string | null;
   source: ReportOwnerSource;
+  /**
+   * True only when the caretaker step RAN and found nobody active: no
+   * caretaker recorded, or every recorded one has left / is inactive / has no
+   * active staff row. False when a caretaker resolved, and false when the
+   * caretaker lookup itself FAILED — a database blip must never tell the
+   * estate office "this item has no caretaker" (Director ruling, 1 Oct 2026).
+   */
+  caretakerMissing: boolean;
 }
 
 export interface ResourceOwnerFacts {
@@ -83,10 +91,13 @@ async function resolveCaretaker(
   staffIds: string[]
 ): Promise<string | null> {
   if (staffIds.length === 0) return null;
-  const { data: staffRows } = await db
+  const { data: staffRows, error: staffErr } = await db
     .from('staff')
     .select('id, profile_id, is_active')
     .in('id', staffIds);
+  // A failed read is "could not tell", not "no caretaker" — throw so the
+  // caller falls through WITHOUT flagging the item as caretaker-less.
+  if (staffErr) throw new Error(`caretaker staff lookup failed: ${staffErr.message}`);
   const profileByStaff = new Map<string, string>();
   for (const row of (staffRows ?? []) as Array<{
     id: string;
@@ -100,10 +111,11 @@ async function resolveCaretaker(
     .filter((p): p is string => Boolean(p));
   if (candidateProfiles.length === 0) return null;
 
-  const { data: profiles } = await db
+  const { data: profiles, error: profilesErr } = await db
     .from('profiles')
     .select('id, is_active')
     .in('id', candidateProfiles);
+  if (profilesErr) throw new Error(`caretaker profile lookup failed: ${profilesErr.message}`);
   const active = new Set(
     ((profiles ?? []) as Array<{ id: string; is_active: boolean | null }>)
       .filter((p) => p.is_active === true)
@@ -155,16 +167,26 @@ export async function resolveResourceReportOwner(
   db: SupabaseClient,
   resource: ResourceOwnerFacts
 ): Promise<ReportOwner> {
+  // The ITEM's college (Director ruling, 1 Oct 2026) — never the reporter's.
   const institutionId = resource.institution_id ?? null;
+  let caretakerMissing = false;
   const steps: Array<[Exclude<ReportOwnerSource, 'none'>, () => Promise<string | null>]> = [
-    ['caretaker', () => resolveCaretaker(db, orderedCaretakerStaffIds(resource))],
+    [
+      'caretaker',
+      async () => {
+        const found = await resolveCaretaker(db, orderedCaretakerStaffIds(resource));
+        // Only reached when the lookup did not throw.
+        caretakerMissing = found === null;
+        return found;
+      }
+    ],
     ['estate_office', () => resolveEstateOffice(db, institutionId)],
     ['principal', () => resolvePrincipal(db, institutionId)]
   ];
   for (const [source, run] of steps) {
     try {
       const profileId = await run();
-      if (profileId) return { profileId, source };
+      if (profileId) return { profileId, source, caretakerMissing };
     } catch (e: unknown) {
       console.warn(
         `[instasolver] owner lookup (${source}) failed, trying the next step:`,
@@ -172,7 +194,7 @@ export async function resolveResourceReportOwner(
       );
     }
   }
-  return { profileId: null, source: 'none' };
+  return { profileId: null, source: 'none', caretakerMissing };
 }
 
 /** Plain words for the receipt and the ticket. */

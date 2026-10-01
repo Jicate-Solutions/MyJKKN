@@ -17,12 +17,14 @@
 // What is shown is what is printed on the sticker anyway — the item's name,
 // category and place — never the caretaker's identity.
 
+import Link from 'next/link';
 import { AlertCircle, SearchX } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent } from '@/components/ui/card';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
+  NO_STICKER_LINK,
   REPEAT_BANNER_MIN,
   findRecentResourceReports,
   formatPlace,
@@ -36,8 +38,20 @@ export const dynamic = 'force-dynamic';
 
 const TITLE = 'Report a problem';
 
-function Refusal({ heading, body, icon = 'alert' }: { heading: string; body: string; icon?: 'alert' | 'search' }) {
+function Refusal({
+  heading,
+  body,
+  icon = 'alert',
+  reportLink = false,
+}: {
+  heading: string;
+  body: string;
+  icon?: 'alert' | 'search';
+  reportLink?: boolean;
+}) {
   const Icon = icon === 'search' ? SearchX : AlertCircle;
+  // reportLink: Director ruling (1 Oct 2026) — a room without a sticker is
+  // reported from the normal broken-thing form, where the room is picked.
   return (
     <ContentLayout title={TITLE}>
       <Card className="mt-6">
@@ -46,6 +60,14 @@ function Refusal({ heading, body, icon = 'alert' }: { heading: string; body: str
           <div>
             <p className="font-medium">{heading}</p>
             <p className="text-sm text-muted-foreground">{body}</p>
+            {reportLink ? (
+              <Link
+                href={NO_STICKER_LINK.href}
+                className="mt-3 inline-block text-sm font-medium text-primary underline underline-offset-4"
+              >
+                {NO_STICKER_LINK.label}
+              </Link>
+            ) : null}
           </div>
         </CardContent>
       </Card>
@@ -78,6 +100,7 @@ export default async function InstaSolverScanPage({
       <Refusal
         icon="search"
         heading="This is not an InstaSolver sticker code"
+        reportLink
         body="Scan the sticker again. If it keeps happening, report the problem from InstaSolver and type the place."
       />
     );
@@ -91,6 +114,7 @@ export default async function InstaSolverScanPage({
     return (
       <Refusal
         heading="Could not look up this sticker just now"
+        reportLink
         body="Please try again in a moment. If it keeps failing, report the problem from InstaSolver and type the place."
       />
     );
@@ -100,6 +124,7 @@ export default async function InstaSolverScanPage({
       <Refusal
         icon="search"
         heading="This sticker is not linked to a room or item any more"
+        reportLink
         body="Tell the estate office so they can print a new one. You can still report the problem from InstaSolver and type the place."
       />
     );

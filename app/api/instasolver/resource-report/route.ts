@@ -66,6 +66,7 @@ import {
   TERMINAL_STATUS_KEYS,
   buildReportTitle,
   formatLocation,
+  formatPlace,
   isJoinableStatus,
   isUuid,
   isValidQrToken,
@@ -76,6 +77,7 @@ import {
   OWNER_SOURCE_LABEL,
   resolveResourceReportOwner,
 } from '@/lib/instasolver/resource-report-owner';
+import { sendNoCaretakerNote } from '@/lib/instasolver/no-caretaker-note';
 import {
   MAX_JOINED_REPORTS,
   countJoinedReports,
@@ -190,9 +192,12 @@ export async function POST(request: NextRequest) {
   if (joinTaskId && !isUuid(joinTaskId)) {
     return fail('That report link is not valid. Scan the sticker again.', 400);
   }
-  // The page cap and the ledger row are charged to the ITEM's college — where
-  // the task is filed and the page is sent — and fall back to the reporter's.
-  const chargeInstitutionId = resource.institution_id ?? profile.institution_id ?? null;
+  // Director ruling (1 Oct 2026): a report from a scanned sticker belongs to
+  // the college where the ITEM is (resources.institution_id), NEVER the
+  // reporter's college. The task, the owner chain, the page cap and the
+  // ledger row all use it. An item with no college stays null — it is not
+  // silently credited to whoever happened to scan it.
+  const itemInstitutionId = resource.institution_id ?? null;
 
   // ── Optional photo — the same strip-and-fail-closed pipeline ──────────────
   const rawPhoto = form.get('photo');
@@ -320,7 +325,7 @@ export async function POST(request: NextRequest) {
     if (joinedTask) {
       const ledgerOk = await recordLedgerRow(admin, {
         reporterId: user.id,
-        institutionId: chargeInstitutionId,
+        institutionId: itemInstitutionId,
         paged: false,
       });
       if (!ledgerOk) {
@@ -386,14 +391,14 @@ export async function POST(request: NextRequest) {
   if (dangerous && reporterCount.failed) {
     pageSuppressedReason = 'ledger_unavailable';
   } else if (dangerous) {
-    const pages = await countInstitutionPages(admin, chargeInstitutionId);
+    const pages = await countInstitutionPages(admin, itemInstitutionId);
     if (pages.failed) pageSuppressedReason = 'ledger_unavailable';
     else if (pages.count >= INSTITUTION_PAGE_LIMIT_PER_DAY) pageSuppressedReason = 'institution_cap';
   }
   const mayPage = dangerous && pageSuppressedReason === null;
   const ledgerOk = await recordLedgerRow(admin, {
     reporterId: user.id,
-    institutionId: chargeInstitutionId,
+    institutionId: itemInstitutionId,
     paged: mayPage,
   });
   if (!ledgerOk && dangerous) pageSuppressedReason = 'ledger_unavailable';
@@ -414,8 +419,8 @@ export async function POST(request: NextRequest) {
         }
       : {}),
     accountableProfileId: owner.profileId,
-    // The item's college, not the reporter's: that is where the fix happens.
-    institutionId: resource.institution_id ?? profile.institution_id ?? null,
+    // The item's college, never the reporter's: that is where the fix happens.
+    institutionId: itemInstitutionId,
     raisedByProfileId: user.id,
     extraMetadata: {
       front_door: 'instasolver',
@@ -501,6 +506,26 @@ export async function POST(request: NextRequest) {
         e instanceof Error ? e.message : e
       );
     }
+  }
+
+  // Director ruling (1 Oct 2026): no ACTIVE caretaker -> the job went to the
+  // estate office above, and the estate office ALSO gets a separate note to
+  // assign one, linking the item's resource page. At most one per item per
+  // 30 days. When no estate office exists at all and the principal got the
+  // job, the principal gets the note — they are the person who can act on it.
+  if (
+    owner.caretakerMissing &&
+    owner.profileId &&
+    (owner.source === 'estate_office' || owner.source === 'principal')
+  ) {
+    await sendNoCaretakerNote(admin, {
+      recipientId: owner.profileId,
+      resourceId: resource.id,
+      itemName: resource.name,
+      // Place and college only (formatLocation falls back to the item name).
+      place: [formatPlace(resource), resource.institution_name].filter(Boolean).join(' — ') || null,
+      taskId: result.taskId,
+    });
   }
 
   const routedTo = await ownerName(admin, accountable);
