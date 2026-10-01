@@ -664,5 +664,21 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "sideEffects": "DB writes only: one event_feedback_forms row plus its section and four questions per qualifying event. Never a second form on an event that already has one, never touches induction events (they run their own three feedback channels), never backfills beyond the lookback window. SENDS NOTHING — no notification, email or push; attendees find the form themselves at /my-event-feedback.",
     "safeToManualTrigger": true,
     "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'events-standard-feedback-forms' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time — no ?secret= query param). Safe to manual-trigger: idempotent by construction (the NOT EXISTS on event_feedback_forms makes a same-day re-run a no-op). 'Ended' is the LATER of events.end_date and events.event_date+end_time in IST, because those two columns can disagree (see scripts/ci/check-event-time-consistency.mjs) and a form must never open while people are still in the room. Migration 20261206143000."
+  },
+  {
+    "id": "hr-recruitment-nudges",
+    "name": "HR recruitment nudges — approvals, scorecards, offers",
+    "category": "platform-ops",
+    "type": "cron",
+    "schedule": "Mon–Sat · 09:15 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/hr-recruitment-nudges",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based deadline checks; no model involved.",
+    "whatItDoes": "HR harness, duty cards R5/R6/R8. Sends one in-app reminder when a candidate has waited at an approval step longer than that step's escalate_after_hours (seeded 72), then one notice to the HR Head 48 hours after that reminder if the step is still waiting; one nudge to each interviewer whose scorecard is missing 24 hours after the interview (interviews from the last 14 days only); one nudge when a candidate has sat at 'package_fixed' for 2 days with no offer, and one when an issued offer's joining date passed 2 days ago with no outcome recorded — both to the job's creator, or to everyone whose role grants hr.recruitment.edit for that college when the job has none.",
+    "configKnobs": "Thresholds are constants in lib/hr/recruitment/harness-selection.ts, except each approval step's own escalate_after_hours, which is frozen into the candidate's chain from the approval flow. Day/time editable at /admin/ai-routines.",
+    "sideEffects": "SENDS in-app notifications (notifications + user_notifications, category 'staff', kind 'work_item'); writes one hr_recruitment_nudges_sent row per nudge, which is what makes every nudge fire only once.",
+    "safeToManualTrigger": false,
+    "notes": "Rules-based, no LLM. Auth: Bearer or ?secret=. Idempotent: each nudge is claimed in hr_recruitment_nudges_sent (UNIQUE (kind, ref_key)) before sending and released if the send fails, so a re-run sends nothing twice. The step-ready notice (next approver told the moment a step is approved) is NOT this routine — it is sent by the approve route. Migration 20270522090000; IST slot 09:15 (minute_of_day 555, days {1..6})."
   }
 ];

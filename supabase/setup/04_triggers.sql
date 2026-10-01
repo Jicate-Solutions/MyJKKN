@@ -2818,3 +2818,9 @@ CREATE TRIGGER trg_guard_salary_suggestion_rule_writes
   BEFORE INSERT OR UPDATE OR DELETE ON public.platform_policies
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_guard_salary_suggestion_rule_writes();
+
+-- Updated: 2026-10-01 - HR staff harness (migration 20270522090000_hr_recruitment_nudges.sql)
+DROP TRIGGER IF EXISTS hr_recruitment_nudges_sent_updated_at ON public.hr_recruitment_nudges_sent;
+CREATE TRIGGER hr_recruitment_nudges_sent_updated_at
+  BEFORE UPDATE ON public.hr_recruitment_nudges_sent
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
