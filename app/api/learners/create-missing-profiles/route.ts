@@ -5,6 +5,12 @@ import { NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { generateTemporaryPassword } from '@/lib/utils/temporary-password';
 import { INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES } from '@/lib/constants/induction-access';
+import {
+  ADMIN_ROLE_MESSAGE,
+  callerIsSuperAdmin,
+  refuseIfLinksToAdmin,
+  refuseLearnerCollegeEmail
+} from '@/lib/services/staff/staff-admin-powers';
 
 // Must match check-missing-profiles/route.ts and complete-onboarding/route.ts
 // exactly — all three create/preview the same login and must agree on scope.
@@ -89,6 +95,23 @@ export async function POST(request: Request) {
         { status: 403 }
       );
     }
+
+    // 2026-10-03: a learner's college email that belongs to someone with admin
+    // powers would turn their profile into a student's (role, college, active)
+    // through the service role below. Super admin only; refused per row.
+    const isSuperAdmin = await callerIsSuperAdmin(supabase);
+    const refuseAdminProfile = async (profileId: string): Promise<void> => {
+      if (isSuperAdmin) return;
+      const refusal = await refuseIfLinksToAdmin(supabase, profileId, null, ADMIN_ROLE_MESSAGE);
+      if (refusal) throw new Error(refusal.error);
+    };
+    // 2026-10-07: nor, unless a super admin syncs, a college email that is the
+    // caller's own, a team-member record's, or a non-learner account's: the
+    // profile writes below would turn that account into a student's.
+    const refuseLearnerEmail = async (learner: { id: string; college_email: string }): Promise<void> => {
+      const refusal = await refuseLearnerCollegeEmail(supabase, learner.college_email, learner.id);
+      if (refusal) throw new Error(refusal.error);
+    };
 
     // 3. Get selected learner IDs from request body (optional - if not provided, sync all)
     const body = await request.json().catch(() => ({}));
@@ -225,6 +248,8 @@ export async function POST(request: Request) {
         if (!profileId) {
           throw new Error(`Profile ID not found for ${learner.college_email}`);
         }
+        await refuseAdminProfile(profileId);
+        await refuseLearnerEmail(learner);
 
         // Build update object — NEVER re-set learner_id if already correct,
         // as the partial unique index will reject the update even for same-value writes.
@@ -316,6 +341,7 @@ export async function POST(request: Request) {
     for (const learner of filteredNewProfiles) {
       try {
         const fullName = `${learner.first_name} ${learner.last_name || ''}`.trim();
+        await refuseLearnerEmail(learner);
 
         // Double-check if profile already exists (real-time check)
         const { data: existingProfileCheck } = await supabaseAdmin
@@ -333,6 +359,7 @@ export async function POST(request: Request) {
             existingProfileCheck.learner_id !== learner.id;
 
           if (needsUpdate) {
+            await refuseAdminProfile(existingProfileCheck.id);
             const fallbackUpdate: Record<string, any> = {
               role: 'student',
               institution_id: learner.institution_id,

@@ -12,6 +12,7 @@ import {
   getValidLabels
 } from '@/lib/utils/mappings/enquiry-excel-mappings';
 import { FEATURE_KEYS, recordFeatureUse } from '@/lib/usage/record';
+import { refuseLearnerCollegeEmails } from '@/lib/services/staff/staff-admin-powers';
 
 /**
  * POST /api/learners/enquiries/import
@@ -821,6 +822,27 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
         errorCount: allErrors.length,
         totalRows: dataRows.length,
         errors: allErrors
+      });
+    }
+
+    // 2026-10-07: a college email that belongs to someone with admin powers,
+    // to the importer, to a team-member record or to a non-learner account
+    // makes the learner email sync refuse the row, which would fail the whole
+    // insert below with one database error. Reported per row instead, the
+    // same way as every other validation error: nothing is imported until the
+    // sheet is corrected.
+    const emailRefusals = await refuseLearnerCollegeEmails(
+      supabase as any,
+      validatedRows.map((r) => ({ row: r.rowNumber, email: r.data.college_email }))
+    );
+    if (emailRefusals.length > 0) {
+      const errors = emailRefusals.map((r) => ({ row: r.row, field: 'college_email', message: r.error }));
+      return NextResponse.json({
+        success: false,
+        successCount: 0,
+        errorCount: errors.length,
+        totalRows: dataRows.length,
+        errors
       });
     }
 

@@ -1956,23 +1956,49 @@ $$;
 --      auth-linked profiles on duplicate emails. auth.users grants SELECT only to postgres,
 --      so SECURITY INVOKER would fail for any caller other than a superuser (42501 error).
 --      search_path pinned to public to close the classic definer-hijack vector.
+-- Updated: 2026-10-01 - 20271007170139: mirrors main's 20260515001001 body (login_enabled ->
+--   is_active/is_login_disabled) and copies role only on INSERT, a role_key change or a new
+--   profile link; is_active / is_login_disabled only when those change. A photo or phone
+--   edit no longer overwrites a profile role that differs from staff.role_key.
+-- Updated: 2026-10-07 - 20271007170139 (round 9): a change of case or outer spaces in the institution email is no longer a relink.
 CREATE OR REPLACE FUNCTION public.sync_staff_to_profiles()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
-AS $$
+SET search_path TO 'public'
+AS $function$
 DECLARE
     existing_profile_id UUID;
+    -- 2026-10-01: a (re)link is decided from what the WRITER changed, before
+    -- this function assigns NEW.profile_id below: a new row, or a changed
+    -- profile_id or institution email.
+    relinked BOOLEAN := TG_OP = 'INSERT';
 BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        -- 2026-10-07: case and outer spaces do not make a new email:
+        -- trigger_lowercase_institution_email runs after this trigger
+        -- (BEFORE triggers fire in name order), so a case-only edit would
+        -- otherwise count as a relink and copy the whole row.
+        relinked := NEW.profile_id IS DISTINCT FROM OLD.profile_id
+                    OR lower(btrim(NEW.institution_email)) IS DISTINCT FROM lower(btrim(OLD.institution_email));
+        -- 2026-10-03: an UNLINKED record whose email belongs to someone with
+        -- admin powers (its own privileged role included) is never attached
+        -- to a profile found by email, nor copied onto one, on an ordinary
+        -- edit: someone could have taken that email on their own profile.
+        IF NOT relinked AND OLD.profile_id IS NULL
+           AND public.fn_staff_link_has_admin_powers(NULL, NEW.institution_email) THEN
+            RETURN NEW;
+        END IF;
+    END IF;
+
     IF NEW.institution_email IS NOT NULL AND NEW.institution_email != '' THEN
-        -- Priority 1: durable FK. Survives email rename.
+        -- Priority 1: durable FK survives email rename.
         IF NEW.profile_id IS NOT NULL THEN
             SELECT id INTO existing_profile_id
             FROM profiles WHERE id = NEW.profile_id;
         END IF;
 
-        -- Priority 2: email lookup with deterministic ordering (auth-linked first, then newest).
+        -- Priority 2: email lookup with deterministic ordering.
         IF existing_profile_id IS NULL THEN
             SELECT p.id INTO existing_profile_id
             FROM profiles p
@@ -1984,26 +2010,78 @@ BEGIN
         END IF;
 
         IF existing_profile_id IS NOT NULL THEN
-            UPDATE profiles
-            SET email          = NEW.institution_email,
-                full_name      = CONCAT(NEW.first_name, ' ', NEW.last_name),
-                phone_number   = NEW.phone,
-                avatar_url     = COALESCE(NEW.profile_picture, avatar_url),
-                institution_id = NEW.institution_id,
-                department_id  = NEW.department_id,
-                gender         = NEW.gender,
-                designation    = NEW.designation,
-                role           = NEW.role_key,
-                is_active      = NEW.is_active,
-                updated_at     = NOW()
-            WHERE id = existing_profile_id;
+            IF relinked THEN
+                -- A new row or a new link: copy the row, as on main.
+                UPDATE profiles
+                SET email             = NEW.institution_email,
+                    full_name         = CONCAT(NEW.first_name, ' ', NEW.last_name),
+                    phone_number      = NEW.phone,
+                    avatar_url        = COALESCE(NEW.profile_picture, avatar_url),
+                    institution_id    = NEW.institution_id,
+                    department_id     = NEW.department_id,
+                    gender            = NEW.gender,
+                    designation       = NEW.designation,
+                    role              = NEW.role_key,
+                    -- View-only staff get is_active=false, is_login_disabled=true
+                    is_active         = CASE WHEN NEW.login_enabled = false THEN false
+                                             ELSE NEW.is_active END,
+                    is_login_disabled = (NEW.login_enabled = false),
+                    updated_at        = NOW()
+                WHERE id = existing_profile_id;
+            ELSIF (OLD.profile_id IS NULL OR existing_profile_id = OLD.profile_id)
+                  AND (NEW.first_name, NEW.last_name, NEW.phone, NEW.profile_picture,
+                       NEW.institution_id, NEW.department_id, NEW.gender, NEW.designation,
+                       NEW.role_key, NEW.is_active, NEW.login_enabled)
+                      IS DISTINCT FROM
+                      (OLD.first_name, OLD.last_name, OLD.phone, OLD.profile_picture,
+                       OLD.institution_id, OLD.department_id, OLD.gender, OLD.designation,
+                       OLD.role_key, OLD.is_active, OLD.login_enabled) THEN
+                -- Same link, or an unlinked row whose profile was found by
+                -- email: copy only the columns this write changed. A photo or
+                -- phone edit must not overwrite a profile role, status or
+                -- college that differs from the staff row; marking someone as
+                -- left still locks their login, as on main.
+                UPDATE profiles
+                SET full_name         = CASE WHEN (NEW.first_name, NEW.last_name)
+                                                  IS DISTINCT FROM (OLD.first_name, OLD.last_name)
+                                             THEN CONCAT(NEW.first_name, ' ', NEW.last_name)
+                                             ELSE full_name END,
+                    phone_number      = CASE WHEN NEW.phone IS DISTINCT FROM OLD.phone
+                                             THEN NEW.phone ELSE phone_number END,
+                    avatar_url        = CASE WHEN NEW.profile_picture IS DISTINCT FROM OLD.profile_picture
+                                             THEN COALESCE(NEW.profile_picture, avatar_url)
+                                             ELSE avatar_url END,
+                    institution_id    = CASE WHEN NEW.institution_id IS DISTINCT FROM OLD.institution_id
+                                             THEN NEW.institution_id ELSE institution_id END,
+                    department_id     = CASE WHEN NEW.department_id IS DISTINCT FROM OLD.department_id
+                                             THEN NEW.department_id ELSE department_id END,
+                    gender            = CASE WHEN NEW.gender IS DISTINCT FROM OLD.gender
+                                             THEN NEW.gender ELSE gender END,
+                    designation       = CASE WHEN NEW.designation IS DISTINCT FROM OLD.designation
+                                             THEN NEW.designation ELSE designation END,
+                    role              = CASE WHEN NEW.role_key IS DISTINCT FROM OLD.role_key
+                                             THEN NEW.role_key ELSE role END,
+                    is_active         = CASE WHEN (NEW.is_active, NEW.login_enabled)
+                                                  IS DISTINCT FROM (OLD.is_active, OLD.login_enabled)
+                                             THEN CASE WHEN NEW.login_enabled = false THEN false
+                                                       ELSE NEW.is_active END
+                                             ELSE is_active END,
+                    is_login_disabled = CASE WHEN (NEW.is_active, NEW.login_enabled)
+                                                  IS DISTINCT FROM (OLD.is_active, OLD.login_enabled)
+                                             THEN (NEW.login_enabled = false)
+                                             ELSE is_login_disabled END,
+                    updated_at        = NOW()
+                WHERE id = existing_profile_id;
+            END IF;
+            -- Otherwise (the row's own profile is gone and another was found
+            -- by email): link it, copy nothing.
             NEW.profile_id := existing_profile_id;
         ELSE
             existing_profile_id := gen_random_uuid();
             INSERT INTO profiles (
                 id, email, full_name, phone_number, avatar_url,
                 institution_id, department_id, gender, designation,
-                role, is_pre_registered, is_active
+                role, is_pre_registered, is_active, is_login_disabled
             ) VALUES (
                 existing_profile_id,
                 NEW.institution_email,
@@ -2016,7 +2094,9 @@ BEGIN
                 NEW.designation,
                 NEW.role_key,
                 true,
-                NEW.is_active
+                CASE WHEN NEW.login_enabled = false THEN false
+                     ELSE NEW.is_active END,
+                (NEW.login_enabled = false)
             );
             NEW.profile_id := existing_profile_id;
         END IF;
@@ -2024,7 +2104,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$;
+$function$;
 
 -- Updated: 2026-04-14 - Validates department requirement based on category.is_teaching.
 -- Teaching categories require department_id; non-teaching must leave it NULL (auto-cleared).
@@ -2110,11 +2190,13 @@ $$;
 -- This ensures when admin updates college_email in learners_profiles,
 -- the corresponding profiles.email is automatically updated
 -- Handles: Email changes, orphaned profiles, proper role assignment
+-- Updated: 2026-10-07 - 20271007170139 (round 9): emails matched ignoring case; an email of someone with admin powers is refused first.
+-- Updated: 2026-10-07 - 20271007170139 (round 12): refuses, for every caller, a team-member record's or a non-learner account's email.
 CREATE OR REPLACE FUNCTION public.sync_learner_email_to_profile()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY INVOKER
-AS $$
+AS $function$
 DECLARE
   existing_profile_id UUID;
   old_email TEXT;
@@ -2133,6 +2215,32 @@ BEGIN
   IF new_email IS NOT NULL AND new_email != '' THEN
     IF TG_OP = 'INSERT' OR (old_email IS DISTINCT FROM new_email) THEN
 
+      -- 2026-10-07: a college email that belongs to someone with admin powers
+      -- (their profile or sign-in email, or a team-member record with admin
+      -- powers, any case) is refused outright: the learner would otherwise
+      -- sign in as, or be linked to, that person.
+      IF public.fn_staff_link_has_admin_powers(NULL, new_email) THEN
+        RAISE EXCEPTION 'This learner''s college email belongs to someone with admin powers, so their account cannot become a learner account. Ask a super admin.'
+          USING ERRCODE = 'P0001';
+      END IF;
+
+      -- 2026-10-07 (round 12): for every caller, the service role and super
+      -- admins included, nor an email a team-member record carries, nor one an
+      -- account that is not a learner's (or a waiting guest's) already has,
+      -- unless it is this learner's own linked profile. Every path that writes
+      -- learners_profiles reaches this, so the row fails here instead of
+      -- turning a colleague into a learner.
+      CASE public.fn_learner_email_taken(new_email, NEW.id)
+        WHEN 'team_member' THEN
+          RAISE EXCEPTION 'This learner''s college email belongs to a team-member record, so that account cannot become a learner account. Correct the college email.'
+            USING ERRCODE = 'P0001';
+        WHEN 'other_account' THEN
+          RAISE EXCEPTION 'This learner''s college email belongs to an account that is not a learner''s, so it cannot become a learner account. Correct the college email.'
+            USING ERRCODE = 'P0001';
+        ELSE
+          NULL;
+      END CASE;
+
       -- Find profile by learner_id (more reliable than email for updates)
       SELECT id INTO existing_profile_id
       FROM profiles
@@ -2148,12 +2256,22 @@ BEGIN
         BEGIN
           SELECT id INTO conflicting_profile_id
           FROM profiles
-          WHERE email = new_email
+          WHERE lower(btrim(email)) = lower(btrim(new_email))
             AND id != existing_profile_id
             AND learner_id IS NULL
           LIMIT 1;
 
           IF conflicting_profile_id IS NOT NULL THEN
+            -- 2026-10-03: never turn someone with admin powers into a learner's account.
+            IF public.fn_staff_link_has_admin_powers(conflicting_profile_id, NULL) THEN
+              RAISE EXCEPTION 'This learner''s college email belongs to someone with admin powers, so their account cannot become a learner account. Ask a super admin.'
+                USING ERRCODE = 'P0001';
+            END IF;
+            -- 2026-10-03: never turn someone with admin powers into a learner's account.
+            IF public.fn_staff_link_has_admin_powers(existing_profile_id, NULL) THEN
+              RAISE EXCEPTION 'This learner''s college email belongs to someone with admin powers, so their account cannot become a learner account. Ask a super admin.'
+                USING ERRCODE = 'P0001';
+            END IF;
             -- Guest/unlinked profile has the new email - deactivate old linked profile,
             -- transfer learner link to the profile that already has the correct email
             UPDATE profiles
@@ -2175,6 +2293,11 @@ BEGIN
             RAISE NOTICE 'Transferred learner % from old profile % to guest profile % (email: %)',
               NEW.id, existing_profile_id, conflicting_profile_id, new_email;
           ELSE
+            -- 2026-10-03: never turn someone with admin powers into a learner's account.
+            IF public.fn_staff_link_has_admin_powers(existing_profile_id, NULL) THEN
+              RAISE EXCEPTION 'This learner''s college email belongs to someone with admin powers, so their account cannot become a learner account. Ask a super admin.'
+                USING ERRCODE = 'P0001';
+            END IF;
             -- No conflict - safe to update the linked profile's email directly
             UPDATE profiles
             SET
@@ -2201,11 +2324,16 @@ BEGIN
         -- because users who log in via OAuth get role='guest' before being linked
         SELECT id INTO existing_profile_id
         FROM profiles
-        WHERE email = new_email
+        WHERE lower(btrim(email)) = lower(btrim(new_email))
           AND learner_id IS NULL
         LIMIT 1;
 
         IF existing_profile_id IS NOT NULL THEN
+          -- 2026-10-03: never turn someone with admin powers into a learner's account.
+          IF public.fn_staff_link_has_admin_powers(existing_profile_id, NULL) THEN
+            RAISE EXCEPTION 'This learner''s college email belongs to someone with admin powers, so their account cannot become a learner account. Ask a super admin.'
+              USING ERRCODE = 'P0001';
+          END IF;
           -- Found orphaned/guest profile - link it to this learner
           UPDATE profiles
           SET
@@ -2229,10 +2357,11 @@ BEGIN
 
   RETURN NEW;
 END;
-$$;
+$function$;
 
-COMMENT ON FUNCTION sync_learner_email_to_profile IS
-'Auto-syncs learner college_email changes to profiles table. Handles email updates, orphaned profiles, and ensures role is student.';
+-- Updated: 2026-10-03 - 20271007170139: refuses to change a profile with admin powers.
+COMMENT ON FUNCTION public.sync_learner_email_to_profile() IS
+'Auto-syncs learner college_email changes to profiles table. Handles email updates, orphaned profiles, and ensures the learner role; refuses to change a profile with admin powers (2026-10-03).';
 
 -- Sync learner lifecycle_status changes to profile is_active
 -- This ensures user can only log in when learner is active
@@ -4261,6 +4390,13 @@ $$;
 
 COMMENT ON FUNCTION link_existing_profiles_to_approved_learners IS
 'Manually links existing profiles to approved learners with matching emails. Includes institution_id and department_id from learner. Run after migration or periodically to sync existing data.';
+
+-- Updated: 2026-10-07 - 20271007170139 (round 9): service role only. It was
+-- created with no REVOKE, so anon and every signed-in user could run it; no
+-- code in app/ or lib/ calls it. (The same migration locks
+-- cleanup_migrated_staff_profiles(), from 20250206, which has no copy here.)
+REVOKE EXECUTE ON FUNCTION public.link_existing_profiles_to_approved_learners() FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.link_existing_profiles_to_approved_learners() TO service_role;
 
 -- ================================================================================
 -- LIFECYCLE ANALYTICS FUNCTIONS
@@ -9236,16 +9372,34 @@ CREATE OR REPLACE FUNCTION public.mirror_staff_role_to_user_roles(
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
-AS $$
+AS $function$
 DECLARE
     v_role_id uuid;
     v_caller uuid := auth.uid();
 BEGIN
+    -- 1. Caller authorization
     IF NOT (is_super_admin() OR is_admin() OR user_has_permission('staff.create')) THEN
         RAISE EXCEPTION 'Insufficient permission to mirror staff role'
             USING ERRCODE = '42501';
     END IF;
 
+    -- 1a. 2026-10-03: nobody but a super admin replaces their own roles.
+    IF NOT is_super_admin() AND p_profile_id = auth.uid() THEN
+        RAISE EXCEPTION 'You cannot change your own roles; ask a super admin.'
+            USING ERRCODE = 'P0001';
+    END IF;
+
+    -- 1b. 2026-10-01: replacing the roles of someone with admin powers, or
+    -- giving a privileged role, is super admin only. (A privileged p_role_key
+    -- needs no separate check: step 2 requires a staff row linked to this
+    -- profile with that role, and such a row gives the person admin powers.)
+    IF NOT is_super_admin()
+       AND fn_staff_link_has_admin_powers(p_profile_id, NULL) THEN
+        RAISE EXCEPTION 'Only a super admin can change the role, status, college or email of someone with admin powers, or give anyone admin powers.'
+            USING ERRCODE = 'P0001';
+    END IF;
+
+    -- 2. Target must be a staff-linked profile with matching role_key
     IF NOT EXISTS (
         SELECT 1 FROM staff s
         WHERE s.profile_id = p_profile_id
@@ -9256,6 +9410,7 @@ BEGIN
             USING ERRCODE = '23503';
     END IF;
 
+    -- 3. Resolve role_id
     SELECT id INTO v_role_id
     FROM custom_roles
     WHERE role_key = p_role_key;
@@ -9265,14 +9420,589 @@ BEGIN
             USING ERRCODE = '23503';
     END IF;
 
+    -- 4. Upsert (delete stale + insert fresh). Matches UserRolesService.assignRoles semantics.
     DELETE FROM user_roles WHERE user_id = p_profile_id;
 
     INSERT INTO user_roles (user_id, role_id, is_primary, assigned_by)
     VALUES (p_profile_id, v_role_id, true, v_caller);
 END;
-$$;
+$function$;
 
-GRANT EXECUTE ON FUNCTION public.mirror_staff_role_to_user_roles(uuid, text) TO authenticated;
+-- Updated: 2026-10-01 - 20271007170139: a non-super-admin may not replace the roles of
+-- someone with admin powers, or mirror a privileged role (ruling 1).
+REVOKE EXECUTE ON FUNCTION public.mirror_staff_role_to_user_roles(uuid, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.mirror_staff_role_to_user_roles(uuid, text) TO authenticated;
+
+-- ================================================================================
+-- Added: 2026-10-01 - 20271007170139 (first copy here; created by 20250127).
+-- Pre-registers a profile for Google sign-in. Who may call it is unchanged
+-- (super_admin / administrator / faculty by role); a privileged role needs a super admin.
+-- ================================================================================
+-- Updated: 2026-10-07 - 20271007170139 (round 11): refuses an email a team-member record carries, unless a super admin.
+CREATE OR REPLACE FUNCTION public.create_preregistered_profile(
+  profile_id uuid,
+  profile_email text,
+  profile_full_name text,
+  profile_role text,
+  profile_phone text DEFAULT NULL,
+  profile_institution_id uuid DEFAULT NULL,
+  profile_department_id uuid DEFAULT NULL
+) RETURNS public.profiles
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  new_profile public.profiles;
+  current_user_role text;
+BEGIN
+  -- Check if the current user has permission to create profiles
+  SELECT role INTO current_user_role
+  FROM public.profiles
+  WHERE id = auth.uid();
+
+  -- Only allow super_admin, administrator, or faculty to create pre-registered profiles
+  IF current_user_role NOT IN ('super_admin', 'administrator', 'faculty') THEN
+    RAISE EXCEPTION 'Insufficient permissions to create pre-registered profile'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  -- For faculty, ensure they can only create profiles for their own institution
+  IF current_user_role = 'faculty' THEN
+    IF profile_institution_id IS NULL OR profile_institution_id NOT IN (
+      SELECT institution_id FROM public.profiles WHERE id = auth.uid()
+    ) THEN
+      RAISE EXCEPTION 'Faculty can only create profiles for their own institution'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+  END IF;
+
+  -- 2026-10-01: a privileged role (custom_roles.is_privileged) needs a super
+  -- admin (the is_super_admin flag), whatever the caller's role name.
+  IF NOT is_super_admin() AND fn_staff_role_key_is_privileged(profile_role) THEN
+    RAISE EXCEPTION 'Only a super admin can change the role, status, college or email of someone with admin powers, or give anyone admin powers.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- 2026-10-03: nor an email that belongs to someone with admin powers (a
+  -- profile or a staff record carrying it, any case).
+  IF NOT is_super_admin() AND fn_staff_link_has_admin_powers(NULL, profile_email) THEN
+    RAISE EXCEPTION 'That email belongs to someone with admin powers. Only a super admin can give it to another account.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Check if profile with this email already exists (any case, 2026-10-03)
+  IF EXISTS (SELECT 1 FROM public.profiles WHERE lower(email) = lower(btrim(profile_email))) THEN
+    RAISE EXCEPTION 'Profile with email % already exists', profile_email
+      USING ERRCODE = 'unique_violation';
+  END IF;
+
+  -- 2026-10-07: nor an email a team-member record carries (institution or
+  -- personal, any case): the new account would be found as that person's.
+  IF NOT is_super_admin() AND fn_email_on_staff_record(profile_email) THEN
+    RAISE EXCEPTION 'That email belongs to a team-member record. Only a super admin can give it to an account.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Insert the new pre-registered profile
+  INSERT INTO public.profiles (
+    id,
+    email,
+    full_name,
+    role,
+    phone_number,
+    institution_id,
+    department_id,
+    profile_completed,
+    is_active,
+    is_pre_registered,
+    created_at,
+    updated_at
+  ) VALUES (
+    profile_id,
+    profile_email,
+    profile_full_name,
+    profile_role,
+    profile_phone,
+    profile_institution_id,
+    profile_department_id,
+    true,
+    true,
+    true,
+    NOW(),
+    NOW()
+  ) RETURNING * INTO new_profile;
+
+  RETURN new_profile;
+EXCEPTION
+  WHEN unique_violation THEN
+    RAISE EXCEPTION 'Profile with email % already exists', profile_email
+      USING ERRCODE = 'unique_violation';
+  WHEN foreign_key_violation THEN
+    RAISE EXCEPTION 'Invalid institution or department ID provided'
+      USING ERRCODE = 'foreign_key_violation';
+  WHEN others THEN
+    RAISE EXCEPTION 'Failed to create pre-registered profile: %', SQLERRM
+      USING ERRCODE = 'internal_error';
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.create_preregistered_profile(uuid, text, text, text, text, uuid, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.create_preregistered_profile(uuid, text, text, text, text, uuid, uuid) TO authenticated;
+
+COMMENT ON FUNCTION public.create_preregistered_profile(uuid, text, text, text, text, uuid, uuid) IS
+  'Creates a pre-registered profile for OAuth-based authentication. Only users with super_admin, administrator, or faculty roles can use this function; faculty only for their own institution. A privileged role needs a super admin (is_super_admin flag, 2026-10-01).';
+
+-- ================================================================================
+-- Added: 2026-10-03 - 20271007170139: who a team-member record belongs to.
+-- ================================================================================
+-- PATCH /api/staff/[id], POST /api/staff and create-missing-profiles write
+-- with the service-role key, so the database guards see no signed-in user.
+-- Through them a super admin could re-point their OWN record at a decoy
+-- account and then approve their own pay. The routes ask this helper before
+-- writing, for every caller, super admins included.
+--
+-- A record's identity = its profile_id plus every auth account whose email
+-- matches its personal or institution email (case and spaces ignored). When
+-- the write changes that identity and either side contains the caller or
+-- anyone on the Director list (platform.the_director_profile_ids), the answer
+-- is 'self_or_director'. When the identity changes while the person has a
+-- salary revision waiting or approved, the answer is 'salary_request'.
+-- Otherwise NULL. It answers only about the caller's own request and never
+-- returns an email or an id.
+CREATE OR REPLACE FUNCTION public.fn_staff_identity_change_refusal(
+  p_staff_id uuid,
+  p_profile_id uuid,
+  p_email text,
+  p_institution_email text
+)
+RETURNS text
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+DECLARE
+  v_row     record;
+  v_before  uuid[] := '{}';
+  v_after   uuid[] := '{}';
+  v_listed  boolean := false;
+  v_waiting boolean := false;
+  -- The salary revision statuses that count as open. MUST track lane 1's
+  -- hr_salary_revision_requests.status values (20270519090000 and its
+  -- successors): a new open status added there must be added here.
+  c_open_salary_statuses CONSTANT text[] := ARRAY['waiting_principal', 'waiting_director', 'approved'];
+BEGIN
+  IF auth.uid() IS NULL
+     OR NOT (public.is_super_admin() OR public.is_admin()
+             OR coalesce(public.user_has_permission('staff.edit'), false)
+             OR coalesce(public.user_has_permission('staff.create'), false)) THEN
+    RAISE EXCEPTION 'Insufficient permission to check a team-member record.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF p_staff_id IS NOT NULL THEN
+    SELECT s.profile_id, s.email, s.institution_email INTO v_row
+      FROM public.staff s WHERE s.id = p_staff_id;
+    IF FOUND THEN
+      SELECT coalesce(array_agg(DISTINCT x), '{}') INTO v_before FROM (
+        SELECT v_row.profile_id AS x WHERE v_row.profile_id IS NOT NULL
+        UNION
+        SELECT u.id FROM auth.users u
+         WHERE lower(btrim(u.email)) IN (lower(btrim(v_row.email)), lower(btrim(v_row.institution_email)))
+        UNION
+        SELECT pr.id FROM public.profiles pr
+         WHERE lower(btrim(pr.email)) IN (lower(btrim(v_row.email)), lower(btrim(v_row.institution_email)))
+      ) t;
+    END IF;
+  END IF;
+
+  SELECT coalesce(array_agg(DISTINCT x), '{}') INTO v_after FROM (
+    SELECT p_profile_id AS x WHERE p_profile_id IS NOT NULL
+    UNION
+    SELECT u.id FROM auth.users u
+     WHERE lower(btrim(u.email)) IN (lower(btrim(p_email)), lower(btrim(p_institution_email)))
+    UNION
+    SELECT pr.id FROM public.profiles pr
+     WHERE lower(btrim(pr.email)) IN (lower(btrim(p_email)), lower(btrim(p_institution_email)))
+  ) t;
+
+  -- Same people before and after: not an identity change.
+  IF v_before @> v_after AND v_after @> v_before THEN
+    RETURN NULL;
+  END IF;
+
+  IF auth.uid() = ANY (v_before || v_after) THEN
+    RETURN 'self_or_director';
+  END IF;
+
+  SELECT coalesce(bool_or(jsonb_typeof(pp.value) = 'array'
+                          AND pp.value ?| ARRAY(SELECT x::text FROM unnest(v_before || v_after) x)), false)
+    INTO v_listed
+    FROM public.platform_policies pp
+   WHERE pp.policy_key = 'platform.the_director_profile_ids'
+     AND pp.scope_type = 'global'
+     AND pp.scope_id IS NULL
+     AND pp.is_active = true;
+  IF v_listed THEN
+    RETURN 'self_or_director';
+  END IF;
+
+  IF p_staff_id IS NOT NULL AND to_regclass('public.hr_salary_revision_requests') IS NOT NULL THEN
+    EXECUTE 'SELECT EXISTS (SELECT 1 FROM public.hr_salary_revision_requests r
+                             WHERE r.staff_id = $1 AND r.status = ANY ($2))'
+      INTO v_waiting USING p_staff_id, c_open_salary_statuses;
+    IF v_waiting THEN
+      RETURN 'salary_request';
+    END IF;
+  END IF;
+
+  RETURN NULL;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_staff_identity_change_refusal(uuid, uuid, text, text) IS
+  'For the service-role staff routes, before they write: NULL when the write may go ahead; self_or_director when it changes which accounts a team-member record belongs to (profile_id + auth accounts by email) and the caller or a Director-list member is on either side; salary_request when it changes the identity of someone with a salary revision waiting or approved (2026-10-03). Returns no emails or ids.';
+
+REVOKE EXECUTE ON FUNCTION public.fn_staff_identity_change_refusal(uuid, uuid, text, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_staff_identity_change_refusal(uuid, uuid, text, text) TO authenticated;
+
+-- ================================================================================
+-- Added: 2026-10-03 - 20271007170139: custom_roles is the source of every privilege.
+-- ================================================================================
+-- What counts as admin powers is read from custom_roles (is_privileged and the
+-- role names above). A non-super-admin writing it directly could un-flag
+-- 'administrator', or add permissions to a role they hold themselves. Locked
+-- here, for direct writes by signed-in non-super-admins (migrations, cron and
+-- SECURITY DEFINER functions are not checked, as with the other guards).
+
+-- Does the signed-in caller hold this role (user_roles, or profiles.role)?
+CREATE OR REPLACE FUNCTION public.fn_caller_holds_role(p_role_id uuid, p_role_key text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+  SELECT auth.uid() IS NOT NULL
+     AND (   EXISTS (SELECT 1 FROM public.user_roles ur
+                      WHERE ur.user_id = auth.uid() AND ur.role_id = p_role_id)
+          OR EXISTS (SELECT 1 FROM public.profiles pr
+                      WHERE pr.id = auth.uid() AND pr.role = p_role_key));
+$function$;
+
+COMMENT ON FUNCTION public.fn_caller_holds_role(uuid, text) IS
+  'True when the signed-in caller holds this role, in user_roles or as profiles.role. Used by the custom_roles guard (2026-10-03).';
+
+REVOKE EXECUTE ON FUNCTION public.fn_caller_holds_role(uuid, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_caller_holds_role(uuid, text) TO authenticated;
+
+-- Added: 2026-10-07 - 20271007170139 (round 9): who holds a role, for the custom_roles guard.
+-- Round 9: does anyone holding this role have admin powers? Holding = a
+-- team-member record with this role_key, a user_roles row with this role, or
+-- profiles.role = this key. Renaming the role rewrites every such record by
+-- ON UPDATE CASCADE (and sync_staff_to_profiles copies the new key onto their
+-- profiles); deleting it removes it from user_roles by ON DELETE CASCADE.
+-- Yes/no only. SECURITY DEFINER: the custom_roles guard runs as the caller,
+-- whose row-level access could hide some holders.
+CREATE OR REPLACE FUNCTION public.fn_role_held_by_admin_powers(p_role_id uuid, p_role_key text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+  SELECT EXISTS (SELECT 1 FROM public.staff s
+                  WHERE s.role_key = p_role_key
+                    AND public.fn_staff_record_has_admin_powers(s.id))
+      OR EXISTS (SELECT 1 FROM public.user_roles ur
+                  WHERE ur.role_id = p_role_id
+                    AND public.fn_staff_link_has_admin_powers(ur.user_id, NULL))
+      OR EXISTS (SELECT 1 FROM public.profiles pr
+                  WHERE pr.role = p_role_key
+                    AND public.fn_staff_link_has_admin_powers(pr.id, NULL));
+$function$;
+
+COMMENT ON FUNCTION public.fn_role_held_by_admin_powers(uuid, text) IS
+  'True when anyone holding this role (a team-member record with this role_key, a user_roles row, or profiles.role) has admin powers. Used by the custom_roles guard: renaming or deleting such a role is super admin only (round 9).';
+
+REVOKE EXECUTE ON FUNCTION public.fn_role_held_by_admin_powers(uuid, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_role_held_by_admin_powers(uuid, text) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_custom_roles_guard_admin_powers()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path TO ''
+AS $function$
+BEGIN
+  IF auth.uid() IS NULL OR current_user NOT IN ('authenticated', 'anon') OR public.is_super_admin() THEN
+    IF TG_OP = 'DELETE' THEN
+      RETURN OLD;
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    -- No new role that carries admin powers, by flag or by name.
+    IF coalesce(NEW.is_privileged, false) OR public.fn_staff_role_key_is_privileged(NEW.role_key) THEN
+      RAISE EXCEPTION 'Only a super admin can change a role that carries admin powers, change whether a role carries them, or create such a role.'
+        USING ERRCODE = 'P0001';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  -- UPDATE or DELETE of a role that carries admin powers: nothing about it.
+  IF coalesce(OLD.is_privileged, false) OR public.fn_staff_role_key_is_privileged(OLD.role_key) THEN
+    RAISE EXCEPTION 'Only a super admin can change a role that carries admin powers, change whether a role carries them, or create such a role.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Nor a role the caller holds (they would be granting themselves).
+  IF public.fn_caller_holds_role(OLD.id, OLD.role_key) THEN
+    RAISE EXCEPTION 'You cannot change a role you hold yourself; ask a super admin.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Round 9: renaming or deleting a role changes the roles of everyone who
+  -- holds it (the cascades run as the table owner, past the staff and
+  -- user_roles guards). Refused when any holder has admin powers. A change
+  -- to the permissions alone renames nothing and is not checked here.
+  IF (TG_OP = 'DELETE' OR NEW.role_key IS DISTINCT FROM OLD.role_key)
+     AND public.fn_role_held_by_admin_powers(OLD.id, OLD.role_key) THEN
+    RAISE EXCEPTION 'Someone who holds this role has admin powers. Only a super admin can rename or delete it.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  IF TG_OP = 'UPDATE' THEN
+    -- Nor flag a role, or rename one into a name trusted as admin.
+    IF NEW.is_privileged IS DISTINCT FROM OLD.is_privileged
+       OR public.fn_staff_role_key_is_privileged(NEW.role_key) THEN
+      RAISE EXCEPTION 'Only a super admin can change a role that carries admin powers, change whether a role carries them, or create such a role.'
+        USING ERRCODE = 'P0001';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  RETURN OLD;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_custom_roles_guard_admin_powers() IS
+  'custom_roles guard: a direct write by a non-super-admin may not change is_privileged, change or delete a role that carries admin powers, change or delete a role they hold, rename or delete a role held by anyone with admin powers, or create a role that carries admin powers (2026-10-03, round 9).';
+
+REVOKE ALL ON FUNCTION public.fn_custom_roles_guard_admin_powers() FROM anon, authenticated, PUBLIC;
+
+-- Is this email on any team-member record (institution or personal email, any
+-- case)? The profiles guard refuses giving such an email to another account.
+CREATE OR REPLACE FUNCTION public.fn_email_on_staff_record(p_email text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+  SELECT nullif(btrim(p_email), '') IS NOT NULL
+     AND EXISTS (SELECT 1 FROM public.staff s
+                  WHERE lower(btrim(s.institution_email)) = lower(btrim(p_email))
+                     OR lower(btrim(s.email)) = lower(btrim(p_email)));
+$function$;
+
+COMMENT ON FUNCTION public.fn_email_on_staff_record(text) IS
+  'True when a team-member record carries this email (institution or personal, any case). Used by the profiles guard and PATCH /api/users/[id] (2026-10-03).';
+
+REVOKE EXECUTE ON FUNCTION public.fn_email_on_staff_record(text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_email_on_staff_record(text) TO authenticated;
+
+-- Added: 2026-10-07 - 20271007170139 (round 11): a learner's college email on the service-role learner paths.
+-- The bulk learner edit, the enquiry bulk edit, the bulk upload and the
+-- learner profile sync write with the service-role key. A learner's college
+-- email that is the caller's own, or a colleague's, turned that account into
+-- a student's (role, learner link, college) through the learner email sync.
+-- The trigger cannot see who is asking, so those paths ask this, per row,
+-- with the caller's own client. NULL = go ahead. Otherwise one word:
+--   self          the caller's own sign-in or profile email
+--   team_member   an email a team-member record carries
+--   other_account a profile carries it that is neither this learner's nor a
+--                 student's or guest's (a guest is an OAuth sign-in waiting
+--                 to be linked, which is the sync's normal work)
+-- Case and outer spaces are ignored. A super admin is never refused here.
+-- Admin powers are NOT judged here: each path keeps its own check, and the
+-- learner email sync refuses those for everyone.
+-- Added: 2026-10-07 - 20271007170139 (round 12).
+-- Round 12: the caller-independent half, for everyone. The learner email sync
+-- (section 7) refuses on it for every caller; the routes ask through
+-- fn_learner_email_refusal so a refused row is reported before the batch.
+CREATE OR REPLACE FUNCTION public.fn_learner_email_taken(p_email text, p_learner_id uuid)
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+  SELECT CASE
+    WHEN nullif(btrim(p_email), '') IS NULL THEN NULL
+    WHEN public.fn_email_on_staff_record(p_email) THEN 'team_member'
+    WHEN EXISTS (SELECT 1 FROM public.profiles pr
+                  WHERE lower(btrim(pr.email)) = lower(btrim(p_email))
+                    AND NOT coalesce(pr.learner_id = p_learner_id, false)
+                    AND coalesce(pr.role::text, '') NOT IN ('student', 'guest')) THEN 'other_account'
+  END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_learner_email_taken(text, uuid) IS
+  'team_member or other_account when a learner may not carry this college email for anyone (a team-member record''s, or a non-learner account''s that is not this learner''s own); NULL otherwise. Read by sync_learner_email_to_profile for every caller (2026-10-07).';
+
+REVOKE EXECUTE ON FUNCTION public.fn_learner_email_taken(text, uuid) FROM anon, PUBLIC;
+-- service_role too: sync_learner_email_to_profile runs as the caller, and the
+-- bulk learner paths write with the service-role key.
+GRANT  EXECUTE ON FUNCTION public.fn_learner_email_taken(text, uuid) TO authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION public.fn_learner_email_refusal(p_email text, p_learner_id uuid)
+RETURNS text
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+DECLARE
+  v_reason text;
+  v_super  boolean := public.is_super_admin();
+BEGIN
+  IF auth.uid() IS NOT NULL AND NOT (
+       v_super OR public.is_admin()
+       OR EXISTS (SELECT 1 FROM unnest(ARRAY[
+            'learners.create', 'learners.edit',
+            'learners.profiles.create', 'learners.profiles.edit',
+            'learners.admissions.create', 'learners.admissions.edit',
+            'learners.profiles.sync', 'learners.profiles.bulk_upload',
+            'learners.bulk_create', 'learners.bulk_create.import',
+            'learners.profiles.bulk_edit', 'learners.bulk_edit', 'learners.bulk_edit.apply',
+            'learners.onboarding.edit', 'learners.graduated.edit', 'learners.enquiries.bulk_upload',
+            -- the learner routes also accept a role's permissions.all; asking
+            -- user_has_permission('all') reads that same key
+            'all']) k
+           WHERE coalesce(public.user_has_permission(k), false))
+       OR (p_learner_id IS NOT NULL AND EXISTS (SELECT 1 FROM public.profiles pr
+                                                 WHERE pr.id = auth.uid() AND pr.learner_id = p_learner_id))) THEN
+    RAISE EXCEPTION 'Only someone who may write learner records can check a college email.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF nullif(btrim(p_email), '') IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  IF auth.uid() IS NOT NULL AND NOT v_super
+     AND (   EXISTS (SELECT 1 FROM auth.users u
+                      WHERE u.id = auth.uid()
+                        AND lower(btrim(u.email)) = lower(btrim(p_email)))
+          OR EXISTS (SELECT 1 FROM public.profiles pr
+                      WHERE pr.id = auth.uid()
+                        AND lower(btrim(pr.email)) = lower(btrim(p_email)))) THEN
+    v_reason := 'self';
+  ELSE
+    v_reason := public.fn_learner_email_taken(p_email, p_learner_id);
+  END IF;
+
+  IF v_reason IS NOT NULL AND auth.uid() IS NOT NULL AND NOT v_super THEN
+    RETURN 'refused';
+  END IF;
+  RETURN v_reason;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_learner_email_refusal(text, uuid) IS
+  'For the learner write paths, per row, asked with the caller''s client: NULL when a learner may carry this college email; otherwise refused (signed-in non-super-admins: one word, whatever the reason), or self / team_member / other_account for super admins and the service role. Only learner writers, the learner themself or the service role may ask. Admin powers are judged elsewhere (2026-10-07).';
+
+REVOKE EXECUTE ON FUNCTION public.fn_learner_email_refusal(text, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_learner_email_refusal(text, uuid) TO authenticated, service_role;
+
+-- Added: 2026-10-07 - 20271007170139 (round 9): first copy here (created by
+-- 20260819180000); now checks the caller and the email.
+-- 20260819180000 fills profiles.email for an external participant who has
+-- none. It is SECURITY DEFINER and granted to authenticated with no caller
+-- check, so any signed-in person could give any such profile any email,
+-- including their own or one on a team-member record; the sync and the
+-- sign-in flows then match people by that email. Its one caller is
+-- POST /api/courses/enrollments/[id]/resend-credentials, gated on
+-- courses.applications.decide. Same update as before (an existing email is
+-- never overwritten), with the caller and the email checked first.
+CREATE OR REPLACE FUNCTION public.fn_course_backfill_participant_email(
+  p_profile_id uuid,
+  p_email      text
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $fn$
+DECLARE
+  v_email text := lower(nullif(btrim(coalesce(p_email, '')), ''));
+BEGIN
+  -- Who: no session (the service role; anon cannot execute this), a super
+  -- admin, or someone who may decide course applications.
+  IF auth.uid() IS NOT NULL THEN
+    IF NOT (is_super_admin()
+            OR coalesce(user_has_permission('courses.applications.decide'), false)) THEN
+      RAISE EXCEPTION 'Only someone who may decide course applications can add a participant''s email.'
+        USING ERRCODE = '42501';
+    END IF;
+    -- Never the caller's own profile.
+    IF p_profile_id = auth.uid() THEN
+      RAISE EXCEPTION 'You cannot change your own email; ask a super admin.'
+        USING ERRCODE = 'P0001';
+    END IF;
+  END IF;
+
+  IF v_email IS NULL THEN
+    RETURN;
+  END IF;
+
+  -- Whose and what, for everyone but a super admin (the service role
+  -- included): never the profile of someone with admin powers, never an
+  -- email that belongs to someone with admin powers or that a team-member
+  -- record carries, any case.
+  IF NOT is_super_admin() THEN
+    IF fn_staff_link_has_admin_powers(p_profile_id, NULL) THEN
+      RAISE EXCEPTION 'Only a super admin can change the role, status, college or email of someone with admin powers, or give anyone admin powers.'
+        USING ERRCODE = 'P0001';
+    END IF;
+    IF fn_staff_link_has_admin_powers(NULL, v_email) THEN
+      RAISE EXCEPTION 'That email belongs to someone with admin powers. Only a super admin can give it to another account.'
+        USING ERRCODE = 'P0001';
+    END IF;
+    IF fn_email_on_staff_record(v_email) THEN
+      RAISE EXCEPTION 'That email belongs to a team-member record. Only a super admin can give it to an account.'
+        USING ERRCODE = 'P0001';
+    END IF;
+  END IF;
+
+  -- Nor, for anyone, an email another account already has (the caller's
+  -- own included), any case.
+  IF EXISTS (SELECT 1 FROM public.profiles pr
+              WHERE pr.id IS DISTINCT FROM p_profile_id
+                AND lower(btrim(pr.email)) = v_email)
+     OR EXISTS (SELECT 1 FROM auth.users u
+              WHERE u.id IS DISTINCT FROM p_profile_id
+                AND lower(btrim(u.email)) = v_email) THEN
+    RAISE EXCEPTION 'That email already belongs to another account.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  UPDATE public.profiles
+     SET email = coalesce(email, nullif(btrim(coalesce(p_email, '')), ''))
+   WHERE id = p_profile_id
+     AND is_external_participant
+     AND email IS NULL;
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.fn_course_backfill_participant_email(uuid, text) IS
+  'Fills profiles.email for an external participant who had none. Never overwrites an existing address. Called by the resend-credentials route. Only the service role, a super admin or a holder of courses.applications.decide; never the caller''s own profile or someone with admin powers; never an email that belongs to someone with admin powers, a team-member record or another account (round 9).';
+
+REVOKE EXECUTE ON FUNCTION public.fn_course_backfill_participant_email(uuid, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_course_backfill_participant_email(uuid, text) TO authenticated, service_role;
 
 -- ================================================================================
 -- Updated: 2026-04-27 - RPC to assign the counselor role to a user, callable from
@@ -56916,48 +57646,459 @@ REVOKE ALL ON FUNCTION public.fn_staff_autonumber() FROM anon, authenticated, PU
 -- staff.edit and institution scope only. Without this, anyone who could edit a
 -- staff row could set role_key = 'super_admin' and escalate. Filtering the
 -- dropdown does not help — the value is posted from the client.
-CREATE OR REPLACE FUNCTION public.fn_staff_guard_role_key()
-RETURNS trigger
-LANGUAGE plpgsql
+-- Updated: 2026-10-01 - 20271007170139_staff_admin_records_super_admin_only.sql:
+-- the record of someone with admin powers (fn_staff_record_has_admin_powers)
+-- is super admin only for direct writes, including marking as left and
+-- deleting; a role change touching a privileged role (old OR new) needs a
+-- super admin. Pointing a staff row (new row, or a changed profile_id /
+-- institution email) at someone with admin powers is refused the same way
+-- (fn_staff_link_has_admin_powers), because sync_staff_to_profiles copies the
+-- row's role onto that profile. The guard is now SECURITY INVOKER so it can
+-- tell a direct write (current_user = authenticated) from a SECURITY DEFINER flow (photo
+-- review, bus pass sync, first-login relink); every lookup goes through the
+-- SECURITY DEFINER helpers below. Trigger now also fires on DELETE.
+CREATE OR REPLACE FUNCTION public.fn_staff_role_key_is_privileged(p_role_key text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
 SECURITY DEFINER
 SET search_path = ''
 AS $function$
+  -- The role names is_admin() / is_super_admin() and the RLS policies trust
+  -- by name (supabase/setup/02_functions.sql is_admin: 'admin',
+  -- 'super_admin', 'administrator') count whatever their is_privileged flag
+  -- says, so un-flagging such a role, or a role row missing, changes nothing.
+  SELECT lower(btrim(coalesce(p_role_key, ''))) IN ('admin', 'administrator', 'super_admin')
+      OR EXISTS (
+           SELECT 1 FROM public.custom_roles r
+            WHERE r.role_key = p_role_key
+              AND r.is_privileged);
+$function$;
+
+COMMENT ON FUNCTION public.fn_staff_role_key_is_privileged(text) IS
+  'True when this role key carries admin powers: custom_roles.is_privileged, or a role name is_admin()/is_super_admin() trust (admin, administrator, super_admin). The one privileged test for every guard, helper and route (2026-10-03).';
+
+REVOKE EXECUTE ON FUNCTION public.fn_staff_role_key_is_privileged(text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_staff_role_key_is_privileged(text) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_custom_role_is_privileged(p_role_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+  SELECT EXISTS (
+    SELECT 1 FROM public.custom_roles r
+     WHERE r.id = p_role_id
+       AND public.fn_staff_role_key_is_privileged(r.role_key)
+  );
+$function$;
+
+COMMENT ON FUNCTION public.fn_custom_role_is_privileged(uuid) IS
+  'True when custom_roles.is_privileged is set for this role id. Used by the user_roles guard.';
+
+REVOKE EXECUTE ON FUNCTION public.fn_custom_role_is_privileged(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_custom_role_is_privileged(uuid) TO authenticated;
+
+-- The person a staff row writes through to. sync_staff_to_profiles copies the
+-- row (role, is_active, login) onto the profile named by profile_id, or, when
+-- that is empty, onto the profile with the same institution email. So a staff
+-- row that merely POINTS at someone with admin powers can demote or lock them
+-- out. Both ways of pointing are checked.
+-- Updated: 2026-10-07 - 20271007170139 (round 9): also finds people by their sign-in email (auth.users).
+-- Updated: 2026-10-07 - 20271007170139 (round 10): a privileged record carrying the sign-in email counts; profile emails trimmed.
+CREATE OR REPLACE FUNCTION public.fn_staff_link_has_admin_powers(
+  p_profile_id uuid,
+  p_institution_email text
+)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+  SELECT EXISTS (
+    SELECT 1
+      FROM public.profiles p
+     WHERE (p.id = p_profile_id
+            OR (nullif(btrim(p_institution_email), '') IS NOT NULL
+                AND (lower(btrim(p.email)) = lower(btrim(p_institution_email))
+                     -- 2026-10-07: or the person whose SIGN-IN email it is,
+                     -- when their profile email differs
+                     OR p.id IN (SELECT u.id FROM auth.users u
+                                  WHERE lower(btrim(u.email)) = lower(btrim(p_institution_email))))))
+       AND (   coalesce(p.is_super_admin, false)
+            -- a privileged legacy role
+            OR public.fn_staff_role_key_is_privileged(p.role)
+            -- any privileged role the person holds
+            OR EXISTS (SELECT 1 FROM public.user_roles ur
+                         JOIN public.custom_roles r ON r.id = ur.role_id
+                        WHERE ur.user_id = p.id
+                          AND public.fn_staff_role_key_is_privileged(r.role_key))
+            -- a privileged role on any of the person's staff records, linked
+            -- by profile_id or by institution email (the same people
+            -- fn_staff_record_has_admin_powers sees)
+            OR EXISTS (SELECT 1 FROM public.staff s
+                        WHERE public.fn_staff_role_key_is_privileged(s.role_key)
+                          AND (s.profile_id = p.id
+                               OR lower(btrim(s.institution_email)) = lower(btrim(p.email))
+                               -- 2026-10-07: or carrying the person's SIGN-IN
+                               -- email, as the (NULL, email) form already sees
+                               OR lower(btrim(s.institution_email)) IN (
+                                    SELECT lower(btrim(u.email)) FROM auth.users u
+                                     WHERE u.id = p.id))))
+  )
+  -- A staff record with a privileged role and this institution email, even
+  -- when no profile carries the email yet (an unlinked administrator record).
+  OR EXISTS (
+    SELECT 1
+      FROM public.staff s
+     WHERE public.fn_staff_role_key_is_privileged(s.role_key)
+       AND nullif(btrim(p_institution_email), '') IS NOT NULL
+       AND lower(btrim(s.institution_email)) = lower(btrim(p_institution_email))
+  );
+$function$;
+
+COMMENT ON FUNCTION public.fn_staff_link_has_admin_powers(uuid, text) IS
+  'True when the profile a staff row writes through to (by profile_id, or by institution email, any case, matched against profile and sign-in emails) holds admin powers: profiles.is_super_admin, a privileged profiles.role, a privileged role in user_roles, or a privileged role on any of their staff records; or when a staff record with a privileged role carries that institution email (2026-10-01/03).';
+
+REVOKE EXECUTE ON FUNCTION public.fn_staff_link_has_admin_powers(uuid, text) FROM anon, PUBLIC;
+-- service_role too: sync_learner_email_to_profile runs as the caller, and the
+-- bulk learner edit writes with the service-role key.
+GRANT  EXECUTE ON FUNCTION public.fn_staff_link_has_admin_powers(uuid, text) TO authenticated, service_role;
+
+-- Is this staff record (by its profile_id or its emails) the caller's own?
+-- The staff guard asks it: nobody but a super admin changes the role on their
+-- own record. Yes/no about the caller only.
+CREATE OR REPLACE FUNCTION public.fn_staff_record_is_callers(
+  p_profile_id uuid,
+  p_email text,
+  p_institution_email text
+)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+  SELECT auth.uid() IS NOT NULL
+     AND (   p_profile_id = auth.uid()
+          OR EXISTS (SELECT 1 FROM auth.users u
+                      WHERE u.id = auth.uid()
+                        AND lower(btrim(u.email)) IN (lower(btrim(p_email)), lower(btrim(p_institution_email))))
+          OR EXISTS (SELECT 1 FROM public.profiles pr
+                      WHERE pr.id = auth.uid()
+                        AND lower(btrim(pr.email)) IN (lower(btrim(p_email)), lower(btrim(p_institution_email)))));
+$function$;
+
+COMMENT ON FUNCTION public.fn_staff_record_is_callers(uuid, text, text) IS
+  'True when a staff record (profile_id, personal or institution email) belongs to the signed-in caller. Used by the staff guard: nobody but a super admin changes the role on their own record (2026-10-03).';
+
+REVOKE EXECUTE ON FUNCTION public.fn_staff_record_is_callers(uuid, text, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_staff_record_is_callers(uuid, text, text) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_staff_record_has_admin_powers(p_staff_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+  SELECT EXISTS (
+    SELECT 1
+      FROM public.staff s
+     WHERE s.id = p_staff_id
+       AND (
+             -- the staff record's own role
+             public.fn_staff_role_key_is_privileged(s.role_key)
+             -- the person the record writes through to
+          OR public.fn_staff_link_has_admin_powers(s.profile_id, s.institution_email)
+           )
+  );
+$function$;
+
+COMMENT ON FUNCTION public.fn_staff_record_has_admin_powers(uuid) IS
+  'True when the person behind this staff record holds admin powers: a privileged staff.role_key, profiles.is_super_admin, a privileged profiles.role, or a privileged role in user_roles. Only a super admin may change or delete such a record, except its photo, phone numbers and attendance machine code (2026-10-01).';
+
+REVOKE EXECUTE ON FUNCTION public.fn_staff_record_has_admin_powers(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_staff_record_has_admin_powers(uuid) TO authenticated;
+
+-- Updated: 2026-10-07 - 20271007170139 (round 9): case-insensitive relink test; a role rename is vetted by the custom_roles guard.
+-- Updated: 2026-10-07 - 20271007170139 (round 10): a personal email change is a relink; nobody but a super admin moves their own record away.
+-- Updated: 2026-10-07 - 20271007170139 (round 11): nobody but a super admin moves their own record to another college.
+CREATE OR REPLACE FUNCTION public.fn_staff_guard_role_key()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path TO ''
+AS $function$
 DECLARE
-  v_privileged boolean;
+  -- The small fields anyone who may edit staff may still change on the
+  -- record of someone with admin powers (second ruling, 2026-10-01), plus the
+  -- write stamps. Every other column, including any added later, is protected.
+  v_small_fields CONSTANT text[] := ARRAY[
+    'profile_picture', 'phone', 'emergency_contact_phone',
+    'biometric_id', 'biometric_institution_id',
+    'updated_at', 'updated_by'];
+  v_old jsonb;
+  v_new jsonb;
+  v_extra text;
 BEGIN
-  -- No session: service-role clients, cron jobs and migrations. Safe because
-  -- anon cannot reach this trigger — the INSERT policy demands staff.create.
-  IF auth.uid() IS NULL THEN
+  -- No session: service-role / cron. The API routes that write with the
+  -- service-role client enforce these same rules themselves.
+  IF auth.uid() IS NULL OR public.is_super_admin() THEN
+    IF TG_OP = 'DELETE' THEN
+      RETURN OLD;
+    END IF;
     RETURN NEW;
   END IF;
 
-  IF public.is_super_admin() THEN
-    RETURN NEW;
+  -- Ruling 2, for a signed-in person writing the table directly. (Writes made
+  -- from inside SECURITY DEFINER functions run as the function owner and are
+  -- not caught here — see the header.)
+  IF current_user IN ('authenticated', 'anon') THEN
+    IF TG_OP = 'DELETE' THEN
+      IF public.fn_staff_record_has_admin_powers(OLD.id) THEN
+        RAISE EXCEPTION 'Only a super admin can change the record of someone with admin powers. Others may change only the photo, phone numbers and attendance machine code.'
+          USING ERRCODE = 'P0001';
+      END IF;
+      RETURN OLD;
+    END IF;
+
+    IF TG_OP = 'UPDATE' THEN
+      -- What changed outside the small fields. A blank string and NULL count
+      -- as the same value: the staff form sends '' for empty fields.
+      SELECT coalesce(jsonb_object_agg(key, value), '{}'::jsonb) INTO v_old
+        FROM jsonb_each(to_jsonb(OLD) - v_small_fields)
+       WHERE value NOT IN ('null'::jsonb, '""'::jsonb);
+      SELECT coalesce(jsonb_object_agg(key, value), '{}'::jsonb) INTO v_new
+        FROM jsonb_each(to_jsonb(NEW) - v_small_fields)
+       WHERE value NOT IN ('null'::jsonb, '""'::jsonb);
+
+      IF v_new IS DISTINCT FROM v_old
+         AND public.fn_staff_record_has_admin_powers(OLD.id) THEN
+        -- Name the columns beyond the small ones, so the person editing knows
+        -- what to leave alone (the staff form sends every field).
+        SELECT string_agg(k, ', ' ORDER BY k) INTO v_extra
+          FROM (SELECT jsonb_object_keys(v_old) AS k
+                UNION SELECT jsonb_object_keys(v_new)) keys
+         WHERE v_old -> k IS DISTINCT FROM v_new -> k;
+        RAISE EXCEPTION 'Only a super admin can change the record of someone with admin powers. Others may change only the photo, phone numbers and attendance machine code; this edit also changes: %.', v_extra
+          USING ERRCODE = 'P0001';
+      END IF;
+    END IF;
+
+    -- Nor point a staff row at someone with admin powers: a new row, or a new
+    -- profile_id / institution email, would write its role and status onto
+    -- their profile (sync_staff_to_profiles).
+    IF TG_OP = 'INSERT' THEN
+      -- 2026-10-03: nobody but a super admin links a record to their own
+      -- account (its role and status would reach their profile through the
+      -- sync). 2026-10-07: the personal email counts too.
+      IF public.fn_staff_record_is_callers(NEW.profile_id, NEW.email, NEW.institution_email) THEN
+        RAISE EXCEPTION 'You cannot link a team-member record to your own account; ask a super admin.'
+          USING ERRCODE = 'P0001';
+      END IF;
+      IF public.fn_staff_link_has_admin_powers(NEW.profile_id, NEW.institution_email) THEN
+        RAISE EXCEPTION 'Only a super admin can change the record of someone with admin powers. Others may change only the photo, phone numbers and attendance machine code.'
+          USING ERRCODE = 'P0001';
+      END IF;
+    -- A relink = a change to any of the three things that say whose record
+    -- this is: profile_id, institution email, personal email (2026-10-07; the
+    -- same three fn_staff_record_is_callers and the identity check read). A
+    -- change of case or outer spaces is not a new email:
+    -- trigger_lowercase_institution_email runs after this trigger.
+    ELSIF NEW.profile_id IS DISTINCT FROM OLD.profile_id
+          OR lower(btrim(NEW.institution_email)) IS DISTINCT FROM lower(btrim(OLD.institution_email))
+          OR lower(btrim(NEW.email)) IS DISTINCT FROM lower(btrim(OLD.email)) THEN
+      -- 2026-10-03: nobody but a super admin links a record to their own
+      -- account (its role and status would reach their profile through the
+      -- sync).
+      IF public.fn_staff_record_is_callers(NEW.profile_id, NEW.email, NEW.institution_email) THEN
+        RAISE EXCEPTION 'You cannot link a team-member record to your own account; ask a super admin.'
+          USING ERRCODE = 'P0001';
+      END IF;
+      -- 2026-10-07: nor move their own record to someone else (or to nobody):
+      -- its pay, leave and history would follow the record.
+      IF public.fn_staff_record_is_callers(OLD.profile_id, OLD.email, OLD.institution_email) THEN
+        RAISE EXCEPTION 'You cannot move your own team-member record to another account; ask a super admin.'
+          USING ERRCODE = 'P0001';
+      END IF;
+      IF public.fn_staff_link_has_admin_powers(NEW.profile_id, NEW.institution_email) THEN
+        RAISE EXCEPTION 'Only a super admin can change the record of someone with admin powers. Others may change only the photo, phone numbers and attendance machine code.'
+          USING ERRCODE = 'P0001';
+      END IF;
+    END IF;
   END IF;
 
-  -- 20260925150000: HR Head (staff.role.change) may change a role too, but
-  -- never onto an is_privileged role.
-  IF TG_OP = 'UPDATE' AND NEW.role_key IS DISTINCT FROM OLD.role_key THEN
-    IF NOT coalesce(public.user_has_permission('staff.role.change'), false) THEN
-      RAISE EXCEPTION 'Only HR Head or a super administrator can change a staff member''s role.'
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+
+  IF TG_OP = 'UPDATE' THEN
+    -- 2026-10-07: nobody but a super admin moves their own record to another
+    -- college: the sync copies it onto their profile and widens what "their
+    -- own institution" lets them see.
+    IF NEW.institution_id IS DISTINCT FROM OLD.institution_id
+       AND (public.fn_staff_record_is_callers(OLD.profile_id, OLD.email, OLD.institution_email)
+            OR public.fn_staff_record_is_callers(NEW.profile_id, NEW.email, NEW.institution_email)) THEN
+      RAISE EXCEPTION 'You cannot move your own team-member record to another college; ask a super admin.'
         USING ERRCODE = 'P0001';
     END IF;
 
-    SELECT r.is_privileged INTO v_privileged
-    FROM public.custom_roles r WHERE r.role_key = NEW.role_key;
+    IF NEW.role_key IS DISTINCT FROM OLD.role_key THEN
+      -- A role renamed in custom_roles reaches staff through ON UPDATE
+      -- CASCADE: the old key no longer exists. The rename DOES change the
+      -- role of everyone holding it (sync_staff_to_profiles copies the new
+      -- key onto their profiles), so the custom_roles guard refuses it to a
+      -- non-super-admin whenever any holder has admin powers (round 9).
+      IF NOT EXISTS (SELECT 1 FROM public.custom_roles r WHERE r.role_key = OLD.role_key)
+         AND EXISTS (SELECT 1 FROM public.custom_roles r WHERE r.role_key = NEW.role_key) THEN
+        RETURN NEW;
+      END IF;
 
-    IF coalesce(v_privileged, false) THEN
-      RAISE EXCEPTION 'Only a super administrator can assign the role "%".', NEW.role_key
+      -- 2026-10-03: nobody but a super admin changes the role on their own
+      -- record (it reaches their profile and roles through the sync).
+      IF public.fn_staff_record_is_callers(OLD.profile_id, OLD.email, OLD.institution_email)
+         OR public.fn_staff_record_is_callers(NEW.profile_id, NEW.email, NEW.institution_email) THEN
+        RAISE EXCEPTION 'You cannot change your own roles; ask a super admin.'
+          USING ERRCODE = 'P0001';
+      END IF;
+
+      IF NOT coalesce(public.user_has_permission('staff.role.change'), false) THEN
+        RAISE EXCEPTION 'Only HR Head or a super administrator can change a staff member''s role.'
+          USING ERRCODE = 'P0001';
+      END IF;
+
+      -- Ruling 1: taking a privileged role AWAY needs a super admin too, not
+      -- only giving one.
+      IF public.fn_staff_role_key_is_privileged(OLD.role_key) THEN
+        RAISE EXCEPTION 'Only a super admin can change the record of someone with admin powers. Others may change only the photo, phone numbers and attendance machine code.'
+          USING ERRCODE = 'P0001';
+      END IF;
+
+      IF public.fn_staff_role_key_is_privileged(NEW.role_key) THEN
+        RAISE EXCEPTION 'Only a super administrator can assign the role "%".', NEW.role_key
+          USING ERRCODE = 'P0001';
+      END IF;
+    END IF;
+  ELSIF public.fn_staff_role_key_is_privileged(NEW.role_key) THEN
+    RAISE EXCEPTION 'Only a super administrator can assign the role "%".', NEW.role_key
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_staff_guard_role_key() IS
+  'staff guard: a role change needs super admin or staff.role.change, and never touches an is_privileged role (old or new) without super admin; a privileged role on create needs super admin; a direct change (other than photo, phone numbers, attendance machine code) or delete of the record of someone with admin powers (fn_staff_record_has_admin_powers), or pointing a row at such a person (fn_staff_link_has_admin_powers), needs super admin (2026-10-01).';
+
+-- Postgres checks EXECUTE on a trigger function at CREATE TRIGGER time, not
+-- when it fires, so this revoke (20260828150100) stands for the INVOKER guard.
+REVOKE ALL ON FUNCTION public.fn_staff_guard_role_key() FROM anon, authenticated, PUBLIC;
+
+-- Added: 2026-10-01 - 20271007170139: ruling 1 covers roles, not only staff rows.
+-- A direct write by a non-super-admin may not change is_super_admin, give a privileged
+-- role, or change the role / status / login of someone with admin powers.
+-- Updated: 2026-10-07 - 20271007170139 (round 10): nobody but a super admin changes their own college or learner link.
+CREATE OR REPLACE FUNCTION public.fn_profiles_guard_admin_powers()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path TO ''
+AS $function$
+BEGIN
+  -- Service role, cron, and SECURITY DEFINER flows (staff sync, first-login
+  -- relink, role sync) are not checked here; see the header.
+  IF auth.uid() IS NULL OR current_user NOT IN ('authenticated', 'anon') OR public.is_super_admin() THEN
+    IF TG_OP = 'DELETE' THEN
+      RETURN OLD;
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    IF public.fn_staff_link_has_admin_powers(OLD.id, NULL) THEN
+      RAISE EXCEPTION 'Only a super admin can change the role, status, college or email of someone with admin powers, or give anyone admin powers.'
+        USING ERRCODE = 'P0001';
+    END IF;
+    RETURN OLD;
+  END IF;
+
+  -- 2026-10-03: nobody but a super admin takes an email that belongs to
+  -- someone with admin powers (a profile, or a staff record, carrying it):
+  -- the staff sync would then attach that person's record to this profile.
+  IF TG_OP = 'INSERT' THEN
+    IF public.fn_staff_link_has_admin_powers(NULL, NEW.email) THEN
+      RAISE EXCEPTION 'That email belongs to someone with admin powers. Only a super admin can give it to another account.'
+        USING ERRCODE = 'P0001';
+    END IF;
+    -- Round 9: nor a new account carrying an email a team-member record
+    -- carries (any case), as on an email change below. First sign-in runs
+    -- with no session and is not checked here.
+    IF public.fn_email_on_staff_record(NEW.email) THEN
+      RAISE EXCEPTION 'That email belongs to a team-member record. Only a super admin can give it to an account.'
+        USING ERRCODE = 'P0001';
+    END IF;
+  ELSIF NEW.email IS DISTINCT FROM OLD.email THEN
+    -- Nobody but a super admin changes their own email (2026-10-03): it
+    -- decides which team-member record and identity the account resolves to.
+    IF OLD.id = auth.uid() THEN
+      RAISE EXCEPTION 'You cannot change your own email; ask a super admin.'
+        USING ERRCODE = 'P0001';
+    END IF;
+    IF public.fn_staff_link_has_admin_powers(NULL, NEW.email) THEN
+      RAISE EXCEPTION 'That email belongs to someone with admin powers. Only a super admin can give it to another account.'
+        USING ERRCODE = 'P0001';
+    END IF;
+    -- Nor another person's email to one a team-member record carries.
+    IF public.fn_email_on_staff_record(NEW.email) THEN
+      RAISE EXCEPTION 'That email belongs to a team-member record. Only a super admin can give it to an account.'
         USING ERRCODE = 'P0001';
     END IF;
   END IF;
 
   IF TG_OP = 'INSERT' THEN
-    SELECT r.is_privileged INTO v_privileged
-    FROM public.custom_roles r WHERE r.role_key = NEW.role_key;
+    IF coalesce(NEW.is_super_admin, false)
+       OR public.fn_staff_role_key_is_privileged(NEW.role::text) THEN
+      RAISE EXCEPTION 'Only a super admin can change the role, status, college or email of someone with admin powers, or give anyone admin powers.'
+        USING ERRCODE = 'P0001';
+    END IF;
+    RETURN NEW;
+  END IF;
 
-    IF coalesce(v_privileged, false) THEN
-      RAISE EXCEPTION 'Only a super administrator can assign the role "%".', NEW.role_key
+  IF NEW.is_super_admin IS DISTINCT FROM OLD.is_super_admin THEN
+    RAISE EXCEPTION 'Only a super admin can change the role, status, college or email of someone with admin powers, or give anyone admin powers.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Nobody but a super admin changes their own role, however ordinary
+  -- (profiles.role is still read as a fallback permission source).
+  IF OLD.id = auth.uid() AND NEW.role IS DISTINCT FROM OLD.role THEN
+    RAISE EXCEPTION 'You cannot change your own roles; ask a super admin.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- 2026-10-07: nor their own college (it widens what "own institution"
+  -- lets them see) or learner link (it attaches them to a learner). No
+  -- self-service screen writes either; first sign-in and onboarding write
+  -- them with the service role.
+  IF OLD.id = auth.uid()
+     AND (NEW.institution_id, NEW.learner_id) IS DISTINCT FROM (OLD.institution_id, OLD.learner_id) THEN
+    RAISE EXCEPTION 'You cannot change your own college or learner link; ask a super admin.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  IF (NEW.role, NEW.is_active, NEW.is_login_disabled, NEW.institution_id, NEW.email,
+      NEW.learner_id, NEW.is_external_participant)
+     IS DISTINCT FROM
+     (OLD.role, OLD.is_active, OLD.is_login_disabled, OLD.institution_id, OLD.email,
+      OLD.learner_id, OLD.is_external_participant) THEN
+    IF public.fn_staff_role_key_is_privileged(NEW.role::text)
+       OR public.fn_staff_link_has_admin_powers(OLD.id, NULL) THEN
+      RAISE EXCEPTION 'Only a super admin can change the role, status, college or email of someone with admin powers, or give anyone admin powers.'
         USING ERRCODE = 'P0001';
     END IF;
   END IF;
@@ -56966,10 +58107,70 @@ BEGIN
 END;
 $function$;
 
-COMMENT ON FUNCTION public.fn_staff_guard_role_key() IS
-  'staff.role_key guard: changes need super admin or staff.role.change (never onto an is_privileged role); a privileged role on create needs super admin.';
+COMMENT ON FUNCTION public.fn_profiles_guard_admin_powers() IS
+  'profiles guard: a direct write by a non-super-admin may not change is_super_admin, give a privileged role, change their own role or email, give an account (new or existing) an email that belongs to someone with admin powers or to a team-member record, change the role, is_active, is_login_disabled, institution_id, email, learner_id or is_external_participant of someone with admin powers, or delete their profile (2026-10-01/03).';
 
-REVOKE ALL ON FUNCTION public.fn_staff_guard_role_key() FROM anon, authenticated, PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_profiles_guard_admin_powers() FROM anon, authenticated, PUBLIC;
+
+
+CREATE OR REPLACE FUNCTION public.fn_user_roles_guard_admin_powers()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path TO ''
+AS $function$
+DECLARE
+  v_touches boolean := false;
+BEGIN
+  IF auth.uid() IS NULL OR current_user NOT IN ('authenticated', 'anon') OR public.is_super_admin() THEN
+    IF TG_OP = 'DELETE' THEN
+      RETURN OLD;
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  -- Nobody but a super admin changes their own roles, however ordinary
+  -- (2026-10-03: e.g. giving themselves hr_head).
+  IF TG_OP IN ('UPDATE', 'DELETE') THEN
+    v_touches := OLD.user_id = auth.uid();
+  END IF;
+  IF NOT v_touches AND TG_OP IN ('INSERT', 'UPDATE') THEN
+    v_touches := NEW.user_id = auth.uid();
+  END IF;
+  IF v_touches THEN
+    RAISE EXCEPTION 'You cannot change your own roles; ask a super admin.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- A privileged role given or taken, or any role change for someone who
+  -- holds admin powers.
+  -- (A privileged OLD role needs no separate check: user_roles.user_id
+  -- references profiles, so its holder already has admin powers through that
+  -- very row.)
+  IF TG_OP IN ('UPDATE', 'DELETE') THEN
+    v_touches := public.fn_staff_link_has_admin_powers(OLD.user_id, NULL);
+  END IF;
+  IF NOT v_touches AND TG_OP IN ('INSERT', 'UPDATE') THEN
+    v_touches := public.fn_custom_role_is_privileged(NEW.role_id)
+                 OR public.fn_staff_link_has_admin_powers(NEW.user_id, NULL);
+  END IF;
+
+  IF v_touches THEN
+    RAISE EXCEPTION 'Only a super admin can change the role, status, college or email of someone with admin powers, or give anyone admin powers.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_user_roles_guard_admin_powers() IS
+  'user_roles guard: a direct write by a non-super-admin may not give or take a privileged role, change the roles of someone with admin powers, or change their own roles (2026-10-01/03).';
+
+REVOKE ALL ON FUNCTION public.fn_user_roles_guard_admin_powers() FROM anon, authenticated, PUBLIC;
 
 -- =============================================================================
 -- Mirrored from supabase/migrations/20260828160000_staff_require_institution_email_for_login.sql

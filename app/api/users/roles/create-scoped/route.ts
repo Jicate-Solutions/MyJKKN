@@ -13,6 +13,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { callerIsSuperAdmin, refuseIfPrivilegedRoleKey } from '@/lib/services/staff/staff-admin-powers';
 
 function slugify(name: string): string {
   const s = name
@@ -87,6 +88,18 @@ export async function POST(request: NextRequest) {
         .maybeSingle();
       if (!existing) break;
       roleKey = `${base}_${i}`;
+    }
+
+    // A role key the platform trusts by name ('admin', 'administrator',
+    // 'super_admin': is_admin() and the RLS policies read them) carries admin
+    // powers whatever its flags say, so only a super admin may create one
+    // (2026-10-07). The custom_roles guard cannot see this insert: it is made
+    // with the service-role key.
+    if (!(await callerIsSuperAdmin(supabase))) {
+      const refusal = await refuseIfPrivilegedRoleKey(supabase, roleKey);
+      if (refusal) {
+        return NextResponse.json({ error: refusal.error }, { status: refusal.status });
+      }
     }
 
     const permissions: Record<string, boolean> = {};

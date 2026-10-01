@@ -780,7 +780,9 @@ export async function POST(request: NextRequest) {
       bulkEditRows,
       institutionScope,
       !!profile.is_super_admin,
-      user.id
+      user.id,
+      true,
+      supabase
     );
 
     // 8. Return result

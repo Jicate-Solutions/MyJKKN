@@ -12,6 +12,12 @@ import {
   describeStaffEmailConflict,
   staffEmailConflictKind
 } from '@/lib/services/staff/synthetic-email';
+import {
+  refuseIdentityChange,
+  refuseIfLinksToAdmin,
+  refuseIfPrivilegedRoleKey
+} from '@/lib/services/staff/staff-admin-powers';
+import { pickStaffCreateFields } from '@/lib/services/staff/staff-patch-fields';
 
 
 // Create admin client for database operations
@@ -491,7 +497,9 @@ export async function POST(request: Request) {
     // Permission check: ask the database via user_has_permission() instead
     // of hardcoding role names. This honours dynamic Role Management grants
     // for any custom role that was given staff.create.
-    let canCreateStaff = !!currentUser.is_super_admin;
+    // Super admin = the is_super_admin flag, nothing else (2026-10-01).
+    const isSuperAdmin = currentUser.is_super_admin === true;
+    let canCreateStaff = isSuperAdmin;
     if (!canCreateStaff) {
       const { data: permResult } = await supabase.rpc('user_has_permission', {
         permission_name: 'staff.create'
@@ -509,32 +517,78 @@ export async function POST(request: Request) {
     // Privileged roles are super-admin-only on create. The insert below uses
     // supabaseAdmin (no auth.uid()), which trg_staff_guard_role_key lets
     // through, so the rule is repeated here.
-    if (!currentUser.is_super_admin && json.role_key) {
+    if (!isSuperAdmin && json.role_key) {
+      // Privileged = the database's one test (is_privileged, or a role name
+      // is_admin() trusts).
       const { data: targetRole } = await supabaseAdmin
         .from('custom_roles')
-        .select('is_privileged')
+        .select('id')
         .eq('role_key', json.role_key)
         .maybeSingle();
-      if (!targetRole || (targetRole as any).is_privileged) {
+      const privileged = targetRole ? await refuseIfPrivilegedRoleKey(supabase, json.role_key) : null;
+      if (!targetRole || privileged) {
         return NextResponse.json(
-          { error: `Only a super administrator can assign the role "${json.role_key}".` },
+          {
+            error:
+              privileged?.status === 500
+                ? privileged.error
+                : `Only a super administrator can assign the role "${json.role_key}".`
+          },
+          { status: privileged?.status ?? 403 }
+        );
+      }
+    }
+
+    // 2026-10-01: a new staff row writes its role and status onto the profile
+    // it points at (sync_staff_to_profiles: profile_id, else the same
+    // institution email). Pointing one at someone with admin powers is super
+    // admin only; the insert below skips the database guard that says so.
+    if (!isSuperAdmin) {
+      const refusal = await refuseIfLinksToAdmin(supabase, null, json.institution_email);
+      if (refusal) {
+        return NextResponse.json({ error: refusal.error }, { status: refusal.status });
+      }
+
+      // A non-super-admin adds people only to institutions they can reach.
+      const { data: hasAccess, error: accessError } = await supabase.rpc(
+        'role_has_institution_access',
+        { check_institution_id: json.institution_id ?? null }
+      );
+      if (accessError || hasAccess !== true) {
+        return NextResponse.json(
+          { error: 'You cannot add a team member to that institution.' },
           { status: 403 }
         );
       }
     }
 
+    // Only the columns the staff form sends — never the raw body. profile_id
+    // is super admin only.
+    const fields = pickStaffCreateFields(json, { isSuperAdmin });
+
     console.log('Creating staff via API route for user:', currentUser.role);
 
     // Normalize empty staff_id to null (matches the staff_staff_id_not_empty
     // DB CHECK and lets the UNIQUE index treat blanks as distinct NULLs).
-    if (json.staff_id === '') json.staff_id = null;
+    if (fields.staff_id === '') fields.staff_id = null;
+
+    // 2026-10-03: for every caller, super admins included: a new record may
+    // not be linked to the caller's own account or the Director's.
+    const identity = await refuseIdentityChange(supabase, null, {
+      profileId: (fields.profile_id as string | null | undefined) ?? null,
+      email: (fields.email as string | null | undefined) ?? null,
+      institutionEmail: (fields.institution_email as string | null | undefined) ?? null
+    });
+    if (identity) {
+      return NextResponse.json({ error: identity.error }, { status: identity.status });
+    }
 
     // Check if staff_id already exists if provided
-    if (json.staff_id) {
+    if (fields.staff_id) {
       const { data: existing } = await supabaseAdmin
         .from('staff')
         .select('id')
-        .eq('staff_id', json.staff_id)
+        .eq('staff_id', fields.staff_id)
         .single();
 
       if (existing) {
@@ -550,7 +604,7 @@ export async function POST(request: Request) {
       .from('staff')
       .insert([
         {
-          ...json,
+          ...fields,
           created_by: session.user.id,
           updated_by: session.user.id
         }

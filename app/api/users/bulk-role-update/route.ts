@@ -6,6 +6,13 @@ import {
   createServiceRoleClient
 } from '@/lib/supabase/server';
 import { z } from 'zod';
+import {
+  ADMIN_ROLE_MESSAGE,
+  SELF_ROLE_MESSAGE,
+  callerIsSuperAdmin,
+  refuseIfLinksToAdmin,
+  refuseRoleChange
+} from '@/lib/services/staff/staff-admin-powers';
 
 const bulkRoleUpdateSchema = z.object({
   userIds: z.array(z.string().uuid()),
@@ -32,10 +39,9 @@ export async function PATCH(request: NextRequest) {
       .eq('id', user.id)
       .single();
 
-    if (
-      !profile ||
-      (profile.role !== 'super_admin' && profile.role !== 'administrator')
-    ) {
+    // Super admin = the is_super_admin flag, nothing else (2026-10-01).
+    const isSuperAdmin = await callerIsSuperAdmin(supabase);
+    if (!profile || !(isSuperAdmin || profile.role === 'administrator')) {
       return NextResponse.json(
         {
           error:
@@ -61,6 +67,12 @@ export async function PATCH(request: NextRequest) {
         { error: 'Invalid role specified' },
         { status: 400 }
       );
+    }
+
+    // 2026-10-01: giving a privileged role is super admin only.
+    const privileged = await refuseRoleChange(supabase, { grantRoleKeys: [role] });
+    if (privileged) {
+      return NextResponse.json({ error: privileged.error }, { status: privileged.status });
     }
 
     // Prevent updating super_admin users (except by other super_admins)
@@ -91,6 +103,20 @@ export async function PATCH(request: NextRequest) {
             error: 'Cannot modify super admin role'
           });
           continue;
+        }
+
+        // 2026-10-01: so is changing the role of someone with admin powers,
+        // or (2026-10-03) one's own role.
+        if (!isSuperAdmin && targetUser.id === user.id) {
+          failed.push({ userId: targetUser.id, error: SELF_ROLE_MESSAGE });
+          continue;
+        }
+        if (!isSuperAdmin) {
+          const holder = await refuseIfLinksToAdmin(supabase, targetUser.id, null, ADMIN_ROLE_MESSAGE);
+          if (holder) {
+            failed.push({ userId: targetUser.id, error: holder.error });
+            continue;
+          }
         }
 
         // Update the user's role in profiles table using service role client

@@ -14,6 +14,12 @@ import { buildAccommodationTypeResolverMulti } from '@/lib/utils/accommodation-t
 import type { LearnerProfile } from '@/types/learner-profile';
 import { randomUUID } from 'crypto';
 import { generateTemporaryPassword } from '@/lib/utils/temporary-password';
+import {
+  ADMIN_ROLE_MESSAGE,
+  refuseIfLinksToAdmin,
+  refuseLearnerCollegeEmail,
+  type RpcClient
+} from '@/lib/services/staff/staff-admin-powers';
 
 // Create admin client for user management
 const supabaseAdmin = createClient(
@@ -92,7 +98,9 @@ export class BulkLearnerUploadService {
    */
   static async processBulkUpload(
     rows: BulkUploadRow[],
-    userId?: string
+    userId: string | undefined,
+    /** The uploader's own (session) client: who they are decides GUARD 4. */
+    sessionClient: RpcClient
   ): Promise<BulkUploadResult> {
     const result: BulkUploadResult = {
       success: true,
@@ -193,6 +201,55 @@ export class BulkLearnerUploadService {
           excludedIndices.add(index);
         }
       });
+    }
+
+    // GUARD 4 (2026-10-03): a college email that belongs to someone with admin
+    // powers would turn their profile into a student's (college, active,
+    // learner link) through the service role below. Checked for EVERY
+    // uploader, super admins included (2026-10-07): the database's learner
+    // email sync refuses such a row for everyone, and inside the batch insert
+    // that one refusal would fail all its rows. Refused here row by row.
+    {
+      const candidates = validRows
+        .map((row, index) => ({ row, index }))
+        .filter(({ index }) => !excludedIndices.has(index));
+      // A row for a learner who already exists (matched by college email, as
+      // batchUpsertLearners matches) keeps the email already on file, so only
+      // the admin-powers check applies to it, as the single learner edit
+      // checks an email only when it changes (2026-10-07): re-uploading a
+      // sheet with, say, a team member who is also studying here must not
+      // fail their row.
+      const existingLearnerIds = new Map<string, string>();
+      const candidateEmails = candidates.map(({ row }) => row.data.college_email).filter(Boolean) as string[];
+      for (let i = 0; i < candidateEmails.length; i += 200) {
+        const { data: found, error: foundError } = await supabaseAdmin
+          .from('learners_profiles')
+          .select('id, college_email')
+          .in('college_email', candidateEmails.slice(i, i + 200));
+        if (foundError) throw new Error(`Failed to check existing learners: ${foundError.message}`);
+        for (const l of (found ?? []) as Array<{ id: string; college_email: string }>) {
+          existingLearnerIds.set(l.college_email.trim().toLowerCase(), l.id);
+        }
+      }
+      for (let i = 0; i < candidates.length; i += 20) {
+        const part = candidates.slice(i, i + 20);
+        const refusals = await Promise.all(
+          part.map(async ({ row }) =>
+            (await refuseIfLinksToAdmin(sessionClient, null, row.data.college_email ?? null, ADMIN_ROLE_MESSAGE))
+            // 2026-10-07: nor, for a NEW learner, the uploader's own email, a
+            // team-member record's, or a non-learner account's.
+            ?? (existingLearnerIds.has(String(row.data.college_email ?? '').trim().toLowerCase())
+              ? null
+              : await refuseLearnerCollegeEmail(sessionClient, row.data.college_email, null))
+          )
+        );
+        part.forEach(({ row, index }, k) => {
+          const refusal = refusals[k];
+          if (!refusal) return;
+          result.errors.push({ row: row.rowNumber, email: row.data.college_email, error: refusal.error });
+          excludedIndices.add(index);
+        });
+      }
     }
 
     // Surface the rejections in the summary + "learners failed" toast so nothing

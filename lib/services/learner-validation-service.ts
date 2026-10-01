@@ -433,7 +433,7 @@ export class LearnerValidationService {
       // Must stay ONE string literal: Supabase parses the selection at the type
       // level, and a concatenated string degrades the row type to
       // GenericStringError (TS2339 on every field below).
-      .select('id, lifecycle_status, institution_id, community_category_id, referral_type, referred_by_id, referred_by_name, reference_type, reference_name, reference_contact')
+      .select('id, lifecycle_status, institution_id, college_email, community_category_id, referral_type, referred_by_id, referred_by_name, reference_type, reference_name, reference_contact')
       .eq('id', learnerId)
       .maybeSingle();
 

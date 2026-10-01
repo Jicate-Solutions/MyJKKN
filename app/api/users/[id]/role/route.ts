@@ -10,6 +10,7 @@ import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
 import { RESOURCE_TYPES } from '@/types/activity';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
+import { callerIsSuperAdmin, refuseRoleChange } from '@/lib/services/staff/staff-admin-powers';
 
 export async function PATCH(
   request: NextRequest,
@@ -82,10 +83,9 @@ export async function PATCH(
       );
     }
 
-    if (
-      currentUser.role !== SYSTEM_ROLES.SUPER_ADMIN &&
-      currentUser.role !== SYSTEM_ROLES.ADMINISTRATOR
-    ) {
+    // Super admin = the is_super_admin flag, nothing else (2026-10-01).
+    const isSuperAdmin = await callerIsSuperAdmin(supabase);
+    if (!isSuperAdmin && currentUser.role !== SYSTEM_ROLES.ADMINISTRATOR) {
       return NextResponse.json(
         {
           success: false,
@@ -141,6 +141,14 @@ export async function PATCH(
         },
         { status: 403 }
       );
+    }
+
+    // 2026-10-01: the role of someone with admin powers, and any privileged
+    // role, are super admin only. The writes below use the service-role
+    // client, which skips the database guards that say so.
+    const refusal = await refuseRoleChange(supabase, { callerId: user.id, targetUserId: userId, grantRoleKeys: [role] });
+    if (refusal) {
+      return NextResponse.json({ success: false, error: refusal.error }, { status: refusal.status });
     }
 
     // Update the user's role using service role client to bypass RLS

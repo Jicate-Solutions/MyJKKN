@@ -1801,6 +1801,8 @@ CREATE TABLE IF NOT EXISTS public.user_child_app_permissions (
 
 -- Profiles indexes
 CREATE INDEX IF NOT EXISTS idx_profiles_email ON public.profiles(email);
+-- Updated: 2026-10-07 - 20271007170139: fn_staff_link_has_admin_powers compares lower(btrim(email)).
+CREATE INDEX IF NOT EXISTS idx_profiles_lower_btrim_email ON public.profiles (lower(btrim(email)));
 CREATE INDEX IF NOT EXISTS idx_profiles_institution_id ON public.profiles(institution_id);
 -- Added 2026-08-13 (Course Events). Partial index — only external
 -- participants set this flag, so the index stays small.

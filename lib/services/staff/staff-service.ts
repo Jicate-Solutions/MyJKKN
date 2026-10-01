@@ -496,7 +496,7 @@ export class StaffService {
       let currentStaff: any = null;
       const { data: fetchedStaff, error: fetchError } = await this.supabase
         .from('staff')
-        .select('institution_email, institution_id, role_key')
+        .select('institution_email, institution_id, role_key, profile_id')
         .eq('id', id)
         .single();
 
@@ -594,14 +594,28 @@ export class StaffService {
         }
       }
 
-      // If institution_id was updated and staff has an institution_email, update the profile
+      // If the college really changed and the record is linked, update the
+      // profile. The form always sends a college, so compare with the record
+      // as it was: a phone-only edit must not write the profile (on someone
+      // with admin powers the profiles guard would refuse it and show a false
+      // error after a successful save). When the old record could not be
+      // read, leave it to the database sync, which copies a real move.
+      // The profile is the one linked by profile_id, never every profile that
+      // happens to carry the institution email, as in PATCH /api/staff/[id]
+      // (2026-10-07).
+      const linkedProfileId = currentStaff?.profile_id;
       const institutionEmail = currentStaff?.institution_email || staff?.institution_email;
-      if (data.institution_id && institutionEmail) {
+      if (
+        data.institution_id &&
+        currentStaff &&
+        data.institution_id !== currentStaff.institution_id &&
+        linkedProfileId
+      ) {
         try {
           const { error: profileUpdateError } = await (this.supabase
             .from('profiles') as any)
             .update({ institution_id: data.institution_id })
-            .eq('email', institutionEmail);
+            .eq('id', linkedProfileId);
 
           if (profileUpdateError) {
             console.warn(

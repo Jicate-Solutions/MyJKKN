@@ -7,6 +7,7 @@ import { RecruitmentService } from '@/lib/services/hr/recruitment-service';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import type { OnboardToStaffPayload } from '@/types/hr-recruitment';
 import { normalizeStaffName } from '@/lib/utils/staff-name';
+import { refuseIdentityChange, refuseIfLinksToAdmin } from '@/lib/services/staff/staff-admin-powers';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -131,6 +132,41 @@ export async function POST(
         },
         { status: 400 }
       );
+    }
+
+    // 2026-10-01: the new staff row writes its role onto the profile with the
+    // same institution email (sync_staff_to_profiles). Pointing it at someone
+    // with admin powers is super admin only; the insert below uses the
+    // service-role client, which skips the database guard that says so.
+    if (!isSuperAdmin && body.institution_email?.trim()) {
+      const refusal = await refuseIfLinksToAdmin(supabase, null, body.institution_email.trim());
+      if (refusal) {
+        return NextResponse.json({ error: refusal.error }, { status: refusal.status });
+      }
+    }
+
+    // 2026-10-03: a non-super-admin onboards only into a college they can
+    // reach (the same check POST /api/staff makes).
+    if (!isSuperAdmin) {
+      const { data: canReach, error: reachError } = await supabase.rpc('role_has_institution_access', {
+        check_institution_id: body.institution_id
+      });
+      if (reachError || canReach !== true) {
+        return NextResponse.json(
+          { error: 'You cannot add a team member to that institution.' },
+          { status: 403 }
+        );
+      }
+    }
+
+    // 2026-10-03: for every caller, super admins included: the new record may
+    // not be linked to the caller's own account or the Director's.
+    const identity = await refuseIdentityChange(supabase, null, {
+      email: body.email?.trim().toLowerCase() ?? null,
+      institutionEmail: body.institution_email?.trim() || null
+    });
+    if (identity) {
+      return NextResponse.json({ error: identity.error }, { status: identity.status });
     }
 
     const admin = createServiceRoleClient();

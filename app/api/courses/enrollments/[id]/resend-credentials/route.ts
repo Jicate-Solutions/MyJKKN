@@ -132,13 +132,25 @@ export const POST = withAuth(
     const contactEmail = typed || (prof.email ? String(prof.email).toLowerCase() : '');
 
     if (typed && !prof.email) {
-      const { error: backfillError } = await admin.rpc(
-        'fn_course_backfill_participant_email',
+      // Through the USER's client, so the database knows who is asking: it
+      // refuses the caller's own profile, the profile of someone with admin
+      // powers, and an address that belongs to someone with admin powers, a
+      // team-member record or another account.
+      const { error: backfillError } = await supabase.rpc(
+        'fn_course_backfill_participant_email' as any,
         { p_profile_id: en.profile_id, p_email: typed } as any,
       );
       if (backfillError) {
-        // Not fatal — the reset itself is what matters, and the address is
-        // still used for this send.
+        // A refusal stops here, before any password changes: the typed
+        // address must not receive this participant's credentials.
+        if (backfillError.code === 'P0001' || backfillError.code === '42501') {
+          return NextResponse.json(
+            { ok: false, error: backfillError.message },
+            { status: backfillError.code === '42501' ? 403 : 400 },
+          );
+        }
+        // Anything else is not fatal: the reset itself is what matters, and
+        // the address is still used for this send.
         console.error('[courses/resend-credentials] email backfill failed:', backfillError.message);
       }
     }

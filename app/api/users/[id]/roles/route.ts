@@ -14,6 +14,7 @@ import { NextResponse , connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { Database } from '@/types/auth';
 import { createClient } from '@supabase/supabase-js';
+import { callerIsSuperAdmin, refuseRoleChange } from '@/lib/services/staff/staff-admin-powers';
 
 // Create admin client for role management
 const supabaseAdmin = createClient(
@@ -157,21 +158,28 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if user has permission to manage users
+    // Check if user has permission to manage users. Super admin = the
+    // is_super_admin flag, nothing else (2026-10-01).
     const { data: currentProfile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
       .eq('id', user.id)
       .single();
 
-    if (
-      profileError ||
-      !['super_admin', 'administrator'].includes(currentProfile?.role || '')
-    ) {
+    const isSuperAdmin = await callerIsSuperAdmin(supabase);
+    if (profileError || !(isSuperAdmin || currentProfile?.role === 'administrator')) {
       return NextResponse.json(
         { error: 'Insufficient permissions to manage user roles' },
         { status: 403 }
       );
+    }
+
+    // 2026-10-01: the roles of someone with admin powers, and any privileged
+    // role, are super admin only. The writes below use supabaseAdmin, which
+    // skips the database guard that says so.
+    const refusal = await refuseRoleChange(supabase, { callerId: user.id, targetUserId: userId, grantRoleIds: role_ids });
+    if (refusal) {
+      return NextResponse.json({ error: refusal.error }, { status: refusal.status });
     }
 
     // Determine primary role
@@ -293,21 +301,28 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if user has permission to manage users
+    // Check if user has permission to manage users. Super admin = the
+    // is_super_admin flag, nothing else (2026-10-01).
     const { data: currentProfile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
       .eq('id', user.id)
       .single();
 
-    if (
-      profileError ||
-      !['super_admin', 'administrator'].includes(currentProfile?.role || '')
-    ) {
+    const isSuperAdmin = await callerIsSuperAdmin(supabase);
+    if (profileError || !(isSuperAdmin || currentProfile?.role === 'administrator')) {
       return NextResponse.json(
         { error: 'Insufficient permissions to manage user roles' },
         { status: 403 }
       );
+    }
+
+    // 2026-10-01: the roles of someone with admin powers, and any privileged
+    // role, are super admin only. The writes below use supabaseAdmin, which
+    // skips the database guard that says so.
+    const refusal = await refuseRoleChange(supabase, { callerId: user.id, targetUserId: userId, grantRoleIds: [roleId] });
+    if (refusal) {
+      return NextResponse.json({ error: refusal.error }, { status: refusal.status });
     }
 
     // Check how many roles the user currently has
@@ -442,21 +457,28 @@ export async function PATCH(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if user has permission to manage users
+    // Check if user has permission to manage users. Super admin = the
+    // is_super_admin flag, nothing else (2026-10-01).
     const { data: currentProfile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
       .eq('id', user.id)
       .single();
 
-    if (
-      profileError ||
-      !['super_admin', 'administrator'].includes(currentProfile?.role || '')
-    ) {
+    const isSuperAdmin = await callerIsSuperAdmin(supabase);
+    if (profileError || !(isSuperAdmin || currentProfile?.role === 'administrator')) {
       return NextResponse.json(
         { error: 'Insufficient permissions to manage user roles' },
         { status: 403 }
       );
+    }
+
+    // 2026-10-01: the roles of someone with admin powers, and any privileged
+    // role, are super admin only. The writes below use supabaseAdmin, which
+    // skips the database guard that says so.
+    const refusal = await refuseRoleChange(supabase, { callerId: user.id, targetUserId: userId, grantRoleIds: [primary_role_id] });
+    if (refusal) {
+      return NextResponse.json({ error: refusal.error }, { status: refusal.status });
     }
 
     // Verify the role is assigned to this user

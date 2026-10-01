@@ -90,6 +90,38 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 2026-10-07: the account made below gets role student and this learner's
+    // link, college and status. Refuse a college email that belongs to
+    // someone with admin powers (profile, sign-in or team-member record), to a
+    // team-member record, or to an account that is not a learner's: the same
+    // rule the learner email sync applies to every learner write.
+    const [adminCheck, takenCheck] = await Promise.all([
+      supabaseAdmin.rpc('fn_staff_link_has_admin_powers', {
+        p_profile_id: null,
+        p_institution_email: learner.college_email,
+      }),
+      supabaseAdmin.rpc('fn_learner_email_taken', {
+        p_email: learner.college_email,
+        p_learner_id: learner.id,
+      }),
+    ]);
+    if (adminCheck.error || takenCheck.error) {
+      console.error('[learners/complete-onboarding] college email check failed:', adminCheck.error ?? takenCheck.error);
+      return NextResponse.json(
+        { error: 'Could not check the college email. No account was created.' },
+        { status: 500 }
+      );
+    }
+    if (adminCheck.data === true || takenCheck.data) {
+      return NextResponse.json(
+        {
+          error:
+            "This learner's college email belongs to an account that is not a learner's. Correct the college email; no account was created.",
+        },
+        { status: 409 }
+      );
+    }
+
     // 3. Check for existing profile
     const { data: existingProfile } = await supabaseAdmin
       .from('profiles')
@@ -141,6 +173,23 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           { error: 'User exists but could not be found.' },
           { status: 500 }
+        );
+      }
+
+      // 2026-10-07: reuse only an ORPHANED sign-in account (no profile). The
+      // upsert below would otherwise overwrite that person's profile (role,
+      // learner link, college) — e.g. one whose profile email differs in case
+      // from the learner's college email, which the check above matches
+      // exactly.
+      const { data: ownedProfile, error: ownedError } = await supabaseAdmin
+        .from('profiles')
+        .select('id')
+        .eq('id', existingUser.id)
+        .maybeSingle();
+      if (ownedError || ownedProfile) {
+        return NextResponse.json(
+          { error: 'A user with this email already has a profile.' },
+          { status: 409 }
         );
       }
 

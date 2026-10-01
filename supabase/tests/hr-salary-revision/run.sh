@@ -49,7 +49,14 @@ fetch_sibling() { # $1 = file glob in supabase/migrations, $2 = git ref, $3 = pa
 echo "== server: $("$BIN/psql" -h 127.0.0.1 -p "$PORT" -U postgres -X -tAc 'select version()' | cut -c1-40)"
 
 # The real objects this migration builds on, cut from the repo.
-{ sed -n '57,65p' "$FN"; sed -n '4119,4127p' "$FN"; sed -n '3422,3451p' "$FN"; sed -n '6740,6797p' "$FN"; } > "$WORK/helpers.sql"
+# Cut by function name, not by line number: an edit anywhere above these
+# functions in 02_functions.sql used to shift the cut (2026-10-07).
+cut_fn() { awk -v start="$1" 'index($0, start) == 1 { on = 1 } on { print } on && /^\$(function)?\$;/ { exit }' "$FN"; }
+{ cut_fn 'CREATE OR REPLACE FUNCTION public.is_super_admin()'
+  cut_fn 'CREATE OR REPLACE FUNCTION get_current_user_institution_id()'
+  cut_fn 'CREATE OR REPLACE FUNCTION public.user_has_permission(permission_name text)'
+  cut_fn 'CREATE OR REPLACE FUNCTION public.role_has_institution_access(check_institution_id uuid)'
+} > "$WORK/helpers.sql"
 echo "   permission helpers loaded: $(grep -c 'CREATE OR REPLACE FUNCTION' "$WORK/helpers.sql") (must be 4)"
 awk '/^CREATE OR REPLACE FUNCTION public.fn_my_staff_ids\(\)/,/^GRANT EXECUTE ON FUNCTION public.fn_my_staff_ids\(\) TO authenticated;/' \
   "$M/20260801002600_hr_leave_rls_permission_retrofit.sql" > "$WORK/my-staff-ids.sql"

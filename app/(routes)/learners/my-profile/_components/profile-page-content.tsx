@@ -14,6 +14,7 @@ import ChangeRequestDialog from './change-request-dialog';
 import { ProfileCompletionIndicator } from './profile-completion-indicator';
 import { ProfileCompletionCard } from './profile-completion-card';
 import { calculateProfileCompletion } from '@/lib/utils/profile-completion';
+import { computeLearnerProfileChanges } from '@/lib/learners/profile-change-diff';
 
 interface ProfilePageContentProps {
   learner: LearnerProfile;
@@ -81,79 +82,9 @@ export default function ProfilePageContent({ learner, userId }: ProfilePageConte
   };
 
   const handleEnquirySubmit = async (formData: any) => {
-    const changes: Record<string, { old: any; new: any }> = {};
-
-    /**
-     * Deep comparison helper that handles:
-     * - Empty string vs null/undefined equivalence
-     * - Object comparison with meaningful values only
-     * - Nested objects (like marks with subjects)
-     */
-    const deepEqual = (a: any, b: any): boolean => {
-      // Treat empty string, null, undefined as equivalent
-      const isEmpty = (v: any) => v === null || v === undefined || v === '';
-
-      if (isEmpty(a) && isEmpty(b)) return true;
-      if (isEmpty(a) !== isEmpty(b)) return false;
-
-      // If types differ, not equal
-      if (typeof a !== typeof b) return false;
-
-      // Handle objects (including arrays)
-      if (typeof a === 'object' && a !== null) {
-        // Get all keys from both objects
-        const allKeys = new Set([...Object.keys(a || {}), ...Object.keys(b || {})]);
-
-        for (const key of allKeys) {
-          const aVal = a?.[key];
-          const bVal = b?.[key];
-
-          // Skip keys where both values are empty
-          if (isEmpty(aVal) && isEmpty(bVal)) continue;
-
-          // Recursively compare
-          if (!deepEqual(aVal, bVal)) return false;
-        }
-        return true;
-      }
-
-      // Primitive comparison (convert to string for consistent comparison)
-      return String(a) === String(b);
-    };
-
-    // Compare formData with learner
-    for (const key in formData) {
-      if (['lifecycle_status', 'is_profile_complete'].includes(key)) continue;
-
-      const newValue = formData[key];
-      const oldValue = (learner as any)[key];
-
-      // Use deep equality check that handles empty values properly
-      const isEqual = deepEqual(newValue, oldValue);
-
-      if (!isEqual) {
-        // Filter out cases where both are effectively empty
-        const isEmpty = (v: any) => v === null || v === undefined || v === '';
-
-        // Handle specific case for objects (empty object vs undefined/null)
-        if (typeof newValue === 'object' && newValue !== null) {
-          // Check if object has any meaningful (non-empty) values
-          const hasMeaningfulValues = (obj: any): boolean => {
-            if (!obj || typeof obj !== 'object') return !isEmpty(obj);
-            return Object.values(obj).some(v => hasMeaningfulValues(v));
-          };
-
-          // Skip if both don't have meaningful values
-          if (!hasMeaningfulValues(newValue) && !hasMeaningfulValues(oldValue)) continue;
-        }
-
-        if (isEmpty(newValue) && isEmpty(oldValue)) continue;
-
-        changes[key] = { old: oldValue, new: newValue };
-      }
-    }
-
-    handleFormSubmit(changes);
+    // Only the fields a learner may ask to change, and only those that really
+    // changed (2026-10-07: the server refuses any other field).
+    handleFormSubmit(computeLearnerProfileChanges(formData, learner as unknown as Record<string, unknown>));
   };
 
   // Handle going back from preview dialog to edit form

@@ -19,6 +19,7 @@ import type {
   LearnerLifecycleFunnel,
 } from '@/types/learner-profile';
 import { STATUS_TRANSITIONS, REQUIRED_FIELDS_BY_STATUS } from '@/types/learner-profile';
+import { refuseLearnerCollegeEmails } from '@/lib/services/staff/staff-admin-powers';
 import type {
   LearnerProfileWithRelations,
   LearnerProfileWithAcademic,
@@ -802,8 +803,25 @@ export class LearnerProfileService {
     const { data: userData } = await supabase.auth.getUser();
     const currentUserId = userData.user?.id;
 
-    // Validate college_email uniqueness before update (prevents cryptic DB constraint errors)
+    // 2026-10-07: the edit form always sends the college email. The checks
+    // and the pre-link below run only when it actually changes (case and
+    // outer spaces ignored): re-checking an unchanged email made a learner
+    // whose email is already on a team-member record uneditable, and the
+    // pre-link would attach whichever profile carries it to this learner.
+    let collegeEmailChanged = false;
     if (dto.college_email) {
+      const { data: storedLearner } = await supabase
+        .from('learners_profiles')
+        .select('college_email')
+        .eq('id', id)
+        .maybeSingle() as { data: { college_email?: string | null } | null; error: any };
+      collegeEmailChanged =
+        String(dto.college_email).trim().toLowerCase() !==
+        String(storedLearner?.college_email ?? '').trim().toLowerCase();
+    }
+
+    // Validate college_email uniqueness before update (prevents cryptic DB constraint errors)
+    if (dto.college_email && collegeEmailChanged) {
       const { data: existingLearner } = await supabase
         .from('learners_profiles')
         .select('id, first_name, last_name')
@@ -815,6 +833,18 @@ export class LearnerProfileService {
         throw new Error(
           `Email "${dto.college_email}" is already assigned to another learner: ${existingLearner.first_name} ${existingLearner.last_name || ''}`.trim()
         );
+      }
+
+      // 2026-10-07: before anything below pre-links a profile found by this
+      // email, refuse an email that belongs to someone with admin powers, to
+      // the person editing, to a team-member record or to a non-learner
+      // account. Pre-linking first would make that account this learner's own
+      // and the learner email sync would then let it through.
+      const [emailRefusal] = await refuseLearnerCollegeEmails(supabase as any, [
+        { row: 0, email: dto.college_email, learnerId: id }
+      ]);
+      if (emailRefusal) {
+        throw new Error(emailRefusal.error);
       }
 
       // Also check profiles table for profiles with this email that belong to a different learner

@@ -246,6 +246,9 @@ export function BasicDetailsSection({
       {isStudentView && (
         <div className="space-y-4 border-t pt-4">
           <h3 className="text-lg font-semibold">Academic Identification</h3>
+          {/* Roll and register numbers are set by the office; a change request
+              cannot carry them (2026-10-07). */}
+          <p className="text-sm text-muted-foreground">Ask your department office to correct these.</p>
           <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
             <FormField
               control={form.control}
@@ -254,7 +257,7 @@ export function BasicDetailsSection({
                 <FormItem>
                   <FormLabel>Roll Number</FormLabel>
                   <FormControl>
-                    <Input placeholder="Enter your roll number" {...field} value={field.value || ''} />
+                    <Input placeholder="Enter your roll number" {...field} value={field.value || ''} disabled />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -268,7 +271,7 @@ export function BasicDetailsSection({
                 <FormItem>
                   <FormLabel>Register Number</FormLabel>
                   <FormControl>
-                    <Input placeholder="Enter your register number" {...field} value={field.value || ''} />
+                    <Input placeholder="Enter your register number" {...field} value={field.value || ''} disabled />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

@@ -563,7 +563,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 6. Process bulk upload
-    const result = await BulkLearnerUploadService.processBulkUpload(bulkUploadRows, user.id);
+    const result = await BulkLearnerUploadService.processBulkUpload(bulkUploadRows, user.id, supabase);
 
     // Adoption loop: ONE use per upload that inserted at least one new learner
     // profile — not one per row, and not for an upload that only matched

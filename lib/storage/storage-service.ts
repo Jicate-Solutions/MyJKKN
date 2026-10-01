@@ -717,10 +717,17 @@ export class StorageService {
                 .from(BUCKETS.STAFF_PHOTOS) // This now correctly points to 'staff-images'
                 .getPublicUrl(filePath);
 
-              await (this.supabase as any)
+              // A refused or silently blocked write (row-level security
+              // matching no row) must land in `failed`, not `success`.
+              const { data: savedRows, error: saveError } = await (this.supabase as any)
                 .from('staff')
                 .update({ profile_picture: urlData.publicUrl })
-                .eq('id', (staffMember as any).id);
+                .eq('id', (staffMember as any).id)
+                .select('id');
+              if (saveError) throw new Error(saveError.message);
+              if (!savedRows || savedRows.length === 0) {
+                throw new Error("The photo was uploaded but you cannot change this person's record.");
+              }
 
               results.success.push({
                 staff_id: staffId,

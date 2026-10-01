@@ -101,7 +101,8 @@ export async function POST(request: NextRequest) {
       profileData.institution_id || undefined,
       true, // super admin (route is gated)
       user.id,
-      false // requireActive=false → enquiry (non-active) scope
+      false, // requireActive=false → enquiry (non-active) scope
+      supabase
     );
 
     return NextResponse.json(result);
