@@ -87,3 +87,22 @@ describe('matchResumeFileDetailed — one file, one person', () => {
     expect(matchResumeFileDetailed('nobody.pdf', [f('cv.pdf')])).toEqual({ file: null, ambiguous: false });
   });
 });
+
+describe('a generic name never stands in for a person\u2019s file (seventh review)', () => {
+  const f = (name: string) => ({ name });
+  it('"Resume.pdf" is not "Priya_Sharma_Resume.pdf", in either direction', () => {
+    expect(matchResumeFileDetailed('Priya_Sharma_Resume.pdf', [f('Resume.pdf')]).file).toBeNull();
+    expect(matchResumeFileDetailed('Resume.docx', [f('Priya_Resume.pdf')]).file).toBeNull();
+    expect(matchResumeFileDetailed('Curriculum_Vitae_Updated.pdf', [f('Priya_Curriculum_Vitae_Updated_Final.pdf')]).file).toBeNull();
+  });
+  it('a similar name that does identify the person still matches, marked as only similar', () => {
+    const m = matchResumeFileDetailed('Priyadarshini_Resume.pdf', [f('Priyadarshini_Resume_2025.pdf')]);
+    expect(m.file?.name).toBe('Priyadarshini_Resume_2025.pdf');
+    expect(m.tier).toBe('contains');
+  });
+  it('reports how the name matched', () => {
+    expect(matchResumeFileDetailed('A.pdf', [f('a.PDF')]).tier).toBe('exact');
+    expect(matchResumeFileDetailed('Image00732_1812345678901.pdf', [f('Image00732.pdf')]).tier).toBe('number');
+  });
+});
+

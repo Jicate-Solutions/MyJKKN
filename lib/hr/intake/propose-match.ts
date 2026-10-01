@@ -47,6 +47,8 @@ export interface ProposeInput {
    * uploading college cannot even see them.
    */
   batch_institution_id?: string | null;
+  /** How the resume's file name matched (resume-files tiers); 'contains' is only a similar name. */
+  resume_match?: 'exact' | 'stem' | 'number' | 'contains' | null;
   /** For a same_file row: the candidate on the row it points at. */
   duplicate_of_candidate?: Pick<IntakeCandidate, 'email' | 'phone'> | null;
   /** For a same_file row: whether that row has a resume paired. */
@@ -233,11 +235,60 @@ function scoreJobs(input: ProposeInput, cvTitle: string): Scored[] {
  * low, with the reason first, so "Accept all high-confidence" never picks it up.
  */
 export function proposeMatch(input: ProposeInput): IntakeProposal {
-  const p = capOtherCollege(input, proposeFromEvidence(input));
+  const p = requirePositiveEvidence(input, capOtherCollege(input, proposeFromEvidence(input)));
   if (p.action !== 'file_under_job') return p;
   const blockers = filingBlockers(input.candidate, input.resume_uploaded);
   if (blockers.length === 0) return p;
   return { ...p, confidence: 'low', reasons: [...blockers, ...p.reasons] };
+}
+
+/** Words in a post's title or department that name no subject. */
+const POST_WORDS = new Set([
+  'professor', 'lecturer', 'teacher', 'faculty', 'officer', 'technician', 'staff', 'clerk', 'manager', 'principal',
+  'director', 'dean', 'coordinator', 'executive', 'trainer', 'instructor', 'lab', 'laboratory', 'department',
+  'dept', 'section', 'office', 'administrative', 'administration', 'admin', 'general', 'support', 'keeper', 'store',
+]);
+/** Words in a qualification that name no subject ("M.Sc.", "Ph.D.", "Master of Arts"). */
+const DEGREE_WORDS = new Set([
+  'master', 'masters', 'bachelor', 'bachelors', 'degree', 'diploma', 'doctorate', 'doctor', 'philosophy', 'phil',
+  'mphil', 'phd', 'science', 'sciences', 'arts', 'msc', 'bsc', 'mba', 'mca', 'bca', 'mcom', 'bcom', 'btech',
+  'mtech', 'net', 'set', 'slet', 'gate', 'graduate', 'post', 'pg', 'ug', 'honours', 'hons', 'education',
+]);
+const subjectWordsOf = (...values: (string | null | undefined)[]) =>
+  new Set(values.flatMap((v) => titleTokens(v ?? '')).filter((t) => t.length >= 4 && !DEGREE_WORDS.has(t) && !RANK_WORDS.has(t)));
+
+/**
+ * "High" means one "Accept all high" tap may file the person, so it needs
+ * POSITIVE evidence, not just the absence of a contradiction:
+ * - the resume was paired by its own name, not only a similar one;
+ * - when the post names a subject (in its title or department), the CVViZ
+ *   title, the resume's subject or the qualification names it too, and none of
+ *   the resume's subject or qualification points elsewhere.
+ * Anything short of that is medium, with the reason first.
+ */
+function requirePositiveEvidence(input: ProposeInput, p: IntakeProposal): IntakeProposal {
+  if (p.action !== 'file_under_job' || p.confidence !== 'high') return p;
+  const down = (reason: string): IntakeProposal => ({ ...p, confidence: 'medium', reasons: [reason, ...p.reasons] });
+  if (input.resume_match === 'contains') {
+    return down('Resume matched only by a similar file name: check it is this person\u2019s');
+  }
+  const job = input.openJobs.find((j) => j.id === p.job_id);
+  if (!job) return p;
+  const postSubject = new Set(
+    [...titleTokens(job.title), ...titleTokens(job.department_name ?? '')].filter(
+      (t) => !POST_WORDS.has(t) && !RANK_WORDS.has(t),
+    ),
+  );
+  if (postSubject.size === 0) return p;
+  const evidence = subjectWordsOf(input.extract?.subject, input.candidate.qualification, input.extract?.qualification);
+  const named = intersects(titleTokens(input.candidate.cvviz_job_title ?? ''), postSubject);
+  if (evidence.size > 0 && !intersects(evidence, postSubject)) {
+    return down(`The resume or qualification (${[...evidence].join(', ')}) does not match this post's subject`);
+  }
+  if (!named && !intersects(evidence, postSubject)) {
+    return down('Nothing in the CVViZ title or the resume names this post\u2019s subject: check before filing');
+  }
+  return p;
 }
 
 function capOtherCollege(input: ProposeInput, p: IntakeProposal): IntakeProposal {
