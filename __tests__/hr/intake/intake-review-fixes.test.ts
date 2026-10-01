@@ -516,3 +516,65 @@ describe('third review (fresh blind review of 2177cb0c9b)', () => {
     expect(rawRow(row.id)).toMatchObject(before);
   });
 });
+
+describe('fourth review (fresh blind review of 67aa3e9cf5)', () => {
+  it('blocker: two people sharing a phone and naming one file get neither; nothing is auto-decided', async () => {
+    const { batch, rows } = await runBatch(
+      [{ name: 'cv.pdf', bytes: PDF('cv') }],
+      tsv('cv.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal', 'cv.pdf\tBala\tbala@example.test\t9811111111\tPrincipal'),
+    );
+    for (const r of rows) {
+      expect(r.resume.storage_path).toBeNull();
+      expect(r.proposal.confidence).not.toBe('high');
+      expect(r.proposal.reasons).toContain(SHARED_RESUME_NOTE);
+    }
+    expect(await acceptHigh(deps(), HR, batch.id)).toEqual({ decided: 0 });
+  });
+
+  it('the same email on two rows may still share one file', async () => {
+    const { rows } = await runBatch(
+      [{ name: 'cv.pdf', bytes: PDF('cv') }],
+      tsv('cv.pdf\tAsha\tasha@example.test\t9811111111\tPrincipal', 'cv.pdf\tAsha\tASHA@example.test\t9811111112\tPrincipal'),
+    );
+    expect(rowAt(rows, 1).resume.storage_path).not.toBeNull();
+    expect(rowAt(rows, 2).resume.storage_path).toBe(rowAt(rows, 1).resume.storage_path);
+  });
+
+  it('a failed prepare never deletes the rows of a batch that did become ready', async () => {
+    const d = deps();
+    const { batch } = await createBatch(d, HR, { name: 'e.tsv', bytes: tsv('\tAsha\tasha@example.test\t9811111111\tPrincipal') });
+    // The "ready" write lands, but its reply is lost (the hook runs after the
+    // write and before the reply, so arming here hits exactly this write).
+    fake.afterUpdate = (table, patch) => {
+      if (table === 'hr_intake_batches' && (patch as { status?: string }).status === 'ready') {
+        fake.lostReplies.set('hr_intake_batches.update', { message: 'connection reset' });
+        fake.afterUpdate = null;
+      }
+    };
+    await expect(prepareBatch(d, HR, batch.id, { uploaded: [] })).rejects.toBeTruthy();
+    expect(fake.table('hr_intake_batches').find((x) => x.id === batch.id)!.status).toBe('ready');
+    expect(fake.table('hr_intake_rows')).toHaveLength(1);
+  });
+
+  it('cards cannot be decided, accepted or filed while the batch is still being prepared', async () => {
+    const { batch, row } = await decidedRow();
+    fake.table('hr_intake_batches').find((b) => b.id === batch.id)!.status = 'preparing';
+    await expect(decide(deps(), HR, row.id, { action: 'skip' })).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/being prepared/) });
+    await expect(acceptHigh(deps(), HR, batch.id)).rejects.toMatchObject({ status: 409 });
+    await expect(apply(deps(), HR, batch.id)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('a person filed once, whose application was later removed, is never filed again', async () => {
+    const { batch, row } = await decidedRow();
+    await apply(deps(), HR, batch.id);
+    // The batch closed; reopen it to model another card still open, then purge the application.
+    fake.table('hr_intake_batches').find((b) => b.id === batch.id)!.status = 'ready';
+    rawRow(row.id).application_id = null;
+    fake.tables['hr_job_applications'] = [];
+    const { results } = await apply(deps(), HR, batch.id);
+    expect(results[0]).toMatchObject({ ok: false, error: expect.stringMatching(/Filed once already/) });
+    expect(fake.table('hr_job_applications')).toHaveLength(0);
+    await expect(decide(deps(), HR, row.id, { action: 'file_under_job', job_id: J.principal.id })).rejects.toMatchObject({ status: 409 });
+  });
+});
+
