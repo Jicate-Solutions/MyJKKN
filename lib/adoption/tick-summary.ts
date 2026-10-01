@@ -24,6 +24,8 @@ export interface AdoptionTickResult {
       remind_note?: string | null;
     }
   >;
+  /** The usage copy the run does first (migration 20270404090000). */
+  usage_sync?: { success?: boolean; error?: string; skipped?: string; features?: number; rows?: number };
 }
 
 /** One line for the log and the dispatcher's status column. */
@@ -34,5 +36,11 @@ export function summariseTick(result: AdoptionTickResult): string {
   const prefix = result.dry_run ? 'would ask' : 'asked';
   const verb = result.dry_run ? 'would remind' : 'reminded';
   const cap = result.capped ? ` (cap ${result.cap} reached — the rest go on a later day)` : '';
-  return `${prefix} ${asked}, ${verb} ${reminded}${cap}`;
+  // A failed copy does not stop the run (the 7-day stale guard covers it), so
+  // the line must say so — otherwise it reads like a normal day.
+  const copy =
+    result.usage_sync?.success === false
+      ? ` · usage copy FAILED (${result.usage_sync.error ?? 'no reason given'}) — sent from the last good copy`
+      : '';
+  return `${prefix} ${asked}, ${verb} ${reminded}${cap}${copy}`;
 }

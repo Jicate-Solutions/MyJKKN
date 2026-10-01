@@ -145,6 +145,14 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
                 <ArrowRightLeft className="mr-2 h-4 w-4" />
                 Transfer
               </Button>
+              {(isSuperAdmin || !!permissions?.['campus_living.vacate_requests.submit_on_behalf']) && (
+                <Button asChild variant="outline">
+                  <Link href={`/campus-living/vacate-requests/new?allocation=${id}`}>
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Raise vacate request
+                  </Link>
+                </Button>
+              )}
               <Button variant="destructive" onClick={() => setVacateOpen(true)}>
                 <LogOut className="mr-2 h-4 w-4" />
                 Vacate

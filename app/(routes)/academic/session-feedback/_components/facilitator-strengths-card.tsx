@@ -43,6 +43,7 @@ import { Badge } from '@/components/ui/badge';
 import { useFacilitatorStrengths } from '@/hooks/use-facilitator-strengths';
 import type { FacilitatorStrengthRow } from '@/types/facilitator-strengths';
 import { UnderstandingBand } from '@/components/session-feedback/understanding-band';
+import { loadErrorHeadline } from './load-error-copy';
 
 const BRAND_GREEN = '#0b6d41';
 
@@ -226,8 +227,10 @@ function StrengthsShell({
       <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
         <AlertTriangle className="h-10 w-10 text-amber-500" />
         <p className="max-w-md text-sm font-medium text-foreground">
-          You don&apos;t have access to the all-college dashboard — contact your
-          administrator.
+          {loadErrorHeadline(
+            error,
+            "You don't have access to the all-college dashboard — contact your administrator.",
+          )}
         </p>
         {error instanceof Error && error.message ? (
           <p className="max-w-md text-xs text-muted-foreground">{error.message}</p>

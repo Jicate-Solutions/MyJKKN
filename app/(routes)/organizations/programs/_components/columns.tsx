@@ -19,6 +19,7 @@ export const getColumns = (adaptLabel?: (label: string) => string): ColumnDef<Pr
         checked={table.getIsAllPageRowsSelected()}
         onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
         aria-label='Select all'
+        
       />
     ),
     cell: ({ row }) => (
@@ -26,10 +27,12 @@ export const getColumns = (adaptLabel?: (label: string) => string): ColumnDef<Pr
         checked={row.getIsSelected()}
         onCheckedChange={(value) => row.toggleSelected(!!value)}
         aria-label='Select row'
+      
       />
     ),
     enableSorting: false,
     enableHiding: false,
+    enableResizing: false,
     size: 40,
     minSize: 40,
     maxSize: 40
