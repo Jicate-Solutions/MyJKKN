@@ -37,9 +37,11 @@ export interface CandidateCardProps {
   /** Pre-computed duplicate notice (needs the whole batch to number rows). */
   duplicateNote: string | null;
   onDecide: (req: DecideRequest) => Promise<unknown>;
+  /** Set while the upload is not open for decisions (closed, or still being read): why. */
+  lockedReason?: string | null;
 }
 
-export function CandidateCard({ row, cardNumber, openJobs, duplicateNote, onDecide }: CandidateCardProps) {
+export function CandidateCard({ row, cardNumber, openJobs, duplicateNote, onDecide, lockedReason = null }: CandidateCardProps) {
   const [busy, setBusy] = useState(false);
   const [picking, setPicking] = useState(false);
   const inFlight = useRef(false);
@@ -206,8 +208,9 @@ export function CandidateCard({ row, cardNumber, openJobs, duplicateNote, onDeci
         )
       )}
 
-      {/* One-tap actions */}
-      {!filed && (
+      {/* One-tap actions: only while the upload is open for decisions */}
+      {!filed && lockedReason && <p className="text-sm text-muted-foreground">{lockedReason}</p>}
+      {!filed && !lockedReason && (
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
             <Button

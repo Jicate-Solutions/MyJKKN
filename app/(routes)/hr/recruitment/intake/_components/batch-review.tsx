@@ -52,6 +52,13 @@ export function BatchReview({ batchId }: { batchId: string }) {
   }
 
   const { batch, open_jobs: openJobs } = data;
+  // The server refuses decisions and filing unless the upload is ready.
+  const lockedReason =
+    batch.status === 'closed'
+      ? 'This upload is closed. Its cards can no longer be changed.'
+      : batch.status === 'preparing'
+        ? 'The helper is still reading this upload. Decide once it is ready.'
+        : null;
 
   async function handleDecide(rowId: string, req: DecideRequest) {
     try {
@@ -138,7 +145,7 @@ export function BatchReview({ batchId }: { batchId: string }) {
       <div className="flex flex-col gap-2 sm:flex-row">
         <Button
           type="button"
-          disabled={summary.toApply.length === 0 || apply.isPending}
+          disabled={summary.toApply.length === 0 || apply.isPending || !!lockedReason}
           onClick={() => void handleApply()}
         >
           {apply.isPending ? (
@@ -228,6 +235,7 @@ export function BatchReview({ batchId }: { batchId: string }) {
               openJobs={openJobs}
               duplicateNote={duplicateText(row, numberById)}
               onDecide={(req) => handleDecide(row.id, req)}
+              lockedReason={lockedReason}
             />
           ))}
         </div>

@@ -23,7 +23,7 @@ import { CandidateCard } from '../candidate-card';
 import { BatchReview } from '../batch-review';
 import { BatchList } from '../batch-list';
 import { RulesList } from '../rules-list';
-import { IntakeUploadForm } from '../intake-upload-form';
+import { checkIntakeFiles, IntakeUploadForm } from '../intake-upload-form';
 import { getIntakeBatch } from '@/lib/hr/intake/api-client';
 
 // ---------------------------------------------------------------------------
@@ -408,5 +408,50 @@ describe('Upload form: a college picker only when the server asks for one (revie
     fireEvent.click(screen.getByRole('button', { name: 'Upload and review' }));
     await waitFor(() => expect(nav.push).toHaveBeenCalledWith('/hr/recruitment/intake/b9'));
     expect(posted[1].get('institution_id')).toBe('c2');
+  });
+});
+
+describe('A closed or still-preparing upload shows no live card buttons (follow-up 5)', () => {
+  for (const status of ['closed', 'preparing'] as const) {
+    it(`${status}: no decision buttons, filing is off, and the page says why`, async () => {
+      handler = (url, init) => {
+        const method = init?.method ?? 'GET';
+        if (method === 'GET' && url.endsWith('/batches/b1')) {
+          return json({ batch: { ...BATCH, status }, rows: [ROW1, ROW3], open_jobs: JOBS });
+        }
+        return json({ error: `unexpected ${method} ${url}` }, 500);
+      };
+      renderWithQuery(<BatchReview batchId="b1" />);
+      const card = await screen.findByRole('article', { name: /Candidate 1: Anitha K/ });
+      for (const name of ['Accept', 'Change job', 'Needs a new job', 'Skip']) {
+        expect(within(card).queryByRole('button', { name })).toBeNull();
+      }
+      expect(
+        within(card).getByText(status === 'closed' ? /This upload is closed/ : /still reading this upload/),
+      ).toBeTruthy();
+      const fileButton = screen.getByRole('button', { name: /File decided candidates/ }) as HTMLButtonElement;
+      expect(fileButton.disabled).toBe(true);
+    });
+  }
+
+  it('ready: the buttons are there', async () => {
+    handler = (url, init) => {
+      if ((init?.method ?? 'GET') === 'GET' && url.endsWith('/batches/b1')) return json({ batch: BATCH, rows: [ROW1], open_jobs: JOBS });
+      return json({ error: 'unexpected' }, 500);
+    };
+    renderWithQuery(<BatchReview batchId="b1" />);
+    const card = await screen.findByRole('article', { name: /Candidate 1: Anitha K/ });
+    expect(within(card).getByRole('button', { name: 'Accept' })).toBeTruthy();
+  });
+});
+
+describe('The upload form takes every export type the server reads (follow-up 6)', () => {
+  it('.xls and .txt exports pass the form check, and the picker offers them', () => {
+    expect(checkIntakeFiles(new File(['x'], 'cvviz.xls'), [])).toBeNull();
+    expect(checkIntakeFiles(new File(['x'], 'cvviz.txt'), [])).toBeNull();
+    expect(checkIntakeFiles(new File(['x'], 'cvviz.pdf'), [])).toMatch(/must be/);
+    renderWithQuery(<IntakeUploadForm />);
+    const accept = (screen.getByLabelText(/The CVViZ export/) as HTMLInputElement).accept.split(',');
+    expect(accept).toEqual(expect.arrayContaining(['.csv', '.tsv', '.txt', '.xlsx', '.xls']));
   });
 });
