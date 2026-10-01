@@ -11124,3 +11124,13 @@ CREATE INDEX IF NOT EXISTS idx_sign_out_notices_parent_unseen
 
 COMMENT ON TABLE public.sign_out_notices IS
   'An admin signed this person out of all devices; shown once after their next sign-in (Director ruling 2026-10-02). Written by the service role only.';
+
+
+-- ============================================================================
+-- Updated: 2026-10-03 - Leave eligibility: whose row it is, kept on the row.
+-- Mirror of supabase/migrations/20271003101521_hr_leave_eligibility_system_chain.sql (column)
+-- ============================================================================
+ALTER TABLE public.hr_leave_eligibilities ADD COLUMN IF NOT EXISTS subject_profile_id uuid;
+
+COMMENT ON COLUMN public.hr_leave_eligibilities.subject_profile_id IS
+  'Whose eligibility this is, fixed at insert (staff link, else the one account matching the staff email or institution email). Migration 20271003101521.';

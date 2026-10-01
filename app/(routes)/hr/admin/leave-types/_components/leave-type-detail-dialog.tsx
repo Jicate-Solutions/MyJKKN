@@ -333,7 +333,7 @@ function ApprovalFlowSection({ t }: { t: HRLeaveType }) {
 
 /**
  * Who decides ELIGIBILITY for a gated type (2026-09-21). Resolved the way
- * LeaveEligibilityService.buildEligibilityChain does: the type's eligibility
+ * fn_hr_leave_eligibility_build_chain (the database) does: the type's eligibility
  * flow, else the institution's eligibility catch-all, else the LEAVE flow —
  * a documented fallback, so that state is described, not flagged.
  */
