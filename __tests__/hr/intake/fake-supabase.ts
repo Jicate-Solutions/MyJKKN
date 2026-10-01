@@ -1,0 +1,180 @@
+/**
+ * A small in-memory stand-in for the supabase-js query builder and storage,
+ * covering exactly what the intake service calls. It does NOT model RLS — the
+ * policies are proven against real PostgreSQL in intake-schema.pg.test.ts.
+ */
+import { randomUUID } from 'crypto';
+
+type Row = Record<string, unknown>;
+type Filter = (r: Row) => boolean;
+type Failure = { code?: string; message: string };
+
+const clone = <T>(v: T): T => (v === undefined ? v : JSON.parse(JSON.stringify(v)));
+const isNullish = (v: unknown) => v === null || v === undefined;
+
+function likeToRegex(pattern: string): RegExp {
+  const esc = pattern.replace(/[.+^${}()|[\]\\?]/g, '\\$&').replace(/%/g, '.*').replace(/_/g, '.');
+  return new RegExp(`^${esc}$`, 'i');
+}
+
+function orFilter(expr: string): Filter {
+  const parts = expr.split(',').map((p) => {
+    const [col, op, ...rest] = p.split('.');
+    const value = rest.join('.');
+    return (r: Row) => {
+      const v = r[col];
+      if (op === 'is') return value === 'null' ? isNullish(v) : String(v) === value;
+      if (op === 'eq') return String(v) === value;
+      if (op === 'lt') return !isNullish(v) && String(v) < value;
+      if (op === 'ilike') return !isNullish(v) && likeToRegex(value).test(String(v));
+      throw new Error(`fake or(): unsupported op ${op}`);
+    };
+  });
+  return (r) => parts.some((f) => f(r));
+}
+
+export class FakeSupabase {
+  tables: Record<string, Row[]> = {};
+  objects = new Map<string, { bytes: Uint8Array; contentType?: string }>();
+  /** `${table}.${op}` -> error returned once. */
+  failures = new Map<string, Failure>();
+  log: string[] = [];
+
+  table(name: string): Row[] {
+    this.tables[name] ??= [];
+    return this.tables[name];
+  }
+
+  from(name: string) {
+    return new Query(this, name);
+  }
+
+  storage = {
+    from: (bucket: string) => ({
+      upload: async (path: string, bytes: Uint8Array, opts?: { contentType?: string; upsert?: boolean }) => {
+        const key = `${bucket}/${path}`;
+        if (this.objects.has(key) && !opts?.upsert) return { data: null, error: { message: 'The resource already exists' } };
+        this.objects.set(key, { bytes, contentType: opts?.contentType });
+        return { data: { path }, error: null };
+      },
+      download: async (path: string) => {
+        const o = this.objects.get(`${bucket}/${path}`);
+        if (!o) return { data: null, error: { message: 'Object not found' } };
+        return { data: new Blob([o.bytes]), error: null };
+      },
+      remove: async (paths: string[]) => {
+        for (const p of paths) this.objects.delete(`${bucket}/${p}`);
+        this.log.push(`remove ${paths.length}`);
+        return { data: paths.map((name) => ({ name })), error: null };
+      },
+      list: async (prefix: string) => {
+        const names = [...this.objects.keys()]
+          .filter((k) => k.startsWith(`${bucket}/${prefix}/`))
+          .map((k) => k.slice(`${bucket}/${prefix}/`.length))
+          .filter((n) => !n.includes('/'));
+        return { data: names.map((name) => ({ name })), error: null };
+      },
+      createSignedUploadUrl: async (path: string) => ({
+        data: { signedUrl: `https://storage.example/upload/${path}?token=t`, token: `t-${path}`, path },
+        error: null,
+      }),
+    }),
+  };
+
+  /** What a client sees: one object can play both the session and the admin client. */
+  asClient(): never {
+    return this as never;
+  }
+}
+
+class Query implements PromiseLike<{ data: unknown; error: Failure | null }> {
+  private op: 'select' | 'insert' | 'update' | 'delete' = 'select';
+  private filters: Filter[] = [];
+  private payload: unknown;
+  private returning = false;
+  private mode: 'many' | 'single' | 'maybe' = 'many';
+  private orderBy: { col: string; asc: boolean } | null = null;
+  private limitN: number | null = null;
+
+  constructor(private db: FakeSupabase, private name: string) {}
+
+  select(_cols?: string) {
+    if (this.op === 'select') return this;
+    this.returning = true;
+    return this;
+  }
+  insert(p: unknown) { this.op = 'insert'; this.payload = p; return this; }
+  update(p: unknown) { this.op = 'update'; this.payload = p; return this; }
+  delete() { this.op = 'delete'; return this; }
+  eq(c: string, v: unknown) { this.filters.push((r) => r[c] === v); return this; }
+  neq(c: string, v: unknown) { this.filters.push((r) => r[c] !== v); return this; }
+  in(c: string, vs: unknown[]) { this.filters.push((r) => vs.includes(r[c])); return this; }
+  is(c: string, v: null) { this.filters.push((r) => (v === null ? isNullish(r[c]) : r[c] === v)); return this; }
+  lt(c: string, v: string) { this.filters.push((r) => !isNullish(r[c]) && String(r[c]) < v); return this; }
+  or(expr: string) { this.filters.push(orFilter(expr)); return this; }
+  order(col: string, o?: { ascending?: boolean }) { this.orderBy = { col, asc: o?.ascending !== false }; return this; }
+  limit(n: number) { this.limitN = n; return this; }
+  single() { this.mode = 'single'; return this; }
+  maybeSingle() { this.mode = 'maybe'; return this; }
+
+  then<A = { data: unknown; error: Failure | null }, B = never>(
+    ok?: ((v: { data: unknown; error: Failure | null }) => A | PromiseLike<A>) | null,
+    bad?: ((e: unknown) => B | PromiseLike<B>) | null,
+  ): PromiseLike<A | B> {
+    return Promise.resolve().then(() => this.run()).then(ok, bad);
+  }
+
+  private run(): { data: unknown; error: Failure | null } {
+    const failure = this.db.failures.get(`${this.name}.${this.op}`);
+    if (failure) {
+      this.db.failures.delete(`${this.name}.${this.op}`);
+      return { data: null, error: failure };
+    }
+    const table = this.db.table(this.name);
+    const match = (r: Row) => this.filters.every((f) => f(r));
+    let out: Row[] = [];
+    const now = new Date().toISOString();
+
+    if (this.op === 'select') {
+      out = table.filter(match);
+      if (this.orderBy) {
+        const { col, asc } = this.orderBy;
+        out = [...out].sort((a, b) => (String(a[col]) < String(b[col]) ? -1 : String(a[col]) > String(b[col]) ? 1 : 0) * (asc ? 1 : -1));
+      }
+      if (this.limitN !== null) out = out.slice(0, this.limitN);
+    } else if (this.op === 'insert') {
+      const list = (Array.isArray(this.payload) ? this.payload : [this.payload]) as Row[];
+      for (const p of list) {
+        const row: Row = { id: randomUUID(), created_at: now, updated_at: now, ...clone(p) };
+        if (this.name === 'hr_intake_match_rules') row.times_used ??= 0;
+        if (this.name === 'hr_intake_rows') row.decision_corrected ??= false;
+        if (this.name === 'hr_intake_batches') row.skipped_files ??= [];
+        if (this.name === 'hr_job_applications' && table.some((t) => t.id === row.id)) {
+          return { data: null, error: { code: '23505', message: 'duplicate key' } };
+        }
+        table.push(row);
+        out.push(row);
+      }
+      this.db.log.push(`insert ${this.name} ${list.length}`);
+    } else if (this.op === 'update') {
+      for (const r of table.filter(match)) {
+        Object.assign(r, clone(this.payload), { updated_at: now });
+        out.push(r);
+      }
+      this.db.log.push(`update ${this.name} ${out.length}`);
+    } else {
+      const keep: Row[] = [];
+      for (const r of table) (match(r) ? out : keep).push(r);
+      this.db.tables[this.name] = keep;
+      this.db.log.push(`delete ${this.name} ${out.length}`);
+    }
+
+    if (this.op !== 'select' && !this.returning) return { data: null, error: null };
+    const data = clone(out);
+    if (this.mode === 'single') {
+      return data.length === 1 ? { data: data[0], error: null } : { data: null, error: { code: 'PGRST116', message: `expected 1 row, got ${data.length}` } };
+    }
+    if (this.mode === 'maybe') return { data: data[0] ?? null, error: null };
+    return { data, error: null };
+  }
+}

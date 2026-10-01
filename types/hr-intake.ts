@@ -162,8 +162,16 @@ export interface IntakeOpenJob {
 // ---------------------------------------------------------------------------
 // API contract (routes under /api/hr/recruitment/intake)
 // ---------------------------------------------------------------------------
-// POST   /batches                 multipart: `export` (one .csv/.xlsx/.tsv), `resumes` (0..n PDF/DOC/DOCX, or one .zip)
-//                                 → 201 { batch: IntakeBatch }
+// POST   /batches                 multipart: `export` only (one .csv/.xlsx/.tsv, ≤ 5 MB)
+//                                 → 201 { batch: IntakeBatch }   (status 'preparing'; rows parsed, nothing proposed yet)
+// POST   /batches/:id/upload-urls UploadUrlRequest → UploadUrlResponse
+//                                 (≤ 100 files per call, each ≤ 10 MB; pdf/doc/docx/jpg/png/zip). Upload each file
+//                                 straight to storage: supabase.storage.from('hr-intake')
+//                                   .uploadToSignedUrl(path, token, file, { contentType: content_type })
+//                                 (Vercel caps request bodies near 4.5 MB, so resumes never pass through the route.)
+// POST   /batches/:id/prepare     PrepareRequest → { batch: IntakeBatch, rows: IntakeRow[] }
+//                                 (expands any .zip, pairs files with rows, reads resumes, proposes; status 'ready'.
+//                                  Calling it again on a ready batch returns the same batch and rows.)
 // GET    /batches                 → { batches: IntakeBatch[] }            (newest first, own + same-scope)
 // GET    /batches/:id             → { batch: IntakeBatch, rows: IntakeRow[], open_jobs: IntakeOpenJob[] }
 // POST   /rows/:id/decide         { action: IntakeAction, job_id?: string | null } → { row: IntakeRow }
@@ -177,6 +185,29 @@ export interface IntakeOpenJob {
 
 export interface IntakeApiError {
   error: string;
+}
+
+/** Upload limits: resumes reach storage directly, never through a route body. */
+export interface UploadUrlRequest {
+  files: { name: string; size: number; type: string }[];
+}
+
+export interface UploadUrlResponse {
+  uploads: {
+    /** The file name as sent. */
+    name: string;
+    /** Storage path inside the 'hr-intake' bucket: "<batch id>/<safe name>". */
+    path: string;
+    signed_url: string;
+    token: string;
+    /** The content type to upload with (resolved from the name when the browser gave none). */
+    content_type: string;
+  }[];
+}
+
+export interface PrepareRequest {
+  /** Every file uploaded through upload-urls: its original name and the path it was given. */
+  uploaded: { name: string; path: string }[];
 }
 
 export interface DecideRequest {
