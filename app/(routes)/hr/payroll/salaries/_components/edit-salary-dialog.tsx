@@ -51,6 +51,7 @@ import { useSetStaffSalary } from '@/hooks/hr/use-staff-salaries';
 import { useTdsSlabs } from '@/hooks/hr/use-tds-slabs';
 import { describeSlab, resolveTds } from '@/lib/hr/payroll/tds-slabs';
 import { firstOfNextMonthIST, todayIST } from '@/lib/hr/payroll/salary-start-date';
+import { formatLongDate } from '@/lib/hr/raise-effective-date';
 import type { StaffSalaryDirectoryRow } from '@/lib/services/hr/payroll/staff-salary-service';
 
 const INR = new Intl.NumberFormat('en-IN', {
@@ -101,9 +102,16 @@ type ContributionKey = (typeof CONTRIBUTIONS)[number]['key'];
 interface Props {
   row: StaffSalaryDirectoryRow | null;
   onOpenChange: (open: boolean) => void;
+  /**
+   * A monthly gross to start the form with instead of the one in force — set
+   * by "Use this figure" on the suggested-salary panel. Nothing is saved until
+   * Save is pressed. The start date follows the same rule as every other
+   * change here: 1st of next month by default, nothing before today.
+   */
+  prefillMonthlyGross?: number | null;
 }
 
-export function EditSalaryDialog({ row, onOpenChange }: Props) {
+export function EditSalaryDialog({ row, onOpenChange, prefillMonthlyGross = null }: Props) {
   const setSalary = useSetStaffSalary();
   // TDS is DERIVED, never stored against the person — so the dialog resolves it
   // live from the bands rather than showing a figure someone typed.
@@ -146,12 +154,21 @@ export function EditSalaryDialog({ row, onOpenChange }: Props) {
    * Clearing on close is what makes REOPENING the same employee re-seed rather
    * than restore whatever was half-typed last time.
    */
+  // The prefill is part of the key, so opening the same person from the
+  // suggestion panel re-seeds with the suggested figure.
+  const seedKey = row ? `${row.staff_uuid}|${prefillMonthlyGross ?? ''}` : null;
   const [seededFor, setSeededFor] = useState<string | null>(null);
   if (!row && seededFor !== null) {
     setSeededFor(null);
-  } else if (row && seededFor !== row.staff_uuid) {
-    setSeededFor(row.staff_uuid);
-    setMonthly(row.monthly_gross === null ? '' : String(row.monthly_gross));
+  } else if (row && seededFor !== seedKey) {
+    setSeededFor(seedKey);
+    setMonthly(
+      prefillMonthlyGross !== null
+        ? String(prefillMonthlyGross)
+        : row.monthly_gross === null
+          ? ''
+          : String(row.monthly_gross)
+    );
     setEffectiveFrom(firstOfNextMonthIST());
     setStructure(row.salary_structure ?? 'Monthly');
     setOvertimeLevel(row.overtime_level ?? 'No overtime');
@@ -324,6 +341,17 @@ export function EditSalaryDialog({ row, onOpenChange }: Props) {
           </DialogDescription>
         </DialogHeader>
 
+        {prefillMonthlyGross !== null && (
+          <Alert data-testid='prefill-note'>
+            <AlertDescription>
+              Monthly gross filled in from the suggested salary, starting on{' '}
+              {formatLongDate(firstOfNextMonthIST())}: a raise starts on the 1st of the month
+              after it is approved, and cannot be backdated. Check every field — nothing is
+              saved until you press Save.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {!hasPayer && (
           <Alert variant='destructive'>
             <AlertDescription>
@@ -358,21 +386,22 @@ export function EditSalaryDialog({ row, onOpenChange }: Props) {
                 id='salary-effective'
                 type='date'
                 min={minDate}
+                aria-invalid={(effectiveFrom !== '' && effectiveFrom < minDate) || undefined}
                 value={effectiveFrom}
                 disabled={!hasPayer}
                 onChange={(e) => setEffectiveFrom(e.target.value)}
               />
-              <p
-                className={
-                  effectiveFrom && effectiveFrom < minDate
-                    ? 'text-xs text-destructive'
-                    : 'text-xs text-muted-foreground'
-                }
-              >
-                {effectiveFrom && effectiveFrom < minDate
-                  ? 'A salary change cannot start in the past. Pick today or a later date.'
-                  : 'Today or later. Payslips before this date keep the previous figure.'}
-              </p>
+              {effectiveFrom && effectiveFrom < minDate ? (
+                <p className='text-xs text-destructive' role='alert' data-testid='backdated-raise'>
+                  {prefillMonthlyGross !== null
+                    ? 'A raise cannot start in the past. Choose today or later — normally the 1st of the month after it is approved.'
+                    : 'A salary change cannot start in the past. Pick today or a later date.'}
+                </p>
+              ) : (
+                <p className='text-xs text-muted-foreground'>
+                  Today or later. Payslips before this date keep the previous figure.
+                </p>
+              )}
             </div>
           </div>
 

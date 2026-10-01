@@ -186,6 +186,8 @@ export function inductionStatusLabel(status: string): string {
 export interface Event {
   id: string;
   institution_id: string;
+  /** All host institutions, primary (institution_id) included; null = single host. */
+  host_institution_ids?: string[] | null;
   event_type: EventType;
   name: string;
   slug: string;
@@ -225,6 +227,8 @@ export interface Event {
   visibility: EventVisibility | null;
   venue_resource_id: string | null;
   venue_text: string | null;
+  /** Booked room, embedded by EventBaseService.getEvent only (null under RLS). */
+  venue_resource?: { id: string; name: string } | null;
   // Institutional event number (migration 20261118093000). `event_number` is a
   // GENERATED column — read-only, never send it in an Insert/Update DTO. Its
   // presence is what tells the UI the event's college is now frozen.
@@ -363,6 +367,8 @@ export interface EventPaymentTransaction {
 
 export interface CreateEventDto {
   institution_id: string;
+  /** All host institutions, primary included (tournaments). Fees settle to institution_id only. */
+  host_institution_ids?: string[] | null;
   event_type: EventType;
   name: string;
   slug: string;

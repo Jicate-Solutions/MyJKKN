@@ -1022,6 +1022,29 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.payroll.salary.view', label: 'View Employee Salary' },
       { key: 'hr.payroll.salary.manage', label: 'Manage Employee Salary' },
 
+      // ── Salary revisions: ask, check, approve (2026-09-29) ───────────────
+      // The Director's 16 rulings of 29 Sep 2026, built by
+      // 20270519090000_hr_salary_revision_requests.sql. SIX keys, because the
+      // rulings name three different scopes of asking and two different acts
+      // of deciding, and MENU_PERMISSIONS takes one key per page:
+      //   .ask                  opens "Salary Revisions" (the page key only)
+      //   .ask_own_college      principal: ask for people in their own college
+      //   .ask_own_department   HOD: ask for their own department (goes via the principal)
+      //   .ask_anyone           HR head: ask for anyone
+      //   .college_check        principal: agree to or stop an HOD's request
+      //   .approve              the final yes. Granted to NOBODY: the Director is
+      //                         a super admin and passes is_super_admin().
+      // The migration grants the first five to principal / hod / hr_head by
+      // role_key. A principal or HOD holding them sees the PAY of their own
+      // people inside these screens only (ruling 8) — Employee Salaries itself
+      // stays on hr.payroll.salary.view.
+      { key: 'hr.payroll.salary_revision.ask', label: 'Open Salary Revisions' },
+      { key: 'hr.payroll.salary_revision.ask_own_college', label: 'Ask for a Salary Revision (Own College)' },
+      { key: 'hr.payroll.salary_revision.ask_own_department', label: 'Ask for a Salary Revision (Own Department)' },
+      { key: 'hr.payroll.salary_revision.ask_anyone', label: 'Ask for a Salary Revision (Anyone)' },
+      { key: 'hr.payroll.salary_revision.college_check', label: "Principal's Check of Salary Revisions" },
+      { key: 'hr.payroll.salary_revision.approve', label: 'Approve Salary Revisions (Final Yes)' },
+
       // ── Employee bank account (2026-08-21) ───────────────────────────────
       // A THIRD pair, not a reuse of the salary keys. Amount and destination
       // are different questions: a payroll clerk who must see what someone
@@ -1567,6 +1590,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.consultants.analytics.view', label: 'View Consultant Analytics' },
       { key: 'admission.consultants.commissions.view', label: 'View Commissions' },
       { key: 'admission.consultants.commissions.manage', label: 'Manage Commissions & Payouts' },
+      { key: 'admission.consultants.commissions.configure', label: 'Configure Commission Payment Approvals' },
       { key: 'admission.consultants.referrals.view', label: 'View Referrals' },
       { key: 'admission.consultants.rewards.view', label: 'View Rewards' },
       { key: 'admission.consultants.rewards.manage', label: 'Manage Rewards Configuration' },
@@ -2194,11 +2218,20 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.vacate_requests.view_own', label: 'View Own Vacate Requests (Student / Resident)' },
       { key: 'campus_living.vacate_requests.submit', label: 'Submit Own Vacate Request' },
       { key: 'campus_living.vacate_requests.submit_on_behalf', label: 'Submit Vacate Request on Behalf of Student' },
-      { key: 'campus_living.vacate_requests.approve_warden', label: 'Warden Approve Vacate Request' },
-      { key: 'campus_living.vacate_requests.approve_chief', label: 'Chief Warden Approve Vacate Request' },
-      { key: 'campus_living.vacate_requests.mark_clearance', label: 'Mark Dues Clearance Items' },
-      { key: 'campus_living.vacate_requests.finalize', label: 'Finalize Vacate (trigger hostel_allocations.vacate)' },
+      // 2026-09-30: flow is now draft -> warden (bill gate + checklist) -> auto-vacate.
+      // approve_warden = approve/reject (approval vacates the bed); mark_clearance = tick checklist items.
+      // approve_chief / finalize belong to the retired chief + dues stages and gate nothing new.
+      { key: 'campus_living.vacate_requests.approve_warden', label: 'Warden Approve / Reject Vacate Request (approval auto-vacates)' },
+      { key: 'campus_living.vacate_requests.approve_chief', label: 'Chief Warden Approve Vacate Request (retired stage)' },
+      { key: 'campus_living.vacate_requests.mark_clearance', label: 'Tick Vacate Clearance Checklist Items' },
+      { key: 'campus_living.vacate_requests.finalize', label: 'Finalize Vacate (retired stage)' },
       { key: 'campus_living.vacate_requests.cancel', label: 'Cancel Vacate Request (Admin / Hostel Office)' },
+      { key: 'campus_living.vacate_checklist.manage', label: 'Manage Vacate Checklist Items (settings)' },
+      // 2026-10-01: chain is now bills (auto) -> principal -> warden (checklist + room damage) -> mess -> CAO -> [fine paid] -> vacated.
+      { key: 'campus_living.vacate_requests.approve_principal', label: 'Principal Approve / Reject Vacate Request' },
+      { key: 'campus_living.vacate_requests.approve_mess', label: 'Mess In-charge Clearance Approve / Reject Vacate Request' },
+      { key: 'campus_living.vacate_requests.approve_cao', label: 'CAO Final Approve / Reject Vacate Request (raises the damage fine)' },
+      { key: 'campus_living.damage_types.manage', label: 'Manage Hostel Damage Types (settings)' },
 
       // Wardens
       { key: 'campus_living.wardens.view', label: 'View Wardens' },

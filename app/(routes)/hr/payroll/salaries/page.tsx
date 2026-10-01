@@ -42,7 +42,7 @@
  * deliberate exception — see `stats` below.
  */
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   Banknote,
@@ -86,6 +86,7 @@ import type { StaffSalaryDirectoryRow } from '@/lib/services/hr/payroll/staff-sa
 
 import { SalaryDirectoryDataTable } from './_components/salary-directory-data-table';
 import { EditSalaryDialog } from './_components/edit-salary-dialog';
+import { SalarySuggestionSheet } from './_components/salary-suggestion-sheet';
 import {
   DEFAULT_SALARY_FILTERS,
   SalaryFilters,
@@ -217,7 +218,7 @@ function SalaryHistorySheet({
 export default function EmployeeSalariesPage() {
   // canAccess(module, action) is the shape this hook exports, and it already
   // short-circuits for a super admin.
-  const { canAccess, isLoading: permsLoading } = usePermissions();
+  const { canAccess, isSuperAdmin, isLoading: permsLoading } = usePermissions();
   const canView = canAccess('hr.payroll.salary', 'view');
   // Not hr.payroll.salary.manage any more (2026-09-30): only the Director list
   // may change a salary. Asked of the database; false while loading.
@@ -228,6 +229,16 @@ export default function EmployeeSalariesPage() {
   const [filters, setFilters] = useState<SalaryFilterState>(DEFAULT_SALARY_FILTERS);
   const [editRow, setEditRow] = useState<StaffSalaryDirectoryRow | null>(null);
   const [historyRow, setHistoryRow] = useState<StaffSalaryDirectoryRow | null>(null);
+  const [suggestRow, setSuggestRow] = useState<StaffSalaryDirectoryRow | null>(null);
+  // Set only by "Use this figure"; cleared whenever the Edit dialog closes, so
+  // opening Update salary from the row menu afterwards starts from the pay in force.
+  const [editPrefill, setEditPrefill] = useState<number | null>(null);
+
+  const handleUseFigure = useCallback((row: StaffSalaryDirectoryRow, monthlyGross: number) => {
+    setSuggestRow(null);
+    setEditPrefill(monthlyGross);
+    setEditRow(row);
+  }, []);
 
   const list = useMemo(() => rows ?? [], [rows]);
 
@@ -408,6 +419,7 @@ export default function EmployeeSalariesPage() {
             canEdit={canEdit}
             onEdit={setEditRow}
             onViewHistory={setHistoryRow}
+            onSuggest={setSuggestRow}
           />
         </>
       )}
@@ -415,9 +427,25 @@ export default function EmployeeSalariesPage() {
       {canEdit && (
         <EditSalaryDialog
           row={editRow}
-          onOpenChange={(open) => { if (!open) setEditRow(null); }}
+          prefillMonthlyGross={editPrefill}
+          onOpenChange={(open) => {
+            if (!open) {
+              setEditRow(null);
+              setEditPrefill(null);
+            }
+          }}
         />
       )}
+
+      {/* "Use this figure" opens the Edit dialog, so it follows the same
+          Director-list gate (canEdit), not hr.payroll.salary.manage. */}
+      <SalarySuggestionSheet
+        row={suggestRow}
+        canManage={canEdit}
+        canEditRule={isSuperAdmin}
+        onUseFigure={handleUseFigure}
+        onOpenChange={(open) => { if (!open) setSuggestRow(null); }}
+      />
 
       <SalaryHistorySheet
         row={historyRow}

@@ -15,7 +15,7 @@
  */
 
 import type { ColumnDef } from '@tanstack/react-table';
-import { MoreHorizontal, PencilLine, History as HistoryIcon } from 'lucide-react';
+import { MoreHorizontal, PencilLine, History as HistoryIcon, Sparkles } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -89,6 +89,11 @@ function ContributionCell({
 export interface SalaryColumnActions {
   onEdit: (row: StaffSalaryDirectoryRow) => void;
   onViewHistory: (row: StaffSalaryDirectoryRow) => void;
+  /**
+   * Opens the suggested-salary panel. Offered to everyone who can see this
+   * screen (hr.payroll.salary.view): it reads nothing they cannot already see.
+   */
+  onSuggest: (row: StaffSalaryDirectoryRow) => void;
   /**
    * Whether the viewer is on the Director list (2026-09-30: only they may
    * change a salary; hr.payroll.salary.manage no longer does).
@@ -252,6 +257,10 @@ export function getSalaryColumns(
               <DropdownMenuItem onClick={() => actions.onViewHistory(r)}>
                 <HistoryIcon className='mr-2 h-4 w-4' />
                 Salary history
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => actions.onSuggest(r)}>
+                <Sparkles className='mr-2 h-4 w-4' />
+                Suggest a revised salary
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

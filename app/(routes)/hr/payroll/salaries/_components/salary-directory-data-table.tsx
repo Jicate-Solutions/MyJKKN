@@ -19,10 +19,12 @@
  */
 
 import { useCallback, useMemo } from 'react';
+import { Sparkles } from 'lucide-react';
 
 import { DataTable, type DataFetchParams } from '@/components/data-table/data-table';
 import type { ExportableData } from '@/components/data-table/utils/export-utils';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import type { StaffSalaryDirectoryRow } from '@/lib/services/hr/payroll/staff-salary-service';
 
 import { useTdsSlabs } from '@/hooks/hr/use-tds-slabs';
@@ -60,6 +62,7 @@ interface Props {
   canEdit: boolean;
   onEdit: (row: StaffSalaryDirectoryRow) => void;
   onViewHistory: (row: StaffSalaryDirectoryRow) => void;
+  onSuggest: (row: StaffSalaryDirectoryRow) => void;
 }
 
 export function SalaryDirectoryDataTable({
@@ -68,6 +71,7 @@ export function SalaryDirectoryDataTable({
   canEdit,
   onEdit,
   onViewHistory,
+  onSuggest,
 }: Props) {
   // The bands drive the derived TDS column. Fetched here rather than threaded
   // down from the page because the columns are the only consumer, and the query
@@ -75,8 +79,8 @@ export function SalaryDirectoryDataTable({
   const { data: tdsSlabs } = useTdsSlabs();
 
   const columns = useMemo(
-    () => getSalaryColumns({ onEdit, onViewHistory, canEdit, tdsSlabs: tdsSlabs ?? [] }),
-    [canEdit, onEdit, onViewHistory, tdsSlabs]
+    () => getSalaryColumns({ onEdit, onViewHistory, onSuggest, canEdit, tdsSlabs: tdsSlabs ?? [] }),
+    [canEdit, onEdit, onViewHistory, onSuggest, tdsSlabs]
   );
 
   const fetchData = useCallback(
@@ -140,39 +144,53 @@ export function SalaryDirectoryDataTable({
 
   const renderMobileRow = useCallback(
     (r: StaffSalaryDirectoryRow) => (
-      <button
-        type='button'
-        onClick={() => (canEdit ? onEdit(r) : onViewHistory(r))}
-        className='w-full space-y-2 rounded-md border p-3 text-left'
-      >
-        <div className='flex items-start justify-between gap-2'>
-          <div className='min-w-0'>
-            <p className='truncate text-sm font-medium'>{r.person_name}</p>
-            <p className='font-mono text-xs text-muted-foreground'>{r.staff_code ?? '—'}</p>
+      // The card is itself a button, so the Suggest action sits BELOW it rather
+      // than inside it — a button inside a button is invalid HTML.
+      <div className='space-y-1'>
+        <button
+          type='button'
+          onClick={() => (canEdit ? onEdit(r) : onViewHistory(r))}
+          className='w-full space-y-2 rounded-md border p-3 text-left'
+        >
+          <div className='flex items-start justify-between gap-2'>
+            <div className='min-w-0'>
+              <p className='truncate text-sm font-medium'>{r.person_name}</p>
+              <p className='font-mono text-xs text-muted-foreground'>{r.staff_code ?? '—'}</p>
+            </div>
+            <span className='shrink-0 text-sm font-semibold tabular-nums'>
+              {r.monthly_gross === null
+                ? <span className='text-xs italic font-normal text-muted-foreground'>Not set</span>
+                : INR.format(r.monthly_gross)}
+            </span>
           </div>
-          <span className='shrink-0 text-sm font-semibold tabular-nums'>
-            {r.monthly_gross === null
-              ? <span className='text-xs italic font-normal text-muted-foreground'>Not set</span>
-              : INR.format(r.monthly_gross)}
-          </span>
-        </div>
-        <div className='flex flex-wrap gap-1'>
-          <Badge variant='outline' className='font-normal'>{r.works_at_name}</Badge>
-          {!r.payer_org_id && (
-            <Badge
-              variant='outline'
-              className='border-amber-300 font-normal text-amber-700 dark:border-amber-800 dark:text-amber-400'
-            >
-              No payer
-            </Badge>
-          )}
-          {!r.is_active && (
-            <Badge variant='secondary' className='font-normal'>Relieved</Badge>
-          )}
-        </div>
-      </button>
+          <div className='flex flex-wrap gap-1'>
+            <Badge variant='outline' className='font-normal'>{r.works_at_name}</Badge>
+            {!r.payer_org_id && (
+              <Badge
+                variant='outline'
+                className='border-amber-300 font-normal text-amber-700 dark:border-amber-800 dark:text-amber-400'
+              >
+                No payer
+              </Badge>
+            )}
+            {!r.is_active && (
+              <Badge variant='secondary' className='font-normal'>Relieved</Badge>
+            )}
+          </div>
+        </button>
+        <Button
+          type='button'
+          variant='ghost'
+          size='sm'
+          className='h-7 px-2 text-xs'
+          onClick={() => onSuggest(r)}
+        >
+          <Sparkles className='mr-1.5 h-3.5 w-3.5' />
+          Suggest a revised salary
+        </Button>
+      </div>
     ),
-    [canEdit, onEdit, onViewHistory]
+    [canEdit, onEdit, onViewHistory, onSuggest]
   );
 
   return (
