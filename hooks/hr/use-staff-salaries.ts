@@ -133,7 +133,7 @@ export function useSetStaffSalary() {
  * Only the Director list may (fn_is_the_director(), migration 20270520090000,
  * Draft #4121). The DATABASE answers, for the caller only: the list itself is
  * never sent to the browser, and fn_hr_set_staff_salary plus the table guard
- * (20270521090000) refuse everyone else whatever this screen shows.
+ * (20270603090000) refuse everyone else whatever this screen shows.
  *
  * Fails CLOSED: while loading, on any error, or before #4121 is applied (the
  * function does not exist yet), the answer is false and the screens are

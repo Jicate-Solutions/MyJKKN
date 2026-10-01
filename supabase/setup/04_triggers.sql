@@ -2808,7 +2808,7 @@ CREATE TRIGGER trg_log_bill_cancel_activity
 
 -- ============================================================================
 -- hr_staff_salaries: only the Director list writes pay; no past start (2026-09-30)
--- Migration: 20270521090000_hr_salary_no_backdating.sql
+-- Migration: 20270603090000_hr_salary_no_backdating.sql
 -- Function: public.hr_staff_salaries_guard_writes() in 02_functions.sql.
 -- API callers (anon, authenticated, service_role): anon is refused; a signed-in
 -- caller must be on the Director list (fn_is_the_director); nobody may insert a

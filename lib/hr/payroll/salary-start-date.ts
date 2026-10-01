@@ -3,7 +3,7 @@
 // ============================================
 // Created: 2026-09-30
 // The database refuses a salary change that starts before today in India
-// (20270521090000_hr_salary_no_backdating.sql). Today itself is allowed.
+// (20270603090000_hr_salary_no_backdating.sql). Today itself is allowed.
 // Director's ruling (2026-09-30): a raise entered late starts from the 1st of
 // NEXT month; the missed month is not paid back through the system.
 // These helpers give every salary form the same two dates. Plain yyyy-mm-dd

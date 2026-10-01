@@ -1,5 +1,5 @@
 -- Throwaway stand-ins for the production objects that
--- 20270521090000_hr_salary_no_backdating.sql and main's real helpers depend on.
+-- 20270603090000_hr_salary_no_backdating.sql and main's real helpers depend on.
 --
 -- Only what the helpers READ is modelled. The helpers themselves
 -- (is_super_admin, is_admin, user_has_permission(text), fn_my_staff_ids), the

@@ -1,4 +1,4 @@
--- Assertions for 20270521090000_hr_salary_no_backdating.sql
+-- Assertions for 20270603090000_hr_salary_no_backdating.sql
 -- (Director rulings of 30 Sep 2026, 08:59: only the Director list writes pay;
 -- no salary change may start before today, for anybody; no exception).
 --

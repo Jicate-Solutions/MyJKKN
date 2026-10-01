@@ -3,7 +3,7 @@
  * Only the Director list may change a salary; the salary Excel import is gone
  * (Director ruling, 30 Sep 2026 08:59).
  *
- * The database is the real gate (20270521090000: fn_hr_set_staff_salary and the
+ * The database is the real gate (20270603090000: fn_hr_set_staff_salary and the
  * hr_staff_salaries guard refuse everyone else; rehearsed in
  * supabase/tests/hr-salary-no-backdating). These tests pin the app side:
  *  - the import route, its dialog, the template and the sheet parser are gone,

@@ -9,7 +9,7 @@
  * salary is created or edited here, one person at a time. The Edit/Record
  * buttons and the dialog appear only when the DATABASE says the signed-in
  * person is on the list (useCanEditSalaries); fn_hr_set_staff_salary and the
- * table guard (20270521090000) refuse everyone else whatever this page shows.
+ * table guard (20270603090000) refuse everyone else whatever this page shows.
  *
  * WHO MAY SEE (2026-08-21, unchanged). hr.payroll.salary.view/.manage were
  * revoked from hr_admin and hr_manager in

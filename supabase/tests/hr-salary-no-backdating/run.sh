@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Rehearsal for supabase/migrations/20270521090000_hr_salary_no_backdating.sql
+# Rehearsal for supabase/migrations/20270603090000_hr_salary_no_backdating.sql
 # on a THROWAWAY local PostgreSQL 16. Touches no real database.
 #
 #   bash supabase/tests/hr-salary-no-backdating/run.sh
@@ -22,7 +22,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
 M="$ROOT/supabase/migrations"
-MIG="${MIG:-$M/20270521090000_hr_salary_no_backdating.sql}"
+MIG="${MIG:-$M/20270603090000_hr_salary_no_backdating.sql}"
 PGBIN="${PGBIN:-/opt/homebrew/opt/postgresql@16/bin}"
 PORT="${PORT:-54417}"
 export LC_ALL=C LANG=C   # else: "postmaster became multithreaded"

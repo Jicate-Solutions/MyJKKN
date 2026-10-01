@@ -231,7 +231,7 @@ export async function saveStaffOffice(
    * 30 Sep 08:59). False = the salary part is never sent, whatever the form
    * holds; payer and bank account are still saved. Defaults to false so a
    * caller that does not ask can never write pay. The database refuses the
-   * write for anyone else anyway (20270521090000).
+   * write for anyone else anyway (20270603090000).
    */
   canWriteSalary = false
 ): Promise<OfficeSaveResult> {

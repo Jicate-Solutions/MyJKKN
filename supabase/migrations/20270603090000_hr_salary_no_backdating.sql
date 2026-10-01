@@ -1,4 +1,4 @@
--- 20270521090000_hr_salary_no_backdating.sql
+-- 20270603090000_hr_salary_no_backdating.sql
 --
 -- THE RULINGS (Director)
 --   29 Sep 2026: the DATABASE must refuse any salary change starting in the
@@ -107,7 +107,7 @@
 DO $pre$
 BEGIN
   IF to_regprocedure('public.fn_is_the_director()') IS NULL THEN
-    RAISE EXCEPTION '20270521090000 needs public.fn_is_the_director() from 20270520090000_the_director_list.sql (Draft #4121). Apply that first.';
+    RAISE EXCEPTION '20270603090000 needs public.fn_is_the_director() from 20270520090000_the_director_list.sql (Draft #4121). Apply that first.';
   END IF;
 END
 $pre$;
@@ -296,7 +296,7 @@ COMMENT ON FUNCTION public.fn_hr_set_staff_salary(
   boolean, boolean, boolean, boolean, boolean, text,
   numeric, boolean, numeric, numeric, text
 ) IS
-  'Supersede-and-insert a staff salary in one transaction. SECURITY INVOKER. A signed-in caller must be on the Director list (fn_is_the_director()); service_role and trusted database code (the approvals job) may also write. Returns the incumbent unchanged when the whole payload matches. Refuses a start before today (Asia/Kolkata) for every caller; today is allowed. See 20270521090000.';
+  'Supersede-and-insert a staff salary in one transaction. SECURITY INVOKER. A signed-in caller must be on the Director list (fn_is_the_director()); service_role and trusted database code (the approvals job) may also write. Returns the incumbent unchanged when the whole payload matches. Refuses a start before today (Asia/Kolkata) for every caller; today is allowed. See 20270603090000.';
 
 -- ---------------------------------------------------------------------------
 -- 2. The table-level guard for direct writes
@@ -389,7 +389,7 @@ $function$;
 REVOKE ALL ON FUNCTION public.hr_staff_salaries_guard_writes() FROM anon, PUBLIC, authenticated;
 
 COMMENT ON FUNCTION public.hr_staff_salaries_guard_writes() IS
-  'BEFORE INSERT/UPDATE/DELETE guard on hr_staff_salaries for API callers: anon refused; a signed-in caller must be on the Director list (fn_is_the_director()); no insert with a blank start or a start before today (Asia/Kolkata); no change to superseded_by except fn_hr_set_staff_salary retiring the row in force; no in-place edit of a row already started; no delete. See 20270521090000.';
+  'BEFORE INSERT/UPDATE/DELETE guard on hr_staff_salaries for API callers: anon refused; a signed-in caller must be on the Director list (fn_is_the_director()); no insert with a blank start or a start before today (Asia/Kolkata); no change to superseded_by except fn_hr_set_staff_salary retiring the row in force; no in-place edit of a row already started; no delete. See 20270603090000.';
 
 DROP TRIGGER IF EXISTS trg_hr_staff_salaries_guard_writes ON public.hr_staff_salaries;
 CREATE TRIGGER trg_hr_staff_salaries_guard_writes

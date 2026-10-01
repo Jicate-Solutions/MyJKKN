@@ -48726,14 +48726,14 @@ COMMENT ON FUNCTION public.hr_trig_leave_enforce_no_overlap() IS
 -- Source: 20260821201000_fn_hr_set_staff_salary.sql
 --         20260901120000_hr_salary_epf_esi_values.sql
 --         20260902100000_hr_tds_slabs_and_allowance.sql
---         20270521090000_hr_salary_no_backdating.sql
+--         20270603090000_hr_salary_no_backdating.sql
 --
 -- Updated: 2026-09-30 - Director ruling of 30 Sep 08:59. A signed-in caller
 -- must be on the Director list (fn_is_the_director(), 20270520090000);
 -- service_role and trusted database code (the approvals job) may also write.
 -- A start before today (Asia/Kolkata) is refused for every caller; today is
 -- allowed; there is no exception. Same 18 arguments as before. An earlier,
--- never-applied draft of 20270521090000 had a 19th argument (p_allow_past);
+-- never-applied draft of 20270603090000 had a 19th argument (p_allow_past);
 -- it is dropped IF EXISTS so no overload is left behind.
 --
 -- The 2026-09-01 revision DROPPED the 13-argument signature before recreating
@@ -48920,11 +48920,11 @@ COMMENT ON FUNCTION public.fn_hr_set_staff_salary(
   boolean, boolean, boolean, boolean, boolean, text,
   numeric, boolean, numeric, numeric, text
 ) IS
-  'Supersede-and-insert a staff salary in one transaction. SECURITY INVOKER. A signed-in caller must be on the Director list (fn_is_the_director()); service_role and trusted database code (the approvals job) may also write. Returns the incumbent unchanged when the whole payload matches. Refuses a start before today (Asia/Kolkata) for every caller; today is allowed. See 20270521090000.';
+  'Supersede-and-insert a staff salary in one transaction. SECURITY INVOKER. A signed-in caller must be on the Director list (fn_is_the_director()); service_role and trusted database code (the approvals job) may also write. Returns the incumbent unchanged when the whole payload matches. Refuses a start before today (Asia/Kolkata) for every caller; today is allowed. See 20270603090000.';
 
 -- ===========================================================================
 -- hr_staff_salaries_guard_writes (2026-09-30)
--- Source: 20270521090000_hr_salary_no_backdating.sql
+-- Source: 20270603090000_hr_salary_no_backdating.sql
 -- Trigger: trg_hr_staff_salaries_guard_writes in 04_triggers.sql.
 -- ===========================================================================
 CREATE OR REPLACE FUNCTION public.hr_staff_salaries_guard_writes()
@@ -49004,7 +49004,7 @@ $function$;
 REVOKE ALL ON FUNCTION public.hr_staff_salaries_guard_writes() FROM anon, PUBLIC, authenticated;
 
 COMMENT ON FUNCTION public.hr_staff_salaries_guard_writes() IS
-  'BEFORE INSERT/UPDATE/DELETE guard on hr_staff_salaries for API callers: anon refused; a signed-in caller must be on the Director list (fn_is_the_director()); no insert with a blank start or a start before today (Asia/Kolkata); no change to superseded_by except fn_hr_set_staff_salary retiring the row in force; no in-place edit of a row already started; no delete. See 20270521090000.';
+  'BEFORE INSERT/UPDATE/DELETE guard on hr_staff_salaries for API callers: anon refused; a signed-in caller must be on the Director list (fn_is_the_director()); no insert with a blank start or a start before today (Asia/Kolkata); no change to superseded_by except fn_hr_set_staff_salary retiring the row in force; no in-place edit of a row already started; no delete. See 20270603090000.';
 
 -- ===========================================================================
 -- hr_staff_salary_directory (2026-08-21, EPF/ESI added 2026-09-01)
