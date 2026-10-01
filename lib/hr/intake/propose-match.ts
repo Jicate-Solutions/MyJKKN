@@ -269,9 +269,15 @@ function proposeFromEvidence(input: ProposeInput): IntakeProposal {
     const sameEmail = !!input.candidate.email && !!first?.email
       && input.candidate.email.toLowerCase() === first.email.toLowerCase();
     const firstBlockers = first ? filingBlockers(first, input.duplicate_of_resume_uploaded) : ['unknown'];
+    // CVViZ gives one row per application, and its titles are generic: the same
+    // title can be an open post at two colleges, so two rows may be two real
+    // applications. Only when the title fits at most ONE open post is the second
+    // row surely a repeat.
+    const posts = cvTitle ? scoreJobs(input, cvTitle).filter((s) => s.score >= MIN_SCORE).length : 0;
     if (!sameEmail) reasons.push('Only the phone number or name matches: check this is the same person before skipping');
     else if (firstBlockers.length > 0) reasons.push('The earlier row cannot be filed as it stands: decide which row to file');
-    const sure = !differentJob && sameEmail && firstBlockers.length === 0;
+    else if (!differentJob && posts > 1) reasons.push(`"${cvTitle}" is open at more than one post: file this one too if both posts matter`);
+    const sure = !differentJob && sameEmail && firstBlockers.length === 0 && posts <= 1;
     return empty('skip', sure ? 'high' : 'medium', [...reasons, ...extra]);
   }
 
@@ -311,8 +317,25 @@ function proposeFromEvidence(input: ProposeInput): IntakeProposal {
       const j = openById.get(other.job_id)!;
       reasons.push(`Another rule, from ${other.created_by_name ?? 'a colleague'}, says ${jobLabel(j)}`);
     }
+    // A rule is one person's correction for one candidate. It is high only when
+    // nothing argues against it for THIS candidate: no other open post fits the
+    // title, and the resume's subject does not point to another post.
+    const otherFits = scoreJobs(input, cvTitle).filter((x) => x.job.id !== job.id && x.score >= MIN_SCORE);
+    // Checked on its own, not through scoring: a rule usually exists exactly
+    // because the CVViZ title does not name the post.
+    const subject = new Set(titleTokens(input.extract?.subject ?? ''));
+    const words = (j: MatchJob) => new Set([...titleTokens(j.title), ...titleTokens(j.department_name ?? '')]);
+    const subjectPoints = subject.size > 0 && !intersects(subject, words(job))
+      ? input.openJobs.find((j) => j.id !== job.id && intersects(subject, words(j)))
+      : undefined;
+    if (subjectPoints) {
+      reasons.push(`The resume's subject (${input.extract!.subject}) points to ${jobLabel(subjectPoints)} instead`);
+    } else if (otherFits.length > 0) {
+      reasons.push(`"${cvTitle}" also fits ${otherFits.map((x) => jobLabel(x.job)).join('; ')}: check the rule fits this person`);
+    }
+    const sure = live.length === 1 && otherFits.length === 0 && !subjectPoints;
     return {
-      ...forJob(job, live.length === 1 ? 'high' : 'medium', [...reasons, ...extra]),
+      ...forJob(job, sure ? 'high' : 'medium', [...reasons, ...extra]),
       rule_id: rule.id,
       rule_author_name: rule.created_by_name,
     };

@@ -602,3 +602,35 @@ describe('fifth review (fresh blind review of 885be087ac)', () => {
   });
 });
 
+describe('sixth review (fresh blind review of 7d6f297069)', () => {
+  const addEnglishEng = () =>
+    fake.table('hr_recruitment_jobs').push({
+      id: J.english_eng.id, title: J.english_eng.title, job_code: J.english_eng.job_code, institution_id: J.english_eng.institution_id,
+      status: 'open', closes_at: null, requirements: {}, institution: { name: J.english_eng.institution_name }, department: null,
+    });
+
+  it('blocker 1: one person applying to two posts with the same title is never auto-skipped', async () => {
+    addEnglishEng();
+    const title = J.english.title;
+    const { batch, rows } = await runBatch(
+      [{ name: 'a.pdf', bytes: PDF('a') }, { name: 'b.pdf', bytes: PDF('b') }],
+      tsv(`a.pdf\tAsha\tasha@example.test\t9811111111\t${title}`, `b.pdf\tAsha\tasha@example.test\t9811111111\t${title}`),
+    );
+    const second = rowAt(rows, 2);
+    expect(second.proposal).toMatchObject({ action: 'skip', confidence: 'medium' });
+    expect(second.proposal.reasons.join(' ')).toMatch(/open at more than one post/);
+    await acceptHigh(deps(), HR, batch.id);
+    expect(rawRow(second.id).decision_action ?? null).toBeNull();
+    expect(rawRow(second.id).resume_storage_path).not.toBeNull();
+  });
+
+  it('blocker 2: a rule taught on a generic title does not auto-file the next person under it', async () => {
+    const generic = await runBatch([], tsv(`\tAsha\tasha@example.test\t9811111111\t${GENERIC}`));
+    await decide(deps(), HR, generic.rows[0].id, { action: 'file_under_job', job_id: J.history.id });
+    expect(fake.table('hr_intake_match_rules')).toHaveLength(1);
+    const next = await runBatch([{ name: 'cv.pdf', bytes: PDF('cv') }], tsv(`cv.pdf\tBala\tbala@example.test\t9822222222\t${GENERIC}`), HR2);
+    expect(next.rows[0].proposal).toMatchObject({ job_id: J.history.id, confidence: 'medium' });
+    expect(await acceptHigh(deps(), HR2, next.batch.id)).toEqual({ decided: 0 });
+  });
+});
+

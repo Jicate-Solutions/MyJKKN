@@ -118,17 +118,32 @@ describe('proposeMatch — general pool', () => {
 });
 
 describe('proposeMatch — learned rules win', () => {
-  it('a rule for the normalised title routes to its job, high, credited to its author', () => {
+  it('a rule for the normalised title routes to its job, credited; medium while the title fits other posts too', () => {
     const r = rule({ cvviz_job_title_norm: GENERIC_NORM, job_id: J.history.id });
     const p = proposeMatch({ ...base, candidate: cand(T.generic_caps), rules: [r] });
     expect(p).toMatchObject({
       action: 'file_under_job',
       job_id: J.history.id,
-      confidence: 'high',
+      confidence: 'medium',
       rule_id: r.id,
       rule_author_name: 'Kavitha Demo',
     });
     expect(p.reasons[0]).toBe(`Kavitha Demo taught this: "${T.generic_caps}" goes to ${jobLabel(J.history)}`);
+    expect(p.reasons[1]).toMatch(/also fits .*check the rule fits this person/);
+  });
+
+  it('a rule is high when nothing argues against it: the title fits no other post', () => {
+    const r = rule({ cvviz_job_title_norm: normaliseJobTitle(T.unmatched), job_id: J.history.id });
+    const p = proposeMatch({ ...base, candidate: cand(T.unmatched), rules: [r] });
+    expect(p).toMatchObject({ job_id: J.history.id, confidence: 'high', rule_id: r.id });
+  });
+
+  it('a rule is never high when the resume subject points to another post', () => {
+    const r = rule({ cvviz_job_title_norm: normaliseJobTitle(T.unmatched), job_id: J.history.id });
+    const p = proposeMatch({ ...base, candidate: cand(T.unmatched), extract: extract('English'), rules: [r] });
+    expect(p.job_id).toBe(J.history.id);
+    expect(p.confidence).toBe('medium');
+    expect(p.reasons.join(' ')).toMatch(/subject \(English\) points to/);
   });
 
   it('beats a resume subject pointing elsewhere', () => {
