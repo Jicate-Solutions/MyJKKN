@@ -11577,3 +11577,20 @@ CREATE POLICY hva_select ON public.hostel_vacate_approvals FOR SELECT TO authent
     )
   );
 
+
+-- ----------------------------------------------------------------------------
+-- hr_pay_destination_changes policies (2026-10-01)
+-- Source: 20270614090000_hr_pay_destination_changes.sql
+-- Updated: 2026-10-01 - Director ruling: every bank / paying-trust change goes on a weekly list to the Director list
+-- ----------------------------------------------------------------------------
+ALTER TABLE public.hr_pay_destination_changes ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_pay_destination_changes_select_director ON public.hr_pay_destination_changes;
+CREATE POLICY hr_pay_destination_changes_select_director
+  ON public.hr_pay_destination_changes
+  FOR SELECT TO authenticated
+  USING (public.fn_is_the_director());
+-- No INSERT / UPDATE / DELETE policy: only the SECURITY DEFINER triggers write.
+
+REVOKE ALL ON public.hr_pay_destination_changes FROM anon, PUBLIC;
+GRANT SELECT ON public.hr_pay_destination_changes TO authenticated;
