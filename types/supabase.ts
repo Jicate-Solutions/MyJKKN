@@ -73119,6 +73119,7 @@ export type Database = {
           id: string
           is_cleared: boolean
           is_required: boolean
+          checklist_item_id: string | null
           item_key: string
           item_label: string
           notes: string | null
@@ -73134,6 +73135,7 @@ export type Database = {
           id?: string
           is_cleared?: boolean
           is_required?: boolean
+          checklist_item_id?: string | null
           item_key: string
           item_label: string
           notes?: string | null
@@ -73149,6 +73151,7 @@ export type Database = {
           id?: string
           is_cleared?: boolean
           is_required?: boolean
+          checklist_item_id?: string | null
           item_key?: string
           item_label?: string
           notes?: string | null
@@ -81449,6 +81452,54 @@ export type Database = {
           },
         ]
       }
+      hostel_vacate_checklist_items: {
+        Row: {
+          applies_to_reasons:
+            | Database["public"]["Enums"]["vacate_reason_enum"][]
+            | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_active: boolean
+          is_required: boolean
+          item_label: string
+          sort_order: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          applies_to_reasons?:
+            | Database["public"]["Enums"]["vacate_reason_enum"][]
+            | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          is_required?: boolean
+          item_label: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          applies_to_reasons?:
+            | Database["public"]["Enums"]["vacate_reason_enum"][]
+            | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          is_required?: boolean
+          item_label?: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       hostel_vacate_documents: {
         Row: {
           document_type: Database["public"]["Enums"]["vacate_document_type_enum"]
@@ -81501,6 +81552,12 @@ export type Database = {
           actual_vacate_date: string | null
           allocation_id: string
           approval_chain_run_id: string | null
+          approval_remarks: string | null
+          approved_at: string | null
+          approved_by: string | null
+          bills_snapshot: Json | null
+          outstanding_at_approval: number | null
+          room_snapshot: Json | null
           cancelled_reason: string | null
           completed_at: string | null
           created_at: string
@@ -81531,6 +81588,12 @@ export type Database = {
           actual_vacate_date?: string | null
           allocation_id: string
           approval_chain_run_id?: string | null
+          approval_remarks?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          bills_snapshot?: Json | null
+          outstanding_at_approval?: number | null
+          room_snapshot?: Json | null
           cancelled_reason?: string | null
           completed_at?: string | null
           created_at?: string
@@ -81561,6 +81624,12 @@ export type Database = {
           actual_vacate_date?: string | null
           allocation_id?: string
           approval_chain_run_id?: string | null
+          approval_remarks?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          bills_snapshot?: Json | null
+          outstanding_at_approval?: number | null
+          room_snapshot?: Json | null
           cancelled_reason?: string | null
           completed_at?: string | null
           created_at?: string
@@ -206803,6 +206872,44 @@ export type Database = {
         }
         Returns: Json
       }
+      fn_cl_vacate_bill_status: {
+        Args: { p_request_id: string }
+        Returns: Json
+      }
+      fn_cl_vacate_cancel: {
+        Args: { p_reason: string; p_request_id: string }
+        Returns: Database["public"]["Tables"]["hostel_vacate_requests"]["Row"]
+      }
+      fn_cl_vacate_create: {
+        Args: {
+          p_allocation_id: string
+          p_medical_notes?: string
+          p_reason_text: string
+          p_reason_type: Database["public"]["Enums"]["vacate_reason_enum"]
+          p_requested_date: string
+        }
+        Returns: Database["public"]["Tables"]["hostel_vacate_requests"]["Row"]
+      }
+      fn_cl_vacate_reject: {
+        Args: { p_reason: string; p_request_id: string }
+        Returns: Database["public"]["Tables"]["hostel_vacate_requests"]["Row"]
+      }
+      fn_cl_vacate_scope_ok: {
+        Args: { p_allocation_id: string; p_institution_id: string }
+        Returns: boolean
+      }
+      fn_cl_vacate_set_item: {
+        Args: { p_cleared: boolean; p_item_id: string; p_notes?: string }
+        Returns: Database["public"]["Tables"]["hostel_clearance_items"]["Row"]
+      }
+      fn_cl_vacate_submit: {
+        Args: { p_request_id: string }
+        Returns: Database["public"]["Tables"]["hostel_vacate_requests"]["Row"]
+      }
+      fn_cl_vacate_warden_approve: {
+        Args: { p_remarks?: string; p_request_id: string }
+        Returns: Json
+      }
       fn_clarification_ask: {
         Args: {
           p_attendance_date: string
@@ -212046,6 +212153,10 @@ export type Database = {
       }
       fn_my_sf100_goal: { Args: { p_enrollment_id: string }; Returns: Json }
       fn_my_staff_ids: { Args: never; Returns: string[] }
+      fn_my_staff_upload_context: {
+        Args: { p_staff_id: string }
+        Returns: { staff_code: string; institution_name: string }[]
+      }
       fn_my_upgrade_mess_categories: {
         Args: never
         Returns: {

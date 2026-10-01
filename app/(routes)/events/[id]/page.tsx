@@ -617,6 +617,13 @@ export default function GeneralEventDetailPage() {
 
   const config = event.config as Record<string, unknown> | null;
   const home = config?.home as string | undefined;
+  // The other host institutions carry their names (written by the create
+  // wizard), so they label even when the viewer has no access to that college.
+  const coHostNames = Array.isArray(config?.co_hosts)
+    ? (config.co_hosts as { id?: string; name?: string }[])
+        .filter((h) => h && typeof h.name === 'string' && h.id !== event.institution_id)
+        .map((h) => h.name as string)
+    : [];
   // Which Event Logistics tabs this event was created with. Absent (every event
   // made before the tools picker existed) means "all of them" — see tabVisible.
   const enabledTools = Array.isArray(config?.enabled_tools)
@@ -758,7 +765,13 @@ export default function GeneralEventDetailPage() {
                   label="Venue"
                   value={event.venue || event.venue_resource?.name || event.venue_text}
                 />
-                <Fact icon={Building2} label="Host institution" value={hostName} />
+                <Fact
+                  icon={Building2}
+                  label={coHostNames.length ? 'Host institutions' : 'Host institution'}
+                  value={
+                    [hostName, ...coHostNames].filter(Boolean).join(', ') || null
+                  }
+                />
                 <Fact
                   icon={CalendarClock}
                   label="Registration window"

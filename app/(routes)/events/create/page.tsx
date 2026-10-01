@@ -122,6 +122,24 @@ export default function CreateEventPage() {
   const { selectedInstitutionId } = useUserInstitutionAccess();
   const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
 
+  // Every active college, for the joint hosts. `institutions` above is only what
+  // this user may file an event under (an HOD sees just their own college), but
+  // they can still run it jointly with any other college. Falls back to the
+  // accessible list if the fetch fails, which is what the picker showed before.
+  const [allInstitutions, setAllInstitutions] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/events/host-institutions')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (!cancelled && Array.isArray(json?.data)) setAllInstitutions(json.data);
+      })
+      .catch((err) => console.error('[events/create] could not load all institutions:', err));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // HOST INSTITUTION — the college that owns this event. It is what `institution_id`
   // is set to, and what the booking spine compares the room's owner against to decide
   // whether the hold is same-college (auto) or cross-college (needs approval). It
@@ -730,6 +748,7 @@ export default function CreateEventPage() {
                     form={form}
                     set={set}
                     institutions={institutions}
+                    allInstitutions={allInstitutions}
                     institutionId={institutionId}
                     institutionsLoading={institutionsLoading}
                     onHostChange={setHostOverride}
@@ -776,6 +795,7 @@ export default function CreateEventPage() {
                       form={form}
                       set={set}
                       institutions={institutions}
+                      allInstitutions={allInstitutions}
                       institutionId={institutionId}
                       institutionsLoading={institutionsLoading}
                       onHostChange={setHostOverride}

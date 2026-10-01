@@ -19,8 +19,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { useAuth } from '@/hooks/use-auth';
-import { usePermissions } from '@/hooks/use-permissions';
 import { useVacateRequests } from '@/hooks/campus-living/use-hostel-vacate';
 import { ArrowRight, Loader2, Search, FileText } from 'lucide-react';
 import type { VacateRequestStatus, VacateReason } from '@/types/hostel-vacate';
@@ -42,20 +40,22 @@ const statusVariant: Record<
 
 const statusLabel: Record<VacateRequestStatus, string> = {
   draft: 'Draft',
-  pending_parent: 'Parent OTP',
-  pending_warden: 'Warden',
-  pending_chief: 'Chief Warden',
-  pending_dues: 'Dues',
-  approved: 'Approved',
-  completed: 'Completed',
+  pending_parent: 'Parent OTP (legacy)',
+  pending_warden: 'With warden',
+  pending_chief: 'Chief Warden (legacy)',
+  pending_dues: 'Dues (legacy)',
+  approved: 'Approved (legacy)',
+  completed: 'Vacated',
   rejected: 'Rejected',
   cancelled: 'Cancelled',
 };
 
 export default function VacateRequestsQueuePage() {
-  const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
-  const institutionId = isSuperAdmin ? '' : profile?.institution_id ?? '';
+  // No client-side institution filter: a warden's access is a BLOCK grant (their
+  // profile institution owns no block), so filtering on profile.institution_id
+  // hid every request from them. RLS (view key + institution-or-block scope)
+  // decides which rows come back.
+  const institutionId = '';
 
   const [statusFilter, setStatusFilter] = useState<VacateRequestStatus | 'all' | 'active'>('active');
   const [reasonFilter, setReasonFilter] = useState<VacateReason | 'all'>('all');
@@ -106,17 +106,18 @@ export default function VacateRequestsQueuePage() {
         <div>
           <h1 className='text-2xl font-bold py-1'>Vacate Requests</h1>
           <p className='text-sm text-muted-foreground'>
-            Review and act on student / staff hostel vacate submissions. Your actions will
-            advance the approval chain.
+            The warden checks the learner's hostel bills and the clearance checklist; approving
+            vacates the bed and moves the learner to Day Scholar. To raise a request for a resident,
+            open their allocation.
           </p>
         </div>
 
         {/* KPI row */}
         <div className='grid grid-cols-2 sm:grid-cols-4 gap-3'>
-          <KpiTile label='Parent OTP pending' value={counts.pending_parent ?? 0} variant='secondary' />
-          <KpiTile label='Warden action' value={counts.pending_warden ?? 0} variant='default' />
-          <KpiTile label='Chief warden action' value={counts.pending_chief ?? 0} variant='default' />
-          <KpiTile label='Dues clearance' value={counts.pending_dues ?? 0} variant='default' />
+          <KpiTile label='Drafts' value={counts.draft ?? 0} variant='outline' />
+          <KpiTile label='With warden' value={counts.pending_warden ?? 0} variant='default' />
+          <KpiTile label='Vacated' value={counts.completed ?? 0} variant='success' />
+          <KpiTile label='Rejected / cancelled' value={(counts.rejected ?? 0) + (counts.cancelled ?? 0)} variant='destructive' />
         </div>
 
         {/* Filters */}
@@ -137,12 +138,9 @@ export default function VacateRequestsQueuePage() {
             <SelectContent>
               <SelectItem value='active'>Active (not closed)</SelectItem>
               <SelectItem value='all'>All statuses</SelectItem>
-              <SelectItem value='pending_parent'>Parent OTP</SelectItem>
-              <SelectItem value='pending_warden'>Warden</SelectItem>
-              <SelectItem value='pending_chief'>Chief Warden</SelectItem>
-              <SelectItem value='pending_dues'>Dues</SelectItem>
-              <SelectItem value='approved'>Approved</SelectItem>
-              <SelectItem value='completed'>Completed</SelectItem>
+              <SelectItem value='draft'>Draft</SelectItem>
+              <SelectItem value='pending_warden'>With warden</SelectItem>
+              <SelectItem value='completed'>Vacated</SelectItem>
               <SelectItem value='rejected'>Rejected</SelectItem>
               <SelectItem value='cancelled'>Cancelled</SelectItem>
             </SelectContent>
