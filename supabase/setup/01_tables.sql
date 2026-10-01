@@ -11253,3 +11253,14 @@ CREATE INDEX IF NOT EXISTS hr_leave_type_deletions_deleted_at_idx
   ON public.hr_leave_type_deletions (deleted_at DESC);
 COMMENT ON TABLE public.hr_leave_type_deletions IS
   'Tombstone of every hr_leave_type_delete_super_admin() commit: who, when, how many rows of each kind went with the type, and the type row itself as jsonb. No foreign keys on purpose. Balances and adjustments are NOT recoverable from it.';
+
+
+
+-- ============================================================================
+-- Updated: 2026-10-03 - Leave eligibility: whose row it is, kept on the row.
+-- Mirror of supabase/migrations/20271003101521_hr_leave_eligibility_system_chain.sql (column)
+-- ============================================================================
+ALTER TABLE public.hr_leave_eligibilities ADD COLUMN IF NOT EXISTS subject_profile_id uuid;
+
+COMMENT ON COLUMN public.hr_leave_eligibilities.subject_profile_id IS
+  'Whose eligibility this is, fixed at insert (staff link, else the one account matching the staff email or institution email). Migration 20271003101521.';

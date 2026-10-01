@@ -2867,3 +2867,33 @@ CREATE TRIGGER trg_hlb_reject_unfunded
      OR NEW.carried_forward < OLD.carried_forward
      OR NEW.entitled < OLD.entitled)
   EXECUTE FUNCTION public.hr_trig_reject_unfunded_after_balance_change();
+
+
+
+-- ============================================================================
+-- Updated: 2026-10-01 - Leave eligibility: system-built chain, no
+-- self-decisions, gated leave types enforced on hr_leave_applications; only
+-- the Director list may change hr.leave.eligibility_self_route_profile_id.
+-- Mirror of supabase/migrations/20271003101521_hr_leave_eligibility_system_chain.sql
+-- Functions in 02_functions.sql.
+-- ============================================================================
+DROP TRIGGER IF EXISTS trg_guard_hr_leave_eligibility_self_route ON public.platform_policies;
+CREATE TRIGGER trg_guard_hr_leave_eligibility_self_route
+  BEFORE INSERT OR UPDATE OR DELETE ON public.platform_policies
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_guard_hr_leave_eligibility_self_route();
+DROP TRIGGER IF EXISTS trg_hle_system_chain ON public.hr_leave_eligibilities;
+CREATE TRIGGER trg_hle_system_chain
+  BEFORE INSERT ON public.hr_leave_eligibilities
+  FOR EACH ROW
+  EXECUTE FUNCTION public.hr_trig_leave_eligibility_system_chain();
+DROP TRIGGER IF EXISTS trg_hle_guard_update ON public.hr_leave_eligibilities;
+CREATE TRIGGER trg_hle_guard_update
+  BEFORE UPDATE ON public.hr_leave_eligibilities
+  FOR EACH ROW
+  EXECUTE FUNCTION public.hr_trig_leave_eligibility_guard_update();
+DROP TRIGGER IF EXISTS trg_hla_eligibility_gate ON public.hr_leave_applications;
+CREATE TRIGGER trg_hla_eligibility_gate
+  BEFORE INSERT OR UPDATE OF leave_type_id, employee_id, start_date, end_date, status ON public.hr_leave_applications
+  FOR EACH ROW
+  EXECUTE FUNCTION public.hr_trig_leave_application_eligibility_gate();
