@@ -82,8 +82,9 @@ beforeEach(() => {
 });
 
 describe('B1 — every batch carries a college', () => {
-  it('uses the uploader’s home college and never asks the access check about NULL', async () => {
-    const { batch } = await createBatch(deps(), HR, { name: 'e.tsv', bytes: tsv('a.pdf\tA\ta@example.test\t9811111111\tPrincipal') }, COLLEGE_2);
+  it('with no college chosen, uses the uploader’s home college and never asks the access check about NULL', async () => {
+    // A chosen college is allowed when their access reaches it (Director, 1 Oct): see intake-followups.test.ts.
+    const { batch } = await createBatch(deps(), HR, { name: 'e.tsv', bytes: tsv('a.pdf\tA\ta@example.test\t9811111111\tPrincipal') });
     expect(fake.table('hr_intake_batches').find((b) => b.id === batch.id)!.institution_id).toBe(COLLEGE_1);
     expect(fake.rpcCalls.every((c) => (c.args as { check_institution_id: unknown }).check_institution_id != null)).toBe(true);
   });

@@ -455,3 +455,48 @@ describe('The upload form takes every export type the server reads (follow-up 6)
     expect(accept).toEqual(expect.arrayContaining(['.csv', '.tsv', '.txt', '.xlsx', '.xls']));
   });
 });
+
+describe('Upload form: any college this person can reach (Director ruling, 1 Oct)', () => {
+  const exportFile = () => new File(['First Name,Email Address\nA,a@x.test'], 'cvviz.csv', { type: 'text/csv' });
+  function serveColleges(colleges: { id: string; name: string }[], home: string | null, posted: FormData[]) {
+    handler = (url, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET' && url.endsWith('/institutions')) return json({ institutions: colleges, home_institution_id: home });
+      if (method === 'POST' && url.endsWith('/batches')) {
+        posted.push(init?.body as FormData);
+        return json({ batch: { ...BATCH, id: 'b9', status: 'preparing' } }, 201);
+      }
+      if (url.endsWith('/batches/b9/prepare')) return json({ batch: { ...BATCH, id: 'b9' }, rows: [] });
+      return json({ error: `unexpected ${method} ${url}` }, 500);
+    };
+  }
+
+  it('lists every college they can reach, starts on their home college, and sends the one chosen', async () => {
+    const posted: FormData[] = [];
+    serveColleges([{ id: 'c1', name: 'Arts Demo College' }, { id: 'c2', name: 'Engineering Demo College' }], 'c1', posted);
+    nav.push.mockClear();
+    renderWithQuery(<IntakeUploadForm />);
+    const picker = (await screen.findByLabelText(/Which college is this upload for/)) as HTMLSelectElement;
+    expect(picker.value).toBe('c1');
+    expect(within(picker).getByRole('option', { name: 'Engineering Demo College' })).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText(/The CVViZ export/), { target: { files: [exportFile()] } });
+    fireEvent.change(picker, { target: { value: 'c2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload and review' }));
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith('/hr/recruitment/intake/b9'));
+    expect(posted[0].get('institution_id')).toBe('c2');
+  });
+
+  it('only their home college: no picker, and the server uses the home college', async () => {
+    const posted: FormData[] = [];
+    serveColleges([{ id: 'c1', name: 'Arts Demo College' }], 'c1', posted);
+    nav.push.mockClear();
+    renderWithQuery(<IntakeUploadForm />);
+    await waitFor(() => expect(callsTo('/institutions', 'GET')).toHaveLength(1));
+    expect(screen.queryByLabelText(/Which college is this upload for/)).toBeNull();
+    fireEvent.change(screen.getByLabelText(/The CVViZ export/), { target: { files: [exportFile()] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload and review' }));
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith('/hr/recruitment/intake/b9'));
+    expect(posted[0].get('institution_id')).toBeNull();
+  });
+});
