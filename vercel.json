@@ -278,6 +278,10 @@
       "schedule": "17 3 * * *"
     },
     {
+      "path": "/api/cron/routine-checks",
+      "schedule": "47 1 * * *"
+    },
+    {
       "path": "/api/cron/meeting-audio-retention?secret=${CRON_SECRET}",
       "schedule": "43 3 * * *"
     },

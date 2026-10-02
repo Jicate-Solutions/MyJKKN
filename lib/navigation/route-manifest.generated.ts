@@ -3283,6 +3283,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "FileText",
     "children": [
       {
+        "path": "/campus-walk/check",
+        "label": "Check",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/campus-walk/fix",
         "label": "Fix",
         "iconName": "FileText",
