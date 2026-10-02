@@ -82,8 +82,10 @@ import {
 } from '@/lib/services/pde/jpeg-metadata';
 import {
   createWalkTask,
+  mapStaffToProfilesLocal,
   type CreateWalkTaskInput,
 } from '@/lib/services/campus-walk/campus-walk-service';
+import { findJoinableReport, joinOpenReport } from '@/lib/campus-walk/join-report';
 import { isInstaSolverTrade } from '@/lib/instasolver/ai-fill';
 
 const BUCKET = 'campus-walk';
@@ -438,6 +440,86 @@ export async function POST(request: NextRequest) {
     pageSuppressedReason = dangerous ? 'ledger_unavailable' : pageSuppressedReason;
   }
   const pageAllowed = dangerous && pageSuppressedReason === null;
+
+  // ── Somebody already reported this? Join their job (ruling 2) ─────────────
+  // Director, 2026-09-30 interview: a report matching an OPEN job at the same
+  // place (same college, same normalised location, similar description,
+  // filed within 14 days) JOINS that job instead of creating a second one.
+  // Matcher and thresholds: lib/campus-walk/duplicates.ts findOpenReportToJoin.
+  //
+  // NEVER for a dangerous report: that must get its own same-day job and its
+  // own page, not be folded into an ordinary two-day one (the QR-sticker door
+  // #4146 draws the same line). And any failure to join files a new job as
+  // before — a report is never lost to this step.
+  //
+  // NOR for a report whose place was skipped (needs_sorting): its location is
+  // the shared placeholder line, so two unrelated "tap leaking" reports from
+  // different buildings would look like the same place. The estate office
+  // sorts those by hand.
+  if (!dangerous && !needsSorting) {
+    const openJob = await findJoinableReport(admin, {
+      institutionId: profile.institution_id ?? null,
+      location,
+      description,
+    });
+    if (openJob) {
+      let ownerProfileId: string | null = null;
+      if (openJob.owner_staff_id) {
+        try {
+          const map = await mapStaffToProfilesLocal(admin, [openJob.owner_staff_id]);
+          ownerProfileId = map.get(openJob.owner_staff_id) ?? null;
+        } catch (e: unknown) {
+          console.warn(
+            '[instasolver] could not resolve the open job owner:',
+            e instanceof Error ? e.message : e
+          );
+        }
+      }
+      const joined = await joinOpenReport(
+        admin,
+        openJob,
+        {
+          reporter_id: user.id,
+          raised_by_profile_id: user.id,
+          reporter_role: profile.role ?? null,
+          note: description,
+          photo_storage_path: uploaded?.storagePath ?? null,
+          at: new Date().toISOString(),
+        },
+        ownerProfileId
+      );
+      if (joined.ok) {
+        let ownerName: string | null = null;
+        if (ownerProfileId) {
+          try {
+            const { data: owner } = await admin
+              .from('profiles')
+              .select('full_name')
+              .eq('id', ownerProfileId)
+              .maybeSingle();
+            if (owner?.full_name) ownerName = owner.full_name as string;
+          } catch {
+            ownerName = null;
+          }
+        }
+        return NextResponse.json(
+          {
+            success: true,
+            joined: true,
+            task_id: openJob.id,
+            routed_to: ownerName,
+            notice:
+              'Someone already reported this. Your report was added to theirs, and you will be told when it is fixed — it is on My reports.',
+            due_date: openJob.due_date ?? null,
+            dangerous: false,
+            photo_saved: Boolean(uploaded),
+            urgent_alert: null,
+          },
+          { status: 200 }
+        );
+      }
+    }
+  }
 
   const input: CreateWalkTaskInput = {
     title,

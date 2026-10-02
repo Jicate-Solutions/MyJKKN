@@ -94,6 +94,7 @@ export const maxDuration = 120;
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { getOccurrenceCount } from '@/lib/campus-walk/repeats';
+import { joinedReportPhotoPaths } from '@/lib/campus-walk/my-reports';
 
 const BUCKET = 'campus-walk';
 
@@ -269,6 +270,10 @@ export async function GET(request: NextRequest) {
         if (typeof metadata.photo_storage_path === 'string') {
           paths.add(metadata.photo_storage_path);
         }
+        // Photos people attached when they JOINED this report (InstaSolver
+        // ruling 2) live only in metadata.additional_reports — no attachment
+        // row — so they purge on the same schedule as the job's own photos.
+        for (const p of joinedReportPhotoPaths(metadata)) paths.add(p);
 
         // ── Ruling 1: recurring problem keeps its one problem photo ──────
         // "Recurring" is repeats.ts's own occurrence_count > 1, not a second

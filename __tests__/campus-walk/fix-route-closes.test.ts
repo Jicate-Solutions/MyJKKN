@@ -46,12 +46,22 @@ const PHOTO = new Uint8Array(4096).fill(7);
 const PHOTO_PATH = `task-1/fix/${createHash('sha256').update(PHOTO).digest('hex')}.jpg`;
 
 function respond(q: RecordedQuery) {
-  if (q.table === 'project_tasks' && q.op === 'select' && q.terminal === 'maybeSingle') return { data: taskRow };
+  if (q.table === 'project_tasks' && q.op === 'select' && q.terminal === 'maybeSingle') {
+    // The re-read after a missed compare-and-set sees the join that landed.
+    return { data: (stepOneMissed && freshRow) || taskRow };
+  }
   if (q.table === 'project_tasks' && q.op === 'update') {
     if (q.payload.status_key === 'done') {
-      return closeFails ? { error: { message: 'boom' } } : { data: [{ id: 'task-1' }] };
+      return closeFails ? { error: { message: 'boom' } } : { data: [{ id: 'task-1', updated_at: 'v3' }] };
     }
-    return { data: null };
+    // Step 1 (status 'review'): lands and returns the new updated_at, unless a
+    // test makes the row move under it once (a join landing mid-upload).
+    if (stepOneMisses > 0 && q.filters.some(([c]) => c === 'updated_at')) {
+      stepOneMisses -= 1;
+      stepOneMissed = true;
+      return { data: [] };
+    }
+    return { data: [{ id: 'task-1', updated_at: 'v2' }] };
   }
   if (q.table === 'staff' && q.terminal === 'many') {
     return { data: [{ id: 'staff-1', first_name: 'Ravi', last_name: 'K', department_id: null, is_active: true }] };
@@ -74,6 +84,7 @@ function openTask(extra: Record<string, any> = {}) {
     is_overdue: false,
     owner_staff_id: 'staff-1',
     completed_at: null,
+    updated_at: 'v1',
     metadata: {
       source: 'campus-walk',
       front_door: 'instasolver',
@@ -99,9 +110,16 @@ function taskUpdates() {
   return fake.queries.filter((q) => q.table === 'project_tasks' && q.op === 'update');
 }
 
+let stepOneMisses = 0;
+let stepOneMissed = false;
+let freshRow: Record<string, any> | null = null;
+
 beforeEach(() => {
   vi.clearAllMocks();
   closeFails = false;
+  stepOneMisses = 0;
+  stepOneMissed = false;
+  freshRow = null;
   fake = makeFakeDb(respond);
   createBellNotification.mockResolvedValue('notif-1');
   getUser.mockResolvedValue({ data: { user: { id: 'fixer-1' } } });
@@ -124,6 +142,29 @@ describe('the fix photo closes the job', () => {
     expect(close.payload.completed_at).toEqual(expect.any(String));
     expect(close.payload.metadata.fix.approval).toMatchObject({ state: 'approved', auto: true });
     expect(filterOf(close, 'status_key')).toBe('review');
+    // Both writes are compare-and-sets on updated_at (repair round, 1 Oct):
+    // step 1 on the version it read, the close on the one step 1 returned.
+    expect(filterOf(record, 'updated_at')).toBe('v1');
+    expect(filterOf(close, 'updated_at')).toBe('v2');
+  });
+
+  it('keeps a report that JOINED while the photo was uploading, and tells that person it is fixed', async () => {
+    stepOneMisses = 1;
+    freshRow = {
+      ...openTask({ additional_reports: [{ reporter_id: 'joiner-1', at: '2026-10-01T09:59:00Z', note: 'tap' }] }),
+      updated_at: 'v1b',
+    };
+    const res = await submit();
+    expect(res.status).toBe(200);
+
+    const [missed, retried, close] = taskUpdates();
+    expect(missed.payload.metadata.additional_reports).toBeUndefined();
+    expect(filterOf(retried, 'updated_at')).toBe('v1b');
+    expect(retried.payload.metadata.additional_reports.map((r: any) => r.reporter_id)).toEqual(['joiner-1']);
+    expect(retried.payload.metadata.fix.storage_path).toBe(PHOTO_PATH);
+    expect(close.payload.metadata.additional_reports.map((r: any) => r.reporter_id)).toEqual(['joiner-1']);
+    const joinedBell = createBellNotification.mock.calls.find((c) => (c[1] as any).metadata?.joined === true);
+    expect((joinedBell![1] as any).recipientIds).toEqual(['joiner-1']);
   });
 
   it('tells the reporter, and not the fixer about their own work', async () => {
