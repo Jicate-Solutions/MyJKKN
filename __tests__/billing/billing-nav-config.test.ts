@@ -20,17 +20,25 @@ const activeTier3 = (pathname: string) =>
   (resolveTiers(pathname)[1] ?? []).filter((c) => c.isActive).map((c) => c.label);
 
 describe('Billing top navigation (AutoTabNav)', () => {
-  it('is registered and exposes the three sidebar domains as tier-2', () => {
+  // 'Settings' added 2026-10-01 (58c6987f64), mirroring the sidebar's fourth menu.
+  it('is registered and exposes the four sidebar domains as tier-2', () => {
     expect(config().module).toBe('billing');
-    expect(tier2('/billing/schedule')).toEqual(['Colleges', 'Transport Fees', 'Schools']);
+    expect(tier2('/billing/schedule')).toEqual(['Colleges', 'Transport Fees', 'Schools', 'Settings']);
   });
 
   it('mirrors the sidebar split, plus the orphaned Receipt Templates page', () => {
-    const [colleges, transport, schools] = config().groups;
-    // 17 sidebar submenus + Receipt Templates, which has no other entry point.
-    expect(colleges.children).toHaveLength(18);
+    const [colleges, transport, schools, settings] = config().groups;
+    // 13 sidebar submenus + Receipt Templates, which has no other entry point.
+    expect(colleges.children).toHaveLength(14);
     expect(transport.children).toBeUndefined(); // single page, no tier-3
     expect(schools.children).toHaveLength(5);
+    expect((settings.children ?? []).map((c) => c.href)).toEqual([
+      '/billing/categories',
+      '/billing/reports',
+      '/billing/analytics',
+      '/billing/activities',
+      '/billing/payment-accounts',
+    ]);
   });
 
   // Every child href must be a real page, or the chip 404s.
@@ -45,7 +53,7 @@ describe('Billing top navigation (AutoTabNav)', () => {
     expect(missing).toEqual([]);
   });
 
-  // Colleges holds the bare '/billing' catch-all; the other two win on length.
+  // Colleges holds the bare '/billing' catch-all; the other three win on length.
   it.each([
     ['/billing', 'Colleges'],
     ['/billing/schedule', 'Colleges'],
@@ -53,6 +61,11 @@ describe('Billing top navigation (AutoTabNav)', () => {
     ['/billing/receipts', 'Colleges'],
     ['/billing/late-charges', 'Colleges'],
     ['/billing/transport', 'Transport Fees'],
+    ['/billing/categories', 'Settings'],
+    ['/billing/reports', 'Settings'],
+    ['/billing/analytics', 'Settings'],
+    ['/billing/activities', 'Settings'],
+    ['/billing/payment-accounts', 'Settings'],
     ['/billing/school-fees', 'Schools'],
     ['/billing/school-fees/collect', 'Schools'],
     ['/billing/school-fees/term-calendar', 'Schools'],
@@ -72,8 +85,15 @@ describe('Billing top navigation (AutoTabNav)', () => {
     ['/billing/schedule/students', 'Schedule · Student Search'],
     ['/billing/coverage', 'Bill Coverage'],
     ['/billing/receipts', 'Receipts'],
-    ['/billing/categories', 'Categories'],
   ])('activates exactly one Colleges chip on %s', (pathname, expected) => {
+    expect(activeTier3(pathname)).toEqual([expected]);
+  });
+
+  it.each([
+    ['/billing/categories', 'Categories'],
+    ['/billing/reports', 'Reports'],
+    ['/billing/payment-accounts', 'Payment Gateway Accounts'],
+  ])('activates exactly one Settings chip on %s', (pathname, expected) => {
     expect(activeTier3(pathname)).toEqual([expected]);
   });
 
