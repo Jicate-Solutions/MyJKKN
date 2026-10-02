@@ -212,7 +212,11 @@ describe('fn_prepare_payroll_period reads the matrix as its owner', () => {
     expect(next).not.toContain(OLD_GUARD);
   });
 
-  it('20260629000000 is the only other definition in supabase/migrations', () => {
+  // fix/hr-payroll-prepare-refuses-non-staff (#4112) replaces the same function
+  // with the same body on purpose (see payroll-prepare-body-shared.test.ts).
+  const SIBLING_FILE = '20270507090000_hr_payroll_prepare_and_backdate_refuse_non_staff.sql';
+
+  it('20260629000000 is the only other definition in supabase/migrations, besides the #4112 sibling', () => {
     const definers = readdirSync(MIG_DIR).filter(
       (f) =>
         f !== FILE &&
@@ -221,7 +225,12 @@ describe('fn_prepare_payroll_period reads the matrix as its owner', () => {
           read(join(MIG_DIR, f)),
         ),
     );
-    expect(definers).toEqual([PREPARE_FILE]);
+    expect(definers.filter((f) => f !== SIBLING_FILE)).toEqual([PREPARE_FILE]);
+  });
+
+  it('the #4112 sibling, when present, carries this exact body', () => {
+    if (!readdirSync(MIG_DIR).includes(SIBLING_FILE)) return;
+    expect(prepareFn(read(join(MIG_DIR, SIBLING_FILE)))).toBe(next);
   });
 
   it('the body is byte-identical except the role check and the one v_pay_matrix assignment', () => {
