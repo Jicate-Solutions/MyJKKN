@@ -31,6 +31,7 @@ import { GrievanceService } from '@/lib/services/grievance/grievance-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import type { GrievanceStatus, GrievancePriority } from '@/lib/types/grievance';
+import { handledByLabel } from '@/lib/grievance/complaint-display';
 
 const STATUSES: Array<{ value: GrievanceStatus; label: string }> = [
   { value: 'open', label: 'Open' },
@@ -188,6 +189,7 @@ export default function GrievanceListPage() {
                   <TableHead>Status</TableHead>
                   <TableHead>Priority</TableHead>
                   <TableHead>SLA</TableHead>
+                  <TableHead>Handled By</TableHead>
                   <TableHead>Raised By</TableHead>
                   <TableHead>Created</TableHead>
                 </TableRow>
@@ -195,7 +197,7 @@ export default function GrievanceListPage() {
               <TableBody>
                 {(data?.items ?? []).length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                       No tickets found.
                     </TableCell>
                   </TableRow>
@@ -221,6 +223,9 @@ export default function GrievanceListPage() {
                       <TableCell><Badge variant={statusVariant(t.status)}>{t.status}</Badge></TableCell>
                       <TableCell><Badge variant="outline">{t.priority ?? '-'}</Badge></TableCell>
                       <TableCell><Badge variant={slaVariant(t.sla_status)}>{t.sla_status ?? '-'}</Badge></TableCell>
+                      <TableCell className={t.assigned_to ? 'text-sm' : 'text-sm text-amber-700 dark:text-amber-400'}>
+                        {handledByLabel(t.assigned_to, t.assignee?.full_name)}
+                      </TableCell>
                       <TableCell className="text-sm">{t.raised_by_name ?? t.raised_by_type}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {t.created_at ? new Date(t.created_at).toLocaleDateString() : '-'}

@@ -108,6 +108,6 @@ export interface ComparisonRow {
 export const QUOTATION_STATUS_CONFIG: Record<QuotationStatus, { label: string; color: string }> = {
   received: { label: 'Received', color: 'blue' },
   shortlisted: { label: 'Shortlisted', color: 'indigo' },
-  awarded: { label: 'Awarded', color: 'green' },
+  awarded: { label: 'Chosen', color: 'green' },
   rejected: { label: 'Rejected', color: 'red' },
 };

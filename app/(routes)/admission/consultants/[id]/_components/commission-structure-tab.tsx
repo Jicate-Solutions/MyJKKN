@@ -409,9 +409,10 @@ function StructureDialog({ open, onOpenChange, consultantId, institutionId, edit
 interface CommissionStructureTabProps {
   consultantId: string
   institutionId: string
+  consultantName: string
 }
 
-export function CommissionStructureTab({ consultantId, institutionId }: CommissionStructureTabProps) {
+export function CommissionStructureTab({ consultantId, institutionId, consultantName }: CommissionStructureTabProps) {
   const queryClient = useQueryClient()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<ConsultantCommissionStructure | null>(null)
@@ -461,7 +462,7 @@ export function CommissionStructureTab({ consultantId, institutionId }: Commissi
       {/* The standard service-charge card comes first: it is what almost every
           consultant is actually paid against. The per-consultant structures below
           are the exception — a negotiated deal that departs from the card. */}
-      <RateCardPanel consultantId={consultantId} />
+      <RateCardPanel consultantId={consultantId} consultantName={consultantName} />
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">

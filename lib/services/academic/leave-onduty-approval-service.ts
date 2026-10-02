@@ -18,6 +18,8 @@ import {
   ApprovalActionData,
   ApprovalTimelineStep,
   LeaveOndutyApplication,
+  ApproverRole,
+  APPROVER_ROLE_LABELS,
 } from '@/types/leave-onduty';
 import { LeaveOndutyAttendanceIntegrationService } from './leave-onduty-attendance-integration-service';
 import { logActivityClient, AcademicActivityTemplates } from '@/lib/utils/activity-logger-client';
@@ -34,303 +36,71 @@ export class LeaveOndutyApprovalService {
   ): Promise<void> {
     const supabase = getSupabase();
 
-    console.log('[leave-onduty/approval] Processing approval:', {
-      application_id: data.application_id,
-      approver_id: data.approver_id,
-      status: data.status,
+    const action: 'approved' | 'rejected' =
+      data.status ?? (data.action === 'reject' ? 'rejected' : 'approved');
+
+    // CHANGED 2026-09-28: the whole decision (who may act, stamping the step,
+    // advancing current_step, finalising) runs in fn_lo_decide, a SECURITY
+    // DEFINER function that takes the caller from auth.uid(). Before, these were
+    // browser-side updates to leave_onduty_applications, whose only UPDATE
+    // policy admits profiles.role super_admin/admin/institution_admin — an HOD
+    // or Principal "approve" updated 0 rows with no error, which is how 144 of
+    // 150 applications stayed pending. Role steps (any holder of the role in the
+    // step's scope, e.g. CAO across all institutions, Warden for the learner's
+    // block) are resolved by fn_lo_can_act; legacy pinned rows still work.
+    const { data: result, error } = await supabase.rpc('fn_lo_decide', {
+      p_application_id: data.application_id,
+      p_action: action,
+      p_comments: data.comments?.trim() || null,
     });
 
-    // Get approver profile to check if super admin
-    const { data: approverProfile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', data.approver_id)
-      .single();
-
-    const isSuperAdmin = approverProfile?.role === 'super_admin';
-    console.log('[leave-onduty/approval] Approver role:', { isSuperAdmin, role: approverProfile?.role });
-
-    // Get application details
-    const { data: application, error: appError } = await supabase
-      .from('leave_onduty_applications')
-      .select('*, approvals:leave_onduty_approvals(*)')
-      .eq('id', data.application_id)
-      .single();
-
-    if (appError || !application) {
-      throw new Error('Application not found');
+    if (error) {
+      throw new Error(error.message || 'Failed to record your decision');
     }
 
-    // Check if application is still pending
-    if (application.status !== 'pending') {
-      throw new Error('Application is not pending approval');
-    }
+    const decision = (result ?? {}) as {
+      status?: string;
+      finalized?: boolean;
+      affects_attendance?: boolean;
+    };
 
-    // Get approval flow to determine type (sequential/parallel)
-    const { data: flow } = await supabase.rpc('get_applicable_approval_flow', {
-      p_institution_id: application.institution_id,
-      p_department_id: application.department_id,
-      p_semester_id: application.semester_id,
-      p_category: application.category,
-      p_sub_category: application.sub_category,
-    });
-
-    // Super admin can approve/reject without approval flow
-    if (!flow && !isSuperAdmin) {
-      throw new Error('No approval flow configured');
-    }
-
-    // Super admin direct approval (no flow or override)
-    if (isSuperAdmin) {
-      console.log('[leave-onduty/approval] Super admin approval - creating audit record');
-
-      // Create approval record for audit trail
-      const { error: insertError } = await supabase.from('leave_onduty_approvals').insert({
-        application_id: data.application_id,
-        step_order: 1,
-        approver_id: data.approver_id,
-        approver_role: 'super_admin',
-        status: data.status,
-        comments: data.comments,
-        action_taken_at: new Date().toISOString(),
-      });
-
-      if (insertError) {
-        console.error('[leave-onduty/approval] Failed to create approval record:', insertError);
-        throw new Error(`Failed to create approval record: ${insertError.message}`);
+    // Attendance stamp on final approval, only for types that affect class
+    // attendance (e.g. hostel "Night Out" does not).
+    if (decision.finalized && decision.affects_attendance !== false) {
+      try {
+        await LeaveOndutyAttendanceIntegrationService.updateAttendanceOnApproval(data.application_id);
+      } catch (attendanceError) {
+        // The approval itself is committed; surface the stamp failure loudly so
+        // it is not mistaken for success.
+        console.error('[leave-onduty/approval] Attendance integration failed:', attendanceError);
+        throw new Error(
+          'Approved, but updating class attendance failed. Please mark the attendance manually or contact the office.'
+        );
       }
-
-      console.log('[leave-onduty/approval] Audit record created, processing action:', data.status);
-
-      if (data.status === 'rejected') {
-        console.log('[leave-onduty/approval] Calling handleRejection');
-        await this.handleRejection(application.id, data.application_id);
-      } else {
-        console.log('[leave-onduty/approval] Calling finalizeApproval for application:', application.id);
-        await this.finalizeApproval(application.id);
-      }
-
-      console.log('[leave-onduty/approval] Super admin approval completed successfully');
-
-      (async () => {
-        try {
-          const { data: learnerApp } = await getSupabase()
-            .from('leave_onduty_applications')
-            .select('learner_id, institution_id')
-            .eq('id', data.application_id)
-            .single();
-          const applicantId = learnerApp?.learner_id || data.application_id;
-          const template = data.status === 'rejected'
-            ? AcademicActivityTemplates.leaveOndutyApplicationRejected(applicantId)
-            : AcademicActivityTemplates.leaveOndutyApplicationApproved(applicantId);
-          await logActivityClient({
-            userId: data.approver_id,
-            actionType: template.actionType,
-            resourceType: template.resourceType,
-            resourceId: data.application_id,
-            description: template.description,
-            metadata: { sub_type: template.sub_type, action: data.status, comments: data.comments },
-            institutionId: learnerApp?.institution_id,
-          });
-        } catch { /* never block */ }
-      })();
-
-      return;
-    }
-
-    // Get current approval record for this approver
-    const currentApproval = application.approvals?.find(
-      (a: any) => a.approver_id === data.approver_id && a.status === 'pending'
-    );
-
-    if (!currentApproval) {
-      throw new Error('You are not authorized to approve this application');
-    }
-
-    // Update approval record
-    const { error: updateError } = await supabase
-      .from('leave_onduty_approvals')
-      .update({
-        status: data.status,
-        comments: data.comments,
-        action_taken_at: new Date().toISOString(),
-      })
-      .eq('id', currentApproval.id);
-
-    if (updateError) {
-      throw new Error(`Failed to update approval: ${updateError.message}`);
-    }
-
-    // Handle rejection - immediately reject application
-    if (data.status === 'rejected') {
-      await this.handleRejection(application.id, data.application_id);
-      (async () => {
-        try {
-          const template = AcademicActivityTemplates.leaveOndutyApplicationRejected(
-            application.learner_id || data.application_id
-          );
-          await logActivityClient({
-            userId: data.approver_id,
-            actionType: template.actionType,
-            resourceType: template.resourceType,
-            resourceId: data.application_id,
-            description: template.description,
-            metadata: { sub_type: template.sub_type, action: 'rejected', comments: data.comments },
-            institutionId: application.institution_id,
-          });
-        } catch { /* never block */ }
-      })();
-      return;
-    }
-
-    // Handle approval based on flow type
-    if (flow.flow_type === 'sequential') {
-      await this.handleSequentialApproval(application, flow);
-    } else {
-      await this.handleParallelApproval(application, flow);
     }
 
     (async () => {
       try {
-        const template = AcademicActivityTemplates.leaveOndutyApplicationApproved(
-          application.learner_id || data.application_id
-        );
+        const { data: learnerApp } = await getSupabase()
+          .from('leave_onduty_applications')
+          .select('learner_id, institution_id')
+          .eq('id', data.application_id)
+          .single();
+        const applicantId = learnerApp?.learner_id || data.application_id;
+        const template = action === 'rejected'
+          ? AcademicActivityTemplates.leaveOndutyApplicationRejected(applicantId)
+          : AcademicActivityTemplates.leaveOndutyApplicationApproved(applicantId);
         await logActivityClient({
           userId: data.approver_id,
           actionType: template.actionType,
           resourceType: template.resourceType,
           resourceId: data.application_id,
           description: template.description,
-          metadata: { sub_type: template.sub_type, action: 'approved', comments: data.comments },
-          institutionId: application.institution_id,
+          metadata: { sub_type: template.sub_type, action, comments: data.comments, final_status: decision.status },
+          institutionId: learnerApp?.institution_id,
         });
       } catch { /* never block */ }
     })();
-  }
-
-  /**
-   * Handle rejection - update application status
-   */
-  private static async handleRejection(
-    approvalId: string,
-    applicationId: string
-  ): Promise<void> {
-    const supabase = getSupabase();
-
-    console.log('[leave-onduty/approval] Handling rejection for application:', applicationId);
-
-    const { error: updateError } = await supabase
-      .from('leave_onduty_applications')
-      .update({ status: 'rejected' })
-      .eq('id', applicationId);
-
-    if (updateError) {
-      console.error('[leave-onduty/approval] Failed to update application status to rejected:', updateError);
-      throw new Error(`Failed to reject application: ${updateError.message}`);
-    }
-
-    console.log('[leave-onduty/approval] Application status updated to rejected');
-
-    // TODO: Notify learner of rejection
-  }
-
-  /**
-   * Handle sequential approval workflow
-   */
-  private static async handleSequentialApproval(
-    application: any,
-    flow: any
-  ): Promise<void> {
-    const supabase = getSupabase();
-
-    const flowSteps = flow.flow_steps || [];
-    const currentStep = application.current_step;
-
-    // Check if this is the last step
-    if (currentStep >= flowSteps.length) {
-      // All steps completed - approve application
-      await this.finalizeApproval(application.id);
-      return;
-    }
-
-    // Move to next step
-    const nextStep = currentStep + 1;
-
-    await supabase
-      .from('leave_onduty_applications')
-      .update({ current_step: nextStep })
-      .eq('id', application.id);
-
-    // TODO: Notify next approver
-  }
-
-  /**
-   * Handle parallel approval workflow
-   */
-  private static async handleParallelApproval(
-    application: any,
-    flow: any
-  ): Promise<void> {
-    const supabase = getSupabase();
-
-    // Get all required approvals
-    const flowSteps = flow.flow_steps || [];
-    const requiredSteps = flowSteps.filter((step: any) => step.is_required);
-
-    // Get current approval statuses
-    const { data: approvals } = await supabase
-      .from('leave_onduty_approvals')
-      .select('*')
-      .eq('application_id', application.id);
-
-    if (!approvals) return;
-
-    // Check if all required approvals are approved
-    const allRequiredApproved = requiredSteps.every((step: any) => {
-      const approval = approvals.find((a) => a.step_order === step.step_order);
-      return approval && approval.status === 'approved';
-    });
-
-    if (allRequiredApproved) {
-      // All required approvals completed - approve application
-      await this.finalizeApproval(application.id);
-    }
-  }
-
-  /**
-   * Finalize approval and trigger attendance update
-   */
-  private static async finalizeApproval(applicationId: string): Promise<void> {
-    const supabase = getSupabase();
-
-    console.log('[leave-onduty/approval] Finalizing approval for application:', applicationId);
-
-    // Update application status
-    const { error: updateError } = await supabase
-      .from('leave_onduty_applications')
-      .update({ status: 'approved' })
-      .eq('id', applicationId);
-
-    if (updateError) {
-      console.error('[leave-onduty/approval] Failed to update application status:', updateError);
-      throw new Error(`Failed to update application status: ${updateError.message}`);
-    }
-
-    console.log('[leave-onduty/approval] Application status updated to approved');
-
-    // Trigger attendance integration
-    try {
-      console.log('[leave-onduty/approval] Triggering attendance integration');
-      await LeaveOndutyAttendanceIntegrationService.updateAttendanceOnApproval(
-        applicationId
-      );
-      console.log('[leave-onduty/approval] Attendance integration completed');
-    } catch (error) {
-      console.error('[leave-onduty/approval] Attendance integration failed:', error);
-      // Don't throw - approval is still successful even if attendance integration fails
-    }
-
-    // TODO: Notify learner of approval
   }
 
   /**
@@ -349,7 +119,8 @@ export class LeaveOndutyApprovalService {
         *,
         approvals:leave_onduty_approvals(
           *,
-          approver:profiles!leave_onduty_approvals_approver_id_fkey(id, full_name, email)
+          approver:profiles!leave_onduty_approvals_approver_id_fkey(id, full_name, email),
+          role:custom_roles(id, role_name)
         )
       `
       );
@@ -402,6 +173,8 @@ export class LeaveOndutyApprovalService {
     const timeline: ApprovalTimelineStep[] = stepOrders.map((order) => {
       const approval = approvals.find((a: any) => Number(a.step_order) === order);
       const step = flowSteps.find((s: any) => Number(s.step_order) === order);
+      const approverRoleValue: ApproverRole | undefined =
+        approval?.approver_role ?? step?.approver_role ?? step?.role;
 
       return {
         step_order: order,
@@ -409,7 +182,13 @@ export class LeaveOndutyApprovalService {
         // existed, so the heading (APPROVER_ROLE_LABELS[step.role]) rendered
         // blank for everyone, staff included. Prefer the approval row — it is
         // the role the request was actually routed under.
-        role: approval?.approver_role ?? step?.approver_role ?? step?.role,
+        role: approverRoleValue,
+        // Role-based steps (learner_leave_flow_steps) carry a real role_name
+        // via `role:custom_roles(...)`; legacy pinned steps fall back to
+        // APPROVER_ROLE_LABELS keyed by approver_role.
+        role_label:
+          approval?.role?.role_name ??
+          (approverRoleValue ? APPROVER_ROLE_LABELS[approverRoleValue] ?? approverRoleValue : 'Approver'),
         // No flow step has ever carried `description` either. Empty string
         // rather than `undefined` so the type is honest about it.
         description: step?.description ?? '',
@@ -613,6 +392,60 @@ export class LeaveOndutyApprovalService {
 
     console.log('[leave-onduty/approvals] Institution: Success. Found', data?.length, 'applications');
     return data || [];
+  }
+
+  /**
+   * The caller's approval queue, resolved server-side by fn_lo_my_approval_queue:
+   * 'pending' = applications whose CURRENT step the caller can act on (role +
+   * scope: department / institution / all institutions / hostel block, or a
+   * pinned legacy row); 'approved' / 'rejected' = ones the caller decided.
+   * Replaces the institution/department filter, which could never show a CAO
+   * other institutions or a Warden their block.
+   */
+  static async getMyApprovalQueue(status: string = 'pending'): Promise<any[]> {
+    const supabase = getSupabase();
+
+    const { data: ids, error: idsError } = await supabase.rpc('fn_lo_my_approval_queue', {
+      p_status: status,
+    });
+    if (idsError) {
+      throw new Error(`Failed to load your approval queue: ${idsError.message}`);
+    }
+
+    const appIds = ((ids ?? []) as unknown[])
+      .map((r) => (typeof r === 'string' ? r : (r as any)?.fn_lo_my_approval_queue))
+      .filter(Boolean) as string[];
+    if (appIds.length === 0) return [];
+
+    const rows: any[] = [];
+    // .in() goes in the URL; keep each request comfortably short.
+    for (let i = 0; i < appIds.length; i += 150) {
+      const { data, error } = await supabase
+        .from('leave_onduty_applications')
+        .select(`
+          *,
+          learner:learners_profiles!learner_id(
+            id, first_name, last_name, roll_number, register_number, student_email
+          ),
+          section:sections!section_id(
+            id, section_name,
+            degree:degrees!degree_id(id, degree_name, degree_id)
+          ),
+          department:departments!department_id(id, department_name, department_code),
+          semester:semesters!semester_id(id, semester_name),
+          institution:institutions!institution_id(id, name),
+          leave_type:learner_leave_types(id, code, name, color_code, residency, affects_attendance),
+          batch:leave_onduty_batches!batch_id(id, title),
+          approvals:leave_onduty_approvals!application_id(*, role:custom_roles(id, role_name))
+        `)
+        .in('id', appIds.slice(i, i + 150))
+        .order('created_at', { ascending: false });
+      if (error) {
+        throw new Error(`Failed to load applications: ${error.message}`);
+      }
+      rows.push(...(data ?? []));
+    }
+    return rows.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
   }
 
   /**

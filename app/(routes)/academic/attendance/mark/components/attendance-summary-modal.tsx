@@ -1,6 +1,6 @@
 'use client';
 
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import {
   Dialog,
   DialogContent,
@@ -134,7 +134,7 @@ export function AttendanceSummaryModal({
                     <p className='text-gray-600 dark:text-gray-400'>Date</p>
                     <p className='font-semibold'>
                       {date
-                        ? format(new Date(date), 'dd MMM yyyy')
+                        ? format(parseISO(date), 'dd MMM yyyy')
                         : 'Unknown Date'}
                     </p>
                   </div>

@@ -1,10 +1,10 @@
 /**
- * CORS for /api/public/careers/*. The consumer is jkkn.ac.in and its one-label
- * subdomains (all https). Origins are reflected, never '*', and credentials are
+ * CORS for /api/public/careers/*. The consumer is jkkn.ac.in and its subdomains at
+ * any depth, e.g. nursing.sresakthimayeil.jkkn.ac.in (all https). Origins are reflected, never '*', and credentials are
  * never allowed — these routes are anonymous by design.
  */
 
-const JKKN_ORIGIN = /^https:\/\/([a-z0-9-]+\.)?jkkn\.ac\.in$/i;
+const JKKN_ORIGIN = /^https:\/\/([a-z0-9-]+\.)*jkkn\.ac\.in$/i;
 
 /** Comma-separated PUBLIC_CAREERS_EXTRA_ORIGINS, e.g. http://localhost:3000 in dev. */
 export function extraOrigins(): string[] {
