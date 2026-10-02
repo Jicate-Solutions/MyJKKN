@@ -63,14 +63,14 @@ export function AwardSuggestionCard({
         await awardLine.mutateAsync({ rfqItemId: line.rfq_item_id, quotationItemId: line.quotation_item_id });
         done += 1;
       } catch (e) {
-        toast.error(`${line.item_name}: ${errorMessage(e, 'could not be awarded')}`);
+        toast.error(`${line.item_name}: ${errorMessage(e, 'could not be chosen')}`);
       }
     }
     if (done === suggestion.lines.length) {
-      toast.success(`Applied ${done} of ${suggestion.lines.length} awards`);
+      toast.success(`Applied ${done} of ${suggestion.lines.length} choices`);
       await onApplied(messageId);
     } else {
-      toast.warning(`Applied ${done} of ${suggestion.lines.length} awards — check the table`);
+      toast.warning(`Applied ${done} of ${suggestion.lines.length} choices — check the table`);
     }
     setApplying(false);
   };
@@ -78,7 +78,7 @@ export function AwardSuggestionCard({
   if (!suggestion.lines.length) {
     return (
       <div className="rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">
-        The AI proposed an award plan, but none of its lines matched a usable quote.
+        The AI proposed a vendor choice plan, but none of its lines matched a usable quote.
       </div>
     );
   }
@@ -88,7 +88,7 @@ export function AwardSuggestionCard({
       <div className="mb-2 flex items-start gap-2">
         <Award className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
         <div className="min-w-0">
-          <p className="font-medium">Suggested award</p>
+          <p className="font-medium">Suggested choice</p>
           {suggestion.summary && <p className="text-xs text-muted-foreground">{suggestion.summary}</p>}
         </div>
       </div>
@@ -118,7 +118,7 @@ export function AwardSuggestionCard({
                 Plan total
                 {suggestion.current_total > 0 && diff !== 0 && (
                   <span className="ml-1 font-normal text-muted-foreground">
-                    ({diff < 0 ? `${inr(-diff)} less` : `${inr(diff)} more`} than the awards at the time)
+                    ({diff < 0 ? `${inr(-diff)} less` : `${inr(diff)} more`} than the choices at the time)
                   </span>
                 )}
               </td>
@@ -148,17 +148,17 @@ export function AwardSuggestionCard({
         ) : alreadyInPlace ? (
           <span className="flex items-center gap-1 text-xs text-green-600">
             <CheckCircle2 className="h-3.5 w-3.5" />
-            These awards are already in place.
+            These choices are already in place.
           </span>
         ) : !canApply ? (
           <span className="text-xs text-muted-foreground">
-            Someone with award rights can apply this plan.
+            Someone with the right to choose vendors can apply this plan.
           </span>
         ) : lockedReason ? (
           <span className="text-xs text-muted-foreground">{lockedReason}</span>
         ) : (
           <Button size="sm" onClick={apply} disabled={applying || !messageId}>
-            {applying ? 'Applying…' : messageId ? 'Apply these awards' : 'Saving…'}
+            {applying ? 'Applying…' : messageId ? 'Apply these choices' : 'Saving…'}
           </Button>
         )}
       </div>

@@ -135,6 +135,25 @@ export interface CdcDriveInstitutionSemesterTarget {
    * program name so learners split across copies are all matched.
    */
   program_ids?: string[];
+  /**
+   * Degree-wise targeting (2026-09-28): one entry per degree group the admin
+   * picked in (UG / PG …), each with its OWN programs and semesters, so "UG Sem 7
+   * + PG Sem 3" does not bleed across. When present and non-empty it is the
+   * authoritative audience for the institution; `program_ids` / `semester_orders`
+   * above are kept as the union for summaries and the coarse DB pre-filter.
+   * Groups not listed here are not targeted.
+   */
+  degree_semesters?: CdcDriveDegreeSemesterTarget[];
+}
+export interface CdcDriveDegreeSemesterTarget {
+  /** Group key from the picker ("UG", "PG", …). */
+  key: string;
+  /** Programs ticked inside this group. Empty = every program of the group. */
+  program_ids: string[];
+  /** Every program of the group (resolved when saved) — used when program_ids is empty. */
+  all_program_ids: string[];
+  /** semesters.semester_order values. Empty = every semester of the group. */
+  semester_orders: number[];
 }
 export type CdcDriveInstitutionSemesters = CdcDriveInstitutionSemesterTarget[];
 

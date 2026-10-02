@@ -7,8 +7,10 @@
 // as [{member_id: <auth uid>, name}]; the DB reads the same list in
 // fn_is_event_incharge(), which backs the RLS policies and every API gate.
 //
-// Only holders of sports.tournaments.manage may appoint/remove in-charges
-// (canAssignIncharge) — an in-charge cannot appoint further in-charges.
+// Super admin, sports.tournaments.manage / sports.tournaments.edit holders and the
+// event's creator may appoint/remove in-charges (canAssignIncharge) — so the COO
+// can correct a wrong or rejected appointment. An in-charge alone cannot appoint
+// further in-charges.
 
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';

@@ -23,6 +23,7 @@ import { LeaveCalendarService } from '@/lib/services/academic/leave-calendar-ser
 import type { LeaveBlockInfo } from '@/types/leaves';
 import { cn } from '@/lib/utils';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { practicalPeriodsMarkedFromRecords } from '@/lib/utils/practical-period-sections';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import {
   getPeriodTimeStatus,
@@ -86,8 +87,8 @@ export function AvailablePeriodsCards({
         setCheckingAttendance(true);
 
         // Updated: 2026-02-06 - Separate practical periods from standard periods
-        // Practical periods use batches instead of sections, so the standard
-        // attendance check (which requires section_id) doesn't apply to them
+        // Practical periods use batches instead of sections, so they are
+        // checked per batch below
         const standardPeriods = periods.filter((p) => p.period_mode !== 'practical');
         const practicalPeriods = periods.filter((p) => p.period_mode === 'practical');
 
@@ -103,8 +104,6 @@ export function AvailablePeriodsCards({
           attendance_date: targetDate
         }));
 
-        // Only check standard periods; practical periods default to "not marked"
-        // (practical attendance is tracked per-batch, not per-section)
         let attendanceMap = new Map<string, { isMarked: boolean; recordId?: string }>();
 
         if (periodChecks.length > 0) {
@@ -114,10 +113,31 @@ export function AvailablePeriodsCards({
             );
         }
 
-        // Mark practical periods as unchecked (they'll be verified on the mark page)
-        practicalPeriods.forEach((period) => {
-          attendanceMap.set(period.timetable_slot_id, { isMarked: false });
-        });
+        // Updated: 2026-09-28 (BUG-004733) - Practical periods were hard-coded
+        // "not marked" here, so an HOD saw every saved specialisation hour as
+        // pending. A practical period counts as marked once every batch in
+        // practical_config.batches has saved (read from batch_selected).
+        if (practicalPeriods.length > 0) {
+          try {
+            const records =
+              await AttendanceService.getAttendanceRecordsForTimetablesOnDate(
+                practicalPeriods.map((p) => p.timetable_id),
+                targetDate
+              );
+            const practicalMap = practicalPeriodsMarkedFromRecords(
+              practicalPeriods,
+              records
+            );
+            for (const [slotId, info] of practicalMap) {
+              attendanceMap.set(slotId, info);
+            }
+          } catch (practicalError) {
+            logger.error('academic/attendance', 'Error checking practical attendance', practicalError);
+            practicalPeriods.forEach((period) => {
+              attendanceMap.set(period.timetable_slot_id, { isMarked: false });
+            });
+          }
+        }
 
         // Updated: 2025-10-09 - Simplified: One check per slot, service handles multi-section logic
         const marked = new Set<string>();

@@ -22,19 +22,6 @@ export function usePurchaseOrder(id: string) {
   });
 }
 
-export function useGeneratePOsFromRfq() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ rfqId, userId }: { rfqId: string; userId: string }) =>
-      ProcurementPurchaseOrderService.generateFromRfq(rfqId, userId),
-    onSuccess: (_r, { rfqId }) => {
-      queryClient.invalidateQueries({ queryKey: ['procurement-purchase-orders'] });
-      queryClient.invalidateQueries({ queryKey: ['procurement-rfq', rfqId] });
-      queryClient.invalidateQueries({ queryKey: ['procurement-comparison', rfqId] });
-    },
-  });
-}
-
 function usePoTransition(fn: (args: { id: string; userId: string; reason?: string }) => Promise<unknown>) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -58,9 +45,6 @@ export function useRejectPO() {
   return usePoTransition(({ id, userId, reason }) =>
     ProcurementPurchaseOrderService.reject(id, userId, reason ?? '')
   );
-}
-export function useMarkPOSent() {
-  return usePoTransition(({ id }) => ProcurementPurchaseOrderService.markSent(id));
 }
 export function useCancelPO() {
   return usePoTransition(({ id }) => ProcurementPurchaseOrderService.cancel(id));

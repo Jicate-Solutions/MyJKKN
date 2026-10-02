@@ -46,12 +46,24 @@ export function useStaff(
   filters: StaffFilters = {}
 ): UseQueryResult<StaffListResponse, Error> {
   const { profile, isLoading: authLoading } = useAuth();
-  const { userRoles, isLoading: permissionsLoading } = usePermissions();
+  const {
+    userRoles,
+    isLoading: permissionsLoading,
+    getModuleScope
+  } = usePermissions();
   // Any of the user's roles, not just profile.role (the primary one): a
   // faculty member who is also a digital coordinator lists their institution.
   const isDigitalCoordinator = userRoles.some(
     (r) => r.role_key === 'digital_coordinator'
   );
+  // Staff counsellors list only their own staff record. RLS alone is wider:
+  // the faculty role most of them also hold opens staff_select_visiting_teacher.
+  // Skipped when another role grants a wider staff scope (e.g. HOD).
+  const isStaffCounselorSelfOnly =
+    !permissionsLoading &&
+    (profile?.role === 'staff_counselor' ||
+      userRoles.some((r) => r.role_key === 'staff_counselor')) &&
+    getModuleScope('staff') === 'own_records';
 
   // Create stable query key by serializing only the values that matter
   const queryKey = useMemo(() => {
@@ -75,7 +87,8 @@ export function useStaff(
       stableFilters,
       profile?.role || '',
       profile?.institution_id || '',
-      isDigitalCoordinator
+      isDigitalCoordinator,
+      isStaffCounselorSelfOnly
     ];
   }, [
     filters.search,
@@ -89,7 +102,8 @@ export function useStaff(
     filters.limit,
     profile?.role,
     profile?.institution_id,
-    isDigitalCoordinator
+    isDigitalCoordinator,
+    isStaffCounselorSelfOnly
   ]);
 
   const queryFn = useCallback(async () => {
@@ -102,7 +116,8 @@ export function useStaff(
         department_id: profile?.department_id || undefined,
         institution_id: profile?.institution_id || undefined,
         is_super_admin: profile?.is_super_admin || false,
-        is_digital_coordinator: isDigitalCoordinator
+        is_digital_coordinator: isDigitalCoordinator,
+        is_self_only: isStaffCounselorSelfOnly
       });
     } catch (error) {
       // Surface the real cause. Re-throwing a generic Error here used to
@@ -112,7 +127,7 @@ export function useStaff(
       console.error('[useStaff] Fetch Error:', detail, error);
       throw new Error(`Failed to fetch staff: ${detail}`);
     }
-  }, [filters, profile, isDigitalCoordinator]);
+  }, [filters, profile, isDigitalCoordinator, isStaffCounselorSelfOnly]);
 
   return useQuery({
     queryKey,

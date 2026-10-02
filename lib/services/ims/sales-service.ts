@@ -183,6 +183,10 @@ export class ImsSalesService {
     gateway_fee_paise: number | null;
     late_credit: boolean;
     paid_at: string | null;
+    method: string | null;
+    ezetap_txn_id: string | null;
+    device_label: string | null;
+    device_serial: string | null;
   } | null> {
     try {
       const { data, error } = await this.supabase
@@ -191,7 +195,8 @@ export class ImsSalesService {
           `id, status, amount, captured_amount_paise, transaction_ref,
            gateway_method, payer_vpa, payer_contact, payer_email, payer_bank,
            payer_wallet, bank_rrn, upi_transaction_id, razorpay_payment_id,
-           razorpay_order_id, razorpay_key_id, gateway_fee_paise, late_credit, paid_at`
+           razorpay_order_id, razorpay_key_id, gateway_fee_paise, late_credit, paid_at,
+           method, ezetap_txn_id, device_label, device_serial`
         )
         .eq('sale_id', saleId)
         .maybeSingle();
