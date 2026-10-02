@@ -16,7 +16,16 @@
 -- WHAT IS LOCKED, EXACTLY
 --   * source changing AWAY from 'walk_in'  — refused while the enquiry has at
 --     least one claim with payout_cleared_at IS NULL;
---   * DELETE of such an enquiry            — refused for the same reason.
+--   * DELETE of such an enquiry            — refused for the same reason;
+--   * learner_profile_id being unlinked or relinked (an existing link changing to
+--     NULL or to another learner) on a walk-in enquiry — refused while a held claim
+--     on it has NO learner_profile_id of its own. Every hold check finds the
+--     learner through COALESCE(claim.learner_profile_id, lead.learner_profile_id),
+--     so for those claims the enquiry's link is the only thing keeping the learner
+--     in the hold; moving it let the learner be counted and paid. (W12 blind
+--     review of d669f73caa.) Linking a learner where there was none is allowed: it
+--     can only put a learner under the hold, and conversion does it with the
+--     service role anyway.
 -- Nothing else on the enquiry is affected, and once the owner has released every
 -- claim on it (or there was never a claim) the label is editable again. Changing a
 -- label TO 'walk_in' is never blocked — that only puts a claim under the hold.
@@ -48,6 +57,17 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
+  IF TG_OP = 'UPDATE'
+     AND OLD.source::text = 'walk_in'
+     AND OLD.learner_profile_id IS NOT NULL
+     AND NEW.learner_profile_id IS DISTINCT FROM OLD.learner_profile_id
+     AND EXISTS (SELECT 1 FROM public.consultant_lead_attributions a
+                  WHERE a.admission_id = OLD.id AND a.payout_cleared_at IS NULL
+                    AND a.learner_profile_id IS NULL) THEN
+    RAISE EXCEPTION 'This walk-in enquiry has an agency claim waiting for confirmation, so its linked learner cannot be changed. The release owner decides it on the Review Worklist.'
+      USING ERRCODE = '42501';
+  END IF;
+
   RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
 END;
 $$;
@@ -56,5 +76,5 @@ REVOKE EXECUTE ON FUNCTION public.fn_guard_walkin_source_while_claim_held() FROM
 
 DROP TRIGGER IF EXISTS trg_guard_walkin_source_while_claim_held ON public.admission_leads;
 CREATE TRIGGER trg_guard_walkin_source_while_claim_held
-  BEFORE UPDATE OF source OR DELETE ON public.admission_leads
+  BEFORE UPDATE OF source, learner_profile_id OR DELETE ON public.admission_leads
   FOR EACH ROW EXECUTE FUNCTION public.fn_guard_walkin_source_while_claim_held();

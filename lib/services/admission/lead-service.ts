@@ -279,7 +279,7 @@ export class LeadService {
       throw new Error(error.message || 'Failed to log gate entry');
     }
 
-    const result = data as GateEntryResult;
+    const result = data as unknown as GateEntryResult;
 
     // ─── Lead-created audit activity ───────────────────────────────────
     // The gate-entry RPC (capture_gate_entry_lead) wraps capture_admission_lead
@@ -835,6 +835,25 @@ export class LeadService {
     // CASCADE FKs (auto-deleted): stage_history, activities, lead_scores, tasks, expo_wa_message_queue, wa_personal_message_queue, wa_consent_log
     // NO ACTION FKs (must delete manually): call_logs, sms_logs, whatsapp_logs, campaign_queue, email_logs, campaign_logs, drip_sequences, consultant_*
     // SET NULL FKs (auto-nullified): wa_form_responses, admission_form_submissions, admission_integration_logs, wa_conversations, activity_alert_history, workflow_executions
+
+    // A walk-in enquiry with an agency claim still waiting for its release owner cannot
+    // be deleted (trg_guard_walkin_source_while_claim_held). Check before clearing the
+    // history below, otherwise the history is wiped and the enquiry survives the refusal.
+    const { data: leadRow } = await (this.supabase as any)
+      .from('admission_leads')
+      .select('source')
+      .eq('id', id)
+      .maybeSingle();
+    if (leadRow?.source === 'walk_in') {
+      const { count: heldClaims } = await (this.supabase as any)
+        .from('consultant_lead_attributions')
+        .select('id', { count: 'exact', head: true })
+        .eq('admission_id', id)
+        .is('payout_cleared_at', null);
+      if ((heldClaims ?? 0) > 0) {
+        throw new Error('This walk-in enquiry has an agency claim waiting for confirmation, so it cannot be deleted. The release owner decides it on the Review Worklist.');
+      }
+    }
 
     // Batch 1: Delete NO ACTION FK records (these block the lead delete if not removed)
     await Promise.allSettled([
