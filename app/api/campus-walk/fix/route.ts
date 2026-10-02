@@ -52,6 +52,7 @@ import { isJpegMagic, scanJpegForMetadata, stripJpegMetadata } from '@/lib/servi
 import { createBellNotification } from '@/lib/services/meetings/meeting-trigger-service';
 import { resolveDirectors, validateTargeting } from '@/lib/services/director-desk/handover-chase-service';
 import { closeCampusWalkTask } from '@/lib/campus-walk/closure';
+import { updateTaskKeepingJoins } from '@/lib/campus-walk/join-report';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -106,6 +107,8 @@ interface TaskRow {
   is_overdue: boolean;
   owner_staff_id: string | null;
   completed_at: string | null;
+  /** Compare-and-set version for the photo step (bumped by the updated_at trigger). */
+  updated_at?: string | null;
   metadata: Record<string, any>;
 }
 
@@ -207,7 +210,7 @@ async function resolveAccess(
   const { data: task, error: taskErr } = await admin
     .from('project_tasks')
     .select(
-      'id, project_id, title, description, due_date, status_key, is_blocked, is_overdue, owner_staff_id, completed_at, metadata'
+      'id, project_id, title, description, due_date, status_key, is_blocked, is_overdue, owner_staff_id, completed_at, updated_at, metadata'
     )
     .eq('id', taskId)
     .maybeSingle();
@@ -927,19 +930,27 @@ export async function POST(request: NextRequest) {
   // hour still shows up late in every report that reads due_date.
   const { dueDate: settledDueDate } = closePause(metadata, task.due_date, nowIso);
 
-  const { error: taskErr } = await admin
-    .from('project_tasks')
-    .update({
+  // The job was read before the photo upload. Someone may have JOINED the
+  // report in the meantime (InstaSolver ruling 2); a plain whole-metadata write
+  // would erase them, and they would never hear it was fixed. This write is a
+  // compare-and-set on updated_at that puts any late joins back and retries
+  // (lib/campus-walk/join-report.ts updateTaskKeepingJoins). It does not add a
+  // status check — this step never had one.
+  const stepOne = await updateTaskKeepingJoins(admin as any, {
+    taskId,
+    expectStatus: null,
+    updatedAt: task.updated_at ?? null,
+    patch: {
       status_key: 'review',
       completed_at: null, // closed in step 2 below, under a compare-and-set
       is_blocked: false,
       due_date: settledDueDate,
-      metadata,
-    })
-    .eq('id', taskId);
+    },
+    metadata,
+  });
 
-  if (taskErr) {
-    console.error('[campus-walk/fix] task update failed:', taskErr.message);
+  if (stepOne.ok === false) {
+    console.error('[campus-walk/fix] task update failed:', stepOne.error);
     return NextResponse.json(
       {
         ok: false,
@@ -961,9 +972,10 @@ export async function POST(request: NextRequest) {
       id: taskId,
       title: task.title,
       status_key: 'review', // what step 1 just wrote — the compare-and-set version
+      updated_at: stepOne.updatedAt,
       owner_staff_id: task.owner_staff_id,
       completed_at: null,
-      metadata,
+      metadata: stepOne.metadata,
     },
     { decidedByProfileId: user.id, auto: true }
   );

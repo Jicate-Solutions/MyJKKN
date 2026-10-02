@@ -3318,6 +3318,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/campus-walk/spot-checks",
+        "label": "Spot Checks",
+        "iconName": "FileText",
+        "children": []
       }
     ]
   },

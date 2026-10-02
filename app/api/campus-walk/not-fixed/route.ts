@@ -18,6 +18,10 @@
 //     reminders' idempotency keys (lib/campus-walk/chase-up.ts
 //     `chaseRungIdempotencyKey`).
 //   · the reporter may do this for 7 days after the job was closed.
+//   · (ruling 1, 2026-09-30 interview) the SECOND time a reporter says "Not
+//     fixed" on the same job, the college head is told it failed twice.
+// The reopen itself lives in lib/campus-walk/reopen.ts, shared with the spot
+// checker's "Not fixed" (app/api/campus-walk/spot-check/route.ts).
 //
 // ── THE GATE ────────────────────────────────────────────────────────────────
 // project_* RLS is `auth.uid() IS NOT NULL` for read and write
@@ -25,7 +29,9 @@
 // the only boundary. It checks the signed-in person against the task's
 // recorded reporter (metadata.reporter_id, else metadata.raised_by_profile_id)
 // BEFORE the service-role client writes anything, and refuses any task whose
-// metadata.source is not 'campus-walk'.
+// metadata.source is not 'campus-walk'. People who joined an open report
+// (metadata.additional_reports) are told when it is fixed and see it on My
+// reports, but the button stays with the person who filed it.
 //
 // ── NO SILENT OUTCOMES (rule #27) ───────────────────────────────────────────
 // Every refusal is { success: false, error } with a sentence the reporter can
@@ -37,19 +43,15 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { createBellNotification } from '@/lib/services/meetings/meeting-trigger-service';
-import { reporterProfileIdOf, resolveAccountableProfileId } from '@/lib/campus-walk/closure';
+import { reporterProfileIdOf } from '@/lib/campus-walk/closure';
 import { NOT_FIXED_WINDOW_DAYS, withinNotFixedWindow } from '@/lib/campus-walk/my-reports';
-import { dueDateFor } from '@/lib/campus-walk/due-dates';
+import { REOPEN_STATUS, reopenCampusWalkTask } from '@/lib/campus-walk/reopen';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
 const MAX_NOTE = 500;
-
-/** Where a reopened job lands — the same 'active' status a sent-back job uses. */
-const REOPEN_STATUS = 'in_progress';
 
 function fail(error: string, status: number, code: string) {
   return NextResponse.json({ success: false, code, error }, { status });
@@ -87,7 +89,7 @@ export async function POST(request: NextRequest) {
 
   const { data: taskData, error: taskErr } = await admin
     .from('project_tasks')
-    .select('id, title, status_key, owner_staff_id, completed_at, due_date, metadata')
+    .select('id, title, status_key, owner_staff_id, completed_at, due_date, updated_at, metadata')
     .eq('id', taskId)
     .maybeSingle();
 
@@ -105,6 +107,7 @@ export async function POST(request: NextRequest) {
     owner_staff_id: string | null;
     completed_at: string | null;
     due_date: string | null;
+    updated_at?: string | null;
     metadata: Record<string, any> | null;
   };
   const metadata: Record<string, any> = { ...((task.metadata ?? {}) as Record<string, any>) };
@@ -159,110 +162,31 @@ export async function POST(request: NextRequest) {
   }
 
   // ── Reopen the SAME job ───────────────────────────────────────────────────
-  const nowIso = new Date().toISOString();
-  const dueDate = dueDateFor(metadata.kind, metadata.unsafe === true);
-  const priorChase = (metadata.campus_walk_chase ?? {}) as Record<string, any>;
-  const round = (Number.isInteger(Number(priorChase.round)) ? Number(priorChase.round) : 0) + 1;
+  // lib/campus-walk/reopen.ts, shared with the spot checker's "Not fixed" so
+  // the two doors can never reopen a job differently. It also counts this tap
+  // and, from the second one on, tells the college head (ruling 1).
+  const reopened = await reopenCampusWalkTask(admin as any, task, {
+    byProfileId: user.id,
+    via: 'reporter',
+    note: note || null,
+    doNotTell: [...reporterIds],
+  });
 
-  if (metadata.fix) {
-    metadata.fix = {
-      ...(metadata.fix as Record<string, any>),
-      approval: {
-        state: 'changes_requested',
-        auto: false,
-        reopened_by_reporter: true,
-        decided_at: nowIso,
-        decided_by_profile_id: user.id,
-        note: note || null,
-        previous_state: approval?.state ?? null,
-        previous_note: approval?.note ?? null,
-      },
-    };
-  }
-
-  const priorReopens = Array.isArray(metadata.reopens) ? metadata.reopens : [];
-  metadata.reopens = [
-    ...priorReopens,
-    {
-      at: nowIso,
-      by_profile_id: user.id,
-      note: note || null,
-      round,
-      previous_completed_at: task.completed_at,
-      due_date: dueDate,
-    },
-  ].slice(-20);
-
-  // Re-arm the chase-up ladder for the new round. Both halves are needed:
-  // rungs_sent is the fast-path skip, the round is what changes the keys.
-  metadata.campus_walk_chase = {
-    ...priorChase,
-    rungs_sent: {},
-    round,
-  };
-
-  const { data: updatedRows, error: updateErr } = await admin
-    .from('project_tasks')
-    .update({
-      status_key: REOPEN_STATUS,
-      completed_at: null,
-      due_date: dueDate,
-      is_overdue: false,
-      is_blocked: false,
-      metadata,
-    })
-    .eq('id', taskId)
-    .eq('status_key', 'done')
-    .select('id');
-
-  if (updateErr) {
-    console.error('[campus-walk/not-fixed] reopen write failed:', updateErr.message);
-    return fail('We could not reopen it just now. Nothing was changed — please try again.', 502, 'not_saved');
-  }
-  if ((updatedRows ?? []).length === 0) {
-    return fail('This report changed while you were looking at it. Refresh the page to see where it stands.', 409, 'raced');
-  }
-
-  // ── Tell the people who fix it (fail soft) ────────────────────────────────
-  let notified = false;
-  try {
-    const accountable = await resolveAccountableProfileId(admin as any, task);
-    const fixer =
-      typeof metadata.fix?.submitted_by_profile_id === 'string' ? metadata.fix.submitted_by_profile_id : null;
-    const recipients = [...new Set([accountable, fixer].filter((v): v is string => Boolean(v)))].filter(
-      (id) => !reporterIds.has(id)
-    );
-
-    if (recipients.length === 0) {
-      console.error(`[campus-walk/not-fixed] reopened but nobody to tell (task ${taskId})`);
-    } else {
-      const shortTitle = String(task.title ?? 'Campus job').slice(0, 100);
-      const id = await createBellNotification(admin as any, {
-        recipientIds: recipients,
-        createdBy: recipients[0],
-        title: `Not fixed yet — ${shortTitle}`,
-        body:
-          `The person who reported “${shortTitle}” says it is still not fixed.` +
-          (note ? ` They said: “${note}”.` : '') +
-          ` It is open again and due ${formatDay(dueDate)}.`,
-        url: `/campus-walk/fix?task=${taskId}`,
-        category: 'campus-walk:not-fixed',
-        metadata: { task_id: taskId, source: 'campus-walk', round },
-        idempotencyKey: `campus-walk-not-fixed:${taskId}:r${round}`,
-      });
-      notified = Boolean(id);
-    }
-  } catch (e: any) {
-    console.error('[campus-walk/not-fixed] notification failed:', e?.message ?? e);
+  if (reopened.ok === false) {
+    return reopened.code === 'raced'
+      ? fail('This report changed while you were looking at it. Refresh the page to see where it stands.', 409, 'raced')
+      : fail(reopened.error, 502, 'not_saved');
   }
 
   return NextResponse.json({
     success: true,
     task_id: taskId,
     status_key: REOPEN_STATUS,
-    due_date: dueDate,
-    round,
-    notified,
-    message: `Reopened. It is back with the people who fix it, due ${formatDay(dueDate)}.`,
+    due_date: reopened.dueDate,
+    round: reopened.round,
+    notified: reopened.notified,
+    not_fixed_count: reopened.notFixedCount,
+    college_head_notified: reopened.headNotified,
+    message: `Reopened. It is back with the people who fix it, due ${formatDay(reopened.dueDate)}.`,
   });
 }
