@@ -45,6 +45,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { compressImage } from '@/lib/utils/compress-image';
 import { stripImageMetadata } from '@/lib/services/pde/strip-image-metadata';
+import { JoinedReportsList, type JoinedReportItem } from '@/components/campus-walk/joined-reports-list';
 import { PHOTO_UNREADABLE } from '@/lib/instasolver/to-jpeg';
 
 // ── Types shared with the server component ──────────────────────────────────
@@ -75,6 +76,8 @@ export interface FixTicket {
   /** Signed URLs — the `campus-walk` bucket is private and stays that way (G4). */
   problemPhotoUrl: string | null;
   fixPhotoUrl: string | null;
+  /** Extra reports added from the QR sticker while this job was open. No names (D10). */
+  joinedReports: JoinedReportItem[];
   fix: {
     submittedAt: string | null;
     submittedByName: string | null;
@@ -446,6 +449,8 @@ export function FixClient({ ticket }: FixClientProps) {
               No photo was attached to this report.
             </p>
           )}
+
+          <JoinedReportsList reports={ticket.joinedReports} />
         </CardContent>
       </Card>
 
