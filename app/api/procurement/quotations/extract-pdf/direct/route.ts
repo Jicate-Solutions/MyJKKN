@@ -120,6 +120,8 @@ export async function POST(req: NextRequest) {
         ? 'The AI reader is busy — please try again in a minute, or enter the prices manually.'
         : err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError
           ? 'AI PDF reading is not available right now — please enter the prices manually.'
+          : err instanceof Anthropic.BadRequestError && /credit balance/i.test(err.message)
+            ? 'AI PDF reading is not available right now — please enter the prices manually.'
           : err instanceof Anthropic.BadRequestError
             ? 'The AI could not open this PDF — please enter the prices manually.'
             : err instanceof Error && !(err instanceof Anthropic.APIError)

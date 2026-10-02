@@ -17,6 +17,7 @@
 // CHECK) and the only part worth testing without a browser.
 
 import { istLocalInputToIso } from '@/lib/utils/date-format';
+import type { EventSourceLink } from './event-sources';
 import type {
   CreateEventDto,
   EventCategory,
@@ -130,6 +131,12 @@ export function emptyCategoryDraft(): EventCategoryDraft {
 export interface EventCreateForm {
   // Basics
   name: string;
+  /**
+   * Co-host institutions, alongside the primary host (`institution_id`). The
+   * primary host still owns fees and room approvals; co-hosts are recorded in
+   * `events.config.co_hosts` with their names so no lookup is needed to label them.
+   */
+  co_hosts: { id: string; name: string }[];
   tagline: string;
   theme: string;
   description: string;
@@ -169,6 +176,7 @@ export interface EventCreateForm {
 export function emptyEventCreateForm(): EventCreateForm {
   return {
     name: '',
+    co_hosts: [],
     tagline: '',
     theme: '',
     description: '',
@@ -245,6 +253,8 @@ export interface BuildEventDtoInput {
   endIso?: string;
   offCampus: boolean;
   venueResourceId: string;
+  /** Record this event was created from (event-sources.ts) → config.source. */
+  source?: EventSourceLink | null;
 }
 
 /**
@@ -268,6 +278,7 @@ export function buildCreateEventDto(input: BuildEventDtoInput): CreateEventDto {
     endIso,
     offCampus,
     venueResourceId,
+    source,
   } = input;
 
   const venueFields: Partial<CreateEventDto> = offCampus
@@ -318,6 +329,11 @@ export function buildCreateEventDto(input: BuildEventDtoInput): CreateEventDto {
       // can surface this event. No schema change — `events.config` already exists.
       home,
       format,
+      // Co-host institutions. The primary host is filtered out in case the
+      // organizer switched the primary to one they had already ticked.
+      ...(form.co_hosts.some((h) => h.id !== institutionId)
+        ? { co_hosts: form.co_hosts.filter((h) => h.id !== institutionId) }
+        : {}),
       // Which Event Logistics tabs this event uses. An EMPTY selection is
       // omitted, not written as [], because EventLogistics reads "no key" as
       // "show everything" — writing [] would mean "show nothing".
@@ -347,6 +363,7 @@ export function buildCreateEventDto(input: BuildEventDtoInput): CreateEventDto {
             rules: preset.config.rules,
           }
         : {}),
+      ...(source ? { source } : {}),
     },
   };
 }

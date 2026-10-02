@@ -187,7 +187,7 @@ function BridgeStatusChip() {
 const STUB_JOBS: IdCardPrintJob[] = [
   {
     id: 'stub-1',
-    student_name: 'Aarav Sharma',
+    learner_name: 'Aarav Sharma',
     template_name: 'Default template',
     status: 'printed',
     enqueued_at: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
@@ -195,7 +195,7 @@ const STUB_JOBS: IdCardPrintJob[] = [
   },
   {
     id: 'stub-2',
-    student_name: 'Priya Nair',
+    learner_name: 'Priya Nair',
     template_name: 'Default template',
     status: 'pending',
     enqueued_at: new Date(Date.now() - 1000 * 30).toISOString(),
@@ -203,7 +203,7 @@ const STUB_JOBS: IdCardPrintJob[] = [
   },
   {
     id: 'stub-3',
-    student_name: 'Ravi Kumar',
+    learner_name: 'Ravi Kumar',
     template_name: 'Default template',
     status: 'failed',
     enqueued_at: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
@@ -211,7 +211,7 @@ const STUB_JOBS: IdCardPrintJob[] = [
   },
   {
     id: 'stub-4',
-    student_name: 'Divya Krishnamurthy',
+    learner_name: 'Divya Krishnamurthy',
     template_name: 'Default template',
     status: 'rendering',
     enqueued_at: new Date(Date.now() - 1000 * 10).toISOString(),
@@ -219,7 +219,7 @@ const STUB_JOBS: IdCardPrintJob[] = [
   },
   {
     id: 'stub-5',
-    student_name: 'Senthil Murugan',
+    learner_name: 'Senthil Murugan',
     template_name: 'Default template',
     status: 'sent_to_agent',
     enqueued_at: new Date(Date.now() - 1000 * 45).toISOString(),
@@ -355,9 +355,11 @@ export function IdCardPrintQueue() {
                 const inFlight = actionInFlight === job.id;
                 return (
                   <TableRow key={job.id}>
-                    <TableCell className="font-medium">{job.student_name}</TableCell>
+                    <TableCell className="font-medium">
+                      {job.learner_name ?? <span className="text-muted-foreground">Unknown learner</span>}
+                    </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {job.template_name}
+                      {job.template_name ?? '—'}
                     </TableCell>
                     <TableCell>
                       <StatusBadge status={job.status} />

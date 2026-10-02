@@ -16,11 +16,11 @@ import type { ModuleNavConfig } from '@/lib/navigation/nav-config';
  * default, which is the right home for anything that isn't school or
  * transport.
  *
- * The six chips after Late Charges are group-wide rather than college-only
- * and deliberately have no second row under Schools: one href in two groups
- * would activate both. Categories IS the school fee-head master
- * (school-fee-head-service reads billing_categories), and the school counter
- * writes billing_receipt_items, so Receipts lists school payments too.
+ * Group-wide pages (Categories, Reports, Analytics, Activities, Payment
+ * Gateway Accounts) live in the Settings group, not under Colleges (moved
+ * 2026-10-01). One href lives in exactly one group, or both would activate.
+ * Receipts is also group-wide (the school counter writes billing_receipt_items)
+ * but stays under Colleges as daily work.
  */
 const config: ModuleNavConfig = {
   module: 'billing',
@@ -58,17 +58,14 @@ const config: ModuleNavConfig = {
         { label: 'Apportionment', icon: 'Split', href: '/billing/apportionment' },
         { label: 'Invoices', icon: 'FileText', href: '/billing/invoices' },
         { label: 'Late Charges', icon: 'AlarmClock', href: '/billing/late-charges' },
-        // ── Group-wide (colleges + schools) ──────────────────────────────
-        { label: 'Categories', icon: 'Tags', href: '/billing/categories' },
+        // Receipts is group-wide (it lists school payments too) but is daily
+        // work, so it stays here; the other group-wide pages moved to the
+        // Settings group below (2026-10-01).
         { label: 'Receipts', icon: 'Receipt', href: '/billing/receipts', exact: true },
         // Gets its own chip because NOTHING links to it — unlike the /new pages
         // (button-invoked from their list page and NAV_EXCLUDE'd), this one had
         // no entry point other than the flat chip this config replaced.
         { label: 'Receipt Templates', icon: 'FileText', href: '/billing/receipts/templates' },
-        { label: 'Reports', icon: 'FileBarChart', href: '/billing/reports' },
-        { label: 'Analytics', icon: 'BarChart3', href: '/billing/analytics' },
-        { label: 'Activities', icon: 'Activity', href: '/billing/activities' },
-        { label: 'Payment Gateway Accounts', icon: 'CreditCard', href: '/billing/payment-accounts' },
       ],
     },
     {
@@ -101,6 +98,29 @@ const config: ModuleNavConfig = {
         // Sits after Generate because that is the order of the work: raise the
         // year's bills, then take money against them.
         { label: 'School Bill Payment', icon: 'HandCoins', href: '/billing/school-fees/collect' },
+      ],
+    },
+    {
+      // Group-wide configuration and oversight pages (colleges AND schools).
+      // Longest-match-wins means these prefixes claim their pages from the
+      // '/billing' catch-all on Colleges. Categories IS the school fee-head
+      // master (school-fee-head-service reads billing_categories).
+      label: 'Settings',
+      icon: 'Settings',
+      href: '/billing/categories',
+      matchPaths: [
+        '/billing/categories',
+        '/billing/reports',
+        '/billing/analytics',
+        '/billing/activities',
+        '/billing/payment-accounts',
+      ],
+      children: [
+        { label: 'Categories', icon: 'Tags', href: '/billing/categories' },
+        { label: 'Reports', icon: 'FileBarChart', href: '/billing/reports' },
+        { label: 'Analytics', icon: 'BarChart3', href: '/billing/analytics' },
+        { label: 'Activities', icon: 'Activity', href: '/billing/activities' },
+        { label: 'Payment Gateway Accounts', icon: 'CreditCard', href: '/billing/payment-accounts' },
       ],
     },
   ],

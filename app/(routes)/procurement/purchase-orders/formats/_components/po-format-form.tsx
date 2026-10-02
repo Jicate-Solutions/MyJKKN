@@ -127,7 +127,7 @@ export function PoFormatForm({ institutionId, createdBy, initial, onSave }: PoFo
         </CardHeader>
         <CardContent>
           <Textarea
-            placeholder="Free-text terms & conditions shown by default on orders using this format (editable per order)..."
+            placeholder="Free-text terms & conditions shown by default on purchase orders using this format (editable per order)..."
             value={termsDefault}
             onChange={(e) => setTermsDefault(e.target.value)}
             rows={4}

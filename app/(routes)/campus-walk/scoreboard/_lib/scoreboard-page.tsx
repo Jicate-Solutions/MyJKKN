@@ -30,9 +30,22 @@ import { PageHeader } from '@/components/page-header';
 import { Card, CardContent } from '@/components/ui/card';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { isCampusWalkReporter } from '@/lib/campus-walk/reporters';
-import type { StaffDepartmentIndex, StepDay, WalkTaskRow } from '@/lib/campus-walk/scoreboard';
+import type {
+  StaffDepartmentIndex,
+  StepDay,
+  TaskStarsIndex,
+  WalkTaskRow
+} from '@/lib/campus-walk/scoreboard';
 
 export const CAMPUS_OPS_PROJECT_CODE = 'CAMPUS-OPS';
+
+/**
+ * Opens the FIXES board — and only the fixes board — to every team member
+ * (Director, 2026-09-30). Granted to every non-learner role by
+ * 20270701090100_campus_walk_fix_board_permission.sql; Role Management is the
+ * switch. The walking and coverage boards keep gateScoreboard() below.
+ */
+export const FIX_BOARD_PERMISSION = 'campus_walk.fix_board.view';
 
 /** A campus-ops backlog is hundreds of tickets, not millions. Bounded read. */
 const TASK_LIMIT = 2000;
@@ -143,6 +156,52 @@ export async function gateScoreboard(): Promise<GateResult> {
   }
 
   return { ok: true, profileId: user.id, heading: '', reason: '' };
+}
+
+/**
+ * The FIXES board's gate (Director, 2026-09-30: "visible to staff").
+ *
+ * Passes for anybody holding FIX_BOARD_PERMISSION (user_has_permission, which
+ * already lets a super admin through), OR for a named Campus Walk reporter —
+ * so the people who could open the board yesterday can still open it on the
+ * day this ships, before the grant migration has run. It fails closed: an
+ * error from the permission check is a refusal, never a pass.
+ *
+ * Deliberately separate from gateScoreboard(): the coverage and split boards
+ * (G2 — the walkers' side) stay on the email allow-list.
+ */
+export async function gateFixesBoard(): Promise<GateResult> {
+  const supabase = await createClient();
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+
+  if (!user?.id) {
+    return {
+      ok: false,
+      profileId: '',
+      heading: 'You are not signed in',
+      reason: 'Sign in with your JKKN account to see this board.'
+    };
+  }
+
+  const { data: allowed, error } = await supabase.rpc('user_has_permission', {
+    permission_name: FIX_BOARD_PERMISSION
+  });
+  if (error) {
+    console.error('[campus-walk/scoreboard] fixes-board permission check failed:', error.message);
+  }
+  if (allowed === true || (await isCampusWalkReporter(user.email))) {
+    return { ok: true, profileId: user.id, heading: '', reason: '' };
+  }
+
+  return {
+    ok: false,
+    profileId: '',
+    heading: "You don't have access to this board",
+    reason:
+      'The campus fixes board is open to team members. Your role does not include it yet.'
+  };
 }
 
 // ── Reads ────────────────────────────────────────────────────────────────────
@@ -286,4 +345,47 @@ export async function loadStepDays(
     return [];
   }
   return (data ?? []) as StepDay[];
+}
+
+/**
+ * Star ratings per task for the fixes board: task_id and the number ONLY.
+ *
+ * Same discipline as loadStaffDepartments — the select list is the
+ * enforcement. Not reporter_profile_id, not fixer_profile_id, not the thanks
+ * text: the board shows department averages, and a column that is never
+ * fetched can never reach the page.
+ *
+ * Soft-fails to an empty index (the stars column then reads "—") so a missing
+ * table — for instance on the day before its migration is applied — never
+ * takes the rest of the board down with it.
+ */
+export async function loadTaskStars(
+  admin: SupabaseAny,
+  taskIds: string[]
+): Promise<TaskStarsIndex> {
+  const index: TaskStarsIndex = new Map();
+  const ids = [...new Set(taskIds.filter(Boolean))];
+  if (ids.length === 0) return index;
+
+  // Chunked: the ids travel in the request URL, and a campus-ops backlog of up
+  // to TASK_LIMIT ids in one `in.(…)` would overrun it.
+  const CHUNK = 150;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const { data, error } = await admin
+      .from('campus_walk_task_ratings')
+      .select('task_id, stars')
+      .in('task_id', ids.slice(i, i + CHUNK));
+
+    if (error) {
+      console.error('[campus-walk/scoreboard] star ratings read failed:', error.message);
+      return new Map();
+    }
+
+    for (const r of (data ?? []) as Array<{ task_id: string; stars: number }>) {
+      const list = index.get(r.task_id) ?? [];
+      list.push(Number(r.stars));
+      index.set(r.task_id, list);
+    }
+  }
+  return index;
 }

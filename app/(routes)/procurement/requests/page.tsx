@@ -14,8 +14,10 @@ import { PageHeader, FilterBar } from '@/components/procurement/page-header';
 import { EmptyState } from '@/components/empty-state';
 import { AlertBox } from '@/components/ui/alert-box';
 import { formatDateDMY } from '@/lib/utils/date-format';
+import { displayRequestNumber } from '@/lib/procurement/display-number';
 import {
   PR_STATUS_CONFIG,
+  type ProcurementPurchaseRequest,
   type PurchaseRequestStatus,
   type PurchaseRequestFilters,
 } from '@/types/procurement';
@@ -29,8 +31,39 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Plus, Eye, Search } from 'lucide-react';
+import { Plus, Search } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
+
+/**
+ * Where a request is, in words a requester uses. A request that has become a
+ * quotation keeps the status 'converted' forever, so its real stage comes from
+ * that quotation: still collecting, waiting for the Super Admin, or ordered.
+ */
+const STAGE_CONFIG: Record<string, { label: string; color: string }> = {
+  ...PR_STATUS_CONFIG,
+  with_super_admin: { label: 'Waiting for Super Admin', color: 'amber' },
+  ordered: { label: 'Ordered', color: 'green' },
+  received: { label: 'Received', color: 'green' },
+};
+
+function stageOf(req: ProcurementPurchaseRequest): string {
+  if (req.status !== 'converted') return req.status;
+  const orders = (req.order_statuses ?? []).filter((s) => s !== 'cancelled');
+  if (orders.length && orders.every((s) => s === 'completed' || s === 'closed')) return 'received';
+  const live = (req.quote_statuses ?? []).filter((s) => s !== 'cancelled');
+  if (live.some((s) => s === 'awarded' || s === 'closed')) return 'ordered';
+  if (live.includes('pending_award_approval')) return 'with_super_admin';
+  return 'converted';
+}
+
+/** "Keyboard × 5" · "Keyboard × 5, Mouse × 2" · "Keyboard × 5 + 3 more" */
+function whatIsNeeded(req: ProcurementPurchaseRequest): string {
+  const items = req.item_preview ?? [];
+  if (!items.length) return `${req.item_count ?? 0} item${req.item_count === 1 ? '' : 's'}`;
+  const fmt = (i: { item_name: string; required_quantity: number }) => `${i.item_name} × ${Number(i.required_quantity)}`;
+  if (items.length <= 2) return items.map(fmt).join(', ');
+  return `${fmt(items[0])} + ${items.length - 1} more`;
+}
 
 export default function PurchaseRequestsPage() {
   const router = useRouter();
@@ -58,7 +91,7 @@ export default function PurchaseRequestsPage() {
       <div className="space-y-4 sm:space-y-6">
         <PageHeader
           title="Requests"
-          description="Restock and new-item requests routed for approval."
+          description="Everything people have asked to buy, and where each one is now."
           actions={
             canCreate && (
               <Button
@@ -94,7 +127,7 @@ export default function PurchaseRequestsPage() {
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="all">All stages</SelectItem>
                   {Object.entries(PR_STATUS_CONFIG).map(([key, config]) => (
                     <SelectItem key={key} value={key}>
                       {config.label}
@@ -132,52 +165,33 @@ export default function PurchaseRequestsPage() {
                 rows={requests}
                 getRowKey={(req) => req.id}
                 onRowClick={(req) => router.push(`/procurement/requests/${req.id}`)}
-                rowLabel={(req) => `View request ${req.request_number}`}
+                rowLabel={(req) => `View request ${displayRequestNumber(req.request_number)}`}
                 columns={[
                   {
-                    key: 'request',
-                    header: 'Request #',
+                    key: 'needed',
+                    header: 'What is needed',
                     mobile: 'title',
-                    className: 'font-medium',
-                    cell: (req) => req.request_number,
-                  },
-                  { key: 'date', header: 'Date', cell: (req) => formatDateDMY(req.created_at) },
-                  {
-                    key: 'type',
-                    header: 'Type',
-                    className: 'capitalize',
-                    cell: (req) => req.request_type.replace('_', ' '),
+                    cell: (req) => (
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">{whatIsNeeded(req)}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {displayRequestNumber(req.request_number)}
+                          {req.request_type === 'new_item' ? ' · new item' : req.request_type === 'mixed' ? ' · includes new items' : ''}
+                        </p>
+                      </div>
+                    ),
                   },
                   {
                     key: 'requested_by',
-                    header: 'Requested By',
+                    header: 'Asked by',
                     cell: (req) => req.requested_by_profile?.full_name || '-',
                   },
-                  { key: 'items', header: 'Items', cell: (req) => req.item_count ?? '-' },
+                  { key: 'date', header: 'Date', cell: (req) => formatDateDMY(req.created_at) },
                   {
-                    key: 'status',
-                    header: 'Status',
+                    key: 'stage',
+                    header: 'Where it is',
                     mobile: 'badge',
-                    cell: (req) => <StatusBadge status={req.status} config={PR_STATUS_CONFIG} />,
-                  },
-                  {
-                    key: 'actions',
-                    header: 'Actions',
-                    mobile: 'hidden',
-                    className: 'text-right',
-                    cell: (req) => (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        aria-label={`View request ${req.request_number}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          router.push(`/procurement/requests/${req.id}`);
-                        }}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                    ),
+                    cell: (req) => <StatusBadge status={stageOf(req)} config={STAGE_CONFIG} />,
                   },
                 ]}
               />

@@ -25,7 +25,7 @@
 import { readFileSync } from 'node:fs';
 
 export const WALL_MIGRATION =
-  'supabase/migrations/20270403090000_wall_handover_staff_role_change.sql';
+  'supabase/migrations/20270710090000_wall_handover_safe_split.sql';
 
 type Clause = { predicate: string; result: boolean };
 
