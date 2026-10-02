@@ -22,7 +22,11 @@ import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Cookies from 'js-cookie';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
-import { ParentChildrenService } from '@/lib/services/parent/parent-children-service';
+import {
+  ParentChildrenService,
+  ParentApiError,
+} from '@/lib/services/parent/parent-children-service';
+import { Button } from '@/components/ui/button';
 import { ParentAuthService } from '@/lib/services/parent/parent-auth-service';
 import type { ParentChild, ParentSession } from '@/types/parent-portal';
 
@@ -48,7 +52,7 @@ export function ParentSessionProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const queryClient = useQueryClient();
 
-  const { data, isLoading, isError, refetch } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['parent-children'],
     queryFn: () => ParentChildrenService.getChildren(),
     ...QUERY_CONFIG.STABLE_DATA,
@@ -118,10 +122,43 @@ export function ParentSessionProvider({ children }: { children: ReactNode }) {
     logout,
   };
 
+  // A live login whose learner record is missing: every data call would 401
+  // while the login itself stays valid, so show one clear card (with a way
+  // out) instead of empty pages.
+  const notLinked = error instanceof ParentApiError && error.code === 'not_linked';
+
   return (
     <ParentSessionContext.Provider value={value}>
-      {children}
+      {notLinked ? <ParentNotLinkedCard message={error.message} onLogout={logout} /> : children}
     </ParentSessionContext.Provider>
+  );
+}
+
+function ParentNotLinkedCard({
+  message,
+  onLogout,
+}: {
+  message: string;
+  onLogout: () => Promise<void>;
+}) {
+  return (
+    <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center px-6 py-10">
+      <div
+        role="alert"
+        className="rounded-2xl border border-border bg-card p-6 text-center shadow-sm"
+      >
+        <h1 className="text-lg font-semibold text-foreground">Account not linked yet</h1>
+        <p className="mt-2 text-sm text-muted-foreground">{message}</p>
+        <Button
+          type="button"
+          variant="outline"
+          className="mt-6 w-full"
+          onClick={() => void onLogout()}
+        >
+          Sign out
+        </Button>
+      </div>
+    </div>
   );
 }
 

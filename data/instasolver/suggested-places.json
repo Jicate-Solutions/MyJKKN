@@ -1,0 +1,752 @@
+[
+  {
+    "institution": "Allied Health Sciences",
+    "place": "Library",
+    "report_count": 35
+  },
+  {
+    "institution": "Allied Health Sciences",
+    "place": "Offices & staff rooms",
+    "report_count": 17
+  },
+  {
+    "institution": "Allied Health Sciences",
+    "place": "Classrooms",
+    "report_count": 8
+  },
+  {
+    "institution": "Allied Health Sciences",
+    "place": "Corridors, stairs & outside",
+    "report_count": 1
+  },
+  {
+    "institution": "Allied Health Sciences",
+    "place": "Drinking water points",
+    "report_count": 1
+  },
+  {
+    "institution": "Allied Health Sciences",
+    "place": "Labs",
+    "report_count": 1
+  },
+  {
+    "institution": "Allied Health Sciences",
+    "place": "Seminar hall",
+    "report_count": 1
+  },
+  {
+    "institution": "Arts & Science College",
+    "place": "Multidisciplinary block (SF)",
+    "report_count": 93
+  },
+  {
+    "institution": "Arts & Science College",
+    "place": "Computer Science department & labs",
+    "report_count": 43
+  },
+  {
+    "institution": "Arts & Science College",
+    "place": "Aided block & office",
+    "report_count": 17
+  },
+  {
+    "institution": "Arts & Science College",
+    "place": "Library",
+    "report_count": 14
+  },
+  {
+    "institution": "Arts & Science College",
+    "place": "MCA department",
+    "report_count": 11
+  },
+  {
+    "institution": "Arts & Science College",
+    "place": "Commerce department",
+    "report_count": 10
+  },
+  {
+    "institution": "Arts & Science College",
+    "place": "COE office",
+    "report_count": 9
+  },
+  {
+    "institution": "Arts & Science College",
+    "place": "Mathematics department",
+    "report_count": 6
+  },
+  {
+    "institution": "Arts & Science College",
+    "place": "Offices & staff rooms",
+    "report_count": 6
+  },
+  {
+    "institution": "Arts & Science College",
+    "place": "Labs",
+    "report_count": 5
+  },
+  {
+    "institution": "Arts & Science College",
+    "place": "Classrooms",
+    "report_count": 4
+  },
+  {
+    "institution": "Arts & Science College",
+    "place": "English department",
+    "report_count": 4
+  },
+  {
+    "institution": "Arts & Science College",
+    "place": "Life science & chemistry labs",
+    "report_count": 4
+  },
+  {
+    "institution": "Arts & Science College",
+    "place": "Computer lab",
+    "report_count": 2
+  },
+  {
+    "institution": "Arts & Science College",
+    "place": "Corridors, stairs & outside",
+    "report_count": 2
+  },
+  {
+    "institution": "Arts & Science College",
+    "place": "Tamil department",
+    "report_count": 2
+  },
+  {
+    "institution": "Arts & Science College",
+    "place": "Main Office & others — Offices & staff rooms",
+    "report_count": 1
+  },
+  {
+    "institution": "Arts & Science College",
+    "place": "Visual Communication & TFD",
+    "report_count": 1
+  },
+  {
+    "institution": "Boys Hostel",
+    "place": "Rooms",
+    "report_count": 21
+  },
+  {
+    "institution": "Boys Hostel",
+    "place": "Bathrooms & toilets",
+    "report_count": 15
+  },
+  {
+    "institution": "Boys Hostel",
+    "place": "Corridors, stairs & outside",
+    "report_count": 4
+  },
+  {
+    "institution": "Boys Hostel",
+    "place": "Drinking water points",
+    "report_count": 1
+  },
+  {
+    "institution": "Boys Hostel",
+    "place": "Kitchen & mess",
+    "report_count": 1
+  },
+  {
+    "institution": "College of Education",
+    "place": "Boys Hostel — Bathrooms & toilets",
+    "report_count": 15
+  },
+  {
+    "institution": "College of Education",
+    "place": "Boys Hostel — Rooms",
+    "report_count": 14
+  },
+  {
+    "institution": "College of Education",
+    "place": "Boys Hostel — Corridors, stairs & outside",
+    "report_count": 7
+  },
+  {
+    "institution": "College of Education",
+    "place": "Boys Hostel — Kitchen & mess",
+    "report_count": 5
+  },
+  {
+    "institution": "College of Education",
+    "place": "Drinking water points",
+    "report_count": 5
+  },
+  {
+    "institution": "College of Education",
+    "place": "Nursing Hostel — Bathrooms & toilets",
+    "report_count": 4
+  },
+  {
+    "institution": "College of Education",
+    "place": "Boys Hostel — Generator",
+    "report_count": 1
+  },
+  {
+    "institution": "College of Education",
+    "place": "Corridors, stairs & outside",
+    "report_count": 1
+  },
+  {
+    "institution": "College of Education",
+    "place": "Nursing Hostel — Corridors, stairs & outside",
+    "report_count": 1
+  },
+  {
+    "institution": "College of Education",
+    "place": "Nursing Hostel — Drinking water points",
+    "report_count": 1
+  },
+  {
+    "institution": "College of Education",
+    "place": "Nursing Hostel — Rooms",
+    "report_count": 1
+  },
+  {
+    "institution": "College of Education",
+    "place": "Toilets & washrooms",
+    "report_count": 1
+  },
+  {
+    "institution": "College of Pharmacy",
+    "place": "Library",
+    "report_count": 93
+  },
+  {
+    "institution": "College of Pharmacy",
+    "place": "Offices & staff rooms",
+    "report_count": 44
+  },
+  {
+    "institution": "College of Pharmacy",
+    "place": "Pharmacy Practice",
+    "report_count": 23
+  },
+  {
+    "institution": "College of Pharmacy",
+    "place": "Labs",
+    "report_count": 14
+  },
+  {
+    "institution": "College of Pharmacy",
+    "place": "Toilets & washrooms",
+    "report_count": 14
+  },
+  {
+    "institution": "College of Pharmacy",
+    "place": "Corridors, stairs & outside",
+    "report_count": 13
+  },
+  {
+    "institution": "College of Pharmacy",
+    "place": "Computer lab",
+    "report_count": 12
+  },
+  {
+    "institution": "College of Pharmacy",
+    "place": "Exam cell & exam hall",
+    "report_count": 11
+  },
+  {
+    "institution": "College of Pharmacy",
+    "place": "Animal house",
+    "report_count": 10
+  },
+  {
+    "institution": "College of Pharmacy",
+    "place": "Pharmaceutical analysis lab",
+    "report_count": 9
+  },
+  {
+    "institution": "College of Pharmacy",
+    "place": "Boys Hostel — Drinking water points",
+    "report_count": 7
+  },
+  {
+    "institution": "College of Pharmacy",
+    "place": "Classrooms",
+    "report_count": 7
+  },
+  {
+    "institution": "College of Pharmacy",
+    "place": "Pharmaceutics",
+    "report_count": 7
+  },
+  {
+    "institution": "College of Pharmacy",
+    "place": "Boys Hostel — Rooms",
+    "report_count": 6
+  },
+  {
+    "institution": "College of Pharmacy",
+    "place": "Pharmacology lab (Basic Science block)",
+    "report_count": 6
+  },
+  {
+    "institution": "College of Pharmacy",
+    "place": "Pharmacognosy lab",
+    "report_count": 5
+  },
+  {
+    "institution": "College of Pharmacy",
+    "place": "Drinking water points",
+    "report_count": 3
+  },
+  {
+    "institution": "College of Pharmacy",
+    "place": "HAP lab & VP room",
+    "report_count": 2
+  },
+  {
+    "institution": "College of Pharmacy",
+    "place": "Boys Hostel — Corridors, stairs & outside",
+    "report_count": 1
+  },
+  {
+    "institution": "College of Pharmacy",
+    "place": "Boys Hostel — Kitchen & mess",
+    "report_count": 1
+  },
+  {
+    "institution": "College of Pharmacy",
+    "place": "Campus common areas — Corridors, stairs & outside",
+    "report_count": 1
+  },
+  {
+    "institution": "College of Pharmacy",
+    "place": "Girls Hostel — C block rooms",
+    "report_count": 1
+  },
+  {
+    "institution": "College of Pharmacy",
+    "place": "Seminar hall",
+    "report_count": 1
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "Classrooms",
+    "report_count": 56
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "Conservative Dentistry & Endodontics",
+    "report_count": 56
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "Basic science departments",
+    "report_count": 48
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "Oral Medicine & Radiology",
+    "report_count": 48
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "Oral Surgery (OMFS)",
+    "report_count": 45
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "Orthodontics",
+    "report_count": 29
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "Public Health Dentistry",
+    "report_count": 21
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "Prosthodontics",
+    "report_count": 18
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "Library",
+    "report_count": 17
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "Periodontics",
+    "report_count": 16
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "Offices & staff rooms",
+    "report_count": 8
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "OP registration & reception",
+    "report_count": 5
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "Corridors, stairs & outside",
+    "report_count": 4
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "Girls Hostel — C block rooms",
+    "report_count": 4
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "Oral Pathology",
+    "report_count": 4
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "Drinking water points",
+    "report_count": 3
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "Exam cell & exam hall",
+    "report_count": 3
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "Paediatric Dentistry",
+    "report_count": 3
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "Toilets & washrooms",
+    "report_count": 3
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "Boys Hostel — Generator",
+    "report_count": 2
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "Boys Hostel — Rooms",
+    "report_count": 2
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "Girls Hostel — Drinking water points",
+    "report_count": 2
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "Labs",
+    "report_count": 1
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "Main Office & others — Offices & staff rooms",
+    "report_count": 1
+  },
+  {
+    "institution": "Dental College & Hospital",
+    "place": "Seminar hall",
+    "report_count": 1
+  },
+  {
+    "institution": "Engineering College",
+    "place": "Labs",
+    "report_count": 54
+  },
+  {
+    "institution": "Engineering College",
+    "place": "CSE / IT department & labs",
+    "report_count": 36
+  },
+  {
+    "institution": "Engineering College",
+    "place": "MBA department",
+    "report_count": 23
+  },
+  {
+    "institution": "Engineering College",
+    "place": "EEE department & labs",
+    "report_count": 20
+  },
+  {
+    "institution": "Engineering College",
+    "place": "Mechanical department & labs",
+    "report_count": 16
+  },
+  {
+    "institution": "Engineering College",
+    "place": "ECE department & labs",
+    "report_count": 13
+  },
+  {
+    "institution": "Engineering College",
+    "place": "Exam cell & exam hall",
+    "report_count": 12
+  },
+  {
+    "institution": "Engineering College",
+    "place": "Classrooms & lecture halls",
+    "report_count": 10
+  },
+  {
+    "institution": "Engineering College",
+    "place": "Library",
+    "report_count": 9
+  },
+  {
+    "institution": "Engineering College",
+    "place": "Classrooms",
+    "report_count": 7
+  },
+  {
+    "institution": "Engineering College",
+    "place": "Corridors, stairs & outside",
+    "report_count": 6
+  },
+  {
+    "institution": "Engineering College",
+    "place": "Toilets & washrooms",
+    "report_count": 6
+  },
+  {
+    "institution": "Engineering College",
+    "place": "Offices & staff rooms",
+    "report_count": 5
+  },
+  {
+    "institution": "Engineering College",
+    "place": "Science & Humanities",
+    "report_count": 5
+  },
+  {
+    "institution": "Engineering College",
+    "place": "Drinking water points",
+    "report_count": 2
+  },
+  {
+    "institution": "Engineering College",
+    "place": "Boys Hostel — Rooms",
+    "report_count": 1
+  },
+  {
+    "institution": "Engineering College",
+    "place": "Main Office & others — Admission cell",
+    "report_count": 1
+  },
+  {
+    "institution": "Engineering College",
+    "place": "Transport (buses) — Labs",
+    "report_count": 1
+  },
+  {
+    "institution": "Girls Hostel",
+    "place": "A block rooms",
+    "report_count": 31
+  },
+  {
+    "institution": "Girls Hostel",
+    "place": "B block rooms",
+    "report_count": 6
+  },
+  {
+    "institution": "Girls Hostel",
+    "place": "C block rooms",
+    "report_count": 5
+  },
+  {
+    "institution": "Girls Hostel",
+    "place": "Bathrooms & toilets",
+    "report_count": 3
+  },
+  {
+    "institution": "Incubation Cell",
+    "place": "Corridors, stairs & outside",
+    "report_count": 1
+  },
+  {
+    "institution": "Jicate Solutions",
+    "place": "Offices & staff rooms",
+    "report_count": 2
+  },
+  {
+    "institution": "Jicate Solutions",
+    "place": "Campus common areas — Corridors, stairs & outside",
+    "report_count": 1
+  },
+  {
+    "institution": "Jicate Solutions",
+    "place": "Classrooms",
+    "report_count": 1
+  },
+  {
+    "institution": "Jicate Solutions",
+    "place": "Corridors, stairs & outside",
+    "report_count": 1
+  },
+  {
+    "institution": "Main Office & others",
+    "place": "Offices & staff rooms",
+    "report_count": 22
+  },
+  {
+    "institution": "Main Office & others",
+    "place": "Admission cell",
+    "report_count": 14
+  },
+  {
+    "institution": "Main Office & others",
+    "place": "J Studio",
+    "report_count": 7
+  },
+  {
+    "institution": "Main Office & others",
+    "place": "Guest house",
+    "report_count": 5
+  },
+  {
+    "institution": "Main Office & others",
+    "place": "Server room",
+    "report_count": 4
+  },
+  {
+    "institution": "Main Office & others",
+    "place": "Corridors, stairs & outside",
+    "report_count": 3
+  },
+  {
+    "institution": "Main Office & others",
+    "place": "Placement / career cell",
+    "report_count": 3
+  },
+  {
+    "institution": "Main Office & others",
+    "place": "Drinking water points",
+    "report_count": 2
+  },
+  {
+    "institution": "Main Office & others",
+    "place": "Toilets & washrooms",
+    "report_count": 2
+  },
+  {
+    "institution": "Main Office & others",
+    "place": "Labs",
+    "report_count": 1
+  },
+  {
+    "institution": "Main Office & others",
+    "place": "Seminar hall",
+    "report_count": 1
+  },
+  {
+    "institution": "Matriculation School",
+    "place": "Computer lab",
+    "report_count": 11
+  },
+  {
+    "institution": "Matriculation School",
+    "place": "Higher secondary wing",
+    "report_count": 4
+  },
+  {
+    "institution": "Matriculation School",
+    "place": "School office",
+    "report_count": 4
+  },
+  {
+    "institution": "Matriculation School",
+    "place": "KG wing",
+    "report_count": 3
+  },
+  {
+    "institution": "Nattraja Vidhyalaya",
+    "place": "Offices & staff rooms",
+    "report_count": 2
+  },
+  {
+    "institution": "Nattraja Vidhyalaya",
+    "place": "Toilets & washrooms",
+    "report_count": 2
+  },
+  {
+    "institution": "Nattraja Vidhyalaya",
+    "place": "Classrooms",
+    "report_count": 1
+  },
+  {
+    "institution": "Nattraja Vidhyalaya",
+    "place": "Corridors, stairs & outside",
+    "report_count": 1
+  },
+  {
+    "institution": "Nattraja Vidhyalaya",
+    "place": "Drinking water points",
+    "report_count": 1
+  },
+  {
+    "institution": "Nursing College",
+    "place": "Nursing block exterior & walls",
+    "report_count": 38
+  },
+  {
+    "institution": "Nursing College",
+    "place": "Principal office",
+    "report_count": 15
+  },
+  {
+    "institution": "Nursing College",
+    "place": "Toilets & washrooms",
+    "report_count": 14
+  },
+  {
+    "institution": "Nursing College",
+    "place": "Classrooms",
+    "report_count": 10
+  },
+  {
+    "institution": "Nursing College",
+    "place": "Nursing labs",
+    "report_count": 9
+  },
+  {
+    "institution": "Nursing College",
+    "place": "Corridors, stairs & outside",
+    "report_count": 8
+  },
+  {
+    "institution": "Nursing College",
+    "place": "Library",
+    "report_count": 7
+  },
+  {
+    "institution": "Nursing College",
+    "place": "Exam cell & exam hall",
+    "report_count": 5
+  },
+  {
+    "institution": "Nursing College",
+    "place": "Drinking water points",
+    "report_count": 3
+  },
+  {
+    "institution": "Nursing College",
+    "place": "Nursing Hostel — Drinking water points",
+    "report_count": 3
+  },
+  {
+    "institution": "Nursing College",
+    "place": "Boys Hostel — Bathrooms & toilets",
+    "report_count": 1
+  },
+  {
+    "institution": "Nursing College",
+    "place": "Girls Hostel — Mess",
+    "report_count": 1
+  },
+  {
+    "institution": "Nursing College",
+    "place": "Offices & staff rooms",
+    "report_count": 1
+  }
+]
