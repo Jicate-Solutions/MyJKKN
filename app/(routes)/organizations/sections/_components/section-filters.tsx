@@ -242,53 +242,20 @@ export function SectionFilters({
   ]);
 
   const handleInstitutionChange = (value: string) => {
+    // Dependent filters are cleared by the filter client in the same navigation.
     onFilterChange('institution_id', value === 'all' ? undefined : value);
-    // Reset all dependent filters when institution changes
-    if (searchParams.degree_id) {
-      onFilterChange('degree_id', undefined);
-    }
-    if (searchParams.department_id) {
-      onFilterChange('department_id', undefined);
-    }
-    if (searchParams.program_id) {
-      onFilterChange('program_id', undefined);
-    }
-    if (searchParams.semester_id) {
-      onFilterChange('semester_id', undefined);
-    }
   };
 
   const handleDegreeChange = (value: string) => {
     onFilterChange('degree_id', value === 'all' ? undefined : value);
-    // Reset dependent filters when degree changes
-    if (searchParams.department_id) {
-      onFilterChange('department_id', undefined);
-    }
-    if (searchParams.program_id) {
-      onFilterChange('program_id', undefined);
-    }
-    if (searchParams.semester_id) {
-      onFilterChange('semester_id', undefined);
-    }
   };
 
   const handleDepartmentChange = (value: string) => {
     onFilterChange('department_id', value === 'all' ? undefined : value);
-    // Reset dependent filters when department changes
-    if (searchParams.program_id) {
-      onFilterChange('program_id', undefined);
-    }
-    if (searchParams.semester_id) {
-      onFilterChange('semester_id', undefined);
-    }
   };
 
   const handleProgramChange = (value: string) => {
     onFilterChange('program_id', value === 'all' ? undefined : value);
-    // Reset semester when program changes
-    if (searchParams.semester_id) {
-      onFilterChange('semester_id', undefined);
-    }
   };
 
   const hasActiveFilters = !!(

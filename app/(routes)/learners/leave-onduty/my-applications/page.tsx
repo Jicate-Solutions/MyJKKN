@@ -110,8 +110,13 @@ function ApplicationDetailsContent({
           {application.category}
         </Badge>
         <span className="text-sm text-gray-500 capitalize">
-          {application.sub_category.replace('_', ' ')}
+          {application.leave_type?.name ?? application.sub_category?.replace(/_/g, ' ')}
         </span>
+        {(application as any).batch?.title && (
+          <Badge variant="outline" className="text-xs">
+            Event: {(application as any).batch.title}
+          </Badge>
+        )}
       </div>
 
       {/* Date Range */}
@@ -437,8 +442,13 @@ function MyApplicationsPageInner() {
                             {application.category}
                           </Badge>
                           <span className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 capitalize">
-                            {application.sub_category.replace('_', ' ')}
+                            {application.leave_type?.name ?? application.sub_category?.replace(/_/g, ' ')}
                           </span>
+                          {(application as any).batch?.title && (
+                            <Badge variant="outline" className="text-xs">
+                              Event: {(application as any).batch.title}
+                            </Badge>
+                          )}
                         </div>
 
                         {/* Date and Period - Stack on mobile */}

@@ -50,6 +50,17 @@ export type IdCardPrintJob = {
   result: { success: boolean; error_message: string | null } | null;
 };
 
+/**
+ * GET /api/id-cards/jobs for a signed-in USER (the Print Queue page): the row
+ * plus display names. The agent path keeps the bare row.
+ */
+export type IdCardPrintJobListed = IdCardPrintJob & {
+  learner_name: string | null;
+  template_name: string | null;
+  /** result.error_message lifted out for the table. */
+  result_message: string | null;
+};
+
 // Pickup response shape (POST /api/id-cards/jobs/:id/pickup) — the claimed job
 // row PLUS the duplex hint. `has_back` tells the print bridge whether the
 // job's template has a configured back side (back_layout_json non-null), i.e.

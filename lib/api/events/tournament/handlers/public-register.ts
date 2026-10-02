@@ -14,6 +14,7 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { EventPaymentService } from '@/lib/services/events/core/event-payment-service';
 import { checkEligibility, type EligibilitySubject } from '@/lib/services/events/tournament/eligibility';
 import { validateCustomFields } from '@/lib/services/events/tournament/event-registration-form-service';
+import { DOUBLES_ROSTER_SIZE, divisionPlayType } from '@/types/tournament';
 import type { EligibilityRules, CreateTeamMemberDto } from '@/types/tournament';
 
 // Unambiguous alphabet for the login-free access code: no O/0/I/1.
@@ -90,6 +91,17 @@ export async function POST(
       .maybeSingle();
     if (!division) return NextResponse.json({ error: 'Division not found' }, { status: 404 });
     const rules = (division.eligibility ?? {}) as EligibilityRules;
+
+    // ---- doubles: a team of exactly two named players ----
+    if (divisionPlayType(division.config) === 'doubles') {
+      const named = (dto.members ?? []).filter((m) => m.member_name?.trim());
+      if (dto.entry_type !== 'team' || named.length !== DOUBLES_ROSTER_SIZE) {
+        return NextResponse.json(
+          { error: `A doubles entry needs exactly ${DOUBLES_ROSTER_SIZE} players.` },
+          { status: 400 }
+        );
+      }
+    }
 
     // ---- hybrid identity: logged-in JKKN user auto-links their learner record ----
     const auth = await createClient();

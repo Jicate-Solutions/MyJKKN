@@ -39,7 +39,7 @@
 // ============================================================================
 
 import { useEffect, useMemo, useState } from 'react';
-import { Info } from 'lucide-react';
+import { Building2, FlipHorizontal2, Info, ListTree, Palette } from 'lucide-react';
 
 import { LookupTable } from '@/lib/admin/policy-shell';
 import type {
@@ -286,7 +286,8 @@ export function IdCardTemplateEditor() {
 function IdCardTemplateEditorInner() {
   const { profile, isLoading: authLoading } = useAuth();
   const [sides, setSides] = useState<1 | 2 | null>(null);
-  const { templates, selectedId, selected: selectedTemplate } = useTemplateSelection();
+  const { templates, visibleTemplates, selectedId, selected: selectedTemplate } =
+    useTemplateSelection();
 
   const institutionId = profile?.institution_id ?? null;
 
@@ -338,36 +339,49 @@ function IdCardTemplateEditorInner() {
   const sidesNotice = sidesNoticeText(sides);
 
   return (
-    <div className="space-y-4">
-      {/* Sides indicator */}
-      <div className="flex items-center gap-3">
-        <span className="text-sm text-muted-foreground">
-          Printer policy (informational only):
-        </span>
-        {sides === null ? (
-          <span className="text-xs text-muted-foreground">Loading…</span>
-        ) : sides === 2 ? (
-          <Badge variant="secondary">Double-sided</Badge>
-        ) : (
-          <Badge variant="outline">Single-sided</Badge>
-        )}
-        {sidesNotice && (
-          <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Info className="h-3 w-3" />
-            {sidesNotice}
-          </span>
-        )}
-      </div>
+    <div className="space-y-5">
+      {/* Institution → template, shared by every tab below. The printer-sides
+          badge rides in the picker header (informational only). */}
+      <TemplatePicker
+        trailing={
+          sides === null ? null : (
+            <span
+              className="inline-flex items-center gap-1.5"
+              title={sidesNotice ?? undefined}
+            >
+              <Info className="h-3.5 w-3.5" />
+              Printer:
+              {sides === 2 ? (
+                <Badge variant="secondary">Double-sided</Badge>
+              ) : (
+                <Badge variant="outline">Single-sided</Badge>
+              )}
+            </span>
+          )
+        }
+      />
 
-      {/* ONE template selection shared by every tab below. */}
-      <TemplatePicker />
-
+      {templates !== null && visibleTemplates !== null && !selectedTemplate ? (
+        <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+          {visibleTemplates.length === 0
+            ? 'This institution has no ID-card template yet. Create one above to design its card.'
+            : 'Choose a template above to edit its card design, back side, institution details and field mappings.'}
+        </div>
+      ) : (
       <Tabs defaultValue="design">
-        <TabsList>
-          <TabsTrigger value="design">Card design</TabsTrigger>
-          <TabsTrigger value="back">Back side</TabsTrigger>
-          <TabsTrigger value="institution">Institution</TabsTrigger>
-          <TabsTrigger value="mappings">Field mappings</TabsTrigger>
+        <TabsList className="h-auto flex-wrap justify-start gap-1 p-1">
+          <TabsTrigger value="design" className="gap-1.5">
+            <Palette className="h-4 w-4" /> Card design
+          </TabsTrigger>
+          <TabsTrigger value="back" className="gap-1.5">
+            <FlipHorizontal2 className="h-4 w-4" /> Back side
+          </TabsTrigger>
+          <TabsTrigger value="institution" className="gap-1.5">
+            <Building2 className="h-4 w-4" /> Institution
+          </TabsTrigger>
+          <TabsTrigger value="mappings" className="gap-1.5">
+            <ListTree className="h-4 w-4" /> Field mappings
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="institution" className="mt-4">
@@ -433,6 +447,7 @@ function IdCardTemplateEditorInner() {
           )}
         </TabsContent>
       </Tabs>
+      )}
 
       {/* No photo, no card. There is no fallback to describe any more and no
           editable substrate — the rule lives in Guard 3 on POST /api/id-cards/jobs

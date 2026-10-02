@@ -257,6 +257,14 @@ const config: ModuleNavConfig = {
           matchPaths: ['/academic/leave-onduty/reports'],
         },
         {
+          // Facilitator bulk On-Duty (needs learners.leave_onduty.apply_bulk).
+          label: 'Team Apply',
+          icon: 'Users',
+          href: '/academic/leave-onduty/apply-bulk',
+          matchPaths: ['/academic/leave-onduty/apply-bulk'],
+        },
+        {
+          // Global Learner Leave Types + Approval Flows (moved here 2027-04).
           label: 'On-Duty Settings',
           icon: 'Settings2',
           href: '/academic/leave-onduty/settings',
@@ -279,6 +287,50 @@ const config: ModuleNavConfig = {
           icon: 'Workflow',
           href: '/academic/leaves/settings/workflows',
           matchPaths: ['/academic/leaves/settings/workflows'],
+        },
+      ],
+    },
+    {
+      label: 'Session Feedback',
+      icon: 'MessageSquare',
+      href: '/academic/session-feedback',
+      matchPaths: ['/academic/session-feedback', '/academic/curriculum-review'],
+      children: [
+        {
+          label: 'Hub',
+          icon: 'LayoutDashboard',
+          href: '/academic/session-feedback',
+          exact: true,
+        },
+        {
+          label: 'Faculty',
+          icon: 'UserCircle',
+          href: '/academic/session-feedback/faculty',
+          matchPaths: ['/academic/session-feedback/faculty'],
+        },
+        {
+          label: 'Escalations',
+          icon: 'AlertTriangle',
+          href: '/academic/session-feedback/principal',
+          matchPaths: ['/academic/session-feedback/principal'],
+        },
+        {
+          label: 'Learner Note Review',
+          icon: 'ClipboardCheck',
+          href: '/academic/session-feedback/note-review',
+          matchPaths: ['/academic/session-feedback/note-review'],
+        },
+        {
+          label: 'All-College Feedback',
+          icon: 'BarChart3',
+          href: '/academic/session-feedback/admin',
+          matchPaths: ['/academic/session-feedback/admin'],
+        },
+        {
+          label: 'Lesson Spine Review',
+          icon: 'BookOpen',
+          href: '/academic/curriculum-review',
+          matchPaths: ['/academic/curriculum-review'],
         },
       ],
     },

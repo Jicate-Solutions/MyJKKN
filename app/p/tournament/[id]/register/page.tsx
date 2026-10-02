@@ -10,6 +10,7 @@ import { createClient as createAnonOrService } from '@supabase/supabase-js';
 import { createClient as createSessionClient } from '@/lib/supabase/server';
 import { Trophy, CalendarClock } from 'lucide-react';
 import { RegisterForm } from './_components/register-form';
+import { formRegistrationState, isFormOpen } from '@/types/tournament';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,13 +62,26 @@ export default async function PublicRegisterPage({
 
   const { data: ev } = await svc
     .from('events')
-    .select('id, name, event_type, status, start_date, venue, venue_text, registration_open_date, registration_close_date, participant_org_type')
+    .select('id, name, event_type, status, start_date, venue, venue_text, registration_open_date, registration_close_date, participant_org_type, hero_image_url')
     .eq('id', id)
     .eq('event_type', 'sports_tournament')
     .maybeSingle();
 
-  if (!ev || ['draft', 'cancelled'].includes(ev.status)) {
-    return <Empty title="Registration not available" msg="This tournament is not open for registration." />;
+  if (!ev) {
+    return <Empty title="Registration not available" msg="This tournament does not exist." />;
+  }
+  if (ev.status === 'cancelled') {
+    return <Empty title="Tournament cancelled" msg="This tournament has been cancelled, so registration is closed." />;
+  }
+  if (ev.status === 'draft') {
+    // The usual cause of a "dead" link: the form is Active but the tournament
+    // itself was never published. Say so, so the organizer knows what to fix.
+    return (
+      <Empty
+        title="Registration not open yet"
+        msg="This tournament is still a draft. Registration opens once the organizer sets it Active."
+      />
+    );
   }
 
   const now = new Date();
@@ -102,7 +116,7 @@ export default async function PublicRegisterPage({
 
   const formQuery = svc
     .from('event_registration_forms')
-    .select('id, slug, name, is_enabled')
+    .select('id, slug, name, is_enabled, starts_at, ends_at')
     .eq('event_id', id);
 
   const { data: formRows } = requestedSlug
@@ -110,15 +124,31 @@ export default async function PublicRegisterPage({
     : await formQuery
         .eq('is_enabled', true)
         .order('display_order', { ascending: true })
-        .order('created_at', { ascending: true })
-        .limit(1);
+        .order('created_at', { ascending: true });
 
-  const formRow = formRows?.[0] ?? null;
+  // Same rule as /p/event: with no slug, the first form OPEN right now — an
+  // enabled form can still be Scheduled or Expired by its Status & schedule.
+  const formRow = requestedSlug
+    ? (formRows?.[0] ?? null)
+    : ((formRows ?? []).find((f) => isFormOpen(f)) ?? null);
 
   // A slug that names a real but closed form is a "closed" answer, not a
   // "collect nothing" one — otherwise last month's link would silently accept
   // this month's entries.
-  if (requestedSlug && formRow && formRow.is_enabled === false) {
+  if (requestedSlug && formRow && !isFormOpen(formRow)) {
+    if (formRegistrationState(formRow) === 'scheduled') {
+      const opensAt = formRow.starts_at ? new Date(formRow.starts_at) : null;
+      return (
+        <Empty
+          title="Registration opens soon"
+          msg={
+            opensAt
+              ? `"${formRow.name}" opens on ${opensAt.toLocaleString('en-IN', { day: 'numeric', month: 'long', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' })}.`
+              : `"${formRow.name}" is not open yet.`
+          }
+        />
+      );
+    }
     return (
       <Empty
         title="Registration closed"
@@ -131,7 +161,7 @@ export default async function PublicRegisterPage({
   }
 
   let sections: { id: string; title: string; display_order: number; fields: any[] }[] = [];
-  if (formRow && formRow.is_enabled !== false) {
+  if (formRow && isFormOpen(formRow)) {
     const { data: rawSections } = await svc
       .from('event_registration_form_sections')
       .select('*')
@@ -170,23 +200,35 @@ export default async function PublicRegisterPage({
   }
 
   return (
-    <main className="mx-auto max-w-xl px-4 py-8">
-      <header className="mb-5 rounded-xl border bg-white p-5 shadow-sm">
-        <div className="flex items-start gap-3">
-          <div className="rounded-lg bg-emerald-50 p-2.5">
-            <Trophy className="h-6 w-6 text-emerald-600" />
+    <div className="min-h-screen bg-gradient-to-b from-emerald-50 via-sky-50/60 to-white dark:from-emerald-950/40 dark:via-sky-950/20 dark:to-background">
+    <main className="mx-auto max-w-xl px-4 py-6 sm:py-10">
+      <header className="mb-6 overflow-hidden rounded-2xl border border-emerald-200/70 bg-card shadow-md dark:border-emerald-900">
+        {/* The event's banner (Registration forms → Banner, or events.hero_image_url). */}
+        {ev.hero_image_url && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={ev.hero_image_url} alt="" className="block w-full object-cover" />
+        )}
+        <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-sky-600 px-5 py-5 text-white sm:px-7">
+          <div className="flex items-start gap-3">
+            <div className="rounded-xl bg-white/20 p-2.5 ring-1 ring-white/40">
+              <Trophy className="h-6 w-6" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-white/80">Tournament registration</p>
+              <h1 className="mt-0.5 text-2xl font-bold leading-tight sm:text-3xl">{ev.name}</h1>
+              {formRow?.name && <p className="mt-1 text-sm text-white/90">{formRow.name}</p>}
+            </div>
           </div>
-          <div>
-            <h1 className="text-lg font-bold leading-tight">{ev.name}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">Register your team or yourself below.</p>
-            {ev.registration_close_date && (
-              <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                <CalendarClock className="h-3.5 w-3.5" />
-                Registration closes{' '}
-                {new Date(ev.registration_close_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-              </p>
-            )}
-          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3 text-sm text-muted-foreground sm:px-7">
+          <span>Register your team or yourself below.</span>
+          {ev.registration_close_date && (
+            <span className="flex items-center gap-1 text-xs">
+              <CalendarClock className="h-3.5 w-3.5" />
+              Registration closes{' '}
+              {new Date(ev.registration_close_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+            </span>
+          )}
         </div>
       </header>
 
@@ -197,10 +239,15 @@ export default async function PublicRegisterPage({
         signedInName={signedInName}
         isLearner={isLearner}
         sections={sections}
-        participantOrgType={ev.participant_org_type === 'college' ? 'college' : 'school'}
+        participantOrgType={
+          ev.participant_org_type === 'college' || ev.participant_org_type === 'both'
+            ? ev.participant_org_type
+            : 'school'
+        }
       />
 
       <footer className="mt-8 text-center text-xs text-muted-foreground">JKKN Institutions · Tournament registration</footer>
     </main>
+    </div>
   );
 }

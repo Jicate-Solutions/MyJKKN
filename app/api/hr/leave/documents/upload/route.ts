@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
     // RLS decides what they may see. A caller who cannot read the staff row has
     // no business filing a document against it, and the 404 below is the whole
     // authorization check — there is no service-role client in this route.
-    const [{ data: staffRow }, { data: leaveType }] = await Promise.all([
+    const [{ data: staffRead }, { data: leaveType }, { data: ownContext }] = await Promise.all([
       supabase
         .from('staff')
         .select('id, staff_id, institution_id, institutions(name)')
@@ -117,9 +117,18 @@ export async function POST(request: NextRequest) {
             .select('id, leave_type_code, hr_organization_id, hr_organizations(name)')
             .eq('id', leaveTypeId)
             .maybeSingle(),
+      // Own record: staff RLS needs staff.view, which roles like librarian lack,
+      // so an employee filing proof for themselves resolves through this.
+      supabase.rpc('fn_my_staff_upload_context', { p_staff_id: employeeId }),
     ]);
 
-    if (!staffRow || (!leaveType && !isCompOffClaim)) {
+    const own = Array.isArray(ownContext) ? ownContext[0] : ownContext;
+    const staffRow = staffRead
+      ?? (own
+        ? { id: employeeId, staff_id: own.staff_code, institutions: { name: own.institution_name } }
+        : null);
+
+    if (!staffRow ||(!leaveType && !isCompOffClaim)) {
       return NextResponse.json(
         { error: 'Staff member or leave type not found' },
         { status: 404 }

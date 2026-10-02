@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -9,12 +9,15 @@ import { usePurchaseOrders } from '@/hooks/procurement/use-purchase-orders';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import { StatusBadge } from '@/components/procurement/status-badge';
+import { ResponsiveList } from '@/components/procurement/responsive-list';
+import { PageHeader, FilterBar } from '@/components/procurement/page-header';
 import { EmptyState } from '@/components/empty-state';
 import { AlertBox } from '@/components/ui/alert-box';
 import { formatDateDMY } from '@/lib/utils/date-format';
 import { PO_STATUS_CONFIG, type PoStatus, type PurchaseOrderFilters } from '@/types/procurement';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { ReceiveSwitcher } from '@/components/procurement/receive-switcher';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -23,14 +26,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Eye, Search, Settings2 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 
@@ -43,7 +38,10 @@ export default function PurchaseOrdersPage() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounceValue(search, 300);
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [institutionId, setInstitutionId] = useState<string | undefined>(undefined);
+  const searchParams = useSearchParams();
+  const [institutionId, setInstitutionId] = useState<string | undefined>(
+    () => searchParams.get('institution') ?? undefined
+  );
   const effectiveInstitution = institutionId ?? profile?.institution_id ?? undefined;
 
   const filters: PurchaseOrderFilters = {
@@ -56,30 +54,30 @@ export default function PurchaseOrdersPage() {
   const pos = response?.data ?? [];
 
   return (
-    <ContentLayout title="Purchase Orders">
+    <ContentLayout title="Deliveries">
       <div className="space-y-4 sm:space-y-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-          <div>
-            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Purchase Orders</h2>
-            <p className="hidden text-muted-foreground sm:block">
-              Generated per awarded vendor. Approve, then send to the vendor.
-            </p>
-          </div>
-          {canManageFormats && (
-            <Button
-              variant="outline"
-              className="shrink-0"
-              onClick={() => router.push('/procurement/purchase-orders/formats')}
-            >
-              <Settings2 className="mr-2 h-4 w-4" />
-              Manage Formats
-            </Button>
-          )}
+        <div className="space-y-2">
+          <PageHeader
+            title="Deliveries"
+            description="Created automatically when the Super Admin approves the chosen vendors. Download the PDF for the vendor, then record the delivery."
+            actions={
+              canManageFormats && (
+                <Button
+                  variant="outline"
+                  onClick={() => router.push('/procurement/purchase-orders/formats')}
+                >
+                  <Settings2 className="mr-2 h-4 w-4" />
+                  PO formats
+                </Button>
+              )
+            }
+          />
+          <ReceiveSwitcher active="orders" />
         </div>
 
         <Card>
-          <CardContent className="pt-6">
-            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+          <CardContent className="p-4 sm:p-6">
+            <FilterBar>
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -108,7 +106,7 @@ export default function PurchaseOrdersPage() {
                 label={null}
                 className="w-full sm:w-[200px]"
               />
-            </div>
+            </FilterBar>
           </CardContent>
         </Card>
 
@@ -125,48 +123,52 @@ export default function PurchaseOrdersPage() {
             ) : pos.length === 0 ? (
               <EmptyState
                 title="No purchase orders found"
-                description="Purchase orders generated from awarded RFQs will appear here."
+                description="Purchase orders are created when the Super Admin approves the chosen vendors."
               />
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>PO #</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Vendor</TableHead>
-                    <TableHead>Items</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {pos.map((po) => (
-                    <TableRow key={po.id}>
-                      <TableCell className="font-medium">{po.po_number}</TableCell>
-                      <TableCell>{formatDateDMY(po.created_at)}</TableCell>
-                      <TableCell>{po.supplier?.name || '-'}</TableCell>
-                      <TableCell>{po.item_count ?? '-'}</TableCell>
-                      <TableCell className="text-right">
-                        ₹{Number(po.total_amount ?? 0).toLocaleString()}
-                      </TableCell>
-                      <TableCell>
-                        <StatusBadge status={po.status} config={PO_STATUS_CONFIG} />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          aria-label={`View purchase order ${po.po_number}`}
-                          onClick={() => router.push(`/procurement/purchase-orders/${po.id}`)}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <ResponsiveList
+                rows={pos}
+                getRowKey={(po) => po.id}
+                onRowClick={(po) => router.push(`/procurement/purchase-orders/${po.id}`)}
+                rowLabel={(po) => `View order ${po.po_number}`}
+                columns={[
+                  { key: 'po', header: 'PO #', mobile: 'title', className: 'font-medium', cell: (po) => po.po_number },
+                  { key: 'date', header: 'Date', cell: (po) => formatDateDMY(po.created_at) },
+                  { key: 'vendor', header: 'Vendor', cell: (po) => po.supplier?.name || '-' },
+                  { key: 'items', header: 'Items', cell: (po) => po.item_count ?? '-' },
+                  {
+                    key: 'total',
+                    header: 'Total',
+                    className: 'md:text-right tabular-nums',
+                    cell: (po) => `₹${Number(po.total_amount ?? 0).toLocaleString()}`,
+                  },
+                  {
+                    key: 'status',
+                    header: 'Status',
+                    mobile: 'badge',
+                    cell: (po) => <StatusBadge status={po.status} config={PO_STATUS_CONFIG} />,
+                  },
+                  {
+                    key: 'actions',
+                    header: 'Actions',
+                    mobile: 'hidden',
+                    className: 'text-right',
+                    cell: (po) => (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`View order ${po.po_number}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          router.push(`/procurement/purchase-orders/${po.id}`);
+                        }}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    ),
+                  },
+                ]}
+              />
             )}
           </CardContent>
         </Card>
