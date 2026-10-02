@@ -1,7 +1,7 @@
 'use client';
 
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useTabParam } from '@/hooks/use-tab-param';
 import { LifecycleStatusBadge, getStatusLabel } from '@/components/learners/lifecycle-status-badge';
@@ -70,6 +70,11 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CommissionStructureTab } from './_components/commission-structure-tab';
 import { PromiseRatesTab } from './_components/promise-rates-tab';
+import {
+  ReferrerReferralsPanel,
+  useLinkedReferrer,
+  type LinkedReferrer,
+} from './_components/referrer-referrals-panel';
 import { format } from 'date-fns';
 import {
   DropdownMenu,
@@ -77,6 +82,29 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
+
+/** One label/value line on the Details tab; a blank value reads "Not provided". */
+function DetailRow({
+  label,
+  value,
+  className = '',
+}: {
+  label: string;
+  value: ReactNode;
+  className?: string;
+}) {
+  const empty = value === null || value === undefined || value === '';
+  return (
+    <div className="flex justify-between items-start gap-4">
+      <span className="text-muted-foreground shrink-0">{label}</span>
+      {empty ? (
+        <span className="text-sm text-muted-foreground italic">Not provided</span>
+      ) : (
+        <span className={`font-medium text-right break-words ${className}`}>{value}</span>
+      )}
+    </div>
+  );
+}
 
 function getStatusColor(status: string): string {
   const colors: Record<string, string> = {
@@ -270,6 +298,17 @@ function ConsultantDetailContent() {
     queryFn: () => ConsultantService.getConsultantPortalDashboard(consultantId),
     enabled: !!consultantId && isValidId
   });
+
+  // A row that stands for a team member / learner referrer: its referrals are on
+  // learners_profiles, so counts and the Referrals tab come from there.
+  const linkedReferrer: LinkedReferrer | null = consultant?.staff_id
+    ? { type: 'internal', id: consultant.staff_id }
+    : consultant?.learner_referrer_id
+      ? { type: 'student', id: consultant.learner_referrer_id }
+      : null;
+  const { data: linkedData } = useLinkedReferrer(linkedReferrer);
+  const linkedTotal = linkedData?.referrals.length ?? 0;
+  const linkedEnrolled = linkedData?.referrals.filter((r) => r.enrolled).length ?? 0;
 
   // Fetch this consultant's referrals (lead attributions).
   //
@@ -532,10 +571,10 @@ function ConsultantDetailContent() {
                   source of truth — see ConsultantService.getConsultantPortalDashboard).
                   Use ?? not || so a legitimate 0 is preserved instead of falling
                   back to a possibly-stale cached counter. */}
-              {stats?.stats?.total_leads ?? consultant.total_leads_referred ?? 0}
+              {linkedReferrer ? linkedTotal : (stats?.stats?.total_leads ?? consultant.total_leads_referred ?? 0)}
             </div>
             <p className="text-xs text-muted-foreground">
-              {consultant.total_conversions || 0} enrolled
+              {linkedReferrer ? linkedEnrolled : (consultant.total_conversions || 0)} enrolled
             </p>
           </CardContent>
         </Card>
@@ -547,7 +586,9 @@ function ConsultantDetailContent() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {consultant.conversion_rate?.toFixed(1) || 0}%
+              {linkedReferrer
+                ? (linkedTotal > 0 ? ((linkedEnrolled / linkedTotal) * 100).toFixed(1) : 0)
+                : (consultant.conversion_rate?.toFixed(1) || 0)}%
             </div>
             <p className="text-xs text-muted-foreground">
               Referral to enrollment
@@ -605,41 +646,52 @@ function ConsultantDetailContent() {
         </TabsList>
 
         <TabsContent value="details" className="space-y-4 mt-4">
+          {/* The same essential fields for every consultant type; a blank one reads
+              "Not provided" instead of disappearing, so what is missing is visible. */}
           <div className="grid gap-4 md:grid-cols-2">
+            {/* Who the referrer is in JKKN — team member or learner. */}
+            {linkedReferrer && (
+              <Card className="md:col-span-2">
+                <CardHeader>
+                  <CardTitle className="text-base">
+                    {linkedReferrer.type === 'internal' ? 'Team Member Information' : 'Learner Information'}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-x-8 gap-y-3 md:grid-cols-2">
+                  {linkedReferrer.type === 'internal' ? (
+                    <>
+                      <DetailRow label="Designation" value={linkedData?.profile.detail} />
+                      <DetailRow label="Team Member ID" value={linkedData?.profile.code} />
+                      <DetailRow label="Institution" value={linkedData?.profile.institution} />
+                      <DetailRow label="Department" value={linkedData?.profile.department} />
+                    </>
+                  ) : (
+                    <>
+                      <DetailRow label="Roll Number" value={linkedData?.profile.code} />
+                      <DetailRow label="Institution" value={linkedData?.profile.institution} />
+                      <DetailRow label="Department" value={linkedData?.profile.department} />
+                      <DetailRow label="Programme" value={linkedData?.profile.program} />
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
             {/* Contact Information */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Contact Information</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {consultant.email && (
-                  <div className="flex items-center gap-3">
-                    <Mail className="h-4 w-4 text-muted-foreground" />
-                    <span>{consultant.email}</span>
-                  </div>
-                )}
-                {consultant.phone && (
-                  <div className="flex items-center gap-3">
-                    <Phone className="h-4 w-4 text-muted-foreground" />
-                    <span>{consultant.phone}</span>
-                  </div>
-                )}
-                {consultant.alternate_phone && (
-                  <div className="flex items-center gap-3">
-                    <Phone className="h-4 w-4 text-muted-foreground" />
-                    <span>{consultant.alternate_phone} (Alt)</span>
-                  </div>
-                )}
-                {(consultant.address_line1 || consultant.city) && (
-                  <div className="flex items-start gap-3">
-                    <MapPin className="h-4 w-4 text-muted-foreground mt-1" />
-                    <span>
-                      {[consultant.address_line1, consultant.city, consultant.state, consultant.country, consultant.pincode]
-                        .filter(Boolean)
-                        .join(', ')}
-                    </span>
-                  </div>
-                )}
+                <DetailRow label="Phone" value={consultant.phone} />
+                <DetailRow
+                  label="Address"
+                  value={
+                    [consultant.address_line1, consultant.city, consultant.state, consultant.country, consultant.pincode]
+                      .filter(Boolean)
+                      .join(', ') || null
+                  }
+                />
               </CardContent>
             </Card>
 
@@ -649,158 +701,50 @@ function ConsultantDetailContent() {
                 <CardTitle className="text-base">Performance & Coverage</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Relationship Score</span>
-                  <span className="font-medium">{consultant.relationship_score}/100</span>
-                </div>
-                {consultant.performance_rating && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Performance Rating</span>
-                    <span className="font-medium flex items-center gap-1">
-                      <Star className="h-4 w-4 text-yellow-500" />
-                      {(consultant.performance_rating ?? 0).toFixed(1)}/5
-                    </span>
-                  </div>
-                )}
-                {consultant.covered_states && (Array.isArray(consultant.covered_states) ? consultant.covered_states : []).length > 0 && (
-                  <div className="flex justify-between items-start">
-                    <span className="text-muted-foreground">Geographic Coverage</span>
-                    <span className="font-medium text-right max-w-[60%]">
-                      {(Array.isArray(consultant.covered_states) ? consultant.covered_states : []).join(', ')}
-                    </span>
-                  </div>
-                )}
-                {consultant.specialized_degrees && consultant.specialized_degrees.length > 0 && (
-                  <div className="flex justify-between items-start">
-                    <span className="text-muted-foreground">Specializations</span>
-                    <span className="font-medium text-right max-w-[60%]">
-                      {consultant.specialized_degrees.join(', ')}
-                    </span>
-                  </div>
-                )}
+                <DetailRow
+                  label="Relationship Score"
+                  value={consultant.relationship_score != null ? `${consultant.relationship_score}/100` : null}
+                />
               </CardContent>
             </Card>
 
             {/* Business Information */}
-            {(consultant.contact_person || consultant.gst_number || consultant.pan_number || consultant.website) && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Business Information</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {consultant.contact_person && (
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Contact Person</span>
-                      <span className="font-medium">{consultant.contact_person}</span>
-                    </div>
-                  )}
-                  {consultant.website && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">Website</span>
-                      <a
-                        href={consultant.website}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-medium flex items-center gap-1 text-primary hover:underline"
-                      >
-                        <Globe className="h-3.5 w-3.5" />
-                        {consultant.website.replace(/^https?:\/\//, '')}
-                      </a>
-                    </div>
-                  )}
-                  {consultant.gst_number && (
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">GST Number</span>
-                      <span className="font-medium">{consultant.gst_number}</span>
-                    </div>
-                  )}
-                  {consultant.pan_number && (
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">PAN Number</span>
-                      <span className="font-medium">{consultant.pan_number}</span>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Business Information</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <DetailRow label="Contact Person" value={consultant.contact_person} />
+                <DetailRow label="PAN Number" value={consultant.pan_number} />
+              </CardContent>
+            </Card>
 
             {/* Bank Details */}
-            {(consultant.bank_name || consultant.bank_account_holder) && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Bank Details</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {consultant.bank_account_holder && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">Account Holder</span>
-                      <span className="font-medium flex items-center gap-1">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Bank Details</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <DetailRow
+                  label="Account Holder"
+                  value={
+                    consultant.bank_account_holder ? (
+                      <span className="flex items-center gap-1">
                         <User className="h-3.5 w-3.5 text-muted-foreground" />
                         {consultant.bank_account_holder}
                       </span>
-                    </div>
-                  )}
-                  {consultant.bank_name && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Bank Name</span>
-                    <span className="font-medium">{consultant.bank_name}</span>
-                  </div>
-                  )}
-                  {consultant.bank_branch && (
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Bank Branch</span>
-                      <span className="font-medium">{consultant.bank_branch}</span>
-                    </div>
-                  )}
-                  {consultant.bank_account_number && (
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Account Number</span>
-                      <span className="font-medium">
-                        ****{consultant.bank_account_number.slice(-4)}
-                      </span>
-                    </div>
-                  )}
-                  {consultant.bank_ifsc && (
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">IFSC Code</span>
-                      <span className="font-medium">{consultant.bank_ifsc}</span>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
+                    ) : null
+                  }
+                />
+                <DetailRow label="Bank Name" value={consultant.bank_name} />
+                <DetailRow
+                  label="Account Number"
+                  value={consultant.bank_account_number ? `****${consultant.bank_account_number.slice(-4)}` : null}
+                />
+                <DetailRow label="IFSC Code" value={consultant.bank_ifsc} />
+              </CardContent>
+            </Card>
           </div>
-
-          {/* Notes */}
-          {consultant.internal_notes && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Internal Notes</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                  {consultant.internal_notes}
-                </p>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Tags */}
-          {consultant.tags && consultant.tags.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Tags</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-wrap gap-2">
-                  {consultant.tags.map((tag, index) => (
-                    <Badge key={index} variant="secondary">{tag}</Badge>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
 
           {/* Metadata */}
           <Card>
@@ -826,17 +770,6 @@ function ConsultantDetailContent() {
                   </p>
                 </div>
               </div>
-              {consultant.onboarded_at && (
-                <div className="flex items-center gap-3">
-                  <CheckCircle2 className="h-4 w-4 text-green-600" />
-                  <div>
-                    <p className="text-sm text-muted-foreground">Onboarded</p>
-                    <p className="font-medium">
-                      {format(new Date(consultant.onboarded_at), 'PPP')}
-                    </p>
-                  </div>
-                </div>
-              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -845,6 +778,7 @@ function ConsultantDetailContent() {
           <CommissionStructureTab
             consultantId={consultantId}
             institutionId={consultant.institution_id ?? ''}
+            consultantName={consultant.name}
           />
         </TabsContent>
 
@@ -861,6 +795,10 @@ function ConsultantDetailContent() {
         </TabsContent>
 
         <TabsContent value="referrals" className="mt-4">
+          {linkedReferrer ? (
+            <ReferrerReferralsPanel linked={linkedReferrer} />
+          ) : (
+          <>
           {/* Status stat cards — same idiom as the page summary cards above;
               clicking a card applies it as a table filter */}
           {referrals.length > 0 && (
@@ -1008,6 +946,8 @@ function ConsultantDetailContent() {
               )}
             </CardContent>
           </Card>
+          </>
+          )}
         </TabsContent>
 
         <TabsContent value="commissions" className="mt-4">

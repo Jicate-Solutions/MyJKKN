@@ -45,6 +45,11 @@ interface PolicyEditorEntry {
   classification: 'operational' | 'major';
   scope: 'institution' | 'global';
   batch: string; // e.g. 'W3-M1'
+  /**
+   * Shown only to super admins. The index itself opens for hr.policies.view
+   * (and its menu entry for hr.dashboard.view), which far more people hold.
+   */
+  superAdminOnly?: boolean;
 }
 
 const POLICY_EDITORS: ReadonlyArray<PolicyEditorEntry> = [
@@ -134,6 +139,15 @@ const POLICY_EDITORS: ReadonlyArray<PolicyEditorEntry> = [
     batch: 'W3-M4',
   },
   {
+    href: '/hr/admin/policies/salary-suggestion',
+    title: 'Salary suggestion',
+    description: 'What each year at JKKN adds to a suggested salary, department by department. Only the Director changes it.',
+    classification: 'major',
+    scope: 'global',
+    batch: 'W3-M4',
+    superAdminOnly: true,
+  },
+  {
     href: '/hr/admin/policies/motivation-fund',
     title: 'Motivation fund',
     description: 'Performance-linked motivation fund eligibility + amounts.',
@@ -173,6 +187,10 @@ async function HrPoliciesIndexContent() {
     .from('hr_policy_promotion_suggestions')
     .select('id', { count: 'exact', head: true })
     .eq('status', 'pending');
+  // Cards marked superAdminOnly are left out for everyone else. Server-side,
+  // strict: anything but a boolean true (an error included) hides them.
+  const { data: superAdmin } = await supabase.rpc('is_super_admin');
+  const editors = POLICY_EDITORS.filter((entry) => !entry.superAdminOnly || superAdmin === true);
 
   return (
     <div className="space-y-6">
@@ -199,7 +217,7 @@ async function HrPoliciesIndexContent() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {POLICY_EDITORS.map((entry) => (
+        {editors.map((entry) => (
           <PolicyEditorCard key={entry.href} entry={entry} />
         ))}
       </div>

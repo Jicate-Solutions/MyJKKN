@@ -50,6 +50,7 @@ import {
   isSectionVisible,
 } from '@/components/events/dynamic-field-input';
 import type { EventRegistrationFormField } from '@/types/tournament';
+import { SPORT_CONDITION_KEY } from '@/lib/services/events/registration/form-visibility';
 import type { ParticipantOrgType } from '@/types/events';
 
 const SCHOOL_SEARCH_LIMIT = 50;
@@ -288,6 +289,11 @@ export function RegisterForm({
   } | null>(null);
 
   const division = useMemo(() => divisions.find((d) => d.id === divisionId), [divisions, divisionId]);
+  // Show/hide rules may key on the built-in Sport dropdown as well as on answers.
+  const ruleValues = useMemo(
+    () => ({ ...customFields, [SPORT_CONDITION_KEY]: division?.sport ?? '' }),
+    [customFields, division?.sport]
+  );
   const isTeam = division ? isTeamDivision(division) : false;
   // A doubles division is a team of exactly two: fixed "Player 1 / Player 2"
   // rows instead of the open-ended roster.
@@ -595,11 +601,11 @@ export function RegisterForm({
         </div>
       )}
 
-      {sections.filter((section) => isSectionVisible(section, customFields)).map((section) => (
+      {sections.filter((section) => isSectionVisible(section, ruleValues)).map((section) => (
         <div key={section.id} className="space-y-3 border-t pt-4">
           <p className="text-sm font-semibold">{section.title}</p>
           {section.fields
-            .filter((f) => isFieldVisible(f, customFields))
+            .filter((f) => isFieldVisible(f, ruleValues))
             .map((f) => (
               <DynamicFieldInput
                 key={f.id}

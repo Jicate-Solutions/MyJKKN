@@ -10,7 +10,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent } from '@/components/ui/card';
-import { Loader2 } from 'lucide-react';
+import { AlertTriangle, Loader2 } from 'lucide-react';
 import { useTournament } from '@/hooks/events/use-tournaments';
 import { useTournamentAccess } from '@/hooks/events/use-tournament-access';
 import { RegistrationFormsPanel } from '@/components/events/registration/registration-forms-panel';
@@ -68,7 +68,40 @@ export default function TournamentRegistrationFormPage() {
           { label: 'Registration Form' },
         ]}
       />
-      <RegistrationFormsPanel eventId={id} />
+      {tournament.status === 'draft' && (
+        // Draft closes public registration regardless of the form's own
+        // Active switch — without this, an Active form's link just says
+        // "not open" and nobody knows why.
+        <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>
+            This tournament is still a <span className="font-semibold">Draft</span>, so its public
+            registration link shows &ldquo;not open&rdquo; even when a form below is Active. Set the
+            tournament to <span className="font-semibold">Active</span> (Tournaments list → Change
+            Status) to open registration.
+          </p>
+        </div>
+      )}
+      {tournament.status !== 'draft' &&
+        !(tournament.divisions ?? []).some((d) => d.is_active) && (
+          // The public page needs at least one active division (sport) to
+          // register into; with none it says "No events to register for yet".
+          <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <p>
+              This tournament has <span className="font-semibold">no sports (divisions)</span> yet,
+              so its public registration link has nothing to register for. Add a sport from{' '}
+              <span className="font-semibold">Edit Tournament</span>.
+            </p>
+          </div>
+        )}
+      <div className="mt-4">
+        <RegistrationFormsPanel
+          eventId={id}
+          backHref={`/events/tournament/${id}`}
+          eventName={tournament.name}
+        />
+      </div>
     </ContentLayout>
   );
 }

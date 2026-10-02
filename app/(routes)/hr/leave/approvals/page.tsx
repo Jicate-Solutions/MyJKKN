@@ -267,7 +267,8 @@ export default function LeaveApprovalsPage() {
       } catch (err) {
         const msg = getErrorMessage(err);
         setDialogError(msg);
-        toast.error(msg);
+        // The balance refusal is a long sentence with figures and an instruction.
+        toast.error(msg, { duration: msg.startsWith('Cannot approve') ? 9000 : 4000 });
       }
       return;
     }

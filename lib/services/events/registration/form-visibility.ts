@@ -18,6 +18,13 @@
 
 import type { FormFieldCondition } from '@/types/tournament';
 
+/**
+ * Condition key for a tournament's built-in Sport dropdown. Not a custom field:
+ * the public tournament form merges { [SPORT_CONDITION_KEY]: <picked division's
+ * sport> } into the answers it evaluates rules against.
+ */
+export const SPORT_CONDITION_KEY = '__sport';
+
 const norm = (v: unknown): string => (v == null ? '' : String(v).trim());
 
 /** The answer as a list of atoms: a multi-select is its options, else one string. */
