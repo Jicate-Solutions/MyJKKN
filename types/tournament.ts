@@ -91,7 +91,7 @@ export const DIVISION_GENDERS: { value: DivisionGender; label: string }[] = [
 export type DivisionPlayType = 'singles' | 'doubles';
 
 /** Sports that can be played as doubles — these get the Singles/Doubles toggle. */
-export const DOUBLES_SPORTS = ['Carrom', 'Badminton', 'Table Tennis', 'Tennis'] as const;
+export const DOUBLES_SPORTS = ['Carrom', 'Badminton', 'Table Tennis', 'Tennis', 'Tennikoit'] as const;
 
 /** Players on one doubles entry. */
 export const DOUBLES_ROSTER_SIZE = 2;
@@ -160,6 +160,8 @@ export type Tournament = Event & {
 /** Fields used to create the parent `events` row for a tournament. */
 export interface CreateTournamentDto {
   institution_id: string;
+  /** All host institutions, primary (institution_id) first. Null/omitted = single host. */
+  host_institution_ids?: string[] | null;
   name: string;
   description?: string;
   scope?: TournamentScope;
