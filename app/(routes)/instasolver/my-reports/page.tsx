@@ -46,6 +46,8 @@ import {
   REPORT_STATUS_LABEL,
   alsoReportedWordsOf,
   canSayNotFixed,
+  fixRoundKeyOf,
+  isRateableFix,
   reportStatusOf,
 } from '@/lib/campus-walk/my-reports';
 import { MyReportsClient, type MyReport } from './_components/my-reports-client';
@@ -181,11 +183,45 @@ export default async function MyReportsPage() {
     }
   }
 
+  // ── Stars and thanks (Director, 2026-09-30) ─────────────────────────────
+  // The viewer's own ratings only (reporter_profile_id = viewer). A fixed job
+  // shows the stars row when the viewer has not yet rated THIS fix round. If
+  // the ratings table cannot be read (for instance before its migration is
+  // applied), the stars row is hidden rather than offered and then refused.
+  const rateable = rows.filter((r) => isRateableFix({ status_key: r.status_key, metadata: r.metadata }));
+  let ratingsReadable = true;
+  const myRatings = new Map<string, { stars: number; thanks: string | null; signed: boolean }>();
+  if (rateable.length > 0) {
+    const { data: ratingRows, error: ratingErr } = await admin
+      .from('campus_walk_task_ratings')
+      .select('task_id, fix_round_key, stars, thanks_text, signed')
+      .eq('reporter_profile_id', user.id)
+      .in('task_id', rateable.map((r) => r.id as string));
+    if (ratingErr) {
+      ratingsReadable = false;
+      console.error('[instasolver/my-reports] ratings read failed:', ratingErr.message);
+    }
+    for (const x of ratingRows ?? []) {
+      myRatings.set(`${x.task_id}:${x.fix_round_key}`, {
+        stars: Number(x.stars),
+        thanks: (x.thanks_text as string | null) ?? null,
+        signed: x.signed === true,
+      });
+    }
+  }
+
   const reports: MyReport[] = rows.map((r) => {
     const m = (r.metadata ?? {}) as Record<string, any>;
     const status = reportStatusOf({ status_key: r.status_key, metadata: m });
     const beforePath = typeof m.photo_storage_path === 'string' ? m.photo_storage_path : null;
     const afterPath = typeof m.fix?.storage_path === 'string' ? m.fix.storage_path : null;
+    // Nobody thanks themselves: a job the viewer fixed with their own photo
+    // gets no stars row (the route refuses it too).
+    const rateableHere =
+      ratingsReadable &&
+      isRateableFix({ status_key: r.status_key, metadata: m }) &&
+      m.fix?.submitted_by_profile_id !== user.id;
+    const myRating = rateableHere ? (myRatings.get(`${r.id}:${fixRoundKeyOf(m)}`) ?? null) : null;
     return {
       taskId: r.id as string,
       title: (r.title as string) || 'Report',
@@ -211,6 +247,10 @@ export default async function MyReportsPage() {
       }),
       canSayNotFixed:
         ownIds.has(r.id as string) && canSayNotFixed({ status_key: r.status_key, completed_at: r.completed_at }),
+      // Stars, like the not-fixed button, stay with the person who filed it —
+      // app/api/instasolver/thanks/route.ts refuses anyone else.
+      canRate: ownIds.has(r.id as string) && rateableHere && myRating === null,
+      myRating,
     };
   });
 

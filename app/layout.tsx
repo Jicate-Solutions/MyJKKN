@@ -6,6 +6,7 @@ import { PushNotificationProvider } from '@/components/notifications/push-notifi
 import { AppBadgeSync } from '@/components/notifications/app-badge-sync';
 import { InstallPromptBanner } from '@/components/pwa/install-prompt-banner';
 import { PWAProvider } from '@/components/pwa/pwa-provider';
+import { StaleDeploymentReload } from '@/components/pwa/stale-deployment-reload';
 import { ThemeProvider } from '@/providers/theme-provider';
 import { AuthProvider } from '@/hooks/use-auth-provider';
 import { ReactQueryProvider } from '@/providers/query-client-provider';
@@ -243,6 +244,9 @@ export default function RootLayout({
                     the global unread count. Renders nothing; mounted app-wide so
                     the badge tracks the count on every authenticated page. */}
                 <AppBadgeSync />
+                {/* Headless: reloads a tab once when it calls a Server Action
+                    from an older deployment (BUG-006164). Renders nothing. */}
+                <StaleDeploymentReload />
                 <PushNotificationProvider>{children}</PushNotificationProvider>
                 {/* ONE route-aware platform Help FAB (replaces the 3 per-module
                     FABs). Server-resolves the viewer's visible+filtered lanes,

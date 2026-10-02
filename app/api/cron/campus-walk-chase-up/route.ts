@@ -1,6 +1,10 @@
 // app/api/cron/campus-walk-chase-up/route.ts
 // ============================================================================
-// Campus Walk — the chase-up ladder (D5, locked).
+// Campus Walk — the chase-up ladder (Director ruling 30 Sep 2026: the fixer's
+// boss at 1 day late, the principal at 3, the Director at 7). Runs at 02:30
+// UTC = 08:00 IST, three minutes BEFORE the Director's morning summary
+// (app/api/cron/campus-walk-director-digest), which lists the jobs this run
+// marks as having reached him.
 //
 // A photographed campus condition becomes a project_tasks row
 // (lib/services/campus-walk/campus-walk-service.ts) with a due date. Nothing

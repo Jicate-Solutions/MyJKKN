@@ -2,22 +2,24 @@
 
 // app/(routes)/instasolver/my-reports/_components/my-reports-client.tsx
 //
-// The list of the viewer's own reports, phone-first. The one action on it is
-// "Not fixed" (Director, 2026-09-30): on a job marked fixed within the last
-// 7 days, the reporter can send it straight back to the people who fix it,
-// with an optional one-line note. The server decides which cards get the
-// button (`canSayNotFixed`); the route re-checks independently.
+// The list of the viewer's own reports, phone-first. Two actions (Director,
+// 2026-09-30): "Not fixed" — on a job marked fixed within the last 7 days, the
+// reporter can send it straight back to the people who fix it, with an
+// optional one-line note — and "Say thanks": 1–5 stars, an optional line and
+// "Sign with my name", once per fix. The server decides which cards get each
+// (`canSayNotFixed`, `canRate`); the routes re-check independently.
 
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AlertCircle, CheckCircle2, ImageOff, Loader2, MapPin, RotateCcw, Wrench } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ImageOff, Loader2, MapPin, RotateCcw, Star, Wrench } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
-import type { ReportStatus } from '@/lib/campus-walk/my-reports';
+import { THANKS_MAX, type ReportStatus } from '@/lib/campus-walk/my-reports';
 
 export interface MyReport {
   taskId: string;
@@ -37,6 +39,10 @@ export interface MyReport {
   /** Other reporters' words only — never who said them (ruling, 1 Oct 2026). */
   alsoReported: string[];
   canSayNotFixed: boolean;
+  /** A fixed job the viewer has not yet given stars for THIS fix. */
+  canRate: boolean;
+  /** The stars the viewer already gave for this fix, if any. */
+  myRating: { stars: number; thanks: string | null; signed: boolean } | null;
 }
 
 const NOTE_MAX = 200;
@@ -77,6 +83,123 @@ function Photo({ label, url, had }: { label: string; url: string | null; had: bo
         </div>
       )}
     </figure>
+  );
+}
+
+/**
+ * Stars and thanks (Director, 2026-09-30). Five big tappable stars, an optional
+ * one-line thanks, and "Sign with my name" — off by default, so the person who
+ * fixed it reads "Someone thanked you" unless the reporter chooses otherwise.
+ * One rating per fix; the route and the database both hold that line.
+ */
+function ThanksPanel({ taskId }: { taskId: string }) {
+  const router = useRouter();
+  const { toast } = useToast();
+  const [stars, setStars] = useState(0);
+  const [thanks, setThanks] = useState('');
+  const [signed, setSigned] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function send() {
+    if (busy || stars < 1) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/instasolver/thanks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId, stars, thanks: thanks.trim() || undefined, signed }),
+      });
+      const json = await res.json().catch(() => ({}) as any);
+      if (res.ok && json?.success) {
+        toast({ title: 'Thank you', description: json.message ?? 'Your stars are saved.' });
+        router.refresh();
+        return;
+      }
+      setError(json?.error ?? 'That did not go through. Please try again.');
+    } catch {
+      setError('No connection. Please try again when you have signal.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3 rounded-md border p-3">
+      <p className="text-sm font-medium">How was the fix?</p>
+      <div className="flex gap-1" role="radiogroup" aria-label="Stars for this fix">
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button
+            key={n}
+            type="button"
+            role="radio"
+            aria-checked={stars === n}
+            aria-label={`${n} star${n === 1 ? '' : 's'}`}
+            onClick={() => setStars(n)}
+            disabled={busy}
+            className="flex h-11 w-11 items-center justify-center rounded-md hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Star
+              className={`h-7 w-7 ${
+                n <= stars ? 'fill-amber-400 text-amber-500' : 'text-muted-foreground'
+              }`}
+              aria-hidden="true"
+            />
+          </button>
+        ))}
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor={`thanks-${taskId}`} className="text-sm">
+          Say thanks <span className="text-muted-foreground">(optional)</span>
+        </Label>
+        <Input
+          id={`thanks-${taskId}`}
+          value={thanks}
+          onChange={(e) => setThanks(e.target.value.slice(0, THANKS_MAX))}
+          placeholder="Thank you — the tap works now"
+          className="h-11"
+          autoComplete="off"
+          disabled={busy}
+        />
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <Label htmlFor={`sign-${taskId}`} className="text-sm">
+          Sign with my name
+          <span className="block text-xs font-normal text-muted-foreground">
+            {signed ? 'They will see your name.' : 'They will see “Someone thanked you”.'}
+          </span>
+        </Label>
+        <Switch id={`sign-${taskId}`} checked={signed} onCheckedChange={setSigned} disabled={busy} />
+      </div>
+      {error && (
+        <p className="flex items-start gap-2 text-sm text-red-600 dark:text-red-400">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <span>{error}</span>
+        </p>
+      )}
+      <Button className="h-12 w-full text-base" onClick={() => void send()} disabled={busy || stars < 1}>
+        {busy ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : null}
+        {busy ? 'Sending…' : stars < 1 ? 'Tap the stars first' : 'Send thanks'}
+      </Button>
+    </div>
+  );
+}
+
+function GivenStars({ rating }: { rating: NonNullable<MyReport['myRating']> }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+      <span className="flex" aria-label={`You gave ${rating.stars} of 5 stars`}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <Star
+            key={n}
+            className={`h-4 w-4 ${n <= rating.stars ? 'fill-amber-400 text-amber-500' : 'text-muted-foreground'}`}
+            aria-hidden="true"
+          />
+        ))}
+      </span>
+      <span>You thanked them{rating.signed ? ' with your name' : ''}.</span>
+    </div>
   );
 }
 
@@ -176,6 +299,10 @@ function ReportCard({ report, windowDays }: { report: MyReport; windowDays: numb
             )}
           </div>
         )}
+
+        {report.myRating && <GivenStars rating={report.myRating} />}
+
+        {report.canRate && !open && <ThanksPanel taskId={report.taskId} />}
 
         {report.canSayNotFixed && !open && (
           <Button

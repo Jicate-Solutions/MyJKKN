@@ -270,6 +270,10 @@
       "schedule": "30 2 * * *"
     },
     {
+      "path": "/api/cron/campus-walk-director-digest?secret=${CRON_SECRET}",
+      "schedule": "33 2 * * *"
+    },
+    {
       "path": "/api/cron/campus-walk-photo-retention?secret=${CRON_SECRET}",
       "schedule": "17 3 * * *"
     },
