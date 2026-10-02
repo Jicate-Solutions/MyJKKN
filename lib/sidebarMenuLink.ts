@@ -755,6 +755,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // without a way to reach this the fixer's proof photo sits in `review`
   // forever and the loop never closes.
   '/campus-walk/review': 'projects.view',
+  // The fixes board (D9, departments only) — open to every team member by the
+  // Director's ruling of 2026-09-30. Its own key so it can be granted without
+  // projects.view; the page re-checks it server-side (gateFixesBoard). The
+  // walking and coverage boards stay under '/campus-walk' and the email
+  // allow-list. Also covers the board's CSV download (…/fixes/csv).
+  '/campus-walk/scoreboard/fixes': 'campus_walk.fix_board.view',
   '/academic/parent-portal': 'academic.parent_portal.manage',
   '/academic/years': 'academic.years.view',
   '/academic/leave-calendar': 'academic.leaves.view',
@@ -4383,6 +4389,14 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/campus-walk/review',
               label: 'Awaiting approval',
               active: pathname.startsWith('/campus-walk/review')
+            },
+            {
+              // The fixes board only — never the walking/coverage boards (G2).
+              // Its own key, so a team member without projects.view still sees
+              // the Campus Walk group with just this one row in it.
+              href: '/campus-walk/scoreboard/fixes',
+              label: 'Fixes scoreboard',
+              active: pathname.startsWith('/campus-walk/scoreboard/fixes')
             }
           ]
         }
