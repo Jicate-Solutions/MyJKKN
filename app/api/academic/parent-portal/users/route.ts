@@ -4,7 +4,6 @@ import { requireParentUserDataAdmin } from '@/lib/utils/parent-admin-auth';
 
 export const runtime = 'nodejs';
 
-const DEFAULT_PASSWORD = 'JKKN@100'; // seed default — shown for accounts never admin-reset
 
 export interface PPUserRow {
   accountId: string;
@@ -14,7 +13,6 @@ export interface PPUserRow {
   fatherMobile: string;
   motherMobile: string;
   loginMobile: string;
-  password: string; // admin-reset value, else seed default
   isAdminReset: boolean;
   isActive: boolean;
 }
@@ -77,7 +75,9 @@ export async function GET(req: NextRequest) {
   const lrnById = new Map(lrnRows.map((l) => [l.id as string, l]));
 
   // Resilient to the reset_password column not existing yet (migration not run):
-  // try with it, fall back to without it (all passwords then show the default).
+  // try with it, fall back to without it. Only the yes/no isAdminReset flag is
+  // derived from it; the stored value itself is NEVER sent to the browser
+  // (removed 2 Oct 2026 pending the Director's decision on showing passwords).
   const accIds = lrnRows.map((l) => l.id as string);
   const withCol = await db
     .from('pp_parent_accounts')
@@ -106,7 +106,6 @@ export async function GET(req: NextRequest) {
         fatherMobile: (l.father_mobile as string) || '',
         motherMobile: (l.mother_mobile as string) || '',
         loginMobile: (a.mobile as string) || '',
-        password: (a.reset_password as string | null) || DEFAULT_PASSWORD,
         isAdminReset: !!a.reset_password,
         isActive: a.is_active !== false,
       } as PPUserRow;

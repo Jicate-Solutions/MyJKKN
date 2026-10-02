@@ -176,3 +176,64 @@ describe('fn_revoke_user_sessions — who may sign someone out of every device',
     expect(await sessionsOf(TARGET)).toEqual({ sessions: 2, tokens: 2 });
   });
 });
+
+// Repair round 2 Oct: the database must never report "nobody was signed in"
+// when it simply could not delete. The function owner is switched to a plain
+// role (the suite's own user is a superuser, who sees every row regardless).
+describe('fn_revoke_user_sessions — reports failure instead of a false all-clear', () => {
+  const OWNER = `revoke_owner_${DBNAME.slice(-8)}`;
+
+  async function asPlainOwner(setup: string[], body: () => Promise<void>) {
+    await client.query(`DO $$ BEGIN CREATE ROLE ${OWNER} NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$`);
+    await client.query(`GRANT USAGE ON SCHEMA public, auth TO ${OWNER}`);
+    await client.query(`GRANT SELECT ON public.profiles TO ${OWNER}`);
+    await client.query(`ALTER FUNCTION public.fn_revoke_user_sessions(uuid) OWNER TO ${OWNER}`);
+    try {
+      for (const sql of setup) await client.query(sql);
+      await body();
+    } finally {
+      await client.query(`ALTER FUNCTION public.fn_revoke_user_sessions(uuid) OWNER TO CURRENT_USER`);
+      await client.query(`ALTER TABLE auth.sessions DISABLE ROW LEVEL SECURITY`);
+      await client.query(`ALTER TABLE auth.refresh_tokens DISABLE ROW LEVEL SECURITY`);
+      await client.query(`REVOKE ALL ON auth.sessions, auth.refresh_tokens FROM ${OWNER}`);
+    }
+  }
+
+  it('an owner role without DELETE on the auth tables gets revoke_unavailable and nothing changes', async () => {
+    await asPlainOwner([`GRANT SELECT ON auth.sessions, auth.refresh_tokens TO ${OWNER}`], async () => {
+      const r = await revokeAs({ super: true }, TARGET);
+      expect(r.error).toMatch(/revoke_unavailable/);
+    });
+    expect(await sessionsOf(TARGET)).toEqual({ sessions: 2, tokens: 2 });
+  });
+
+  it('row security that hides the rows gets revoke_unavailable, not "0 logins ended"', async () => {
+    await asPlainOwner(
+      [
+        `GRANT SELECT, DELETE ON auth.sessions, auth.refresh_tokens TO ${OWNER}`,
+        `ALTER TABLE auth.sessions ENABLE ROW LEVEL SECURITY`,
+      ],
+      async () => {
+        const r = await revokeAs({ super: true }, TARGET);
+        expect(r.error).toMatch(/revoke_unavailable/);
+        expect(r.n).toBeNull();
+      }
+    );
+    expect(await sessionsOf(TARGET)).toEqual({ sessions: 2, tokens: 2 });
+  });
+
+  it('a plain owner with DELETE and no row security still works (the checks are not over-strict)', async () => {
+    await asPlainOwner([`GRANT SELECT, DELETE ON auth.sessions, auth.refresh_tokens TO ${OWNER}`], async () => {
+      const r = await revokeAs({ super: true }, TARGET);
+      expect(r.error).toBeNull();
+      expect(r.n).toBe(2);
+    });
+    expect(await sessionsOf(TARGET)).toEqual({ sessions: 0, tokens: 0 });
+  });
+
+  it('the migration has no apply-time RAISE (it must never fail the wave dry-run)', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const sql = require('fs').readFileSync(MIGRATION, 'utf8') as string;
+    expect(sql).not.toMatch(/^DO\s+\$\$/m);
+  });
+});

@@ -3,7 +3,13 @@
 // Admin: "Sign out of all devices" for the person on /users/[id].
 // Shown only to a super admin or a role holding users.sessions.revoke; the
 // database function enforces the same rule, so hiding the button is a
-// convenience, not the safety. Two steps: nothing happens until the confirm
+// convenience, not the safety.
+//
+// "Super admin" here means the profiles.is_super_admin FLAG — the same test the
+// database uses (is_super_admin(), user_has_permission(text) and every RLS
+// policy). usePermissions() also treats profiles.role = 'super_admin' as super
+// admin, but for such an account WITHOUT the flag the database refuses this
+// action, so the button stays hidden for it rather than offering a refusal. Two steps: nothing happens until the confirm
 // button is pressed. Every refusal is shown here, never a redirect.
 
 import { useState, useTransition } from 'react';
@@ -11,6 +17,7 @@ import { LogOut, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { usePermissions } from '@/hooks/use-permissions';
+import { SIGNED_OUT_EVERYWHERE_NOTICE } from '@/lib/auth/sign-out-everywhere-copy';
 import { revokeUserSessions } from '../_actions/revoke-user-sessions';
 
 interface RevokeSessionsButtonProps {
@@ -19,12 +26,18 @@ interface RevokeSessionsButtonProps {
 }
 
 export function RevokeSessionsButton({ userId, userName }: RevokeSessionsButtonProps) {
-  const { canAccess, isLoading } = usePermissions();
+  const { canAccess, isLoading, isSuperAdmin, userProfile } = usePermissions();
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  if (isLoading || !canAccess('users.sessions', 'revoke')) return null;
+  const hasSuperAdminFlag = userProfile?.is_super_admin === true;
+  // A role-only "super admin" (no flag) gets no permission map from the hook,
+  // and the database would refuse it — so it is not shown the button.
+  const canRevoke =
+    hasSuperAdminFlag || (!isSuperAdmin && canAccess('users.sessions', 'revoke'));
+
+  if (isLoading || !canRevoke) return null;
 
   const handleConfirm = () => {
     setError(null);
@@ -37,8 +50,8 @@ export function RevokeSessionsButton({ userId, userName }: RevokeSessionsButtonP
       setConfirming(false);
       toast.success(
         result.sessionsEnded > 0
-          ? `${userName} is signed out on every device (${result.sessionsEnded} login${result.sessionsEnded === 1 ? '' : 's'} ended).`
-          : `${userName} had no active logins. Nothing to end.`
+          ? `${userName}: ${SIGNED_OUT_EVERYWHERE_NOTICE} (${result.sessionsEnded} login${result.sessionsEnded === 1 ? '' : 's'} ended.)`
+          : `No active logins were found for ${userName}. Nothing to end.`
       );
     });
   };

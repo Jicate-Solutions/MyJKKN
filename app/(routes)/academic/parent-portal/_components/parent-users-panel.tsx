@@ -10,8 +10,9 @@
  *  - standalone (principal, who can't load the staff-only content filter): shows
  *    its own institution dropdown scoped to their institution.
  *
- * Passwords are scrypt-hashed (one-way) so the "Password" column shows the value
- * an admin last reset to, else the seed default JKKN@100.
+ * No password is displayed or exported (repair round 2 Oct 2026). The column
+ * that showed the admin-reset value / the default JKKN@100 is removed pending
+ * the Director's decision; the API no longer sends it. Reset still works.
  */
 import { useCallback, useEffect, useState } from 'react';
 import * as XLSX from 'xlsx';
@@ -28,6 +29,7 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Building2, Download, KeyRound, Loader2, LogOut, Search } from 'lucide-react';
+import { SIGNED_OUT_EVERYWHERE_NOTICE } from '@/lib/auth/sign-out-everywhere-copy';
 import {
   ParentPortalAdminService,
   type PPInstitution,
@@ -35,6 +37,7 @@ import {
   type PPUserRow,
 } from '@/lib/services/academic/parent-portal-admin-service';
 
+/** Pre-filled in the Reset dialog only — never displayed as a stored value. */
 const DEFAULT_PASSWORD = 'JKKN@100';
 
 export const PARENT_SIGN_OUT_WARNING =
@@ -144,7 +147,7 @@ export function ParentUsersPanel({
     setSignOutError(null);
     try {
       await ParentPortalAdminService.signOutParentEverywhere(signOutRow.accountId);
-      toast.success(`The parent of ${signOutRow.learnerName || 'this learner'} is signed out on every device.`);
+      toast.success(`The parent of ${signOutRow.learnerName || 'this learner'}: ${SIGNED_OUT_EVERYWHERE_NOTICE}`);
       setSignOutRow(null);
     } catch (e) {
       setSignOutError(e instanceof Error ? e.message : 'Failed to sign the parent out');
@@ -172,10 +175,9 @@ export function ParentUsersPanel({
       'Learner Name': u.learnerName,
       'Father Mobile Number': u.fatherMobile,
       'Mother Mobile Number': u.motherMobile,
-      Password: u.password,
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
-    ws['!cols'] = [{ wch: 6 }, { wch: 16 }, { wch: 28 }, { wch: 20 }, { wch: 20 }, { wch: 16 }];
+    ws['!cols'] = [{ wch: 6 }, { wch: 16 }, { wch: 28 }, { wch: 20 }, { wch: 20 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Parent Users');
     XLSX.writeFile(wb, `${(activeInstitutionName || 'parent_users').replace(/[^\w]+/g, '_')}_parent_users.xlsx`);
@@ -243,7 +245,6 @@ export function ParentUsersPanel({
                 <th className="px-3 py-2">Learner</th>
                 <th className="px-3 py-2">Father Mobile</th>
                 <th className="px-3 py-2">Mother Mobile</th>
-                <th className="px-3 py-2">Password</th>
                 <th className="px-3 py-2 text-right">Action</th>
               </tr>
             </thead>
@@ -255,12 +256,6 @@ export function ParentUsersPanel({
                   <td className="px-3 py-2">{u.learnerName || '—'}</td>
                   <td className="px-3 py-2">{u.fatherMobile || '—'}</td>
                   <td className="px-3 py-2">{u.motherMobile || '—'}</td>
-                  <td className="px-3 py-2">
-                    <span className="font-mono">{u.password}</span>
-                    {!u.isAdminReset && (
-                      <span className="ml-1.5 text-[10px] text-muted-foreground">(default)</span>
-                    )}
-                  </td>
                   <td className="px-3 py-2 text-right">
                     <Button
                       size="sm"
@@ -293,12 +288,6 @@ export function ParentUsersPanel({
           </table>
         </div>
       )}
-
-      <p className="text-xs text-muted-foreground">
-        Passwords are one-way encrypted. The column shows the value an admin last reset to, or the
-        default <span className="font-mono">{DEFAULT_PASSWORD}</span> for accounts never reset here.
-        A parent&apos;s self-chosen password cannot be shown.
-      </p>
 
       <Dialog open={!!resetRow} onOpenChange={(o) => !o && setResetRow(null)}>
         <DialogContent>

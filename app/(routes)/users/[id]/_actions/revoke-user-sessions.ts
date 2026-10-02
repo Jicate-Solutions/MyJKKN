@@ -30,6 +30,12 @@ function refusalMessage(error: { code?: string; message?: string }): string {
   if (message.includes('not_allowed') || message.includes('not_authenticated')) {
     return "You don't have access to sign people out of their devices. Ask a super admin to give your role 'Sign Anyone Out of All Their Devices' in Role Management.";
   }
+  if (message.includes('revoke_unavailable') || message.includes('revoke_incomplete')) {
+    // The database could not actually end the logins (its function may not
+    // delete them, or cannot see them). Never report that as "nobody was
+    // signed in" — say it failed.
+    return 'Signing this person out did NOT work: the database could not end their logins. Nothing was changed. Please contact the MyJKKN team.';
+  }
   if (message.includes('user_not_found')) {
     return 'This account could not be found. It may have been removed.';
   }
@@ -60,7 +66,7 @@ export async function revokeUserSessions(
     return {
       success: false,
       error:
-        'To sign yourself out of every device, use "Sign out of all devices" on your own Profile page.'
+        'To sign yourself out of every device, open your account menu (your picture, top right) and choose "Sign out of all devices".'
     };
   }
 

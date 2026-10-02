@@ -86,6 +86,15 @@ describe('signOutEverywhere (own account)', () => {
     const result = await signOutEverywhere();
     expect(result.success).toBe(false);
   });
+
+  it('a failed sign-out also writes a FAILED activity row, so the audit never shows it as done', async () => {
+    signOut.mockResolvedValue({ error: { message: 'network' } });
+    await signOutEverywhere();
+    expect(logActivity).toHaveBeenCalledTimes(2);
+    expect(logActivity.mock.calls[1][0]).toMatchObject({
+      metadata: { logout_method: 'all_devices', outcome: 'failed', error: 'network' },
+    });
+  });
 });
 
 describe('revokeUserSessions (admin, someone else’s account)', () => {
@@ -126,10 +135,24 @@ describe('revokeUserSessions (admin, someone else’s account)', () => {
     if (result.success === false) expect(result.error).toMatch(/not switched on yet/);
   });
 
-  it('refuses the caller’s own account and points to the Profile page instead', async () => {
+  it('when the database could not actually end the logins, it is a failure — never "no active logins"', async () => {
+    for (const message of [
+      'revoke_unavailable: row security hides auth sessions from role postgres',
+      'revoke_unavailable: role postgres may not delete auth sessions',
+      'revoke_incomplete',
+    ]) {
+      rpc.mockResolvedValue({ data: null, error: { code: '55000', message } });
+      const result = await revokeUserSessions(THEM);
+      expect(result.success).toBe(false);
+      if (result.success === false) expect(result.error).toMatch(/did NOT work/);
+    }
+    expect(logActivity).not.toHaveBeenCalled();
+  });
+
+  it('refuses the caller’s own account and points to the account menu instead', async () => {
     const result = await revokeUserSessions(ME);
     expect(result.success).toBe(false);
-    if (result.success === false) expect(result.error).toMatch(/Profile page/);
+    if (result.success === false) expect(result.error).toMatch(/account menu/);
     expect(rpc).not.toHaveBeenCalled();
   });
 

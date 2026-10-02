@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { requireParentUserDataAdmin } from '@/lib/utils/parent-admin-auth';
 import { logActivity } from '@/lib/utils/activity-logger';
+import {
+  parentSignOutEverywhereAvailable,
+  revokeParentSessions,
+} from '@/lib/auth/parent-sign-out-everywhere';
 
 export const runtime = 'nodejs';
 
@@ -29,21 +33,12 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const NOT_SWITCHED_ON =
   'Signing a parent out of every device is not switched on yet — the database update for it has not been applied. Please contact the MyJKKN team.';
 
-/** 42703 = Postgres "column does not exist"; PGRST204 = PostgREST "column not in schema cache". */
-function isMissingColumn(error: { code?: string } | null | undefined): boolean {
-  return error?.code === '42703' || error?.code === 'PGRST204';
-}
-
 export async function GET() {
   const user = await requireParentUserDataAdmin();
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const db = createServiceRoleClient();
-  const { error } = await db.from('pp_parent_accounts').select('sessions_revoked_at').limit(1);
-  if (error && !isMissingColumn(error)) {
-    console.error('[parent-portal/sign-out-everywhere] availability probe failed:', error);
-  }
-  return NextResponse.json({ available: !error });
+  const available = await parentSignOutEverywhereAvailable(createServiceRoleClient());
+  return NextResponse.json({ available });
 }
 
 export async function POST(req: NextRequest) {
@@ -94,22 +89,19 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const revokedAt = new Date().toISOString();
-  const { error: updError } = await db
-    .from('pp_parent_accounts')
-    .update({ sessions_revoked_at: revokedAt })
-    .eq('id', accountId);
-
-  if (updError) {
-    if (isMissingColumn(updError)) {
-      return NextResponse.json({ error: NOT_SWITCHED_ON }, { status: 409 });
-    }
-    console.error('[parent-portal/sign-out-everywhere] update failed:', updError);
+  const revoked = await revokeParentSessions(db, accountId);
+  if (revoked.status === 'no-column') {
+    return NextResponse.json({ error: NOT_SWITCHED_ON }, { status: 409 });
+  }
+  if (revoked.status !== 'ok') {
+    // 'not-found' = the update touched no row: report a failure, never success.
+    console.error('[parent-portal/sign-out-everywhere] update failed:', revoked);
     return NextResponse.json(
-      { error: 'Signing this parent out failed. Please try again in a minute.' },
+      { error: 'Signing this parent out failed — nothing was changed. Please try again in a minute.' },
       { status: 500 }
     );
   }
+  const revokedAt = revoked.revokedAt;
 
   const learnerName =
     [learnerRow?.first_name, learnerRow?.last_name].filter(Boolean).join(' ').trim() || null;

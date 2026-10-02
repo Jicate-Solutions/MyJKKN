@@ -27,7 +27,6 @@ export interface PPUserRow {
   fatherMobile: string;
   motherMobile: string;
   loginMobile: string;
-  password: string;
   isAdminReset: boolean;
   isActive: boolean;
 }

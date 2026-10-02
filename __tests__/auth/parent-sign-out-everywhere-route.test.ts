@@ -53,10 +53,12 @@ function fakeDb() {
         },
         update(values: Record<string, unknown>) {
           return {
-            eq: async (_col: string, id: unknown) => {
-              state.updates.push({ table, values, id });
-              return state.update;
-            },
+            eq: (_col: string, id: unknown) => ({
+              select: async () => {
+                state.updates.push({ table, values, id });
+                return state.update;
+              },
+            }),
           };
         },
       };
@@ -99,7 +101,7 @@ beforeEach(() => {
   };
   state.profile = { data: { institution_id: INST_A }, error: null };
   state.probe = { data: [], error: null };
-  state.update = { data: null, error: null };
+  state.update = { data: [{ id: ACCOUNT }], error: null };
   state.updates = [];
   requireParentUserDataAdmin.mockResolvedValue({ id: 'admin-1', isSuperAdmin: true });
   logActivity.mockResolvedValue(undefined);
@@ -177,6 +179,13 @@ describe('POST /api/academic/parent-portal/users/sign-out-everywhere', () => {
 
     state.update = { data: null, error: { code: '42703', message: 'column does not exist' } };
     expect((await POST(post({ accountId: ACCOUNT }))).status).toBe(409);
+  });
+
+  it('an update that touched no row is a failure, not success', async () => {
+    state.update = { data: [], error: null };
+    const res = await POST(post({ accountId: ACCOUNT }));
+    expect(res.status).toBe(500);
+    expect(logActivity).not.toHaveBeenCalled();
   });
 
   it('reports any other database failure as a failure, not success', async () => {

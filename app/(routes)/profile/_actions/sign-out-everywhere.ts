@@ -48,6 +48,23 @@ export async function signOutEverywhere(): Promise<SignOutEverywhereResult> {
   const { error } = await supabase.auth.signOut({ scope: 'global' });
   if (error) {
     console.error('[auth/sign-out-everywhere] global sign-out failed:', error);
+    // The row above says it was asked for; record that it did NOT happen, so
+    // the audit trail never shows a sign-out that failed as a success.
+    await logActivity({
+      userId: user.id,
+      actionType: ACTIVITY_TYPES.LOGOUT,
+      resourceType: RESOURCE_TYPES.AUTH,
+      resourceId: user.id,
+      resourceName: user.email ?? undefined,
+      description: `${user.email ?? 'A user'} tried to sign out of all devices — it FAILED`,
+      metadata: {
+        logout_method: 'all_devices',
+        scope: 'global',
+        requested_by: 'self',
+        outcome: 'failed',
+        error: error.message ?? null
+      }
+    });
     return {
       success: false,
       error:

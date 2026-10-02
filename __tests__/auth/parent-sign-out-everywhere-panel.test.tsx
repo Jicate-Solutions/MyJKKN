@@ -28,6 +28,7 @@ vi.mock("@/lib/services/academic/parent-portal-admin-service", () => ({
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
+import { toast } from "sonner";
 import {
   ParentUsersPanel,
   PARENT_SIGN_OUT_WARNING,
@@ -53,7 +54,6 @@ beforeEach(() => {
           fatherMobile: "9000000001",
           motherMobile: "",
           loginMobile: "9000000001",
-          password: "JKKN@100",
           isAdminReset: false,
           isActive: true,
         },
@@ -69,6 +69,39 @@ describe("Parent User Data — the table", () => {
   it("lists the accounts the server returned (they live in the response .json)", async () => {
     render(<ParentUsersPanel target={TARGET} />);
     expect(await screen.findByText("Kavya R")).toBeInTheDocument();
+  });
+
+  it("does NOT display any password — no Password column, no default value (pending the Director)", async () => {
+    // Even if an older server still sent a value, the screen must not show it.
+    listParentUsers.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: {
+        institutions: [],
+        institutionId: "inst-a",
+        users: [
+          {
+            accountId: ACCOUNT,
+            learnerId: "l-1",
+            rollNumber: "24UBA001",
+            learnerName: "Kavya R",
+            fatherMobile: "9000000001",
+            motherMobile: "",
+            loginMobile: "9000000001",
+            password: "Secret@123",
+            isAdminReset: true,
+            isActive: true,
+          },
+        ],
+      },
+    });
+    render(<ParentUsersPanel target={TARGET} />);
+    await screen.findByText("Kavya R");
+    expect(screen.queryByRole("columnheader", { name: /password/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("Secret@123")).not.toBeInTheDocument();
+    expect(screen.queryByText(/JKKN@100/)).not.toBeInTheDocument();
+    // The Reset button still works.
+    expect(screen.getByRole("button", { name: /reset/i })).toBeInTheDocument();
   });
 });
 
@@ -98,6 +131,10 @@ describe("Parent User Data — Sign out of all devices", () => {
     );
     await waitFor(() =>
       expect(signOutParentEverywhere).toHaveBeenCalledWith(ACCOUNT),
+    );
+    await waitFor(() => expect(toast.success).toHaveBeenCalled());
+    expect(vi.mocked(toast.success).mock.calls[0][0]).toContain(
+      "Signed out on every device. A page already open may keep working for up to an hour.",
     );
   });
 
