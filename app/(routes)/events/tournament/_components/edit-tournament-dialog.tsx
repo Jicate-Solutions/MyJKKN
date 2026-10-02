@@ -64,6 +64,7 @@ import {
 } from '@/hooks/events/use-tournaments';
 import { useTournamentEntries } from '@/hooks/events/use-tournament-registrations';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { HostInstitutionsPicker, hostInstitutionsDto } from './host-institutions-picker';
 import { NaacCriteriaField } from '@/components/events/shared/naac-criteria-field';
 
 /** ISO timestamp / date string → yyyy-MM-dd for <input type="date">. */
@@ -327,6 +328,12 @@ function EditTournamentForm({
   const [form, setForm] = useState({
     name: tournament.name ?? '',
     institution_id: tournament.institution_id ?? '',
+    // Full host list, primary included. A single-host event stores none.
+    host_ids: (tournament.host_institution_ids?.length
+      ? tournament.host_institution_ids
+      : tournament.institution_id
+        ? [tournament.institution_id]
+        : []) as string[],
     description: tournament.description ?? '',
     scope: (tournament.scope === 'all_jkkn' ? 'all_jkkn' : 'institution') as TournamentScope,
     start_date: toDateInput(tournament.start_date),
@@ -336,8 +343,9 @@ function EditTournamentForm({
     venue: tournament.venue ?? '',
     is_public: tournament.is_public ?? false,
     allow_external_registration: tournament.allow_external_registration ?? false,
-    participant_org_type: (tournament.participant_org_type === 'college'
-      ? 'college'
+    participant_org_type: (tournament.participant_org_type === 'college' ||
+    tournament.participant_org_type === 'both'
+      ? tournament.participant_org_type
       : 'school') as ParticipantOrgType,
     // NAAC evidence tags — the writer for the events → evidence-spine
     // emitter (naac_criteria text[] on events; empty array = untagged).
@@ -508,7 +516,10 @@ function EditTournamentForm({
         id: tournament.id,
         dto: {
           name: form.name.trim(),
-          institution_id: form.institution_id,
+          ...hostInstitutionsDto(
+            { primaryId: form.institution_id, hostIds: form.host_ids },
+            !!tournament.host_institution_ids?.length
+          ),
           description: form.description || undefined,
           scope: form.scope,
           start_date: form.start_date || undefined,
@@ -561,29 +572,17 @@ function EditTournamentForm({
     <>
       <div className="space-y-4 py-1">
         <div className="space-y-1.5">
-          <Label htmlFor="t-institution">
-            Host Institution <span className="text-destructive">*</span>
-          </Label>
-          <Select
-            value={form.institution_id}
-            onValueChange={(v) => set('institution_id', v)}
-            disabled={collegeLocked}
-          >
-            <SelectTrigger id="t-institution">
-              <SelectValue
-                placeholder={
-                  institutionsLoading ? 'Loading institutions…' : 'Select host institution'
-                }
-              />
-            </SelectTrigger>
-            <SelectContent>
-              {institutions.map((inst) => (
-                <SelectItem key={inst.id} value={inst.id}>
-                  {inst.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <HostInstitutionsPicker
+            id="t-institution"
+            institutions={institutions}
+            loading={institutionsLoading}
+            value={{ primaryId: form.institution_id, hostIds: form.host_ids }}
+            onChange={(v) =>
+              setForm((prev) => ({ ...prev, institution_id: v.primaryId, host_ids: v.hostIds }))
+            }
+            primaryLocked={collegeLocked}
+            hideSingleHostHint
+          />
           <p className="text-xs text-muted-foreground">
             {collegeLocked ? (
               <>
@@ -645,12 +644,14 @@ function EditTournamentForm({
             <SelectContent>
               <SelectItem value="school">Schools</SelectItem>
               <SelectItem value="college">Colleges</SelectItem>
+              <SelectItem value="both">Both schools and colleges</SelectItem>
             </SelectContent>
           </Select>
           <p className="text-xs text-muted-foreground">
             Sets what external entrants are asked on the public registration form:
             Schools shows &ldquo;School / club&rdquo; with the school-directory picker;
-            Colleges shows &ldquo;College&rdquo; as free text.
+            Colleges shows &ldquo;College&rdquo; as free text; Both lets each entrant
+            choose school or college first.
           </p>
         </div>
 

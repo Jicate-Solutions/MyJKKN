@@ -19,7 +19,7 @@
  */
 
 import { useCallback, useMemo } from 'react';
-import { Download } from 'lucide-react';
+import { Download, Sparkles } from 'lucide-react';
 
 import { DataTable, type DataFetchParams } from '@/components/data-table/data-table';
 import type { ExportableData } from '@/components/data-table/utils/export-utils';
@@ -61,6 +61,7 @@ interface Props {
   canManage: boolean;
   onEdit: (row: StaffSalaryDirectoryRow) => void;
   onViewHistory: (row: StaffSalaryDirectoryRow) => void;
+  onSuggest: (row: StaffSalaryDirectoryRow) => void;
   /** Hands the selected rows (or the filtered set) to the template writer. */
   onBulkTemplate: (rows: StaffSalaryDirectoryRow[], resetSelection: () => void) => void;
 }
@@ -71,6 +72,7 @@ export function SalaryDirectoryDataTable({
   canManage,
   onEdit,
   onViewHistory,
+  onSuggest,
   onBulkTemplate,
 }: Props) {
   // The bands drive the derived TDS column. Fetched here rather than threaded
@@ -79,8 +81,8 @@ export function SalaryDirectoryDataTable({
   const { data: tdsSlabs } = useTdsSlabs();
 
   const columns = useMemo(
-    () => getSalaryColumns({ onEdit, onViewHistory, canManage, tdsSlabs: tdsSlabs ?? [] }),
-    [canManage, onEdit, onViewHistory, tdsSlabs]
+    () => getSalaryColumns({ onEdit, onViewHistory, onSuggest, canManage, tdsSlabs: tdsSlabs ?? [] }),
+    [canManage, onEdit, onViewHistory, onSuggest, tdsSlabs]
   );
 
   const byId = useMemo(() => {
@@ -150,39 +152,53 @@ export function SalaryDirectoryDataTable({
 
   const renderMobileRow = useCallback(
     (r: StaffSalaryDirectoryRow) => (
-      <button
-        type='button'
-        onClick={() => (canManage ? onEdit(r) : onViewHistory(r))}
-        className='w-full space-y-2 rounded-md border p-3 text-left'
-      >
-        <div className='flex items-start justify-between gap-2'>
-          <div className='min-w-0'>
-            <p className='truncate text-sm font-medium'>{r.person_name}</p>
-            <p className='font-mono text-xs text-muted-foreground'>{r.staff_code ?? '—'}</p>
+      // The card is itself a button, so the Suggest action sits BELOW it rather
+      // than inside it — a button inside a button is invalid HTML.
+      <div className='space-y-1'>
+        <button
+          type='button'
+          onClick={() => (canManage ? onEdit(r) : onViewHistory(r))}
+          className='w-full space-y-2 rounded-md border p-3 text-left'
+        >
+          <div className='flex items-start justify-between gap-2'>
+            <div className='min-w-0'>
+              <p className='truncate text-sm font-medium'>{r.person_name}</p>
+              <p className='font-mono text-xs text-muted-foreground'>{r.staff_code ?? '—'}</p>
+            </div>
+            <span className='shrink-0 text-sm font-semibold tabular-nums'>
+              {r.monthly_gross === null
+                ? <span className='text-xs italic font-normal text-muted-foreground'>Not set</span>
+                : INR.format(r.monthly_gross)}
+            </span>
           </div>
-          <span className='shrink-0 text-sm font-semibold tabular-nums'>
-            {r.monthly_gross === null
-              ? <span className='text-xs italic font-normal text-muted-foreground'>Not set</span>
-              : INR.format(r.monthly_gross)}
-          </span>
-        </div>
-        <div className='flex flex-wrap gap-1'>
-          <Badge variant='outline' className='font-normal'>{r.works_at_name}</Badge>
-          {!r.payer_org_id && (
-            <Badge
-              variant='outline'
-              className='border-amber-300 font-normal text-amber-700 dark:border-amber-800 dark:text-amber-400'
-            >
-              No payer
-            </Badge>
-          )}
-          {!r.is_active && (
-            <Badge variant='secondary' className='font-normal'>Relieved</Badge>
-          )}
-        </div>
-      </button>
+          <div className='flex flex-wrap gap-1'>
+            <Badge variant='outline' className='font-normal'>{r.works_at_name}</Badge>
+            {!r.payer_org_id && (
+              <Badge
+                variant='outline'
+                className='border-amber-300 font-normal text-amber-700 dark:border-amber-800 dark:text-amber-400'
+              >
+                No payer
+              </Badge>
+            )}
+            {!r.is_active && (
+              <Badge variant='secondary' className='font-normal'>Relieved</Badge>
+            )}
+          </div>
+        </button>
+        <Button
+          type='button'
+          variant='ghost'
+          size='sm'
+          className='h-7 px-2 text-xs'
+          onClick={() => onSuggest(r)}
+        >
+          <Sparkles className='mr-1.5 h-3.5 w-3.5' />
+          Suggest a revised salary
+        </Button>
+      </div>
     ),
-    [canManage, onEdit, onViewHistory]
+    [canManage, onEdit, onViewHistory, onSuggest]
   );
 
   /**

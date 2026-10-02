@@ -284,7 +284,8 @@
       "mcp__plugin_chrome-devtools-mcp_chrome-devtools__list_pages",
       "mcp__plugin_chrome-devtools-mcp_chrome-devtools__list_network_requests",
       "Bash(exit 0)",
-      "Artifact"
+      "Artifact",
+      "Bash(gh pr merge 4119 --merge --admin)"
     ],
     "deny": [],
     "ask": []

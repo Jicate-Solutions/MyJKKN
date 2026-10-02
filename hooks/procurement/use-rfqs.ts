@@ -45,10 +45,12 @@ export function useCreateRfqFromPR() {
   return useMutation({
     mutationFn: ({ requestId, userId }: { requestId: string; userId: string }) =>
       ProcurementRfqService.createFromApprovedPR(requestId, userId),
-    onSuccess: () => {
+    // Settled: the request page must drop its "Start quotations" button either way.
+    onSettled: (_r, _e, { requestId }) => {
       queryClient.invalidateQueries({ queryKey: ['procurement-rfqs'] });
       queryClient.invalidateQueries({ queryKey: ['procurement-approved-prs'] });
       queryClient.invalidateQueries({ queryKey: ['procurement-purchase-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['procurement-purchase-request', requestId] });
     },
   });
 }

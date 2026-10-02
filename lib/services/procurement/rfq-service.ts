@@ -5,6 +5,7 @@
 // Super Admin's award approval (docs/procurement/simplified-flow-spec.md). Numbering uses procurement_next_number (doc_type 'RFQ').
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { toStoredRequestNumber } from '@/lib/procurement/display-number';
 import type {
   ProcurementPurchaseOrder,
   ProcurementRfq,
@@ -33,7 +34,9 @@ export class ProcurementRfqService {
            created_by_profile:profiles!created_by(full_name),
            source_request:procurement_purchase_requests!source_request_id(request_number),
            items:procurement_rfq_items(count),
-           vendors:procurement_rfq_vendors(count)`,
+           item_preview:procurement_rfq_items(item_name, quantity),
+           vendors:procurement_rfq_vendors(count),
+           quotes:procurement_quotations(count)`,
           { count: 'exact' }
         );
 
@@ -43,7 +46,7 @@ export class ProcurementRfqService {
         const { data: matchingPRs } = await this.supabase
           .from('procurement_purchase_requests')
           .select('id')
-          .ilike('request_number', `%${filters.search}%`);
+          .ilike('request_number', `%${toStoredRequestNumber(filters.search)}%`);
         const prIds = (matchingPRs || []).map((r: { id: string }) => r.id);
 
         const orClause = prIds.length
@@ -51,7 +54,13 @@ export class ProcurementRfqService {
           : `rfq_number.ilike.%${filters.search}%`;
         query = query.or(orClause);
       }
-      if (filters.status) query = query.eq('status', filters.status);
+      // "draft" in the stage filter means every still-open quotation, including the
+      // retired review statuses and ones that already have quotes.
+      if (filters.status === 'draft') {
+        query = query.in('status', ['draft', 'pending_review', 'approved', 'rejected', 'sent', 'quotations_received', 'compared']);
+      } else if (filters.status) {
+        query = query.eq('status', filters.status);
+      }
       if (filters.store_id) query = query.eq('store_id', filters.store_id);
       else if (filters.institution_id) query = query.eq('institution_id', filters.institution_id);
 
@@ -67,6 +76,7 @@ export class ProcurementRfqService {
         ...r,
         item_count: Array.isArray(r.items) ? r.items[0]?.count ?? 0 : 0,
         vendor_count: Array.isArray(r.vendors) ? r.vendors[0]?.count ?? 0 : 0,
+        quote_count: Array.isArray(r.quotes) ? r.quotes[0]?.count ?? 0 : 0,
       }));
 
       return {
@@ -165,8 +175,14 @@ export class ProcurementRfqService {
         .eq('id', requestId)
         .single();
       if (prError) throw prError;
+      // Already turned into quotations (approval does it automatically; a second
+      // tab or click may ask again): hand back the existing one instead of failing.
+      if (pr.status === 'converted') {
+        const existing = await this.findForRequest(requestId);
+        if (existing) return existing;
+      }
       if (!CONVERTIBLE_PR_STATUSES.includes(pr.status)) {
-        throw new Error(`This request is ${pr.status} and cannot become a quotation.`);
+        throw new Error(`This request is ${pr.status} and cannot get quotations.`);
       }
       if (!pr.items?.length) throw new Error('The request has no items to quote.');
 
@@ -214,6 +230,19 @@ export class ProcurementRfqService {
       console.error('[ProcurementRfqService] createFromApprovedPR:', error);
       throw error;
     }
+  }
+
+  /** The live (not cancelled) quotation raised from a request, newest first. */
+  static async findForRequest(requestId: string): Promise<ProcurementRfq | null> {
+    const { data, error } = await this.supabase
+      .from('procurement_rfqs')
+      .select('*')
+      .eq('source_request_id', requestId)
+      .neq('status', 'cancelled')
+      .order('created_at', { ascending: false })
+      .limit(1);
+    if (error) throw error;
+    return (data?.[0] as ProcurementRfq) ?? null;
   }
 
   /** Attach vendors to an RFQ (idempotent via UNIQUE(rfq_id, supplier_id)). */

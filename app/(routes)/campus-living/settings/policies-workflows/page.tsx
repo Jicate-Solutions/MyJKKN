@@ -122,7 +122,7 @@ export default function PoliciesWorkflowsConfigPage() {
                 description='Leave categories for hostelers — max duration, parent consent, warden approval flow and attachment requirements. System defaults are seeded per institution and cannot be deleted.'
                 action={
                   <Button asChild variant='outline'>
-                    <Link href='/learners/leave-onduty/settings?tab=types'>
+                    <Link href='/academic/leave-onduty/settings?tab=types'>
                       Manage leave types <ExternalLink className='h-4 w-4 ml-2' />
                     </Link>
                   </Button>
