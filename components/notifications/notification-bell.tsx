@@ -29,6 +29,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { NotificationItem } from './notification-item';
 import { collapseDuplicates } from '@/lib/notifications/collapse-duplicates';
+import { markReadBestEffort } from '@/lib/notifications/mark-read-best-effort';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -112,7 +113,13 @@ export function NotificationBell() {
     actionUrl?: string
   ) => {
     setOpen(false);
-    await markAsRead.mutateAsync(notificationId);
+    // Best-effort. Nothing awaits the promise an async onClick returns, so a
+    // failed write (offline phone, dropped connection, RLS) used to reject
+    // straight out of this handler as an unhandled rejection carrying the raw
+    // Supabase error object — and it ate the navigation below with it
+    // (Sentry NEXTJS-3N, culprit /dashboard). The row stays unread, which is
+    // what the server actually recorded.
+    await markReadBestEffort((id) => markAsRead.mutateAsync(id), notificationId);
     // Always navigate so a click never silently no-ops. Most notifications
     // carry an action_url; dashboard:* digests have historically shipped with
     // url=null, so the click would mark-as-read but go nowhere, making the
