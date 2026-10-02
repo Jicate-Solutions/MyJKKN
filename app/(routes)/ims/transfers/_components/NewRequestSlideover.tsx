@@ -364,7 +364,9 @@ export function NewRequestSlideover({
                 />
               </div>
 
-              {search && items.length > 0 && (
+              {/* The list shows before anything is typed; search only narrows it
+                  (BUG-005947). */}
+              {items.length > 0 && (
                 <div className="border rounded-lg max-h-40 overflow-y-auto divide-y">
                   {items.map((item) => {
                     const hasUnit = !!(item.indent_unit_id ?? item.base_unit_id);

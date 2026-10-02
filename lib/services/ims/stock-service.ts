@@ -175,6 +175,25 @@ export class ImsStockService {
         query = query.eq('institution_id', filters.institution_id);
       }
 
+      // Search by item name or batch number (BUG-005902). Server-side, because
+      // the list is paged. An embedded column cannot sit inside a parent or(),
+      // so matching item ids are looked up first.
+      const term = filters.search?.replace(/[,()*%\\"]/g, ' ').trim();
+      if (term) {
+        const { data: matchedItems } = await this.supabase
+          .from('ims_items')
+          .select('id')
+          .ilike('name', `%${term}%`)
+          .limit(500);
+        const itemIds = ((matchedItems ?? []) as Array<{ id: string }>).map((i) => i.id);
+        query = query.or(
+          [
+            `batch_number.ilike."*${term}*"`,
+            ...(itemIds.length > 0 ? [`item_id.in.(${itemIds.join(',')})`] : []),
+          ].join(',')
+        );
+      }
+
       if (filters.expiring_within_days) {
         const futureDate = new Date();
         futureDate.setDate(futureDate.getDate() + filters.expiring_within_days);
