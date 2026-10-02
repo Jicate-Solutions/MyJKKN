@@ -9,7 +9,7 @@ export function usePurchaseRequests(filters: PurchaseRequestFilters) {
   return useQuery({
     queryKey: ['procurement-purchase-requests', filters],
     queryFn: () => ProcurementPurchaseRequestService.getPurchaseRequests(filters),
-    enabled: !!(filters.store_id || filters.institution_id),
+    enabled: !!(filters.store_id || filters.institution_id || filters.all_institutions),
     staleTime: 2 * 60 * 1000,
   });
 }
