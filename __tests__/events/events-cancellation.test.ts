@@ -499,29 +499,16 @@ describe('migration 20261204113700 — the reason lives off the anon-readable ta
     );
   });
 
-  it('does not let its own stamp trigger eat the history it backfills', () => {
-    // trg_event_cancellation_stamp fires BEFORE INSERT unconditionally and
-    // overwrites cancelled_at with now() and cancelled_by with auth.uid() —
-    // NULL on a migration connection. Left enabled over the backfill it would
-    // replace the real who and when of every cancellation recorded under the old
-    // shape with "now, nobody", and the next statement drops the source columns,
-    // so the loss is irreversible. Disabling it for the copy keeps the trigger
-    // unconditional everywhere else, which is what stops a browser naming
-    // somebody else as the canceller.
-    expect(code).toMatch(/DISABLE TRIGGER trg_event_cancellation_stamp/i);
-    expect(code).toMatch(/ENABLE TRIGGER trg_event_cancellation_stamp/i);
-    // …and it proves the values survived before destroying the source.
-    expect(code).toMatch(/the backfill did not preserve cancelled_at/i);
-  });
-
-  it('builds the backfill dynamically, so a PARTIAL old shape does not half-apply', () => {
-    // Static SQL naming e.cancellation_reason cannot plan when that column is
-    // the missing one, and it would abort AFTER the table, policies and trigger
-    // were created — a half-applied migration no re-run can clear.
-    const backfill = code.slice(code.indexOf('$events_cancellation_drop_old$'));
-    expect(backfill).toMatch(/EXECUTE format\(/);
-    expect(backfill).toMatch(/NULL::timestamptz/);
-    expect(backfill).toMatch(/NULL::uuid/);
+  it('never copies or removes old columns unattended — it stops instead', () => {
+    // 29 Sep 2026 (BUG-006223): the block that copied the old cancellation
+    // columns across and then dropped them is gone. It was a no-op on production
+    // (no such columns on public.events) and its column drop is one the ship
+    // wave refuses to apply unattended. A database that DOES still carry the old
+    // columns must stop the migration with an error, so a person moves that data
+    // by hand, rather than lose it.
+    expect(code).not.toMatch(/DROP COLUMN/i);
+    expect(code).not.toMatch(/DISABLE TRIGGER trg_event_cancellation_stamp/i);
+    expect(code).toMatch(/public\.events still carries a cancellation column/i);
   });
 
   it('lets everyone who can WRITE a reason read it back', () => {
@@ -536,13 +523,12 @@ describe('migration 20261204113700 — the reason lives off the anon-readable ta
     expect(read).toMatch(/fn_is_event_incharge/);
   });
 
-  it('removes the old column-based shape instead of leaving it beside the new one', () => {
+  it('removes the old trigger shape and never CASCADEs a drop', () => {
     // A database that applied the earlier draft keeps the anon exposure unless
     // this file takes it away. The drop is guarded on dependent views and is
     // never CASCADEd — one of them serves an external site.
     expect(code).toMatch(/DROP TRIGGER\s+IF EXISTS trg_events_stamp_cancellation ON public\.events/i);
     expect(code).toMatch(/DROP FUNCTION IF EXISTS public\.fn_events_stamp_cancellation\(\)/i);
-    expect(code).toMatch(/DROP COLUMN IF EXISTS cancellation_reason/i);
     expect(code).toMatch(/FROM pg_depend/i);
     expect(code).not.toMatch(/DROP\s+(VIEW|COLUMN)[^;]*CASCADE/i);
   });
