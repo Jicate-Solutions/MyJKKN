@@ -2045,6 +2045,18 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    // Campus Walk — the FIXES board (/campus-walk/scoreboard/fixes), department
+    // totals only (D9). Director's ruling 2026-09-30: visible to every team
+    // member, so it has its own key rather than riding projects.view or the
+    // campus_walk.reporters.allowed_emails allow-list. Granted to every
+    // non-learner role by 20270701090100_campus_walk_fix_board_permission.sql.
+    name: 'Campus Walk',
+    key: 'campus_walk',
+    permissions: [
+      { key: 'campus_walk.fix_board.view', label: 'Campus Walk — see the fixes scoreboard (departments only)' }
+    ]
+  },
+  {
     // Permission keys mirror MENU_PERMISSIONS entries in lib/sidebarMenuLink.ts
     // for every /solutions/* route on production (jicate/main). Scope is
     // read/view today — write actions are guarded at the service layer.

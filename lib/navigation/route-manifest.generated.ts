@@ -3283,8 +3283,20 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "FileText",
     "children": [
       {
+        "path": "/campus-walk/check",
+        "label": "Check",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/campus-walk/fix",
         "label": "Fix",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/campus-walk/report-card",
+        "label": "Report Card",
         "iconName": "FileText",
         "children": []
       },
@@ -3318,6 +3330,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/campus-walk/spot-checks",
+        "label": "Spot Checks",
+        "iconName": "FileText",
+        "children": []
       }
     ]
   },
@@ -5295,6 +5313,24 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/instasolver/complaint",
         "label": "Complaint",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/instasolver/my-complaints",
+        "label": "My Complaints",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/instasolver/my-reports",
+        "label": "My Reports",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/instasolver/old-purchase-requests",
+        "label": "Old Purchase Requests",
         "iconName": "FileText",
         "children": []
       },
