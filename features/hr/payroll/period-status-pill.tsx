@@ -1,7 +1,7 @@
 /**
  * PeriodStatusPill — colored pill rendering a hr_payroll_periods.status value.
  *
- * Palette locked in spec specs/t4-3-pr3-payroll-ui-design-lock-2026-05-19.md (E2):
+ * Palette (no written spec; the colours live in STATUS_CLASSES below):
  *   draft               → slate    (gray)
  *   prepared            → blue
  *   cao_reviewed        → indigo

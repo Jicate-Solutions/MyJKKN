@@ -1,7 +1,7 @@
 /**
  * HR Payroll Module — TypeScript Types (T4.3 PR 2)
  *
- * Spec: specs/t4-payroll-design-lock-2026-05-15.md (20 decisions, lock 2026-05-15)
+ * No written spec; the schema lives in the two migrations below.
  * Migration (substrate): 20260628000000_t4_3_payroll_periods_approvals_payslips.sql
  * Migration (RPCs):      20260629000000_t4_3_pr2_payroll_rpcs.sql
  *
