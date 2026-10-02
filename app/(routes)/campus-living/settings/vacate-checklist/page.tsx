@@ -5,6 +5,7 @@
 // edits here never change a request already with the warden.
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent } from '@/components/ui/card';
@@ -137,10 +138,15 @@ export default function VacateChecklistSettingsPage() {
               list they were submitted with.
             </p>
           </div>
-          <Button onClick={openCreate}>
-            <Plus className='mr-2 h-4 w-4' />
-            Add item
-          </Button>
+          <div className='flex flex-col gap-2 sm:flex-row'>
+            <Button asChild variant='outline'>
+              <Link href='/campus-living/settings/damage-types'>Manage damage types</Link>
+            </Button>
+            <Button onClick={openCreate}>
+              <Plus className='mr-2 h-4 w-4' />
+              Add item
+            </Button>
+          </div>
         </div>
 
         {isLoading ? (
