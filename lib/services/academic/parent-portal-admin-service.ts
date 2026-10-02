@@ -35,7 +35,12 @@ export interface PPUsersResponse {
   institutions: PPInstitution[];
   users: PPUserRow[];
   institutionId: string | null;
+  /** profiles.is_super_admin for the viewer — only then is "Show password" offered. */
+  viewerIsSuperAdmin?: boolean;
 }
+
+/** One "Show password" answer: the saved starting password, or "Changed by parent". */
+export type PPShownPassword = { password: string } | { changedByParent: true };
 
 /** Cascading multi-select targeting shared by the forms. */
 export interface PPTarget {
@@ -190,6 +195,28 @@ export class ParentPortalAdminService {
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json.error || 'Failed to reset password');
+  }
+
+  /**
+   * Super admins only (Director ruling 2026-10-02). The server checks the flag,
+   * records the view, and returns the saved starting password or
+   * { changedByParent: true }. Throws the server's message on refusal.
+   */
+  static async showParentPassword(accountId: string): Promise<PPShownPassword> {
+    const res = await fetch(`${BASE}/users/show-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accountId }),
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+      password?: string;
+      changedByParent?: boolean;
+      error?: string;
+    };
+    if (!res.ok) throw new Error(json.error || 'Could not show the password');
+    if (json.changedByParent === true) return { changedByParent: true };
+    if (typeof json.password === 'string') return { password: json.password };
+    throw new Error('Could not show the password');
   }
 
   /** True once pp_parent_accounts.sessions_revoked_at exists (the parent kill switch). */

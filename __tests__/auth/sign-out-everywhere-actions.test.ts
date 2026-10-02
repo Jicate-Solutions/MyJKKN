@@ -20,12 +20,26 @@ const signOut = vi.fn();
 const rpc = vi.fn();
 const maybeSingle = vi.fn();
 const logActivity = vi.fn();
+// Service-role writes: the "An admin signed you out" notice (Director ruling 2 Oct 2026).
+const serviceInsert = vi.fn();
+const serviceTables: string[] = [];
 
 vi.mock('@/lib/supabase/server', () => ({
   createServerSupabaseClient: async () => ({
     auth: { getUser, signOut },
     rpc,
     from: () => ({ select: () => ({ eq: () => ({ maybeSingle }) }) }),
+  }),
+  createServiceRoleClient: () => ({
+    from: (table: string) => {
+      serviceTables.push(table);
+      return {
+        insert: async (row: unknown) => {
+          calls.push(`insert:${table}`);
+          return serviceInsert(row);
+        },
+      };
+    },
   }),
 }));
 
@@ -41,7 +55,9 @@ const THEM = '00000000-0000-4000-8000-0000000000b2';
 
 beforeEach(() => {
   calls.length = 0;
+  serviceTables.length = 0;
   vi.clearAllMocks();
+  serviceInsert.mockResolvedValue({ error: null });
   vi.spyOn(console, 'error').mockImplementation(() => {});
   getUser.mockResolvedValue({ data: { user: { id: ME, email: 'me@jkkn.ac.in' } }, error: null });
   signOut.mockImplementation(async (opts: unknown) => {
@@ -67,6 +83,9 @@ describe('signOutEverywhere (own account)', () => {
     expect(result).toEqual({ success: true });
     expect(signOut).toHaveBeenCalledWith({ scope: 'global' });
     expect(calls).toEqual(['logActivity', 'signOut:{"scope":"global"}']);
+    // A self sign-out leaves no "an admin signed you out" notice.
+    expect(serviceInsert).not.toHaveBeenCalled();
+    expect(serviceTables).toEqual([]);
     expect(logActivity.mock.calls[0][0]).toMatchObject({
       userId: ME,
       actionType: 'logout',
@@ -102,7 +121,14 @@ describe('revokeUserSessions (admin, someone else’s account)', () => {
     const result = await revokeUserSessions(THEM);
     expect(result).toEqual({ success: true, sessionsEnded: 3 });
     expect(rpc).toHaveBeenCalledWith('fn_revoke_user_sessions', { p_user_id: THEM });
-    expect(calls).toEqual(['rpc', 'logActivity']);
+    expect(calls).toEqual(['rpc', 'insert:sign_out_notices', 'logActivity']);
+    // The person sees "An admin signed you out of all devices on <date>." next time.
+    expect(serviceInsert).toHaveBeenCalledTimes(1);
+    expect(serviceInsert.mock.calls[0][0]).toMatchObject({
+      user_id: THEM,
+      parent_account_id: null,
+      signed_out_by: ME,
+    });
     expect(logActivity.mock.calls[0][0]).toMatchObject({
       userId: ME,
       actionType: 'revoke',
@@ -114,12 +140,20 @@ describe('revokeUserSessions (admin, someone else’s account)', () => {
     expect(signOut).not.toHaveBeenCalled();
   });
 
-  it('a person without the permission is refused with a message, and no activity row is written', async () => {
+  it('a person without the permission is refused with a message, and no activity row or notice is written', async () => {
     rpc.mockResolvedValue({ data: null, error: { code: '42501', message: 'not_allowed' } });
     const result = await revokeUserSessions(THEM);
     expect(result.success).toBe(false);
     if (result.success === false) expect(result.error).toMatch(/don't have access/);
     expect(logActivity).not.toHaveBeenCalled();
+    expect(serviceInsert).not.toHaveBeenCalled();
+  });
+
+  it('a notice that cannot be written does not turn the completed sign-out into a failure', async () => {
+    serviceInsert.mockResolvedValue({ error: { code: '42P01', message: 'relation does not exist' } });
+    const result = await revokeUserSessions(THEM);
+    expect(result).toEqual({ success: true, sessionsEnded: 3 });
+    expect(logActivity).toHaveBeenCalledTimes(1);
   });
 
   it('a key holder aiming at a super admin is told only a super admin can do that', async () => {

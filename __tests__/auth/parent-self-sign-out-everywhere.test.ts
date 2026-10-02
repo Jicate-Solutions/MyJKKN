@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
 const verifyParentSession = vi.fn();
+const insert = vi.fn();
 
 type Result = { data: unknown; error: { code?: string; message?: string } | null };
 const state: { probe: Result; update: Result; updates: Array<{ values: unknown; id: unknown }> } = {
@@ -23,6 +24,7 @@ vi.mock('@/lib/supabase/server', () => ({
   createServiceRoleClient: () => ({
     from: () => ({
       select: () => ({ limit: async () => state.probe }),
+      insert: (row: unknown) => insert(row),
       update: (values: unknown) => ({
         eq: (_c: string, id: unknown) => ({
           select: async () => {
@@ -71,6 +73,8 @@ describe('POST /api/parent/auth/sign-out-everywhere', () => {
     const cleared = res.headers.getSetCookie().join(';');
     expect(cleared).toMatch(/parent_session=;/);
     expect(cleared).toMatch(/pp_active_learner=;/);
+    // Signing YOURSELF out leaves no "an admin signed you out" notice.
+    expect(insert).not.toHaveBeenCalled();
   });
 
   it('a caller with no valid parent session is refused and nothing is written', async () => {

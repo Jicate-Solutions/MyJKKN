@@ -25,6 +25,7 @@ const state: {
   probe: Result;
   update: Result;
   updates: Array<{ table: string; values: Record<string, unknown>; id: unknown }>;
+  inserts: Array<{ table: string; row: Record<string, unknown> }>;
 } = {
   account: { data: null, error: null },
   learner: { data: null, error: null },
@@ -32,6 +33,7 @@ const state: {
   probe: { data: [], error: null },
   update: { data: null, error: null },
   updates: [],
+  inserts: [],
 };
 
 function fakeDb() {
@@ -50,6 +52,10 @@ function fakeDb() {
               },
             }),
           };
+        },
+        async insert(row: Record<string, unknown>) {
+          state.inserts.push({ table, row });
+          return { error: null };
         },
         update(values: Record<string, unknown>) {
           return {
@@ -103,6 +109,7 @@ beforeEach(() => {
   state.probe = { data: [], error: null };
   state.update = { data: [{ id: ACCOUNT }], error: null };
   state.updates = [];
+  state.inserts = [];
   requireParentUserDataAdmin.mockResolvedValue({ id: 'admin-1', isSuperAdmin: true });
   logActivity.mockResolvedValue(undefined);
 });
@@ -168,6 +175,28 @@ describe('POST /api/academic/parent-portal/users/sign-out-everywhere', () => {
     expect(row.institutionId).toBe(INST_A);
     expect(row.metadata.sessions_revoked_at).toBe(u.values.sessions_revoked_at);
     expect(row.metadata.requested_by).toBe('admin');
+
+    // Director ruling 2 Oct 2026: the parent sees "An admin signed you out of
+    // all devices on <date>." after their next sign-in.
+    expect(state.inserts).toEqual([
+      {
+        table: 'sign_out_notices',
+        row: {
+          user_id: null,
+          parent_account_id: ACCOUNT,
+          signed_out_by: 'admin-1',
+          signed_out_at: u.values.sessions_revoked_at,
+        },
+      },
+    ]);
+  });
+
+  it('writes no notice when the sign-out did not happen', async () => {
+    state.update = { data: [], error: null };
+    await POST(post({ accountId: ACCOUNT }));
+    requireParentUserDataAdmin.mockResolvedValue(null);
+    await POST(post({ accountId: ACCOUNT }));
+    expect(state.inserts).toHaveLength(0);
   });
 
   it('answers "not switched on yet" (409) while the column does not exist, and logs nothing', async () => {

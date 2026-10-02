@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { requireParentUserDataAdmin } from '@/lib/utils/parent-admin-auth';
+import { hasSuperAdminFlag } from '@/lib/auth/super-admin-flag';
 
 export const runtime = 'nodejs';
 
@@ -30,6 +31,10 @@ export async function GET(req: NextRequest) {
 
   const db = createServiceRoleClient();
   const url = new URL(req.url);
+  // Director ruling 2026-10-02: only a super admin (profiles.is_super_admin) gets
+  // the per-row "Show password" button. This flag only decides whether the
+  // button appears; the show-password route checks it again on every click.
+  const viewerIsSuperAdmin = await hasSuperAdminFlag(db, user.id);
   const csv = (k: string) => (url.searchParams.get(k) || '').split(',').map((s) => s.trim()).filter(Boolean);
   const programIds = csv('programIds');
   const sectionIds = csv('sectionIds');
@@ -56,7 +61,7 @@ export async function GET(req: NextRequest) {
   console.log('[PP users] isSuperAdmin=%s institutions=%d requested=%s resolved=%s',
     user.isSuperAdmin, institutions.length, requested, institutionId);
 
-  if (!institutionId) return NextResponse.json({ institutions, users: [], institutionId: null });
+  if (!institutionId) return NextResponse.json({ institutions, users: [], institutionId: null, viewerIsSuperAdmin });
 
   // Learners matching the targeting (institution + optional program/section/learner).
   let lq = db
@@ -71,13 +76,14 @@ export async function GET(req: NextRequest) {
   const { data: learners, error: lErr } = await lq;
   const lrnRows = learners ?? [];
   console.log('[PP users] learners=%d learnersError=%s', lrnRows.length, lErr?.message ?? 'none');
-  if (!lrnRows.length) return NextResponse.json({ institutions, users: [], institutionId });
+  if (!lrnRows.length) return NextResponse.json({ institutions, users: [], institutionId, viewerIsSuperAdmin });
   const lrnById = new Map(lrnRows.map((l) => [l.id as string, l]));
 
   // Resilient to the reset_password column not existing yet (migration not run):
   // try with it, fall back to without it. Only the yes/no isAdminReset flag is
-  // derived from it; the stored value itself is NEVER sent to the browser
-  // (removed 2 Oct 2026 pending the Director's decision on showing passwords).
+  // derived from it; the stored value itself is NEVER sent in this list (nor in
+  // the Excel export). A super admin sees one password at a time through
+  // POST ./show-password, which records every view (Director ruling 2 Oct 2026).
   const accIds = lrnRows.map((l) => l.id as string);
   const withCol = await db
     .from('pp_parent_accounts')
@@ -116,5 +122,5 @@ export async function GET(req: NextRequest) {
   console.log('[PP users] accountsError=%s accounts=%d → users=%d',
     withCol.error?.message ?? 'none', accounts.length, users.length);
 
-  return NextResponse.json({ institutions, users, institutionId });
+  return NextResponse.json({ institutions, users, institutionId, viewerIsSuperAdmin });
 }

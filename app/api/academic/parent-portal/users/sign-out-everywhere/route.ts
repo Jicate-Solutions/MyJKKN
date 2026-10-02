@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { requireParentUserDataAdmin } from '@/lib/utils/parent-admin-auth';
 import { logActivity } from '@/lib/utils/activity-logger';
+import { recordAdminSignOutNotice } from '@/lib/auth/sign-out-notices';
 import {
   parentSignOutEverywhereAvailable,
   revokeParentSessions,
@@ -102,6 +103,11 @@ export async function POST(req: NextRequest) {
     );
   }
   const revokedAt = revoked.revokedAt;
+
+  // Director ruling 2026-10-02: the parent sees "An admin signed you out of all
+  // devices on <date>." the next time they sign in (read by
+  // app/api/parent/sign-out-notice). Never fails the completed sign-out.
+  await recordAdminSignOutNotice(db, { parentAccountId: accountId }, user.id, revokedAt);
 
   const learnerName =
     [learnerRow?.first_name, learnerRow?.last_name].filter(Boolean).join(' ').trim() || null;

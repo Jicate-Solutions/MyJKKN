@@ -17,6 +17,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const listParentUsers = vi.fn();
 const parentSignOutAvailable = vi.fn();
 const signOutParentEverywhere = vi.fn();
+const showParentPassword = vi.fn();
+const writeFile = vi.fn();
+const jsonToSheet = vi.fn((rows: unknown) => ({ rows }));
 
 vi.mock("@/lib/services/academic/parent-portal-admin-service", () => ({
   ParentPortalAdminService: {
@@ -24,7 +27,16 @@ vi.mock("@/lib/services/academic/parent-portal-admin-service", () => ({
     parentSignOutAvailable: () => parentSignOutAvailable(),
     signOutParentEverywhere: (id: string) => signOutParentEverywhere(id),
     resetParentPassword: vi.fn(),
+    showParentPassword: (id: string) => showParentPassword(id),
   },
+}));
+vi.mock("xlsx", () => ({
+  utils: {
+    json_to_sheet: (rows: unknown) => jsonToSheet(rows),
+    book_new: () => ({}),
+    book_append_sheet: vi.fn(),
+  },
+  writeFile: (...a: unknown[]) => writeFile(...a),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -65,13 +77,38 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+function listAs(viewerIsSuperAdmin: boolean) {
+  listParentUsers.mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: {
+      institutions: [],
+      institutionId: "inst-a",
+      viewerIsSuperAdmin,
+      users: [
+        {
+          accountId: ACCOUNT,
+          learnerId: "l-1",
+          rollNumber: "24UBA001",
+          learnerName: "Kavya R",
+          fatherMobile: "9000000001",
+          motherMobile: "",
+          loginMobile: "9000000001",
+          isAdminReset: false,
+          isActive: true,
+        },
+      ],
+    },
+  });
+}
+
 describe("Parent User Data — the table", () => {
   it("lists the accounts the server returned (they live in the response .json)", async () => {
     render(<ParentUsersPanel target={TARGET} />);
     expect(await screen.findByText("Kavya R")).toBeInTheDocument();
   });
 
-  it("does NOT display any password — no Password column, no default value (pending the Director)", async () => {
+  it("has NO Password column and shows no stored value, even if a server sent one", async () => {
     // Even if an older server still sent a value, the screen must not show it.
     listParentUsers.mockResolvedValue({
       ok: true,
@@ -102,6 +139,62 @@ describe("Parent User Data — the table", () => {
     expect(screen.queryByText(/JKKN@100/)).not.toBeInTheDocument();
     // The Reset button still works.
     expect(screen.getByRole("button", { name: /reset/i })).toBeInTheDocument();
+    // Not a super admin (viewerIsSuperAdmin absent) → no Show button either.
+    expect(screen.queryByRole("button", { name: /show password/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("Parent User Data — Show password (super admins only, Director 2 Oct 2026)", () => {
+  it("an admin or principal who is not a super admin gets no Show button", async () => {
+    listAs(false);
+    render(<ParentUsersPanel target={TARGET} />);
+    await screen.findByText("Kavya R");
+    expect(screen.queryByRole("button", { name: /show password/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: /password/i })).not.toBeInTheDocument();
+  });
+
+  it("a super admin gets a per-row Show button that asks the server and shows the answer", async () => {
+    listAs(true);
+    showParentPassword.mockResolvedValue({ password: "JKKN@100" });
+    render(<ParentUsersPanel target={TARGET} />);
+    fireEvent.click(await screen.findByRole("button", { name: /show password/i }));
+    expect(await screen.findByText("JKKN@100")).toBeInTheDocument();
+    expect(showParentPassword).toHaveBeenCalledWith(ACCOUNT);
+    // Still no Password column.
+    expect(screen.queryByRole("columnheader", { name: /password/i })).not.toBeInTheDocument();
+    // Hide puts the button back.
+    fireEvent.click(screen.getByRole("button", { name: /hide password/i }));
+    expect(screen.queryByText("JKKN@100")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /show password/i })).toBeInTheDocument();
+  });
+
+  it("shows only \"Changed by parent\" when the parent changed their password", async () => {
+    listAs(true);
+    showParentPassword.mockResolvedValue({ changedByParent: true });
+    render(<ParentUsersPanel target={TARGET} />);
+    fireEvent.click(await screen.findByRole("button", { name: /show password/i }));
+    expect(await screen.findByText("Changed by parent")).toBeInTheDocument();
+  });
+
+  it("a refusal from the server is shown as a message, and no value appears", async () => {
+    listAs(true);
+    showParentPassword.mockRejectedValue(new Error("Only a super admin can see a parent's password."));
+    render(<ParentUsersPanel target={TARGET} />);
+    fireEvent.click(await screen.findByRole("button", { name: /show password/i }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Only a super admin can see a parent's password."));
+    expect(screen.getByRole("button", { name: /show password/i })).toBeInTheDocument();
+  });
+
+  it("a shown password never goes into the Excel export", async () => {
+    listAs(true);
+    showParentPassword.mockResolvedValue({ password: "Secret@123" });
+    render(<ParentUsersPanel target={TARGET} />);
+    fireEvent.click(await screen.findByRole("button", { name: /show password/i }));
+    await screen.findByText("Secret@123");
+    fireEvent.click(screen.getByRole("button", { name: /export excel/i }));
+    expect(writeFile).toHaveBeenCalledTimes(1);
+    const exported = JSON.stringify(jsonToSheet.mock.calls[0][0]);
+    expect(exported).not.toMatch(/Secret@123|password/i);
   });
 });
 

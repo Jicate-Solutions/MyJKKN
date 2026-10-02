@@ -88,6 +88,9 @@ import SettingsPage from '@/app/(parent-portal)/parent/(authed)/settings/page';
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Resolve with a result so the confirm dialog's follow-up does not read
+  // `undefined` after the test ends (an unhandled error that failed the run).
+  signOutEverywhere.mockResolvedValue({ success: false, error: 'stopped by the test' });
   parentAvailable.mockResolvedValue(true);
   parentSignOutEverywhere.mockResolvedValue({ ok: true });
   parentLogout.mockResolvedValue(undefined);

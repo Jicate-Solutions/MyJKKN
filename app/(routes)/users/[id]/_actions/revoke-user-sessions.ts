@@ -11,7 +11,8 @@
 // a message the screen can show (rule #27: refusals are shown, never a silent
 // redirect) and writes the activity record.
 
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { recordAdminSignOutNotice } from '@/lib/auth/sign-out-notices';
 import { logActivity } from '@/lib/utils/activity-logger';
 import { RESOURCE_TYPES } from '@/types/activity';
 
@@ -80,6 +81,13 @@ export async function revokeUserSessions(
   }
 
   const sessionsEnded = typeof data === 'number' ? data : Number(data ?? 0);
+
+  // Director ruling 2026-10-02: the person sees "An admin signed you out of all
+  // devices on <date>." the next time they sign in. Written with the service
+  // role (signed-in users have no INSERT rule on sign_out_notices) and only
+  // after the database function succeeded. A failed notice never turns the
+  // completed sign-out into a failure.
+  await recordAdminSignOutNotice(createServiceRoleClient(), { userId: targetUserId }, user.id);
 
   const { data: target } = await supabase
     .from('profiles')
