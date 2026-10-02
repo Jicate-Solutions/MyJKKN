@@ -27,10 +27,13 @@
 //      when that date falls on or after the meeting day and within 180 days.
 //   d. Each owner who is not the host gets ONE bell per note, never twice.
 //      The bell carries NOTHING from the note or its booking — no title, no
-//      date, no names — only a count and the link to their own list. An owner
-//      is found from Fireflies' attendee list, which grants no right to read
-//      the note (fn_can_view_meeting_note), so the note's title could reach a
-//      person the note is hidden from.
+//      date, no names, no booking id, and not the host as its sender — only a
+//      count and the link to their own list. An owner is found from Fireflies'
+//      attendee list, which grants no right to read the note or its booking
+//      (fn_can_view_meeting_note), so anything taken from either could reach a
+//      person they are hidden from. The sender is the system account (see
+//      systemAuthorId); if it cannot be read, or it is this meeting's host, no
+//      bell is sent — the follow-ups are still written.
 //   e. Follow-ups are written only onto the booking the note is linked to NOW
 //      (meeting_notes.booking_id, re-read here). A note a human unlinked gets
 //      nothing, whichever door asks.
@@ -44,9 +47,18 @@
 //      booking already holds any of those, the Fireflies follow-ups are NOT
 //      added, nobody is belled, and the note is stamped so this is not tried
 //      again. If that check cannot be read, nothing is written and the note
-//      is left unstamped for the next run. The drafter does the same in the
-//      other direction: it adds nothing to a booking that already has ANY
-//      follow-ups. Every row written here is marked source 'fireflies'.
+//      is left unstamped (see RETRIES below for who tries again, and when).
+//      The drafter does the same in the other direction: it adds nothing to a
+//      booking that already has ANY follow-ups. Every row written here is
+//      marked source 'fireflies'.
+//
+// RETRIES. A note left unstamped — the AI-draft check could not be read, the
+// insert failed, or the booking has no host — is NOT retried by this file.
+// Only the ingest tick calls it again, and the tick re-reads only the 25
+// newest Fireflies transcripts (no ?skip=), so a note is retried only while it
+// is among those 25. The hand-link door calls it once, at the moment of the
+// link: a hand-linked note older than the 25 newest stays without follow-ups
+// until someone unlinks it and links it again.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -425,7 +437,9 @@ export interface ApplyNoteOptions {
  *  - 'skipped_ai_draft_exists'  STAMPED, nothing added: the booking already holds
  *                               follow-ups the AI drafter wrote (point g)
  *  - 'ai_draft_check_failed'    NOT stamped, nothing added: could not read whether
- *                               it does; the next run tries again
+ *                               it does; only a later ingest tick tries again,
+ *                               and only while the note is among the 25 newest
+ *                               transcripts (RETRIES, top of this file)
  *  - 'applied'                  STAMPED
  *  - 'not_stamped'              the insert failed, the booking has no host, or the
  *                               note is not summarised yet and produced nothing
@@ -468,8 +482,11 @@ const AI_DRAFT_SOURCE = 'ai_draft';
  *
  * Nothing here can fail the caller. A note that is stored but whose follow-ups
  * could not be applied is a smaller problem than a transcript we did not keep,
- * and the stamp is only written when the work actually succeeded, so the next
- * run retries it.
+ * and the stamp is only written when the work actually succeeded. That leaves
+ * the note open to a retry, but only the ingest tick retries, and only while
+ * the note is among the 25 newest transcripts; on the hand-link door an older
+ * note stays without follow-ups until someone unlinks and relinks it (RETRIES,
+ * top of this file).
  */
 export async function applyNoteToBooking(
   supabase: SupabaseClient,
@@ -661,7 +678,7 @@ export async function applyNoteToBooking(
 
   // ── tell each owner, once ─────────────────────────────────────────────────
   if (inserted.length > 0 && hostProfileId) {
-    await notifyOwners(supabase, noteId, bookingId, hostProfileId, inserted);
+    await notifyOwners(supabase, noteId, hostProfileId, inserted);
   }
 
   // A note Fireflies has not summarised yet, and that produced nothing, is NOT
@@ -685,12 +702,24 @@ export async function applyNoteToBooking(
  * One in-app bell per owner, per note — never to the host, who already sees
  * every follow-up on their own meeting.
  *
- * The wording is the SAME for every owner and carries nothing from the note or
- * its booking: no title, no date, no names. Owners come from Fireflies'
- * attendee list, and being on that list does not let a person read the note
- * (meeting_notes_select: admins, plus fn_can_view_meeting_note — the host,
- * the co-hosts and the booking's own attendee). A title such as "Interview X -
- * not selected" in the bell would tell them what the note hides.
+ * The bell is the SAME for every owner and carries nothing from the note or
+ * its booking: no title, no date, no names, no booking id, and not the host as
+ * its sender. Owners come from Fireflies' attendee list, and being on that
+ * list does not let a person read the note or its booking
+ * (meeting_notes_select: admins, plus fn_can_view_meeting_note — the host, the
+ * co-hosts and the booking's own attendee). The recipient can read their own
+ * notifications row (notifications_select_own) and any profile's full_name
+ * (profiles_select_policy), so whatever the row holds, they can follow:
+ *   - a title such as "Interview X - not selected" would tell them what the
+ *     note hides;
+ *   - created_by = the host, plus the booking id, would tell them who hosts a
+ *     meeting they cannot see. The sender is therefore the system account
+ *     (systemAuthorId), the same on every one of these bells, and metadata
+ *     holds only the count.
+ * No bell is sent when the system account cannot be read, or when it is this
+ * meeting's own host (created_by would then name the host after all). The
+ * follow-ups are written either way; the bell is the part that is dropped,
+ * never the part that falls back to the host.
  *
  * The idempotency key is enforced by the notifications table's own unique
  * index (fanoutNotification checks it first and treats a racing duplicate as
@@ -700,7 +729,6 @@ export async function applyNoteToBooking(
 async function notifyOwners(
   supabase: SupabaseClient,
   noteId: string,
-  bookingId: string,
   hostProfileId: string,
   items: Array<{ owner_profile_id: string | null }>,
 ): Promise<void> {
@@ -710,12 +738,22 @@ async function notifyOwners(
     if (!owner || owner === hostProfileId) continue;
     counts.set(owner, (counts.get(owner) ?? 0) + 1);
   }
+  if (counts.size === 0) return;
+
+  const sender = await systemAuthorId(supabase, noteId);
+  if (!sender) return;
+  if (sender === hostProfileId) {
+    logger.warn(MODULE, 'The system account hosts this meeting, so no follow-up bells were sent', {
+      noteId,
+    });
+    return;
+  }
 
   for (const [ownerId, count] of counts) {
     try {
       await fanoutNotification(supabase, {
         userIds: [ownerId],
-        createdBy: hostProfileId,
+        createdBy: sender,
         title: count === 1 ? 'New follow-up for you' : 'New follow-ups for you',
         body:
           count === 1
@@ -726,7 +764,7 @@ async function notifyOwners(
         priority: 'high',
         category: BELL_CATEGORY,
         source: MODULE,
-        metadata: { note_id: noteId, booking_id: bookingId, item_count: count },
+        metadata: { item_count: count },
         idempotencyKey: `meetings:note-followup-owner:${noteId}:${ownerId}`,
       });
     } catch (error) {
@@ -736,4 +774,32 @@ async function notifyOwners(
       });
     }
   }
+}
+
+/**
+ * notifications.created_by (NOT NULL) for a bell the machine sends: the
+ * earliest super admin, read exactly as
+ * app/api/cron/learner-risk-notifications/route.ts reads its "stable system
+ * author" (lib/services/_shared/notifications/notify.ts, createdBy). Null when
+ * the read fails or finds nobody — the caller then sends no bell. It never
+ * falls back to anyone else: not the host, and not the recipient (which is
+ * what fanoutNotification would use if createdBy were left out).
+ */
+async function systemAuthorId(supabase: SupabaseClient, noteId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('is_super_admin', true)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const id = (data as { id: string } | null)?.id ?? null;
+  if (error || !id) {
+    logger.warn(MODULE, 'Could not read the system account, so no follow-up bells were sent', {
+      noteId,
+      error: error?.message ?? 'no super admin found',
+    });
+    return null;
+  }
+  return id;
 }

@@ -8,7 +8,8 @@
 // from explicit calendar dates inside the meeting's window, follow-ups land only
 // on the booking the note is linked to NOW, the HR interview record is filled
 // only through the calendar match, the hand-link applies once, and owners
-// (never the host) get one bell each.
+// (never the host) get one bell each — signed by the system account, never by
+// the host, and naming no booking.
 //
 // All fixtures are invented; no real meeting content and no real names. The
 // two name shapes in section 2 mirror the live mismatches the review measured.
@@ -24,18 +25,28 @@ import type { FirefliesTranscript } from '@/lib/services/meetings/fireflies-clie
 const bell = vi.hoisted(() => ({
   calls: [] as Array<Record<string, unknown>>,
   keys: new Set<string>(),
+  // true → also run the REAL fanoutNotification against the fake database, so
+  // a test can read the notifications row itself (created_by, metadata).
+  real: false,
 }));
 
-vi.mock('@/lib/services/_shared/notifications/notify', () => ({
-  fanoutNotification: vi.fn(async (_db: unknown, opts: Record<string, unknown>) => {
-    const key = opts.idempotencyKey as string | undefined;
-    // the DB's unique index on notifications.idempotency_key
-    if (key && bell.keys.has(key)) return { notified: 0, skipped: 'idempotent' };
-    if (key) bell.keys.add(key);
-    bell.calls.push(opts);
-    return { notified: (opts.userIds as string[]).length, notificationId: `notif-${bell.calls.length}` };
-  }),
-}));
+vi.mock('@/lib/services/_shared/notifications/notify', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/services/_shared/notifications/notify')>();
+  return {
+    fanoutNotification: vi.fn(async (db: unknown, opts: Record<string, unknown>) => {
+      if (bell.real) {
+        bell.calls.push(opts);
+        return actual.fanoutNotification(db as never, opts as never);
+      }
+      const key = opts.idempotencyKey as string | undefined;
+      // the DB's unique index on notifications.idempotency_key
+      if (key && bell.keys.has(key)) return { notified: 0, skipped: 'idempotent' };
+      if (key) bell.keys.add(key);
+      bell.calls.push(opts);
+      return { notified: (opts.userIds as string[]).length, notificationId: `notif-${bell.calls.length}` };
+    }),
+  };
+});
 
 vi.mock('@/lib/utils/enhanced-logger', () => ({
   logger: { warn: vi.fn(), error: vi.fn(), dev: vi.fn(), info: vi.fn() },
@@ -67,14 +78,26 @@ type Db = Record<string, Row[]>;
 let insertSeq = 0;
 
 // `failReads` lists tables whose SELECTs come back as an error, the way a
-// timeout or a dropped connection would.
+// timeout or a dropped connection would. "table.column" fails only the reads
+// that filter on that column (e.g. 'profiles.is_super_admin' fails the
+// system-account lookup and no other profiles read).
 function fakeClient(db: Db, failReads: string[] = []) {
   function builder(table: string) {
     const filters: Array<(r: Row) => boolean> = [];
+    const sorts: Array<[string, boolean]> = [];
+    const eqColumns: string[] = [];
+    const failing = () =>
+      failReads.includes(table) || eqColumns.some((c) => failReads.includes(`${table}.${c}`));
     let mode: 'select' | 'update' | 'insert' = 'select';
     let patch: Row = {};
     let inserted: Row[] = [];
-    const rows = () => (db[table] ??= []).filter((r) => filters.every((f) => f(r)));
+    const rows = () => {
+      const out = (db[table] ??= []).filter((r) => filters.every((f) => f(r)));
+      for (const [c, asc] of [...sorts].reverse()) {
+        out.sort((x, y) => String(x[c] ?? '').localeCompare(String(y[c] ?? '')) * (asc ? 1 : -1));
+      }
+      return out;
+    };
     const run = () => {
       if (mode === 'insert') {
         for (const r of inserted) if (r.id === undefined) r.id = `${table}-${++insertSeq}`;
@@ -85,11 +108,11 @@ function fakeClient(db: Db, failReads: string[] = []) {
         for (const r of rows()) Object.assign(r, patch);
         return { data: null, error: null };
       }
-      if (failReads.includes(table)) return { data: null, error: { message: 'read timed out' } };
+      if (failing()) return { data: null, error: { message: 'read timed out' } };
       return { data: rows(), error: null };
     };
     const one = async () => {
-      if (mode === 'select' && failReads.includes(table)) {
+      if (mode === 'select' && failing()) {
         return { data: null, error: { message: 'read timed out' } };
       }
       if (mode === 'select') return { data: rows()[0] ?? null, error: null };
@@ -98,8 +121,9 @@ function fakeClient(db: Db, failReads: string[] = []) {
     };
     const b = {
       select: () => b,
-      eq: (c: string, v: unknown) => (filters.push((r) => r[c] === v), b),
+      eq: (c: string, v: unknown) => (eqColumns.push(c), filters.push((r) => r[c] === v), b),
       in: (c: string, v: unknown[]) => (filters.push((r) => v.includes(r[c])), b),
+      order: (c: string, o?: { ascending?: boolean }) => (sorts.push([c, o?.ascending !== false]), b),
       limit: () => b,
       insert: (r: Row | Row[]) => ((mode = 'insert'), (inserted = Array.isArray(r) ? r : [r]), b),
       update: (p: Row) => ((mode = 'update'), (patch = p), b),
@@ -117,6 +141,9 @@ function fakeClient(db: Db, failReads: string[] = []) {
 const HOST = 'p-host';
 const ATTENDEE = 'p-attendee';
 const OTHER = 'p-other';
+// The system account a machine-sent bell is signed with (the earliest super
+// admin — app/api/cron/learner-risk-notifications/route.ts).
+const SYSTEM = 'p-system';
 
 function baseDb(overrides: Partial<Db> = {}): Db {
   return {
@@ -126,6 +153,13 @@ function baseDb(overrides: Partial<Db> = {}): Db {
       { id: HOST, email: 'host@example.test', full_name: 'Aravind Kumaran' },
       { id: ATTENDEE, email: 'visitor@example.test', full_name: 'Prof. Dr. Selvi Rajendran' },
       { id: OTHER, email: 'other@example.test', full_name: 'Bharathi Natarajan' },
+      {
+        id: SYSTEM,
+        email: 'system@example.test',
+        full_name: 'Campus Office',
+        is_super_admin: true,
+        created_at: '2024-01-01T00:00:00Z',
+      },
     ],
     meeting_action_items: [],
     meeting_note_participants: [],
@@ -153,6 +187,7 @@ function blankInterview(bookingId: string, id = `i-${bookingId}`): Row {
 beforeEach(() => {
   bell.calls.length = 0;
   bell.keys.clear();
+  bell.real = false;
 });
 
 // ── 1. parser parity with the code that used to live in the route ───────────
@@ -463,13 +498,13 @@ describe('applyNoteToBooking', () => {
     expect(bell.calls).toHaveLength(1);
     expect(bell.calls[0]).toMatchObject({
       userIds: [ATTENDEE],
-      createdBy: HOST,
+      createdBy: SYSTEM,
       url: '/meetings/action-items',
       category: 'meetings:note-followup-owner',
       priority: 'high',
       idempotencyKey: `meetings:note-followup-owner:n1:${ATTENDEE}`,
-      metadata: { note_id: 'n1', booking_id: 'b1', item_count: 2 },
     });
+    expect(bell.calls[0].metadata).toEqual({ item_count: 2 });
 
     // A second pass that got past the stamp (e.g. a retried run) cannot bell twice.
     db.meeting_notes[0].action_items_applied_at = null;
@@ -561,6 +596,120 @@ describe('applyNoteToBooking', () => {
     );
     expect(db.meeting_action_items).toHaveLength(2);
     expect(bell.calls).toHaveLength(0);
+  });
+
+  // Round 5. The recipient can SELECT their own notifications row and any
+  // profile's full_name. created_by = the host plus a booking id in metadata
+  // would tell an owner found only on Fireflies' attendee list who hosts a
+  // meeting they cannot see. These read the row the REAL notifier writes.
+  describe('the bell row names neither the host nor the booking (round 5)', () => {
+    const mixed = '**Selvi**\nFirst task\nSecond task\n**Bharathi**\nThird task\n**Aravind**\nHost task';
+    const participantOnly = [{ email: 'other@example.test', displayName: 'Bharathi N' }];
+
+    it('no owner’s notifications row carries the host id anywhere, nor the booking id', async () => {
+      bell.real = true;
+      const db = baseDb();
+      await applyNoteToBooking(
+        fakeClient(db),
+        'n1',
+        'b1',
+        input({ actionItemsRaw: mixed, participants: participantOnly }),
+      );
+
+      const rows = db.notifications ?? [];
+      const recipient = (r: Row) => (r.targeting as { user_ids: string[] }).user_ids[0];
+      // the booking's attendee and an owner found only on the attendee list
+      expect(rows.map(recipient).sort()).toEqual([ATTENDEE, OTHER].sort());
+      for (const row of rows) {
+        expect(row.created_by).toBe(SYSTEM);
+        expect(JSON.stringify(row)).not.toContain(HOST);
+        expect(JSON.stringify(row)).not.toContain('"b1"');
+        expect(JSON.stringify(row)).not.toMatch(/booking/i);
+      }
+      expect(rows.find((r) => recipient(r) === OTHER)?.metadata).toEqual({
+        source: 'meetings/note-followups',
+        item_count: 1,
+      });
+      expect(rows.find((r) => recipient(r) === ATTENDEE)?.metadata).toEqual({
+        source: 'meetings/note-followups',
+        item_count: 2,
+      });
+    });
+
+    it('is signed by the system account: the EARLIEST super admin, as the cron alerts are', async () => {
+      const db = baseDb();
+      db.profiles = [
+        ...db.profiles.filter((p) => p.id !== SYSTEM),
+        {
+          id: 'p-later-admin',
+          email: 'later@example.test',
+          full_name: 'Later Admin',
+          is_super_admin: true,
+          created_at: '2025-06-01T00:00:00Z',
+        },
+        {
+          id: SYSTEM,
+          email: 'system@example.test',
+          full_name: 'Campus Office',
+          is_super_admin: true,
+          created_at: '2024-01-01T00:00:00Z',
+        },
+      ];
+      await applyNoteToBooking(
+        fakeClient(db),
+        'n1',
+        'b1',
+        input({ actionItemsRaw: mixed, participants: participantOnly }),
+      );
+      expect(bell.calls).toHaveLength(2);
+      expect(bell.calls.map((c) => c.createdBy)).toEqual([SYSTEM, SYSTEM]);
+    });
+
+    it('when the system account cannot be read: no bell, the follow-ups are still written and stamped', async () => {
+      const db = baseDb();
+      const outcome = await applyNoteToBooking(
+        fakeClient(db, ['profiles.is_super_admin']),
+        'n1',
+        'b1',
+        input({ actionItemsRaw: mixed, participants: participantOnly }),
+      );
+      expect(bell.calls).toHaveLength(0);
+      expect(db.meeting_action_items).toHaveLength(4);
+      // the owners were still resolved (the other profiles reads did not fail)
+      expect(db.meeting_action_items.map((i) => i.owner_profile_id)).toEqual([ATTENDEE, ATTENDEE, OTHER, HOST]);
+      expect(outcome).toBe('applied');
+      expect(db.meeting_notes[0].action_items_applied_at).not.toBeNull();
+    });
+
+    it('when there is no system account at all: no bell, never the host or the recipient instead', async () => {
+      const db = baseDb();
+      db.profiles = db.profiles.filter((p) => p.id !== SYSTEM);
+      const outcome = await applyNoteToBooking(
+        fakeClient(db),
+        'n1',
+        'b1',
+        input({ actionItemsRaw: mixed, participants: participantOnly }),
+      );
+      expect(bell.calls).toHaveLength(0);
+      expect(db.meeting_action_items).toHaveLength(4);
+      expect(outcome).toBe('applied');
+    });
+
+    it('when the system account IS this meeting’s host: no bell, so created_by never names the host', async () => {
+      const db = baseDb();
+      db.profiles = db.profiles.map((p) =>
+        p.id === HOST ? { ...p, is_super_admin: true, created_at: '2023-01-01T00:00:00Z' } : p,
+      );
+      const outcome = await applyNoteToBooking(
+        fakeClient(db),
+        'n1',
+        'b1',
+        input({ actionItemsRaw: mixed, participants: participantOnly }),
+      );
+      expect(bell.calls).toHaveLength(0);
+      expect(db.meeting_action_items).toHaveLength(4);
+      expect(outcome).toBe('applied');
+    });
   });
 
   it('rings the bell through the shared notifier, not the meeting trigger service', () => {
