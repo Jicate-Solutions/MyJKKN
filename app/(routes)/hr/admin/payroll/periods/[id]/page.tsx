@@ -17,7 +17,7 @@
 
 import { use, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, CalendarX } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -146,7 +146,21 @@ function PayrollPeriodDetailContent({ id }: { id: string }) {
           </div>
         </div>
 
-        <PeriodActionButtons period={period} />
+        <div className="flex flex-wrap items-center gap-2">
+          {/*
+            The absence check, reachable BEFORE payslips exist.
+            Payroll pays for the days the closed attendance month pays for, so
+            the effect of absence has to be checkable before anybody presses
+            generate — not discovered on a payslip afterwards.
+          */}
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/hr/admin/payroll/periods/${id}/lop-preview`}>
+              <CalendarX className="mr-1 h-4 w-4" />
+              Check absence &amp; pay effect
+            </Link>
+          </Button>
+          <PeriodActionButtons period={period} />
+        </div>
       </div>
 
       {/* Stepper */}
