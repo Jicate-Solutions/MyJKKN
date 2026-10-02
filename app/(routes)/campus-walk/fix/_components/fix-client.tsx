@@ -9,12 +9,12 @@
  *
  *   · Two photos side by side and almost no words. The proof IS the screen.
  *   · Buttons are thumb-sized and say what happens, not what they do
- *     ("Send for approval", not "Submit").
+ *     ("Send photo and close the job", not "Submit").
  *   · The ticket says "Management walk" and never a person's name (D10). A named
  *     observer turns a maintenance job into being watched.
- *   · "Sent for approval" is stated plainly, because it is TRUE — a fix photo
- *     alone does not close the ticket (D4). Pretending otherwise would be the
- *     one thing that destroys trust in the whole loop.
+ *   · The photo closes the job (Director's ruling, 2026-09-30, superseding D4).
+ *     The screen says so plainly — and says that the person who reported it
+ *     can still mark it "Not fixed", because that is also true.
  *   · "I can't fix this yet" is a first-class button, not a hidden escape hatch
  *     (D8). A cleaner with no supplies budget is not a slow cleaner, and the
  *     deadline visibly stops when they say so.
@@ -82,6 +82,10 @@ export interface FixTicket {
     approvalState: ApprovalState | null;
     approvalNote: string | null;
     decidedAt: string | null;
+    /** Closed by the fixer's own photo rather than a manager's approval. */
+    autoClosed: boolean;
+    /** Reopened by the person who reported it ("Not fixed"). */
+    reopenedByReporter: boolean;
   } | null;
   blocked: {
     at: string | null;
@@ -172,6 +176,10 @@ export function FixClient({ ticket }: FixClientProps) {
   // Optimistic view of the two things a send changes, so the screen answers
   // instantly on a slow campus connection while router.refresh() catches up.
   const [submittedNow, setSubmittedNow] = useState(false);
+  // True when the send just closed the job (the normal case since 2026-09-30).
+  // False after a send means the photo was saved but the close step failed, so
+  // the job is waiting for a manager instead.
+  const [closedNow, setClosedNow] = useState(false);
   const [blockedNow, setBlockedNow] = useState<null | boolean>(null);
 
   useEffect(() => {
@@ -192,7 +200,9 @@ export function FixClient({ ticket }: FixClientProps) {
   }, [photo]);
 
   const approvalState: ApprovalState | null = submittedNow
-    ? 'awaiting_approval'
+    ? closedNow
+      ? 'approved'
+      : 'awaiting_approval'
     : (ticket.fix?.approvalState ?? null);
 
   const isBlocked = blockedNow === null ? ticket.isBlocked : blockedNow;
@@ -258,6 +268,7 @@ export function FixClient({ ticket }: FixClientProps) {
 
       if (res.ok && json?.ok) {
         setSubmittedNow(true);
+        setClosedNow(json.closed === true);
         setBlockedNow(false);
         setPhoto(null);
         setPreview((prev) => {
@@ -265,8 +276,12 @@ export function FixClient({ ticket }: FixClientProps) {
           return null;
         });
         toast({
-          title: 'Sent for approval',
-          description: json.message ?? 'A manager will check the photo before the job is closed.',
+          title: json.closed === true ? 'Done — the job is closed' : 'Photo saved',
+          description:
+            json.message ??
+            (json.closed === true
+              ? 'Thank you. The person who reported it has been told.'
+              : 'A manager will check the photo and close the job.'),
         });
         router.refresh();
         return;
@@ -477,11 +492,13 @@ export function FixClient({ ticket }: FixClientProps) {
           <CardContent className="flex items-start gap-3 pt-6">
             <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-green-700" />
             <div>
-              <p className="font-medium text-green-900">Approved and closed</p>
+              <p className="font-medium text-green-900">Done — the job is closed</p>
               <p className="text-sm text-green-900/80">
-                {ticket.fix?.decidedAt
-                  ? `Signed off on ${formatMoment(ticket.fix.decidedAt)}.`
-                  : 'This job has been signed off.'}
+                {closedNow
+                  ? 'Your photo closed it. The person who reported it has been told.'
+                  : ticket.fix?.decidedAt
+                    ? `${ticket.fix.autoClosed ? 'Closed by your photo' : 'Signed off'} on ${formatMoment(ticket.fix.decidedAt)}.`
+                    : 'This job has been closed.'}
               </p>
               {ticket.fix?.approvalNote && (
                 <p className="mt-1 text-sm text-green-900/80">“{ticket.fix.approvalNote}”</p>
@@ -519,7 +536,11 @@ export function FixClient({ ticket }: FixClientProps) {
           <CardContent className="flex items-start gap-3 pt-6">
             <RotateCcw className="mt-0.5 h-5 w-5 shrink-0 text-red-700" />
             <div>
-              <p className="font-medium text-red-900">Sent back — more work needed</p>
+              <p className="font-medium text-red-900">
+                {ticket.fix?.reopenedByReporter
+                  ? 'Reported not fixed — please take another look'
+                  : 'Sent back — more work needed'}
+              </p>
               {ticket.fix?.approvalNote ? (
                 <p className="text-sm text-red-900/80">“{ticket.fix.approvalNote}”</p>
               ) : (
@@ -634,12 +655,13 @@ export function FixClient({ ticket }: FixClientProps) {
               ) : (
                 <Send className="mr-2 h-5 w-5" />
               )}
-              {sending ? 'Sending…' : 'Send for approval'}
+              {sending ? 'Sending…' : 'Send photo and close the job'}
             </Button>
 
-            {/* D4, stated plainly. The fixer must never think this closed the job. */}
+            {/* Director's ruling, 2026-09-30: the photo closes the job. Said
+                plainly, with the one thing that can still reopen it. */}
             <p className="text-center text-xs text-muted-foreground">
-              This does not close the job yet. A manager checks the photo first.
+              Your photo closes the job. The person who reported it can still mark it “Not fixed”.
             </p>
           </CardContent>
         </Card>

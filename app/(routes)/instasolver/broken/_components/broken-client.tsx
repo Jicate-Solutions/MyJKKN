@@ -19,6 +19,7 @@
 //     dialog, because the audience is everyone, not one trained walker
 
 import { useCallback, useRef, useState } from 'react';
+import Link from 'next/link';
 import {
   AlertCircle,
   Camera,
@@ -246,6 +247,10 @@ export function BrokenClient() {
             )}
           </CardContent>
         </Card>
+
+        <Button asChild className="w-full h-12">
+          <Link href="/instasolver/my-reports">See my reports</Link>
+        </Button>
 
         <Button className="w-full h-12" variant="outline" onClick={resetForm}>
           Report another
