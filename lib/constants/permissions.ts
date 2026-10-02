@@ -2039,6 +2039,18 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    // Campus Walk — the FIXES board (/campus-walk/scoreboard/fixes), department
+    // totals only (D9). Director's ruling 2026-09-30: visible to every team
+    // member, so it has its own key rather than riding projects.view or the
+    // campus_walk.reporters.allowed_emails allow-list. Granted to every
+    // non-learner role by 20270701090100_campus_walk_fix_board_permission.sql.
+    name: 'Campus Walk',
+    key: 'campus_walk',
+    permissions: [
+      { key: 'campus_walk.fix_board.view', label: 'Campus Walk — see the fixes scoreboard (departments only)' }
+    ]
+  },
+  {
     // Permission keys mirror MENU_PERMISSIONS entries in lib/sidebarMenuLink.ts
     // for every /solutions/* route on production (jicate/main). Scope is
     // read/view today — write actions are guarded at the service layer.
@@ -2227,6 +2239,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.vacate_requests.finalize', label: 'Finalize Vacate (retired stage)' },
       { key: 'campus_living.vacate_requests.cancel', label: 'Cancel Vacate Request (Admin / Hostel Office)' },
       { key: 'campus_living.vacate_checklist.manage', label: 'Manage Vacate Checklist Items (settings)' },
+      // 2026-10-01: chain is now bills (auto) -> principal -> warden (checklist + room damage) -> mess -> CAO -> [fine paid] -> vacated.
+      { key: 'campus_living.vacate_requests.approve_principal', label: 'Principal Approve / Reject Vacate Request' },
+      { key: 'campus_living.vacate_requests.approve_mess', label: 'Mess In-charge Clearance Approve / Reject Vacate Request' },
+      { key: 'campus_living.vacate_requests.approve_cao', label: 'CAO Final Approve / Reject Vacate Request (raises the damage fine)' },
+      { key: 'campus_living.damage_types.manage', label: 'Manage Hostel Damage Types (settings)' },
 
       // Wardens
       { key: 'campus_living.wardens.view', label: 'View Wardens' },

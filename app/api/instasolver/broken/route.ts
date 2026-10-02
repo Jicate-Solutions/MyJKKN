@@ -82,8 +82,11 @@ import {
 } from '@/lib/services/pde/jpeg-metadata';
 import {
   createWalkTask,
+  mapStaffToProfilesLocal,
   type CreateWalkTaskInput,
 } from '@/lib/services/campus-walk/campus-walk-service';
+import { findJoinableReport, joinOpenReport } from '@/lib/campus-walk/join-report';
+import { isInstaSolverTrade } from '@/lib/instasolver/ai-fill';
 
 const BUCKET = 'campus-walk';
 const MAX_BYTES = 10 * 1024 * 1024; // matches the bucket's file_size_limit (10 MB)
@@ -91,8 +94,10 @@ const MIN_BYTES = 1024; // below this it is not a real photograph
 
 const LOCATION_MIN = 3;
 const LOCATION_MAX = 120;
-const DESCRIPTION_MIN = 10;
+const DESCRIPTION_MIN = 3;
 const DESCRIPTION_MAX = 500;
+/** Matches the ai-fill route's input ceiling. */
+const REPORTER_WORDS_MAX = 1000;
 
 /**
  * Abuse control. The Director-only D2 gate is what keeps the Campus Walk photo
@@ -274,9 +279,37 @@ export async function POST(request: NextRequest) {
   // action, 2 days. `system_gap` is deliberately never produced here: that
   // kind is for an audit finding ("there is no cleaning SOP"), which is not
   // what this form asks for.
-  const dangerous = ['true', '1', 'on', 'yes'].includes(
-    String(form.get('dangerous') ?? '').trim().toLowerCase()
+  //
+  // `urgency` arrives from the "Fill it for me" form (30 Sep 2026). It is sent
+  // from the checkbox's CURRENT state, never from the AI's reply, so a person
+  // who unticks an AI-suggested "dangerous" sends `normal`. Either signal is
+  // enough to mark the report dangerous; neither can clear the other.
+  const dangerous =
+    ['true', '1', 'on', 'yes'].includes(
+      String(form.get('dangerous') ?? '').trim().toLowerCase()
+    ) || String(form.get('urgency') ?? '').trim().toLowerCase() === 'dangerous';
+
+  // ── Optional "Fill it for me" fields (Director, 30 Sep 2026) ──────────────
+  // The trade is stored, not routed: every report from this door already goes
+  // to the EAO (no owner is supplied, so routeAccountable falls through to
+  // them). An unknown trade is dropped rather than refused — losing a report
+  // over a label is the worse outcome. `needs_sorting` is set when the person
+  // skipped the AI's one question: the EAO sorts it by hand.
+  const tradeRaw = String(form.get('trade') ?? '').trim();
+  const trade = isInstaSolverTrade(tradeRaw) ? tradeRaw : null;
+  const needsSorting = ['true', '1', 'on', 'yes'].includes(
+    String(form.get('needs_sorting') ?? '').trim().toLowerCase()
   );
+  const aiFilled = ['true', '1', 'on', 'yes'].includes(
+    String(form.get('ai_filled') ?? '').trim().toLowerCase()
+  );
+  // The person's own words, kept alongside the AI's English rewrite so a
+  // Tamil report is never lost to a paraphrase. Only sent when AI filled it.
+  const reporterWordsRaw = String(form.get('reporter_words') ?? '').trim();
+  const reporterWords =
+    aiFilled && reporterWordsRaw.length > 0
+      ? reporterWordsRaw.slice(0, REPORTER_WORDS_MAX)
+      : null;
 
   const geo = parseLatLng(form.get('lat'), form.get('lng'));
 
@@ -408,11 +441,92 @@ export async function POST(request: NextRequest) {
   }
   const pageAllowed = dangerous && pageSuppressedReason === null;
 
+  // ── Somebody already reported this? Join their job (ruling 2) ─────────────
+  // Director, 2026-09-30 interview: a report matching an OPEN job at the same
+  // place (same college, same normalised location, similar description,
+  // filed within 14 days) JOINS that job instead of creating a second one.
+  // Matcher and thresholds: lib/campus-walk/duplicates.ts findOpenReportToJoin.
+  //
+  // NEVER for a dangerous report: that must get its own same-day job and its
+  // own page, not be folded into an ordinary two-day one (the QR-sticker door
+  // #4146 draws the same line). And any failure to join files a new job as
+  // before — a report is never lost to this step.
+  //
+  // NOR for a report whose place was skipped (needs_sorting): its location is
+  // the shared placeholder line, so two unrelated "tap leaking" reports from
+  // different buildings would look like the same place. The estate office
+  // sorts those by hand.
+  if (!dangerous && !needsSorting) {
+    const openJob = await findJoinableReport(admin, {
+      institutionId: profile.institution_id ?? null,
+      location,
+      description,
+    });
+    if (openJob) {
+      let ownerProfileId: string | null = null;
+      if (openJob.owner_staff_id) {
+        try {
+          const map = await mapStaffToProfilesLocal(admin, [openJob.owner_staff_id]);
+          ownerProfileId = map.get(openJob.owner_staff_id) ?? null;
+        } catch (e: unknown) {
+          console.warn(
+            '[instasolver] could not resolve the open job owner:',
+            e instanceof Error ? e.message : e
+          );
+        }
+      }
+      const joined = await joinOpenReport(
+        admin,
+        openJob,
+        {
+          reporter_id: user.id,
+          raised_by_profile_id: user.id,
+          reporter_role: profile.role ?? null,
+          note: description,
+          photo_storage_path: uploaded?.storagePath ?? null,
+          at: new Date().toISOString(),
+        },
+        ownerProfileId
+      );
+      if (joined.ok) {
+        let ownerName: string | null = null;
+        if (ownerProfileId) {
+          try {
+            const { data: owner } = await admin
+              .from('profiles')
+              .select('full_name')
+              .eq('id', ownerProfileId)
+              .maybeSingle();
+            if (owner?.full_name) ownerName = owner.full_name as string;
+          } catch {
+            ownerName = null;
+          }
+        }
+        return NextResponse.json(
+          {
+            success: true,
+            joined: true,
+            task_id: openJob.id,
+            routed_to: ownerName,
+            notice:
+              'Someone already reported this. Your report was added to theirs, and you will be told when it is fixed — it is on My reports.',
+            due_date: openJob.due_date ?? null,
+            dangerous: false,
+            photo_saved: Boolean(uploaded),
+            urgent_alert: null,
+          },
+          { status: 200 }
+        );
+      }
+    }
+  }
+
   const input: CreateWalkTaskInput = {
     title,
     description,
     kind: 'symptom',
     isUnsafe: dangerous,
+    ...(trade ? { category: trade } : {}),
     ...(uploaded
       ? {
           photoStoragePath: uploaded.storagePath,
@@ -438,6 +552,10 @@ export async function POST(request: NextRequest) {
       reporter_role: profile.role ?? null,
       reporter_institution_id: profile.institution_id ?? null,
       location,
+      ...(trade ? { trade } : {}),
+      ...(aiFilled ? { ai_filled: true } : {}),
+      ...(needsSorting ? { needs_sorting: true } : {}),
+      ...(reporterWords ? { reporter_words: reporterWords } : {}),
     },
     // HIGH 2 — EAO only, and only while the college is under its cap.
     urgentPaging: {

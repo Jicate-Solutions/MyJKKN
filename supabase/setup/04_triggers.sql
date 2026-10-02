@@ -2818,3 +2818,23 @@ CREATE TRIGGER trg_guard_salary_suggestion_rule_writes
   BEFORE INSERT OR UPDATE OR DELETE ON public.platform_policies
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_guard_salary_suggestion_rule_writes();
+
+-- ═══ 2026-10-01: vacate approval chain + room damage + fine bill (20261001100000/110000) ═══
+DROP TRIGGER IF EXISTS trg_zz_vacate_on_bill_cleared ON public.billing_student_bills;
+CREATE TRIGGER trg_zz_vacate_on_bill_cleared
+  AFTER UPDATE OF balance_amount, status ON public.billing_student_bills
+  FOR EACH ROW
+  WHEN (
+    (NEW.balance_amount = 0 AND OLD.balance_amount IS DISTINCT FROM 0)
+    OR (NEW.status IN ('cancelled', 'superseded') AND OLD.status NOT IN ('cancelled', 'superseded'))
+  )
+  EXECUTE FUNCTION public.trg_vacate_on_bill_cleared();
+
+
+-- Mirror of migration 20261020020000_hr_leave_type_default_entitlement_sync.sql
+DROP TRIGGER IF EXISTS trg_hr_leave_types_default_entitlement_sync ON public.hr_leave_types;
+CREATE TRIGGER trg_hr_leave_types_default_entitlement_sync
+  AFTER UPDATE OF default_entitled_days ON public.hr_leave_types
+  FOR EACH ROW
+  WHEN (OLD.default_entitled_days IS DISTINCT FROM NEW.default_entitled_days)
+  EXECUTE FUNCTION public.trg_hr_leave_type_default_entitlement_sync();

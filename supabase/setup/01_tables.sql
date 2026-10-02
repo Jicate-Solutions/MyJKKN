@@ -10758,3 +10758,325 @@ CREATE UNIQUE INDEX IF NOT EXISTS hvr_one_open_per_allocation
   ON public.hostel_vacate_requests (allocation_id)
   WHERE status IN ('draft', 'pending_parent', 'pending_warden', 'pending_chief', 'pending_dues', 'approved');
 
+
+-- ═══ 2026-10-01: vacate approval chain + room damage + fine bill (20261001100000/110000) ═══
+-- ============================================================================
+-- Hostel vacate: new approval-chain statuses
+-- ============================================================================
+-- Must be its own migration: a freshly added enum value cannot be used in the
+-- same transaction that adds it. The follow-up migration
+-- 20261001110000_hostel_vacate_approval_chain_damage_fine.sql uses them.
+--
+-- Flow: draft -> pending_dues (bills not cleared) -> pending_principal ->
+--       pending_warden -> pending_mess -> pending_cao -> [pending_fine] -> completed
+-- pending_dues already exists and is reused for the automatic bill check.
+-- ============================================================================
+ALTER TYPE public.vacate_request_status_enum ADD VALUE IF NOT EXISTS 'pending_principal';
+ALTER TYPE public.vacate_request_status_enum ADD VALUE IF NOT EXISTS 'pending_mess';
+ALTER TYPE public.vacate_request_status_enum ADD VALUE IF NOT EXISTS 'pending_cao';
+ALTER TYPE public.vacate_request_status_enum ADD VALUE IF NOT EXISTS 'pending_fine';
+
+-- ============================================================================
+-- Hostel vacate: 6-step approval chain + room damage + auto fine bill
+-- ============================================================================
+-- draft -> [submit] -> pending_dues (auto bill check) -> pending_principal
+--       -> pending_warden (checklist + room inspection/damages)
+--       -> pending_mess -> pending_cao
+--       -> pending_fine (only when damage_total > 0) -> completed
+--
+-- Completion (_cl_vacate_finalize) = vacate allocation + free bed + Day Scholar
+-- + clear hostel/mess categories. It runs from the CAO approval (no damage) or
+-- from the trigger below when the fine bill is paid (or cancelled by Accounts).
+--
+-- Every transition is a SECURITY DEFINER RPC that derives the caller from
+-- auth.uid(), checks the step's permission + scope and re-checks the gates in
+-- the database. Direct writes to the vacate tables stay admin / own-draft only.
+-- ============================================================================
+
+
+-- ─── 1. Damage-type master (global list, like the checklist master) ────────
+CREATE TABLE IF NOT EXISTS public.hostel_damage_types (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name           text NOT NULL CHECK (char_length(btrim(name)) BETWEEN 2 AND 120),
+  default_amount numeric(10,2) NOT NULL DEFAULT 0 CHECK (default_amount >= 0),
+  is_active      boolean NOT NULL DEFAULT true,
+  sort_order     integer NOT NULL DEFAULT 100,
+  created_by     uuid REFERENCES auth.users(id),
+  updated_by     uuid REFERENCES auth.users(id),
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.hostel_damage_types ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.hostel_damage_types FROM anon;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_hdt_name ON public.hostel_damage_types (lower(btrim(name)));
+CREATE INDEX IF NOT EXISTS idx_hdt_active_sort ON public.hostel_damage_types (is_active, sort_order);
+CREATE INDEX IF NOT EXISTS idx_hdt_created_by ON public.hostel_damage_types (created_by);
+CREATE INDEX IF NOT EXISTS idx_hdt_updated_by ON public.hostel_damage_types (updated_by);
+
+DROP TRIGGER IF EXISTS tr_hdt_updated_at ON public.hostel_damage_types;
+CREATE TRIGGER tr_hdt_updated_at BEFORE UPDATE ON public.hostel_damage_types
+  FOR EACH ROW EXECUTE FUNCTION public.set_hostel_vacate_updated_at();
+
+
+
+-- No DELETE policy: types are deactivated, never deleted (damages keep a name snapshot anyway).
+
+INSERT INTO public.hostel_damage_types (name, default_amount, sort_order)
+SELECT v.name, v.amt, v.ord
+FROM (VALUES
+  ('Window / Glass',            500,  10),
+  ('Fan / Light / Switch',      300,  20),
+  ('Cot / Mattress',            1500, 30),
+  ('Cupboard / Furniture',      1000, 40),
+  ('Door / Lock',               800,  50),
+  ('Wall / Paint',              600,  60),
+  ('Other',                     0,    100)
+) AS v(name, amt, ord)
+WHERE NOT EXISTS (SELECT 1 FROM public.hostel_damage_types);
+
+-- ─── 2. Request-side tables / columns ──────────────────────────────────────
+ALTER TABLE public.hostel_vacate_requests
+  ADD COLUMN IF NOT EXISTS room_inspected boolean       NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS damage_total   numeric(10,2) NOT NULL DEFAULT 0 CHECK (damage_total >= 0),
+  ADD COLUMN IF NOT EXISTS fine_bill_id   uuid REFERENCES public.billing_student_bills(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_hvr_fine_bill ON public.hostel_vacate_requests (fine_bill_id) WHERE fine_bill_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_hvr_dues_learner ON public.hostel_vacate_requests (learner_id) WHERE status = 'pending_dues';
+
+CREATE TABLE IF NOT EXISTS public.hostel_vacate_damages (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  vacate_request_id uuid NOT NULL REFERENCES public.hostel_vacate_requests(id) ON DELETE CASCADE,
+  damage_type_id    uuid REFERENCES public.hostel_damage_types(id) ON DELETE SET NULL,
+  damage_name       text NOT NULL,
+  note              text CHECK (note IS NULL OR char_length(note) <= 500),
+  amount            numeric(10,2) NOT NULL CHECK (amount > 0),
+  recorded_by       uuid REFERENCES auth.users(id),
+  created_at        timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.hostel_vacate_damages ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.hostel_vacate_damages FROM anon;
+CREATE INDEX IF NOT EXISTS idx_hvdm_request ON public.hostel_vacate_damages (vacate_request_id);
+CREATE INDEX IF NOT EXISTS idx_hvdm_type ON public.hostel_vacate_damages (damage_type_id);
+CREATE INDEX IF NOT EXISTS idx_hvdm_recorded_by ON public.hostel_vacate_damages (recorded_by);
+
+CREATE TABLE IF NOT EXISTS public.hostel_vacate_approvals (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  vacate_request_id uuid NOT NULL REFERENCES public.hostel_vacate_requests(id) ON DELETE CASCADE,
+  step              text NOT NULL CHECK (step IN ('bills', 'principal', 'warden', 'mess', 'cao', 'fine')),
+  action            text NOT NULL CHECK (action IN ('approved', 'rejected', 'cancelled', 'system')),
+  actor_id          uuid REFERENCES auth.users(id),
+  remarks           text,
+  acted_at          timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.hostel_vacate_approvals ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.hostel_vacate_approvals FROM anon;
+CREATE INDEX IF NOT EXISTS idx_hva_request ON public.hostel_vacate_approvals (vacate_request_id, acted_at);
+CREATE INDEX IF NOT EXISTS idx_hva_actor ON public.hostel_vacate_approvals (actor_id);
+
+-- Same read rule as the request itself (institution OR block scope, or own).
+
+-- No INSERT/UPDATE/DELETE policies: only the SECURITY DEFINER RPCs write these.
+
+-- One open request per allocation — now including the new statuses.
+DROP INDEX IF EXISTS public.hvr_one_open_per_allocation;
+CREATE UNIQUE INDEX hvr_one_open_per_allocation
+  ON public.hostel_vacate_requests (allocation_id)
+  WHERE status IN ('draft', 'pending_parent', 'pending_warden', 'pending_chief', 'pending_dues', 'approved',
+                   'pending_principal', 'pending_mess', 'pending_cao', 'pending_fine');
+
+-- ─── 3. Fine billing category ──────────────────────────────────────────────
+-- category_name is globally UNIQUE; kind 'penalty' is excluded from the vacate
+-- bill gate (which counts only hostel / mess bills), so the fine never blocks
+-- the very vacate it belongs to.
+INSERT INTO public.billing_categories
+  (category_name, kind, frequency, is_active, description, visible_to_learners, collection_type, applies_to)
+SELECT 'Hostel Damage Fine', 'penalty', 'one-time', true,
+       'Auto-created at CAO approval of a hostel vacate when room damage was recorded',
+       true, 'management', ARRAY['college', 'school']
+WHERE NOT EXISTS (SELECT 1 FROM public.billing_categories WHERE category_name = 'Hostel Damage Fine');
+
+-- ─── 4. Helpers ────────────────────────────────────────────────────────────
+-- Permission key that gates the step a request is currently at.
+
+
+
+-- Step 1 -> 2 when every hostel/mess bill is settled. Used by recheck + trigger.
+
+-- ─── 5. Submit: freeze checklist, hold bed, run the Step-1 bill check ──────
+
+-- Duplicate-open check in create must know the new statuses too.
+
+-- ─── 6. Re-check bills (Step 1 refresh button) ─────────────────────────────
+
+-- ─── 7. Warden: record room inspection (damages) ───────────────────────────
+-- p_lines = [{ "damage_type_id": uuid, "amount": number, "note": text }, ...]
+-- p_no_damage = true  <=> no lines; false <=> at least one line. The warden has
+-- to take an explicit decision either way before approving.
+
+-- ─── 8. Completion (internal) ──────────────────────────────────────────────
+-- Same atomic body the one-step warden approve used to run: vacate the
+-- allocation + free the bed FIRST, then flip the learner to Day Scholar and
+-- clear the hostel/mess categories (trg_allocation_sync_accommodation_type only
+-- acts on active/pending_approval rows). Idempotent for a completed request.
+-- No auth.uid(): it runs from the CAO approval or from the payment trigger.
+
+-- ─── 9. Fine bill (internal, idempotent) ───────────────────────────────────
+
+-- ─── 10. Approve — one RPC, dispatches on the current step ─────────────────
+
+
+-- Manual retry if the fine was settled but completion failed (see trigger).
+
+-- ─── 11. Reject / cancel ───────────────────────────────────────────────────
+
+
+-- ─── 12. Bill-cleared trigger (payments arrive from webhooks, no user) ─────
+-- Fires only when a bill's balance reaches 0 or the bill is cancelled. A failure
+-- here must NEVER roll back the payment, so every action is wrapped: on error
+-- the request just stays where it is (pending_fine can be retried with
+-- fn_cl_vacate_complete_after_fine, pending_dues with the Re-check button).
+
+-- "zz" so it runs after the other row triggers on this table (alphabetical order).
+
+-- ─── 13. Permission grants (merge with ||, never replace) ──────────────────
+DO $$
+DECLARE
+  v_role text;
+  v_hit  int;
+BEGIN
+  FOREACH v_role IN ARRAY ARRAY['principal', 'school_principal'] LOOP
+    UPDATE public.custom_roles
+       SET permissions = COALESCE(permissions, '{}'::jsonb) || jsonb_build_object(
+             'campus_living.vacate_requests.view',              true,
+             'campus_living.vacate_requests.approve_principal', true),
+           updated_at = now()
+     WHERE role_key = v_role;
+    GET DIAGNOSTICS v_hit = ROW_COUNT;
+    IF v_hit = 0 THEN RAISE WARNING 'role % not found; principal vacate keys not granted', v_role; END IF;
+  END LOOP;
+
+  UPDATE public.custom_roles
+     SET permissions = COALESCE(permissions, '{}'::jsonb) || jsonb_build_object(
+           'campus_living.vacate_requests.view',         true,
+           'campus_living.vacate_requests.approve_mess', true),
+         updated_at = now()
+   WHERE role_key = 'mess_operations';
+  GET DIAGNOSTICS v_hit = ROW_COUNT;
+  IF v_hit = 0 THEN RAISE WARNING 'role mess_operations not found; approve_mess not granted'; END IF;
+
+  UPDATE public.custom_roles
+     SET permissions = COALESCE(permissions, '{}'::jsonb) || jsonb_build_object(
+           'campus_living.vacate_requests.view',        true,
+           'campus_living.vacate_requests.approve_cao', true),
+         updated_at = now()
+   WHERE role_key = 'cao';
+  GET DIAGNOSTICS v_hit = ROW_COUNT;
+  IF v_hit = 0 THEN RAISE WARNING 'role cao not found; approve_cao not granted'; END IF;
+
+  FOREACH v_role IN ARRAY ARRAY['hostel_office', 'chief_warden'] LOOP
+    UPDATE public.custom_roles
+       SET permissions = COALESCE(permissions, '{}'::jsonb) || jsonb_build_object(
+             'campus_living.damage_types.manage', true),
+           updated_at = now()
+     WHERE role_key = v_role;
+    GET DIAGNOSTICS v_hit = ROW_COUNT;
+    IF v_hit = 0 THEN RAISE WARNING 'role % not found; damage_types.manage not granted', v_role; END IF;
+  END LOOP;
+END $$;
+
+
+
+-- ============================================================================
+-- Updated: 2026-10-01 - Old InstaSolver site history (migration 20270617094100)
+-- legacy_instasolver_issues + legacy_instasolver_requirements. Service-role
+-- writes only; see the migration header for the full reasoning.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.legacy_instasolver_issues (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  legacy_id INTEGER NOT NULL UNIQUE,
+  legacy_institution TEXT,
+  institution_id UUID REFERENCES public.institutions(id) ON DELETE SET NULL,
+  legacy_category TEXT,
+  clean_category TEXT,
+  legacy_location TEXT,
+  clean_site TEXT,
+  clean_area TEXT,
+  details TEXT,
+  cause TEXT,
+  suggested_fix TEXT,
+  ai_summary TEXT,
+  notes TEXT,
+  severity TEXT,
+  legacy_status TEXT,
+  is_completed BOOLEAN NOT NULL DEFAULT FALSE,
+  is_open BOOLEAN NOT NULL DEFAULT FALSE,
+  reopened BOOLEAN NOT NULL DEFAULT FALSE,
+  reopen_reason TEXT,
+  rejection_reason TEXT,
+  legacy_assigned_to TEXT,
+  photo_url TEXT,
+  completed_photo_url TEXT,
+  reporter_name TEXT,
+  reporter_profile_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  reported_at TIMESTAMPTZ,
+  reported_at_is_bulk_load BOOLEAN NOT NULL DEFAULT FALSE,
+  completed_at TIMESTAMPTZ,
+  legacy_created_at TIMESTAMPTZ,
+  legacy_updated_at TIMESTAMPTZ,
+  admin_notes JSONB NOT NULL DEFAULT '[]'::jsonb,
+  needs_still_broken_check BOOLEAN NOT NULL DEFAULT FALSE,
+  imported_task_id UUID REFERENCES public.project_tasks(id) ON DELETE SET NULL,
+  task_imported_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_legacy_is_issues_institution ON public.legacy_instasolver_issues (institution_id);
+CREATE INDEX IF NOT EXISTS idx_legacy_is_issues_place ON public.legacy_instasolver_issues (clean_site, clean_area);
+CREATE INDEX IF NOT EXISTS idx_legacy_is_issues_open ON public.legacy_instasolver_issues (is_open) WHERE is_open;
+CREATE INDEX IF NOT EXISTS idx_legacy_is_issues_reporter ON public.legacy_instasolver_issues (reporter_profile_id);
+CREATE INDEX IF NOT EXISTS idx_legacy_is_issues_task ON public.legacy_instasolver_issues (imported_task_id);
+
+CREATE TABLE IF NOT EXISTS public.legacy_instasolver_requirements (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  legacy_id INTEGER NOT NULL UNIQUE,
+  legacy_institution TEXT,
+  institution_id UUID REFERENCES public.institutions(id) ON DELETE SET NULL,
+  legacy_category TEXT,
+  clean_category TEXT,
+  legacy_location TEXT,
+  clean_site TEXT,
+  clean_area TEXT,
+  details TEXT,
+  cause TEXT,
+  suggested_fix TEXT,
+  notes TEXT,
+  priority TEXT,
+  legacy_status TEXT,
+  is_completed BOOLEAN NOT NULL DEFAULT FALSE,
+  reopened BOOLEAN NOT NULL DEFAULT FALSE,
+  reopen_reason TEXT,
+  rejection_reason TEXT,
+  legacy_assigned_to TEXT,
+  photo_url TEXT,
+  completed_photo_url TEXT,
+  reporter_name TEXT,
+  reporter_profile_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  requested_at TIMESTAMPTZ,
+  requested_at_is_bulk_load BOOLEAN NOT NULL DEFAULT FALSE,
+  completed_at TIMESTAMPTZ,
+  legacy_created_at TIMESTAMPTZ,
+  legacy_updated_at TIMESTAMPTZ,
+  admin_notes JSONB NOT NULL DEFAULT '[]'::jsonb,
+  decision TEXT CHECK (decision IN ('approving', 'approved', 'rejected')),
+  decision_reason TEXT,
+  decided_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  decided_at TIMESTAMPTZ,
+  decision_claimed_at TIMESTAMPTZ,
+  imported_purchase_request_id UUID REFERENCES public.procurement_purchase_requests(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_legacy_is_req_pending ON public.legacy_instasolver_requirements (legacy_status, requested_at);
+CREATE INDEX IF NOT EXISTS idx_legacy_is_req_institution ON public.legacy_instasolver_requirements (institution_id);
+CREATE INDEX IF NOT EXISTS idx_legacy_is_req_reporter ON public.legacy_instasolver_requirements (reporter_profile_id);
+CREATE INDEX IF NOT EXISTS idx_legacy_is_req_pr ON public.legacy_instasolver_requirements (imported_purchase_request_id);
