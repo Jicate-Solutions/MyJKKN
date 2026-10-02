@@ -326,6 +326,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/instasolver': 'instasolver.view',
   '/instasolver/broken': 'instasolver.view',
   '/instasolver/complaint': 'instasolver.view',
+  '/instasolver/my-complaints': 'instasolver.view',
   '/instasolver/track/[token]': 'instasolver.view',
   // The reporter's own list — "fixed" / "Not fixed" (Director, 2026-09-30).
   '/instasolver/my-reports': 'instasolver.view',
