@@ -16,6 +16,7 @@ import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { PARENT_SESSION_COOKIE, verifyParentSession } from '@/lib/auth/parent-jwt';
 import { findLearnersByMobile, normalizeMobile } from '@/lib/utils/parent-identifier';
+import { getParentAccountState } from '@/lib/auth/parent-session-state';
 
 export interface ParentScope {
   parentAccountId: string; // the logged-in student's account
@@ -41,17 +42,49 @@ export class ParentAccessError extends Error {
 }
 
 /**
+ * Why there is no scope: `unauthenticated` (no / invalid / dead session) or
+ * `not_linked` (a live account whose learners_profiles row is missing).
+ */
+export type ParentScopeResult =
+  | { scope: ParentScope; reason?: undefined }
+  | { scope: null; reason: 'unauthenticated' | 'not_linked' };
+
+/** Message shown (and returned) when a live parent account has no learner. */
+export const PARENT_NOT_LINKED_MESSAGE =
+  "Your account isn't linked to a learner yet — contact the college office.";
+
+/**
  * Resolve the parent's scope from the request's session cookie.
  * Returns null when there is no valid session (caller → 401).
  */
 export async function resolveParentScope(
   req: NextRequest
 ): Promise<ParentScope | null> {
+  return (await resolveParentScopeWithReason(req)).scope;
+}
+
+/**
+ * Same as resolveParentScope, but says WHY there is no scope, so
+ * /api/parent/children can tell the app to show the "not linked" card instead
+ * of empty pages (the page gate keeps such a session alive; only the learner
+ * link is missing).
+ */
+export async function resolveParentScopeWithReason(
+  req: NextRequest
+): Promise<ParentScopeResult> {
   const token = req.cookies.get(PARENT_SESSION_COOKIE)?.value;
   const claims = await verifyParentSession(token);
-  if (!claims) return null;
+  if (!claims) return { scope: null, reason: 'unauthenticated' };
 
   const db = createServiceRoleClient();
+
+  // Kill switch: a disabled / removed / signed-out-everywhere account is
+  // unauthenticated even while its (now sliding, 400-day) JWT is still valid.
+  const accountState = await getParentAccountState(db, claims);
+  if (accountState === 'error') {
+    throw new ParentAccessError('Failed to resolve parent scope', 500);
+  }
+  if (accountState === 'dead') return { scope: null, reason: 'unauthenticated' };
 
   // The logged-in student's LIVE profile is the source of truth for contact.
   const { data: meRow, error } = await db
@@ -69,7 +102,7 @@ export async function resolveParentScope(
     father_mobile: string | null;
     mother_mobile: string | null;
   } | null;
-  if (!me) return null; // learner gone → treat as unauthenticated
+  if (!me) return { scope: null, reason: 'not_linked' }; // learner gone → the app shows the card
 
   // Family = all learners sharing either parent mobile (resolved LIVE), so a
   // profile mobile change reshapes the family automatically. Always includes self.
@@ -82,12 +115,14 @@ export async function resolveParentScope(
   }
 
   return {
-    parentAccountId: claims.sub,
-    loggedInLearnerId: me.id,
-    mobile: normalizeMobile(me.father_mobile) || normalizeMobile(me.mother_mobile),
-    displayName: me.father_name ?? me.mother_name ?? undefined,
-    learnerIds: [...family.keys()],
-    institutionIds: [...new Set([...family.values()].filter(Boolean))],
+    scope: {
+      parentAccountId: claims.sub,
+      loggedInLearnerId: me.id,
+      mobile: normalizeMobile(me.father_mobile) || normalizeMobile(me.mother_mobile),
+      displayName: me.father_name ?? me.mother_name ?? undefined,
+      learnerIds: [...family.keys()],
+      institutionIds: [...new Set([...family.values()].filter(Boolean))],
+    },
   };
 }
 
