@@ -771,10 +771,15 @@ export async function proxy(request: NextRequest) {
 
     // Check if user account is active
     if (profile.is_active === false) {
-      // Redirect to the unauthorized page. (The sb-access-token /
-      // sb-refresh-token deletes that stood here matched no cookie Supabase
-      // ever sets — they never cleared anything, so removing them changes
-      // nothing.)
+      // A deactivated account is a REAL block (the profile read succeeded and
+      // said so), so end the session on EVERY device: scope 'global' revokes
+      // all of this person's refresh tokens. signOut runs BEFORE the response
+      // is built so its cookie removals ride on the redirect. /unauthorized is
+      // a public route, so it still renders without a session. (The
+      // sb-access-token / sb-refresh-token deletes that stood here matched no
+      // cookie Supabase ever sets — they never cleared anything.)
+      await supabase.auth.signOut({ scope: 'global' });
+
       return redirectKeepingCookies(
         new URL('/unauthorized?reason=inactive', request.url)
       );
@@ -846,11 +851,18 @@ export async function proxy(request: NextRequest) {
           // until the status is actually known.
           return reconnectingResponse(res);
         } else if (!validation.allowed) {
-          // Learner blocked due to lifecycle status — a real block, so sign out.
+          // Learner blocked — the status was READ and it blocks access, so
+          // this is a real block and the learner is signed out.
           console.log('[Proxy] ❌ Student BLOCKED - reason:', validation.reason);
 
-          // scope 'local': this device only (the default revoked every device).
-          await supabase.auth.signOut({ scope: 'local' });
+          // A lifecycle status that blocks access (exited, discontinued, ...)
+          // means the learner has left: end the session on EVERY device
+          // (scope 'global'). 'no_student_profile' carries no status — the
+          // read worked but the account has no learner link, a records gap
+          // rather than a departure — so it ends this device only.
+          await supabase.auth.signOut({
+            scope: validation.status ? 'global' : 'local',
+          });
 
           if (currentPath === '/auth/login') {
             return res;
@@ -869,9 +881,10 @@ export async function proxy(request: NextRequest) {
 
     // Check for disabled user accounts (applies to all users)
     if (user.user_metadata?.account_disabled === true) {
-      // Account has been disabled - sign out (this device; scope 'local') and
-      // redirect. signOut first, so its cookie removals ride on the redirect.
-      await supabase.auth.signOut({ scope: 'local' });
+      // Account has been disabled — a REAL block: sign out on EVERY device
+      // (scope 'global' revokes all refresh tokens) and redirect. signOut
+      // first, so its cookie removals ride on the redirect.
+      await supabase.auth.signOut({ scope: 'global' });
 
       return redirectKeepingCookies(
         new URL('/auth/login?reason=disabled', request.url)

@@ -9,9 +9,11 @@
  * Asserted here:
  *   1. lifecycle status unreadable ('database_error') → never signs out; a 503
  *      self-retrying page with the session cookies kept
- *   2. a real lifecycle block → signs out with scope 'local' (this device only),
- *      and the cookie removals reach the browser on the redirect
- *   3. a disabled account → scope 'local' too
+ *   2. a real lifecycle block → signs out with scope 'global' (every device),
+ *      and the cookie removals reach the browser on the redirect; a learner
+ *      account with no learner link (no status) → scope 'local'
+ *   3. a disabled account, and an inactive profile (is_active = false) →
+ *      scope 'global' too
  *   4. profile read fails twice → session kept, reconnecting page, no sign-in
  *   5. profile row genuinely missing (PGRST116) → the existing login hand-off
  *   6. auth unreachable (network/5xx) → reconnecting page; no session → sign-in
@@ -222,7 +224,7 @@ describe('proxy.ts — a brief error never logs anyone out', () => {
     expect(setCookie(response, AUTH_COOKIE_1)).toBeUndefined();
   });
 
-  it('2. a real lifecycle block signs out THIS device only, and the removal reaches the browser', async () => {
+  it('2. a real lifecycle block signs out on EVERY device, and the removal reaches the browser', async () => {
     scenario = {
       role: 'student',
       getUser: [{ user: true }],
@@ -236,7 +238,7 @@ describe('proxy.ts — a brief error never logs anyone out', () => {
     };
     const { response } = await runProxy('/learners/my-marks');
 
-    expect(signOutCalls).toEqual([{ scope: 'local' }]);
+    expect(signOutCalls).toEqual([{ scope: 'global' }]);
     const to = location(response);
     expect(to?.pathname).toBe('/auth/login');
     expect(to?.searchParams.get('reason')).toBe('student_exited');
@@ -244,13 +246,36 @@ describe('proxy.ts — a brief error never logs anyone out', () => {
     expect(setCookie(response, AUTH_COOKIE_0)?.maxAge).toBe(0);
   });
 
-  it('3. a disabled account signs out with scope local', async () => {
+  it('2b. a learner account with no learner link (no status) signs out this device only', async () => {
+    scenario = {
+      role: 'student',
+      getUser: [{ user: true }],
+      validation: { allowed: false, reason: 'no_student_profile', isGraduated: false },
+    };
+    const { response } = await runProxy('/learners/my-marks');
+
+    expect(signOutCalls).toEqual([{ scope: 'local' }]);
+    expect(location(response)?.searchParams.get('reason')).toBe('no_student_profile');
+  });
+
+  it('3. a disabled account signs out on every device (scope global)', async () => {
     scenario = { role: 'faculty', accountDisabled: true, getUser: [{ user: true }] };
     const { response } = await runProxy('/dashboard');
 
-    expect(signOutCalls).toEqual([{ scope: 'local' }]);
+    expect(signOutCalls).toEqual([{ scope: 'global' }]);
     expect(location(response)?.searchParams.get('reason')).toBe('disabled');
     expect(setCookie(response, AUTH_COOKIE_1)?.maxAge).toBe(0);
+  });
+
+  it('3b. an inactive profile (is_active = false) signs out on every device (scope global)', async () => {
+    scenario = { role: 'faculty', isActive: false, getUser: [{ user: true }] };
+    const { response } = await runProxy('/dashboard');
+
+    expect(signOutCalls).toEqual([{ scope: 'global' }]);
+    const to = location(response);
+    expect(to?.pathname).toBe('/unauthorized');
+    expect(to?.searchParams.get('reason')).toBe('inactive');
+    expect(setCookie(response, AUTH_COOKIE_0)?.maxAge).toBe(0);
   });
 
   it('4. profile read fails twice: the session is kept and no sign-in page is shown', async () => {
