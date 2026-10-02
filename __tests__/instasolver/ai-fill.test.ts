@@ -566,7 +566,7 @@ describe('ai-fill — a late fill never replaces a kind of problem picked by han
   it('sets the trade when none is picked or it is still the last fill, never over a hand pick', () => {
     expect(mergeFilledChoice(null, null, 'Electrical')).toBe('Electrical');
     expect(mergeFilledChoice('Electrical', 'Electrical', 'Plumbing & water')).toBe('Plumbing & water');
-    expect(mergeFilledChoice('Civil & building', null, 'Electrical')).toBe('Civil & building');
-    expect(mergeFilledChoice('Civil & building', 'Electrical', 'Plumbing & water')).toBe('Civil & building');
+    expect(mergeFilledChoice<string>('Civil & building', null, 'Electrical')).toBe('Civil & building');
+    expect(mergeFilledChoice<string>('Civil & building', 'Electrical', 'Plumbing & water')).toBe('Civil & building');
   });
 });
