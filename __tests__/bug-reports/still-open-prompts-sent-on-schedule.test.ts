@@ -12,26 +12,35 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 let rpcCalls: { name: string; args: unknown }[] = [];
+// Every query-builder call, grouped per .from(table) query.
+let queries: { table: string; calls: [string, unknown[]][] }[] = [];
 
 // A chain that accepts any query-builder call and resolves to empty rows.
-function chain(): unknown {
+function chain(q?: { table: string; calls: [string, unknown[]][] }): unknown {
   const target = () => undefined;
   return new Proxy(target, {
     get(_t, prop) {
       if (prop === 'then') {
         return (resolve: (v: unknown) => void) => resolve({ data: [], error: null });
       }
-      return () => chain();
+      return (...args: unknown[]) => {
+        q?.calls.push([String(prop), args]);
+        return chain(q);
+      };
     },
     apply() {
-      return chain();
+      return chain(q);
     },
   });
 }
 
 vi.mock('@/lib/supabase/server', () => ({
   createServiceRoleClient: () => ({
-    from: () => chain(),
+    from: (table: string) => {
+      const q = { table, calls: [] as [string, unknown[]][] };
+      queries.push(q);
+      return chain(q);
+    },
     rpc: async (name: string, args?: unknown) => {
       rpcCalls.push({ name, args });
       if (name === 'fn_bug_stale_prompt_prepare') {
@@ -53,6 +62,7 @@ vi.mock('web-push', () => ({ default: { setVapidDetails: () => {}, sendNotificat
 
 beforeEach(() => {
   rpcCalls = [];
+  queries = [];
   process.env.CRON_SECRET = 'test-secret';
 });
 
@@ -97,5 +107,26 @@ describe('notification-processor: queued still-open prompts', () => {
     expect(prepAt).toBeLessThan(sendAt);
     expect(rpcCalls[prepAt].args).toEqual({ p_older_than_days: 60, p_limit: 200 });
     expect(body.bug_feedback_still_open_prepared).toBe(7);
+  });
+
+  it('looks for queued fix-check reporters only, so 400+ queued still-open rows cannot crowd them out of the 200-row window', async () => {
+    const { GET } = await import('@/app/api/cron/notification-processor/route');
+    const { NextRequest } = await import('next/server');
+    const req = new NextRequest('http://localhost/api/cron/notification-processor', {
+      headers: { authorization: 'Bearer test-secret' },
+    });
+
+    await GET(req);
+
+    // fn_bug_feedback_release_queued releases fix_check prompts only, so the
+    // reporter list that feeds it must be fix_check rows only.
+    const queuedFetch = queries.find(
+      (q) =>
+        q.table === 'bug_fix_feedback_requests' &&
+        q.calls.some(([m, a]) => m === 'eq' && a[0] === 'status' && a[1] === 'pending_send') &&
+        q.calls.some(([m]) => m === 'limit')
+    );
+    expect(queuedFetch, 'the queued-reporters fetch was not found').toBeDefined();
+    expect(queuedFetch!.calls).toContainEqual(['eq', ['kind', 'fix_check']]);
   });
 });

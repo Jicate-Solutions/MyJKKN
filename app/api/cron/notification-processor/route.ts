@@ -286,6 +286,9 @@ export async function GET(request: NextRequest) {
         .from('bug_fix_feedback_requests')
         .select('reporter_user_id')
         .eq('status', 'pending_send')
+        // Only fix_check rows: the release below handles nothing else, and the
+        // hundreds of queued still_open rows would otherwise fill the window.
+        .eq('kind', 'fix_check')
         .limit(200);
       if (queuedErr) {
         results.errors.push(`Bug-feedback queued fetch error: ${queuedErr.message}`);
