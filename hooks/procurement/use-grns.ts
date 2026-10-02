@@ -8,7 +8,7 @@ export function useGrns(filters: GrnFilters) {
   return useQuery({
     queryKey: ['procurement-grns', filters],
     queryFn: () => ProcurementGrnService.getGrns(filters),
-    enabled: !!(filters.store_id || filters.institution_id || filters.purchase_order_id),
+    enabled: !!(filters.store_id || filters.institution_id || filters.purchase_order_id || filters.all_institutions),
     staleTime: 2 * 60 * 1000,
   });
 }

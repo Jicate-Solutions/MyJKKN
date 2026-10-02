@@ -304,13 +304,13 @@ export const ACHIEVEMENT_CATEGORY_LABELS: Record<AchievementCategory, string> = 
 // ============================================================================
 
 export const JKKN_SPORTS = [
-  'Volleyball', 'Basketball', 'Kho-Kho', 'Kabaddi', 'Handball', 'Badminton',
+  'Volleyball', 'Basketball', 'Kho-Kho', 'Kabaddi', 'Handball', 'Throwball', 'Badminton',
   'Football', 'Table Tennis', 'Tennis', 'Tennikoit', 'Hockey',
   'Wrestling', 'Powerlifting', 'Weightlifting', 'Athletics',
   'Swimming', 'Chess', 'Carrom', 'Yoga',
 ] as const;
 
-export const TEAM_SPORTS = ['Volleyball', 'Basketball', 'Kho-Kho', 'Kabaddi', 'Handball', 'Badminton', 'Football', 'Hockey'] as const;
+export const TEAM_SPORTS = ['Volleyball', 'Basketball', 'Kho-Kho', 'Kabaddi', 'Handball', 'Throwball', 'Badminton', 'Football', 'Hockey'] as const;
 export const INDIVIDUAL_SPORTS = ['Wrestling', 'Powerlifting', 'Weightlifting', 'Athletics', 'Swimming', 'Chess', 'Carrom', 'Table Tennis', 'Tennis', 'Tennikoit', 'Yoga'] as const;
 
 export const SPORT_LEVELS: { value: SportLevel; label: string }[] = [

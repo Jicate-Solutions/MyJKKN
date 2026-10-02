@@ -55,4 +55,17 @@ export class ParentAuthService {
   static logout() {
     return postJson<{ ok: true }>('/api/parent/auth/logout', {});
   }
+
+  /** True once the "sign out of all devices" kill switch exists (hidden until then). */
+  static async signOutEverywhereAvailable(): Promise<boolean> {
+    const res = await fetch('/api/parent/auth/sign-out-everywhere');
+    if (!res.ok) return false;
+    const json = (await res.json().catch(() => ({}))) as { available?: boolean };
+    return json.available === true;
+  }
+
+  /** Sign this parent out on every phone and computer. Throws the server's message on failure. */
+  static signOutEverywhere() {
+    return postJson<{ ok: true }>('/api/parent/auth/sign-out-everywhere', {});
+  }
 }
