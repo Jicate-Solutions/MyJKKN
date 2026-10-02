@@ -278,6 +278,10 @@
       "schedule": "17 3 * * *"
     },
     {
+      "path": "/api/cron/weekly-report-card",
+      "schedule": "37 2 * * 1"
+    },
+    {
       "path": "/api/cron/routine-checks",
       "schedule": "47 1 * * *"
     },

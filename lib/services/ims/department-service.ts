@@ -195,12 +195,13 @@ export class ImsDepartmentService {
     itemId: string,
     filters: { store_id?: string | null; institution_id?: string }
   ): Promise<ImsDepartmentStockMovement[]> {
+    // A view carries no foreign key, so PostgREST cannot embed profiles from
+    // it: the `profiles!created_by_id` join answered 400 and the dialog said
+    // "No movements recorded" for every item (BUG-005903). Read the id and
+    // look the names up separately.
     let query = this.supabase
       .from('ims_department_item_movements')
-      .select(
-        `id, type, quantity, notes, created_at,
-         created_by:profiles!created_by_id(full_name)`
-      )
+      .select('id, type, quantity, notes, created_at, created_by_id')
       .eq('department_id', departmentId)
       .eq('item_id', itemId);
 
@@ -222,7 +223,30 @@ export class ImsDepartmentService {
       throw error;
     }
 
-    return (data ?? []) as ImsDepartmentStockMovement[];
+    const rows = (data ?? []) as Array<
+      Omit<ImsDepartmentStockMovement, 'created_by'> & { created_by_id: string | null }
+    >;
+    const creatorIds = [
+      ...new Set(rows.map((r) => r.created_by_id).filter((v): v is string => !!v)),
+    ];
+    const names = new Map<string, string>();
+    if (creatorIds.length > 0) {
+      const { data: people } = await this.supabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', creatorIds);
+      for (const p of (people ?? []) as Array<{ id: string; full_name: string | null }>) {
+        if (p.full_name) names.set(p.id, p.full_name);
+      }
+    }
+
+    return rows.map(({ created_by_id, ...rest }) => ({
+      ...rest,
+      created_by:
+        created_by_id && names.has(created_by_id)
+          ? { full_name: names.get(created_by_id)! }
+          : null,
+    }));
   }
 
   /**
