@@ -159,7 +159,7 @@ export default function RootPage() {
           <div role='status' aria-live='polite' className='space-y-3'>
             <p className='text-muted-foreground animate-pulse'>Reconnecting…</p>
             <p className='text-sm text-muted-foreground'>
-              You are still signed in. We will keep trying.
+              We could not reach the server for a moment. We will keep trying.
             </p>
             <button
               type='button'

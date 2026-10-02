@@ -174,8 +174,6 @@ function loginUrlFor(currentPath: string, request: NextRequest): URL {
 // Supabase's auth cookie and its chunks: sb-<ref>-auth-token, …-auth-token.0, .1
 // (NOT the short-lived …-auth-token-code-verifier used mid sign-in).
 const AUTH_TOKEN_COOKIE = /^sb-.+-auth-token(?:\.\d+)?$/;
-// @supabase/ssr's own default lifetime (DEFAULT_COOKIE_OPTIONS.maxAge).
-const AUTH_COOKIE_MAX_AGE = 400 * 24 * 60 * 60;
 
 type CookieToSet = { name: string; value: string; options?: CookieOptions };
 
@@ -205,33 +203,66 @@ function rebuildWithCookies(
 }
 
 /** Copy every cookie the auth client wrote onto a response we return instead
- *  of `carry` (a redirect, the reconnecting page) — otherwise a refreshed token
- *  is dropped and the browser keeps the one the server has already rotated. */
+ *  of `carry` (a redirect) — otherwise a refreshed token is dropped and the
+ *  browser keeps the one the server has already rotated. Removals are carried
+ *  too: this is only used where the session is fine or truly dead (no session
+ *  cookie, revoked refresh token, or one of our own sign-outs). */
 function withCarriedCookies<T extends NextResponse>(response: T, carry: NextResponse): T {
   carry.cookies.getAll().forEach((cookie) => response.cookies.set(cookie));
   return response;
 }
 
-/**
- * Re-send the auth cookies from the server with the full 400-day lifetime on
- * every signed-in page visit. The browser client writes them through
- * document.cookie, which Safari (and so every iPhone PWA) caps at 7 days; a
- * server-set cookie is not capped. Cookies the auth client already wrote on
- * this request (a refresh, a removal) are left exactly as written.
- */
-function renewAuthCookieLifetime(request: NextRequest, response: NextResponse) {
-  const alreadyWritten = new Set(response.cookies.getAll().map((c) => c.name));
-  for (const { name, value } of request.cookies.getAll()) {
-    if (!AUTH_TOKEN_COOKIE.test(name) || alreadyWritten.has(name)) continue;
-    response.cookies.set(name, value, {
-      path: '/',
-      sameSite: 'lax',
-      httpOnly: false, // the browser client must still be able to read it
-      secure: request.nextUrl.protocol === 'https:',
-      maxAge: AUTH_COOKIE_MAX_AGE,
-    });
-  }
+type CarriedCookie = ReturnType<NextResponse['cookies']['getAll']>[number];
+
+function isCookieRemoval(cookie: CarriedCookie): boolean {
+  if (cookie.value === '' || cookie.maxAge === 0) return true;
+  const expires = cookie.expires instanceof Date ? cookie.expires.getTime() : Number(cookie.expires);
+  return Number.isFinite(expires) && expires > 0 && expires <= Date.now();
 }
+
+/**
+ * Like withCarriedCookies, for responses that tell the person "you are still
+ * signed in" (the Reconnecting page, the /error fallback).
+ *
+ * supabase-js removes the session ITSELF when a token refresh fails with any
+ * status other than 502/503/504 or a network failure — a 500, a 429 rate limit,
+ * a 408, or an unparseable (e.g. HTML 52x) reply (@supabase/auth-js 2.75.0,
+ * GoTrueClient._callRefreshToken → _removeSession). @supabase/ssr then writes
+ * every sb-* auth cookie through setAll with value '' and maxAge 0. Forwarding
+ * those on a temporary error would log the person out on the very page that
+ * says they are still signed in. So when the auth client wrote NO new session
+ * in this request, its sb-* removals are dropped and the browser keeps its
+ * cookies for the next try.
+ *
+ * When a refresh DID succeed (a non-empty auth-token cookie was written), the
+ * whole set is carried untouched: a removal there is a leftover chunk of the
+ * old, longer cookie, and dropping it would corrupt the new session.
+ */
+function withCarriedCookiesKeepingSession<T extends NextResponse>(
+  response: T,
+  carry: NextResponse
+): T {
+  const carried = carry.cookies.getAll();
+  const wroteNewSession = carried.some(
+    (cookie) => AUTH_TOKEN_COOKIE.test(cookie.name) && !isCookieRemoval(cookie)
+  );
+  for (const cookie of carried) {
+    if (!wroteNewSession && cookie.name.startsWith('sb-') && isCookieRemoval(cookie)) {
+      continue;
+    }
+    response.cookies.set(cookie);
+  }
+  return response;
+}
+
+// NOTE (repair round, 1 Oct): there is deliberately NO "re-send the request's
+// auth cookie with 400 days on every visit" step here. Re-sending the
+// REQUEST-TIME value can overwrite a refresh token the browser client rotated
+// while this navigation was in flight; reusing that rotated token outside the
+// 10 s reuse interval trips Supabase's reuse detection and revokes the whole
+// session family. The only auth cookies this proxy writes are the ones the
+// auth client itself writes in this request (a server-side refresh, already
+// 400 days via @supabase/ssr's own options, or a removal).
 
 const RECONNECTING_HTML = `<!doctype html>
 <html lang="en">
@@ -275,7 +306,7 @@ function reconnectingResponse(carry: NextResponse): NextResponse {
       'Retry-After': '5',
     },
   });
-  return withCarriedCookies(response, carry);
+  return withCarriedCookiesKeepingSession(response, carry);
 }
 
 // Define public paths - optimized with Set for O(1) lookup
@@ -454,6 +485,10 @@ const isPublicPath = (path: string): boolean => {
 // Spec: specs/pre-onboarding-induction-access-2026-06-29.md
 
 export async function proxy(request: NextRequest) {
+  // The response carrying whatever the auth client wrote in this request, kept
+  // outside the try so the /error fallback below can still pass a refreshed
+  // token on (a bare redirect drops it and the browser keeps a rotated one).
+  let authCarry: NextResponse | null = null;
   try {
     const currentPath = request.nextUrl.pathname;
 
@@ -562,6 +597,7 @@ export async function proxy(request: NextRequest) {
     // `res` is rebuilt by setAll below whenever the auth client writes cookies,
     // so it is always the response carrying the current session.
     let res = addPreconnectHeaders(NextResponse.next({ request }));
+    authCarry = res;
 
     // A redirect that keeps whatever the auth client wrote (a refreshed token,
     // or a sign-out's removals) — a bare NextResponse.redirect() drops them.
@@ -584,6 +620,7 @@ export async function proxy(request: NextRequest) {
             // refresh, which is why iOS PWA users were logged out on every
             // app-close (#950). Removals arrive here as maxAge: 0.
             res = rebuildWithCookies(request, res, cookiesToSet);
+            authCarry = res;
           }
         }
       }
@@ -604,8 +641,21 @@ export async function proxy(request: NextRequest) {
     // unexpired session; when the token is expired supabase-js refreshes it
     // exactly as getUser() would have.
     const {
-      data: { session }
+      data: { session },
+      error: sessionError
     } = await supabase.auth.getSession();
+
+    // The token refresh inside getSession() failed for a reason that says
+    // nothing about whether this person is signed in (network, 5xx, 408, 429,
+    // an unparseable reply). For a non-retryable status supabase-js has
+    // already dropped the session and queued sb-* cookie removals on `res`;
+    // the Reconnecting page does not forward them, so the browser keeps its
+    // cookies and the next try refreshes again. A definite answer (400
+    // refresh_token_not_found / already used, no session) falls through to
+    // the sign-in redirect below, which does carry the removals.
+    if (sessionError && classifyAuthResult(null, sessionError) === 'retry') {
+      return reconnectingResponse(res);
+    }
     const accessToken = session?.access_token ?? null;
 
     let user: VerifiedTokenUser | null = accessToken
@@ -661,11 +711,6 @@ export async function proxy(request: NextRequest) {
       redirectUrl.searchParams.set('redirectedFrom', currentPath + request.nextUrl.search);
       return redirectKeepingCookies(redirectUrl);
     }
-
-    // Signed in: re-send the auth cookies with their full lifetime (see
-    // renewAuthCookieLifetime). Done before any block below, so a later
-    // sign-out's removals overwrite these by name.
-    renewAuthCookieLifetime(request, res);
 
     // Add auth info to headers
     res.headers.set('x-user-id', user.id);
@@ -1006,8 +1051,11 @@ export async function proxy(request: NextRequest) {
 
     return res;
   } catch (error) {
-    // Redirect to error page for critical failures
-    return NextResponse.redirect(new URL('/error', request.url));
+    // Redirect to error page for critical failures. An exception is never a
+    // confirmed dead session, so a refreshed token is carried but a pending
+    // session wipe is not (see withCarriedCookiesKeepingSession).
+    const fallback = NextResponse.redirect(new URL('/error', request.url));
+    return authCarry ? withCarriedCookiesKeepingSession(fallback, authCarry) : fallback;
   }
 }
 

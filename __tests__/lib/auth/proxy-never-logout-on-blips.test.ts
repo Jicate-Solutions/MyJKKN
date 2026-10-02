@@ -17,12 +17,22 @@
  *   6. auth unreachable (network/5xx) → reconnecting page; no session → sign-in
  *   7. a refreshed token is written to the REQUEST and the RESPONSE, and
  *      survives a redirect
- *   8. every signed-in visit re-sends the auth cookie chunks with 400 days
+ *   8. NO blind re-send of the request's auth cookie (it could overwrite a
+ *      refresh token the browser rotated mid-flight → reuse detection)
+ *   9. a refresh that fails with a NON-retryable status (500/429/408/HTML) makes
+ *      supabase-js queue sb-* cookie removals; the Reconnecting page and the
+ *      /error fallback must never forward them. A truly dead session (400
+ *      refresh_token_not_found) still has them carried to the sign-in redirect.
  */
 
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
-import { AuthRetryableFetchError, AuthSessionMissingError } from '@supabase/supabase-js';
+import {
+  AuthApiError,
+  AuthRetryableFetchError,
+  AuthSessionMissingError,
+  AuthUnknownError,
+} from '@supabase/supabase-js';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 const AUTH_COOKIE_0 = 'sb-testref-auth-token.0';
@@ -44,6 +54,10 @@ interface Scenario {
   refreshWrites?: CookieToSet[];
   /** profiles.single() answers, consumed in order (the last one repeats). */
   profileReads?: DbResult[];
+  /** profiles.single() throws instead of answering (drives the catch block). */
+  profileThrows?: boolean;
+  /** What getSession()'s internal refresh does: cookies it writes, and its error. */
+  sessionRefresh?: { writes: CookieToSet[]; error: unknown };
   validation?: Record<string, unknown>;
 }
 
@@ -68,7 +82,13 @@ function makeClient() {
     auth: {
       // No access token → proxy.ts skips its token-validation cache and takes
       // the real getUser() branch.
-      getSession: async () => ({ data: { session: null }, error: null }),
+      getSession: async () => {
+        if (scenario.sessionRefresh) {
+          capturedCookies?.setAll(scenario.sessionRefresh.writes);
+          return { data: { session: null }, error: scenario.sessionRefresh.error };
+        }
+        return { data: { session: null }, error: null };
+      },
       getUser: async () => {
         const answer =
           scenario.getUser[Math.min(getUserCalls, scenario.getUser.length - 1)];
@@ -107,6 +127,7 @@ function makeClient() {
         abortSignal: async () => ({ data: [], error: null }),
         single: async () => {
           if (table !== 'profiles') return { data: null, error: null };
+          if (scenario.profileThrows) throw new Error('boom');
           const reads = scenario.profileReads ?? [{ data: profileRow(), error: null }];
           const answer = reads[Math.min(profileReadCalls, reads.length - 1)];
           profileReadCalls += 1;
@@ -196,9 +217,9 @@ describe('proxy.ts — a brief error never logs anyone out', () => {
     expect(location(response)).toBeNull();
     expect(await response.text()).toContain('Reconnecting');
     expect(response.headers.get('cache-control')).toContain('no-store');
-    // The session is kept — re-sent, not removed.
-    expect(setCookie(response, AUTH_COOKIE_0)?.value).toBe('OLD0');
-    expect(setCookie(response, AUTH_COOKIE_0)?.maxAge).toBe(FOUR_HUNDRED_DAYS);
+    // The session is kept: the browser's cookies are not touched at all.
+    expect(setCookie(response, AUTH_COOKIE_0)).toBeUndefined();
+    expect(setCookie(response, AUTH_COOKIE_1)).toBeUndefined();
   });
 
   it('2. a real lifecycle block signs out THIS device only, and the removal reaches the browser', async () => {
@@ -244,7 +265,7 @@ describe('proxy.ts — a brief error never logs anyone out', () => {
     expect(signOutCalls).toEqual([]);
     expect(response.status).toBe(503);
     expect(location(response)).toBeNull();
-    expect(setCookie(response, AUTH_COOKIE_0)?.value).toBe('OLD0');
+    expect(setCookie(response, AUTH_COOKIE_0)).toBeUndefined();
   });
 
   it('5. profile row genuinely missing (PGRST116) keeps the existing login hand-off, session kept', async () => {
@@ -259,7 +280,8 @@ describe('proxy.ts — a brief error never logs anyone out', () => {
     const to = location(response);
     expect(to?.pathname).toBe('/auth/login');
     expect(to?.searchParams.get('error')).toBe('profile_load_failed');
-    expect(setCookie(response, AUTH_COOKIE_0)?.maxAge).toBe(FOUR_HUNDRED_DAYS);
+    // Session kept: no removal, no rewrite.
+    expect(setCookie(response, AUTH_COOKIE_0)).toBeUndefined();
   });
 
   it('6a. auth unreachable (network error, twice) → reconnecting page, not the sign-in page', async () => {
@@ -317,17 +339,125 @@ describe('proxy.ts — a brief error never logs anyone out', () => {
     expect(setCookie(response, AUTH_COOKIE_0)?.value).toBe('NEW0');
   });
 
-  it('8. every signed-in visit re-sends the auth cookie chunks with 400 days, server-side', async () => {
+  it('8. a plain signed-in visit writes NO auth cookie (no blind re-send of request-time values)', async () => {
     scenario = { role: 'faculty', getUser: [{ user: true }] };
     const { response } = await runProxy('/dashboard');
 
-    for (const name of [AUTH_COOKIE_0, AUTH_COOKIE_1]) {
-      const cookie = setCookie(response, name);
-      expect(cookie?.maxAge).toBe(FOUR_HUNDRED_DAYS);
-      expect(cookie?.secure).toBe(true);
-      expect(cookie?.httpOnly).toBe(false);
+    expect(response.status).toBe(200);
+    for (const name of [AUTH_COOKIE_0, AUTH_COOKIE_1, VERIFIER_COOKIE]) {
+      expect(setCookie(response, name)).toBeUndefined();
     }
-    // The PKCE verifier is not an auth-token chunk and is left alone.
-    expect(setCookie(response, VERIFIER_COOKIE)).toBeUndefined();
+    expect(response.headers.get('set-cookie') ?? '').not.toContain('auth-token');
+  });
+
+  // What @supabase/ssr writes through setAll when supabase-js drops the session
+  // after a failed refresh (_removeSession → SIGNED_OUT → applyServerStorage).
+  const SESSION_WIPE: CookieToSet[] = [
+    { name: AUTH_COOKIE_0, value: '', options: { path: '/', sameSite: 'lax', maxAge: 0 } },
+    { name: AUTH_COOKIE_1, value: '', options: { path: '/', sameSite: 'lax', maxAge: 0 } },
+    { name: VERIFIER_COOKIE, value: '', options: { path: '/', sameSite: 'lax', maxAge: 0 } },
+  ];
+
+  function expectNoSbRemoval(response: Response) {
+    const header = response.headers.get('set-cookie') ?? '';
+    expect(header).not.toMatch(/sb-[^=]*=;/);
+    expect(header).not.toMatch(/Max-Age=0/i);
+    for (const name of [AUTH_COOKIE_0, AUTH_COOKIE_1, VERIFIER_COOKIE]) {
+      expect(setCookie(response, name)).toBeUndefined();
+    }
+  }
+
+  it.each([
+    ['500', new AuthApiError('Internal Server Error', 500, undefined)],
+    ['429', new AuthApiError('Too Many Requests', 429, 'over_request_rate_limit')],
+    ['408', new AuthApiError('Request Timeout', 408, undefined)],
+    ['an unparseable (HTML 520) reply', new AuthUnknownError('Unexpected token <', null)],
+    ['a network failure', new AuthRetryableFetchError('fetch failed', 0)],
+  ])('9a. refresh fails with %s: Reconnecting, and the queued session wipe is NOT forwarded', async (_label, error) => {
+    scenario = {
+      role: 'faculty',
+      getUser: [{ user: false, error: new AuthSessionMissingError() }],
+      sessionRefresh: { writes: SESSION_WIPE, error },
+    };
+    const { response } = await runProxy('/dashboard');
+
+    expect(response.status).toBe(503);
+    expect(location(response)).toBeNull();
+    expect(signOutCalls).toEqual([]);
+    expectNoSbRemoval(response);
+  });
+
+  it('9b. a truly dead session (400 refresh_token_not_found): sign-in, removals carried', async () => {
+    scenario = {
+      role: 'faculty',
+      getUser: [{ user: false, error: new AuthSessionMissingError() }],
+      sessionRefresh: {
+        writes: SESSION_WIPE,
+        error: new AuthApiError('Invalid Refresh Token: Refresh Token Not Found', 400, 'refresh_token_not_found'),
+      },
+    };
+    const { response } = await runProxy('/dashboard');
+
+    expect(location(response)?.pathname).toBe('/auth/login');
+    expect(setCookie(response, AUTH_COOKIE_0)?.maxAge).toBe(0);
+    expect(setCookie(response, AUTH_COOKIE_1)?.maxAge).toBe(0);
+  });
+
+  it('9c. getUser path: removals queued then a retryable error → Reconnecting without the removals', async () => {
+    scenario = {
+      role: 'faculty',
+      getUser: [{ user: false, error: new AuthApiError('Internal Server Error', 500, undefined) }],
+      refreshWrites: SESSION_WIPE,
+    };
+    const { response } = await runProxy('/dashboard');
+
+    expect(response.status).toBe(503);
+    expectNoSbRemoval(response);
+  });
+
+  it('9d. a SUCCESSFUL refresh that shrank the cookie keeps its chunk removal on the Reconnecting page', async () => {
+    scenario = {
+      role: 'faculty',
+      getUser: [{ user: true }],
+      refreshWrites: [
+        { name: AUTH_COOKIE_1, value: '', options: { path: '/', maxAge: 0 } },
+        { name: AUTH_COOKIE_0, value: 'NEW0', options: { path: '/', sameSite: 'lax', maxAge: FOUR_HUNDRED_DAYS } },
+      ],
+      profileReads: [{ data: null, error: { code: '57014', message: 'statement timeout' } }],
+    };
+    const { response } = await runProxy('/dashboard');
+
+    expect(response.status).toBe(503);
+    expect(setCookie(response, AUTH_COOKIE_0)?.value).toBe('NEW0');
+    // Dropping this would leave the old .1 chunk next to the new .0 — a corrupt session.
+    expect(setCookie(response, AUTH_COOKIE_1)?.maxAge).toBe(0);
+  });
+
+  it('9e. an exception after a refresh: the /error redirect carries the refreshed token', async () => {
+    scenario = {
+      role: 'faculty',
+      getUser: [{ user: true }],
+      refreshWrites: [
+        { name: AUTH_COOKIE_0, value: 'NEW0', options: { path: '/', sameSite: 'lax', maxAge: FOUR_HUNDRED_DAYS } },
+      ],
+      profileThrows: true,
+    };
+    const { response } = await runProxy('/dashboard');
+
+    expect(location(response)?.pathname).toBe('/error');
+    expect(setCookie(response, AUTH_COOKIE_0)?.value).toBe('NEW0');
+  });
+
+  it('9f. an exception after a queued session wipe: the /error redirect does NOT forward it', async () => {
+    scenario = {
+      role: 'faculty',
+      getUser: [{ user: true }],
+      refreshWrites: SESSION_WIPE,
+      profileThrows: true,
+    };
+    const { response } = await runProxy('/dashboard');
+
+    expect(location(response)?.pathname).toBe('/error');
+    expectNoSbRemoval(response);
   });
 });

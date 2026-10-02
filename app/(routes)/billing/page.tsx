@@ -29,9 +29,20 @@ export default async function BillingIndex() {
   const { profile } = await getEnhancedUserProfile();
 
   if (!profile) {
-    // Signed in, but the profile could not be read: a temporary error page
-    // (the route's error boundary offers Try again), never a sign-out.
-    throw new TransientAuthError(null);
+    // getEnhancedUserProfile folds "no profile row" and "the read failed" into
+    // the same null. Ask once more, plainly: a read that WORKED and found no
+    // row is not temporary, so Try again would spin forever — send it to the
+    // same "We could not open your account" message the proxy uses for
+    // PGRST116 (session kept). Anything else is a temporary error page.
+    const { data: profileRow, error: profileError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', user.id)
+      .maybeSingle();
+    if (!profileError && !profileRow) {
+      redirect('/auth/login?error=profile_load_failed&redirectedFrom=%2Fbilling');
+    }
+    throw new TransientAuthError(profileError);
   }
 
   if (profile.is_super_admin === true) {
