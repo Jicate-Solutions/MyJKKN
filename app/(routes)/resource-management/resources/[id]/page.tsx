@@ -314,6 +314,19 @@ export default function ResourceDetailsPage({
                   <ArrowLeft className='mr-2 h-4 w-4' />
                   <span className='hidden sm:inline'>Back</span>
                 </Button>
+                {/* InstaSolver: the same page a QR sticker opens, so a problem
+                    can be reported from here without scanning. */}
+                {(resource as any).qr_code_token && (
+                  <Link
+                    href={`/instasolver/r/${encodeURIComponent((resource as any).qr_code_token as string)}`}
+                    className='flex-1 lg:flex-none'
+                  >
+                    <Button variant='outline' className='w-full'>
+                      <AlertCircle className='mr-2 h-4 w-4' />
+                      <span className='hidden sm:inline'>Report a problem</span>
+                    </Button>
+                  </Link>
+                )}
                 <Link
                   href={`/resource-management/resources/${id}/edit`}
                   className='flex-1 lg:flex-none'

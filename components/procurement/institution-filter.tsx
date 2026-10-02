@@ -16,6 +16,8 @@ interface Props {
   label?: string | null;
   hint?: string;
   className?: string;
+  /** Adds an "all" entry (value 'all') above the institutions, e.g. "All colleges". */
+  allLabel?: string;
 }
 
 /**
@@ -28,7 +30,7 @@ interface Props {
  * row to the user's institution(s) server-side. The selector just narrows what a
  * multi-institution user is currently viewing or raising a request against.
  */
-export function InstitutionFilter({ value, onChange, label = 'Institution', hint, className }: Props) {
+export function InstitutionFilter({ value, onChange, label = 'Institution', hint, className, allLabel }: Props) {
   const { institutions, canAccessAllInstitutions, loading } = useUserInstitutionAccess();
 
   if (loading) return null;
@@ -43,6 +45,7 @@ export function InstitutionFilter({ value, onChange, label = 'Institution', hint
           <SelectValue placeholder="Select institution" />
         </SelectTrigger>
         <SelectContent>
+          {allLabel && <SelectItem value="all">{allLabel}</SelectItem>}
           {institutions.map((inst) => (
             <SelectItem key={inst.institution_id} value={inst.institution_id}>
               {inst.institution_name}

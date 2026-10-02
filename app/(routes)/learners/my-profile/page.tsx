@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { getUserWithRetry } from '@/lib/auth/auth-retry';
 import { redirect } from 'next/navigation';
 import { accommodationLegacyFromCode } from '@/lib/utils/accommodation-type-resolver';
 import { StudentValidationService } from '@/lib/services/auth/student-validation-service';
@@ -16,7 +17,7 @@ export default async function MyProfilePage() {
   const supabase = await createClient();
 
   // Step 1: Authentication check
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getUserWithRetry(supabase);
   if (!user) redirect('/auth/login');
 
   // Step 2: Role validation
