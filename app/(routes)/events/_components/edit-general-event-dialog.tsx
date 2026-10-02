@@ -366,6 +366,17 @@ function EditGeneralEventForm({ event, onClose }: { event: Event; onClose: () =>
 
         {/* ── Where ── */}
         <div className="grid grid-cols-1 gap-4 border-t pt-4 sm:grid-cols-2">
+          {/* On-campus room lives in venue_resource_id (held via Resource
+              Management) — shown read-only; changing it needs a new hold. */}
+          {event.venue_resource_id && (
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label>Booked room</Label>
+              <Input value={event.venue_resource?.name ?? 'Room booked'} disabled />
+              <p className="text-xs text-muted-foreground">
+                To change the room, update the booking in Resource Management.
+              </p>
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="ge-venue">Venue</Label>
             <Input
