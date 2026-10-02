@@ -57,7 +57,11 @@ function openPicker(label: string) {
   return within(document.querySelector('.rdp') as HTMLElement);
 }
 
-describe('BatchForm date pickers', () => {
+// Each test renders the whole BatchForm (react-hook-form + Radix popover +
+// day-picker). Alone that is ~1 s, but under a loaded runner the first render
+// took 9 s and tripped vitest's 5 s default while every assertion held — the
+// same budget the other full-form render suites use (leave-approval-confirmations).
+describe('BatchForm date pickers', { timeout: 20_000 }, () => {
   it('opens the start-date calendar on the batch year, not the current month', () => {
     render(<BatchForm batch={batch} isSubmitting={false} onSubmit={vi.fn()} />);
 
