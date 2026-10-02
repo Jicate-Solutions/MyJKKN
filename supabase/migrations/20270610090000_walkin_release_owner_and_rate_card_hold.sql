@@ -60,6 +60,57 @@ WHERE NOT EXISTS (
      AND scope_type = 'global' AND scope_id IS NULL
 );
 
+-- 1b. Only the Director may change who the owner is (review, 2026-10-01).
+-- platform_policies is writable by every admin; without this, any admin could
+-- name themselves the release owner. Same shape as fn_guard_the_director_list:
+-- a signed-in caller must be on the Director list; postgres / service_role (this
+-- migration, operators) pass. The value must name an existing account.
+CREATE OR REPLACE FUNCTION public.fn_guard_walkin_release_owner()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  c_key CONSTANT text := 'admission.walkin_release.owner_user_id';
+  v_role text := auth.role();
+  v_id text;
+BEGIN
+  IF NOT (   (TG_OP IN ('INSERT', 'UPDATE') AND NEW.policy_key = c_key)
+          OR (TG_OP IN ('UPDATE', 'DELETE') AND OLD.policy_key = c_key)) THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+
+  IF v_role IS NOT NULL AND v_role IS DISTINCT FROM 'service_role' THEN
+    IF v_role IS DISTINCT FROM 'authenticated'
+       OR NOT COALESCE(public.fn_is_the_director(), false) THEN
+      RAISE EXCEPTION 'Only the Director can change who releases walk-in agency claims.'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+
+  v_id := NULLIF(btrim(NEW.value #>> '{}'), '');
+  IF v_id IS NOT NULL AND (
+       v_id !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+       OR NOT EXISTS (SELECT 1 FROM public.profiles pr WHERE pr.id = v_id::uuid)) THEN
+    RAISE EXCEPTION 'The walk-in release owner must be an existing account id, not %.', v_id
+      USING ERRCODE = '22023';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_guard_walkin_release_owner() FROM anon, authenticated, PUBLIC;
+
+DROP TRIGGER IF EXISTS trg_guard_walkin_release_owner ON public.platform_policies;
+CREATE TRIGGER trg_guard_walkin_release_owner
+  BEFORE INSERT OR UPDATE OR DELETE ON public.platform_policies
+  FOR EACH ROW EXECUTE FUNCTION public.fn_guard_walkin_release_owner();
+
 -- ---------------------------------------------------------------------------
 -- 2. Who the owner is, for the review screen.
 -- ---------------------------------------------------------------------------
@@ -102,6 +153,7 @@ GRANT  EXECUTE ON FUNCTION public.fn_walkin_release_owner() TO authenticated;
 -- 3. The release: owner only, a note every time, never for a learner who left.
 -- ---------------------------------------------------------------------------
 -- Signature unchanged, so this replaces the 20260909061500 body in place.
+-- ci:allow-secdef-authenticated every signed-in user may CALL it, but the body refuses anyone who is not the configured owner (admission.walkin_release.owner_user_id, Director-guarded by 1b) with reason not_owner before touching a row
 CREATE OR REPLACE FUNCTION public.fn_clear_walkin_credit_for_payout(p_attribution_id uuid, p_note text DEFAULT NULL::text)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -160,11 +212,15 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'reason', 'learner_inactive');
   END IF;
 
+  -- The ONLY door past trg_guard_walkin_payout_clearance (3b): this transaction-
+  -- local flag is set here, around the one UPDATE, and cleared straight after.
+  PERFORM set_config('app.walkin_release', 'on', true);
   UPDATE public.consultant_lead_attributions
      SET payout_cleared_at   = now(),
          payout_cleared_by   = v_actor,
          payout_cleared_note = btrim(p_note)
    WHERE id = p_attribution_id;
+  PERFORM set_config('app.walkin_release', 'off', true);
 
   RETURN jsonb_build_object('ok', true, 'attribution_id', p_attribution_id, 'cleared_at', now());
 END;
@@ -172,6 +228,45 @@ $function$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_clear_walkin_credit_for_payout(uuid, text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_clear_walkin_credit_for_payout(uuid, text) TO authenticated;
+
+-- 3b. Nobody marks a claim released by editing the row (review, 2026-10-01).
+-- lead_attributions_update lets every admission.leads.edit holder (138 people)
+-- UPDATE these rows, so they could set payout_cleared_* directly and skip the
+-- owner. A signed-in or anonymous caller may now change those three columns only
+-- through fn_clear_walkin_credit_for_payout, which raises the app.walkin_release
+-- flag around its one UPDATE. postgres / service_role are untouched. Ordinary lead
+-- edits (every other column) are unaffected.
+CREATE OR REPLACE FUNCTION public.fn_guard_walkin_payout_clearance()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_role text := auth.role();
+BEGIN
+  IF v_role IN ('authenticated', 'anon')
+     AND current_setting('app.walkin_release', true) IS DISTINCT FROM 'on'
+     AND (
+       (TG_OP = 'INSERT' AND (NEW.payout_cleared_at IS NOT NULL
+                              OR NEW.payout_cleared_by IS NOT NULL
+                              OR NEW.payout_cleared_note IS NOT NULL))
+       OR (TG_OP = 'UPDATE' AND (NEW.payout_cleared_at   IS DISTINCT FROM OLD.payout_cleared_at
+                              OR NEW.payout_cleared_by   IS DISTINCT FROM OLD.payout_cleared_by
+                              OR NEW.payout_cleared_note IS DISTINCT FROM OLD.payout_cleared_note))
+     ) THEN
+    RAISE EXCEPTION 'A walk-in claim can only be released by its owner, through the Review Worklist.'
+      USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_guard_walkin_payout_clearance() FROM anon, authenticated, PUBLIC;
+
+DROP TRIGGER IF EXISTS trg_guard_walkin_payout_clearance ON public.consultant_lead_attributions;
+CREATE TRIGGER trg_guard_walkin_payout_clearance
+  BEFORE INSERT OR UPDATE ON public.consultant_lead_attributions
+  FOR EACH ROW EXECUTE FUNCTION public.fn_guard_walkin_payout_clearance();
 
 -- ---------------------------------------------------------------------------
 -- 4. The rate card honours the hold.
