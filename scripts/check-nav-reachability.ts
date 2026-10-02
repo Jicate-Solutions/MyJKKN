@@ -66,6 +66,13 @@ const NAV_EXCLUDE = new Set<string>([
   // (see its `searchParams: { task?: string }`) and shows a "no ticket" state
   // with no task id, so it has no standalone chip surface to be reached from.
   '/campus-walk/fix',
+  // Campus Walk spot checks (2026-09-30 interview, rulings 1 and 3). Reached
+  // from the two bells that name it — "spot check" to the checker and "failed
+  // twice" to the college head. A sidebar row would be keyed instasolver.view
+  // (principals are not guaranteed projects.view) and so would show a Campus
+  // Walk group to every learner; the page itself refuses anyone but a
+  // principal or the Director.
+  '/campus-walk/spot-checks',
   // Top-bar avatar / bell targets
   '/profile',
   '/notifications',

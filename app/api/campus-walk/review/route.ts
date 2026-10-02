@@ -99,6 +99,8 @@ interface TaskRow {
   status_key: string;
   owner_staff_id: string | null;
   completed_at: string | null;
+  /** Passed to the close so a report that joined meanwhile is kept. */
+  updated_at?: string | null;
   metadata: Record<string, any>;
 }
 
@@ -164,7 +166,7 @@ export async function POST(request: NextRequest) {
 
   const { data: taskData, error: taskErr } = await admin
     .from('project_tasks')
-    .select('id, project_id, title, status_key, owner_staff_id, completed_at, metadata')
+    .select('id, project_id, title, status_key, owner_staff_id, completed_at, updated_at, metadata')
     .eq('id', taskId)
     .maybeSingle();
 

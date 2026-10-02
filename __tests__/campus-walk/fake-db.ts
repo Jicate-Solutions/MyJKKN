@@ -49,9 +49,15 @@ export function makeFakeDb(respond: Respond) {
         q.filters.push([c, v]);
         return b;
       },
-      in: () => b,
+      in: (c: string, v: unknown) => {
+        q.filters.push([`in:${c}`, v]);
+        return b;
+      },
       not: () => b,
       lt: () => b,
+      lte: () => b,
+      gte: () => b,
+      contains: () => b,
       order: () => b,
       limit: () => b,
       maybeSingle: () => run('maybeSingle'),

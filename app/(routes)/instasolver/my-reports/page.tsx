@@ -11,7 +11,9 @@
 // ── WHICH ROWS ──────────────────────────────────────────────────────────────
 // Campus Walk tasks (metadata.source = 'campus-walk') where the viewer is the
 // recorded reporter: metadata.reporter_id (InstaSolver) or
-// metadata.raised_by_profile_id (both doors). Filtered to the viewer's own id
+// metadata.raised_by_profile_id (both doors) — or where the viewer JOINED
+// someone else's open report (metadata.additional_reports, ruling 2 of the
+// 2026-09-30 interview; lib/campus-walk/join-report.ts). Filtered to the viewer's own id
 // on the server — nobody else's reports can reach this page.
 //
 // ── WHY SERVICE ROLE FOR READS ──────────────────────────────────────────────
@@ -24,6 +26,10 @@
 // ── D10 ─────────────────────────────────────────────────────────────────────
 // The reporter sees the job and the photos, never who fixed it: the rows are
 // built field by field and no name leaves the server.
+// Director's ruling, 1 Oct 2026: people who report the same job see each
+// other's WORDS as "Someone also reported: …" — a joiner sees the earlier
+// reporters' words, the person who filed it sees the later notes
+// (alsoReportedWordsOf). Never a name, an id, or whose photo is whose.
 //
 // Gated like the other InstaSolver pages: signed in, plus the
 // MENU_PERMISSIONS entry ('instasolver.view') in lib/sidebarMenuLink.ts.
@@ -38,6 +44,7 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
   NOT_FIXED_WINDOW_DAYS,
   REPORT_STATUS_LABEL,
+  alsoReportedWordsOf,
   canSayNotFixed,
   fixRoundKeyOf,
   isRateableFix,
@@ -51,7 +58,7 @@ const BUCKET = 'campus-walk';
 const SIGNED_URL_TTL_SECONDS = 60 * 30;
 const LIMIT = 100;
 
-const SELECT = 'id, title, status_key, due_date, completed_at, created_at, metadata';
+const SELECT = 'id, title, description, status_key, due_date, completed_at, created_at, metadata';
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
@@ -107,7 +114,9 @@ export default async function MyReportsPage() {
   // Two plain equality filters rather than one OR over two JSON paths: each is
   // a simple, predictable query, and the merge below de-duplicates the rows an
   // InstaSolver report matches on both.
-  const [byReporter, byRaiser] = await Promise.all([
+  // The third read is ruling 2 (2026-09-30 interview): reports the viewer
+  // JOINED instead of filing a second one (metadata.additional_reports).
+  const [byReporter, byRaiser, byJoin] = await Promise.all([
     admin
       .from('project_tasks')
       .select(SELECT)
@@ -122,9 +131,16 @@ export default async function MyReportsPage() {
       .eq('metadata->>raised_by_profile_id', user.id)
       .order('created_at', { ascending: false })
       .limit(LIMIT),
+    admin
+      .from('project_tasks')
+      .select(SELECT)
+      .eq('metadata->>source', 'campus-walk')
+      .contains('metadata', { additional_reports: [{ reporter_id: user.id }] })
+      .order('created_at', { ascending: false })
+      .limit(LIMIT),
   ]);
 
-  if (byReporter.error && byRaiser.error) {
+  if (byReporter.error && byRaiser.error && byJoin.error) {
     return (
       <Shell>
         <Notice
@@ -136,7 +152,11 @@ export default async function MyReportsPage() {
   }
 
   const rowsById = new Map<string, any>();
-  for (const r of [...(byReporter.data ?? []), ...(byRaiser.data ?? [])]) {
+  // Rows the viewer filed themselves are set last, so a row they filed AND
+  // joined reads as theirs (with the "Not fixed" button), not as joined.
+  const ownIds = new Set<string>();
+  for (const r of [...(byReporter.data ?? []), ...(byRaiser.data ?? [])]) ownIds.add(r.id as string);
+  for (const r of [...(byJoin.data ?? []), ...(byReporter.data ?? []), ...(byRaiser.data ?? [])]) {
     rowsById.set(r.id as string, r);
   }
   const rows = [...rowsById.values()]
@@ -216,8 +236,20 @@ export default async function MyReportsPage() {
       hasAfterPhoto: Boolean(afterPath) && status !== 'open' && status !== 'reopened',
       afterPhotoUrl:
         afterPath && status !== 'open' && status !== 'reopened' ? (signed.get(afterPath) ?? null) : null,
-      canSayNotFixed: canSayNotFixed({ status_key: r.status_key, completed_at: r.completed_at }),
-      canRate: rateableHere && myRating === null,
+      // A joined report is told and shown, but the button stays with the
+      // person who filed it (app/api/campus-walk/not-fixed/route.ts).
+      joined: !ownIds.has(r.id as string),
+      alsoReported: alsoReportedWordsOf({
+        description: (r.description as string | null) ?? null,
+        metadata: m,
+        viewerId: user.id,
+        viewerFiled: ownIds.has(r.id as string),
+      }),
+      canSayNotFixed:
+        ownIds.has(r.id as string) && canSayNotFixed({ status_key: r.status_key, completed_at: r.completed_at }),
+      // Stars, like the not-fixed button, stay with the person who filed it —
+      // app/api/instasolver/thanks/route.ts refuses anyone else.
+      canRate: ownIds.has(r.id as string) && rateableHere && myRating === null,
       myRating,
     };
   });

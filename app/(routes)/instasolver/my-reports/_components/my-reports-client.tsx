@@ -34,6 +34,10 @@ export interface MyReport {
   beforePhotoUrl: string | null;
   hasAfterPhoto: boolean;
   afterPhotoUrl: string | null;
+  /** The viewer added to somebody else's open report instead of filing a new one. */
+  joined: boolean;
+  /** Other reporters' words only — never who said them (ruling, 1 Oct 2026). */
+  alsoReported: string[];
   canSayNotFixed: boolean;
   /** A fixed job the viewer has not yet given stars for THIS fix. */
   canRate: boolean;
@@ -252,6 +256,22 @@ function ReportCard({ report, windowDays }: { report: MyReport; windowDays: numb
             <MapPin className="h-4 w-4 shrink-0" aria-hidden="true" />
             {report.place}
           </p>
+        )}
+
+        {report.joined && (
+          <p className="text-sm text-muted-foreground">
+            You added to this report — someone had already reported it. You will be told when it is fixed.
+          </p>
+        )}
+
+        {report.alsoReported.length > 0 && (
+          <ul className="space-y-1 border-l-2 pl-3 text-sm text-muted-foreground">
+            {report.alsoReported.map((words, i) => (
+              <li key={i} className="break-words">
+                Someone also reported: “{words}”
+              </li>
+            ))}
+          </ul>
         )}
 
         <p className="text-sm text-muted-foreground">
