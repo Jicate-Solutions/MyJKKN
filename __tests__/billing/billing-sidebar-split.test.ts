@@ -38,11 +38,15 @@ const PRE_SPLIT_ROUTES = [
 ];
 
 describe('Billing & Accounts sidebar split', () => {
-  it('exposes exactly three menus, in domain order', () => {
+  // A fourth menu, 'Settings', was added 2026-10-01 (58c6987f64) for the
+  // group-wide pages (Categories, Reports, Analytics, Activities, Payment
+  // Gateway Accounts) that used to sit at the bottom of Colleges.
+  it('exposes exactly four menus, in domain order', () => {
     expect(billingGroup('/billing').menus.map((m) => m.label)).toEqual([
       'Colleges',
       'Transport Fees',
       'Schools',
+      'Settings',
     ]);
   });
 
@@ -55,14 +59,29 @@ describe('Billing & Accounts sidebar split', () => {
     expect(missing).toEqual([]);
   });
 
-  it('splits the routes 17 / 0 / 5 across the three menus', () => {
-    const [colleges, transport, schools] = billingGroup('/billing').menus;
-    expect(colleges.submenus).toHaveLength(17);
+  // Colleges: 17 at the split, +1 Bill Cancellations (dc2495ff05, 28 Sep),
+  // -5 group-wide pages moved to Settings (58c6987f64, 1 Oct) = 13.
+  it('splits the routes 13 / 0 / 5 / 5 across the four menus', () => {
+    const [colleges, transport, schools, settings] = billingGroup('/billing').menus;
+    expect(colleges.submenus).toHaveLength(13);
     // A direct link: an empty submenus[] is what makes the filter gate this
     // menu on its own billing.transport.view mapping.
     expect(transport.submenus).toHaveLength(0);
     expect(transport.href).toBe('/billing/transport');
     expect(schools.submenus).toHaveLength(5);
+    expect(settings.submenus.map((s) => s.href)).toEqual([
+      '/billing/categories',
+      '/billing/reports',
+      '/billing/analytics',
+      '/billing/activities',
+      '/billing/payment-accounts',
+    ]);
+  });
+
+  it('lists every billing route in exactly one menu', () => {
+    const hrefs = billingGroup('/billing').menus.flatMap((m) => m.submenus.map((s) => s.href));
+    const dupes = hrefs.filter((h, i) => hrefs.indexOf(h) !== i);
+    expect(dupes).toEqual([]);
   });
 
   it('keeps school routes out of Colleges and college routes out of Schools', () => {
@@ -72,15 +91,20 @@ describe('Billing & Accounts sidebar split', () => {
     expect(schools.submenus.every((s) => s.href.startsWith('/billing/school-fees'))).toBe(true);
   });
 
-  // All three menus live under /billing, so the college predicate has to
-  // exclude the other two prefixes. Drop that exclusion and every row lights up.
+  // All four menus live under /billing, so the college predicate has to
+  // exclude the other prefixes. Drop that exclusion and every row lights up.
   it.each([
     ['/billing', 'Colleges'],
     ['/billing/schedule', 'Colleges'],
     ['/billing/schedule/students/02ea8e45-509e-4e67-b4de-27933b2482e2', 'Colleges'],
     ['/billing/receipts', 'Colleges'],
-    ['/billing/categories', 'Colleges'],
     ['/billing/late-charges', 'Colleges'],
+    ['/billing/bill-cancellations', 'Colleges'],
+    ['/billing/categories', 'Settings'],
+    ['/billing/reports', 'Settings'],
+    ['/billing/analytics', 'Settings'],
+    ['/billing/activities', 'Settings'],
+    ['/billing/payment-accounts', 'Settings'],
     ['/billing/transport', 'Transport Fees'],
     ['/billing/school-fees', 'Schools'],
     ['/billing/school-fees/collect', 'Schools'],

@@ -31,25 +31,18 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createBellNotification } from '@/lib/services/meetings/meeting-trigger-service';
+import { dueDateFor } from '@/lib/campus-walk/due-dates';
 import {
   sendUrgentConditionAlert,
   type UrgentAlertOutcome
 } from '@/lib/campus-walk/urgent-alert';
+import { resolveCollegeHeadIds } from '@/lib/campus-walk/spot-check';
 
 const CAMPUS_OPS_PROJECT_CODE = 'CAMPUS-OPS';
 
-/**
- * Due-date policy (Director ruling, locked 2026-08-19 — supersedes the D6 draft
- * numbers). D6: an unsafe condition is due the SAME DAY it is spotted, never
- * queued behind a dusty sill — a 0-day offset, not "tomorrow". A normal symptom
- * (one action, e.g. "clean this toilet") gets 2 days. A system gap (no SOP, an
- * audit finding — broader work) gets 7 days.
- */
-const DUE_IN_DAYS = {
-  unsafe: 0,
-  symptom: 2,
-  system_gap: 7
-} as const;
+// Due-date policy (Director ruling, locked 2026-08-19): DUE_IN_DAYS lives in
+// lib/campus-walk/due-dates.ts so a "Not fixed" reopen gets the same clock a
+// new report does (Director, 2026-09-30). See that file for the numbers.
 
 export type WalkKind = 'symptom' | 'system_gap';
 
@@ -138,7 +131,7 @@ export interface CreateWalkTaskInput {
    *
    * Protected: `source`, `fix`, `occurrence_count`, `cancelled_at`, `blocked`,
    * `sla`, `urgent_alert`, `photos_purged`, `photos_purged_at`,
-   * `photos_purged_object_count`.
+   * `photos_purged_object_count`, `not_fixed_count`, `spot_check`.
    */
   extraMetadata?: Record<string, unknown>;
   /**
@@ -180,7 +173,11 @@ const RESERVED_METADATA_KEYS = new Set([
   'urgent_alert',
   'photos_purged',
   'photos_purged_at',
-  'photos_purged_object_count'
+  'photos_purged_object_count',
+  // 2026-09-30 interview rulings 1 and 3: a forged counter would ring the
+  // college head early, a forged spot check would skip or fake one.
+  'not_fixed_count',
+  'spot_check'
 ]);
 
 /** `extraMetadata` with every reserved key removed, loudly. */
@@ -373,12 +370,79 @@ async function resolveDepartmentHeadProfileId(
   return (dept as any)?.head_of_department_id ?? null;
 }
 
+/**
+ * The college principal who can own a job: a principal of that college
+ * (lib/campus-walk/spot-check.ts `resolveCollegeHeadIds`, which is
+ * resolvePrincipalsByInstitution) who also has an active staff row — a task
+ * needs owner_staff_id. Null when there is no college or nobody qualifies.
+ */
+async function resolvePrincipalOwner(
+  db: SupabaseClient,
+  institutionId: string | null | undefined
+): Promise<{ profileId: string; staffId: string } | null> {
+  if (!institutionId) return null;
+  const ids = await resolveCollegeHeadIds(db, institutionId);
+  if (ids.length === 0) return null;
+  const staffMap = await mapProfilesToStaff(db, ids);
+  for (const profileId of ids) {
+    const staffId = staffMap.get(profileId);
+    if (staffId) return { profileId, staffId };
+  }
+  return null;
+}
+
+/**
+ * The caretaker of the resource a report is about (Director, 2026-09-30
+ * interview, ruling 4). resources.caretaker_user_id / caretaker_user_ids hold
+ * STAFF ids; the single column is tried first. Only someone with an active
+ * staff row counts. Never throws — an unreadable resource is "no caretaker".
+ */
+async function resolveCaretakerProfileId(
+  db: SupabaseClient,
+  resourceId: string
+): Promise<string | null> {
+  try {
+    const { data: resource } = await db
+      .from('resources')
+      .select('caretaker_user_id, caretaker_user_ids')
+      .eq('id', resourceId)
+      .maybeSingle();
+    if (!resource) return null;
+    const ordered: string[] = [];
+    for (const id of [
+      (resource as any).caretaker_user_id,
+      ...(((resource as any).caretaker_user_ids ?? []) as unknown[])
+    ]) {
+      if (typeof id === 'string' && id.trim() && !ordered.includes(id.trim())) ordered.push(id.trim());
+    }
+    if (ordered.length === 0) return null;
+    const profileByStaff = await mapStaffToProfilesLocal(db, ordered);
+    for (const staffId of ordered) {
+      const profileId = profileByStaff.get(staffId);
+      if (profileId) return profileId;
+    }
+    return null;
+  } catch (e: any) {
+    console.error('[campus-walk] caretaker lookup failed — trying the estate office:', e?.message ?? e);
+    return null;
+  }
+}
+
+/** How a job's owner was found (ruling 4). 'given' = the caller named one. */
+export type OwnerSource = 'given' | 'caretaker' | 'estate_office' | 'principal' | 'none';
+
 export interface RouteAccountableParams {
   kind: WalkKind;
   /** D6 urgent lane — same-day due date regardless of kind. */
   isUnsafe: boolean;
   /** Supplied/candidate owner, profiles.id. Null is legal — routes straight to the EAO. */
   candidateProfileId: string | null;
+  /**
+   * The job's college. When given, and neither the candidate nor the EAO can
+   * own the job, its principal does (ruling 4). Omitted — as
+   * lib/campus-walk/repeats.ts does — the behaviour is exactly as before.
+   */
+  institutionId?: string | null;
 }
 
 export interface RouteAccountableResult {
@@ -386,6 +450,8 @@ export interface RouteAccountableResult {
   accountableStaffId: string | null;
   /** True when nobody was supplied (or the supplied owner has no active staff row) and this fell through to the EAO. */
   routedToEaoNoOwner: boolean;
+  /** True when neither the candidate nor the EAO could own it and the college principal does (ruling 4). */
+  routedToPrincipalNoOwner?: boolean;
   /** True when whoever ended up accountable (candidate or EAO fallback) is on approved leave right now. */
   onApprovedLeave: boolean;
   leaveOriginalProfileId: string | null;
@@ -421,6 +487,7 @@ export async function routeAccountable(
   // task with nobody accountable never closes. Route to the EAO instead of
   // leaving it unassigned.
   let routedToEaoNoOwner = false;
+  let routedToPrincipalNoOwner = false;
   if (!accountableStaffId) {
     const eao = await resolveEao(db);
     if (eao) {
@@ -428,14 +495,22 @@ export async function routeAccountable(
       accountableStaffId = eao.staffId;
       routedToEaoNoOwner = true;
     } else {
-      console.error(
-        '[campus-walk] no owner supplied and no EAO could be resolved (role or fallback email) — routing left unassigned'
-      );
+      // Ruling 4 (2026-09-30 interview): no estate office -> the college
+      // principal. Only when the caller named the college.
+      const principal = await resolvePrincipalOwner(db, params.institutionId);
+      if (principal) {
+        accountableProfileId = principal.profileId;
+        accountableStaffId = principal.staffId;
+        routedToPrincipalNoOwner = true;
+      } else {
+        console.error(
+          '[campus-walk] no owner supplied, no EAO (role or fallback email) and no principal of the college with a team member record — routing left unassigned'
+        );
+      }
     }
   }
 
-  const dueInDays = params.isUnsafe ? DUE_IN_DAYS.unsafe : DUE_IN_DAYS[params.kind];
-  const dueDate = new Date(Date.now() + dueInDays * 86_400_000).toISOString().slice(0, 10);
+  const dueDate = dueDateFor(params.kind, Boolean(params.isUnsafe));
 
   // Whoever ends up Accountable — candidate or the EAO fallback above — must
   // not be penalised for being on sanctioned leave. Pause the clock and hand
@@ -488,6 +563,7 @@ export async function routeAccountable(
     accountableProfileId,
     accountableStaffId,
     routedToEaoNoOwner,
+    routedToPrincipalNoOwner,
     onApprovedLeave,
     leaveOriginalProfileId,
     leaveOriginalStaffId,
@@ -555,14 +631,37 @@ export async function createWalkTask(
     // Due date + EAO fallback + leave reassignment — the exact rules D7's
     // reopen flow (lib/campus-walk/repeats.ts) re-runs for a recurrence, via
     // this same exported function rather than a duplicated copy.
+    //
+    // Ruling 4 (2026-09-30 interview): a report with no owner goes to the
+    // resource's caretaker when the report names a resource
+    // (extraMetadata.resource_id), else the estate office (EAO), else the
+    // college principal. The caretaker is looked up here; the EAO and
+    // principal steps are routeAccountable's.
+    const resourceId =
+      typeof input.extraMetadata?.resource_id === 'string' ? input.extraMetadata.resource_id : null;
+    const caretakerProfileId =
+      !input.accountableProfileId && resourceId ? await resolveCaretakerProfileId(db, resourceId) : null;
     const routing = await routeAccountable(db, {
       kind: input.kind,
       isUnsafe: Boolean(input.isUnsafe),
-      candidateProfileId: input.accountableProfileId ?? null
+      candidateProfileId: input.accountableProfileId ?? caretakerProfileId ?? null,
+      institutionId: input.institutionId ?? null
     });
     const accountableProfileId = routing.accountableProfileId;
     const accountableStaffId = routing.accountableStaffId;
     const routedToEaoNoOwner = routing.routedToEaoNoOwner;
+    const routedToPrincipalNoOwner = routing.routedToPrincipalNoOwner === true;
+    const ownerSource: OwnerSource = routedToEaoNoOwner
+      ? 'estate_office'
+      : routedToPrincipalNoOwner
+        ? 'principal'
+        : !accountableStaffId
+          ? 'none'
+          : input.accountableProfileId
+            ? 'given'
+            : caretakerProfileId
+              ? 'caretaker'
+              : 'none';
     const dueDate = routing.dueDate;
     const onApprovedLeave = routing.onApprovedLeave;
     const leaveOriginalProfileId = routing.leaveOriginalProfileId;
@@ -631,6 +730,7 @@ export async function createWalkTask(
           ? 'Reported via InstaSolver'
           : 'Management walk',
       accountable_routed_to_eao_no_owner: routedToEaoNoOwner,
+      owner_source: ownerSource,
       reassigned_from_profile_id: onApprovedLeave ? leaveOriginalProfileId : null
     };
     if (onApprovedLeave) {
@@ -792,6 +892,28 @@ export async function createWalkTask(
         });
       } catch (e: any) {
         console.error('[campus-walk] EAO routing notification failed:', e?.message ?? e);
+      }
+    }
+
+    // Ruling 4: the caretaker or the principal the chain landed on is told,
+    // the same way the EAO is above — a job nobody hears about sits unseen.
+    if ((ownerSource === 'caretaker' || ownerSource === 'principal') && accountableProfileId) {
+      try {
+        const why =
+          ownerSource === 'caretaker'
+            ? 'as the caretaker of the item it is about'
+            : 'as the principal, because no estate office is on record to take it';
+        await createBellNotification(db, {
+          recipientIds: [accountableProfileId],
+          createdBy: accountableProfileId,
+          title: `Campus job for you — ${input.title.slice(0, 100)}`,
+          body: `No specific owner was set for "${input.title}", so it has been routed to you ${why}. Fix it or pass it on.`,
+          url: `/campus-walk/fix?task=${task.id}`,
+          category: 'campus-walk:owner-routed',
+          metadata: { task_id: task.id, source: 'campus-walk', owner_source: ownerSource }
+        });
+      } catch (e: any) {
+        console.error('[campus-walk] owner routing notification failed:', e?.message ?? e);
       }
     }
 

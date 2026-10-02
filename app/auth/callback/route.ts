@@ -10,6 +10,7 @@ import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
 import { StudentValidationService, INDUCTION_ELIGIBLE_LIFECYCLE_STATUSES } from '@/lib/services/auth/student-validation-service';
 import { SessionTrackingService } from '@/lib/services/analytics/session-tracking-service';
 import { scheduleFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
+import { safeReturnPath } from '@/lib/auth/safe-return-path';
 
 /**
  * Path W ignition — fire-and-forget. Auto-provisions an invisible Cal.com backing
@@ -86,6 +87,12 @@ export async function GET(request: NextRequest) {
     // redirect straight back to /api/saml/sso?samlReqId=... which will load
     // the persisted AuthnRequest and emit the SAMLResponse to the SP ACS.
     const samlReqId = requestUrl.searchParams.get('samlReqId');
+
+    // Return-to (threaded by /auth/login the same way as samlReqId): the page
+    // proxy.ts sent the person to sign in from, e.g. a scanned QR sticker at
+    // /instasolver/r/<token>. Checked again here — the value is in a URL anyone
+    // can write — and used only where the landing page would otherwise be '/'.
+    const returnPath = safeReturnPath(requestUrl.searchParams.get('next'));
 
     console.log('[Auth Callback] 🔐 Auth callback initiated');
     console.log('[Auth Callback] Request URL:', requestUrl.toString());
@@ -542,7 +549,9 @@ export async function GET(request: NextRequest) {
 
       // If profile exists but not completed
       if (!actualProfile.profile_completed) {
-        return NextResponse.redirect(new URL('/auth/complete-profile', origin));
+        const completeProfileUrl = new URL('/auth/complete-profile', origin);
+        if (returnPath) completeProfileUrl.searchParams.set('next', returnPath);
+        return NextResponse.redirect(completeProfileUrl);
       }
 
       // If profile exists and is completed, redirect based on role
@@ -586,8 +595,9 @@ export async function GET(request: NextRequest) {
             destination = `/auth/login?reason=${validation.reason}`;
             console.log('[Auth Callback] Signed out student, redirecting to:', destination);
           } else {
-            // Student allowed - redirect to dashboard
-            destination = '/';
+            // Student allowed - redirect to dashboard (or back to the page
+            // they were on; proxy.ts still enforces what a student may open)
+            destination = returnPath ?? '/';
             console.log('[Auth Callback] ✅ Student access GRANTED');
             console.log('[Auth Callback] Student status:', validation.status);
             console.log('[Auth Callback] Redirecting to dashboard:', destination);
@@ -597,6 +607,7 @@ export async function GET(request: NextRequest) {
         destination = '/driver';
         console.log('[Auth Callback] Driver role detected, redirecting to:', destination);
       } else {
+        if (returnPath) destination = returnPath;
         console.log('[Auth Callback] Other role detected:', actualProfile.role, 'redirecting to:', destination);
       }
 

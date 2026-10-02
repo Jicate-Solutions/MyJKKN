@@ -777,7 +777,7 @@ export default function GeneralEventDetailPage() {
                 <Fact
                   icon={MapPin}
                   label="Venue"
-                  value={event.venue || event.venue_text}
+                  value={event.venue || event.venue_resource?.name || event.venue_text}
                 />
                 <Fact
                   icon={Building2}

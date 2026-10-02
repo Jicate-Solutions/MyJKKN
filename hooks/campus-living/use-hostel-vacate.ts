@@ -3,11 +3,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { HostelVacateRequestService } from '@/lib/services/campus-living/hostel-vacate-request-service';
-import { usePermissions } from '@/hooks/use-permissions';
 import type {
-  SubmitVacateRequestDTO,
+  CreateVacateRequestDTO,
   VacateRequestFilters,
   HostelVacateDocument,
+  VacateDamageLineInput,
 } from '@/types/hostel-vacate';
 
 export const hostelVacateKeys = {
@@ -15,17 +15,18 @@ export const hostelVacateKeys = {
   list: (institutionId: string, filters?: VacateRequestFilters) =>
     ['hostel-vacate', 'list', institutionId, filters] as const,
   detail: (id: string) => ['hostel-vacate', 'detail', id] as const,
+  bills: (id: string) => ['hostel-vacate', 'bills', id] as const,
+  learner: (profileId: string) => ['hostel-vacate', 'learner', profileId] as const,
+  fineBill: (billId: string) => ['hostel-vacate', 'fine-bill', billId] as const,
   myRequests: (userId: string) => ['hostel-vacate', 'mine', userId] as const,
 };
 
 // --- Query hooks ---
 
 export function useVacateRequests(institutionId: string, filters?: VacateRequestFilters) {
-  const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: hostelVacateKeys.list(institutionId, filters),
-    queryFn: () => HostelVacateRequestService.getRequests(institutionId, filters),
-    enabled: isSuperAdmin || !!institutionId,
+    queryFn: () => HostelVacateRequestService.getRequests(institutionId || undefined, filters),
   });
 }
 
@@ -45,19 +46,54 @@ export function useMyVacateRequests(userId: string | undefined) {
   });
 }
 
+/** Every hostel/mess bill (all years) + outstanding total for the request's learner. */
+export function useVacateBillStatus(requestId: string, enabled = true) {
+  return useQuery({
+    queryKey: hostelVacateKeys.bills(requestId),
+    queryFn: () => HostelVacateRequestService.getBillStatus(requestId),
+    enabled: !!requestId && enabled,
+  });
+}
+
+/** Full learner record (programme, contacts, parents, room categories) for the detail page. */
+export function useVacateLearnerDetails(profileId: string | null | undefined) {
+  return useQuery({
+    queryKey: hostelVacateKeys.learner(profileId ?? ''),
+    queryFn: () => HostelVacateRequestService.getLearnerDetails(profileId!),
+    enabled: !!profileId,
+  });
+}
+
+/** Approver names for the decision timeline. */
+export function useVacateActorNames(ids: string[]) {
+  const key = [...new Set(ids)].sort();
+  return useQuery({
+    queryKey: ['hostel-vacate', 'actors', key] as const,
+    queryFn: () => HostelVacateRequestService.getActorNames(key),
+    enabled: key.length > 0,
+  });
+}
+
+/** The damage-fine bill (raised at CAO approval); polled lightly while it is unpaid. */
+export function useVacateFineBill(billId: string | null | undefined) {
+  return useQuery({
+    queryKey: hostelVacateKeys.fineBill(billId ?? ''),
+    queryFn: () => HostelVacateRequestService.getFineBill(billId!),
+    enabled: !!billId,
+  });
+}
+
 // --- Mutation hooks ---
 
 export function useCreateVacateDraft() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ payload, submittedById }: { payload: SubmitVacateRequestDTO; submittedById: string }) =>
-      HostelVacateRequestService.createDraft(payload, submittedById),
+    mutationFn: (payload: CreateVacateRequestDTO) => HostelVacateRequestService.createDraft(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: hostelVacateKeys.all });
-      toast.success('Vacate request draft created');
     },
     onError: (error: Error) => {
-      toast.error(`Failed to create draft: ${error.message}`);
+      toast.error(`Failed to create request: ${error.message}`);
     },
   });
 }
@@ -65,11 +101,13 @@ export function useCreateVacateDraft() {
 export function useSubmitVacateDraft() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ requestId, submitterId }: { requestId: string; submitterId: string }) =>
-      HostelVacateRequestService.submitDraft(requestId, submitterId),
-    onSuccess: (_data, variables) => {
+    mutationFn: (requestId: string) => HostelVacateRequestService.submitDraft(requestId),
+    onSuccess: (_data, requestId) => {
       queryClient.invalidateQueries({ queryKey: hostelVacateKeys.all });
-      queryClient.invalidateQueries({ queryKey: hostelVacateKeys.detail(variables.requestId) });
+      queryClient.invalidateQueries({ queryKey: hostelVacateKeys.detail(requestId) });
+      // Submit moves the allocation to pending_vacate.
+      queryClient.invalidateQueries({ queryKey: ['my-hostel'] });
+      queryClient.invalidateQueries({ queryKey: ['hostel-allocations'] });
       toast.success('Vacate request submitted');
     },
     onError: (error: Error) => {
@@ -78,24 +116,22 @@ export function useSubmitVacateDraft() {
   });
 }
 
-export function useAdvanceVacate() {
+/** Tick / untick one line of the request's checklist (optionally with a remark). */
+export function useSetChecklistItem() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
-      requestId,
-      actorId,
-      action,
-      remarks,
+      itemId,
+      cleared,
+      notes,
     }: {
+      itemId: string;
       requestId: string;
-      actorId: string | null;
-      action: 'approve' | 'reject' | 'escalate' | 'skip';
-      remarks?: string;
-    }) => HostelVacateRequestService.advance(requestId, actorId, action, remarks),
+      cleared: boolean;
+      notes: string | null;
+    }) => HostelVacateRequestService.setChecklistItem(itemId, cleared, notes),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: hostelVacateKeys.all });
       queryClient.invalidateQueries({ queryKey: hostelVacateKeys.detail(variables.requestId) });
-      toast.success(`Request ${variables.action}d`);
     },
     onError: (error: Error) => {
       toast.error(`Failed: ${error.message}`);
@@ -103,21 +139,115 @@ export function useAdvanceVacate() {
   });
 }
 
-export function useRejectVacate() {
+/** Beds, allocations, the learner's accommodation type and categories all change on completion. */
+const COMPLETION_KEYS = [
+  'hostel-allocations',
+  'hostel-rooms',
+  'hostel-beds',
+  'hostel-blocks',
+  'hostel-residents',
+  'learner-hostelites',
+  'my-hostel',
+];
+
+/**
+ * Approve the step the request is at (principal / warden / mess / CAO). The CAO
+ * step either completes the vacate or raises the damage-fine bill, so billing
+ * caches are refreshed as well as the occupancy ones.
+ */
+export function useAdvanceVacate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ requestId, remarks }: { requestId: string; remarks?: string | null }) =>
+      HostelVacateRequestService.advance(requestId, remarks),
+    onSuccess: (result, variables) => {
+      queryClient.invalidateQueries({ queryKey: hostelVacateKeys.all });
+      queryClient.invalidateQueries({ queryKey: hostelVacateKeys.detail(variables.requestId) });
+      for (const key of [...COMPLETION_KEYS, 'billing-bills', 'student-bills']) {
+        queryClient.invalidateQueries({ queryKey: [key] });
+      }
+      if (result.status === 'completed') {
+        toast.success('Approved — learner vacated and moved to Day Scholar');
+      } else if (result.status === 'pending_fine') {
+        toast.success('Approved — damage fine bill raised; the vacate completes once it is paid');
+      } else {
+        toast.success('Approved — moved to the next step');
+      }
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+}
+
+/** Step 1 refresh: re-reads the bills and moves the request on if they are all settled. */
+export function useRecheckVacateBills() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (requestId: string) => HostelVacateRequestService.recheckBills(requestId),
+    onSuccess: (result, requestId) => {
+      queryClient.invalidateQueries({ queryKey: hostelVacateKeys.all });
+      queryClient.invalidateQueries({ queryKey: hostelVacateKeys.detail(requestId) });
+      queryClient.invalidateQueries({ queryKey: hostelVacateKeys.bills(requestId) });
+      if (result.advanced) toast.success('All bills are cleared — sent to the Principal');
+      else toast.info('Bills are still outstanding');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to re-check bills: ${error.message}`);
+    },
+  });
+}
+
+/** Warden's room inspection: damage lines, or an explicit "no damage". */
+export function useSetVacateDamages() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
       requestId,
-      actorId,
-      reason,
+      lines,
+      noDamage,
     }: {
       requestId: string;
-      actorId: string;
-      reason: string;
-    }) => HostelVacateRequestService.reject(requestId, actorId, reason),
+      lines: VacateDamageLineInput[];
+      noDamage: boolean;
+    }) => HostelVacateRequestService.setDamages(requestId, lines, noDamage),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: hostelVacateKeys.detail(variables.requestId) });
+      toast.success('Room inspection saved');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+}
+
+/** Retry completion when the fine was settled but the automatic completion did not run. */
+export function useCompleteVacateAfterFine() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (requestId: string) => HostelVacateRequestService.completeAfterFine(requestId),
+    onSuccess: (_data, requestId) => {
+      queryClient.invalidateQueries({ queryKey: hostelVacateKeys.all });
+      queryClient.invalidateQueries({ queryKey: hostelVacateKeys.detail(requestId) });
+      for (const key of COMPLETION_KEYS) queryClient.invalidateQueries({ queryKey: [key] });
+      toast.success('Vacate completed');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+}
+
+export function useRejectVacate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ requestId, reason }: { requestId: string; reason: string }) =>
+      HostelVacateRequestService.reject(requestId, reason),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: hostelVacateKeys.all });
       queryClient.invalidateQueries({ queryKey: hostelVacateKeys.detail(variables.requestId) });
+      queryClient.invalidateQueries({ queryKey: ['hostel-allocations'] });
+      queryClient.invalidateQueries({ queryKey: ['my-hostel'] });
       toast.success('Request rejected');
     },
     onError: (error: Error) => {
@@ -129,18 +259,13 @@ export function useRejectVacate() {
 export function useCancelVacate() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      requestId,
-      actorId,
-      reason,
-    }: {
-      requestId: string;
-      actorId: string;
-      reason: string;
-    }) => HostelVacateRequestService.cancel(requestId, actorId, reason),
+    mutationFn: ({ requestId, reason }: { requestId: string; reason: string }) =>
+      HostelVacateRequestService.cancel(requestId, reason),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: hostelVacateKeys.all });
       queryClient.invalidateQueries({ queryKey: hostelVacateKeys.detail(variables.requestId) });
+      queryClient.invalidateQueries({ queryKey: ['hostel-allocations'] });
+      queryClient.invalidateQueries({ queryKey: ['my-hostel'] });
       toast.success('Request cancelled');
     },
     onError: (error: Error) => {
@@ -174,86 +299,6 @@ export function useDeleteVacateDocument() {
     },
     onError: (error: Error) => {
       toast.error(`Remove failed: ${error.message}`);
-    },
-  });
-}
-
-export function useMarkClearanceItem() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({
-      itemId,
-      cleared,
-      notes,
-      clearedBy,
-    }: {
-      itemId: string;
-      cleared: boolean;
-      notes: string | null;
-      clearedBy: string;
-    }) => HostelVacateRequestService.markClearanceItem(itemId, cleared, notes, clearedBy),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: hostelVacateKeys.all });
-    },
-    onError: (error: Error) => {
-      toast.error(`Failed: ${error.message}`);
-    },
-  });
-}
-
-export function useFinalizeVacate() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ requestId, actorId }: { requestId: string; actorId: string }) =>
-      HostelVacateRequestService.finalize(requestId, actorId),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: hostelVacateKeys.all });
-      queryClient.invalidateQueries({ queryKey: hostelVacateKeys.detail(variables.requestId) });
-      toast.success('Vacate finalized');
-    },
-    onError: (error: Error) => {
-      toast.error(`Failed to finalize: ${error.message}`);
-    },
-  });
-}
-
-// --- Parent OTP (PR-C) ---
-
-export function useGenerateParentOtp() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (requestId: string) =>
-      HostelVacateRequestService.generateParentOtp(requestId),
-    onSuccess: (_data, requestId) => {
-      queryClient.invalidateQueries({ queryKey: hostelVacateKeys.detail(requestId) });
-      toast.success('Parent OTP generated (30-minute validity)');
-    },
-    onError: (error: Error) => {
-      toast.error(`Failed to generate OTP: ${error.message}`);
-    },
-  });
-}
-
-export function useVerifyParentOtp() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({
-      requestId,
-      otp,
-      actorId,
-    }: {
-      requestId: string;
-      otp: string;
-      actorId: string | null;
-    }) => HostelVacateRequestService.verifyParentOtp(requestId, otp, actorId),
-    onSuccess: (result, variables) => {
-      queryClient.invalidateQueries({ queryKey: hostelVacateKeys.all });
-      queryClient.invalidateQueries({ queryKey: hostelVacateKeys.detail(variables.requestId) });
-      if (result.valid) toast.success('Parent consent recorded. Advancing to warden.');
-      else toast.error(result.reason ?? 'OTP verification failed');
-    },
-    onError: (error: Error) => {
-      toast.error(`Failed to verify OTP: ${error.message}`);
     },
   });
 }
