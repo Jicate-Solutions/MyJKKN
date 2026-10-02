@@ -38,6 +38,15 @@
 //      booking came from the exact calendar-id match. A hand-link is a human
 //      judgement that can be wrong, and a candidate's interview record is not
 //      something an unlink puts back.
+//   g. One set of follow-ups per meeting, not two. The AI note drafter
+//      (lib/services/meetings/meeting-note-draft.ts, #4053) writes follow-ups
+//      with source 'ai_draft' when Fireflies has no summary yet. If the
+//      booking already holds any of those, the Fireflies follow-ups are NOT
+//      added, nobody is belled, and the note is stamped so this is not tried
+//      again. If that check cannot be read, nothing is written and the note
+//      is left unstamped for the next run. The drafter does the same in the
+//      other direction: it adds nothing to a booking that already has ANY
+//      follow-ups. Every row written here is marked source 'fireflies'.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -408,6 +417,33 @@ export interface ApplyNoteOptions {
 }
 
 /**
+ * How one call ended. Neither door acts on it; it names each ending so a test
+ * or a log can tell them apart.
+ *
+ *  - 'not_linked_here'          the note is gone, unlinked, or on another booking
+ *  - 'already_applied'          the note was stamped before
+ *  - 'skipped_ai_draft_exists'  STAMPED, nothing added: the booking already holds
+ *                               follow-ups the AI drafter wrote (point g)
+ *  - 'ai_draft_check_failed'    NOT stamped, nothing added: could not read whether
+ *                               it does; the next run tries again
+ *  - 'applied'                  STAMPED
+ *  - 'not_stamped'              the insert failed, the booking has no host, or the
+ *                               note is not summarised yet and produced nothing
+ */
+export type ApplyNoteOutcome =
+  | 'not_linked_here'
+  | 'already_applied'
+  | 'skipped_ai_draft_exists'
+  | 'ai_draft_check_failed'
+  | 'applied'
+  | 'not_stamped';
+
+/** meeting_action_items.source for rows this file writes (CHECK: NULL, 'fireflies', 'ai_draft'). */
+const FIREFLIES_SOURCE = 'fireflies';
+/** meeting_action_items.source the AI note drafter writes. */
+const AI_DRAFT_SOURCE = 'ai_draft';
+
+/**
  * Turn a linked note into the things a person can act on.
  *
  * Runs ONCE per note, guarded by meeting_notes.action_items_applied_at. The
@@ -425,6 +461,11 @@ export interface ApplyNoteOptions {
  * stamp — is what keeps a later tick from writing onto a meeting a human took
  * the note away from.
  *
+ * And NOT on top of the AI drafter's follow-ups (point g at the top of this
+ * file): a booking that already holds rows with source 'ai_draft' gets no
+ * Fireflies rows and no bells, and the note is stamped. A failed read of that
+ * check is never taken as "none there" — the note stays unstamped.
+ *
  * Nothing here can fail the caller. A note that is stored but whose follow-ups
  * could not be applied is a smaller problem than a transcript we did not keep,
  * and the stamp is only written when the work actually succeeded, so the next
@@ -436,7 +477,7 @@ export async function applyNoteToBooking(
   bookingId: string,
   note: NoteFollowupInput,
   options: ApplyNoteOptions = {},
-): Promise<void> {
+): Promise<ApplyNoteOutcome> {
   const { data: stamp } = await supabase
     .from('meeting_notes')
     .select('action_items_applied_at, booking_id')
@@ -444,8 +485,9 @@ export async function applyNoteToBooking(
     .maybeSingle();
 
   const current = stamp as { action_items_applied_at: string | null; booking_id: string | null } | null;
-  if (!current || current.action_items_applied_at) return;
-  if (current.booking_id !== bookingId) return;
+  if (!current) return 'not_linked_here';
+  if (current.action_items_applied_at) return 'already_applied';
+  if (current.booking_id !== bookingId) return 'not_linked_here';
 
   // ── who was in the room, as real people ────────────────────────────────────
   // Matching is on EMAIL, which is exact, never on a name, which is not.
@@ -494,7 +536,34 @@ export async function applyNoteToBooking(
   let inserted: Array<{ owner_profile_id: string | null }> = [];
   let hostProfileId: string | null = null;
 
+  // ── the AI drafter got here first? ────────────────────────────────────────
+  // Read only when there is something to add. One set of follow-ups per
+  // meeting: the drafter's rows, labelled 'AI draft', are already on the host's
+  // list, and a second, Fireflies set on top would double every task. The
+  // stamp is written (below) so the next tick does not ask again.
+  let aiDraftExists = false;
+  let aiDraftCheckFailed = false;
   if (actions.length > 0) {
+    const { data: drafted, error: draftedError } = await supabase
+      .from('meeting_action_items')
+      .select('id')
+      .eq('booking_id', bookingId)
+      .eq('source', AI_DRAFT_SOURCE)
+      .limit(1);
+    if (draftedError || !Array.isArray(drafted)) {
+      // Unknown is neither "none" (a second set) nor "some" (a final skip).
+      aiDraftCheckFailed = true;
+      applied = false;
+      logger.warn(MODULE, 'Could not check for AI-drafted follow-ups, so none were added', {
+        noteId,
+        error: draftedError?.message ?? 'no rows came back',
+      });
+    } else {
+      aiDraftExists = drafted.length > 0;
+    }
+  }
+
+  if (actions.length > 0 && !aiDraftExists && !aiDraftCheckFailed) {
     const { data: booking } = await supabase
       .from('meeting_bookings')
       .select('host_profile_id, attendee_profile_id')
@@ -534,6 +603,7 @@ export async function applyNoteToBooking(
         owner_profile_id: resolveOwnerProfileId(a.ownerName, people),
         due_date: parseExplicitDueDate(a.text, note.occurredAt),
         status: 'open' as const,
+        source: FIREFLIES_SOURCE,
       }));
 
       const { error } = await supabase.from('meeting_action_items').insert(rows);
@@ -598,14 +668,17 @@ export async function applyNoteToBooking(
   // finished — it is early. Stamping it would block the summary Fireflies fills
   // in later from ever becoming follow-ups. A note that DID produce follow-ups
   // is stamped regardless, or the next tick would create them a second time.
-  const unsummarisedAndEmpty = !note.summary && inserted.length === 0;
+  // A note skipped for the AI draft is finished too: it is stamped.
+  const unsummarisedAndEmpty = !note.summary && inserted.length === 0 && !aiDraftExists;
 
-  if (applied && !unsummarisedAndEmpty) {
-    await supabase
-      .from('meeting_notes')
-      .update({ action_items_applied_at: new Date().toISOString() })
-      .eq('id', noteId);
-  }
+  if (!applied) return aiDraftCheckFailed ? 'ai_draft_check_failed' : 'not_stamped';
+  if (unsummarisedAndEmpty) return 'not_stamped';
+
+  await supabase
+    .from('meeting_notes')
+    .update({ action_items_applied_at: new Date().toISOString() })
+    .eq('id', noteId);
+  return aiDraftExists ? 'skipped_ai_draft_exists' : 'applied';
 }
 
 /**

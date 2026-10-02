@@ -66,7 +66,9 @@ type Db = Record<string, Row[]>;
 
 let insertSeq = 0;
 
-function fakeClient(db: Db) {
+// `failReads` lists tables whose SELECTs come back as an error, the way a
+// timeout or a dropped connection would.
+function fakeClient(db: Db, failReads: string[] = []) {
   function builder(table: string) {
     const filters: Array<(r: Row) => boolean> = [];
     let mode: 'select' | 'update' | 'insert' = 'select';
@@ -83,9 +85,13 @@ function fakeClient(db: Db) {
         for (const r of rows()) Object.assign(r, patch);
         return { data: null, error: null };
       }
+      if (failReads.includes(table)) return { data: null, error: { message: 'read timed out' } };
       return { data: rows(), error: null };
     };
     const one = async () => {
+      if (mode === 'select' && failReads.includes(table)) {
+        return { data: null, error: { message: 'read timed out' } };
+      }
       if (mode === 'select') return { data: rows()[0] ?? null, error: null };
       const out = run();
       return { data: Array.isArray(out.data) ? (out.data[0] ?? null) : null, error: null };
@@ -472,6 +478,19 @@ describe('applyNoteToBooking', () => {
     expect(bell.calls).toHaveLength(1);
   });
 
+  it('marks every follow-up it writes as source fireflies', async () => {
+    const db = baseDb();
+    const outcome = await applyNoteToBooking(
+      fakeClient(db),
+      'n1',
+      'b1',
+      input({ actionItemsRaw: '**Selvi**\nFirst task\n**Aravind**\nHost task\n- Unowned task' }),
+    );
+    expect(outcome).toBe('applied');
+    expect(db.meeting_action_items).toHaveLength(3);
+    expect(db.meeting_action_items.map((i) => i.source)).toEqual(['fireflies', 'fireflies', 'fireflies']);
+  });
+
   // Owners come from Fireflies' attendee list; the note itself is readable only
   // by admins, the host, co-hosts and the booking's own attendee
   // (fn_can_view_meeting_note). Whatever the bell says reaches people the note
@@ -554,6 +573,111 @@ describe('applyNoteToBooking', () => {
   });
 });
 
+// ── 4b. one set of follow-ups per meeting: the AI drafter (#4053) ───────────
+//
+// The drafter writes follow-ups with source 'ai_draft' when Fireflies has no
+// summary yet. If the booking already holds any, the Fireflies set is not
+// added on top. The drafter does the same the other way round
+// (meeting-note-draft.ts: it adds nothing to a booking with ANY follow-ups).
+
+function aiDraftItem(bookingId = 'b1'): Row {
+  return {
+    id: `ai-${bookingId}`,
+    booking_id: bookingId,
+    host_profile_id: HOST,
+    action_text: 'AI draft: Send the draft',
+    owner_label: null,
+    owner_profile_id: ATTENDEE,
+    status: 'open',
+    source: 'ai_draft',
+  };
+}
+
+describe('applyNoteToBooking — the AI drafter got there first', () => {
+  const twoOwners = '**Selvi**\nSend the draft by 30 Sep\n**Bharathi**\nSend the report';
+  const withParticipant = {
+    actionItemsRaw: twoOwners,
+    participants: [{ email: 'other@example.test', displayName: 'Bharathi N' }],
+  };
+
+  it('adds no Fireflies follow-ups and rings no bell, and stamps the note so it is not retried', async () => {
+    const db = baseDb({ meeting_action_items: [aiDraftItem()] });
+    const outcome = await applyNoteToBooking(fakeClient(db), 'n1', 'b1', input(withParticipant));
+
+    expect(outcome).toBe('skipped_ai_draft_exists');
+    expect(db.meeting_action_items).toEqual([aiDraftItem()]);
+    expect(bell.calls).toHaveLength(0);
+    expect(db.meeting_notes[0].action_items_applied_at).toEqual(expect.any(String));
+  });
+
+  it('stamps the skip even when Fireflies has no overview yet', async () => {
+    const db = baseDb({ meeting_action_items: [aiDraftItem()] });
+    const outcome = await applyNoteToBooking(fakeClient(db), 'n1', 'b1', input({ ...withParticipant, summary: null }));
+
+    expect(outcome).toBe('skipped_ai_draft_exists');
+    expect(db.meeting_action_items).toHaveLength(1);
+    expect(db.meeting_notes[0].action_items_applied_at).toEqual(expect.any(String));
+  });
+
+  it('only AI-drafted rows stop it: a booking with other follow-ups still gets the Fireflies set', async () => {
+    const hostWritten = { ...aiDraftItem(), id: 'by-host', action_text: 'Book the hall', source: null };
+    const db = baseDb({ meeting_action_items: [hostWritten] });
+    const outcome = await applyNoteToBooking(fakeClient(db), 'n1', 'b1', input(withParticipant));
+
+    expect(outcome).toBe('applied');
+    expect(db.meeting_action_items).toHaveLength(3);
+    expect(db.meeting_action_items.slice(1).map((i) => i.source)).toEqual(['fireflies', 'fireflies']);
+  });
+
+  it('an AI draft on a DIFFERENT booking does not stop it', async () => {
+    const db = baseDb({ meeting_action_items: [aiDraftItem('b2')] });
+    const outcome = await applyNoteToBooking(fakeClient(db), 'n1', 'b1', input(withParticipant));
+
+    expect(outcome).toBe('applied');
+    expect(db.meeting_action_items.filter((i) => i.booking_id === 'b1')).toHaveLength(2);
+  });
+
+  it('with no follow-ups on the booking: today’s behaviour, every row marked fireflies, owners belled', async () => {
+    const db = baseDb();
+    const outcome = await applyNoteToBooking(fakeClient(db), 'n1', 'b1', input(withParticipant));
+
+    expect(outcome).toBe('applied');
+    expect(db.meeting_action_items.map((i) => [i.owner_profile_id, i.due_date, i.source])).toEqual([
+      [ATTENDEE, '2026-09-30', 'fireflies'],
+      [OTHER, null, 'fireflies'],
+    ]);
+    expect(bell.calls.map((c) => (c.userIds as string[])[0]).sort()).toEqual([ATTENDEE, OTHER].sort());
+    expect(db.meeting_notes[0].action_items_applied_at).toEqual(expect.any(String));
+  });
+
+  it('when the check cannot be read: nothing is added, nobody is belled, the note is NOT stamped', async () => {
+    const db = baseDb({ meeting_action_items: [] });
+    const outcome = await applyNoteToBooking(
+      fakeClient(db, ['meeting_action_items']),
+      'n1',
+      'b1',
+      input(withParticipant),
+    );
+
+    expect(outcome).toBe('ai_draft_check_failed');
+    expect(db.meeting_action_items).toHaveLength(0);
+    expect(bell.calls).toHaveLength(0);
+    expect(db.meeting_notes[0].action_items_applied_at).toBeNull();
+
+    // the next run, with the read working, does the work
+    expect(await applyNoteToBooking(fakeClient(db), 'n1', 'b1', input(withParticipant))).toBe('applied');
+    expect(db.meeting_action_items).toHaveLength(2);
+  });
+
+  it('a note with no follow-ups does not even ask (and is stamped as before)', async () => {
+    const db = baseDb({ meeting_action_items: [aiDraftItem()] });
+    const outcome = await applyNoteToBooking(fakeClient(db, ['meeting_action_items']), 'n1', 'b1', input());
+
+    expect(outcome).toBe('applied');
+    expect(db.meeting_notes[0].action_items_applied_at).toEqual(expect.any(String));
+  });
+});
+
 // ── 5. the hand-link door ────────────────────────────────────────────────────
 
 const link = vi.hoisted(() => ({ db: null as unknown as Record<string, Array<Record<string, unknown>>> }));
@@ -626,6 +750,34 @@ describe('linkMeetingNote — a hand-linked note becomes follow-ups, once', () =
     expect(await linkMeetingNote({ noteId: 'n9', bookingId: 'b1' })).toEqual({ success: true });
     expect(link.db.meeting_action_items).toHaveLength(1);
     expect(bell.calls).toHaveLength(1);
+  });
+
+  it('a hand-link onto a booking the AI drafter already filled adds nothing and rings no bell', async () => {
+    const { linkMeetingNote } = await import('@/app/(routes)/meetings/notes/actions');
+
+    link.db = baseDb({
+      meeting_notes: [
+        {
+          id: 'n9',
+          booking_id: null,
+          action_items_applied_at: null,
+          title: 'Visit planning',
+          summary: 'We planned the visit.',
+          occurred_at: '2026-09-20T05:00:00.000Z',
+          duration_minutes: 20,
+          raw: {
+            summary: { action_items: '**Selvi**\nSend the visit plan by 25 Sep' },
+            meeting_attendees: [{ email: 'visitor@example.test', displayName: 'Selvi R' }],
+          },
+        },
+      ],
+      meeting_action_items: [aiDraftItem()],
+    });
+
+    expect(await linkMeetingNote({ noteId: 'n9', bookingId: 'b1' })).toEqual({ success: true });
+    expect(link.db.meeting_action_items).toEqual([aiDraftItem()]);
+    expect(bell.calls).toHaveLength(0);
+    expect(link.db.meeting_notes[0].action_items_applied_at).toEqual(expect.any(String));
   });
 
   it('reads the stored raw the same way the Fireflies client does', () => {
@@ -762,6 +914,24 @@ describe('ingest — follow-ups follow the note’s STORED link, not the calenda
     await tick(transcript({ calendarId: null }));
     expect(link.db.meeting_action_items).toHaveLength(1);
     expect(link.db.meeting_action_items[0].booking_id).toBe('b2');
+  });
+
+  it('the tick that brings the summary adds nothing onto a booking the AI drafter already filled', async () => {
+    link.db = ingestDb({
+      meeting_notes: [
+        { id: 'n1', provider: 'fireflies', provider_ref: 'ff-1', booking_id: 'b1', action_items_applied_at: null },
+      ],
+      meeting_action_items: [aiDraftItem('b1')],
+    });
+
+    await tick(transcript());
+    expect(link.db.meeting_action_items).toEqual([aiDraftItem('b1')]);
+    expect(bell.calls).toHaveLength(0);
+    expect(link.db.meeting_notes[0].action_items_applied_at).toEqual(expect.any(String));
+
+    // and the next tick leaves it alone
+    await tick(transcript());
+    expect(link.db.meeting_action_items).toHaveLength(1);
   });
 
   it('an auto-matched note first seen unsummarised is applied once, on the tick that brings the summary', async () => {
