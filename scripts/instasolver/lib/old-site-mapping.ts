@@ -7,9 +7,11 @@
  * the repo). scripts/instasolver/import-old-site.ts does the reading and the
  * writing around these functions.
  *
- * Director rulings, 30 Sep 2026:
- *   - every UNFINISHED old job becomes a Campus Walk task; one older than a
- *     year is titled 'Check if still broken: ...';
+ * Director rulings, 30 Sep 2026 (title rule changed 2 Oct 2026):
+ *   - every UNFINISHED old job becomes a Campus Walk task titled
+ *     'Check if still broken: ...' — ALL of them, whatever their age
+ *     (Director, 2 Oct 2026: the fixer looks once and closes it if it is
+ *     already fixed; it was 'only those older than a year' before);
  *   - the whole old history is kept (legacy_instasolver_issues /
  *     legacy_instasolver_requirements);
  *   - the old 'Pending MD Approval' purchase requests are decided on
@@ -116,9 +118,6 @@ export interface InstitutionMapFile {
 // ── Small helpers ──────────────────────────────────────────────────────────
 
 const DAY_MS = 86_400_000;
-
-/** Old records older than this at import are titled 'Check if still broken'. */
-export const STILL_BROKEN_AFTER_DAYS = 365;
 
 /** The day the old site bulk-loaded 672 rows with no real report date. */
 export const BULK_LOAD_DAY = '2024-11-23';
@@ -307,9 +306,9 @@ export function ageInDays(iso: string | null, now: Date): number | null {
   return Math.floor((now.getTime() - Date.parse(iso)) / DAY_MS);
 }
 
-export function needsStillBrokenCheck(r: OldIssue, now: Date): boolean {
-  const age = ageInDays(reportedAt(r), now);
-  return isOpenIssue(r) && age !== null && age > STILL_BROKEN_AFTER_DAYS;
+/** Every unfinished old job is checked first (Director, 2 Oct 2026). */
+export function needsStillBrokenCheck(r: OldIssue): boolean {
+  return isOpenIssue(r);
 }
 
 // ── Rows for the two history tables ────────────────────────────────────────
@@ -406,7 +405,7 @@ export function buildIssueRow(r: OldIssue, ctx: MappingContext) {
     legacy_created_at: isoOrNull(r.created_at),
     legacy_updated_at: isoOrNull(r.updated_at),
     admin_notes: notesFor(ctx.notesByIssue.get(r.id)),
-    needs_still_broken_check: needsStillBrokenCheck(r, ctx.now),
+    needs_still_broken_check: needsStillBrokenCheck(r),
     updated_at: ctx.now.toISOString(),
   };
 }
@@ -500,7 +499,7 @@ export function buildWalkTaskInput(row: IssueRow, reporterLeft: boolean): Create
     row.legacy_location ? `Where (as reported): ${row.legacy_location}` : '',
     row.photo_url ? `Photo on the old site: ${row.photo_url}` : '',
     `From old InstaSolver #${row.legacy_id}, raised ${raisedOn}${row.reported_at_is_bulk_load ? ' (bulk-loaded; real report date unknown)' : ''}.`,
-    row.needs_still_broken_check ? 'Older than a year — check it is still broken before fixing.' : '',
+    row.needs_still_broken_check ? 'From the old InstaSolver site — check it is still broken before fixing; close it if it is already fixed.' : '',
   ].filter(Boolean);
 
   return {

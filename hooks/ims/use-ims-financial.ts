@@ -36,10 +36,16 @@ export function useImsDepartmentCostSummary(storeId: string, institutionId?: str
   });
 }
 
-export function useImsItemProfitSummary(storeId: string, institutionId?: string) {
+export function useImsItemProfitSummary(
+  storeId: string,
+  institutionId?: string,
+  dateFrom?: string,
+  dateTo?: string
+) {
   return useQuery({
-    queryKey: ['ims-item-profit', storeId],
-    queryFn: () => ImsFinancialService.getItemProfitSummary(institutionId ?? '', storeId),
+    queryKey: ['ims-item-profit', storeId, dateFrom, dateTo],
+    queryFn: () =>
+      ImsFinancialService.getItemProfitSummary(institutionId ?? '', storeId, dateFrom, dateTo),
     enabled: !!storeId,
     staleTime: 60 * 1000,
   });

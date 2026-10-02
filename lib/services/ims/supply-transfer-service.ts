@@ -17,6 +17,10 @@ export class ImsSupplyTransferService {
     return createClientSupabaseClient() as any;
   }
 
+  // ims_supply_shipment_items has two foreign keys to ims_items (item_id and
+  // bundle_parent_item_id). An unnamed embed is ambiguous (PGRST201), so every
+  // read of this select failed — Create Shipment wrote the rows, then its
+  // reload threw "Failed to create shipment" (BUG-005867, BUG-005911).
   private static readonly SHIPMENT_SELECT = `
     *,
     source_store:ims_stores!source_store_id(id,name,code),
@@ -25,7 +29,7 @@ export class ImsSupplyTransferService {
     dispatched_by_profile:profiles!dispatched_by(full_name),
     items:ims_supply_shipment_items(
       *,
-      item:ims_items(id,name,code)
+      item:ims_items!ims_supply_shipment_items_item_id_fkey(id,name,code)
     )
   `;
 

@@ -160,6 +160,8 @@ export interface ReceiveReplacementInput {
 
 export interface GrnFilters {
   institution_id?: string;
+  /** No institution filter: every institution the viewer's RLS allows. */
+  all_institutions?: boolean;
   store_id?: string;
   status?: GrnStatus;
   purchase_order_id?: string;
