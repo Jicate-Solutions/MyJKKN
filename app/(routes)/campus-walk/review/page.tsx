@@ -44,6 +44,7 @@ import { PageHeader } from '@/components/page-header';
 import { Card, CardContent } from '@/components/ui/card';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { isCampusWalkReporter } from '@/lib/campus-walk/reporters';
+import { joinedReportPhotoPaths, readJoinedReports } from '@/lib/campus-walk/joined-reports';
 import { ReviewClient, type ReviewItem } from './_components/review-client';
 
 export const dynamic = 'force-dynamic';
@@ -328,7 +329,12 @@ export default async function CampusWalkReviewPage() {
 
   const wanted = [
     ...new Set(
-      [...problemPaths.values(), ...fixPaths.values()].filter((p): p is string => Boolean(p))
+      [
+        ...problemPaths.values(),
+        ...fixPaths.values(),
+        // Photos sent with "Add to the open report" — the sign-off covers them too.
+        ...rows.flatMap((t) => joinedReportPhotoPaths(t.metadata)),
+      ].filter((p): p is string => Boolean(p))
     ),
   ];
 
@@ -373,6 +379,13 @@ export default async function CampusWalkReviewPage() {
       isBlocked: Boolean(t.is_blocked),
       problemPhotoUrl: problem ? (signed.get(problem) ?? null) : null,
       fixPhotoUrl: fixed ? (signed.get(fixed) ?? null) : null,
+      // Every extra report on this job: note, time, photo — never who (D10).
+      joinedReports: readJoinedReports(meta).map((r) => ({
+        note: r.note,
+        at: r.at,
+        photoUrl: r.photoStoragePath ? (signed.get(r.photoStoragePath) ?? null) : null,
+        photoMissing: Boolean(r.photoStoragePath) && !signed.get(r.photoStoragePath as string),
+      })),
       submittedAt: (meta.fix?.submitted_at as string | null) ?? null,
       // The person who did the work, shown to the manager approving it. This is
       // the submitter, not the observer — D10 protects the observer's identity,
