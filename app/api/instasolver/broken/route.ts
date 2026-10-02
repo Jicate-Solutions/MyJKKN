@@ -91,7 +91,7 @@ const MIN_BYTES = 1024; // below this it is not a real photograph
 
 const LOCATION_MIN = 3;
 const LOCATION_MAX = 120;
-const DESCRIPTION_MIN = 10;
+const DESCRIPTION_MIN = 3;
 const DESCRIPTION_MAX = 500;
 
 /**
