@@ -4,7 +4,7 @@
  * usePayrollPeriodRealtime — subscribe to UPDATEs on a single payroll period
  * and invalidate caches when other actors transition stages.
  *
- * Per spec specs/t4-3-pr3-payroll-ui-design-lock-2026-05-19.md E7:
+ * No written spec; the rules live in this code:
  *   - Channel: 'hr_payroll_periods:id=eq.{id}'
  *   - On postgres_changes UPDATE event, invalidate:
  *     - ['hr-payroll-period', periodId]   — detail
