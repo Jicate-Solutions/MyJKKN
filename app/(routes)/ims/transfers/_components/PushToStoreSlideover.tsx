@@ -74,17 +74,16 @@ export function PushToStoreSlideover({
     limit: 200,
   });
 
+  // The list shows before anything is typed; search only narrows it
+  // (BUG-005947).
   const items = useMemo(() => {
-    if (!search) return [];
     const chosen = new Set(lines.map((l) => l.item_id));
-    return (itemsData?.data ?? [])
-      .filter(
-        (i) =>
-          !chosen.has(i.id) &&
-          (i.name.toLowerCase().includes(search.toLowerCase()) ||
-            i.code.toLowerCase().includes(search.toLowerCase()))
-      )
-      .slice(0, 25);
+    return (itemsData?.data ?? []).filter(
+      (i) =>
+        !chosen.has(i.id) &&
+        (i.name.toLowerCase().includes(search.toLowerCase()) ||
+          i.code.toLowerCase().includes(search.toLowerCase()))
+    );
   }, [itemsData, search, lines]);
 
   const addLine = (item: (typeof items)[number]) => {
@@ -196,7 +195,7 @@ export function PushToStoreSlideover({
                 />
               </div>
 
-              {search && items.length > 0 && (
+              {items.length > 0 && (
                 <div className="border rounded-lg max-h-48 overflow-y-auto divide-y">
                   {items.map((item) => {
                     const available = item.stock?.available_quantity ?? 0;

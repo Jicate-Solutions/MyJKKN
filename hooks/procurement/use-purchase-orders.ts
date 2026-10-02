@@ -8,7 +8,7 @@ export function usePurchaseOrders(filters: PurchaseOrderFilters) {
   return useQuery({
     queryKey: ['procurement-purchase-orders', filters],
     queryFn: () => ProcurementPurchaseOrderService.getPurchaseOrders(filters),
-    enabled: !!(filters.store_id || filters.institution_id || filters.rfq_id),
+    enabled: !!(filters.store_id || filters.institution_id || filters.rfq_id || filters.all_institutions),
     staleTime: 2 * 60 * 1000,
   });
 }

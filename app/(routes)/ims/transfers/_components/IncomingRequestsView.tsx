@@ -34,6 +34,7 @@ export function IncomingRequestsView({ storeId }: IncomingRequestsViewProps) {
   const readyToDispatch = dispatchData?.data ?? [];
 
   const needsReview = incoming.filter(t => t.status === 'pending_approval').length;
+  const approved    = incoming.filter(t => t.status === 'approved').length;
   const packing     = readyToDispatch.filter(s => s.status === 'preparing').length;
   const inTransit   = incoming.filter(t => t.status === 'shipped').length;
   const fulfilled   = incoming.filter(t => t.status === 'received' || t.status === 'received_with_variance').length;
@@ -44,6 +45,14 @@ export function IncomingRequestsView({ storeId }: IncomingRequestsViewProps) {
       value: needsReview,
       active: statusFilter === 'pending_approval',
       onClick: () => setStatusFilter('pending_approval'),
+    },
+    // An approved request left every other filter, so it vanished from this
+    // tab with no way back to its page to create the shipment (BUG-005946).
+    {
+      label: 'Approved',
+      value: approved,
+      active: statusFilter === 'approved',
+      onClick: () => setStatusFilter('approved'),
     },
     {
       label: 'Packing',

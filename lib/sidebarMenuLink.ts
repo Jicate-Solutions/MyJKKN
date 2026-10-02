@@ -328,6 +328,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/instasolver/complaint': 'instasolver.view',
   '/instasolver/my-complaints': 'instasolver.view',
   '/instasolver/track/[token]': 'instasolver.view',
+  // The page a room's or an item's QR sticker opens (scan to report).
+  '/instasolver/r/[token]': 'instasolver.view',
   // The old InstaSolver site's purchase requests left at 'Pending MD Approval'
   // (Director ruling 30 Sep 2026). Super admin only — the page refuses anyone
   // else and shows requesters' names.
@@ -1165,6 +1167,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/resource-management/maintenance': 'resources.maintenance.view',
   '/resource-management/analytics': 'resources.analytics.view',
   '/resource-management/analytics-dashboard': 'resources.analytics.view',
+  // InstaSolver QR stickers: preparing a sheet may write a missing sticker
+  // code, so it needs edit. Suggested places creates resources, so create.
+  '/resource-management/qr-stickers': 'resources.resources.edit',
+  '/resource-management/suggested-places': 'resources.resources.create',
   '/audit-trail': 'audit.view',
 
   // Service Requests
@@ -1951,6 +1957,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // own participation, so a separate key would add role-config burden without
   // adding protection.
   '/meetings/my-bookings': 'meetings.view',
+  // "My Follow-ups" — follow-ups the signed-in user hosts or owns. Same gate
+  // as My Meetings: the page reads only the caller's own rows (explicit
+  // host-or-owner filter), so a separate key would add no protection.
+  '/meetings/action-items': 'meetings.view',
   // Host-initiated scheduling. Same gate as the rest of the module: the page
   // can only ever book the SIGNED-IN user's own calendar, so a separate key
   // would add a role-config burden without adding any protection.
@@ -4303,6 +4313,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/resource-management/reservations/approvals', label: 'Reservations · Approvals', active: pathname.startsWith('/resource-management/reservations/approvals') },
             { href: '/resource-management/reservations/calendar', label: 'Reservations · Calendar', active: pathname === '/resource-management/reservations/calendar' },
             { href: '/resource-management/maintenance', label: 'Maintenance', active: pathname.startsWith('/resource-management/maintenance') },
+            { href: '/resource-management/qr-stickers', label: 'QR Stickers', active: pathname === '/resource-management/qr-stickers' },
+            { href: '/resource-management/suggested-places', label: 'Suggested Places', active: pathname === '/resource-management/suggested-places' },
           ]
         }
       ]
@@ -4496,6 +4508,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             { href: '/meetings', label: 'Home', active: pathname === '/meetings' },
             { href: '/meetings/my-bookings', label: 'My Meetings', active: pathname.startsWith('/meetings/my-bookings') },
+            { href: '/meetings/action-items', label: 'My Follow-ups', active: pathname.startsWith('/meetings/action-items') },
             { href: '/meetings/schedule', label: 'Schedule a Meeting', active: pathname.startsWith('/meetings/schedule') },
             { href: '/meetings/availability', label: 'My Availability & Page', active: pathname.startsWith('/meetings/availability') },
             { href: '/meetings/manage', label: 'Meeting Types', active: pathname.startsWith('/meetings/manage') },

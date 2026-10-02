@@ -9,7 +9,7 @@
 //   - college mapping, including the Main Office fallback and messy spacing;
 //   - which old rows count as UNFINISHED (171 on the real export);
 //   - an old 'Critical' row NEVER becomes an unsafe task (that would page phones);
-//   - the 'Check if still broken' title after a year;
+//   - the 'Check if still broken' title on every unfinished job;
 //   - the upsert never sends the task link or the Director's decision, so a
 //     re-run cannot undo them;
 //   - a task is never created twice (already linked, or created but not linked);
@@ -275,12 +275,12 @@ describe('the Campus Walk task for an open job', () => {
     expect(taskFor(row).extraMetadata).not.toHaveProperty('reporter_left');
   });
 
-  it("titles a job older than a year 'Check if still broken'", () => {
-    const old = taskFor(buildIssueRow(issue({ date: '2025-06-01T00:00:00Z' }), ctx()));
-    expect(old.title.startsWith(STILL_BROKEN_PREFIX)).toBe(true);
-    expect(old.extraMetadata).toMatchObject({ needs_still_broken_check: true });
-    const recent = taskFor(buildIssueRow(issue(), ctx()));
-    expect(recent.title.startsWith(STILL_BROKEN_PREFIX)).toBe(false);
+  it("titles EVERY unfinished old job 'Check if still broken', old or recent (Director, 2 Oct 2026)", () => {
+    for (const date of ['2025-06-01T00:00:00Z', undefined]) {
+      const task = taskFor(buildIssueRow(issue(date ? { date } : {}), ctx()));
+      expect(task.title.startsWith(STILL_BROKEN_PREFIX)).toBe(true);
+      expect(task.extraMetadata).toMatchObject({ needs_still_broken_check: true });
+    }
   });
 
   it('keeps the title to one line of 160 characters', () => {
