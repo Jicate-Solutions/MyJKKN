@@ -328,6 +328,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/instasolver/complaint': 'instasolver.view',
   '/instasolver/my-complaints': 'instasolver.view',
   '/instasolver/track/[token]': 'instasolver.view',
+  // The reporter's own list — "fixed" / "Not fixed" (Director, 2026-09-30).
+  '/instasolver/my-reports': 'instasolver.view',
 
   // Profile
   '/profile': 'view_profile', // All users should be able to view their own profile

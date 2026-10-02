@@ -12,7 +12,7 @@
 // disappearing or linking somewhere that will bounce (rule #27).
 
 import Link from 'next/link';
-import { ChevronRight, MessageSquareWarning, ShoppingCart, Wrench } from 'lucide-react';
+import { ChevronRight, ListChecks, MessageSquareWarning, ShoppingCart, Wrench } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 
 interface ChooserClientProps {
@@ -105,6 +105,15 @@ export function ChooserClient({ canRaisePurchase }: ChooserClientProps) {
           </CardContent>
         </Card>
       )}
+
+      {/* Where "fixed" shows up, and where "Not fixed" lives (Director, 2026-09-30). */}
+      <Link
+        href="/instasolver/my-reports"
+        className="flex min-h-[48px] items-center justify-center gap-2 rounded-md text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <ListChecks className="h-4 w-4" aria-hidden="true" />
+        See my reports
+      </Link>
     </div>
   );
 }

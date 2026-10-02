@@ -75278,7 +75278,7 @@ END;
 $$;
 REVOKE EXECUTE ON FUNCTION public.fn_cl_vacate_cancel(uuid, text) FROM PUBLIC, anon;
 GRANT  EXECUTE ON FUNCTION public.fn_cl_vacate_cancel(uuid, text) TO authenticated, service_role;
-
+
 
 -- ═══ 2026-10-01: vacate approval chain + room damage + fine bill (20261001100000/110000) ═══
 DROP FUNCTION IF EXISTS public.fn_cl_vacate_warden_approve(uuid, text);
