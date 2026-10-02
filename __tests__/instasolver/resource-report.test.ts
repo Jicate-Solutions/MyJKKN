@@ -827,7 +827,9 @@ describe('joined reports — read for the screens, with no reporter identity', (
       'app/api/cron/campus-walk-photo-retention/route.ts',
     ]) {
       const src = readFileSync(join(process.cwd(), file), 'utf8');
-      expect(src, file).toMatch(/@\/lib\/campus-walk\/joined-reports/);
+      // The cron uses main's joinedReportPhotoPaths (lib/campus-walk/my-reports,
+      // #4158) — same array, same paths — so either shared reader counts.
+      expect(src, file).toMatch(/@\/lib\/campus-walk\/(joined-reports|my-reports)/);
     }
   });
 });
