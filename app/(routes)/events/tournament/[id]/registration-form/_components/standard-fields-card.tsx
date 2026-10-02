@@ -24,7 +24,7 @@ interface StandardField {
 
 const STANDARD_FIELDS: readonly StandardField[] = [
   { label: 'Event / division', control: 'Dropdown', shownWhen: 'Always' },
-  { label: 'Team name / Your name', control: 'Text', shownWhen: 'Always' },
+  { label: 'Team name / Pair name / Your name', control: 'Text', shownWhen: 'Always' },
   { label: 'External (non-JKKN)', control: 'Toggle', shownWhen: 'Always' },
   {
     label: 'School / club or College',
@@ -40,6 +40,11 @@ const STANDARD_FIELDS: readonly StandardField[] = [
     label: 'Roster (name + jersey no)',
     control: 'Repeater rows',
     shownWhen: 'Team events only',
+  },
+  {
+    label: 'Players (Player 1, Player 2)',
+    control: 'Two text fields',
+    shownWhen: 'Doubles divisions only',
   },
   {
     label: 'Phone, Email',
