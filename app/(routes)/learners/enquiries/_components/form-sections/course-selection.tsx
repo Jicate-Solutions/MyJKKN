@@ -123,8 +123,8 @@ export function CourseSelectionSection({
 
   // Fetch academic data (institution-dependent)
   const { academicYears, loading: loadingAcademicYears } = useAcademicYearsByInstitution(watchedInstitutionId);
-  const { regulations, loading: loadingRegulations, updateFilters: updateRegulationFilters } = useRegulations({ institution_id: watchedInstitutionId || undefined });
-  const { batches, loading: loadingBatches, updateFilters: updateBatchFilters } = useBatches({ institution_id: watchedInstitutionId || undefined });
+  const { regulations, loading: loadingRegulations, updateFilters: updateRegulationFilters } = useRegulations({ institution_id: watchedInstitutionId || undefined, limit: 1000 });
+  const { batches, loading: loadingBatches, updateFilters: updateBatchFilters } = useBatches({ institution_id: watchedInstitutionId || undefined, limit: 1000 });
 
   // Quotas — bound to the global quotas lookup so the form writes quota_id (the
   // FK) directly, not free text. Migrated off the static QUOTA_VALUES enum
@@ -137,11 +137,11 @@ export function CourseSelectionSection({
 
   // Sync regulation/batch filters when institution changes (useState in hooks ignores prop updates after mount)
   useEffect(() => {
-    updateRegulationFilters({ institution_id: watchedInstitutionId || undefined });
+    updateRegulationFilters({ institution_id: watchedInstitutionId || undefined, limit: 1000 });
   }, [watchedInstitutionId, updateRegulationFilters]);
 
   useEffect(() => {
-    updateBatchFilters({ institution_id: watchedInstitutionId || undefined });
+    updateBatchFilters({ institution_id: watchedInstitutionId || undefined, limit: 1000 });
   }, [watchedInstitutionId, updateBatchFilters]);
 
   // Fetch sections (semester + institution dependent)

@@ -100,8 +100,8 @@ export class ProcurementQuotationService {
 
   /**
    * Create a quotation for one vendor on an RFQ. UNIQUE(rfq_id, supplier_id)
-   * prevents a second quotation from the same vendor. Advances the RFQ from
-   * 'sent' to 'quotations_received' on the first quote.
+   * prevents a second quotation from the same vendor. Advances the RFQ to
+   * 'quotations_received' on the first quote.
    */
   static async createQuotation(
     dto: CreateQuotationDto,
@@ -157,12 +157,13 @@ export class ProcurementQuotationService {
         .insert(itemRows);
       if (itemsErr) throw itemsErr;
 
-      // Advance RFQ status (best-effort; guarded so it only moves from 'sent').
+      // Advance RFQ status (best-effort). Quotes can now be entered straight from
+      // draft — there is no RFQ review/send step — so every pre-quote state moves.
       await this.supabase
         .from('procurement_rfqs')
         .update({ status: 'quotations_received', updated_at: new Date().toISOString() })
         .eq('id', dto.rfq_id)
-        .eq('status', 'sent');
+        .in('status', ['draft', 'pending_review', 'approved', 'rejected', 'sent']);
 
       return header as ProcurementQuotation;
     } catch (error) {
@@ -213,7 +214,7 @@ export class ProcurementQuotationService {
         .single();
       if (fetchErr) throw fetchErr;
       if (target?.unit_price === null) {
-        throw new Error('This vendor did not quote a price for this item — it cannot be awarded.');
+        throw new Error('This vendor did not quote a price for this item — it cannot be chosen.');
       }
 
       await this.supabase

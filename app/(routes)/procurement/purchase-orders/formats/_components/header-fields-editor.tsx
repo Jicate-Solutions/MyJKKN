@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Plus, Trash2, ChevronUp, ChevronDown } from 'lucide-react';
-import type { PoHeaderFieldDef, PoFieldFormat } from '@/types/procurement';
+import type { PoHeaderFieldDef, PoFieldFormat, PoFieldSource } from '@/types/procurement';
 import { generateFieldKey } from './slug';
 
 interface HeaderFieldsEditorProps {
@@ -72,7 +72,7 @@ export function HeaderFieldsEditor({ fields, onChange }: HeaderFieldsEditorProps
             Invoice Quotation No., Quotation Date).
           </p>
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={addField} className="gap-1">
+        <Button type="button" variant="outline" size="sm" onClick={addField} className="h-10 gap-1 sm:h-8">
           <Plus className="h-4 w-4" />
           Add Field
         </Button>
@@ -89,10 +89,10 @@ export function HeaderFieldsEditor({ fields, onChange }: HeaderFieldsEditorProps
             <CardContent className="p-4">
               <div className="flex items-start gap-2">
                 <div className="flex flex-col gap-1 pt-1">
-                  <Button type="button" variant="ghost" size="icon" className="h-6 w-6" aria-label="Move field up" onClick={() => moveField(index, 'up')} disabled={index === 0}>
+                  <Button type="button" variant="ghost" size="icon" className="h-10 w-10 sm:h-6 sm:w-6" aria-label="Move field up" onClick={() => moveField(index, 'up')} disabled={index === 0}>
                     <ChevronUp className="h-3 w-3" />
                   </Button>
-                  <Button type="button" variant="ghost" size="icon" className="h-6 w-6" aria-label="Move field down" onClick={() => moveField(index, 'down')} disabled={index === fields.length - 1}>
+                  <Button type="button" variant="ghost" size="icon" className="h-10 w-10 sm:h-6 sm:w-6" aria-label="Move field down" onClick={() => moveField(index, 'down')} disabled={index === fields.length - 1}>
                     <ChevronDown className="h-3 w-3" />
                   </Button>
                 </div>
@@ -117,7 +117,7 @@ export function HeaderFieldsEditor({ fields, onChange }: HeaderFieldsEditorProps
                           updateField(index, { source: `header_values.${key}`, key, format: undefined });
                         } else {
                           const known = KNOWN_HEADER_SOURCES.find((s) => s.value === v);
-                          updateField(index, { source: v, key: v, format: known?.format });
+                          updateField(index, { source: v as PoFieldSource, key: v, format: known?.format });
                         }
                       }}
                     >
@@ -131,7 +131,7 @@ export function HeaderFieldsEditor({ fields, onChange }: HeaderFieldsEditorProps
                           </SelectItem>
                         ))}
                         <SelectItem value={CUSTOM_SOURCE}>
-                          Custom field (filled in per PO)
+                          Custom field (filled in per order)
                         </SelectItem>
                       </SelectContent>
                     </Select>
@@ -141,7 +141,7 @@ export function HeaderFieldsEditor({ fields, onChange }: HeaderFieldsEditorProps
                   </div>
 
                   <div className="lg:col-span-2 flex items-end justify-end">
-                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700" aria-label="Remove field" onClick={() => removeField(index)}>
+                    <Button type="button" variant="ghost" size="icon" className="h-10 w-10 text-red-500 hover:text-red-700 sm:h-8 sm:w-8" aria-label="Remove field" onClick={() => removeField(index)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>

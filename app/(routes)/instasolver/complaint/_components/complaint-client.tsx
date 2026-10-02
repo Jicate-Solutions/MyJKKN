@@ -38,13 +38,9 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import {
-  GRIEVANCE_DESCRIPTION_MIN_LENGTH,
-  validateGrievanceDescription,
-} from '@/lib/validations/grievance-ticket';
+import { validateGrievanceDescription } from '@/lib/validations/grievance-ticket';
 import {
   SUBJECT_MAX_LENGTH,
-  characterCount,
   resolveAnonymousChoice,
   validateSubject,
   type ComplaintCategory,
@@ -70,8 +66,7 @@ interface Filed {
 }
 
 /** The sentence shown whenever the chosen type cannot be filed without a name. */
-const NAME_REQUIRED_SENTENCE =
-  'This category cannot be filed without a name — your name will be attached.';
+const NAME_REQUIRED_SENTENCE = "This type can't be filed without a name.";
 
 export function ComplaintClient({
   categories,
@@ -115,7 +110,6 @@ export function ComplaintClient({
 
   const subjectError = validateSubject(subject);
   const descriptionError = validateGrievanceDescription(description);
-  const descriptionCount = characterCount(description);
 
   async function handleSubmit() {
     setTouched(true);
@@ -324,10 +318,6 @@ export function ComplaintClient({
             onChange={(e) => setDescription(e.target.value)}
             onBlur={() => setTouched(true)}
           />
-          <p className="text-xs text-muted-foreground">
-            At least {GRIEVANCE_DESCRIPTION_MIN_LENGTH} characters. You have written{' '}
-            {descriptionCount}.
-          </p>
           {touched && descriptionError ? (
             <p className="text-sm text-destructive">{descriptionError}</p>
           ) : null}
@@ -357,17 +347,13 @@ export function ComplaintClient({
                 You&apos;ll get a private code to check progress. Your name is not shown on the
                 complaint.
               </p>
-            ) : (
+            ) : chosen ? (
               <p className="text-sm text-amber-700 dark:text-amber-400">
-                {!anonymousAvailable
-                  ? 'Filing without a name opens once the database update lands. Until then your name will be attached.'
-                  : !chosen
-                    ? 'Choose what this is about first — some complaint types can be filed without a name.'
-                    : anonymousRetracted
-                      ? `You had asked to file without your name. ${NAME_REQUIRED_SENTENCE}`
-                      : NAME_REQUIRED_SENTENCE}
+                {anonymousRetracted
+                  ? `You had asked to file without your name. ${NAME_REQUIRED_SENTENCE}`
+                  : NAME_REQUIRED_SENTENCE}
               </p>
-            )}
+            ) : null}
           </div>
         </div>
 
@@ -382,8 +368,7 @@ export function ComplaintClient({
               This is about my HOD or manager
             </Label>
             <p className="text-sm text-muted-foreground">
-              It will skip them and go to senior management — or to central review if that route is
-              not set up yet.
+              It skips them and goes straight to senior management.
             </p>
           </div>
         </div>

@@ -8,7 +8,7 @@ export function useRfqs(filters: RfqFilters) {
   return useQuery({
     queryKey: ['procurement-rfqs', filters],
     queryFn: () => ProcurementRfqService.getRfqs(filters),
-    enabled: !!(filters.store_id || filters.institution_id),
+    enabled: !!(filters.store_id || filters.institution_id || filters.all_institutions),
     staleTime: 2 * 60 * 1000,
   });
 }
@@ -45,10 +45,12 @@ export function useCreateRfqFromPR() {
   return useMutation({
     mutationFn: ({ requestId, userId }: { requestId: string; userId: string }) =>
       ProcurementRfqService.createFromApprovedPR(requestId, userId),
-    onSuccess: () => {
+    // Settled: the request page must drop its "Start quotations" button either way.
+    onSettled: (_r, _e, { requestId }) => {
       queryClient.invalidateQueries({ queryKey: ['procurement-rfqs'] });
       queryClient.invalidateQueries({ queryKey: ['procurement-approved-prs'] });
       queryClient.invalidateQueries({ queryKey: ['procurement-purchase-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['procurement-purchase-request', requestId] });
     },
   });
 }
@@ -73,46 +75,41 @@ export function useRemoveRfqVendor() {
   });
 }
 
-export function useMarkRfqSent() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (rfqId: string) => ProcurementRfqService.markSent(rfqId),
-    onSuccess: (_r, rfqId) => {
-      queryClient.invalidateQueries({ queryKey: ['procurement-rfqs'] });
-      queryClient.invalidateQueries({ queryKey: ['procurement-rfq', rfqId] });
-    },
-  });
-}
-
-/** Invalidate both the RFQ list and the single-RFQ detail after a review transition. */
+/** Invalidate the RFQ list and detail after an award transition. */
 function invalidateRfq(queryClient: ReturnType<typeof useQueryClient>, rfqId: string) {
   queryClient.invalidateQueries({ queryKey: ['procurement-rfqs'] });
   queryClient.invalidateQueries({ queryKey: ['procurement-rfq', rfqId] });
 }
 
-export function useSubmitRfqForReview() {
+/** Store keeper sends the chosen vendors to the Super Admin. */
+export function useSubmitAward() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (rfqId: string) => ProcurementRfqService.submitForReview(rfqId),
-    onSuccess: (_r, rfqId) => invalidateRfq(queryClient, rfqId),
+    mutationFn: (rfqId: string) => ProcurementRfqService.submitAward(rfqId),
+    // Settled: a refusal (already sent, nothing awarded) must still refresh the page.
+    onSettled: (_r, _e, rfqId) => invalidateRfq(queryClient, rfqId),
   });
 }
 
-export function useApproveRfq() {
+/** Super Admin approves — creates the approved purchase orders. */
+export function useApproveAward() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ rfqId, reviewerId }: { rfqId: string; reviewerId: string }) =>
-      ProcurementRfqService.approveRfq(rfqId, reviewerId),
-    onSuccess: (_r, { rfqId }) => invalidateRfq(queryClient, rfqId),
+    mutationFn: (rfqId: string) => ProcurementRfqService.approveAward(rfqId),
+    onSettled: (_r, _e, rfqId) => {
+      invalidateRfq(queryClient, rfqId);
+      queryClient.invalidateQueries({ queryKey: ['procurement-purchase-orders'] });
+    },
   });
 }
 
-export function useRejectRfq() {
+/** Super Admin sends the award back to the store keeper with a reason. */
+export function useSendBackAward() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ rfqId, reviewerId, notes }: { rfqId: string; reviewerId: string; notes: string }) =>
-      ProcurementRfqService.rejectRfq(rfqId, reviewerId, notes),
-    onSuccess: (_r, { rfqId }) => invalidateRfq(queryClient, rfqId),
+    mutationFn: ({ rfqId, reason }: { rfqId: string; reason: string }) =>
+      ProcurementRfqService.sendBackAward(rfqId, reason),
+    onSettled: (_r, _e, { rfqId }) => invalidateRfq(queryClient, rfqId),
   });
 }
 

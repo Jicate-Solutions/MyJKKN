@@ -94,7 +94,7 @@ export const setupSections: GuideSection[] = [
       {
         action: "Confirm **single-sided or double-sided** printing.",
         detail:
-          "Single-sided prints the front only — faster and cheaper. Double-sided prints front and back in one pass and uses twice the ribbon. The template editor shows or hides the back-side layout to match.",
+          "Single-sided prints the front only — faster and cheaper. Double-sided prints front and back in one pass; whether that costs one ribbon set or two is decided by the Evolis driver's Front/Back combination (\"YMCO / K\" = one set, 300 cards per YMCKO roll; any combination with a colour front panel set AND a separate back panel = two sets, 150 cards). The template editor shows or hides the back-side layout to match.",
         prerequisite:
           "Set the policy BEFORE printing a batch — changing ribbon or sides mid-batch wastes cards and ribbon.",
       },
@@ -199,7 +199,7 @@ export const glossary: GlossaryTerm[] = [
   },
   {
     term: "Ribbon",
-    def: "The ink cartridge inside the card printer. Each card printed uses a panel of ribbon; double-sided uses twice as much.",
+    def: "The ink cartridge inside the card printer. Each print pass uses one set of ribbon panels regardless of how much ink the design needs. A YMCKO roll holds 300 sets: 300 single-sided cards, or 300 double-sided cards only when the driver splits each set as \"YMCO / K\"; otherwise 150.",
   },
   {
     term: "Print job",

@@ -52,6 +52,7 @@ export default function EditPoFormatPage() {
           <Button
             variant="ghost"
             size="sm"
+            className="h-10 sm:h-8"
             aria-label="Back to PO formats"
             onClick={() => router.push('/procurement/purchase-orders/formats')}
           >
@@ -60,7 +61,7 @@ export default function EditPoFormatPage() {
           <div className="min-w-0">
             <h2 className="text-2xl font-bold tracking-tight truncate">{format.name}</h2>
             <p className="hidden text-muted-foreground sm:block">
-              Define the header, item columns and footer used when a purchase order is printed.
+              Define the header, item columns and footer used when an order is printed.
             </p>
           </div>
         </div>

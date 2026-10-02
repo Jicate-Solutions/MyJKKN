@@ -2,6 +2,7 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { calculateGstLine } from '@/lib/utils/ims-gst-calculator';
+import { istBusinessDate } from '@/lib/utils/date-format';
 import { ImsActivityLogService } from './activity-log-service';
 import type {
   ImsGoodsReceivedNote,
@@ -128,7 +129,9 @@ export class ImsGRNService {
            unit:ims_units(id,name,abbreviation)`
         )
         .eq('grn_id', id)
-        .order('created_at', { ascending: true });
+        // ims_grn_items has no created_at; ordering by it failed the whole
+        // read and the page said "GRN not found" (BUG-005862).
+        .order('id', { ascending: true });
 
       if (itemsError) throw itemsError;
 
@@ -336,20 +339,31 @@ export class ImsGRNService {
 
       // Process each item: create batches and update stock summary
       for (const grnItem of grnItems || []) {
-        // Create stock batch
-        await this.supabase.from('ims_stock_batches').insert({
+        // Create stock batch. quantity_available and entry_date are NOT NULL
+        // with no default; leaving them out failed every insert, and the
+        // unread error hid it — approved GRNs raised stock but no batch
+        // (BUG-005900, BUG-005901).
+        const { error: batchError } = await this.supabase.from('ims_stock_batches').insert({
           item_id: grnItem.item_id,
           batch_number: grnItem.batch_number || null,
           expiry_date: grnItem.expiry_date || null,
           quantity: grnItem.quantity,
+          quantity_available: grnItem.quantity,
           cost_price: grnItem.cost_price,
+          gst_rate:
+            (grnItem.cgst_percent || 0) + (grnItem.sgst_percent || 0) + (grnItem.igst_percent || 0),
           total_value: grnItem.total,
+          entry_date: istBusinessDate(),
           grn_id: id,
+          supplier_id: grn.supplier_id ?? null,
           location_type: 'central_store',
           department_id: null,
           institution_id: grn.institution_id,
           ...(grn.store_id ? { store_id: grn.store_id } : {}),
         });
+        if (batchError) {
+          console.error('[ImsGRNService] approveGRN stock batch insert failed:', batchError.message);
+        }
 
         // Upsert stock summary - Primary: store_id; Fallback: institution_id
         let stockQuery = this.supabase

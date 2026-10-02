@@ -15,11 +15,11 @@ import { useQuotationChatHistory, useQuotationChatSend } from '@/hooks/procureme
 import type { ValidatedSuggestion } from '@/lib/procurement/quotation-compare-agent';
 
 const STARTERS = [
-  'What is the cheapest way to award everything?',
+  'What is the cheapest way to choose vendors for every item?',
   'Can one vendor supply all items?',
   'Compare delivery and payment terms',
   'Which items have only one usable quote?',
-  'Draft an approval note for the current awards',
+  'Draft an approval note for the current choices',
 ];
 
 interface QuotationChatPanelProps {
@@ -131,7 +131,7 @@ export function QuotationChatPanel({
             Ask AI about these quotations
           </SheetTitle>
           <SheetDescription className="text-xs">
-            {rfqNumber} · answers use only this RFQ&apos;s quotations. Suggested awards change nothing until
+            {rfqNumber} · answers use only these quotations. Suggested choices change nothing until
             someone clicks Apply.
           </SheetDescription>
         </SheetHeader>

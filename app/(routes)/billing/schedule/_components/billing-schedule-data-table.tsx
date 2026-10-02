@@ -10,6 +10,9 @@ import { Button } from '@/components/ui/button';
 import { Plus, TrashIcon, Users, Ban, FileText, Search } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { StudentBillService } from '@/lib/services/billing/schedule/student-bill-service';
+import { BillCancelRequestService } from '@/lib/services/billing/schedule/bill-cancel-request-service';
+import { useQueryClient } from '@tanstack/react-query';
+import { billCancelRequestKeys } from '@/hooks/billing/use-bill-cancel-requests';
 import { StudentBill } from '@/types/billing-schedule';
 import { getStatusLabel } from '@/components/learners/lifecycle-status-badge';
 import type { LifecycleStatus } from '@/types/learner-profile';
@@ -106,9 +109,10 @@ export function BillingScheduleDataTable({
     isSuperAdmin ||
     (canAccess('billing.schedule', 'create') &&
       canAccess('billing.schedule', 'bulk_create'));
-  // Its own key, not billing.schedule.update: cancelling writes off money.
+  // Raising a cancel REQUEST is its own key; an approver decides it.
   const canCancelBills =
-    isSuperAdmin || canAccess('billing.schedule', 'cancel');
+    isSuperAdmin || canAccess('billing.schedule', 'cancel.request');
+  const queryClient = useQueryClient();
 
   // Dimension filters shared by the paged fetch AND the cross-page "select all"
   // fetch, so both honour the exact same URL filters. Search/sort come per-call
@@ -349,23 +353,30 @@ export function BillingScheduleDataTable({
 
       try {
         const loadingToast = toast.loading(
-          `Cancelling ${cancellable.length} bill${cancellable.length > 1 ? 's' : ''}...`
+          `Requesting cancellation of ${cancellable.length} bill${cancellable.length > 1 ? 's' : ''}...`
         );
 
-        const result = await StudentBillService.bulkCancelStudentBills(
+        // One request per bill under the shared evidence; a bill with
+        // receipted money or an open request fails alone with the RPC's reason.
+        const result = await BillCancelRequestService.bulkRequest(
           cancellable.map((b) => b.id),
-          payload.reasonCode,
-          payload.reason,
-          payload.attachments
+          {
+            reasonCode: payload.reasonCode,
+            reason: payload.reason,
+            attachments: payload.attachments
+          }
         );
+        queryClient.invalidateQueries({ queryKey: billCancelRequestKeys.all });
 
         const skipped = selectedBills.length - cancellable.length;
         const parts: string[] = [];
         if (result.success.length > 0) {
-          parts.push(`${result.success.length} cancelled`);
+          parts.push(`${result.success.length} sent for approval`);
         }
         if (result.failed.length > 0) {
-          parts.push(`${result.failed.length} failed`);
+          parts.push(
+            `${result.failed.length} refused (${result.failed[0].error})`
+          );
         }
         if (skipped > 0) {
           parts.push(`${skipped} skipped (ineligible status)`);
@@ -385,12 +396,12 @@ export function BillingScheduleDataTable({
           isLoading: false
         });
       } catch (error) {
-        console.error('Error cancelling bills:', error);
-        toast.error('Failed to cancel bills. Please try again.');
+        console.error('Error requesting bill cancellations:', error);
+        toast.error('Failed to request cancellation. Please try again.');
         setCancelModal((prev) => ({ ...prev, isLoading: false }));
       }
     },
-    [cancelModal]
+    [cancelModal, queryClient]
   );
 
   const handleCloseCancelModal = React.useCallback(() => {
@@ -446,7 +457,7 @@ export function BillingScheduleDataTable({
               }
             >
               <Ban className='mr-2 h-4 w-4' />
-              Cancel Selected ({cancellableCount}/{selected.length})
+              Request Cancel ({cancellableCount}/{selected.length})
             </Button>
           )}
 
@@ -588,7 +599,7 @@ export function BillingScheduleDataTable({
         warningMessage='This will permanently remove all payment history, discounts, and related financial records.'
       />
 
-      {/* One reason and one document set covers the whole selection — the
+      {/* One reason and one set of notes covers the whole selection — the
           "these twelve rows are the same duplicate" case. Each bill still
           goes through the RPC on its own, so an ineligible one fails alone. */}
       <BillCancelDialog
@@ -602,9 +613,6 @@ export function BillingScheduleDataTable({
           final_amount: b.final_amount,
           status: b.status
         }))}
-        institutionName={
-          cancelModal.selectedBills[0]?.institution?.name || 'Unknown Institution'
-        }
         isPending={cancelModal.isLoading}
         onConfirm={handleConfirmCancel}
       />

@@ -1,5 +1,5 @@
 // ============================================================================
-// ID CARDS — PRINT QUEUE (Admin or Super-Admin)
+// ID CARDS — PRINT QUEUE (anyone holding id_cards.jobs.view)
 // ============================================================================
 // Created: 2026-05-07 (Phase 1B — UI layer).
 //
@@ -39,7 +39,12 @@ export default function IdCardPrintQueuePage() {
           </p>
         </>
       }
-      permission="admin_or_super_admin"
+      // Gate via Role Management (id_cards.jobs.view), like every other
+      // ID-card page. The old hardcoded admin_or_super_admin shell locked out
+      // the Admission Officer (role key `admission`) even though that role
+      // holds every id_cards.jobs permission and the jobs API already admits
+      // it (2026-10-01).
+      permissionKey="id_cards.jobs.view"
     >
       <IdCardPrintQueue />
     </PolicyPageShell>

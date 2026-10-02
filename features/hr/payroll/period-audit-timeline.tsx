@@ -3,7 +3,7 @@
 /**
  * PeriodAuditTimeline — vertical timeline of hr_payroll_period_approvals rows.
  *
- * Per spec specs/t4-3-pr3-payroll-ui-design-lock-2026-05-19.md Q6 + E7:
+ * No written spec; the rules live in this code:
  *   - Everyone in the chain sees everything (transparency).
  *   - Special rendering for stage='rejected_to_prior' (red x icon,
  *     "Rejected from {rejected_from_stage}").

@@ -170,6 +170,8 @@ export interface ImsReorderRequestResult {
 
 export interface ImsBatchFilters {
   item_id?: string;
+  /** Matches item name or batch number, case-insensitive. */
+  search?: string;
   location_type?: ImsLocationType;
   expiring_within_days?: number;
   institution_id?: string;
