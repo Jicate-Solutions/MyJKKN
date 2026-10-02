@@ -19,6 +19,10 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AlertTriangle, RefreshCw, Home, Bug } from 'lucide-react';
+import {
+  isStaleServerActionError,
+  reloadOnceForStaleDeployment
+} from '@/lib/utils/stale-deployment';
 
 interface ErrorProps {
   error: Error & { digest?: string };
@@ -112,6 +116,12 @@ export default function RoutesError({ error, reset }: ErrorProps) {
       error.message?.includes('Failed to load chunk') ||
       error.message?.includes('Loading chunk') ||
       error.name === 'ChunkLoadError';
+
+    // Same cause, Server Action flavour (BUG-006164): the tab calls an action
+    // id from a previous deployment. Only a reload brings the current ids.
+    if (isStaleServerActionError(error) && reloadOnceForStaleDeployment()) {
+      return;
+    }
 
     if (isChunkError) {
       const key = `chunk-reload:${pathname}`;

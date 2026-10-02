@@ -67,7 +67,7 @@ function Shell({ children }: { children: React.ReactNode }) {
       <div className="mt-4">
         <PageHeader
           title="Close a campus job"
-          description="Show the finished work and send it for approval."
+          description="Send a photo of the finished work. The photo closes the job."
         />
       </div>
       {children}
@@ -377,6 +377,8 @@ export default async function CampusWalkFixPage({ searchParams }: PageProps) {
           approvalState,
           approvalNote: (metadata.fix.approval?.note as string | null) ?? null,
           decidedAt: (metadata.fix.approval?.decided_at as string | null) ?? null,
+          autoClosed: metadata.fix.approval?.auto === true,
+          reopenedByReporter: metadata.fix.approval?.reopened_by_reporter === true,
         }
       : null,
     blocked: metadata.blocked
@@ -484,6 +486,9 @@ async function MyOpenJobs({
                   )}
                   {t.is_blocked && <Badge variant="outline">Held up</Badge>}
                   {t.status_key === 'review' && <Badge variant="outline">Waiting for approval</Badge>}
+                  {meta.fix?.approval?.reopened_by_reporter === true && t.status_key !== 'review' && (
+                    <Badge variant="destructive">Reported not fixed</Badge>
+                  )}
                 </div>
                 <p className="font-medium leading-snug">{t.title}</p>
                 <p className="text-xs text-muted-foreground">
