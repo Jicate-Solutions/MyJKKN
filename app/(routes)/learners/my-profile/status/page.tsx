@@ -1,6 +1,7 @@
 // app/(routes)/learners/my-profile/status/page.tsx
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { getUserWithRetry } from '@/lib/auth/auth-retry';
 import { StudentValidationService } from '@/lib/services/auth/student-validation-service';
 import { ProfileStatusClient } from './_components/profile-status-client';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -24,12 +25,9 @@ export default async function ProfileStatusPage() {
   const supabase = await createClient();
 
   // Get authenticated user
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
+  const user = await getUserWithRetry(supabase);
 
-  if (authError || !user) {
+  if (!user) {
     redirect('/auth/login');
   }
 

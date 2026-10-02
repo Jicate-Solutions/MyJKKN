@@ -11,6 +11,7 @@ import { useRouter } from 'next/navigation';
 import { BeatLoader } from 'react-spinners';
 import toast from 'react-hot-toast';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
+import { safeReturnPath } from '@/lib/auth/safe-return-path';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 // Simple Educational Hero Component
@@ -72,14 +73,6 @@ export default function LoginPage() {
         return;
       }
 
-      // If redirected due to profile load failure, show error and let user retry login
-      // Don't auto-redirect even if they have a valid session (profile fetch may still fail)
-      if (params.get('error') === 'profile_load_failed') {
-        console.log('[Login Page] Profile load failed redirect, showing error');
-        setIsCheckingAuth(false);
-        return;
-      }
-
       // Don't redirect if coming from error page
       const redirectedFrom = params.get('redirectedFrom');
       if (
@@ -128,6 +121,15 @@ export default function LoginPage() {
           // Type cast to fix TypeScript inference after React 19 upgrade
           const profileData = profile as { role: string } | null;
 
+          // ?error=profile_load_failed with a still-valid session: if the
+          // profile reads now, send them back where they were going (below)
+          // instead of making them sign in with Google again. Only when it is
+          // STILL unreadable do we stop here and show the message.
+          if (params.get('error') === 'profile_load_failed' && !profileData) {
+            setIsCheckingAuth(false);
+            return;
+          }
+
           // Handle student role - check feature flag
           if (profileData?.role === 'student') {
             // Check student portal feature flag
@@ -171,9 +173,10 @@ export default function LoginPage() {
             destination = '/driver';
           }
 
-          // For non-student users, allow redirectedFrom as before
+          // For non-student users, allow redirectedFrom as before — but only a
+          // path on this site (safeReturnPath refuses '//host', '/\\host', URLs).
           if (redirectedFrom && profileData?.role !== 'student') {
-            destination = redirectedFrom;
+            destination = safeReturnPath(redirectedFrom) ?? destination;
           }
 
           // CRITICAL: Check if destination is the current login page to prevent loops
@@ -330,11 +333,22 @@ export default function LoginPage() {
         // request ID, thread it through the OAuth redirect_uri so that
         // /auth/callback can resume the SAML flow after Google auth.
         // Google preserves the redirect_uri query string verbatim on return.
-        const samlReqId = new URLSearchParams(window.location.search).get('samlReqId');
+        const pageParams = new URLSearchParams(window.location.search);
+        const callbackUrl = new URL('/auth/callback', origin);
+        const samlReqId = pageParams.get('samlReqId');
         if (samlReqId) {
-          redirectTo = `${origin}/auth/callback?samlReqId=${encodeURIComponent(samlReqId)}`;
+          callbackUrl.searchParams.set('samlReqId', samlReqId);
           console.log('[Login Page] Threading samlReqId through OAuth:', samlReqId);
         }
+        // Return-to: the page the person was on when proxy.ts sent them here
+        // (e.g. a scanned QR sticker, /instasolver/r/<token>). Threaded through
+        // the OAuth round trip the same way as samlReqId; /auth/callback checks
+        // it again before using it.
+        const returnPath = safeReturnPath(pageParams.get('redirectedFrom'));
+        if (returnPath) {
+          callbackUrl.searchParams.set('next', returnPath);
+        }
+        redirectTo = callbackUrl.toString();
       }
 
       console.log('[Login Page] Current origin:', window.location.origin);
