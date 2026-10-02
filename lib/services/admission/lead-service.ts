@@ -839,18 +839,20 @@ export class LeadService {
     // A walk-in enquiry with an agency claim still waiting for its release owner cannot
     // be deleted (trg_guard_walkin_source_while_claim_held). Check before clearing the
     // history below, otherwise the history is wiped and the enquiry survives the refusal.
-    const { data: leadRow } = await (this.supabase as any)
+    // The check runs in the database (SECURITY DEFINER) because the caller's own access
+    // rules can hide the claim, and it fails closed: an error or a non-false answer refuses.
+    const { data: leadRow, error: leadError } = await (this.supabase as any)
       .from('admission_leads')
       .select('source')
       .eq('id', id)
       .maybeSingle();
+    if (leadError) {
+      throw new Error(`Failed to delete lead: ${leadError.message}`);
+    }
     if (leadRow?.source === 'walk_in') {
-      const { count: heldClaims } = await (this.supabase as any)
-        .from('consultant_lead_attributions')
-        .select('id', { count: 'exact', head: true })
-        .eq('admission_id', id)
-        .is('payout_cleared_at', null);
-      if ((heldClaims ?? 0) > 0) {
+      const { data: held, error: heldError } = await (this.supabase as any)
+        .rpc('fn_lead_has_held_walkin_claim', { p_lead_id: id });
+      if (heldError || held !== false) {
         throw new Error('This walk-in enquiry has an agency claim waiting for confirmation, so it cannot be deleted. The release owner decides it on the Review Worklist.');
       }
     }

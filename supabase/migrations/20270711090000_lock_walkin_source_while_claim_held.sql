@@ -78,3 +78,31 @@ DROP TRIGGER IF EXISTS trg_guard_walkin_source_while_claim_held ON public.admiss
 CREATE TRIGGER trg_guard_walkin_source_while_claim_held
   BEFORE UPDATE OF source, learner_profile_id OR DELETE ON public.admission_leads
   FOR EACH ROW EXECUTE FUNCTION public.fn_guard_walkin_source_while_claim_held();
+
+-- fn_lead_has_held_walkin_claim: the delete button asks this BEFORE it clears an
+-- enquiry's call/SMS/WhatsApp/email history, so a delete the trigger above would refuse
+-- never wipes the history first. SECURITY DEFINER because the caller's own RLS can hide
+-- consultant_lead_attributions (admins and admission.leads.delete holders may delete a
+-- lead without holding admission.leads.view), and a hidden claim must not read as "none".
+-- Fails closed: a caller who could not delete the lead anyway gets TRUE, and the app
+-- treats an error or a NULL as TRUE too. Returns one boolean, reads nothing else.
+CREATE OR REPLACE FUNCTION public.fn_lead_has_held_walkin_claim(p_lead_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT (is_super_admin() OR is_admin() OR user_has_permission('admission.leads.delete')) THEN
+    RETURN true;
+  END IF;
+  RETURN EXISTS (
+    SELECT 1 FROM public.admission_leads l
+      JOIN public.consultant_lead_attributions a ON a.admission_id = l.id
+     WHERE l.id = p_lead_id AND l.source::text = 'walk_in' AND a.payout_cleared_at IS NULL);
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_lead_has_held_walkin_claim(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_lead_has_held_walkin_claim(uuid) TO authenticated;
