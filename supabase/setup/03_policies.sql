@@ -11577,3 +11577,26 @@ CREATE POLICY hva_select ON public.hostel_vacate_approvals FOR SELECT TO authent
     )
   );
 
+
+-- ============================================================================
+-- Updated: 2026-10-01 - Old InstaSolver site history (migration 20270617094100)
+-- Read: super admin, admin, grievance.categories.manage. Write: service role only.
+-- ============================================================================
+ALTER TABLE public.legacy_instasolver_issues ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.legacy_instasolver_requirements ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.legacy_instasolver_issues FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.legacy_instasolver_requirements FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.legacy_instasolver_issues FROM authenticated;
+REVOKE ALL ON TABLE public.legacy_instasolver_requirements FROM authenticated;
+GRANT SELECT ON TABLE public.legacy_instasolver_issues TO authenticated;
+GRANT SELECT ON TABLE public.legacy_instasolver_requirements TO authenticated;
+GRANT ALL ON TABLE public.legacy_instasolver_issues TO service_role;
+GRANT ALL ON TABLE public.legacy_instasolver_requirements TO service_role;
+DROP POLICY IF EXISTS legacy_instasolver_issues_select ON public.legacy_instasolver_issues;
+CREATE POLICY legacy_instasolver_issues_select ON public.legacy_instasolver_issues
+  FOR SELECT TO authenticated
+  USING (public.is_super_admin() OR public.is_admin() OR public.user_has_permission('grievance.categories.manage'));
+DROP POLICY IF EXISTS legacy_instasolver_requirements_select ON public.legacy_instasolver_requirements;
+CREATE POLICY legacy_instasolver_requirements_select ON public.legacy_instasolver_requirements
+  FOR SELECT TO authenticated
+  USING (public.is_super_admin() OR public.is_admin() OR public.user_has_permission('grievance.categories.manage'));

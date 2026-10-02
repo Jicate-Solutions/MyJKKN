@@ -5323,6 +5323,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/instasolver/old-purchase-requests",
+        "label": "Old Purchase Requests",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/instasolver/track",
         "label": "Track",
         "iconName": "FileText",
