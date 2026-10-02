@@ -27,6 +27,7 @@ import {
   JOB_WRITER_ROLES,
   JOB_READER_ROLES,
   type IdCardPrintJob,
+  type IdCardPrintJobListed,
   type IdCardPrintJobStatus
 } from '@/lib/id-cards/types';
 import {
@@ -299,8 +300,39 @@ export async function GET(request: NextRequest) {
       console.error('[id-cards/jobs] GET error:', error);
       return jsonError(`Failed to list jobs: ${error.message}`, 'query_failed', 500);
     }
+    const rows = (data ?? []) as IdCardPrintJob[];
 
-    return jsonOk<IdCardPrintJob[]>((data ?? []) as IdCardPrintJob[]);
+    // Agent path: the raw rows, unchanged contract.
+    if (auth.kind !== 'user') return jsonOk<IdCardPrintJob[]>(rows);
+
+    // User path (the Print Queue page): attach the names the page shows. The
+    // page used to read `student_name` / `template_name` / `result_message`
+    // off rows that never carried them, so Learner and Template were blank
+    // for everyone (2026-10-01). Fail-soft: a lookup error leaves the names
+    // null and the list still renders.
+    const service = createServiceRoleClient();
+    const profileIds = [...new Set(rows.map((r) => r.profile_id))];
+    const templateIds = [...new Set(rows.map((r) => r.template_id))];
+    const [profilesRes, templatesRes] =
+      rows.length === 0
+        ? [{ data: [] }, { data: [] }]
+        : await Promise.all([
+            service.from('profiles').select('id, full_name').in('id', profileIds),
+            service.from('id_card_templates').select('id, name').in('id', templateIds)
+          ]);
+    const nameOf = new Map(
+      ((profilesRes.data ?? []) as Array<{ id: string; full_name: string | null }>).map((p) => [p.id, p.full_name])
+    );
+    const templateOf = new Map(
+      ((templatesRes.data ?? []) as Array<{ id: string; name: string | null }>).map((t) => [t.id, t.name])
+    );
+    const enriched: IdCardPrintJobListed[] = rows.map((r) => ({
+      ...r,
+      learner_name: nameOf.get(r.profile_id) ?? null,
+      template_name: templateOf.get(r.template_id) ?? null,
+      result_message: r.result?.error_message ?? null
+    }));
+    return jsonOk<IdCardPrintJobListed[]>(enriched);
   } catch (err) {
     console.error('[id-cards/jobs] GET unexpected:', err);
     return jsonError('Unexpected server error', 'internal_error', 500);
