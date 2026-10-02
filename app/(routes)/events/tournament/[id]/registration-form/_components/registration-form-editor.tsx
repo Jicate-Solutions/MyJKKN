@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/select';
 import { Plus, Trash2, ChevronUp, ChevronDown, Loader2, ArrowLeft, Save } from 'lucide-react';
 import { useRegistrationForm, useSaveRegistrationForm } from '@/hooks/events/use-tournament-registration-form';
+import { useTournament } from '@/hooks/events/use-tournaments';
 import type { SaveFormSectionPayload } from '@/lib/services/events/tournament/event-registration-form-service';
 import {
   DynamicFieldInput,
@@ -35,7 +36,7 @@ import {
 import { StandardFieldsCard, StandardFieldsPreview } from './standard-fields-card';
 import { FORM_FIELD_TYPES } from '@/types/tournament';
 import { REGISTRATION_PREFILL_SOURCES } from '@/lib/services/events/registration/form-prefill';
-import { parseConditionList } from '@/lib/services/events/registration/form-visibility';
+import { parseConditionList, SPORT_CONDITION_KEY } from '@/lib/services/events/registration/form-visibility';
 import type {
   EventRegistrationFormField,
   FormFieldType,
@@ -679,6 +680,22 @@ export function RegistrationFormEditor({
   const backTo = backHref ?? `/events/tournament/${eventId}`;
   const { data: form, isLoading } = useRegistrationForm(formId);
   const save = useSaveRegistrationForm(eventId);
+  // Tournament only: the built-in Sport dropdown can drive a show/hide rule too
+  // (e.g. "Jersey size" only when Sport is Volleyball). Not a custom field, so
+  // it is offered as a pseudo source keyed SPORT_CONDITION_KEY.
+  const { data: tournament } = useTournament(isTournament ? eventId : '');
+  const sportSource = useMemo<ConditionSourceField | null>(() => {
+    if (!isTournament) return null;
+    const sports = Array.from(new Set((tournament?.divisions ?? []).map((d) => d.sport).filter(Boolean)));
+    if (sports.length === 0) return null;
+    return {
+      uid: SPORT_CONDITION_KEY,
+      key: SPORT_CONDITION_KEY,
+      label: 'Sport (standard field)',
+      type: 'select',
+      options: sports.map((s) => ({ value: s, label: s })),
+    };
+  }, [isTournament, tournament?.divisions]);
 
   const [sections, setSections] = useState<EditableSection[]>([]);
   const [isEnabled, setIsEnabled] = useState(true);
@@ -741,7 +758,7 @@ export function RegistrationFormEditor({
   }
   /** Fields a SECTION may be conditioned on: every answerable field outside it. */
   function conditionSourcesForSection(sectionUid: string): ConditionSourceField[] {
-    return sections
+    const custom = sections
       .filter((s) => s.uid !== sectionUid)
       .flatMap((s) => s.fields)
       .filter((f) => f.field_type !== 'image_display')
@@ -752,6 +769,7 @@ export function RegistrationFormEditor({
         type: f.field_type,
         options: f.options,
       }));
+    return sportSource ? [sportSource, ...custom] : custom;
   }
   function deleteSection(uid: string) {
     applyLocal(sections.filter((s) => s.uid !== uid));
@@ -789,6 +807,7 @@ export function RegistrationFormEditor({
    * condition written before that would point at nothing.
    */
   function ensureFieldKey(fieldUid: string): string {
+    if (fieldUid === SPORT_CONDITION_KEY) return SPORT_CONDITION_KEY;
     const used = new Set<string>();
     let target: EditableField | null = null;
     for (const s of sections) {
@@ -817,7 +836,7 @@ export function RegistrationFormEditor({
 
   /** Fields a given field may be conditioned on: every other answerable field on the form. */
   function conditionSourcesFor(fieldUid: string): ConditionSourceField[] {
-    return sections
+    const custom = sections
       .flatMap((s) => s.fields)
       .filter((f) => f.uid !== fieldUid && f.field_type !== 'image_display')
       .map((f) => ({
@@ -827,6 +846,7 @@ export function RegistrationFormEditor({
         type: f.field_type,
         options: f.options,
       }));
+    return sportSource ? [sportSource, ...custom] : custom;
   }
   function moveField(sectionUid: string, index: number, direction: 'up' | 'down') {
     applyLocal(
