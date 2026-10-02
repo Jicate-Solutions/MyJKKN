@@ -764,6 +764,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // without a way to reach this the fixer's proof photo sits in `review`
   // forever and the loop never closes.
   '/campus-walk/review': 'projects.view',
+  // The Monday report card (Director ruling 2026-09-30). Mapped explicitly so
+  // it is not hidden-by-default, but this key is NOT the gate: the page itself
+  // lets in the Director, super admins and each college's principal (for their
+  // own college) — see resolveReportCardViewer in
+  // lib/campus-walk/report-card-run.ts. Principals reach it from the Monday bell.
+  '/campus-walk/report-card': 'projects.view',
   // The fixes board (D9, departments only) — open to every team member by the
   // Director's ruling of 2026-09-30. Its own key so it can be granted without
   // projects.view; the page re-checks it server-side (gateFixesBoard). The
