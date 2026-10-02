@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
-import { resolveParentScope, parentErrorResponse } from '@/lib/utils/parent-access';
+import {
+  resolveParentScopeWithReason,
+  parentErrorResponse,
+  PARENT_NOT_LINKED_MESSAGE,
+} from '@/lib/utils/parent-access';
 import {
   resolveInstitutions,
   resolveProgramNames,
@@ -14,8 +18,18 @@ export const runtime = 'nodejs';
 /** GET /api/parent/children — the family (logged-in student + live siblings). */
 export async function GET(req: NextRequest) {
   try {
-    const scope = await resolveParentScope(req);
-    if (!scope) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { scope, reason } = await resolveParentScopeWithReason(req);
+    if (!scope) {
+      // A live login whose learner record is missing: the app shows a clear
+      // "contact the college office" card instead of empty pages.
+      if (reason === 'not_linked') {
+        return NextResponse.json(
+          { error: PARENT_NOT_LINKED_MESSAGE, code: 'not_linked' },
+          { status: 401 }
+        );
+      }
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     // The parent_session cookie is HttpOnly, so the client learns its own
     // identity from here (alongside the children list) on a fresh page load.

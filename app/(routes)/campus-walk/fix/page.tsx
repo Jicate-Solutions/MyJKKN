@@ -38,6 +38,7 @@ import { PageHeader } from '@/components/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { readJoinedReports } from '@/lib/campus-walk/joined-reports';
 import { FixClient, type ApprovalState, type FixTicket } from './_components/fix-client';
 
 export const dynamic = 'force-dynamic';
@@ -338,7 +339,15 @@ export default async function CampusWalkFixPage({ searchParams }: PageProps) {
     }
   }
 
-  const wanted = [problemPath, fixPath].filter((p): p is string => Boolean(p));
+  // Extra reports people added from the QR sticker ("Add to the open report").
+  // The fixer must see every note and photo, not only the first report's.
+  const joined = readJoinedReports(metadata);
+
+  const wanted = [
+    problemPath,
+    fixPath,
+    ...joined.map((r) => r.photoStoragePath),
+  ].filter((p): p is string => Boolean(p));
   const signed = new Map<string, string>();
   if (wanted.length > 0) {
     const { data: urls } = await admin.storage
@@ -369,6 +378,13 @@ export default async function CampusWalkFixPage({ searchParams }: PageProps) {
     isBlocked: Boolean(task.is_blocked),
     problemPhotoUrl: problemPath ? (signed.get(problemPath) ?? null) : null,
     fixPhotoUrl: fixPath ? (signed.get(fixPath) ?? null) : null,
+    // Note, time and photo only — never who sent it (D10).
+    joinedReports: joined.map((r) => ({
+      note: r.note,
+      at: r.at,
+      photoUrl: r.photoStoragePath ? (signed.get(r.photoStoragePath) ?? null) : null,
+      photoMissing: Boolean(r.photoStoragePath) && !signed.get(r.photoStoragePath as string),
+    })),
     fix: metadata.fix
       ? {
           submittedAt: (metadata.fix.submitted_at as string | null) ?? null,
