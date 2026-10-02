@@ -1,5 +1,6 @@
 import { createServerClient, CookieOptions } from '@supabase/ssr';
 import type { AuthError } from '@supabase/supabase-js';
+import { classifyAuthResult } from './lib/auth/auth-retry';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { PROTECTED_ROUTES } from './lib/auth/protected-routes';
@@ -14,7 +15,20 @@ import { routeAllowedByHandover } from './lib/auth/handover-route-access';
 import { FEATURE_FLAGS } from './lib/config/feature-flags';
 import { StudentValidationService } from './lib/services/auth/student-validation-service';
 import { isInductionOnlyAllowedPath } from './lib/constants/induction-access';
-import { PARENT_SESSION_COOKIE, verifyParentSession } from './lib/auth/parent-jwt';
+import {
+  PARENT_SESSION_COOKIE,
+  PARENT_ACTIVE_LEARNER_COOKIE,
+  verifyParentSession,
+  signParentSession,
+  parentSessionCookieOptions,
+  type ParentJwtClaims,
+} from './lib/auth/parent-jwt';
+import {
+  getParentAccountState,
+  decideParentSessionAction,
+  type ParentSessionAction,
+} from './lib/auth/parent-session-state';
+import { createServiceRoleClient } from './lib/supabase/server';
 import {
   SCHOOL_PORTAL_SESSION_COOKIE,
   verifySchoolPortalSession,
@@ -46,26 +60,76 @@ const PARENT_REDIRECT_WHEN_AUTHED = new Set([
   '/parent/register',
 ]);
 
+// Sliding session (Director ruling, 1 Oct 2026: the installed parent app never
+// logs a parent out while it is used). For a verified token the account row is
+// checked on every page request — disabled / removed / "signed out everywhere"
+// clears the cookie BEFORE the authed-funnel redirect, so a dead session can
+// never bounce login → dashboard → login. A live token older than a day is
+// re-issued with a fresh 400-day expiry on whichever response goes back.
+async function resolveParentSessionAction(
+  claims: ParentJwtClaims
+): Promise<ParentSessionAction> {
+  try {
+    const state = await getParentAccountState(createServiceRoleClient(), claims);
+    return decideParentSessionAction(claims, state);
+  } catch {
+    // Missing service-role credentials etc. — fail open, never log out.
+    return 'keep';
+  }
+}
+
+async function applyParentSessionAction(
+  res: NextResponse,
+  claims: ParentJwtClaims | null,
+  action: ParentSessionAction
+): Promise<NextResponse> {
+  if (action === 'clear') {
+    res.cookies.set(PARENT_SESSION_COOKIE, '', { path: '/', maxAge: 0 });
+    res.cookies.set(PARENT_ACTIVE_LEARNER_COOKIE, '', { path: '/', maxAge: 0 });
+  } else if (action === 'renew' && claims) {
+    try {
+      const fresh = await signParentSession({
+        sub: claims.sub,
+        learnerProfileId: claims.learnerProfileId,
+      });
+      res.cookies.set(PARENT_SESSION_COOKIE, fresh, parentSessionCookieOptions());
+    } catch {
+      // Renewal is best-effort; the current token stays valid.
+    }
+  }
+  return res;
+}
+
 async function handleParentPortal(request: NextRequest, currentPath: string) {
   const token = request.cookies.get(PARENT_SESSION_COOKIE)?.value;
-  const claims = await verifyParentSession(token);
+  let claims = await verifyParentSession(token);
+  let action: ParentSessionAction = 'keep';
+
+  if (claims) {
+    action = await resolveParentSessionAction(claims);
+    if (action === 'clear') claims = null;
+  }
 
   if (claims && PARENT_REDIRECT_WHEN_AUTHED.has(currentPath)) {
-    return NextResponse.redirect(new URL('/parent/dashboard', request.url));
+    return applyParentSessionAction(
+      NextResponse.redirect(new URL('/parent/dashboard', request.url)),
+      claims,
+      action
+    );
   }
 
   if (!claims && !PARENT_PUBLIC_PATHS.has(currentPath)) {
     const url = new URL('/parent/login', request.url);
     // Preserve the query string so deep links survive the login roundtrip
     url.searchParams.set('redirectedFrom', currentPath + request.nextUrl.search);
-    return NextResponse.redirect(url);
+    return applyParentSessionAction(NextResponse.redirect(url), claims, action);
   }
 
   const res = NextResponse.next();
   res.headers.set('Cache-Control', 'no-store, must-revalidate');
   res.headers.set('X-Content-Type-Options', 'nosniff');
   res.headers.set('X-Frame-Options', 'SAMEORIGIN');
-  return res;
+  return applyParentSessionAction(res, claims, action);
 }
 
 // Schools Network HM Portal — same dual-auth shape as the parent portal:
@@ -162,6 +226,150 @@ function loginUrlFor(currentPath: string, request: NextRequest): URL {
     currentPath.startsWith('/my-courses') ? '/auth/participant-login' : '/auth/login',
     request.url,
   );
+}
+
+// ── Keeping people signed in (Director ruling, 1 Oct 2026) ─────────────────
+// "Once they log in, it never logs out at all in the PWA." Supabase's own
+// settings never time a session out; every logout came from this file treating
+// a momentary error as "not signed in". The helpers below are what the proxy
+// does instead.
+
+// Supabase's auth cookie and its chunks: sb-<ref>-auth-token, …-auth-token.0, .1
+// (NOT the short-lived …-auth-token-code-verifier used mid sign-in).
+const AUTH_TOKEN_COOKIE = /^sb-.+-auth-token(?:\.\d+)?$/;
+
+type CookieToSet = { name: string; value: string; options?: CookieOptions };
+
+/**
+ * The documented @supabase/ssr middleware pattern: a refreshed session is
+ * written to the REQUEST (so this request's server components read the new
+ * token instead of refreshing again with the one just rotated) and to a fresh
+ * NextResponse.next({ request }) that forwards those request cookies. Headers
+ * and cookies already on the previous response are carried over.
+ */
+function rebuildWithCookies(
+  request: NextRequest,
+  previous: NextResponse,
+  cookiesToSet: CookieToSet[]
+): NextResponse {
+  cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+  const next = NextResponse.next({ request });
+  previous.headers.forEach((value, key) => {
+    if (key === 'set-cookie' || key.startsWith('x-middleware-')) return;
+    next.headers.set(key, value);
+  });
+  previous.cookies.getAll().forEach((cookie) => next.cookies.set(cookie));
+  cookiesToSet.forEach(({ name, value, options }) =>
+    next.cookies.set(name, value, options)
+  );
+  return next;
+}
+
+/** Copy every cookie the auth client wrote onto a response we return instead
+ *  of `carry` (a redirect) — otherwise a refreshed token is dropped and the
+ *  browser keeps the one the server has already rotated. Removals are carried
+ *  too: this is only used where the session is fine or truly dead (no session
+ *  cookie, revoked refresh token, or one of our own sign-outs). */
+function withCarriedCookies<T extends NextResponse>(response: T, carry: NextResponse): T {
+  carry.cookies.getAll().forEach((cookie) => response.cookies.set(cookie));
+  return response;
+}
+
+type CarriedCookie = ReturnType<NextResponse['cookies']['getAll']>[number];
+
+function isCookieRemoval(cookie: CarriedCookie): boolean {
+  if (cookie.value === '' || cookie.maxAge === 0) return true;
+  const expires = cookie.expires instanceof Date ? cookie.expires.getTime() : Number(cookie.expires);
+  return Number.isFinite(expires) && expires > 0 && expires <= Date.now();
+}
+
+/**
+ * Like withCarriedCookies, for responses that tell the person "you are still
+ * signed in" (the Reconnecting page, the /error fallback).
+ *
+ * supabase-js removes the session ITSELF when a token refresh fails with any
+ * status other than 502/503/504 or a network failure — a 500, a 429 rate limit,
+ * a 408, or an unparseable (e.g. HTML 52x) reply (@supabase/auth-js 2.75.0,
+ * GoTrueClient._callRefreshToken → _removeSession). @supabase/ssr then writes
+ * every sb-* auth cookie through setAll with value '' and maxAge 0. Forwarding
+ * those on a temporary error would log the person out on the very page that
+ * says they are still signed in. So when the auth client wrote NO new session
+ * in this request, its sb-* removals are dropped and the browser keeps its
+ * cookies for the next try.
+ *
+ * When a refresh DID succeed (a non-empty auth-token cookie was written), the
+ * whole set is carried untouched: a removal there is a leftover chunk of the
+ * old, longer cookie, and dropping it would corrupt the new session.
+ */
+function withCarriedCookiesKeepingSession<T extends NextResponse>(
+  response: T,
+  carry: NextResponse
+): T {
+  const carried = carry.cookies.getAll();
+  const wroteNewSession = carried.some(
+    (cookie) => AUTH_TOKEN_COOKIE.test(cookie.name) && !isCookieRemoval(cookie)
+  );
+  for (const cookie of carried) {
+    if (!wroteNewSession && cookie.name.startsWith('sb-') && isCookieRemoval(cookie)) {
+      continue;
+    }
+    response.cookies.set(cookie);
+  }
+  return response;
+}
+
+// NOTE (repair round, 1 Oct): there is deliberately NO "re-send the request's
+// auth cookie with 400 days on every visit" step here. Re-sending the
+// REQUEST-TIME value can overwrite a refresh token the browser client rotated
+// while this navigation was in flight; reusing that rotated token outside the
+// 10 s reuse interval trips Supabase's reuse detection and revokes the whole
+// session family. The only auth cookies this proxy writes are the ones the
+// auth client itself writes in this request (a server-side refresh, already
+// 400 days via @supabase/ssr's own options, or a removal).
+
+const RECONNECTING_HTML = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="5">
+<title>Reconnecting… · MyJKKN</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f8fafc; --fg: #0f172a; --muted: #475569; --accent: #059669; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0f172a; --fg: #f1f5f9; --muted: #94a3b8; --accent: #34d399; } }
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: var(--bg); color: var(--fg); font-family: system-ui, -apple-system, sans-serif; }
+  main { max-width: 26rem; padding: 0 16px; text-align: center; }
+  h1 { font-size: 1.25rem; margin: 0 0 .5rem; }
+  p { color: var(--muted); line-height: 1.5; margin: 0 0 1rem; }
+  a { color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Reconnecting…</h1>
+  <p>We could not reach the server for a moment. You are still signed in. This page will try again by itself in a few seconds.</p>
+  <p><a href="">Try again now</a></p>
+</main>
+</body>
+</html>`;
+
+/**
+ * What a signed-in person sees when we could not confirm their session or read
+ * their account because of a momentary error: a page that retries by itself,
+ * with every auth cookie kept (and any refreshed one passed along). Never a
+ * sign-out, never the sign-in page.
+ */
+function reconnectingResponse(carry: NextResponse): NextResponse {
+  const response = new NextResponse(RECONNECTING_HTML, {
+    status: 503,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store, must-revalidate',
+      'Retry-After': '5',
+    },
+  });
+  return withCarriedCookiesKeepingSession(response, carry);
 }
 
 // Define public paths - optimized with Set for O(1) lookup
@@ -340,6 +548,10 @@ const isPublicPath = (path: string): boolean => {
 // Spec: specs/pre-onboarding-induction-access-2026-06-29.md
 
 export async function proxy(request: NextRequest) {
+  // The response carrying whatever the auth client wrote in this request, kept
+  // outside the try so the /error fallback below can still pass a refreshed
+  // token on (a bare redirect drops it and the browser keeps a rotated one).
+  let authCarry: NextResponse | null = null;
   try {
     const currentPath = request.nextUrl.pathname;
 
@@ -445,7 +657,15 @@ export async function proxy(request: NextRequest) {
       return addPreconnectHeaders(res);
     }
 
-    const res = addPreconnectHeaders(NextResponse.next());
+    // `res` is rebuilt by setAll below whenever the auth client writes cookies,
+    // so it is always the response carrying the current session.
+    let res = addPreconnectHeaders(NextResponse.next({ request }));
+    authCarry = res;
+
+    // A redirect that keeps whatever the auth client wrote (a refreshed token,
+    // or a sign-out's removals) — a bare NextResponse.redirect() drops them.
+    const redirectKeepingCookies = (url: URL) =>
+      withCarriedCookies(NextResponse.redirect(url), res);
 
     // Create supabase client only for non-public paths
     const supabase = createServerClient(
@@ -453,24 +673,17 @@ export async function proxy(request: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
-          async get(name: string) {
-            const cookie = request.cookies.get(name);
-            return cookie?.value ?? '';
+          getAll() {
+            return request.cookies.getAll();
           },
-          async set(name: string, value: string, options: CookieOptions) {
-            // CRITICAL: forward Supabase's cookie options (maxAge, path,
-            // sameSite, secure) verbatim. Dropping them downgrades the
+          setAll(cookiesToSet: CookieToSet[]) {
+            // CRITICAL: Supabase's cookie options (maxAge, path, sameSite,
+            // secure) are forwarded verbatim. Dropping them downgrades the
             // persistent auth cookie to a session cookie on every token
             // refresh, which is why iOS PWA users were logged out on every
-            // app-close. Sister code in lib/supabase/server.ts already does
-            // this correctly — proxy.ts was the outlier.
-            res.cookies.set({ name, value, ...options });
-          },
-          async remove(name: string, options: CookieOptions) {
-            // Match Supabase's expected delete semantics: write an empty
-            // value with maxAge: 0 carrying the same path/domain so the
-            // browser actually evicts the cookie scope-correctly.
-            res.cookies.set({ name, value: '', ...options, maxAge: 0 });
+            // app-close (#950). Removals arrive here as maxAge: 0.
+            res = rebuildWithCookies(request, res, cookiesToSet);
+            authCarry = res;
           }
         }
       }
@@ -491,8 +704,21 @@ export async function proxy(request: NextRequest) {
     // unexpired session; when the token is expired supabase-js refreshes it
     // exactly as getUser() would have.
     const {
-      data: { session }
+      data: { session },
+      error: sessionError
     } = await supabase.auth.getSession();
+
+    // The token refresh inside getSession() failed for a reason that says
+    // nothing about whether this person is signed in (network, 5xx, 408, 429,
+    // an unparseable reply). For a non-retryable status supabase-js has
+    // already dropped the session and queued sb-* cookie removals on `res`;
+    // the Reconnecting page does not forward them, so the browser keeps its
+    // cookies and the next try refreshes again. A definite answer (400
+    // refresh_token_not_found / already used, no session) falls through to
+    // the sign-in redirect below, which does carry the removals.
+    if (sessionError && classifyAuthResult(null, sessionError) === 'retry') {
+      return reconnectingResponse(res);
+    }
     const accessToken = session?.access_token ?? null;
 
     let user: VerifiedTokenUser | null = accessToken
@@ -526,20 +752,27 @@ export async function proxy(request: NextRequest) {
       if (user?.id) {
         profileCache.invalidate(user.id);
       }
+      // Auth could not be REACHED (network drop, 5xx, timeout) even after the
+      // retry above: that says nothing about whether this person is signed in.
+      // Hold them on a self-retrying page with their session intact instead of
+      // sending a signed-in person to the sign-in page.
+      if (classifyAuthResult(null, userError) === 'retry') {
+        return reconnectingResponse(res);
+      }
       // This branch is the COMMON logged-out case (no session cookie → getUser()
       // errors with "Auth session missing"), so it must preserve the destination
       // too — otherwise every deep link from a fresh browser lands on the bare
       // login page and the user is dumped on /dashboard after signing in.
       const errRedirectUrl = loginUrlFor(currentPath, request);
       errRedirectUrl.searchParams.set('redirectedFrom', currentPath + request.nextUrl.search);
-      return NextResponse.redirect(errRedirectUrl);
+      return redirectKeepingCookies(errRedirectUrl);
     }
 
     if (!user) {
       const redirectUrl = loginUrlFor(currentPath, request);
       // Preserve the query string so deep links survive the login roundtrip
       redirectUrl.searchParams.set('redirectedFrom', currentPath + request.nextUrl.search);
-      return NextResponse.redirect(redirectUrl);
+      return redirectKeepingCookies(redirectUrl);
     }
 
     // Add auth info to headers
@@ -572,13 +805,22 @@ export async function proxy(request: NextRequest) {
           console.error('[Proxy] Profile fetch failed (attempt 2):', retryError.code, retryError.message);
           profileCache.invalidate(user.id);
 
-          // FIXED: Redirect to login with error context instead of /unauthorized
-          // /unauthorized is for permission issues, not transient fetch failures
+          // A read that FAILED (timeout, network, 5xx) is not an answer. The
+          // session is valid — keep it and retry, never bounce to sign-in
+          // (the login page used to refuse to send them back, so they had to
+          // sign in with Google again).
+          if (retryError.code !== 'PGRST116') {
+            return reconnectingResponse(res);
+          }
+
+          // PGRST116 = the read worked and found NO profile row. Not a blip, so
+          // retrying would spin forever: keep the existing hand-off to the login
+          // page's "We could not open your account" message (session kept).
           const redirectUrl = new URL('/auth/login', request.url);
           redirectUrl.searchParams.set('error', 'profile_load_failed');
           // Preserve the query string so deep links survive the login roundtrip
           redirectUrl.searchParams.set('redirectedFrom', currentPath + request.nextUrl.search);
-          return NextResponse.redirect(redirectUrl);
+          return redirectKeepingCookies(redirectUrl);
         }
 
         profile = retryData;
@@ -592,15 +834,18 @@ export async function proxy(request: NextRequest) {
 
     // Check if user account is active
     if (profile.is_active === false) {
-      // Clear the session and redirect to unauthorized page
-      const redirectUrl = new URL('/unauthorized?reason=inactive', request.url);
-      const response = NextResponse.redirect(redirectUrl);
+      // A deactivated account is a REAL block (the profile read succeeded and
+      // said so), so end the session on EVERY device: scope 'global' revokes
+      // all of this person's refresh tokens. signOut runs BEFORE the response
+      // is built so its cookie removals ride on the redirect. /unauthorized is
+      // a public route, so it still renders without a session. (The
+      // sb-access-token / sb-refresh-token deletes that stood here matched no
+      // cookie Supabase ever sets — they never cleared anything.)
+      await supabase.auth.signOut({ scope: 'global' });
 
-      // Clear auth cookies
-      response.cookies.delete('sb-access-token');
-      response.cookies.delete('sb-refresh-token');
-
-      return response;
+      return redirectKeepingCookies(
+        new URL('/unauthorized?reason=inactive', request.url)
+      );
     }
 
     // Student Role Access Control
@@ -624,21 +869,19 @@ export async function proxy(request: NextRequest) {
         // Feature disabled - block all students (original behavior)
         console.log('[Proxy] ❌ Student portal DISABLED - blocking student');
 
+        // scope 'local': end THIS device's session only. The default ('global')
+        // revoked the learner's sessions on every device they own.
+        // signOut runs BEFORE the response is built so its cookie removals
+        // (written through setAll onto `res`) are carried onto it.
+        await supabase.auth.signOut({ scope: 'local' });
+
         if (currentPath === '/auth/login') {
-          const response = NextResponse.next();
-          response.cookies.delete('sb-access-token');
-          response.cookies.delete('sb-refresh-token');
-          await supabase.auth.signOut();
-          return response;
+          return res;
         }
 
-        const studentBlockedResponse = NextResponse.redirect(
+        return redirectKeepingCookies(
           new URL('/auth/login?reason=student_redirect', request.url)
         );
-        studentBlockedResponse.cookies.delete('sb-access-token');
-        studentBlockedResponse.cookies.delete('sb-refresh-token');
-        await supabase.auth.signOut();
-        return studentBlockedResponse;
       } else {
         // Feature enabled - validate student lifecycle status
         console.log('[Proxy] ✅ Student portal ENABLED - validating access...');
@@ -659,29 +902,38 @@ export async function proxy(request: NextRequest) {
           // else. Same shape as the guest/driver redirect below.
           if (!isInductionOnlyAllowedPath(currentPath)) {
             console.log('[Proxy] 🎓 Induction-only learner - redirecting', currentPath, '→ /learners/my-induction');
-            return NextResponse.redirect(new URL('/learners/my-induction', request.url));
+            return redirectKeepingCookies(new URL('/learners/my-induction', request.url));
           }
           console.log('[Proxy] 🎓 Induction-only learner - allowing:', currentPath);
           // Whitelisted path — fall through and let the middleware continue.
+        } else if (validation.reason === 'database_error') {
+          // The lifecycle status could not be READ (query error, timeout,
+          // missing service key) — the service has already retried once. That
+          // is not a block: never sign the learner out for it. Hold them on a
+          // self-retrying page with their session kept; nothing is served
+          // until the status is actually known.
+          return reconnectingResponse(res);
         } else if (!validation.allowed) {
-          // Student blocked due to lifecycle status
+          // Learner blocked — the status was READ and it blocks access, so
+          // this is a real block and the learner is signed out.
           console.log('[Proxy] ❌ Student BLOCKED - reason:', validation.reason);
 
+          // A lifecycle status that blocks access (exited, discontinued, ...)
+          // means the learner has left: end the session on EVERY device
+          // (scope 'global'). 'no_student_profile' carries no status — the
+          // read worked but the account has no learner link, a records gap
+          // rather than a departure — so it ends this device only.
+          await supabase.auth.signOut({
+            scope: validation.status ? 'global' : 'local',
+          });
+
           if (currentPath === '/auth/login') {
-            const response = NextResponse.next();
-            response.cookies.delete('sb-access-token');
-            response.cookies.delete('sb-refresh-token');
-            await supabase.auth.signOut();
-            return response;
+            return res;
           }
 
-          const blockedResponse = NextResponse.redirect(
+          return redirectKeepingCookies(
             new URL(`/auth/login?reason=${validation.reason}`, request.url)
           );
-          blockedResponse.cookies.delete('sb-access-token');
-          blockedResponse.cookies.delete('sb-refresh-token');
-          await supabase.auth.signOut();
-          return blockedResponse;
         } else {
           // Student allowed - continue to requested page
           console.log('[Proxy] ✅ Student ALLOWED - continuing to:', currentPath);
@@ -692,19 +944,14 @@ export async function proxy(request: NextRequest) {
 
     // Check for disabled user accounts (applies to all users)
     if (user.user_metadata?.account_disabled === true) {
-      // Account has been disabled - sign out and redirect
-      const disabledResponse = NextResponse.redirect(
+      // Account has been disabled — a REAL block: sign out on EVERY device
+      // (scope 'global' revokes all refresh tokens) and redirect. signOut
+      // first, so its cookie removals ride on the redirect.
+      await supabase.auth.signOut({ scope: 'global' });
+
+      return redirectKeepingCookies(
         new URL('/auth/login?reason=disabled', request.url)
       );
-
-      // Clear all auth cookies
-      disabledResponse.cookies.delete('sb-access-token');
-      disabledResponse.cookies.delete('sb-refresh-token');
-
-      // Also sign out from Supabase
-      await supabase.auth.signOut();
-
-      return disabledResponse;
     }
 
     // Check profile completion
@@ -714,7 +961,7 @@ export async function proxy(request: NextRequest) {
       !currentPath.startsWith('/students/onboarding') && // Allow access to onboarding
       !currentPath.startsWith('/guest') // Allow access to guest page
     ) {
-      return NextResponse.redirect(
+      return redirectKeepingCookies(
         new URL('/auth/complete-profile', request.url)
       );
     }
@@ -747,7 +994,7 @@ export async function proxy(request: NextRequest) {
       const lockUrl = new URL('/auth/connect-calendar', request.url);
       // Where they were headed, so the screen can send them back on success.
       lockUrl.searchParams.set('redirectedFrom', currentPath + request.nextUrl.search);
-      return NextResponse.redirect(lockUrl);
+      return redirectKeepingCookies(lockUrl);
     }
 
     // Role-based routing
@@ -774,7 +1021,7 @@ export async function proxy(request: NextRequest) {
         // not the whole /api/courses tree, which is the admin console's.
         !currentPath.startsWith('/api/courses/payments')
       ) {
-        return NextResponse.redirect(new URL('/my-courses', request.url));
+        return redirectKeepingCookies(new URL('/my-courses', request.url));
       }
     } else if (profile.role === 'guest') {
       // Guest users can only access the guest page
@@ -782,7 +1029,7 @@ export async function proxy(request: NextRequest) {
         !currentPath.startsWith('/guest') &&
         !currentPath.startsWith('/auth')
       ) {
-        return NextResponse.redirect(new URL('/guest', request.url));
+        return redirectKeepingCookies(new URL('/guest', request.url));
       }
     } else if (profile.role === 'driver') {
       // Driver users can only access the driver page
@@ -790,7 +1037,7 @@ export async function proxy(request: NextRequest) {
         !currentPath.startsWith('/driver') &&
         !currentPath.startsWith('/auth')
       ) {
-        return NextResponse.redirect(new URL('/driver', request.url));
+        return redirectKeepingCookies(new URL('/driver', request.url));
       }
     } else {
       // Admin users trying to access guest or driver pages should be redirected to dashboard
@@ -798,7 +1045,7 @@ export async function proxy(request: NextRequest) {
         currentPath.startsWith('/guest') ||
         currentPath.startsWith('/driver')
       ) {
-        return NextResponse.redirect(new URL('/', request.url));
+        return redirectKeepingCookies(new URL('/', request.url));
       }
     }
 
@@ -858,7 +1105,7 @@ export async function proxy(request: NextRequest) {
       );
 
       if (!grantedByHandover) {
-        return NextResponse.redirect(new URL('/unauthorized', request.url));
+        return redirectKeepingCookies(new URL('/unauthorized', request.url));
       }
 
       // Diagnostic only — lets an operator (and the persona test) see WHY a
@@ -880,8 +1127,11 @@ export async function proxy(request: NextRequest) {
 
     return res;
   } catch (error) {
-    // Redirect to error page for critical failures
-    return NextResponse.redirect(new URL('/error', request.url));
+    // Redirect to error page for critical failures. An exception is never a
+    // confirmed dead session, so a refreshed token is carried but a pending
+    // session wipe is not (see withCarriedCookiesKeepingSession).
+    const fallback = NextResponse.redirect(new URL('/error', request.url));
+    return authCarry ? withCarriedCookiesKeepingSession(fallback, authCarry) : fallback;
   }
 }
 
