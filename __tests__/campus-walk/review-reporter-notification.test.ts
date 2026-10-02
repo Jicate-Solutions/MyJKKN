@@ -12,8 +12,11 @@
 // Every assertion here is about a way this could go wrong QUIETLY:
 //   - fire on `request_changes` -> the reporter is told "fixed" when it is not,
 //     and learns how a named department's fix is going (a D10 leak);
-//   - fire without an idempotency key -> a reopened-and-re-approved task, or
-//     two reviewers racing, pings the reporter again and again;
+//   - fire without an idempotency key -> a retried approval, or two reviewers
+//     racing, pings the reporter again and again. Since 2026-09-30 the key is
+//     per fix PHOTO (`instasolver-fixed:<task>:<attachment>`), so a job the
+//     reporter reopened with "Not fixed" and that was fixed again DOES tell
+//     them the second time, while a retry of the same photo never does;
 //   - fire on a task with no `reporter_id` -> a crash, or a notification to
 //     nobody, on every ordinary Campus Walk closure;
 //   - name the fixer in the body -> the D10 breach the whole lane is built to
@@ -50,16 +53,13 @@ function makeAdminClient() {
       if (table === 'staff' || table === 'project_task_assignees' || table === 'profiles') {
         // resolveFixerProfileId's lookups — deliberately empty, so the FIXER
         // notification is skipped and only the reporter branch is exercised.
-        return {
-          select: () => ({
-            eq: () => ({
-              maybeSingle: async () => ({ data: null, error: null }),
-              order: () => ({ limit: async () => ({ data: [], error: null }) }),
-              in: async () => ({ data: [], error: null }),
-            }),
-            in: async () => ({ data: [], error: null }),
-          }),
+        const empty: any = {
+          eq: () => empty,
+          maybeSingle: async () => ({ data: null, error: null }),
+          order: () => ({ limit: async () => ({ data: [], error: null }) }),
+          in: async () => ({ data: [], error: null }),
         };
+        return { select: () => empty };
       }
       throw new Error(`unexpected admin table ${table}`);
     },
@@ -96,7 +96,11 @@ function awaitingApproval(extraMetadata: Record<string, any> = {}) {
     completed_at: null,
     metadata: {
       source: 'campus-walk',
-      fix: { submitted_at: '2026-09-13T08:00:00.000Z', approval: { state: 'awaiting_approval' } },
+      fix: {
+        submitted_at: '2026-09-13T08:00:00.000Z',
+        attachment_id: 'att-1',
+        approval: { state: 'awaiting_approval' },
+      },
       ...extraMetadata,
     },
   };
@@ -117,7 +121,7 @@ beforeEach(() => {
 });
 
 describe('the reporter is told when their report is verified fixed', () => {
-  it('sends exactly one notice, to the reporter, under a per-task idempotency key', async () => {
+  it('sends exactly one notice, to the reporter, under a per-photo idempotency key', async () => {
     const res = await post({ task_id: 'task-1', decision: 'approve' });
     const body = await res.json();
 
@@ -128,8 +132,11 @@ describe('the reporter is told when their report is verified fixed', () => {
     expect(call).toBeDefined();
     const opts = call![1] as any;
     expect(opts.recipientIds).toEqual(['learner-1']);
-    // The database, not a read-then-write check, is what makes this once-only.
-    expect(opts.idempotencyKey).toBe('instasolver-fixed:task-1');
+    // The database, not a read-then-write check, is what makes this once-only
+    // per fix photo.
+    expect(opts.idempotencyKey).toBe('instasolver-fixed:task-1:att-1');
+    // It opens the reporter's own list, where "Not fixed" lives.
+    expect(opts.url).toBe('/instasolver/my-reports');
   });
 
   it('names no person in the title or the body (D10)', async () => {
@@ -181,6 +188,16 @@ describe('the reporter is told when their report is verified fixed', () => {
     expect(res.status).toBe(200);
     expect(body.reporter_notified).toBeNull();
     expect(reporterCall()).toBeUndefined();
+  });
+
+  it('tells whoever raised a walk job when there is no InstaSolver reporter', async () => {
+    taskRow = awaitingApproval({ raised_by_profile_id: 'walker-1' });
+
+    const res = await post({ task_id: 'task-1', decision: 'approve' });
+    const body = await res.json();
+
+    expect(body.reporter_notified).toBe(true);
+    expect((reporterCall()![1] as any).recipientIds).toEqual(['walker-1']);
   });
 
   it('does not ping a reviewer who is closing their own report', async () => {
