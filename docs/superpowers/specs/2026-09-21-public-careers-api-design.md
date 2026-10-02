@@ -126,7 +126,7 @@ the 2026-09-22 deep review):
     the row; never affects the response.
 
 ### CORS
-Allowed origins: `https://jkkn.ac.in`, `https://*.jkkn.ac.in` (single label), plus
+Allowed origins: `https://jkkn.ac.in`, `https://*.jkkn.ac.in` (any depth, e.g. `nursing.sresakthimayeil.jkkn.ac.in`), plus
 `PUBLIC_CAREERS_EXTRA_ORIGINS` (comma-separated, e.g. `http://localhost:3000`).
 Reflect the matched origin, `Vary: Origin`, methods `GET, POST, OPTIONS`, header
 `Content-Type`, no credentials. Disallowed origin: no CORS headers (browser blocks);
@@ -199,8 +199,8 @@ The internal `/hr/recruitment/submit` flow is untouched; its rows keep
 - Unit (vitest): `toPublicJob` never leaks non-whitelisted keys and nulls salary when
   `display_salary=false`; `isJobVisible` (public/open/expiry); `parseApplyForm` each rule;
   `sniffResumeType` (real PDF/DOCX/DOC headers vs renamed `.exe`/text); `resolveAllowedOrigin`
-  (`jkkn.ac.in`, `x.jkkn.ac.in`, rejects `evil-jkkn.ac.in`, `jkkn.ac.in.evil.com`,
-  `a.b.jkkn.ac.in`, `http://jkkn.ac.in`); rate limiter window.
+  (`jkkn.ac.in`, `x.jkkn.ac.in`, `a.b.jkkn.ac.in`, rejects `evil-jkkn.ac.in`, `jkkn.ac.in.evil.com`,
+  `http://jkkn.ac.in`); rate limiter window.
 - Route tests: honeypot → 201 nothing written; duplicate → neutral 201; closed → 404;
   oversize → 413; disallowed origin POST → 403; strict limit ignores validation failures.
 - DB: recipient RPC returns no user outside the job's institution scope and ≥1 user for

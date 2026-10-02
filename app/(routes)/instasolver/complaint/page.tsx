@@ -19,6 +19,7 @@
 // because the opposite ("unmapped means super-admin only") is the natural
 // assumption and it is wrong.
 
+import Link from 'next/link';
 import { AlertCircle } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -105,6 +106,12 @@ export default async function InstaSolverComplaintPage() {
           title="Raise a complaint"
           description="Tell us what is wrong. You will get a number to follow it with."
         />
+        <Link
+          href="/instasolver/my-complaints"
+          className="mt-2 inline-block text-sm font-medium text-primary underline-offset-4 hover:underline"
+        >
+          My complaints
+        </Link>
       </div>
       <ComplaintClient
         categories={categoryResult.ok ? categoryResult.categories : []}
