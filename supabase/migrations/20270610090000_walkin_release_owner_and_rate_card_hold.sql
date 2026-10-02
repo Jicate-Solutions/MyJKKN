@@ -212,15 +212,16 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'reason', 'learner_inactive');
   END IF;
 
-  -- The ONLY door past trg_guard_walkin_payout_clearance (3b): this transaction-
-  -- local flag is set here, around the one UPDATE, and cleared straight after.
-  PERFORM set_config('app.walkin_release', 'on', true);
+  -- The ONLY door past trg_guard_walkin_payout_clearance (3b): the flag holds THIS
+  -- transaction's id, set around the one UPDATE and cleared straight after. A value
+  -- left on a pooled connection by any other transaction can never match.
+  PERFORM set_config('app.walkin_release', txid_current()::text, true);
   UPDATE public.consultant_lead_attributions
      SET payout_cleared_at   = now(),
          payout_cleared_by   = v_actor,
          payout_cleared_note = btrim(p_note)
    WHERE id = p_attribution_id;
-  PERFORM set_config('app.walkin_release', 'off', true);
+  PERFORM set_config('app.walkin_release', '', true);
 
   RETURN jsonb_build_object('ok', true, 'attribution_id', p_attribution_id, 'cleared_at', now());
 END;
@@ -229,24 +230,51 @@ $function$;
 REVOKE EXECUTE ON FUNCTION public.fn_clear_walkin_credit_for_payout(uuid, text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_clear_walkin_credit_for_payout(uuid, text) TO authenticated;
 
--- 3b. Nobody marks a claim released by editing the row (review, 2026-10-01).
--- lead_attributions_update lets every admission.leads.edit holder (138 people)
--- UPDATE these rows, so they could set payout_cleared_* directly and skip the
--- owner. A signed-in or anonymous caller may now change those three columns only
--- through fn_clear_walkin_credit_for_payout, which raises the app.walkin_release
--- flag around its one UPDATE. postgres / service_role are untouched. Ordinary lead
--- edits (every other column) are unaffected.
+-- 3b. Nobody releases a held claim except through the owner's button
+--     (review, 2026-10-01 and 2026-10-02).
+-- lead_attributions_update / _delete let every admission.leads.edit holder (138
+-- people) and leads.delete holders change these rows. For an authenticated or
+-- anonymous caller this trigger now refuses, on a claim that is HELD (not yet
+-- released) and sits on a walk-in enquiry:
+--   * setting payout_cleared_* — only fn_clear_walkin_credit_for_payout may, with
+--     the app.walkin_release flag holding the current transaction id;
+--   * moving it out of the hold by changing admission_id, learner_profile_id or
+--     consultant_id (NULL-ing admission_id, or pointing it at a non-walk-in
+--     enquiry, would otherwise drop it from every walk-in check);
+--   * deleting it.
+-- Inserting a row already marked released is refused too. postgres / service_role
+-- are untouched, and every other column, and every non-walk-in or released row,
+-- stays as editable as before.
 CREATE OR REPLACE FUNCTION public.fn_guard_walkin_payout_clearance()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
-DECLARE v_role text := auth.role();
+DECLARE
+  v_role text := auth.role();
+  v_flag_ok boolean := current_setting('app.walkin_release', true) = txid_current()::text;
+  v_old_held_walkin boolean := false;
 BEGIN
-  IF v_role IN ('authenticated', 'anon')
-     AND current_setting('app.walkin_release', true) IS DISTINCT FROM 'on'
-     AND (
+  IF v_role IS NULL OR v_role NOT IN ('authenticated', 'anon') THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+
+  IF TG_OP IN ('UPDATE', 'DELETE') THEN
+    v_old_held_walkin := OLD.payout_cleared_at IS NULL
+      AND EXISTS (SELECT 1 FROM public.admission_leads al
+                   WHERE al.id = OLD.admission_id AND al.source::text = 'walk_in');
+  END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    IF v_old_held_walkin THEN
+      RAISE EXCEPTION 'A held walk-in claim cannot be deleted. Its owner decides it on the Review Worklist.'
+        USING ERRCODE = '42501';
+    END IF;
+    RETURN OLD;
+  END IF;
+
+  IF NOT v_flag_ok AND (
        (TG_OP = 'INSERT' AND (NEW.payout_cleared_at IS NOT NULL
                               OR NEW.payout_cleared_by IS NOT NULL
                               OR NEW.payout_cleared_note IS NOT NULL))
@@ -257,6 +285,15 @@ BEGIN
     RAISE EXCEPTION 'A walk-in claim can only be released by its owner, through the Review Worklist.'
       USING ERRCODE = '42501';
   END IF;
+
+  IF TG_OP = 'UPDATE' AND v_old_held_walkin AND (
+       NEW.admission_id       IS DISTINCT FROM OLD.admission_id
+    OR NEW.learner_profile_id IS DISTINCT FROM OLD.learner_profile_id
+    OR NEW.consultant_id      IS DISTINCT FROM OLD.consultant_id) THEN
+    RAISE EXCEPTION 'A held walk-in claim cannot be moved to another enquiry, learner or agency. Its owner decides it on the Review Worklist.'
+      USING ERRCODE = '42501';
+  END IF;
+
   RETURN NEW;
 END;
 $$;
@@ -265,7 +302,7 @@ REVOKE EXECUTE ON FUNCTION public.fn_guard_walkin_payout_clearance() FROM anon, 
 
 DROP TRIGGER IF EXISTS trg_guard_walkin_payout_clearance ON public.consultant_lead_attributions;
 CREATE TRIGGER trg_guard_walkin_payout_clearance
-  BEFORE INSERT OR UPDATE ON public.consultant_lead_attributions
+  BEFORE INSERT OR UPDATE OR DELETE ON public.consultant_lead_attributions
   FOR EACH ROW EXECUTE FUNCTION public.fn_guard_walkin_payout_clearance();
 
 -- ---------------------------------------------------------------------------
