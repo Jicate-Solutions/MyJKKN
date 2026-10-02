@@ -8,23 +8,24 @@
  * ONE lane, contributed to the OPEN canonical `learner` lane and nothing else.
  * That is the whole point of decision I1 ("everyone with a login can file"):
  * every role holds instasolver.view, so gating these steps behind a permission
- * would be theatre — and worse than theatre for a learner, because the resolver
- * short-circuits the student role to `can: () => false`, which would filter a
+ * would be theatre — and worse than theatre for the learner persona, because
+ * the resolver short-circuits it to `can: () => false`, which would filter a
  * permission-tagged section away from exactly the people the front door exists
  * for. So these sections carry NO `requires`: open, like the door itself.
  *
- * Voice: 12th-grade plain English, imperative. Every link points at a route that
- * exists in this PR — the chooser. The three lanes behind it land in their own
- * PRs and get their own steps then (guide-smoke fails on an href with no page).
+ * Voice: plain words, present tense, short. Every link points at a page that
+ * exists today (guide-smoke fails on an href with no page).
  *
- * TENSE IS A PROMISE. A guide written ahead of its lanes is a guide that lies.
- * Only the broken-things flow is described in the present tense, because that is
- * the only intake reachable from this door today. Complaints, filing without
- * your name and the tracking code are all named as "opens shortly" — said once,
- * plainly, with no date attached. Parents are not mentioned at all: they sign in
- * through a separate portal (`/parent/*`, its own JWT and nav) and cannot reach
- * this door, so naming them here would send the one audience that cannot follow
- * the steps looking for a sidebar row they do not have.
+ * TENSE IS A PROMISE (Director, 2026-09-30: "no out-of-date words"). Every step
+ * here describes something a person can do right now: report a broken thing
+ * with a camera or gallery photo, follow it in My reports and say "Not fixed"
+ * within 7 days of it being marked fixed, file a complaint (without your name
+ * for most types, with a tracking code), and send a complaint about your own
+ * HOD or manager past them. Wording mirrors the screens — the complaint form's
+ * tick-box says "HOD or manager", so the guide does too. "My complaints" is not
+ * linked here until its page is on main (PR #4144). Parents are not mentioned:
+ * they sign in through a separate portal (`/parent/*`) and cannot reach this
+ * door.
  */
 import type { GlossaryTerm, GuideLink, GuideSection } from "@/lib/guide/types";
 
@@ -53,31 +54,73 @@ const filerSections: GuideSection[] = [
     title: "Raise an issue",
     steps: [
       {
-        action: "Open **InstaSolver** from the sidebar once your college has switched it on.",
+        action: "Open **InstaSolver** from the sidebar, just below Dashboard.",
         detail:
-          "Everyone with a MyJKKN login can use it: learners, teaching and non-teaching team members. You do not need anyone's permission to report a problem. The row appears for you once your college turns InstaSolver on — if you cannot see it yet, that is why.",
+          "Everyone with a MyJKKN login can use it: learners, teaching and non-teaching team members. You don't need anyone's permission.",
         link: { label: "Open InstaSolver", href: "/instasolver" },
       },
       {
         action: "Pick **what kind** of problem it is.",
         detail:
-          "One screen, three choices. Something is broken — a tap, a fan, a light, a leak. I have a complaint — about a service, a person, or how you were treated. We need to buy something — equipment or supplies that have to be paid for.",
-        tip: "Not sure which one? Pick the closest. Whoever picks it up can move it, and nothing is lost by choosing wrong.",
+          "Something is broken, I have a complaint, or we need to buy something.",
+        tip: "Not sure? Pick the closest one.",
+      },
+    ],
+  },
+  {
+    id: "something-broken",
+    title: "Something is broken",
+    steps: [
+      {
+        action: "Say what is broken and where.",
+        detail:
+          "One or two sentences is enough. Where it is matters most: room, block, floor. Add a photo if you can — from the camera or your gallery.",
+        link: { label: "Report something broken", href: "/instasolver/broken" },
       },
       {
-        action: "For **something is broken**, say what you saw and where.",
+        action: "Follow it in **My reports**.",
         detail:
-          "One or two plain sentences is enough. Where it is matters more than long wording — a room, a block, a floor. A photo helps. This goes to the same team that already fixes what the campus walk finds, so it lands in a list somebody works through, not an inbox.",
+          "It goes straight to the team that fixes things on campus. My reports shows each thing you reported and when it is marked fixed.",
+        link: { label: "My reports", href: "/instasolver/my-reports" },
       },
       {
-        action: "About **I have a complaint** — this lane opens shortly.",
+        action: "Still broken? Tap **Not fixed**.",
         detail:
-          "The card is on the chooser, and the complaint form behind it is not open yet. Until it is, a complaint still goes through Learners Council → Issues for the roles that can reach it. Filing without your name, and the private tracking code that goes with it, arrive together with that form.",
+          "For 7 days after a job is marked fixed, you can tap Not fixed in My reports. It goes straight back to the people who fix it.",
+      },
+    ],
+  },
+  {
+    id: "complaint",
+    title: "I have a complaint",
+    steps: [
+      {
+        action: "Pick the type and say what happened.",
+        detail:
+          "About a service, a person, or how you were treated.",
+        link: { label: "File a complaint", href: "/instasolver/complaint" },
       },
       {
-        action: "About **We need to buy something**.",
+        action: "Want to leave your name off? Tick **File without my name**.",
         detail:
-          "Buying is handled by Procurement, not by InstaSolver — the card takes you straight there. If you are not one of the people who can raise a purchase request yet, the card says so and tells you to ask your HOD, rather than sending you to a page that will turn you away.",
+          "Most types allow it; the form tells you if one needs your name. You get a tracking code — save it. It is the only way back to that complaint.",
+        link: { label: "Check with a tracking code", href: "/instasolver/track" },
+      },
+      {
+        action: "About your own HOD or manager? Tick **This is about my HOD or manager**.",
+        detail:
+          "It skips them and goes straight to senior management.",
+      },
+    ],
+  },
+  {
+    id: "buy-something",
+    title: "We need to buy something",
+    steps: [
+      {
+        action: "Purchases go through **Procurement**.",
+        detail:
+          "If you can raise purchase requests, the card takes you straight there. If not, ask your Store Administrator or the Procurement team — they can raise it for you.",
       },
     ],
   },
@@ -91,15 +134,15 @@ export const GUIDES: {
     filer: {
       title: "InstaSolver Guide",
       tagline:
-        "One button for anything wrong on campus. Report a broken thing in under a minute; the complaint lane opens shortly.",
+        "Tell us what's wrong. It goes to the right person, and you'll see when it's fixed.",
       whyItMatters:
-        "A problem nobody reports is a problem nobody fixes. InstaSolver removes the two excuses that stop people reporting: not knowing where to go, and not being allowed in.",
+        "A problem nobody reports is a problem nobody fixes. InstaSolver is one place to report anything, open to everyone.",
       startHere: { label: "Open InstaSolver", href: "/instasolver" },
       journey: [
         "Open InstaSolver",
         "Pick what kind",
-        "Say what you saw and where",
-        "It reaches the team that fixes it",
+        "Say what and where",
+        "See when it's fixed",
       ],
       sections: filerSections,
     },
@@ -107,11 +150,15 @@ export const GUIDES: {
   glossary: [
     {
       term: "InstaSolver",
-      def: "The one front door for reporting anything wrong on campus. It does not solve the problem itself — it routes it to the team that does.",
+      def: "One place to report anything wrong on campus. It sends your report to the team that fixes it.",
     },
     {
       term: "Tracking code",
-      def: "A private code that comes with filing a complaint without your name. That lane opens shortly; when it does, the code will be the only way back to that report, so save it.",
+      def: "The private code you get when you file a complaint without your name. It is the only way back to that complaint, so save it.",
+    },
+    {
+      term: "Not fixed",
+      def: "A button in My reports. For 7 days after a job is marked fixed, it sends the job back to the people who fix it.",
     },
   ],
 };

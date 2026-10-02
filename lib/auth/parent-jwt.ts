@@ -16,11 +16,19 @@ import { SignJWT, jwtVerify, type JWTPayload } from 'jose';
 export const PARENT_SESSION_COOKIE = 'parent_session';
 export const PARENT_ACTIVE_LEARNER_COOKIE = 'pp_active_learner';
 
-// 30-day session (matches the cookie maxAge set on the login response).
-const SESSION_TTL = '30d';
-const SESSION_MAX_AGE = 60 * 60 * 24 * 30; // 30 days, in seconds
+// Session lifetime (Director ruling, 1 Oct 2026: once a parent logs in to the
+// installed app it should never log them out). The token SLIDES: proxy.ts
+// re-issues it once it is older than PARENT_SESSION_RENEW_AFTER_SECONDS, so a
+// parent who opens the app at least once every 400 days is never signed out.
+// 400 days is the longest value browsers honour — Chrome silently caps a
+// cookie's Max-Age at 400 days, so anything longer would only be a fiction.
+// One constant drives both the JWT `exp` and the cookie maxAge.
+const SESSION_MAX_AGE = 60 * 60 * 24 * 400; // 400 days, in seconds
 
-/** Cookie options for the parent_session cookie (HttpOnly, 30-day). */
+/** Re-issue the session once it is older than this (seconds). */
+export const PARENT_SESSION_RENEW_AFTER_SECONDS = 60 * 60 * 24; // 1 day
+
+/** Cookie options for the parent_session cookie (HttpOnly, 400-day, sliding). */
 export function parentSessionCookieOptions() {
   return {
     httpOnly: true,
@@ -55,8 +63,38 @@ export async function signParentSession(claims: {
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(claims.sub)
     .setIssuedAt()
-    .setExpirationTime(SESSION_TTL)
+    .setExpirationTime(`${SESSION_MAX_AGE}s`)
     .sign(getSecret());
+}
+
+/**
+ * True when a VERIFIED session should be re-issued: it was issued more than
+ * PARENT_SESSION_RENEW_AFTER_SECONDS ago (or carries no `iat`). A fresh token
+ * is left alone, so at most one new cookie is written per parent per day.
+ */
+export function shouldRenewParentSession(
+  claims: ParentJwtClaims,
+  nowSeconds: number = Math.floor(Date.now() / 1000)
+): boolean {
+  if (typeof claims.iat !== 'number') return true;
+  return nowSeconds - claims.iat > PARENT_SESSION_RENEW_AFTER_SECONDS;
+}
+
+/**
+ * "Sign out everywhere": pp_parent_accounts.sessions_revoked_at kills every
+ * token issued at or before that moment. `iat` has one-second granularity, so
+ * the comparison is `<=` — a token minted in the same second as the revoke is
+ * also dead (the parent simply logs in again).
+ */
+export function isParentSessionRevoked(
+  claims: ParentJwtClaims,
+  sessionsRevokedAt: string | null | undefined
+): boolean {
+  if (!sessionsRevokedAt) return false;
+  const revokedMs = Date.parse(sessionsRevokedAt);
+  if (Number.isNaN(revokedMs)) return false;
+  if (typeof claims.iat !== 'number') return true;
+  return claims.iat * 1000 <= revokedMs;
 }
 
 /**

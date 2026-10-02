@@ -65,6 +65,11 @@ import {
   createServerSupabaseClient,
   createServiceRoleClient
 } from '@/lib/supabase/server';
+import { notifyFilerOfChange } from '@/lib/grievance/filer-updates';
+import type {
+  FilerUpdateAfter,
+  FilerUpdateBefore
+} from '@/lib/grievance/complaint-display';
 
 // Mirrors the live grievance_tickets_status_check constraint.
 const VALID_STATUSES = [
@@ -160,6 +165,25 @@ export async function PATCH(
     );
   }
 
+  // What the ticket looked like before this write, so the person who raised
+  // it is told only about what actually changed (Director ruling, 30 Sep
+  // 2026). Read elevated because the RLS path below may be the one that
+  // fails; it is used for that comparison only and never returned.
+  // Best effort: if the service-role client cannot be made or the read fails,
+  // `before` stays null, the filer gets no bell for this write, and the write
+  // itself goes ahead exactly as it did before this read existed.
+  let before: FilerUpdateBefore | null = null;
+  try {
+    const { data } = await createServiceRoleClient()
+      .from('grievance_tickets')
+      .select('status, assigned_to')
+      .eq('id', id)
+      .maybeSingle();
+    before = (data ?? null) as FilerUpdateBefore | null;
+  } catch (err) {
+    console.error('[lc/issues] Before-read for the filer bell failed:', err);
+  }
+
   // ── 1. The caller's own session first. RLS decides, exactly as before ─────
   const { data: rlsRow, error: rlsError } = await supabase
     .from('grievance_tickets')
@@ -177,6 +201,10 @@ export async function PATCH(
   }
 
   if (rlsRow) {
+    await notifyFilerOfChange(createServiceRoleClient, {
+      before,
+      after: rlsRow as unknown as FilerUpdateAfter
+    });
     return NextResponse.json({ ticket: rlsRow }, { status: 200 });
   }
 
@@ -291,6 +319,11 @@ export async function PATCH(
     // The row was deleted between the lookup above and this write.
     return NextResponse.json({ error: 'Issue not found' }, { status: 404 });
   }
+
+  await notifyFilerOfChange(admin, {
+    before,
+    after: elevatedRow as unknown as FilerUpdateAfter
+  });
 
   return NextResponse.json({ ticket: elevatedRow }, { status: 200 });
 }

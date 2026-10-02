@@ -52,7 +52,7 @@ export const INSTASOLVER_SOURCE = 'instasolver';
  */
 export const SUPERIOR_ROUTE_POLICY_KEY = 'instasolver.complaint.superior_route_to';
 
-export const SUBJECT_MIN_LENGTH = 5;
+export const SUBJECT_MIN_LENGTH = 3;
 export const SUBJECT_MAX_LENGTH = 120;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

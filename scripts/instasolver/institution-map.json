@@ -1,0 +1,51 @@
+{
+  "_note": "Old InstaSolver 'institution' text -> MyJKKN institution. Keys are NORMALISED (trimmed, spaces collapsed, lower case) — see normaliseKey in scripts/instasolver/lib/old-site-mapping.ts. Institution ids are the ones listed in supabase/migrations/20260828120000_staff_id_standardisation_primitives.sql. Anything NOT listed here falls back to fallback_institution (JKKN Main Office) and is counted as 'unmapped' by the dry run. Entries with review:true are guesses the Director should confirm. Built 2026-10-01; reviewed by: (pending).",
+  "fallback_institution": { "institution_id": "b962527f-97ce-4238-89ce-7b532d7c2bc6", "code": "JMO", "label": "JKKN Main Office" },
+  "map": {
+    "jkkn dental college & hospital":             { "institution_id": "e8fbe8aa-c44e-41aa-a44b-39dab2c8b9a5", "code": "DCH" },
+    "jkkn dental college and hospital":           { "institution_id": "e8fbe8aa-c44e-41aa-a44b-39dab2c8b9a5", "code": "DCH" },
+    "jkkn dental college":                        { "institution_id": "e8fbe8aa-c44e-41aa-a44b-39dab2c8b9a5", "code": "DCH" },
+    "jkkn dental hospital":                       { "institution_id": "e8fbe8aa-c44e-41aa-a44b-39dab2c8b9a5", "code": "DCH" },
+    "dental & hospital":                          { "institution_id": "e8fbe8aa-c44e-41aa-a44b-39dab2c8b9a5", "code": "DCH" },
+    "dental college":                             { "institution_id": "e8fbe8aa-c44e-41aa-a44b-39dab2c8b9a5", "code": "DCH" },
+
+    "jkkn college of pharmacy":                   { "institution_id": "5736d86f-5dab-4b7f-9aa1-b3bb1a2dd334", "code": "COP" },
+    "jkkn pharmacy":                              { "institution_id": "5736d86f-5dab-4b7f-9aa1-b3bb1a2dd334", "code": "COP" },
+
+    "jkkn college of engineering and technology": { "institution_id": "5de4fba1-4564-41ed-8c73-5d948b74b843", "code": "CET" },
+    "engineering & technology":                   { "institution_id": "5de4fba1-4564-41ed-8c73-5d948b74b843", "code": "CET" },
+    "engineering college":                        { "institution_id": "5de4fba1-4564-41ed-8c73-5d948b74b843", "code": "CET" },
+
+    "jkkn college of arts and science":           { "institution_id": "b0b8a724-7c65-4f07-8047-2a38e8100ad5", "code": "CAS", "review": true, "why": "The old site had ONE Arts & Science; MyJKKN has Self-financing (CAS) and Aided (AATS). Mapped to CAS." },
+    "arts & science":                             { "institution_id": "b0b8a724-7c65-4f07-8047-2a38e8100ad5", "code": "CAS", "review": true, "why": "Same as above." },
+
+    "jkkn allied health science":                 { "institution_id": "9c1554e8-12a2-4b76-a9d6-8242bb05eba1", "code": "AHS" },
+    "allied health science":                      { "institution_id": "9c1554e8-12a2-4b76-a9d6-8242bb05eba1", "code": "AHS" },
+
+    "jkkn college of nursing and research":       { "institution_id": "70e54e51-9b98-4e07-9534-a85310609bfd", "code": "CNR" },
+    "nursing & reserach":                         { "institution_id": "70e54e51-9b98-4e07-9534-a85310609bfd", "code": "CNR" },
+
+    "jkkn matriculation higher secondary school": { "institution_id": "e04b8a7f-1445-4ef1-92e9-bde3d32b1f44", "code": "MHS" },
+    "jkkn matriculation":                         { "institution_id": "e04b8a7f-1445-4ef1-92e9-bde3d32b1f44", "code": "MHS" },
+
+    "nattraja vidhyalya":                         { "institution_id": "29c221d1-b918-4c46-9d67-857273b0b553", "code": "NV" },
+    "jkkn vidhyalaya":                            { "institution_id": "29c221d1-b918-4c46-9d67-857273b0b553", "code": "NV" },
+
+    "jkkn college of education":                  { "institution_id": "9380358f-7020-4c23-89c3-e9538b47cf33", "code": "COE" },
+
+    "jicate solutions":                           { "institution_id": "479eac7f-3e5b-479e-bd91-dee9e0186b9b", "code": "JIC" },
+
+    "incubation cell":                            { "institution_id": "550fc158-b059-448a-b61f-f4179752989b", "code": "NIF", "review": true, "why": "Old 'Incubation Cell' taken to be Nattraja Incubation Forum." },
+
+    "main office":                                { "institution_id": "b962527f-97ce-4238-89ce-7b532d7c2bc6", "code": "JMO" },
+    "others (main office,jicate,ie team,public)": { "institution_id": "b962527f-97ce-4238-89ce-7b532d7c2bc6", "code": "JMO" },
+    "ie team":                                    { "institution_id": "b962527f-97ce-4238-89ce-7b532d7c2bc6", "code": "JMO" },
+    "public":                                     { "institution_id": "b962527f-97ce-4238-89ce-7b532d7c2bc6", "code": "JMO" },
+
+    "boys hostal":                                { "institution_id": "b962527f-97ce-4238-89ce-7b532d7c2bc6", "code": "JMO", "review": true, "why": "Hostel — which college runs it is not recorded; sent to Main Office." },
+    "boys hostel":                                { "institution_id": "b962527f-97ce-4238-89ce-7b532d7c2bc6", "code": "JMO", "review": true, "why": "Hostel — which college runs it is not recorded; sent to Main Office." },
+    "girls hostal":                               { "institution_id": "b962527f-97ce-4238-89ce-7b532d7c2bc6", "code": "JMO", "review": true, "why": "Hostel — which college runs it is not recorded; sent to Main Office." },
+    "girls hostel":                               { "institution_id": "b962527f-97ce-4238-89ce-7b532d7c2bc6", "code": "JMO", "review": true, "why": "Hostel — which college runs it is not recorded; sent to Main Office." },
+    "nursing boys hostel":                        { "institution_id": "b962527f-97ce-4238-89ce-7b532d7c2bc6", "code": "JMO", "review": true, "why": "Hostel — could be the Nursing college's; sent to Main Office until confirmed." }
+  }
+}

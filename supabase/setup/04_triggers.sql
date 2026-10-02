@@ -2817,7 +2817,7 @@ DROP TRIGGER IF EXISTS trg_guard_salary_suggestion_rule_writes ON public.platfor
 CREATE TRIGGER trg_guard_salary_suggestion_rule_writes
   BEFORE INSERT OR UPDATE OR DELETE ON public.platform_policies
   FOR EACH ROW
-  EXECUTE FUNCTION public.fn_guard_salary_suggestion_rule_writes();
+  EXECUTE FUNCTION public.fn_guard_salary_suggestion_rule_writes();
 
 -- ═══ 2026-10-01: vacate approval chain + room damage + fine bill (20261001100000/110000) ═══
 DROP TRIGGER IF EXISTS trg_zz_vacate_on_bill_cleared ON public.billing_student_bills;
@@ -2838,3 +2838,18 @@ CREATE TRIGGER trg_hr_leave_types_default_entitlement_sync
   FOR EACH ROW
   WHEN (OLD.default_entitled_days IS DISTINCT FROM NEW.default_entitled_days)
   EXECUTE FUNCTION public.trg_hr_leave_type_default_entitlement_sync();
+
+
+-- ============================================================================
+-- Updated: 2026-10-02 - Parent password views + sign-out notices (migration 20271002150000)
+-- updated_at triggers for pp_parent_password_views and sign_out_notices.
+-- ============================================================================
+DROP TRIGGER IF EXISTS trg_pp_parent_password_views_updated_at ON public.pp_parent_password_views;
+CREATE TRIGGER trg_pp_parent_password_views_updated_at
+  BEFORE UPDATE ON public.pp_parent_password_views
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_sign_out_notices_updated_at ON public.sign_out_notices;
+CREATE TRIGGER trg_sign_out_notices_updated_at
+  BEFORE UPDATE ON public.sign_out_notices
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();

@@ -10757,7 +10757,7 @@ CREATE INDEX IF NOT EXISTS idx_hvr_approved_by ON public.hostel_vacate_requests 
 CREATE UNIQUE INDEX IF NOT EXISTS hvr_one_open_per_allocation
   ON public.hostel_vacate_requests (allocation_id)
   WHERE status IN ('draft', 'pending_parent', 'pending_warden', 'pending_chief', 'pending_dues', 'approved');
-
+
 
 -- ═══ 2026-10-01: vacate approval chain + room damage + fine bill (20261001100000/110000) ═══
 -- ============================================================================
@@ -10985,3 +10985,142 @@ BEGIN
 END $$;
 
 
+
+-- ============================================================================
+-- Updated: 2026-10-01 - Old InstaSolver site history (migration 20270617094100)
+-- legacy_instasolver_issues + legacy_instasolver_requirements. Service-role
+-- writes only; see the migration header for the full reasoning.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.legacy_instasolver_issues (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  legacy_id INTEGER NOT NULL UNIQUE,
+  legacy_institution TEXT,
+  institution_id UUID REFERENCES public.institutions(id) ON DELETE SET NULL,
+  legacy_category TEXT,
+  clean_category TEXT,
+  legacy_location TEXT,
+  clean_site TEXT,
+  clean_area TEXT,
+  details TEXT,
+  cause TEXT,
+  suggested_fix TEXT,
+  ai_summary TEXT,
+  notes TEXT,
+  severity TEXT,
+  legacy_status TEXT,
+  is_completed BOOLEAN NOT NULL DEFAULT FALSE,
+  is_open BOOLEAN NOT NULL DEFAULT FALSE,
+  reopened BOOLEAN NOT NULL DEFAULT FALSE,
+  reopen_reason TEXT,
+  rejection_reason TEXT,
+  legacy_assigned_to TEXT,
+  photo_url TEXT,
+  completed_photo_url TEXT,
+  reporter_name TEXT,
+  reporter_profile_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  reported_at TIMESTAMPTZ,
+  reported_at_is_bulk_load BOOLEAN NOT NULL DEFAULT FALSE,
+  completed_at TIMESTAMPTZ,
+  legacy_created_at TIMESTAMPTZ,
+  legacy_updated_at TIMESTAMPTZ,
+  admin_notes JSONB NOT NULL DEFAULT '[]'::jsonb,
+  needs_still_broken_check BOOLEAN NOT NULL DEFAULT FALSE,
+  imported_task_id UUID REFERENCES public.project_tasks(id) ON DELETE SET NULL,
+  task_imported_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_legacy_is_issues_institution ON public.legacy_instasolver_issues (institution_id);
+CREATE INDEX IF NOT EXISTS idx_legacy_is_issues_place ON public.legacy_instasolver_issues (clean_site, clean_area);
+CREATE INDEX IF NOT EXISTS idx_legacy_is_issues_open ON public.legacy_instasolver_issues (is_open) WHERE is_open;
+CREATE INDEX IF NOT EXISTS idx_legacy_is_issues_reporter ON public.legacy_instasolver_issues (reporter_profile_id);
+CREATE INDEX IF NOT EXISTS idx_legacy_is_issues_task ON public.legacy_instasolver_issues (imported_task_id);
+
+CREATE TABLE IF NOT EXISTS public.legacy_instasolver_requirements (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  legacy_id INTEGER NOT NULL UNIQUE,
+  legacy_institution TEXT,
+  institution_id UUID REFERENCES public.institutions(id) ON DELETE SET NULL,
+  legacy_category TEXT,
+  clean_category TEXT,
+  legacy_location TEXT,
+  clean_site TEXT,
+  clean_area TEXT,
+  details TEXT,
+  cause TEXT,
+  suggested_fix TEXT,
+  notes TEXT,
+  priority TEXT,
+  legacy_status TEXT,
+  is_completed BOOLEAN NOT NULL DEFAULT FALSE,
+  reopened BOOLEAN NOT NULL DEFAULT FALSE,
+  reopen_reason TEXT,
+  rejection_reason TEXT,
+  legacy_assigned_to TEXT,
+  photo_url TEXT,
+  completed_photo_url TEXT,
+  reporter_name TEXT,
+  reporter_profile_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  requested_at TIMESTAMPTZ,
+  requested_at_is_bulk_load BOOLEAN NOT NULL DEFAULT FALSE,
+  completed_at TIMESTAMPTZ,
+  legacy_created_at TIMESTAMPTZ,
+  legacy_updated_at TIMESTAMPTZ,
+  admin_notes JSONB NOT NULL DEFAULT '[]'::jsonb,
+  decision TEXT CHECK (decision IN ('approving', 'approved', 'rejected')),
+  decision_reason TEXT,
+  decided_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  decided_at TIMESTAMPTZ,
+  decision_claimed_at TIMESTAMPTZ,
+  imported_purchase_request_id UUID REFERENCES public.procurement_purchase_requests(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_legacy_is_req_pending ON public.legacy_instasolver_requirements (legacy_status, requested_at);
+CREATE INDEX IF NOT EXISTS idx_legacy_is_req_institution ON public.legacy_instasolver_requirements (institution_id);
+CREATE INDEX IF NOT EXISTS idx_legacy_is_req_reporter ON public.legacy_instasolver_requirements (reporter_profile_id);
+CREATE INDEX IF NOT EXISTS idx_legacy_is_req_pr ON public.legacy_instasolver_requirements (imported_purchase_request_id);
+
+
+-- ============================================================================
+-- Updated: 2026-10-02 - Parent password views + sign-out notices (migration 20271002150000)
+-- pp_parent_password_views: one row per super-admin "Show password" click. sign_out_notices: admin sign-out notice, shown once.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.pp_parent_password_views (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  account_id  UUID NOT NULL REFERENCES public.pp_parent_accounts(id) ON DELETE CASCADE,
+  viewed_by   UUID NOT NULL,
+  viewed_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  result      TEXT NOT NULL CHECK (result IN ('shown', 'changed_by_parent')),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_pp_parent_password_views_account
+  ON public.pp_parent_password_views (account_id, viewed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pp_parent_password_views_viewer
+  ON public.pp_parent_password_views (viewed_by, viewed_at DESC);
+
+COMMENT ON TABLE public.pp_parent_password_views IS
+  'One row per super-admin "Show password" click on a parent account (Director ruling 2026-10-02). Stores the outcome, never the password. Written by the service role only.';
+
+-- ---------------------------------------------------------------------------
+-- 2. sign_out_notices
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.sign_out_notices (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id            UUID NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  parent_account_id  UUID NULL REFERENCES public.pp_parent_accounts(id) ON DELETE CASCADE,
+  signed_out_by      UUID NOT NULL,
+  signed_out_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  seen_at            TIMESTAMPTZ NULL,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT sign_out_notices_one_target CHECK (num_nonnulls(user_id, parent_account_id) = 1)
+);
+CREATE INDEX IF NOT EXISTS idx_sign_out_notices_user_unseen
+  ON public.sign_out_notices (user_id) WHERE seen_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_sign_out_notices_parent_unseen
+  ON public.sign_out_notices (parent_account_id) WHERE seen_at IS NULL;
+
+COMMENT ON TABLE public.sign_out_notices IS
+  'An admin signed this person out of all devices; shown once after their next sign-in (Director ruling 2026-10-02). Written by the service role only.';
