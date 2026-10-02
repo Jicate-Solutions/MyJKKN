@@ -67,6 +67,7 @@ import {
 } from './_components/interview-link-section';
 import { InterviewFlagsCard } from './_components/interview-flags-card';
 import { MeetingNoteText } from './_components/meeting-note-text';
+import { OutcomeRecordedLine } from './_components/outcome-recorded-line';
 import { loadInterviewFlags } from './interview-flags-data';
 
 const BREADCRUMB_ITEMS = [
@@ -495,20 +496,11 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
             ) : null}
             {/* An assumed outcome is not an observed one — say which this is,
                 and name the person whenever the record knows who they were.
-                Rows marked before 20260926010000 carry only the actor kind, so
-                for those the name is unavailable rather than wrong: they fall
-                back to naming the kind, never to guessing a person. */}
-            {booking.outcome_marked_by ? (
-              <p className="text-xs text-muted-foreground">
-                {booking.outcome_marked_by === 'system'
-                  ? 'Closed automatically before 21 August 2026 — nobody confirmed it took place.'
-                  : markedByName
-                    ? `Closed by ${markedByName}.`
-                    : booking.outcome_marked_by === 'host'
-                      ? 'Recorded by the host.'
-                      : 'Recorded by an administrator.'}
-              </p>
-            ) : null}
+                The wording for each kind lives in OutcomeRecordedLine. */}
+            <OutcomeRecordedLine
+              markedBy={booking.outcome_marked_by as string | null}
+              markedByName={markedByName}
+            />
           </CardContent>
         </Card>
 
