@@ -46,6 +46,10 @@ export interface GrievanceTicket {
   is_anonymous: boolean;
   escalation_level: number;
   created_at: string | null;
+  /** Present on list/detail reads; the handler's profile id. */
+  assigned_to?: string | null;
+  /** Embedded handler profile; null when unassigned or not readable under RLS. */
+  assignee?: { full_name: string | null } | null;
 }
 
 export interface GrievanceTicketDetail extends GrievanceTicket {

@@ -3,12 +3,15 @@ import { corsHeaders, preflight, resolveAllowedOrigin } from '@/lib/services/hr/
 import { clientIp, createRateLimiter } from '@/lib/services/hr/public-careers/rate-limit';
 
 describe('resolveAllowedOrigin', () => {
-  it.each(['https://jkkn.ac.in', 'https://www.jkkn.ac.in', 'https://pharmacy.jkkn.ac.in', 'https://JKKN.AC.IN'])(
+  it.each([
+    'https://jkkn.ac.in', 'https://www.jkkn.ac.in', 'https://pharmacy.jkkn.ac.in', 'https://JKKN.AC.IN',
+    'https://nursing.sresakthimayeil.jkkn.ac.in', 'https://a.b.jkkn.ac.in',
+  ])(
     'allows %s', (o) => expect(resolveAllowedOrigin(o, [])).toBe(o),
   );
   it.each([
     'http://jkkn.ac.in', 'https://evil-jkkn.ac.in', 'https://jkkn.ac.in.evil.com',
-    'https://a.b.jkkn.ac.in', 'https://jkkn.ac.in:8443', 'null', '',
+    'https://jkkn.ac.in:8443', 'https://a.evil-jkkn.ac.in', 'https://.jkkn.ac.in', 'null', '',
   ])('rejects %s', (o) => expect(resolveAllowedOrigin(o, [])).toBeNull());
   it('rejects a missing origin', () => expect(resolveAllowedOrigin(null, [])).toBeNull());
   it('allows configured extra origins exactly', () => {

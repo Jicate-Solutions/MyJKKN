@@ -326,6 +326,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/instasolver': 'instasolver.view',
   '/instasolver/broken': 'instasolver.view',
   '/instasolver/complaint': 'instasolver.view',
+  '/instasolver/my-complaints': 'instasolver.view',
   '/instasolver/track/[token]': 'instasolver.view',
   // The reporter's own list — "fixed" / "Not fixed" (Director, 2026-09-30).
   '/instasolver/my-reports': 'instasolver.view',
@@ -760,6 +761,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // own college) — see resolveReportCardViewer in
   // lib/campus-walk/report-card-run.ts. Principals reach it from the Monday bell.
   '/campus-walk/report-card': 'projects.view',
+  // The fixes board (D9, departments only) — open to every team member by the
+  // Director's ruling of 2026-09-30. Its own key so it can be granted without
+  // projects.view; the page re-checks it server-side (gateFixesBoard). The
+  // walking and coverage boards stay under '/campus-walk' and the email
+  // allow-list. Also covers the board's CSV download (…/fixes/csv).
+  '/campus-walk/scoreboard/fixes': 'campus_walk.fix_board.view',
   '/academic/parent-portal': 'academic.parent_portal.manage',
   '/academic/years': 'academic.years.view',
   '/academic/leave-calendar': 'academic.leaves.view',
@@ -4388,6 +4395,14 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/campus-walk/review',
               label: 'Awaiting approval',
               active: pathname.startsWith('/campus-walk/review')
+            },
+            {
+              // The fixes board only — never the walking/coverage boards (G2).
+              // Its own key, so a team member without projects.view still sees
+              // the Campus Walk group with just this one row in it.
+              href: '/campus-walk/scoreboard/fixes',
+              label: 'Fixes scoreboard',
+              active: pathname.startsWith('/campus-walk/scoreboard/fixes')
             }
           ]
         }

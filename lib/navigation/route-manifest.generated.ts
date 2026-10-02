@@ -5305,6 +5305,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/instasolver/my-complaints",
+        "label": "My Complaints",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/instasolver/my-reports",
         "label": "My Reports",
         "iconName": "FileText",

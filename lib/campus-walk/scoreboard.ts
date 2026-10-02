@@ -295,6 +295,14 @@ export interface FixBoardRow {
   blockedJobs: number;
   /** Median days from report to approved closure, paused time removed. */
   medianDaysToClose: number | null;
+  /** Verified closures whose completed_at falls in this calendar month (IST). */
+  fixedThisMonth: number;
+  /** Verified closures in the calendar month before (IST). */
+  fixedLastMonth: number;
+  /** Mean of every reporter's stars on this department's jobs, one decimal. Null when none. */
+  averageStars: number | null;
+  /** How many star ratings the average is made of. */
+  ratingCount: number;
 }
 
 export interface FixBoard {
@@ -306,6 +314,10 @@ export interface FixBoard {
     awaitingApproval: number;
     blockedJobs: number;
     medianDaysToClose: number | null;
+    fixedThisMonth: number;
+    fixedLastMonth: number;
+    averageStars: number | null;
+    ratingCount: number;
   };
   /** How many departments were folded into the too-few-fixers bucket. */
   suppressedDepartmentCount: number;
@@ -313,6 +325,36 @@ export interface FixBoard {
 
 const UNASSIGNED_KEY = '__unassigned__';
 const TOO_FEW_KEY = '__too_few_fixers__';
+
+/** India Standard Time, UTC+05:30 — the campus's calendar, for month buckets. */
+const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
+
+/** 'YYYY-MM' of an instant, on the campus (IST) calendar. Null if unparseable. */
+export function istMonthKey(value: string | Date | null | undefined): string | null {
+  if (!value) return null;
+  const t = value instanceof Date ? value.getTime() : Date.parse(value);
+  if (!Number.isFinite(t)) return null;
+  return new Date(t + IST_OFFSET_MS).toISOString().slice(0, 7);
+}
+
+/** The IST month before a 'YYYY-MM' key. */
+export function previousMonthKey(monthKey: string): string {
+  const [y, m] = monthKey.split('-').map(Number);
+  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
+}
+
+/**
+ * Star ratings by task, as loaded from campus_walk_task_ratings. Only the task
+ * id and the number — never who gave them, never who they were for. The board
+ * attributes stars to a department the same way it attributes closures: by the
+ * task's owner.
+ */
+export type TaskStarsIndex = Map<string, number[]>;
+
+function mean(values: number[]): number | null {
+  if (values.length === 0) return null;
+  return Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10;
+}
 
 /**
  * D9 — who is fixing campus conditions, and how fast, BY DEPARTMENT.
@@ -342,7 +384,8 @@ const TOO_FEW_KEY = '__too_few_fixers__';
 export function buildFixBoard(
   rows: WalkTaskRow[],
   staffDepartments: StaffDepartmentIndex,
-  now: Date = new Date()
+  now: Date = new Date(),
+  starsByTask: TaskStarsIndex = new Map()
 ): FixBoard {
   interface Acc {
     departmentName: string;
@@ -353,7 +396,13 @@ export function buildFixBoard(
     awaitingApproval: number;
     blockedJobs: number;
     durations: number[];
+    fixedThisMonth: number;
+    fixedLastMonth: number;
+    stars: number[];
   }
+
+  const thisMonth = istMonthKey(now) as string;
+  const lastMonth = previousMonthKey(thisMonth);
 
   const byDept = new Map<string, Acc>();
   const walkRows = rows.filter(isCampusWalkTask);
@@ -369,7 +418,10 @@ export function buildFixBoard(
         overdueJobs: 0,
         awaitingApproval: 0,
         blockedJobs: 0,
-        durations: []
+        durations: [],
+        fixedThisMonth: 0,
+        fixedLastMonth: 0,
+        stars: []
       };
       byDept.set(key, a);
     }
@@ -391,6 +443,12 @@ export function buildFixBoard(
       a.verifiedClosures += 1;
       const d = daysToVerifiedClosure(row);
       if (d !== null) a.durations.push(d);
+      const month = istMonthKey(row.completed_at);
+      if (month === thisMonth) a.fixedThisMonth += 1;
+      else if (month === lastMonth) a.fixedLastMonth += 1;
+    }
+    for (const n of starsByTask.get(row.id) ?? []) {
+      if (Number.isInteger(n) && n >= 1 && n <= 5) a.stars.push(n);
     }
     if (isOpen(row)) {
       a.openJobs += 1;
@@ -429,7 +487,11 @@ export function buildFixBoard(
     overdueJobs: a.overdueJobs,
     awaitingApproval: a.awaitingApproval,
     blockedJobs: a.blockedJobs,
-    medianDaysToClose: median(a.durations)
+    medianDaysToClose: median(a.durations),
+    fixedThisMonth: a.fixedThisMonth,
+    fixedLastMonth: a.fixedLastMonth,
+    averageStars: mean(a.stars),
+    ratingCount: a.stars.length
   });
 
   const boardRows: FixBoardRow[] = named.map(([key, a]) => toRow(key, a));
@@ -443,7 +505,10 @@ export function buildFixBoard(
       overdueJobs: 0,
       awaitingApproval: 0,
       blockedJobs: 0,
-      durations: []
+      durations: [],
+      fixedThisMonth: 0,
+      fixedLastMonth: 0,
+      stars: []
     };
     for (const a of foldable) {
       merged.verifiedClosures += a.verifiedClosures;
@@ -452,6 +517,9 @@ export function buildFixBoard(
       merged.awaitingApproval += a.awaitingApproval;
       merged.blockedJobs += a.blockedJobs;
       merged.durations.push(...a.durations);
+      merged.fixedThisMonth += a.fixedThisMonth;
+      merged.fixedLastMonth += a.fixedLastMonth;
+      merged.stars.push(...a.stars);
     }
     boardRows.push(toRow(TOO_FEW_KEY, merged));
   }
@@ -465,7 +533,11 @@ export function buildFixBoard(
   });
 
   const allDurations: number[] = [];
-  for (const a of byDept.values()) allDurations.push(...a.durations);
+  const allStars: number[] = [];
+  for (const a of byDept.values()) {
+    allDurations.push(...a.durations);
+    allStars.push(...a.stars);
+  }
 
   return {
     rows: boardRows,
@@ -475,10 +547,89 @@ export function buildFixBoard(
       overdueJobs: boardRows.reduce((n, r) => n + r.overdueJobs, 0),
       awaitingApproval: boardRows.reduce((n, r) => n + r.awaitingApproval, 0),
       blockedJobs: boardRows.reduce((n, r) => n + r.blockedJobs, 0),
-      medianDaysToClose: median(allDurations)
+      medianDaysToClose: median(allDurations),
+      fixedThisMonth: boardRows.reduce((n, r) => n + r.fixedThisMonth, 0),
+      fixedLastMonth: boardRows.reduce((n, r) => n + r.fixedLastMonth, 0),
+      averageStars: mean(allStars),
+      ratingCount: allStars.length
     },
     suppressedDepartmentCount: foldable.length
   };
+}
+
+// ── D9 — the fixing board as a CSV, for the IQAC file ───────────────────────
+
+/**
+ * One cell. Quoted when it holds a comma, quote or line break; a cell that a
+ * spreadsheet would read as a formula (= + - @ at the start) is prefixed with
+ * an apostrophe so opening the file can never run anything.
+ */
+function csvCell(value: string | number | null): string {
+  if (value === null) return '';
+  let text = String(value);
+  if (typeof value === 'string' && /^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+export const FIX_BOARD_CSV_HEADER = [
+  'Department',
+  'Fixed this month',
+  'Fixed last month',
+  'Finished and approved (all time)',
+  'Typical days to finish',
+  'Still open',
+  'Past its date',
+  'Waiting on approval',
+  'Waiting on a decision',
+  'Average stars',
+  'Star ratings'
+] as const;
+
+/**
+ * Department totals only — the same rows the board shows, built from a
+ * FixBoard, which by construction holds no person (see buildFixBoard). The
+ * last line is the all-departments total.
+ */
+export function fixBoardToCsv(board: FixBoard): string {
+  const lines: string[] = [FIX_BOARD_CSV_HEADER.map(csvCell).join(',')];
+  for (const r of board.rows) {
+    lines.push(
+      [
+        r.departmentName,
+        r.fixedThisMonth,
+        r.fixedLastMonth,
+        r.verifiedClosures,
+        r.medianDaysToClose,
+        r.openJobs,
+        r.overdueJobs,
+        r.awaitingApproval,
+        r.blockedJobs,
+        r.averageStars,
+        r.ratingCount
+      ]
+        .map(csvCell)
+        .join(',')
+    );
+  }
+  const t = board.totals;
+  lines.push(
+    [
+      'All departments',
+      t.fixedThisMonth,
+      t.fixedLastMonth,
+      t.verifiedClosures,
+      t.medianDaysToClose,
+      t.openJobs,
+      t.overdueJobs,
+      t.awaitingApproval,
+      t.blockedJobs,
+      t.averageStars,
+      t.ratingCount
+    ]
+      .map(csvCell)
+      .join(',')
+  );
+  return lines.join('\r\n') + '\r\n';
 }
 
 // ── D12 — steps and area coverage ────────────────────────────────────────────
