@@ -3295,6 +3295,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/campus-walk/report-card",
+        "label": "Report Card",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/campus-walk/review",
         "label": "Review",
         "iconName": "FileText",
