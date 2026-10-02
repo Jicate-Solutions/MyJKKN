@@ -13,10 +13,16 @@
 --
 -- THE CHANGE, and nothing else:
 --   1. policy adoption.remind.signed_in_within_days (number, default 30):
---      N > 0 = remind only people whose last sign-in is within N days;
+--      N > 0 = remind only people who have used MyJKKN within N days: they
+--      signed in, OR a login of theirs was still in use (auth.sessions
+--      refreshed). last_sign_in_at alone misses people who stay signed in
+--      for weeks: on 2026-10-02, 2,216 had signed in within 30 days but 2,063
+--      more were active on an older login (W12 review of #4177);
 --      0 = no sign-in filter (the behaviour before this file).
 --   2. fn_adoption_remind_signed_in_days() reads it. FAIL CLOSED: a missing,
 --      switched-off or non-numeric row reads as 30, never as "no filter".
+--      Anything above 3650 (ten years) reads as 3650, so a huge number cannot
+--      push the date out of range and roll back the whole daily run.
 --   3. fn_adoption_remind_core: the body live on production since #4020
 --      (20270324090000; live body compared equal to the repo copy 2026-10-02),
 --      plus ONE clause in the who-to-remind query. Every other limit is
@@ -36,7 +42,7 @@ SELECT
   'global',
   NULL,
   to_jsonb(30),
-  'The adoption loop''s automatic reminders go only to people who have signed in to MyJKKN within this many days. An in-app reminder to someone who never signs in is never seen, and it uses up a place in the daily cap. 0 = remind everyone eligible, signed in or not. The other limits (once a month per feature, one adoption message per person per day, the daily cap) apply whatever this is set to.',
+  'The adoption loop''s automatic reminders go only to people who have used MyJKKN within this many days (signed in, or stayed signed in). An in-app reminder to someone who never signs in is never seen, and it uses up a place in the daily cap. 0 = remind everyone eligible, signed in or not. The other limits (once a month per feature, one adoption message per person per day, the daily cap) apply whatever this is set to.',
   'number',
   'major',
   'number',
@@ -75,7 +81,9 @@ BEGIN
   IF v_days IS NULL OR v_days < 0 THEN
     RETURN 30;
   END IF;
-  RETURN v_days;
+  -- now() minus a huge number of days is out of range and would abort the
+  -- whole daily run; ten years already means "everyone".
+  RETURN LEAST(v_days, 3650);
 END;
 $$;
 REVOKE EXECUTE ON FUNCTION public.fn_adoption_remind_signed_in_days() FROM anon, authenticated, PUBLIC;
@@ -91,7 +99,8 @@ GRANT  EXECUTE ON FUNCTION public.fn_adoption_remind_signed_in_days() TO service
 --   * people never reminded about this feature go first, then those reminded
 --     longest ago
 --   * p_limit / p_exclude / p_first_only / p_only as before
---   * NEW: only people who signed in within adoption.remind.signed_in_within_days
+--   * NEW: only people who used MyJKKN (signed in, or a login still in use)
+--     within adoption.remind.signed_in_within_days
 CREATE OR REPLACE FUNCTION public.fn_adoption_remind_core(
   p_feature_key text,
   p_actor       uuid,
@@ -180,9 +189,18 @@ BEGIN
       -- Director 2026-09-30 ("a"): only people who have signed in recently.
       -- An in-app notice to someone who never signs in is never seen
       -- (27-28 Sep: 200 reminders, 24 of those people signed in since, 1 opened).
-      AND (v_days = 0 OR EXISTS (SELECT 1 FROM auth.users u
-                                  WHERE u.id = pr.user_id
-                                    AND u.last_sign_in_at > now() - make_interval(days => v_days)))
+      -- "Signed in" = a fresh sign-in OR a login still in use: people who stay
+      -- signed in for weeks never get a new last_sign_in_at, but their login
+      -- (auth.sessions) is refreshed while they use the app. refreshed_at is
+      -- stored without a time zone, in UTC.
+      AND (v_days = 0
+           OR EXISTS (SELECT 1 FROM auth.users u
+                      WHERE u.id = pr.user_id
+                        AND u.last_sign_in_at > now() - make_interval(days => v_days))
+           OR EXISTS (SELECT 1 FROM auth.sessions s
+                      WHERE s.user_id = pr.user_id
+                        AND GREATEST(s.refreshed_at AT TIME ZONE 'UTC', s.updated_at)
+                            > now() - make_interval(days => v_days)))
     ORDER BY last_sent NULLS FIRST, pr.user_id
     LIMIT CASE WHEN p_limit IS NULL THEN NULL ELSE GREATEST(p_limit, 0) END
   ) t;
