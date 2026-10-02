@@ -9,6 +9,7 @@
 
 import { redirect } from 'next/navigation';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { getUserWithRetry } from '@/lib/auth/auth-retry';
 import { StudentValidationService } from '@/lib/services/auth/student-validation-service';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -26,9 +27,7 @@ interface PageProps {
 export default async function InternalMarksPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getUserWithRetry(supabase);
   if (!user) redirect('/auth/login');
 
   const validation = await StudentValidationService.validateStudentAccess(user.id);
