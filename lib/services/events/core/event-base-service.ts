@@ -81,7 +81,9 @@ export class EventBaseService {
     try {
       const { data, error } = await (this.supabase as unknown as ReturnType<typeof createClientSupabaseClient>)
         .from('events')
-        .select('*')
+        // On-campus events store only the room id; embed its name so the
+        // console and edit dialog can show the booked room.
+        .select('*, venue_resource:resources!events_venue_resource_fk(id, name)')
         .eq('id', id)
         .single();
 
