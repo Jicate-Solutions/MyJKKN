@@ -11510,7 +11510,7 @@ CREATE POLICY hvci_delete ON public.hostel_vacate_checklist_items FOR DELETE TO 
     (SELECT public.is_super_admin())
     OR (SELECT public.is_admin())
     OR (SELECT public.user_has_permission('campus_living.vacate_checklist.manage'))
-  );
+  );
 
 -- ═══ 2026-10-01: vacate approval chain + room damage + fine bill (20261001100000/110000) ═══
 DROP POLICY IF EXISTS hdt_select ON public.hostel_damage_types;
