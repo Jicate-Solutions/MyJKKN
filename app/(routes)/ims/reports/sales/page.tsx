@@ -31,13 +31,14 @@ import {
 import Link from 'next/link';
 import type { ImsItemProfitSummary } from '@/types/ims';
 import { ImsPageGuard } from '@/components/ims/ims-page-guard';
+import { istBusinessDate } from '@/lib/utils/date-format';
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
 
 function getDateRange(preset: string): { from: string; to: string } {
   const now = new Date();
-  const to = now.toISOString().split('T')[0];
+  const to = istBusinessDate(now);
   let from = to;
 
   switch (preset) {
@@ -47,17 +48,17 @@ function getDateRange(preset: string): { from: string; to: string } {
     case 'week': {
       const weekStart = new Date(now);
       weekStart.setDate(now.getDate() - now.getDay());
-      from = weekStart.toISOString().split('T')[0];
+      from = istBusinessDate(weekStart);
       break;
     }
     case 'month': {
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      from = monthStart.toISOString().split('T')[0];
+      from = istBusinessDate(monthStart);
       break;
     }
     case 'year': {
       const yearStart = new Date(now.getFullYear(), 0, 1);
-      from = yearStart.toISOString().split('T')[0];
+      from = istBusinessDate(yearStart);
       break;
     }
   }
@@ -87,7 +88,12 @@ function SalesReportPageInner() {
     institutionId
   );
 
-  const { data: topItems, isLoading: topItemsLoading } = useImsItemProfitSummary(storeId || '', institutionId);
+  const { data: topItems, isLoading: topItemsLoading } = useImsItemProfitSummary(
+    storeId || '',
+    institutionId,
+    dateFrom,
+    dateTo
+  );
 
   const handlePreset = (preset: string) => {
     setActivePreset(preset);
