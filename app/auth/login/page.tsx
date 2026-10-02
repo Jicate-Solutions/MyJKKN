@@ -72,14 +72,6 @@ export default function LoginPage() {
         return;
       }
 
-      // If redirected due to profile load failure, show error and let user retry login
-      // Don't auto-redirect even if they have a valid session (profile fetch may still fail)
-      if (params.get('error') === 'profile_load_failed') {
-        console.log('[Login Page] Profile load failed redirect, showing error');
-        setIsCheckingAuth(false);
-        return;
-      }
-
       // Don't redirect if coming from error page
       const redirectedFrom = params.get('redirectedFrom');
       if (
@@ -127,6 +119,15 @@ export default function LoginPage() {
 
           // Type cast to fix TypeScript inference after React 19 upgrade
           const profileData = profile as { role: string } | null;
+
+          // ?error=profile_load_failed with a still-valid session: if the
+          // profile reads now, send them back where they were going (below)
+          // instead of making them sign in with Google again. Only when it is
+          // STILL unreadable do we stop here and show the message.
+          if (params.get('error') === 'profile_load_failed' && !profileData) {
+            setIsCheckingAuth(false);
+            return;
+          }
 
           // Handle student role - check feature flag
           if (profileData?.role === 'student') {
