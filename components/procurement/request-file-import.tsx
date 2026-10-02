@@ -160,7 +160,7 @@ export function RequestFileImport({
     const newCount = rows.filter((r) => r.is_new).length;
     toast.success(
       `${rows.length} item${rows.length === 1 ? '' : 's'} added` +
-        (newCount ? ` — give a reason for the ${newCount} new item${newCount === 1 ? '' : 's'}` : '')
+        (newCount ? ` — add a reason for the request below` : '')
     );
   };
 

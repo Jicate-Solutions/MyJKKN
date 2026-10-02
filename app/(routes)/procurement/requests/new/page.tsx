@@ -77,6 +77,9 @@ export default function NewPurchaseRequestPage() {
   );
   const [items, setItems] = useState<ItemRow[]>([emptyRow()]);
   const [previewOpen, setPreviewOpen] = useState(false);
+  // One note for the whole request. It is saved as the request's notes and also fills
+  // every new item's reason (the server needs one per new line); an AI-read reason wins.
+  const [commonReason, setCommonReason] = useState('');
 
   // Institution scope — carries over whatever the requester had filtered the
   // Requests list to (?institution=…), so a multi-institution user isn't asked to
@@ -114,8 +117,8 @@ export default function NewPurchaseRequestPage() {
       toast.error('Add at least one item.');
       return;
     }
-    if (cleaned.some((i) => i.is_new && !i.reason?.trim())) {
-      toast.error('Enter a reason for every new item.');
+    if (cleaned.some((i) => i.is_new && !i.reason?.trim()) && !commonReason.trim()) {
+      toast.error('Enter a reason for this request.');
       return;
     }
     if (cleaned.some((i) => !i.is_new && !i.domain_item_id)) {
@@ -129,8 +132,13 @@ export default function NewPurchaseRequestPage() {
 
   // Cleaned line items as they will be submitted (also drives the preview table).
   const cleanedItems = useMemo(
-    () => items.filter((i) => i.item_name.trim()),
-    [items]
+    () =>
+      items
+        .filter((i) => i.item_name.trim())
+        .map((i) =>
+          i.is_new && !i.reason?.trim() ? { ...i, reason: commonReason.trim() } : i
+        ),
+    [items, commonReason]
   );
 
   // Display-only summary of the request's composition — mirrors the derivation the
@@ -153,7 +161,7 @@ export default function NewPurchaseRequestPage() {
         data: {
           institution_id: effectiveInstitution,
           domain,
-          notes: null,
+          notes: commonReason.trim() || null,
           items: cleanedItems.map(({ is_new, ...i }) => ({
             ...i,
             required_quantity: Number(i.required_quantity) || 0,
@@ -295,21 +303,26 @@ export default function NewPurchaseRequestPage() {
                         </Button>
                       </div>
                       {item.is_new && (
-                        <div className="flex items-center gap-2">
-                          <span className="shrink-0 rounded bg-blue-100 px-1.5 py-0.5 text-[11px] font-medium text-blue-800 dark:bg-blue-950 dark:text-blue-200">
-                            New item
-                          </span>
-                          <Input
-                            className="h-8 text-sm"
-                            value={item.reason ?? ''}
-                            onChange={(e) => updateItem(idx, { reason: e.target.value })}
-                            placeholder="Why is it needed? (required for items not in the catalog)"
-                          />
-                        </div>
+                        <span className="inline-block rounded bg-blue-100 px-1.5 py-0.5 text-[11px] font-medium text-blue-800 dark:bg-blue-950 dark:text-blue-200">
+                          New item
+                        </span>
                       )}
                     </div>
                   );
                 })}
+              </div>
+
+              <div className="space-y-1 pt-2">
+                <Label className="text-xs">
+                  Reason for this request
+                  {items.some((i) => i.is_new) ? ' (required for new items)' : ' (optional)'}
+                </Label>
+                <Input
+                  className="h-8 text-sm"
+                  value={commonReason}
+                  onChange={(e) => setCommonReason(e.target.value)}
+                  placeholder="e.g. Practical lab chemicals for the 2026-27 batch"
+                />
               </div>
 
               <div className="flex flex-wrap items-center gap-1">
@@ -339,11 +352,12 @@ export default function NewPurchaseRequestPage() {
       </div>
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col">
           <DialogHeader>
             <DialogTitle>Review request</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          {/* Only the item list scrolls, so the footer buttons stay on screen for long AI-read lists. */}
+          <div className="flex min-h-0 flex-1 flex-col space-y-4">
             <div className="grid gap-2 text-sm sm:grid-cols-2">
               <div>
                 <span className="text-muted-foreground">Request type: </span>
@@ -354,9 +368,9 @@ export default function NewPurchaseRequestPage() {
                 {cleanedItems.length}
               </div>
             </div>
-            <div className="overflow-x-auto rounded-md border">
+            <div className="min-h-0 flex-1 overflow-auto rounded-md border">
               <table className="w-full text-sm">
-                <thead>
+                <thead className="sticky top-0 z-10 bg-background">
                   <tr className="border-b bg-muted/50 text-left text-xs text-muted-foreground">
                     <th className="px-3 py-2 font-medium">Item</th>
                     <th className="px-3 py-2 font-medium">Qty</th>
