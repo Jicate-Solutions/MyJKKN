@@ -161,6 +161,15 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
+/** The salary read the register uses: the pay in force on a day (20270519090000). */
+export const SALARIES_IN_FORCE_RPC = 'hr_staff_salaries_in_force' as const;
+
+/** The last day of a register month, yyyy-MM-dd (month is 1-12). */
+export function registerMonthEnd(year: number, month: number): string {
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${year}-${String(month).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
+}
+
 export function monthLabel(year: number, month: number): string {
   return `${MONTH_NAMES[month - 1] ?? String(month)} ${year}`;
 }
@@ -749,7 +758,7 @@ export class SalaryRegisterService {
       }
     }
 
-    // 5. Salaries. superseded_by IS NULL = the currently effective row.
+    // 5. Salaries — the row in force for this month (see below).
     // THE BANDS ARE LOADED WITH throwOnDenied. A slab read that RLS empties looks
     // exactly like "TDS is switched off", and the two demand opposite outcomes:
     // one generates a register with no tax on it, the other must not generate at
@@ -762,14 +771,19 @@ export class SalaryRegisterService {
       string,
       { epf: number; esi: number; allowance: number; tds: number }
     >();
+    // THE PAY IN FORCE FOR THIS MONTH, not the current row. A salary revision
+    // the Director approves starts on the 1st of the NEXT month and is written
+    // on that day (20270519090000); this month's register is often generated
+    // after it, and reading superseded_by IS NULL would pay this month at next
+    // month's rate. hr_staff_salaries_in_force walks back past any row that
+    // starts after the month's last day; for everyone else it returns the same
+    // current row as before. SECURITY INVOKER — the same RLS as the old read.
+    const monthEnd = registerMonthEnd(year, month);
     for (const ids of chunk(staffIds)) {
-      const { data, error } = await (supabase as any)
-        .from('hr_staff_salaries')
-        .select(
-          'staff_id, monthly_gross, eligible_for_pf, epf_amount, eligible_for_esi, esi_amount, allowance_amount'
-        )
-        .in('staff_id', ids)
-        .is('superseded_by', null);
+      const { data, error } = await (supabase as any).rpc(SALARIES_IN_FORCE_RPC, {
+        p_staff_ids: ids,
+        p_on: monthEnd,
+      });
 
       if (error) throw new Error(`Failed to load salaries: ${getErrorMessage(error)}`);
       for (const s of (data ?? []) as any[]) {
