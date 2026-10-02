@@ -5299,6 +5299,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/instasolver/r",
+        "label": "R",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/instasolver/track",
         "label": "Track",
         "iconName": "FileText",
@@ -6914,6 +6920,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/resource-management/qr-stickers",
+        "label": "Qr Stickers",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/resource-management/reservations",
         "label": "Reservations",
         "iconName": "Boxes",
@@ -6960,6 +6972,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/resource-management/scan",
         "label": "Scan",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/resource-management/suggested-places",
+        "label": "Suggested Places",
         "iconName": "FileText",
         "children": []
       }
