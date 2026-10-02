@@ -1,6 +1,7 @@
 import { createBrowserClient } from '@supabase/ssr';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/types/supabase';
+import { refreshBlipSafeFetch } from './refresh-blip-fetch';
 
 // Define a type alias for the browser client
 export type TypedSupabaseClient = SupabaseClient<Database>;
@@ -31,7 +32,10 @@ export function createClientSupabaseClient(): TypedSupabaseClient {
         global: {
           headers: {
             'Prefer': 'count=exact'
-          }
+          },
+          // A temporary error on the token refresh must never wipe the login
+          // cookies (Director ruling, 1 Oct 2026). See refresh-blip-fetch.ts.
+          fetch: refreshBlipSafeFetch
         }
       }
     ) as unknown as SupabaseClient<Database>;
