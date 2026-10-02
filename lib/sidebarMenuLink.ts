@@ -331,6 +331,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // (Director ruling 30 Sep 2026). Super admin only — the page refuses anyone
   // else and shows requesters' names.
   '/instasolver/old-purchase-requests': 'super_admin',
+  // The reporter's own list — "fixed" / "Not fixed" (Director, 2026-09-30).
+  '/instasolver/my-reports': 'instasolver.view',
 
   // Profile
   '/profile': 'view_profile', // All users should be able to view their own profile

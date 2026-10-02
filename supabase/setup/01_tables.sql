@@ -10757,7 +10757,7 @@ CREATE INDEX IF NOT EXISTS idx_hvr_approved_by ON public.hostel_vacate_requests 
 CREATE UNIQUE INDEX IF NOT EXISTS hvr_one_open_per_allocation
   ON public.hostel_vacate_requests (allocation_id)
   WHERE status IN ('draft', 'pending_parent', 'pending_warden', 'pending_chief', 'pending_dues', 'approved');
-
+
 
 -- ═══ 2026-10-01: vacate approval chain + room damage + fine bill (20261001100000/110000) ═══
 -- ============================================================================

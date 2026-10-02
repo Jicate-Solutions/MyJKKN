@@ -468,12 +468,19 @@ describe('InstaSolver broken intake — refusals are explicit (rule #27)', () =>
   });
 
   it('400s a description that is too short', async () => {
-    const res = await postForm({ ...VALID, description: 'broken' });
+    const res = await postForm({ ...VALID, description: 'ok' });
     const body = await res.json();
 
     expect(res.status).toBe(400);
     expect(body.success).toBe(false);
     expect(createWalkTask).not.toHaveBeenCalled();
+  });
+
+  it('accepts a three-character description and location (easy filing, 30 Sep)', async () => {
+    const res = await postForm({ ...VALID, location: 'Lab', description: 'Fan' });
+
+    expect(res.status).toBe(200);
+    expect(createWalkTask).toHaveBeenCalledTimes(1);
   });
 
   it('answers 502 — not a silent success — when routing fails and nothing was stored', async () => {
