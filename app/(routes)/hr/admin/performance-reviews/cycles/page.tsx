@@ -84,6 +84,9 @@ export default function HrPerformanceReviewCyclesPage() {
   const [formStartDate, setFormStartDate] = useState('');
   const [formEndDate, setFormEndDate] = useState('');
   const [formDescription, setFormDescription] = useState('');
+  // '' means every college — the behaviour before a round could belong to one.
+  const [formInstitutionId, setFormInstitutionId] = useState('');
+  const [institutions, setInstitutions] = useState<Array<{ id: string; name: string }>>([]);
 
   // Initial load — cycles + policy in parallel.
   useEffect(() => {
@@ -101,6 +104,12 @@ export default function HrPerformanceReviewCyclesPage() {
         setPolicy(p);
         // Pre-fill form defaults from policy.
         const d = defaultsFromPolicy(p);
+        const { data: insts } = await supabase
+          .from('institutions')
+          .select('id, name')
+          .order('name', { ascending: true });
+        if (!cancelled) setInstitutions((insts as Array<{ id: string; name: string }>) ?? []);
+
         setFormCycleYear(d.cycle_year);
         setFormStartDate(d.start_date);
         setFormEndDate(d.end_date);
@@ -137,6 +146,7 @@ export default function HrPerformanceReviewCyclesPage() {
     setSubmitting(true);
     try {
       const row = await PerformanceReviewService.createCycle(supabase, {
+        institution_id: formInstitutionId || null,
         cycle_year: formCycleYear,
         start_date: formStartDate,
         end_date: formEndDate,
@@ -214,6 +224,28 @@ export default function HrPerformanceReviewCyclesPage() {
                   Year is the year the cycle ENDS (e.g. 2027 = Jul 2026 → Jun 2027). Dates
                   default from the policy window — edit if your cycle is non-standard.
                 </p>
+                <div className="mb-3">
+                  <Label htmlFor="institution">Which college is this round for?</Label>
+                  <select
+                    id="institution"
+                    className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={formInstitutionId}
+                    onChange={(e) => setFormInstitutionId(e.target.value)}
+                  >
+                    <option value="">Every college</option>
+                    {institutions.map((i) => (
+                      <option key={i.id} value={i.id}>
+                        {i.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Only team members of that college will see this round. Choosing
+                    &ldquo;Every college&rdquo; opens it for all nine at once, which is
+                    what happened before rounds could belong to a college. Only one round
+                    can be open per college at a time.
+                  </p>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
                     <Label htmlFor="cycle_year">Cycle year (ends)</Label>
@@ -278,6 +310,7 @@ export default function HrPerformanceReviewCyclesPage() {
                   <thead className="border-b text-left text-xs uppercase text-muted-foreground">
                     <tr>
                       <th className="py-2 pr-4">Cycle year</th>
+                      <th className="py-2 pr-4">College</th>
                       <th className="py-2 pr-4">Window</th>
                       <th className="py-2 pr-4">Status</th>
                       <th className="py-2 pr-4">Notes</th>
@@ -288,6 +321,12 @@ export default function HrPerformanceReviewCyclesPage() {
                     {cycles.map((c) => (
                       <tr key={c.id} className="border-b last:border-b-0">
                         <td className="py-2 pr-4 font-medium">{c.cycle_year}</td>
+                        <td className="py-2 pr-4">
+                          {c.institution_id
+                            ? (institutions.find((i) => i.id === c.institution_id)?.name ??
+                               'Unknown college')
+                            : 'Every college'}
+                        </td>
                         <td className="py-2 pr-4">
                           {c.start_date} → {c.end_date}
                         </td>
