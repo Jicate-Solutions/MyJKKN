@@ -116,14 +116,25 @@ function rfidConsequence(values: Record<string, unknown>): string {
   return 'Cards will be encoded for contactless access. These cards work in RFID-enabled gate readers and attendance kiosks.';
 }
 
+// Yield figures are Evolis Primacy 2 ratings for the loaded ribbon; a ribbon
+// "set" (Y+M+C+K+O panels) is consumed per PASS, not per amount of ink, so a
+// black-only back costs a whole set unless the driver splits one set across
+// the two sides. That split is a DRIVER setting (Evolis Premium Suite →
+// Printing → Ribbon → Front/Back combination), not a MyJKKN one — the text
+// below tells the operator which combination to pick.
 function ribbonConsequence(values: Record<string, unknown>): string {
+  const duplex = Number(values.sides) === 2;
   switch (values.ribbon_type) {
     case 'YMCKO':
-      return 'Full colour (yellow, magenta, cyan, black, overlay). Best print quality for photo ID cards. Most common choice.';
+      return duplex
+        ? 'Full colour ribbon, 300 sets per roll. Double-sided yield depends on the driver\'s Front/Back combination: "YMCO / K" prints the front in colour and the back in black from ONE set — 300 cards per roll, but front black is composed from colour and prints lighter. "YMCKO / K" or "YMCKO / YMCKO" use two sets per card — 150 cards per roll, with true resin black on the front.'
+        : 'Full colour ribbon, 300 sets per roll — 300 single-sided cards. Best photo quality; most common choice.';
     case 'YMCKOK':
-      return 'Full colour with a second black panel. Prints the magnetic stripe inhibit layer for dual-sided cards with encoding. Higher ribbon cost.';
+      return duplex
+        ? 'Full colour plus a SECOND black panel made for colour-front / black-back cards: 250 cards per roll in one pass with true resin black on both sides. Set the driver\'s Front/Back combination to "YMCKO / K".'
+        : 'Full colour plus a second black panel, 250 sets per roll. The extra black panel is wasted on single-sided cards — use a plain YMCKO ribbon instead.';
     case 'monochrome':
-      return 'Single-colour (black resin only). Cheapest per-card cost. No photo printing — text and barcodes only. Used for access badges, not photo ID.';
+      return 'Single-colour (black resin only), about 2000 cards per roll. No photo printing — text and barcodes only. Used for access badges, not photo ID.';
     default:
       return '';
   }
@@ -131,8 +142,8 @@ function ribbonConsequence(values: Record<string, unknown>): string {
 
 function sidesConsequence(values: Record<string, unknown>): string {
   return Number(values.sides) === 2
-    ? 'Both front and back are printed in one pass. Uses 2× ribbon per card. The template editor will show both sides.'
-    : 'Only the front is printed. Faster throughput, lower ribbon usage. The template editor will hide the back-side layout.';
+    ? 'Both front and back are printed in one pass. Ribbon use per card depends on the ribbon and the driver\'s Front/Back combination — see the ribbon note below. The template editor will show both sides.'
+    : 'Only the front is printed. Faster throughput and one ribbon set per card. The template editor will hide the back-side layout.';
 }
 
 function stationConsequence(values: Record<string, unknown>): string {
