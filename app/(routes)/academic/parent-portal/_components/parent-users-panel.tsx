@@ -27,7 +27,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Building2, Download, KeyRound, Loader2, Search } from 'lucide-react';
+import { Building2, Download, KeyRound, Loader2, LogOut, Search } from 'lucide-react';
 import {
   ParentPortalAdminService,
   type PPInstitution,
@@ -36,6 +36,9 @@ import {
 } from '@/lib/services/academic/parent-portal-admin-service';
 
 const DEFAULT_PASSWORD = 'JKKN@100';
+
+export const PARENT_SIGN_OUT_WARNING =
+  'This signs the parent out on every phone and computer, including the one they are using now. They can sign in again with their password.';
 
 export function ParentUsersPanel({
   target,
@@ -56,6 +59,27 @@ export function ParentUsersPanel({
   const [resetValue, setResetValue] = useState(DEFAULT_PASSWORD);
   const [saving, setSaving] = useState(false);
 
+  // "Sign out of all devices" — shown only once the parent kill switch
+  // (pp_parent_accounts.sessions_revoked_at) exists in the database.
+  const [signOutAvailable, setSignOutAvailable] = useState(false);
+  const [signOutRow, setSignOutRow] = useState<PPUserRow | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    ParentPortalAdminService.parentSignOutAvailable()
+      .then((ok) => {
+        if (!cancelled) setSignOutAvailable(ok);
+      })
+      .catch(() => {
+        if (!cancelled) setSignOutAvailable(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Active institution + name for export filename.
   const activeInstitutionId = standalone ? ownInstitutionId : target?.institutionId ?? '';
   const activeInstitutionName = standalone
@@ -73,11 +97,16 @@ export function ParentUsersPanel({
       }
       setLoading(true);
       try {
+        // listParentUsers resolves to { ok, status, json } — the rows are in
+        // .json. Reading r.users (always undefined) left this table empty.
         const r = await ParentPortalAdminService.listParentUsers(query);
-        setUsers(r.users ?? []);
+        if (!r.ok) {
+          throw new Error((r.json as { error?: string }).error || 'Failed to load parent users');
+        }
+        setUsers(r.json.users ?? []);
         if (standalone) {
-          setInstitutions(r.institutions ?? []);
-          if (r.institutionId && !ownInstitutionId) setOwnInstitutionId(r.institutionId);
+          setInstitutions(r.json.institutions ?? []);
+          if (r.json.institutionId && !ownInstitutionId) setOwnInstitutionId(r.json.institutionId);
         }
       } catch (e) {
         toast.error(e instanceof Error ? e.message : 'Failed to load parent users');
@@ -106,6 +135,21 @@ export function ParentUsersPanel({
       toast.error(e instanceof Error ? e.message : 'Failed to reset password');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const submitSignOut = async () => {
+    if (!signOutRow) return;
+    setSigningOut(true);
+    setSignOutError(null);
+    try {
+      await ParentPortalAdminService.signOutParentEverywhere(signOutRow.accountId);
+      toast.success(`The parent of ${signOutRow.learnerName || 'this learner'} is signed out on every device.`);
+      setSignOutRow(null);
+    } catch (e) {
+      setSignOutError(e instanceof Error ? e.message : 'Failed to sign the parent out');
+    } finally {
+      setSigningOut(false);
     }
   };
 
@@ -229,6 +273,19 @@ export function ParentUsersPanel({
                     >
                       <KeyRound className="h-3.5 w-3.5" /> Reset
                     </Button>
+                    {signOutAvailable && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="gap-1 text-destructive"
+                        onClick={() => {
+                          setSignOutRow(u);
+                          setSignOutError(null);
+                        }}
+                      >
+                        <LogOut className="h-3.5 w-3.5" /> Sign out of all devices
+                      </Button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -272,6 +329,37 @@ export function ParentUsersPanel({
             </Button>
             <Button className="bg-[#0b6d41] hover:bg-[#0a5733]" onClick={submitReset} disabled={saving}>
               {saving ? 'Resetting…' : 'Reset password'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!signOutRow} onOpenChange={(o) => !o && !signingOut && setSignOutRow(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Sign out of all devices</DialogTitle>
+          </DialogHeader>
+          {signOutRow && (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Parent of{' '}
+                <span className="font-medium text-foreground">{signOutRow.learnerName || '—'}</span>
+                {signOutRow.rollNumber ? ` (${signOutRow.rollNumber})` : ''}.
+              </p>
+              <p className="text-sm font-medium">{PARENT_SIGN_OUT_WARNING}</p>
+              {signOutError && (
+                <p role="alert" className="text-sm text-destructive">
+                  {signOutError}
+                </p>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSignOutRow(null)} disabled={signingOut}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={submitSignOut} disabled={signingOut}>
+              {signingOut ? 'Signing out…' : 'Yes, sign the parent out everywhere'}
             </Button>
           </DialogFooter>
         </DialogContent>

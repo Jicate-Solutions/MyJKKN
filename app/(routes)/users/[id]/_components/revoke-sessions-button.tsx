@@ -30,7 +30,7 @@ export function RevokeSessionsButton({ userId, userName }: RevokeSessionsButtonP
     setError(null);
     startTransition(async () => {
       const result = await revokeUserSessions(userId);
-      if (!result.success) {
+      if (result.success === false) {
         setError(result.error);
         return;
       }

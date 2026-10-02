@@ -192,4 +192,21 @@ export class ParentPortalAdminService {
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json.error || 'Failed to reset password');
   }
+
+  /** True once pp_parent_accounts.sessions_revoked_at exists (the parent kill switch). */
+  static async parentSignOutAvailable(): Promise<boolean> {
+    const r = await getJson<{ available?: boolean }>(`${BASE}/users/sign-out-everywhere`);
+    return r.ok && r.json.available === true;
+  }
+
+  /** Sign a parent out on every phone and computer. Throws the server's message on refusal. */
+  static async signOutParentEverywhere(accountId: string): Promise<void> {
+    const res = await fetch(`${BASE}/users/sign-out-everywhere`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accountId }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json.error || 'Failed to sign the parent out');
+  }
 }

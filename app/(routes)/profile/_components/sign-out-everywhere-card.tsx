@@ -33,7 +33,7 @@ export function SignOutEverywhereCard() {
     setError(null);
     startTransition(async () => {
       const result = await signOutEverywhere();
-      if (!result.success) {
+      if (result.success === false) {
         setError(result.error);
         return;
       }

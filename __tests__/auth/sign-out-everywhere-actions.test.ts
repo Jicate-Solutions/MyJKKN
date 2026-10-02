@@ -109,27 +109,27 @@ describe('revokeUserSessions (admin, someone else’s account)', () => {
     rpc.mockResolvedValue({ data: null, error: { code: '42501', message: 'not_allowed' } });
     const result = await revokeUserSessions(THEM);
     expect(result.success).toBe(false);
-    if (!result.success) expect(result.error).toMatch(/don't have access/);
+    if (result.success === false) expect(result.error).toMatch(/don't have access/);
     expect(logActivity).not.toHaveBeenCalled();
   });
 
   it('a key holder aiming at a super admin is told only a super admin can do that', async () => {
     rpc.mockResolvedValue({ data: null, error: { code: '42501', message: 'cannot_revoke_super_admin' } });
     const result = await revokeUserSessions(THEM);
-    if (!result.success) expect(result.error).toMatch(/Only a super admin/);
+    if (result.success === false) expect(result.error).toMatch(/Only a super admin/);
     expect(result.success).toBe(false);
   });
 
   it('says plainly when the database update is not applied yet', async () => {
     rpc.mockResolvedValue({ data: null, error: { code: 'PGRST202', message: 'Could not find the function' } });
     const result = await revokeUserSessions(THEM);
-    if (!result.success) expect(result.error).toMatch(/not switched on yet/);
+    if (result.success === false) expect(result.error).toMatch(/not switched on yet/);
   });
 
   it('refuses the caller’s own account and points to the Profile page instead', async () => {
     const result = await revokeUserSessions(ME);
     expect(result.success).toBe(false);
-    if (!result.success) expect(result.error).toMatch(/Profile page/);
+    if (result.success === false) expect(result.error).toMatch(/Profile page/);
     expect(rpc).not.toHaveBeenCalled();
   });
 
