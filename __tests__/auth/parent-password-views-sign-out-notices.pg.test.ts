@@ -36,6 +36,9 @@ const PRELUDE = `
 DO $$ BEGIN CREATE ROLE anon NOLOGIN;          EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$;
 DO $$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$;
 DO $$ BEGIN CREATE ROLE service_role NOLOGIN;  EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$;
+-- Supabase's service_role bypasses RLS. Roles are cluster-wide and other test files
+-- create this one without it, so set it explicitly rather than inherit whatever exists.
+ALTER ROLE service_role BYPASSRLS;
 -- Supabase's default: anon and authenticated get ALL on new tables in public.
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated;
 CREATE SCHEMA IF NOT EXISTS auth;
