@@ -20,9 +20,10 @@
 --      more were active on an older login (W12 review of #4177);
 --      0 = no sign-in filter (the behaviour before this file).
 --   2. fn_adoption_remind_signed_in_days() reads it. FAIL CLOSED: a missing,
---      switched-off or non-numeric row reads as 30, never as "no filter".
---      Anything above 3650 (ten years) reads as 3650, so a huge number cannot
---      push the date out of range and roll back the whole daily run.
+--      switched-off, unpublished (draft) or non-numeric row reads as 30,
+--      never as "no filter". Anything above 3650 (ten years), however large,
+--      reads as 3650, so a huge number cannot push the date out of range and
+--      roll back the whole daily run.
 --   3. fn_adoption_remind_core: the body live on production since #4020
 --      (20270324090000; live body compared equal to the repo copy 2026-10-02),
 --      plus ONE clause in the who-to-remind query. Every other limit is
@@ -67,23 +68,27 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_days integer;
+  v_days numeric;
 BEGIN
   BEGIN
-    SELECT (pp.value #>> '{}')::integer INTO v_days
+    -- numeric, not integer: a value past the integer range must still land
+    -- on the 3650 cap below, not fall over to 30.
+    SELECT (pp.value #>> '{}')::numeric INTO v_days
     FROM public.platform_policies pp
     WHERE pp.policy_key = 'adoption.remind.signed_in_within_days'
       AND pp.scope_type = 'global' AND pp.scope_id IS NULL AND pp.is_active
+      -- a draft row is not a decision: a draft 0 must not switch the filter off
+      AND COALESCE(pp.publication_state, 'published') = 'published'
     LIMIT 1;
   EXCEPTION WHEN others THEN
     v_days := NULL;
   END;
-  IF v_days IS NULL OR v_days < 0 THEN
+  IF v_days IS NULL OR v_days < 0 OR v_days = 'NaN'::numeric THEN
     RETURN 30;
   END IF;
   -- now() minus a huge number of days is out of range and would abort the
   -- whole daily run; ten years already means "everyone".
-  RETURN LEAST(v_days, 3650);
+  RETURN LEAST(v_days, 3650)::integer;
 END;
 $$;
 REVOKE EXECUTE ON FUNCTION public.fn_adoption_remind_signed_in_days() FROM anon, authenticated, PUBLIC;

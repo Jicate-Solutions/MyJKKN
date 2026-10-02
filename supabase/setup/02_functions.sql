@@ -76334,23 +76334,27 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_days integer;
+  v_days numeric;
 BEGIN
   BEGIN
-    SELECT (pp.value #>> '{}')::integer INTO v_days
+    -- numeric, not integer: a value past the integer range must still land
+    -- on the 3650 cap below, not fall over to 30.
+    SELECT (pp.value #>> '{}')::numeric INTO v_days
     FROM public.platform_policies pp
     WHERE pp.policy_key = 'adoption.remind.signed_in_within_days'
       AND pp.scope_type = 'global' AND pp.scope_id IS NULL AND pp.is_active
+      -- a draft row is not a decision: a draft 0 must not switch the filter off
+      AND COALESCE(pp.publication_state, 'published') = 'published'
     LIMIT 1;
   EXCEPTION WHEN others THEN
     v_days := NULL;
   END;
-  IF v_days IS NULL OR v_days < 0 THEN
+  IF v_days IS NULL OR v_days < 0 OR v_days = 'NaN'::numeric THEN
     RETURN 30;
   END IF;
   -- now() minus a huge number of days is out of range and would abort the
   -- whole daily run; ten years already means "everyone".
-  RETURN LEAST(v_days, 3650);
+  RETURN LEAST(v_days, 3650)::integer;
 END;
 $$;
 REVOKE EXECUTE ON FUNCTION public.fn_adoption_remind_signed_in_days() FROM anon, authenticated, PUBLIC;

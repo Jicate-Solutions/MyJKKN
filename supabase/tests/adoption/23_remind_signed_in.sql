@@ -87,10 +87,24 @@ DO $$ DECLARE t jsonb; BEGIN
   t := fn_adoption_remind_core('learner.thing', NULL, true)->'targets';
   IF jsonb_array_length(t) <> 5 THEN RAISE EXCEPTION 'FAIL: 3650 days should reach everyone who ever signed in: %', t; END IF;
 END $$;
+-- past the integer range too (deep review of #4177): still the cap, not 30
+UPDATE platform_policies SET value = to_jsonb(5000000000) WHERE policy_key = 'adoption.remind.signed_in_within_days';
+DO $$ BEGIN IF fn_adoption_remind_signed_in_days() <> 3650 THEN RAISE EXCEPTION 'FAIL: value past int range not capped at 3650'; END IF; END $$;
+
+\echo '--- a DRAFT row set to 0: EXPECT it is ignored and the rule stays at 30 (deep review of #4177)'
+UPDATE platform_policies SET value = to_jsonb(0), publication_state = 'draft' WHERE policy_key = 'adoption.remind.signed_in_within_days';
+DO $$ DECLARE t jsonb; BEGIN
+  IF fn_adoption_remind_signed_in_days() <> 30 THEN RAISE EXCEPTION 'FAIL: a draft row was obeyed'; END IF;
+  t := fn_adoption_remind_core('learner.thing', NULL, true)->'targets';
+  IF jsonb_array_length(t) <> 4 THEN RAISE EXCEPTION 'FAIL: a draft 0 switched the filter off: %', t; END IF;
+END $$;
+UPDATE platform_policies SET publication_state = 'published' WHERE policy_key = 'adoption.remind.signed_in_within_days';
 
 \echo '--- broken setting (text, switched off, deleted): EXPECT it fails closed to 30'
 UPDATE platform_policies SET value = '"thirty"'::jsonb WHERE policy_key = 'adoption.remind.signed_in_within_days';
 DO $$ BEGIN IF fn_adoption_remind_signed_in_days() <> 30 THEN RAISE EXCEPTION 'FAIL: text value not read as 30'; END IF; END $$;
+UPDATE platform_policies SET value = '"NaN"'::jsonb WHERE policy_key = 'adoption.remind.signed_in_within_days';
+DO $$ BEGIN IF fn_adoption_remind_signed_in_days() <> 30 THEN RAISE EXCEPTION 'FAIL: NaN not read as 30'; END IF; END $$;
 UPDATE platform_policies SET value = to_jsonb(-5) WHERE policy_key = 'adoption.remind.signed_in_within_days';
 DO $$ BEGIN IF fn_adoption_remind_signed_in_days() <> 30 THEN RAISE EXCEPTION 'FAIL: negative value not read as 30'; END IF; END $$;
 UPDATE platform_policies SET value = to_jsonb(0), is_active = false WHERE policy_key = 'adoption.remind.signed_in_within_days';
