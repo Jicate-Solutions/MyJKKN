@@ -21,6 +21,11 @@
 --    fn_discard_unseeded_application deletes only a provable failed
 --    submission: the caller's own, still pending, no approver rows, created in
 --    the last 15 minutes. Child rows cascade.
+--
+-- Both functions are granted to authenticated on purpose (learners call
+-- fn_discard_unseeded_application from the browser). Their authorization is
+-- ownership by auth.uid(), which the secdef gate deliberately does not count:
+-- ci:allow-secdef-authenticated fn_learner_owns_application only answers whether the CALLER (auth.uid()) is linked to the given learner id, so it reveals nothing about anyone else; fn_discard_unseeded_application deletes only a row its WHERE proves is the caller's own (fn_learner_owns_application), still pending, with no approver rows, created in the last 15 minutes; any other id deletes nothing and returns false.
 
 CREATE OR REPLACE FUNCTION public.fn_learner_owns_application(p_learner_id uuid)
 RETURNS boolean
