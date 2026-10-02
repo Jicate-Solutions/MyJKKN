@@ -2838,3 +2838,18 @@ CREATE TRIGGER trg_hr_leave_types_default_entitlement_sync
   FOR EACH ROW
   WHEN (OLD.default_entitled_days IS DISTINCT FROM NEW.default_entitled_days)
   EXECUTE FUNCTION public.trg_hr_leave_type_default_entitlement_sync();
+
+
+-- ============================================================================
+-- Updated: 2026-10-02 - Parent password views + sign-out notices (migration 20271002150000)
+-- updated_at triggers for pp_parent_password_views and sign_out_notices.
+-- ============================================================================
+DROP TRIGGER IF EXISTS trg_pp_parent_password_views_updated_at ON public.pp_parent_password_views;
+CREATE TRIGGER trg_pp_parent_password_views_updated_at
+  BEFORE UPDATE ON public.pp_parent_password_views
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_sign_out_notices_updated_at ON public.sign_out_notices;
+CREATE TRIGGER trg_sign_out_notices_updated_at
+  BEFORE UPDATE ON public.sign_out_notices
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
