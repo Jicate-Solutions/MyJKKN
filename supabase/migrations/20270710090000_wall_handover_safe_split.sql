@@ -11,10 +11,10 @@
 --                 admission.consultants.commissions.configure (#4118's key)
 --   HANDABLE:     learners.leave_types.view, events.edit,
 --                 learners.leave_onduty.apply_bulk (stay on ELSE false)
--- Not covered by that ruling (new on 30 Sep / 1 Oct, campus-living vacate):
---   campus_living.damage_types.manage, campus_living.vacate_checklist.manage,
---   campus_living.vacate_requests.approve_cao / _mess / _principal
---   -> walled here (the safe side); moving any to handable is one line.
+-- Campus-living vacate keys (new 30 Sep / 1 Oct), Director 2026-10-02 first-hand
+-- in the W12 tab, "Approvals can, settings can't":
+--   NOT handable: campus_living.damage_types.manage, campus_living.vacate_checklist.manage
+--   HANDABLE:     campus_living.vacate_requests.approve_cao / _mess / _principal
 --
 -- The ONLY change against 20270403090000_wall_handover_staff_role_change.sql
 -- (whose body is byte-identical to production, checked 2026-10-01 22:40 IST)
@@ -211,12 +211,9 @@ AS $$
                    'learners.leave_types.manage',          -- define leave types and their approval flows
                    'ims.settings.pos_devices.manage',      -- register / retire point-of-sale devices
                    'admission.consultants.commissions.configure', -- set consultant commission rates (money)
-                   -- 1 Oct vacate keys: walled pending his line (W12 asked him)
+                   -- 1 Oct vacate settings (Director 2 Oct: "Approvals can, settings can't")
                    'campus_living.damage_types.manage',    -- damage types and their fines (money)
-                   'campus_living.vacate_checklist.manage',-- the vacate checklist every hosteller follows
-                   'campus_living.vacate_requests.approve_cao',
-                   'campus_living.vacate_requests.approve_mess',
-                   'campus_living.vacate_requests.approve_principal'
+                   'campus_living.vacate_checklist.manage' -- the vacate checklist every hosteller follows
                   )                              THEN true
 
     ELSE false
@@ -231,15 +228,16 @@ BEGIN
   IF NOT public.fn_handover_key_is_blocked('learners.leave_types.manage') THEN
     RAISE EXCEPTION 'learners.leave_types.manage is still handable';
   END IF;
-  IF NOT public.fn_handover_key_is_blocked('campus_living.vacate_requests.approve_principal') THEN
-    RAISE EXCEPTION 'vacate approvals are still handable';
+  IF NOT public.fn_handover_key_is_blocked('campus_living.vacate_checklist.manage') THEN
+    RAISE EXCEPTION 'vacate settings are still handable';
   END IF;
   IF NOT public.fn_handover_key_is_blocked('staff.role.change') THEN
     RAISE EXCEPTION 'staff.role.change lost its wall';
   END IF;
   IF public.fn_handover_key_is_blocked('learners.leave_types.view')
      OR public.fn_handover_key_is_blocked('events.edit')
-     OR public.fn_handover_key_is_blocked('learners.leave_onduty.apply_bulk') THEN
+     OR public.fn_handover_key_is_blocked('learners.leave_onduty.apply_bulk')
+     OR public.fn_handover_key_is_blocked('campus_living.vacate_requests.approve_principal') THEN
     RAISE EXCEPTION 'a key the Director kept handable became walled';
   END IF;
 END

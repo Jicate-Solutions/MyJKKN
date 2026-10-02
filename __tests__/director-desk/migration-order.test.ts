@@ -103,7 +103,7 @@ const APPROVED_REDEFINITIONS: Record<string, { fns: string[]; why: string }> = {
   },
   '20270710090000': {
     fns: ['fn_handover_key_is_blocked'],
-    why: "WALL 5 (new block) walls eight keys: the Director's 'safe split' (W12 tab, 2026-09-30) - learners.leave_types.manage, ims.settings.pos_devices.manage, admission.consultants.commissions.configure - plus the five 1 Oct campus-living vacate keys (damage_types.manage, vacate_checklist.manage, vacate_requests.approve_cao/_mess/_principal), walled pending his line. Body is 20270403090000's text verbatim, verified equal to production via pg_get_functiondef on 2026-10-01 22:40 IST, plus exactly the WALL 5 IN list. Narrows only; no key moves to handable.",
+    why: "WALL 5 (new block) walls five keys: the Director's 'safe split' (W12 tab, 2026-09-30) - learners.leave_types.manage, ims.settings.pos_devices.manage, admission.consultants.commissions.configure - plus the two 1 Oct campus-living vacate settings keys (damage_types.manage, vacate_checklist.manage; Director 2 Oct: approvals can, settings can't). Body is 20270403090000's text verbatim, verified equal to production via pg_get_functiondef on 2026-10-01 22:40 IST, plus exactly the WALL 5 IN list. Narrows only; no key moves to handable.",
   },
   '20260927020000': {
     fns: ['user_has_permission'],
