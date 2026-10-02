@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
+import { formatDateTimeDMY } from '@/lib/utils/date-format';
 
 const BugStatusBadge = ({ status }: { status: BugReportStatus }) => {
   const statusConfig: Record<
@@ -201,8 +202,21 @@ export default function MyBugReportsPage() {
         accessorKey: 'created_at',
         header: 'Created',
         cell: ({ row }) => (
-          <span className='text-sm'>
-            {new Date(row.original.created_at).toLocaleDateString()}
+          <span className='text-sm whitespace-nowrap'>
+            {formatDateTimeDMY(row.original.created_at)}
+          </span>
+        )
+      },
+      {
+        // BUG-003466: reporters could see when a bug was filed but not when it
+        // was fixed. resolved_at is already in this page's payload.
+        accessorKey: 'resolved_at',
+        header: 'Resolved',
+        cell: ({ row }) => (
+          <span className='text-sm whitespace-nowrap'>
+            {row.original.status === 'resolved'
+              ? formatDateTimeDMY(row.original.resolved_at)
+              : '—'}
           </span>
         )
       },
