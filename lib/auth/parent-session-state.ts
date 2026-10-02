@@ -14,6 +14,12 @@
  *
  * Used by proxy.ts (page requests: clears the cookie) and
  * lib/utils/parent-access.ts (API requests: 401). Node runtime (service role).
+ *
+ * Deploy-order safety: sessions_revoked_at arrives with migration
+ * 20270705094100. Until it is applied, PostgREST answers a select or write that
+ * names it with 42703 / PGRST204. The lookup then retries without the column
+ * (no "sign out everywhere" yet, but disabled / removed accounts are still
+ * caught), so the parent portal keeps working whichever lands first.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
@@ -27,7 +33,43 @@ export type ParentAccountState = 'alive' | 'dead' | 'error';
 interface ParentAccountRow {
   id: string;
   is_active: boolean | null;
-  sessions_revoked_at: string | null;
+  sessions_revoked_at?: string | null;
+}
+
+/**
+ * True when a PostgREST error means pp_parent_accounts.sessions_revoked_at does
+ * not exist yet (migration 20270705094100 not applied). 42703 = Postgres
+ * undefined_column (a select); PGRST204 = PostgREST "column not found in the
+ * schema cache" (a write).
+ */
+export function isMissingSessionsRevokedAtColumn(error: unknown): boolean {
+  const err = error as { code?: string; message?: string } | null;
+  if (!err) return false;
+  if (err.code === '42703' || err.code === 'PGRST204') return true;
+  const message = err.message ?? '';
+  return (
+    /sessions_revoked_at/i.test(message) &&
+    /(column|schema cache|does not exist)/i.test(message)
+  );
+}
+
+/**
+ * Sign every device of the matched parent account(s) out on its next request
+ * (used after a password reset). Returns 'ok', 'no-column' (migration not
+ * applied yet; nothing to do) or 'error'. Never throws.
+ */
+export async function revokeParentSessions(
+  run: (patch: { sessions_revoked_at: string }) => PromiseLike<{ error: unknown }>,
+  nowIso: string = new Date().toISOString()
+): Promise<'ok' | 'no-column' | 'error'> {
+  try {
+    const { error } = await run({ sessions_revoked_at: nowIso });
+    if (!error) return 'ok';
+    if (isMissingSessionsRevokedAtColumn(error)) return 'no-column';
+    return 'error';
+  } catch {
+    return 'error';
+  }
 }
 
 export async function getParentAccountState(
@@ -35,11 +77,20 @@ export async function getParentAccountState(
   claims: ParentJwtClaims
 ): Promise<ParentAccountState> {
   try {
-    const { data, error } = await db
+    let { data, error } = await db
       .from('pp_parent_accounts')
       .select('id, is_active, sessions_revoked_at')
       .eq('id', claims.sub)
       .maybeSingle();
+    if (error && isMissingSessionsRevokedAtColumn(error)) {
+      // Pre-migration database: same check without the revoke marker. Never
+      // select('*') here — that would pull password_hash into the proxy path.
+      ({ data, error } = await db
+        .from('pp_parent_accounts')
+        .select('id, is_active')
+        .eq('id', claims.sub)
+        .maybeSingle());
+    }
     if (error) return 'error';
     const row = data as unknown as ParentAccountRow | null;
     if (!row) return 'dead';
