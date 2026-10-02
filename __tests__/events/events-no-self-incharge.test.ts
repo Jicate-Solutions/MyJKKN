@@ -56,12 +56,34 @@ describe('migration 20270712090000 — the UPDATE roster guard', () => {
     expect(body).toMatch(/IF auth\.uid\(\) IS NULL THEN\s*RETURN NEW;/);
   });
 
-  it('lets only an admin turn a general event into a tournament, marathon or induction', () => {
+  it('lets only an admin move an event INTO or OUT OF tournament, marathon or induction', () => {
+    const body = fnBody(code(), 'fn_guard_event_privileged_fields');
+    // Two-way (W12 review): a tournament switched to a general type would keep
+    // its creator as a self-appointed in-charge who can cancel it.
+    expect(body).toMatch(
+      /\(NEW\.event_type IN \('sports_tournament', 'marathon', 'induction'\)\s*OR COALESCE\(OLD\.event_type, ''\) IN \('sports_tournament', 'marathon', 'induction'\)\)/,
+    );
+    expect(body).not.toMatch(/NOT IN \('sports_tournament', 'marathon', 'induction'\)/);
+    expect(body).toContain('into or out of a tournament, marathon or induction');
+  });
+
+  it("lets a tournament's own creator re-add themselves (#4127), nobody else", () => {
     const body = fnBody(code(), 'fn_guard_event_privileged_fields');
     expect(body).toMatch(
-      /NEW\.event_type IN \('sports_tournament', 'marathon', 'induction'\)[\s\S]*COALESCE\(OLD\.event_type, ''\) NOT IN \('sports_tournament', 'marathon', 'induction'\)/,
+      /IF NOT \(OLD\.event_type = 'sports_tournament'\s*AND OLD\.created_by IS NOT NULL AND OLD\.created_by = auth\.uid\(\)\)\s*AND EXISTS \(/,
     );
-    expect(body).toContain('Only an admin may change event');
+  });
+});
+
+describe('the tournament in-charge panel uses the same picker rule', () => {
+  const PANEL = 'app/(routes)/events/tournament/[id]/_components/incharge-panel.tsx';
+  const src = () => readFileSync(join(process.cwd(), PANEL), 'utf8');
+
+  it('drops your own name unless you are an admin or the creator', () => {
+    const s = src();
+    expect(s).toContain('dropSelfUnlessAdmin(picked');
+    expect(s).toMatch(/isCreator\s*=\s*!!profile\?\.id && tournament\.created_by === profile\.id/);
+    expect(s).toContain("You can&apos;t make yourself an in-charge");
   });
 });
 

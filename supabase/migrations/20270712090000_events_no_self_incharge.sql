@@ -15,7 +15,10 @@
 --   3. Type switch: tier 2 lets event_coordinator / sports.tournaments.manage
 --      change event_type; #4128 exempts tournaments, marathons and inductions,
 --      so a general event could be switched to a marathon, cancelled, and
---      switched back.
+--      switched back. The reverse works too (W12 review, 2026-10-02): create
+--      a sports_tournament (its creator is in-charge by #4127), switch it to
+--      a general type, and cancel it as that in-charge. So the rule is
+--      two-way: only an admin moves an event INTO or OUT OF those types.
 --
 -- This file:
 --   - CREATE OR REPLACE fn_guard_event_privileged_fields from
@@ -86,7 +89,11 @@ BEGIN
 
     -- No self-appointment (2026-10-02): only an admin may put themselves on an
     -- event's roster. Removing yourself, or adding others, is unaffected.
-    IF EXISTS (
+    -- A tournament's own creator may re-add themselves (#4127: the creator IS
+    -- its in-charge), as the INSERT guard below allows.
+    IF NOT (OLD.event_type = 'sports_tournament'
+            AND OLD.created_by IS NOT NULL AND OLD.created_by = auth.uid())
+       AND EXISTS (
          SELECT 1
            FROM jsonb_array_elements(CASE WHEN jsonb_typeof(NEW.config->'incharges') = 'array'
                                           THEN NEW.config->'incharges' ELSE '[]'::jsonb END) n
@@ -124,15 +131,17 @@ BEGIN
 
   -- Type-switch trick (2026-10-02): trg_events_cancel_incharge_or_admin exempts
   -- sports_tournament / marathon / induction (they have their own stop paths).
-  -- Moving a general event INTO one of those types would let a non-in-charge
-  -- cancel it and switch back, so only an admin may make that move.
+  -- INTO: a general event switched to a marathon could be cancelled by a
+  -- non-in-charge and switched back. OUT OF: a tournament's creator is its
+  -- in-charge (#4127), so creating one and switching it to a general type
+  -- makes a self-appointed in-charge who can cancel. Both need an admin.
   IF NEW.event_type IS DISTINCT FROM OLD.event_type
-     AND NEW.event_type IN ('sports_tournament', 'marathon', 'induction')
-     AND COALESCE(OLD.event_type, '') NOT IN ('sports_tournament', 'marathon', 'induction')
+     AND (NEW.event_type IN ('sports_tournament', 'marathon', 'induction')
+          OR COALESCE(OLD.event_type, '') IN ('sports_tournament', 'marathon', 'induction'))
      AND NOT (COALESCE(public.is_super_admin(), false) OR COALESCE(public.is_admin(), false))
   THEN
     RAISE EXCEPTION
-      'Only an admin may change event % into a tournament, marathon or induction', OLD.id
+      'Only an admin may move event % into or out of a tournament, marathon or induction', OLD.id
       USING ERRCODE = '42501';
   END IF;
 
@@ -142,7 +151,7 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.fn_guard_event_privileged_fields() FROM anon, PUBLIC;
 
 COMMENT ON FUNCTION public.fn_guard_event_privileged_fields() IS
-  'BEFORE UPDATE guard on events. Tier 1 (config->incharges): sports_tournament rows accept super admin, sports.tournaments.manage / .edit holders and the event creator; every other type accepts super admin, sports.tournaments.manage, admin/coordinator roles, the creator and events.logistics.manage holders. A per-event in-charge alone cannot. Nobody but an admin (is_super_admin / is_admin) may ADD THEMSELVES (2026-10-02). Tier 2: only super admin / admin-coordinator roles / tournament managers may change institution_id, event_type or created_by; only an admin may turn a general event into a tournament, marathon or induction (2026-10-02). service_role (auth.uid() IS NULL) bypasses.';
+  'BEFORE UPDATE guard on events. Tier 1 (config->incharges): sports_tournament rows accept super admin, sports.tournaments.manage / .edit holders and the event creator; every other type accepts super admin, sports.tournaments.manage, admin/coordinator roles, the creator and events.logistics.manage holders. A per-event in-charge alone cannot. Nobody but an admin (is_super_admin / is_admin) may ADD THEMSELVES, except a sports_tournament''s own creator (2026-10-02). Tier 2: only super admin / admin-coordinator roles / tournament managers may change institution_id, event_type or created_by; only an admin may move an event into or out of tournament, marathon or induction (2026-10-02). service_role (auth.uid() IS NULL) bypasses.';
 
 -- ── INSERT: the same rule at creation ──
 CREATE OR REPLACE FUNCTION public.fn_guard_event_incharges_on_insert()
