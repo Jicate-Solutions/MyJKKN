@@ -48,6 +48,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { format } from 'date-fns';
+import { istBusinessDate } from '@/lib/utils/date-format';
 import type {
   ImsTransactionType,
   ImsFinancialTransaction,
@@ -64,7 +65,7 @@ const formatCurrency = (value: number) =>
 
 function getDateRange(preset: string): { from: string; to: string } {
   const now = new Date();
-  const to = now.toISOString().split('T')[0];
+  const to = istBusinessDate(now);
   let from = to;
 
   switch (preset) {
@@ -74,17 +75,17 @@ function getDateRange(preset: string): { from: string; to: string } {
     case 'week': {
       const weekStart = new Date(now);
       weekStart.setDate(now.getDate() - now.getDay());
-      from = weekStart.toISOString().split('T')[0];
+      from = istBusinessDate(weekStart);
       break;
     }
     case 'month': {
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      from = monthStart.toISOString().split('T')[0];
+      from = istBusinessDate(monthStart);
       break;
     }
     case 'year': {
       const yearStart = new Date(now.getFullYear(), 0, 1);
-      from = yearStart.toISOString().split('T')[0];
+      from = istBusinessDate(yearStart);
       break;
     }
   }
