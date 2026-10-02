@@ -3,7 +3,7 @@
 /**
  * PeriodListTable — table view of hr_payroll_periods rows.
  *
- * Per spec specs/t4-3-pr3-payroll-ui-design-lock-2026-05-19.md Q1 + E5 + E10 + E12:
+ * No written spec; the rules live in this code:
  *   Columns: Period | Institution | Status pill | Current stage | Last action | Actions
  *   - PeriodStatusPill + PeriodBackdateBadge alongside in Status column.
  *   - Current stage column: the most recent stage's actor + relative time.
@@ -13,7 +13,7 @@
  *   - Skeleton renders 6 rows on isLoading.
  *
  * Filters (status + institution) are owned by the parent page so they can
- * persist to URL query params (E13). This component is presentational.
+ * persist to URL query params. This component is presentational.
  */
 
 import Link from 'next/link';
