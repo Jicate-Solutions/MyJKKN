@@ -39,6 +39,11 @@ import {
 } from '@/components/ui/select';
 import { useCreateTournament } from '@/hooks/events/use-tournaments';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import {
+  HostInstitutionsPicker,
+  hostInstitutionsDto,
+  type HostInstitutionsValue,
+} from '../_components/host-institutions-picker';
 import { JKKN_SPORTS, SPORT_LEVELS } from '@/types/health-sports';
 import { TOURNAMENT_FORMATS, DIVISION_GENDERS } from '@/types/tournament';
 import type { SportLevel } from '@/types/health-sports';
@@ -56,8 +61,11 @@ export default function CreateTournamentPage() {
   // picker stays visible and editable — explicit per the product decision.
   // Derived (not synced via effect+setState) so there's no extra render pass:
   // institutionIdOverride is null until the user actually picks one.
-  const [institutionIdOverride, setInstitutionIdOverride] = useState<string | null>(null);
-  const institutionId = institutionIdOverride ?? institutions[0]?.id ?? '';
+  const [hostsOverride, setHostsOverride] = useState<HostInstitutionsValue | null>(null);
+  const firstId = institutions[0]?.id ?? '';
+  const hosts: HostInstitutionsValue =
+    hostsOverride ?? { primaryId: firstId, hostIds: firstId ? [firstId] : [] };
+  const institutionId = hosts.primaryId;
   const createMutation = useCreateTournament();
 
   const currentYear = new Date().getFullYear();
@@ -100,7 +108,7 @@ export default function CreateTournamentPage() {
 
     try {
       const event = await createMutation.mutateAsync({
-        institution_id: institutionId,
+        ...hostInstitutionsDto(hosts),
         name: form.name.trim(),
         description: form.description || undefined,
         scope: form.scope,
@@ -156,29 +164,14 @@ export default function CreateTournamentPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-5">
-              {/* Host Institution */}
-              <div className="space-y-2">
-                <Label htmlFor="host_institution">
-                  Host Institution <span className="text-destructive">*</span>
-                </Label>
-                <Select value={institutionId} onValueChange={setInstitutionIdOverride}>
-                  <SelectTrigger id="host_institution">
-                    <SelectValue
-                      placeholder={institutionsLoading ? 'Loading institutions…' : 'Select host institution'}
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {institutions.map((inst) => (
-                      <SelectItem key={inst.id} value={inst.id}>
-                        {inst.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  Registration fees for this tournament settle into this institution&apos;s payment account.
-                </p>
-              </div>
+              {/* Host Institution(s) */}
+              <HostInstitutionsPicker
+                id="host_institution"
+                institutions={institutions}
+                loading={institutionsLoading}
+                value={hosts}
+                onChange={setHostsOverride}
+              />
 
               {/* Name */}
               <div className="space-y-2">

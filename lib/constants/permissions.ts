@@ -2239,6 +2239,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.vacate_requests.finalize', label: 'Finalize Vacate (retired stage)' },
       { key: 'campus_living.vacate_requests.cancel', label: 'Cancel Vacate Request (Admin / Hostel Office)' },
       { key: 'campus_living.vacate_checklist.manage', label: 'Manage Vacate Checklist Items (settings)' },
+      // 2026-10-01: chain is now bills (auto) -> principal -> warden (checklist + room damage) -> mess -> CAO -> [fine paid] -> vacated.
+      { key: 'campus_living.vacate_requests.approve_principal', label: 'Principal Approve / Reject Vacate Request' },
+      { key: 'campus_living.vacate_requests.approve_mess', label: 'Mess In-charge Clearance Approve / Reject Vacate Request' },
+      { key: 'campus_living.vacate_requests.approve_cao', label: 'CAO Final Approve / Reject Vacate Request (raises the damage fine)' },
+      { key: 'campus_living.damage_types.manage', label: 'Manage Hostel Damage Types (settings)' },
 
       // Wardens
       { key: 'campus_living.wardens.view', label: 'View Wardens' },
