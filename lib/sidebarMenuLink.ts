@@ -326,9 +326,21 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/instasolver': 'instasolver.view',
   '/instasolver/broken': 'instasolver.view',
   '/instasolver/complaint': 'instasolver.view',
+  '/instasolver/my-complaints': 'instasolver.view',
   '/instasolver/track/[token]': 'instasolver.view',
   // The page a room's or an item's QR sticker opens (scan to report).
   '/instasolver/r/[token]': 'instasolver.view',
+  // The old InstaSolver site's purchase requests left at 'Pending MD Approval'
+  // (Director ruling 30 Sep 2026). Super admin only — the page refuses anyone
+  // else and shows requesters' names.
+  '/instasolver/old-purchase-requests': 'super_admin',
+  // The reporter's own list — "fixed" / "Not fixed" (Director, 2026-09-30).
+  '/instasolver/my-reports': 'instasolver.view',
+  // Spot checks (2026-09-30 interview, rulings 1 and 3) — for college heads
+  // and the Director, reached from their bells. instasolver.view (every
+  // login) because principals are not guaranteed projects.view; the page
+  // itself refuses everyone who is not a principal or the Director.
+  '/campus-walk/spot-checks': 'instasolver.view',
 
   // Profile
   '/profile': 'view_profile', // All users should be able to view their own profile
@@ -754,6 +766,18 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // without a way to reach this the fixer's proof photo sits in `review`
   // forever and the loop never closes.
   '/campus-walk/review': 'projects.view',
+  // The Monday report card (Director ruling 2026-09-30). Mapped explicitly so
+  // it is not hidden-by-default, but this key is NOT the gate: the page itself
+  // lets in the Director, super admins and each college's principal (for their
+  // own college) — see resolveReportCardViewer in
+  // lib/campus-walk/report-card-run.ts. Principals reach it from the Monday bell.
+  '/campus-walk/report-card': 'projects.view',
+  // The fixes board (D9, departments only) — open to every team member by the
+  // Director's ruling of 2026-09-30. Its own key so it can be granted without
+  // projects.view; the page re-checks it server-side (gateFixesBoard). The
+  // walking and coverage boards stay under '/campus-walk' and the email
+  // allow-list. Also covers the board's CSV download (…/fixes/csv).
+  '/campus-walk/scoreboard/fixes': 'campus_walk.fix_board.view',
   '/academic/parent-portal': 'academic.parent_portal.manage',
   '/academic/years': 'academic.years.view',
   '/academic/leave-calendar': 'academic.leaves.view',
@@ -2417,6 +2441,17 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: "Director's Desk",
           active: pathname === '/director-desk' || pathname.startsWith('/director-desk/'),
           icon: ClipboardCheck,
+          submenus: []
+        },
+        {
+          // Old InstaSolver purchase requests — the Director's approve / reject
+          // list for what the old site left at 'Pending MD Approval' (ruling
+          // 30 Sep 2026). Super admin via MENU_PERMISSIONS. Also the literal
+          // href check-nav-reachability.ts needs to reach the page.
+          href: '/instasolver/old-purchase-requests',
+          label: 'Old Purchase Requests',
+          active: pathname === '/instasolver/old-purchase-requests',
+          icon: ClipboardList,
           submenus: []
         },
         {
@@ -4388,6 +4423,14 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/campus-walk/review',
               label: 'Awaiting approval',
               active: pathname.startsWith('/campus-walk/review')
+            },
+            {
+              // The fixes board only — never the walking/coverage boards (G2).
+              // Its own key, so a team member without projects.view still sees
+              // the Campus Walk group with just this one row in it.
+              href: '/campus-walk/scoreboard/fixes',
+              label: 'Fixes scoreboard',
+              active: pathname.startsWith('/campus-walk/scoreboard/fixes')
             }
           ]
         }
