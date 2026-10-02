@@ -44,8 +44,9 @@
  *
  * IDEMPOTENCY, TWO LAYERS (deliberate, not redundant):
  *   1. `notifications.idempotency_key` (`campus-walk-chase:<rung>:<task_id>`,
- *      no date component — each rung fires AT MOST ONCE ever, not once per
- *      day) is the actual enforcement, exactly per the rule documented at
+ *      no date component — each rung fires AT MOST ONCE per round, not once
+ *      per day; a reporter's "Not fixed" starts a new round with a `:r<n>`
+ *      suffix, see chaseRungIdempotencyKey) is the actual enforcement, exactly per the rule documented at
  *      meeting-trigger-service.ts:44-51: a read-then-write check lets two
  *      overlapping runs both decide "not sent yet" and both send; the DB's
  *      partial unique index cannot race.
@@ -268,6 +269,27 @@ const RUNGS: RungDef[] = [
     })
   }
 ];
+
+/**
+ * The idempotency key for one rung of one ROUND of a task.
+ *
+ * Round 0 — every task until somebody reopens it — keeps the original
+ * `campus-walk-chase:<rung>:<task_id>` key with no suffix, so notifications
+ * already in production keep deduplicating exactly as before.
+ *
+ * A reporter's "Not fixed" (app/api/campus-walk/not-fixed/route.ts, Director
+ * 2026-09-30) reopens the SAME job with a fresh due date, clears
+ * `metadata.campus_walk_chase.rungs_sent` and bumps
+ * `metadata.campus_walk_chase.round`. Clearing rungs_sent alone would not be
+ * enough: the database's unique index on the round-0 key would still swallow
+ * every reminder. The `:r<round>` suffix is what lets the ladder fire again
+ * for the new round — each rung still at most once PER ROUND.
+ */
+export function chaseRungIdempotencyKey(rungKey: string, taskId: string, round: unknown): string {
+  const n = Number(round);
+  const base = `campus-walk-chase:${rungKey}:${taskId}`;
+  return Number.isInteger(n) && n > 0 ? `${base}:r${n}` : base;
+}
 
 export interface CampusWalkChaseUpResult {
   run_date: string;
@@ -1029,6 +1051,8 @@ export async function runCampusWalkChaseUp(
       const priorChase = (metadata.campus_walk_chase ?? {}) as {
         rungs_sent?: Partial<Record<RungKey, string>>;
         reassignment_history?: ReassignmentRecord[];
+        /** Bumped by a reporter's "Not fixed" — see chaseRungIdempotencyKey. */
+        round?: number;
       };
       const rungsSent: Partial<Record<RungKey, string>> = { ...(priorChase.rungs_sent ?? {}) };
 
@@ -1126,7 +1150,7 @@ export async function runCampusWalkChaseUp(
         }
 
         const copy = rung.copy(task, daysOverdue);
-        const idempotencyKey = `campus-walk-chase:${rung.key}:${task.id}`;
+        const idempotencyKey = chaseRungIdempotencyKey(rung.key, task.id, priorChase.round);
 
         const sendResult = await sendRung(db, {
           recipientIds: check.userIds,
