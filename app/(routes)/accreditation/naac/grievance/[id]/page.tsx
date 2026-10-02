@@ -26,6 +26,7 @@ import { Label } from '@/components/ui/label';
 import { AlertTriangle, CheckCircle2, MessageSquarePlus, ShieldAlert } from 'lucide-react';
 import { GrievanceService } from '@/lib/services/grievance/grievance-service';
 import { useAuth } from '@/hooks/use-auth';
+import { formatComplaintDate, handledByLabel } from '@/lib/grievance/complaint-display';
 
 export default function GrievanceDetailPage({
   params,
@@ -93,7 +94,8 @@ export default function GrievanceDetailPage({
         resolution: resolution.trim(),
         resolved_by: profile?.id,
       });
-      toast.success('Ticket resolved. Evidence row emitted for NAAC 7.7.1 + UGC grievance.');
+      const done = ticketQ.data;
+      toast.success(done ? `Resolved ${done.ticket_number}: ${done.subject}` : 'Resolved.');
       setResolution('');
       refresh();
     } catch (err) {
@@ -163,6 +165,12 @@ export default function GrievanceDetailPage({
                 <div><div className="text-xs text-muted-foreground">Escalation</div><Badge variant="outline">Level {t.escalation_level}</Badge></div>
               </div>
               <div>
+                <div className="text-xs text-muted-foreground">Handled by</div>
+                <p className={t.assigned_to ? 'font-medium' : 'font-medium text-amber-700 dark:text-amber-400'}>
+                  {handledByLabel(t.assigned_to, t.assignee?.full_name)}
+                </p>
+              </div>
+              <div>
                 <div className="text-xs text-muted-foreground">Raised by</div>
                 <p>{t.is_anonymous ? '(anonymous)' : `${t.raised_by_name ?? '-'} · ${t.raised_by_type}`}</p>
                 {!t.is_anonymous && t.raised_by_email && <p className="text-xs text-muted-foreground">{t.raised_by_email} · {t.raised_by_phone ?? ''}</p>}
@@ -173,7 +181,7 @@ export default function GrievanceDetailPage({
               </div>
               <div>
                 <div className="text-xs text-muted-foreground">SLA deadline</div>
-                <p>{new Date(t.sla_deadline).toLocaleString()}</p>
+                <p>{formatComplaintDate(t.sla_deadline) ?? 'Not set'}</p>
               </div>
               {t.resolved_at && (
                 <div>
