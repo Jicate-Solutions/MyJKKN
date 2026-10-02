@@ -92,6 +92,8 @@ export interface PoWithItems extends ProcurementPurchaseOrder {
 
 export interface PurchaseOrderFilters {
   institution_id?: string;
+  /** No institution filter: every institution the viewer's RLS allows. */
+  all_institutions?: boolean;
   store_id?: string;
   status?: PoStatus;
   supplier_id?: string;

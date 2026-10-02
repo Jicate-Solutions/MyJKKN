@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import {
   Select,
   SelectContent,
@@ -82,6 +83,10 @@ function NewGRNPageInner() {
 
   const { data: suppliers } = useImsSuppliersForSelect(storeId || '', institutionId);
   const { data: items } = useImsItemsForSelect(storeId || '', institutionId);
+  const itemOptions = (items ?? []).map((item) => ({
+    value: item.id,
+    label: item.gst_rate > 0 ? `${item.name} (${item.gst_rate}%)` : item.name,
+  }));
   const { data: units } = useImsUnitsForSelect();
   const { data: storeData } = useImsStore(storeId || '');
 
@@ -290,7 +295,9 @@ function NewGRNPageInner() {
                     return (
                       <TableRow key={idx}>
                         <TableCell>
-                          <Select
+                          {/* Type-to-search: a long catalogue was a scroll-only
+                              list (BUG-005899). */}
+                          <SearchableSelect
                             value={line.item_id}
                             onValueChange={(val) => {
                               const found = (items ?? []).find((i) => i.id === val);
@@ -304,23 +311,12 @@ function NewGRNPageInner() {
                                 return copy;
                               });
                             }}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select item" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {(items ?? []).map((item) => (
-                                <SelectItem key={item.id} value={item.id}>
-                                  {item.name}
-                                  {item.gst_rate > 0 && (
-                                    <span className="text-muted-foreground ml-1">
-                                      ({item.gst_rate}%)
-                                    </span>
-                                  )}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                            options={itemOptions}
+                            placeholder="Select item"
+                            searchPlaceholder="Search item..."
+                            emptyMessage="No item found."
+                            className="w-full"
+                          />
                         </TableCell>
                         <TableCell>
                           <Input
