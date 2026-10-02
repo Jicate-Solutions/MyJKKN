@@ -321,7 +321,7 @@ export default function NewPurchaseRequestPage() {
                   className="h-8 text-sm"
                   value={commonReason}
                   onChange={(e) => setCommonReason(e.target.value)}
-                  placeholder="e.g. Practical lab chemicals for the 2026-27 batch"
+                  placeholder="e.g. Practical chemicals for the 2026-27 batch"
                 />
               </div>
 
