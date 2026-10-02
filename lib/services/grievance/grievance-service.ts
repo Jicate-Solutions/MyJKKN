@@ -14,6 +14,7 @@
 // ============================================================================
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { updateGrievanceStatusAction } from '@/lib/grievance/actions';
 import type {
   GrievanceTicket,
   GrievanceTicketDetail,
@@ -49,7 +50,8 @@ export class GrievanceService {
       .select(
         'id, ticket_number, category_id, institution_id, subject, priority, status, ' +
           'raised_by_type, raised_by_name, sla_deadline, sla_status, resolved_at, ' +
-          'is_emergency, is_anonymous, escalation_level, created_at',
+          'is_emergency, is_anonymous, escalation_level, created_at, ' +
+          'assigned_to, assignee:profiles!assigned_to(full_name)',
         { count: 'exact' }
       );
 
@@ -69,7 +71,7 @@ export class GrievanceService {
   static async getTicket(id: string): Promise<GrievanceTicketDetail> {
     const { data, error } = await (this.supabase as any)
       .from('grievance_tickets')
-      .select('*')
+      .select('*, assignee:profiles!assigned_to(full_name)')
       .eq('id', id)
       .single();
 
@@ -133,6 +135,12 @@ export class GrievanceService {
     return data as GrievanceTicket;
   }
 
+  /**
+   * Runs on the server (lib/grievance/actions.ts) under the caller's own
+   * session — RLS decides exactly as before — so the person who raised the
+   * complaint can be sent a bell about the change (Director ruling, 30 Sep
+   * 2026). `resolved_by` is taken from the session there, not from here.
+   */
   static async updateStatus(
     id: string,
     input: {
@@ -141,18 +149,11 @@ export class GrievanceService {
       resolved_by?: string;
     }
   ): Promise<void> {
-    const patch: Record<string, unknown> = { status: input.status };
-    if (input.status === 'resolved') {
-      patch.resolution = input.resolution ?? null;
-      patch.resolved_at = new Date().toISOString();
-      patch.resolved_by = input.resolved_by ?? null;
-    }
-    const { error } = await (this.supabase as any)
-      .from('grievance_tickets')
-      .update(patch)
-      .eq('id', id);
-
-    if (error) throw error;
+    const result = await updateGrievanceStatusAction(id, {
+      status: input.status,
+      resolution: input.resolution,
+    });
+    if (!result.success) throw new Error(result.error ?? 'Could not update the complaint.');
   }
 
   static async listComments(ticketId: string): Promise<GrievanceComment[]> {

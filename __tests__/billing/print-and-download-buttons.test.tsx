@@ -214,7 +214,9 @@ describe("learner's bills page Print", () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     renderWithToaster(<StudentReceiptsTable receipts={[receipt]} onRefresh={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole('button', { name: PRINT_NOT_AVAILABLE_LABEL }));
+    // Since 38fb2aa7d6 (29 Sep) Print is an item in the row's three-dot menu
+    // (rendered inline by the dropdown mock above).
+    fireEvent.click(screen.getByRole('menuitem', { name: PRINT_NOT_AVAILABLE_LABEL }));
 
     expect(await screen.findByText(RECEIPT_PRINT_NOT_AVAILABLE)).toBeInTheDocument();
     expect(log).not.toHaveBeenCalledWith('Printing receipt:', expect.anything());
