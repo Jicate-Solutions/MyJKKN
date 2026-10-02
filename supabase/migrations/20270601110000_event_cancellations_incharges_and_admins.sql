@@ -27,9 +27,24 @@
 -- known creator do not list that creator as in-charge. BUG-006223's reporter is
 -- the in-charge of their event, so they are covered.
 --
--- NOT CHANGED: events' own UPDATE policies. A creator or events.edit holder can
--- still write events.status directly through the API; the app only cancels via
--- the two-step path above. Closing that is a separate change.
+-- THE SIDE DOOR, CLOSED HERE TOO. events' own UPDATE policies
+-- (events_auth_update, events_edit_permission_update, events_incharge_update)
+-- grant the ROW, so a creator or events.edit holder could still write
+-- events.status = 'cancelled' straight through the API and skip the table above.
+-- RLS cannot pin one column, so a BEFORE UPDATE OF status trigger on events
+-- (trg_events_cancel_incharge_or_admin) refuses the move INTO 'cancelled' unless
+-- the caller is an in-charge of that event (fn_is_event_incharge — the same test
+-- the policies above use) or is_admin(). The policies themselves are unchanged.
+--   · Scope: general events only. sports_tournament, marathon and induction have
+--     their own consoles (DEDICATED_EVENT_CONSOLES); marathon cancels from three
+--     paths with no reason (list, dashboard, race-day Emergency Stop) by ops roles
+--     that are not in-charges. Widening the rule to them is the Director's call.
+--   · auth.uid() IS NULL (service_role, migrations, cron) passes, the same as
+--     fn_guard_event_privileged_fields.
+--   · The in-charge test reads the roster as it stood BEFORE this statement, so
+--     one UPDATE that adds the caller to config.incharges and cancels in the same
+--     write is still refused.
+--   · Leaving 'cancelled' (reinstating) is not touched.
 --
 -- ALTER POLICY, not DROP/CREATE: the policies are never absent.
 
@@ -63,6 +78,47 @@ ALTER POLICY "event_cancellations_auth_update" ON public.event_cancellations
     OR public.fn_is_event_incharge(event_cancellations.event_id)
   );
 
+-- The side door: events.status -> 'cancelled' only for an in-charge or an admin.
+CREATE OR REPLACE FUNCTION public.fn_events_cancel_incharge_or_admin()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER  -- is_admin() and fn_is_event_incharge() are already definer.
+SET search_path = public
+AS $$
+BEGIN
+  -- Trusted backend paths (service_role / migrations / cron) have no auth.uid().
+  IF auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.status = 'cancelled'
+     AND OLD.status IS DISTINCT FROM 'cancelled'
+     AND OLD.event_type NOT IN ('sports_tournament', 'marathon', 'induction')
+     AND NOT (
+       COALESCE(public.is_admin(), false)
+       OR COALESCE(public.fn_is_event_incharge(OLD.id), false)
+     )
+  THEN
+    RAISE EXCEPTION
+      'Only an in-charge of this event or an admin may cancel it (event %)', OLD.id
+      USING ERRCODE = '42501';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_events_cancel_incharge_or_admin() FROM anon, PUBLIC;
+
+COMMENT ON FUNCTION public.fn_events_cancel_incharge_or_admin() IS
+  'BEFORE UPDATE OF status guard on events (Director 30 Sep 2026): moving a general event INTO cancelled needs fn_is_event_incharge(id) or is_admin(), the same rule as event_cancellations. sports_tournament, marathon and induction are out of scope. service_role (auth.uid() IS NULL) bypasses.';
+
+DROP TRIGGER IF EXISTS trg_events_cancel_incharge_or_admin ON public.events;
+CREATE TRIGGER trg_events_cancel_incharge_or_admin
+  BEFORE UPDATE OF status ON public.events
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_events_cancel_incharge_or_admin();
+
 -- Assert the end state.
 DO $event_cancellations_incharges_assert$
 DECLARE
@@ -84,6 +140,19 @@ BEGIN
   IF v_expr NOT LIKE '%fn_is_event_incharge%' OR v_expr NOT LIKE '%is_admin%'
      OR v_expr LIKE '%created_by%' OR v_expr LIKE '%events.edit%' THEN
     RAISE EXCEPTION 'event_cancellations_auth_update is not in-charge-or-admin: %', v_expr;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+     WHERE tgrelid = 'public.events'::regclass
+       AND tgname = 'trg_events_cancel_incharge_or_admin'
+       AND NOT tgisinternal
+  ) THEN
+    RAISE EXCEPTION 'trg_events_cancel_incharge_or_admin is missing on public.events';
+  END IF;
+
+  IF has_function_privilege('anon', 'public.fn_events_cancel_incharge_or_admin()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'anon can execute fn_events_cancel_incharge_or_admin';
   END IF;
 
   IF has_table_privilege('anon', 'public.event_cancellations', 'SELECT')
