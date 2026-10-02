@@ -96,7 +96,10 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     ok: true,
     closed_with_notes: (data as number | null) ?? 0,
-    days: CLOSE_WITH_NOTES_AFTER_DAYS,
+    // A string on purpose: the dispatcher's status line prints every non-zero
+    // number in this body, so a numeric window read "HTTP 200 · days 7" on a
+    // morning that closed nothing. closed_with_notes is the only number here.
+    window: `${CLOSE_WITH_NOTES_AFTER_DAYS} days`,
     rule:
       'Closes a past meeting only when its notes are linked. A meeting without ' +
       'notes still waits for its host under Awaiting you on /meetings/inbox.',

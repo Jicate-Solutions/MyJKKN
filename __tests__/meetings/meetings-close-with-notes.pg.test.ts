@@ -15,9 +15,18 @@
  * replaces, not a hand-written stand-in. The sweep is then called the way the
  * cron calls it: as the service role.
  *
- * NON-VACUITY: with this PR's migration file emptied, every test fails (the
- * function does not exist / 'notes' is rejected). Each predicate of the UPDATE
- * has a fixture row that only that predicate keeps out.
+ * NON-VACUITY: with this PR's migration file emptied, 7 of the 14 tests fail —
+ * the two "cannot execute" tests, the window refusal, "closes exactly 2", the
+ * 'notes' stamp, the second run, and "accepts 'notes'" (the function does not
+ * exist / 'notes' is rejected). "Closes exactly 2" is the one that catches it
+ * for the closing rule. The other 7 — every leave-alone test, "still rejects
+ * an unknown kind" and "keeps every earlier kind" — pass vacuously then, since
+ * nothing closes anything; they earn their keep against a WRONG sweep, not a
+ * missing one. Each predicate of the UPDATE has a fixture row that only that
+ * predicate keeps out, so dropping any one predicate changes "closes exactly
+ * 2" and fails its leave-alone test. Dropping 'authenticated' from the REVOKE
+ * (with the migration's own guard off) fails "authenticated cannot execute it"
+ * because the prelude mirrors production's default grant to authenticated.
  *
  * REQUIRES a local PostgreSQL 16 and refuses to skip silently without one
  * (see "THE POSTGRES SERVICE" in .github/workflows/test-suite.yml):
@@ -53,6 +62,12 @@ DO $$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object O
 DO $$ BEGIN CREATE ROLE service_role NOLOGIN;  EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$;
 -- Supabase's default: anon gets EXECUTE on every new function in public.
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon;
+-- Production's postgres default ACL in public (pg_default_acl, read 2 Oct 2026)
+-- also grants authenticated and service_role on every new function. Mirrored
+-- here so that dropping 'authenticated' from the migration's REVOKE leaves a
+-- signed-in person a direct grant — and the "authenticated cannot execute it"
+-- test fails, instead of passing because nothing was ever granted.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO authenticated, service_role;
 
 CREATE SCHEMA IF NOT EXISTS auth;
 CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$

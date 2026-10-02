@@ -137,8 +137,10 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
       {filterKey === 'awaiting' ? (
         <p className="text-xs text-muted-foreground">
           These meetings have ended and nobody has said what happened. Open one to mark it
-          held or not held, or to move it to a new time. Until 21 August they were recorded
-          as completed automatically after seven days, whether or not anyone met.
+          held or not held, or to move it to a new time. A meeting whose notes are linked
+          closes on its own 7 days after it ends, and its page then says it was closed
+          automatically because the notes were linked. Every other meeting stays here until
+          a person marks it.
         </p>
       ) : null}
 

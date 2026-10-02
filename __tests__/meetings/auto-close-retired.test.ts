@@ -36,6 +36,7 @@ vi.mock('@/lib/supabase/server', () => ({
 }));
 
 import { GET } from '@/app/api/cron/meetings-auto-close/route';
+import { summarizeRoutineResult } from '@/lib/ai-routines/summarize-routine-result';
 
 const SECRET = 'test-cron-secret';
 
@@ -88,6 +89,22 @@ describe('what the routine reports', () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.closed_with_notes).toBe(0);
+  });
+
+  it('carries closed_with_notes as its only number, so the status line names nothing else', async () => {
+    const quiet = await (await GET(req({ auth: `Bearer ${SECRET}` }))).json();
+    const numeric = Object.keys(quiet).filter(
+      (k) => typeof quiet[k] === 'number' && !k.endsWith('_ms'),
+    );
+    expect(numeric).toEqual(['closed_with_notes']);
+    expect(quiet.window).toBe('7 days');
+    // What the dispatcher writes to last_status: a quiet morning is just the
+    // HTTP status, never "HTTP 200 · days 7".
+    expect(summarizeRoutineResult(200, quiet)).toBe('HTTP 200');
+
+    rpc.mockResolvedValue({ data: 61, error: null });
+    const busy = await (await GET(req({ auth: `Bearer ${SECRET}` }))).json();
+    expect(summarizeRoutineResult(200, busy)).toBe('HTTP 200 · closed_with_notes 61');
   });
 
   it('says the rule in the payload, so the dispatcher log explains itself', async () => {
