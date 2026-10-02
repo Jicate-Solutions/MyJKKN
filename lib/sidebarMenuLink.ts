@@ -328,6 +328,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/instasolver/complaint': 'instasolver.view',
   '/instasolver/my-complaints': 'instasolver.view',
   '/instasolver/track/[token]': 'instasolver.view',
+  // The old InstaSolver site's purchase requests left at 'Pending MD Approval'
+  // (Director ruling 30 Sep 2026). Super admin only — the page refuses anyone
+  // else and shows requesters' names.
+  '/instasolver/old-purchase-requests': 'super_admin',
   // The reporter's own list — "fixed" / "Not fixed" (Director, 2026-09-30).
   '/instasolver/my-reports': 'instasolver.view',
   // Spot checks (2026-09-30 interview, rulings 1 and 3) — for college heads
@@ -2425,6 +2429,17 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: "Director's Desk",
           active: pathname === '/director-desk' || pathname.startsWith('/director-desk/'),
           icon: ClipboardCheck,
+          submenus: []
+        },
+        {
+          // Old InstaSolver purchase requests — the Director's approve / reject
+          // list for what the old site left at 'Pending MD Approval' (ruling
+          // 30 Sep 2026). Super admin via MENU_PERMISSIONS. Also the literal
+          // href check-nav-reachability.ts needs to reach the page.
+          href: '/instasolver/old-purchase-requests',
+          label: 'Old Purchase Requests',
+          active: pathname === '/instasolver/old-purchase-requests',
+          icon: ClipboardList,
           submenus: []
         },
         {
