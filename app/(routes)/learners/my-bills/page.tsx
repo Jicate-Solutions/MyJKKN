@@ -33,6 +33,7 @@
 import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { getUserWithRetry } from '@/lib/auth/auth-retry';
 import { StudentValidationService } from '@/lib/services/auth/student-validation-service';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -77,7 +78,7 @@ export default async function MyBillsPage() {
   const supabase = await createClient();
 
   // 1) Authentication
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getUserWithRetry(supabase);
   if (!user) redirect('/auth/login');
 
   // 2) Role gate — students only (never super admin / staff).

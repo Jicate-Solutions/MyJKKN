@@ -1,280 +1,254 @@
 'use client';
 
 import { useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { AlertBox } from '@/components/ui/alert-box';
-import { PageHeader } from '@/components/procurement/page-header';
-import { useAuth } from '@/hooks/use-auth';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import { usePermissions } from '@/hooks/use-permissions';
-import { usePurchaseRequests } from '@/hooks/procurement/use-purchase-requests';
-import { useRfqs } from '@/hooks/procurement/use-rfqs';
-import { usePurchaseOrders } from '@/hooks/procurement/use-purchase-orders';
-import { useGrns } from '@/hooks/procurement/use-grns';
-import { formatDateDMY } from '@/lib/utils/date-format';
-import { displayRequestNumber } from '@/lib/procurement/display-number';
-import { CircleAlert, CheckCircle2, Plus, ChevronRight } from 'lucide-react';
+import { useProcurementOverviewCounts } from '@/hooks/procurement/use-overview-counts';
+import { CircleAlert, Plus, ChevronRight } from 'lucide-react';
 
 /**
  * Procurement is a strict chain: a request must precede an RFQ, which must precede
- * a purchase order, which must precede a goods receipt. The rail below renders that
- * chain literally — the step numbers and the connecting line encode a real ordering
- * constraint rather than decorating four unrelated tiles.
+ * a purchase order, which must precede a goods receipt. Each status bar below is one
+ * gate in that chain; its number is how many documents sit there, split by college.
  *
- * Each gate holds documents that cannot move until somebody acts. `permission` is the
- * key that opens that gate, so the page can show a viewer which waits are *theirs*.
- * Since the simplified flow (docs/procurement/simplified-flow-spec.md) there is one
- * money sign-off — gate 2, the Super Admin's approval of the chosen vendors — and the
- * other gates are the store's own work: quote, receive, verify.
+ * The page lists no documents itself. Clicking a bar opens the tab that holds those
+ * documents, already filtered to that status and college (`listHref` + ?institution=).
+ * `permission` is the key that opens the gate, so "Needs you" only shows on bars the
+ * viewer can act on (null = Super Admin only).
  */
 const GATES: ReadonlyArray<{
-  step: number;
+  gate: number;
   name: string;
   waiting: string;
-  /** Permission key that opens this gate; null = Super Admin only. */
   permission: string | null;
-  href: string;
-  /** Appended to `${href}/${id}` for the "Waiting for you" link. */
-  itemSuffix?: string;
-  docLabel: string;
+  listHref: string;
 }> = [
   {
-    step: 1,
+    gate: 1,
     name: 'Request approval',
-    waiting: 'awaiting approval',
+    waiting: 'requests awaiting approval',
     permission: 'request_approve',
-    href: '/procurement/requests',
-    docLabel: 'Request to approve',
+    listHref: '/procurement/requests?status=submitted',
   },
   {
-    step: 2,
+    gate: 2,
     name: 'Quotations',
-    waiting: 'ready for quotations',
+    waiting: 'approved, ready for quotations',
     permission: 'rfq_manage',
-    href: '/procurement/requests',
-    docLabel: 'Request to quote',
+    listHref: '/procurement/requests?status=approved',
   },
   {
-    step: 3,
+    gate: 3,
     name: 'Super Admin approval',
-    waiting: 'awaiting approval',
+    waiting: 'vendor choice to approve',
     permission: null,
-    href: '/procurement/rfqs',
-    itemSuffix: '/quotations',
-    docLabel: 'Vendor choice',
+    listHref: '/procurement/rfqs?status=pending_award_approval',
   },
   {
-    step: 4,
+    gate: 4,
     name: 'Purchase orders',
     waiting: 'awaiting delivery',
     permission: 'grn_create',
-    href: '/procurement/purchase-orders',
-    docLabel: 'Purchase order',
+    listHref: '/procurement/purchase-orders?status=approved',
   },
   {
-    step: 5,
+    gate: 5,
     name: 'Goods received',
     waiting: 'awaiting verification',
     permission: 'grn_verify',
-    href: '/procurement/grn',
-    docLabel: 'Delivery record',
+    listHref: '/procurement/grn?status=pending_verification',
   },
 ];
 
-interface WaitingDoc {
-  id: string;
-  number: string;
-  docLabel: string;
-  createdAt: string | null;
-  href: string;
-}
+type View = 'pending' | 'updated' | 'recent';
+const VIEWS: ReadonlyArray<{ value: View; label: string; explain: string }> = [
+  { value: 'pending', label: 'Pending', explain: 'Documents waiting at each step right now.' },
+  { value: 'updated', label: 'Updated', explain: 'Documents that reached each step in the last 7 days.' },
+  { value: 'recent', label: 'Recent', explain: 'Documents raised in the last 7 days, by the step they are at now.' },
+];
+
+// One colour per college, assigned by name so a college keeps its colour across views.
+const COLLEGE_COLOURS = [
+  'bg-emerald-600',
+  'bg-sky-600',
+  'bg-amber-500',
+  'bg-violet-500',
+  'bg-rose-500',
+  'bg-teal-500',
+  'bg-indigo-500',
+  'bg-lime-600',
+  'bg-orange-500',
+  'bg-fuchsia-500',
+];
 
 export default function ProcurementHome() {
   const router = useRouter();
-  const { profile } = useAuth();
+  const searchParams = useSearchParams();
   const { canAccess, isSuperAdmin } = usePermissions();
-  const institutionId = profile?.institution_id ?? undefined;
+  const { data: rows = [], isLoading, isError } = useProcurementOverviewCounts(7);
 
-  // One query per gate. `limit: 5` is deliberate — metadata.total drives the rail
-  // count and the same rows fill the "Waiting for you" list, so the list costs
-  // nothing extra.
-  const prQ = usePurchaseRequests({ institution_id: institutionId, status: 'submitted', limit: 5 });
-  const approvedQ = usePurchaseRequests({ institution_id: institutionId, status: 'approved', limit: 5 });
-  const rfqQ = useRfqs({ institution_id: institutionId, status: 'pending_award_approval', limit: 5 });
-  const poQ = usePurchaseOrders({ institution_id: institutionId, status: 'approved', limit: 5 });
-  const grnQ = useGrns({ institution_id: institutionId, status: 'pending_verification', limit: 5 });
+  // Filters live in the address so Back and shared links keep them.
+  const college = searchParams.get('institution') ?? 'all';
+  const viewParam = searchParams.get('view');
+  const view: View = viewParam === 'updated' || viewParam === 'recent' ? viewParam : 'pending';
+  const setParam = (key: string, value: string, fallback: string) => {
+    const next = new URLSearchParams(searchParams.toString());
+    if (value === fallback) next.delete(key);
+    else next.set(key, value);
+    const qs = next.toString();
+    router.replace(qs ? `/procurement?${qs}` : '/procurement', { scroll: false });
+  };
 
   const canCreateRequest = isSuperAdmin || canAccess('procurement', 'request_create');
-  const loading = prQ.isLoading || approvedQ.isLoading || rfqQ.isLoading || poQ.isLoading || grnQ.isLoading;
-  const failed = prQ.isError || approvedQ.isError || rfqQ.isError || poQ.isError || grnQ.isError;
 
-  const gates = useMemo(() => {
-    const queries = [prQ, approvedQ, rfqQ, poQ, grnQ];
-    return GATES.map((gate, i) => {
-      const q = queries[i];
-      const response = q.data as { data?: unknown[]; metadata?: { total?: number } } | undefined;
+  const colleges = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const r of rows) byId.set(r.institution_id, r.institution_name);
+    return [...byId.entries()]
+      .sort((a, b) => a[1].localeCompare(b[1]))
+      .map(([id, name], i) => ({ id, name, colour: COLLEGE_COLOURS[i % COLLEGE_COLOURS.length] }));
+  }, [rows]);
+
+  const bars = useMemo(() => {
+    const visible = rows.filter((r) => college === 'all' || r.institution_id === college);
+    const built = GATES.map((g) => {
+      const parts = colleges
+        .map((c) => ({
+          ...c,
+          count: visible
+            .filter((r) => r.gate === g.gate && r.institution_id === c.id)
+            .reduce((sum, r) => sum + r[view], 0),
+        }))
+        .filter((p) => p.count > 0);
       return {
-        ...gate,
-        count: response?.metadata?.total ?? 0,
-        // "Needs you" is a claim about the viewer, so it is only ever shown to
-        // someone who actually holds the key to that gate.
-        mine: isSuperAdmin || (gate.permission !== null && canAccess('procurement', gate.permission)),
+        ...g,
+        parts,
+        total: parts.reduce((sum, p) => sum + p.count, 0),
+        mine: isSuperAdmin || (g.permission !== null && canAccess('procurement', g.permission)),
       };
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prQ.data, approvedQ.data, rfqQ.data, poQ.data, grnQ.data, isSuperAdmin, canAccess]);
+    const max = Math.max(1, ...built.map((b) => b.total));
+    return { built, max };
+  }, [rows, colleges, college, view, isSuperAdmin, canAccess]);
 
-  const waitingForYou = useMemo<WaitingDoc[]>(() => {
-    const rows: WaitingDoc[] = [];
-    const push = (
-      list: Record<string, unknown>[] | undefined,
-      numberKey: string,
-      gateIndex: number
-    ) => {
-      if (!gates[gateIndex]?.mine) return;
-      for (const r of list ?? []) {
-        rows.push({
-          id: String(r.id),
-          number: numberKey === 'request_number' ? displayRequestNumber(String(r[numberKey] ?? '')) || '—' : String(r[numberKey] ?? '—'),
-          docLabel: GATES[gateIndex].docLabel,
-          createdAt: (r.created_at as string) ?? null,
-          href: `${GATES[gateIndex].href}/${r.id}${GATES[gateIndex].itemSuffix ?? ''}`,
-        });
-      }
-    };
-    push(prQ.data?.data as unknown as Record<string, unknown>[], 'request_number', 0);
-    push(approvedQ.data?.data as unknown as Record<string, unknown>[], 'request_number', 1);
-    push(rfqQ.data?.data as unknown as Record<string, unknown>[], 'rfq_number', 2);
-    push(poQ.data?.data as unknown as Record<string, unknown>[], 'po_number', 3);
-    push(grnQ.data?.data as unknown as Record<string, unknown>[], 'grn_number', 4);
-    return rows.sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''));
-  }, [prQ.data, approvedQ.data, rfqQ.data, poQ.data, grnQ.data, gates]);
-
-  const totalWaiting = gates.reduce((sum, g) => sum + (g.mine ? g.count : 0), 0);
+  const legend = colleges.filter((c) => bars.built.some((b) => b.parts.some((p) => p.id === c.id)));
+  const explain = VIEWS.find((v) => v.value === view)?.explain;
 
   return (
     <ContentLayout title="Procurement">
-      <div className="space-y-6 sm:space-y-8">
-        <PageHeader
-          title="Procurement"
-          description="Requests through to goods on the shelf."
-          actions={
-            canCreateRequest && (
-              <Button onClick={() => router.push('/procurement/requests/new')}>
-                <Plus className="mr-2 h-4 w-4" />
-                New request
-              </Button>
-            )
-          }
-        />
-
-        {failed && (
-          <AlertBox
-            type="error"
-            message="Some pipeline counts could not be loaded. Figures below may be incomplete."
-          />
+      <div className="space-y-4">
+        {isError && (
+          <AlertBox type="error" message="The status counts could not be loaded. Refresh the page to try again." />
         )}
 
-        {/* ── The rail ──────────────────────────────────────────────────────
-            Stations are deliberately uncoloured. The only accent on this page is
-            the amber "needs you" state, and it always carries an icon and a word
-            so it never depends on colour alone. */}
-        <section aria-label="Procurement pipeline">
-          <div className="relative">
-            {/* The chain itself. Runs between the centres of the first and last
-                step markers (5 equal columns → centres at 10% and 90%). */}
-            <div
-              aria-hidden
-              className="pointer-events-none absolute left-[10%] right-[10%] top-4 hidden h-px bg-border lg:block"
-            />
-            <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5 lg:gap-0">
-              {gates.map((gate) => {
-                const needsYou = gate.mine && gate.count > 0;
+        <Card>
+          <CardContent className="space-y-5 p-4 sm:p-6">
+            {/* ── Filters ─────────────────────────────────────────────── */}
+            <div className="flex flex-wrap items-end gap-4">
+              <InstitutionFilter
+                className="w-full space-y-1 sm:w-[280px] [&_label]:text-xs [&_label]:text-muted-foreground"
+                label="College"
+                allLabel="All colleges"
+                value={college}
+                onChange={(id) => setParam('institution', id, 'all')}
+              />
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Show</p>
+                <ToggleGroup
+                  type="single"
+                  variant="outline"
+                  value={view}
+                  onValueChange={(v) => v && setParam('view', v, 'pending')}
+                  aria-label="Which documents to count"
+                >
+                  {VIEWS.map((v) => (
+                    <ToggleGroupItem key={v.value} value={v.value} className="px-4">
+                      {v.label}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
+              </div>
+              {/* No page heading above: the breadcrumb and tab bar already say "Procurement". */}
+              {canCreateRequest && (
+                <Button
+                  className="ml-auto"
+                  onClick={() =>
+                    router.push(
+                      college !== 'all'
+                        ? `/procurement/requests/new?institution=${college}`
+                        : '/procurement/requests/new'
+                    )
+                  }
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  New request
+                </Button>
+              )}
+            </div>
+            <p className="text-sm text-muted-foreground">{explain}</p>
+
+            {/* ── Status bars ─────────────────────────────────────────── */}
+            <div className="space-y-2">
+              {bars.built.map((bar) => {
+                const needsYou = view === 'pending' && bar.mine && bar.total > 0;
+                const href = `${bar.listHref}&institution=${college}`;
                 return (
                   <button
-                    key={gate.name}
+                    key={bar.gate}
                     type="button"
-                    onClick={() => router.push(gate.href)}
-                    className="group relative flex flex-col items-start rounded-lg border p-4 text-left transition-colors hover:border-primary hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:mx-2 lg:items-center lg:border-0 lg:bg-transparent lg:p-0 lg:pt-0 lg:hover:bg-transparent"
+                    onClick={() => router.push(href)}
+                    aria-label={`${bar.name}: ${bar.total}. Open the list.`}
+                    className="grid w-full grid-cols-[28px_1fr_48px_16px] items-center gap-x-3 gap-y-2 rounded-lg border p-3 text-left transition-colors hover:border-primary hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:grid-cols-[28px_minmax(170px,230px)_56px_1fr_16px] sm:gap-x-4"
                   >
-                    <span className="z-10 inline-flex h-8 w-8 items-center justify-center rounded-md border bg-background text-sm font-semibold tabular-nums text-muted-foreground">
-                      {gate.step}
+                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-md border bg-background text-xs font-semibold tabular-nums text-muted-foreground">
+                      {bar.gate}
                     </span>
-
-                    <span className="mt-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                      {gate.name}
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold leading-tight">{bar.name}</span>
+                      <span className="block text-xs text-muted-foreground">{bar.waiting}</span>
+                      {needsYou && (
+                        <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                          <CircleAlert className="h-3 w-3" />
+                          Needs you
+                        </span>
+                      )}
                     </span>
-
                     <span
-                      className={`mt-1 text-4xl font-semibold tabular-nums ${
-                        loading ? 'text-muted-foreground/40' : needsYou ? 'text-amber-600 dark:text-amber-400' : ''
+                      className={`text-right text-3xl font-semibold tabular-nums ${
+                        isLoading ? 'text-muted-foreground/40' : needsYou ? 'text-amber-600 dark:text-amber-400' : ''
                       }`}
                     >
-                      {loading ? '—' : gate.count}
+                      {isLoading ? '—' : bar.total}
                     </span>
-
-                    <span className="text-xs text-muted-foreground lg:text-center">
-                      {gate.waiting}
+                    <span className="col-span-2 col-start-2 row-start-2 flex h-3 overflow-hidden rounded bg-muted sm:col-span-1 sm:col-start-auto sm:row-start-auto">
+                      {bar.parts.map((p) => (
+                        <span
+                          key={p.id}
+                          title={`${p.name}: ${p.count}`}
+                          className={`h-full border-l-2 border-background first:border-l-0 ${p.colour}`}
+                          style={{ width: `${(p.count / bars.max) * 100}%` }}
+                        />
+                      ))}
                     </span>
-
-                    {needsYou && (
-                      <span className="mt-2 inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-                        <CircleAlert className="h-3 w-3" />
-                        Needs you
-                      </span>
-                    )}
+                    <ChevronRight className="col-start-4 row-start-1 h-4 w-4 text-muted-foreground sm:col-start-auto sm:row-start-auto" aria-hidden />
                   </button>
                 );
               })}
             </div>
-          </div>
-        </section>
 
-        {/* ── What the viewer can actually act on ───────────────────────── */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">
-              Waiting for you{totalWaiting > 0 ? ` (${totalWaiting})` : ''}
-            </CardTitle>
-            <p className="hidden text-sm text-muted-foreground sm:block">
-              Documents parked at a gate you can open.
-            </p>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <p className="py-6 text-sm text-muted-foreground">Checking the pipeline…</p>
-            ) : waitingForYou.length === 0 ? (
-              // An empty screen is an invitation, not a dead end — and here it is
-              // genuinely good news, so it should not read as a failure.
-              <div className="flex flex-col items-center justify-center py-10 text-center">
-                <CheckCircle2 className="h-8 w-8 text-muted-foreground" />
-                <p className="mt-3 font-medium">Nothing is waiting on you</p>
-                <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-                  {canCreateRequest
-                    ? 'Raise a request to start something moving — use "New request" above.'
-                    : 'Approvals you are responsible for will appear here.'}
-                </p>
-              </div>
-            ) : (
-              <div className="divide-y">
-                {waitingForYou.map((doc) => (
-                  <button
-                    key={`${doc.docLabel}-${doc.id}`}
-                    type="button"
-                    onClick={() => router.push(doc.href)}
-                    className="flex w-full items-center gap-3 py-3 text-left transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">{doc.number}</span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {doc.docLabel}
-                        {doc.createdAt ? ` · raised ${formatDateDMY(doc.createdAt)}` : ''}
-                      </span>
-                    </span>
-                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  </button>
+            {legend.length > 0 && (
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                {legend.map((c) => (
+                  <span key={c.id} className="inline-flex items-center gap-1.5">
+                    <span className={`h-2.5 w-2.5 rounded-sm ${c.colour}`} aria-hidden />
+                    {c.name}
+                  </span>
                 ))}
               </div>
             )}
