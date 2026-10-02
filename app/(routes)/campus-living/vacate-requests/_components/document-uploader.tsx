@@ -155,7 +155,7 @@ export function DocumentUploader({
             <div>
               <Label
                 htmlFor='file-upload'
-                className='flex items-center gap-2 cursor-pointer text-sm rounded-md border border-dashed p-3 hover:bg-accent'
+                className='flex min-h-16 items-center justify-center gap-2 cursor-pointer text-center text-sm rounded-md border-2 border-dashed p-4 hover:bg-accent'
               >
                 {uploading ? (
                   <>
@@ -163,7 +163,7 @@ export function DocumentUploader({
                   </>
                 ) : (
                   <>
-                    <Upload className='h-4 w-4' /> Choose file (PDF / JPG / PNG, max 5 MB)
+                    <Upload className='h-4 w-4 shrink-0' /> Tap to choose a file (PDF / JPG / PNG, max 5 MB)
                   </>
                 )}
               </Label>
