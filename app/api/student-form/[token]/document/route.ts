@@ -40,7 +40,8 @@ export async function POST(
   const formData = await request.formData();
   const docType = String(formData.get('doc_type') ?? '');
   const file = formData.get('file');
-  if (!(docType in PG_DEGREE_DOC_TYPES)) {
+  // Own keys only: `in` would also accept inherited names such as "constructor".
+  if (!Object.hasOwn(PG_DEGREE_DOC_TYPES, docType)) {
     return NextResponse.json({ error: 'unknown document type' }, { status: 400 });
   }
   if (!(file instanceof Blob)) {
