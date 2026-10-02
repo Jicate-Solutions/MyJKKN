@@ -758,6 +758,7 @@
     "campus_living.wardens.remove",
     "campus_living.wardens.view",
     "campus_living.wellness.view",
+    "campus_walk.fix_board.view",
     "cdc.bulletin.create",
     "cdc.bulletin.delete",
     "cdc.bulletin.edit",
