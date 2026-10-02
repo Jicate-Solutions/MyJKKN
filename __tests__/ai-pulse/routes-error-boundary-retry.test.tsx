@@ -34,6 +34,9 @@ const nav = vi.hoisted(() => ({
 vi.mock('next/navigation', () => ({
   usePathname: () => nav.pathname,
   useRouter: () => ({ refresh: nav.refresh }),
+  // lib/utils/stale-deployment.ts (908d61c950) reads this from next/navigation;
+  // none of these errors is a stale-deployment Server Action error.
+  unstable_isUnrecognizedActionError: () => false,
 }));
 
 vi.mock('next/link', () => ({
