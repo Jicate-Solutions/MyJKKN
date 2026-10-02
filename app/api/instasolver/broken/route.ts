@@ -84,6 +84,7 @@ import {
   createWalkTask,
   type CreateWalkTaskInput,
 } from '@/lib/services/campus-walk/campus-walk-service';
+import { isInstaSolverTrade } from '@/lib/instasolver/ai-fill';
 
 const BUCKET = 'campus-walk';
 const MAX_BYTES = 10 * 1024 * 1024; // matches the bucket's file_size_limit (10 MB)
@@ -93,6 +94,8 @@ const LOCATION_MIN = 3;
 const LOCATION_MAX = 120;
 const DESCRIPTION_MIN = 3;
 const DESCRIPTION_MAX = 500;
+/** Matches the ai-fill route's input ceiling. */
+const REPORTER_WORDS_MAX = 1000;
 
 /**
  * Abuse control. The Director-only D2 gate is what keeps the Campus Walk photo
@@ -274,9 +277,37 @@ export async function POST(request: NextRequest) {
   // action, 2 days. `system_gap` is deliberately never produced here: that
   // kind is for an audit finding ("there is no cleaning SOP"), which is not
   // what this form asks for.
-  const dangerous = ['true', '1', 'on', 'yes'].includes(
-    String(form.get('dangerous') ?? '').trim().toLowerCase()
+  //
+  // `urgency` arrives from the "Fill it for me" form (30 Sep 2026). It is sent
+  // from the checkbox's CURRENT state, never from the AI's reply, so a person
+  // who unticks an AI-suggested "dangerous" sends `normal`. Either signal is
+  // enough to mark the report dangerous; neither can clear the other.
+  const dangerous =
+    ['true', '1', 'on', 'yes'].includes(
+      String(form.get('dangerous') ?? '').trim().toLowerCase()
+    ) || String(form.get('urgency') ?? '').trim().toLowerCase() === 'dangerous';
+
+  // ── Optional "Fill it for me" fields (Director, 30 Sep 2026) ──────────────
+  // The trade is stored, not routed: every report from this door already goes
+  // to the EAO (no owner is supplied, so routeAccountable falls through to
+  // them). An unknown trade is dropped rather than refused — losing a report
+  // over a label is the worse outcome. `needs_sorting` is set when the person
+  // skipped the AI's one question: the EAO sorts it by hand.
+  const tradeRaw = String(form.get('trade') ?? '').trim();
+  const trade = isInstaSolverTrade(tradeRaw) ? tradeRaw : null;
+  const needsSorting = ['true', '1', 'on', 'yes'].includes(
+    String(form.get('needs_sorting') ?? '').trim().toLowerCase()
   );
+  const aiFilled = ['true', '1', 'on', 'yes'].includes(
+    String(form.get('ai_filled') ?? '').trim().toLowerCase()
+  );
+  // The person's own words, kept alongside the AI's English rewrite so a
+  // Tamil report is never lost to a paraphrase. Only sent when AI filled it.
+  const reporterWordsRaw = String(form.get('reporter_words') ?? '').trim();
+  const reporterWords =
+    aiFilled && reporterWordsRaw.length > 0
+      ? reporterWordsRaw.slice(0, REPORTER_WORDS_MAX)
+      : null;
 
   const geo = parseLatLng(form.get('lat'), form.get('lng'));
 
@@ -413,6 +444,7 @@ export async function POST(request: NextRequest) {
     description,
     kind: 'symptom',
     isUnsafe: dangerous,
+    ...(trade ? { category: trade } : {}),
     ...(uploaded
       ? {
           photoStoragePath: uploaded.storagePath,
@@ -438,6 +470,10 @@ export async function POST(request: NextRequest) {
       reporter_role: profile.role ?? null,
       reporter_institution_id: profile.institution_id ?? null,
       location,
+      ...(trade ? { trade } : {}),
+      ...(aiFilled ? { ai_filled: true } : {}),
+      ...(needsSorting ? { needs_sorting: true } : {}),
+      ...(reporterWords ? { reporter_words: reporterWords } : {}),
     },
     // HIGH 2 — EAO only, and only while the college is under its cap.
     urgentPaging: {
