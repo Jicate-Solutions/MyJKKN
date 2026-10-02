@@ -32,8 +32,8 @@ export type IdCardPrintJobStatus =
 // ──────────────────────────────────────────────────────────────────────────────
 export type IdCardPrintJob = {
   id: string;
-  student_name: string;
-  template_name: string;
+  learner_name: string | null;
+  template_name: string | null;
   status: IdCardPrintJobStatus;
   enqueued_at: string; // ISO-8601
   result_message: string | null;
@@ -52,6 +52,7 @@ import { CARD_FIELDS, type CardField as RenderCardField } from '@/lib/id-cards/r
 export const CARD_FIELD_LABELS: Record<RenderCardField, string> = {
   name_line_1: 'Full name (line 1)',
   roll_number: 'Roll number',
+  father_name: 'Father name',
   course: 'Course',
   department: 'Department',
   valid_until: 'Valid until date',

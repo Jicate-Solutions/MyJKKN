@@ -3139,6 +3139,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/campus-living/settings/damage-types",
+            "label": "Damage Types",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/campus-living/settings/fee-config",
             "label": "Fee Config",
             "iconName": "FileText",
