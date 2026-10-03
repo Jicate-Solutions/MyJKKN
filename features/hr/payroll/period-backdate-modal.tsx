@@ -3,13 +3,13 @@
 /**
  * PeriodBackdateModal — Director-only modal to flip is_backdated=true + record reason.
  *
- * Per spec specs/t4-3-pr3-payroll-ui-design-lock-2026-05-19.md E9 + Q5/Q8:
+ * No written spec; the rules live in this code:
  *   - Reason (textarea) required, min 10 chars.
  *   - Confirm button is amber (matches backdate badge palette).
  *   - Calls useBackdatePayrollPeriod which wraps fn_backdate_payroll_period RPC.
  *   - RPC enforces Director-only — modal trigger is also role-gated upstream
  *     in PeriodActionButtons, but RPC is the authoritative gate.
- *   - Backdating does NOT change status — flag-only flow (Decision #20).
+ *   - Backdating does NOT change status — flag-only flow (fn_backdate_payroll_period).
  */
 
 import { useState } from 'react';

@@ -4,7 +4,7 @@
  * PeriodActionButtons — primary CTA + More-actions dropdown rendered in the
  * detail-page header (top-right).
  *
- * Per spec specs/t4-3-pr3-payroll-ui-design-lock-2026-05-19.md Q3 + E3 + E12:
+ * No written spec; the rules live in this code and the RPCs named below:
  *   - Primary button label is stage-specific (Prepare for review / Mark as
  *     CAO-reviewed / etc.).
  *   - "More actions" dropdown reveals Reject + Backdate + Lock.

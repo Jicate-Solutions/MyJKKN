@@ -11600,3 +11600,43 @@ DROP POLICY IF EXISTS legacy_instasolver_requirements_select ON public.legacy_in
 CREATE POLICY legacy_instasolver_requirements_select ON public.legacy_instasolver_requirements
   FOR SELECT TO authenticated
   USING (public.is_super_admin() OR public.is_admin() OR public.user_has_permission('grievance.categories.manage'));
+
+
+-- ============================================================================
+-- Updated: 2026-10-02 - Parent password views + sign-out notices (migration 20271002150000)
+-- Password views: super admins read; service role writes. Notices: own rows, seen_at only; service role writes. No anon.
+-- ============================================================================
+ALTER TABLE public.pp_parent_password_views ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sign_out_notices         ENABLE ROW LEVEL SECURITY;
+
+-- Supabase's default privileges grant ALL on every new table to anon and
+-- authenticated; take that back before granting the narrow set.
+REVOKE ALL ON TABLE public.pp_parent_password_views FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.sign_out_notices         FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.pp_parent_password_views FROM authenticated;
+REVOKE ALL ON TABLE public.sign_out_notices         FROM authenticated;
+
+GRANT SELECT ON TABLE public.pp_parent_password_views TO authenticated;
+GRANT SELECT ON TABLE public.sign_out_notices         TO authenticated;
+GRANT UPDATE (seen_at) ON TABLE public.sign_out_notices TO authenticated;
+
+GRANT ALL ON TABLE public.pp_parent_password_views TO service_role;
+GRANT ALL ON TABLE public.sign_out_notices         TO service_role;
+
+-- Password views: super admins only (ruling A — not is_admin()).
+DROP POLICY IF EXISTS pp_parent_password_views_select ON public.pp_parent_password_views;
+CREATE POLICY pp_parent_password_views_select ON public.pp_parent_password_views
+  FOR SELECT TO authenticated
+  USING (public.is_super_admin());
+
+-- Sign-out notices: the person themself, own rows only.
+DROP POLICY IF EXISTS sign_out_notices_select_own ON public.sign_out_notices;
+CREATE POLICY sign_out_notices_select_own ON public.sign_out_notices
+  FOR SELECT TO authenticated
+  USING (user_id = (SELECT auth.uid()));
+
+DROP POLICY IF EXISTS sign_out_notices_update_own ON public.sign_out_notices;
+CREATE POLICY sign_out_notices_update_own ON public.sign_out_notices
+  FOR UPDATE TO authenticated
+  USING (user_id = (SELECT auth.uid()))
+  WITH CHECK (user_id = (SELECT auth.uid()));

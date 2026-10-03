@@ -6,6 +6,7 @@
 
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { getUserWithRetry } from '@/lib/auth/auth-retry';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { StudentValidationService } from '@/lib/services/auth/student-validation-service';
@@ -24,9 +25,7 @@ export default async function StudentTimetablePage({ searchParams }: PageProps) 
   const supabase = await createClient();
 
   // 1. Authenticate user
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
+  const user = await getUserWithRetry(supabase);
 
   if (!user) {
     redirect('/auth/login');
