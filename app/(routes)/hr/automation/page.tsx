@@ -10,6 +10,12 @@
 //
 // Workisy gap #1, Wave 1 (2026-05-15). The writer (cron) lands in Wave 2;
 // until then this page renders an empty state pointing to the editor.
+//
+// 2026-10-01 (HR staff harness, lane F): checked the whole repo — NOTHING
+// reads platform_policies 'hr.automation_rules' and nothing writes
+// hr_automation_rule_fires. The Wave 2 writer never shipped. So the page now
+// says so plainly instead of showing an empty list that reads as "nothing
+// fired". When an evaluator ships, flip RULES_ARE_EVALUATED in the same PR.
 // =====================================================================
 
 import { useEffect, useMemo, useState } from 'react';
@@ -60,6 +66,10 @@ const RULE_KEY_LABEL: Record<string, string> = {
 };
 
 const LOOKBACK_DAYS = 30;
+
+// No code evaluates the saved rules yet (see header). Flip this only in the PR
+// that ships the evaluator which writes hr_automation_rule_fires.
+const RULES_ARE_EVALUATED = false;
 
 // ---------------------------------------------------------------------------
 // Page
@@ -168,6 +178,7 @@ function HRAutomationContent() {
 
   return (
     <div className="mt-6 space-y-6">
+      {!RULES_ARE_EVALUATED && <RulesNotEvaluatedNotice />}
       <Card>
         <CardHeader>
           <CardTitle>Automation rule firings (last {LOOKBACK_DAYS} days)</CardTitle>
@@ -266,16 +277,45 @@ function formatDeduction(r: RuleFireRow): string {
   return '—';
 }
 
+function RulesNotEvaluatedNotice() {
+  return (
+    <Alert variant="destructive">
+      <AlertTriangle className="h-4 w-4" />
+      <AlertTitle>These rules are not being applied yet</AlertTitle>
+      <AlertDescription className="space-y-2">
+        <p>
+          The rules saved at{' '}
+          <Link href="/hr/admin/automation-rules" className="underline underline-offset-2">
+            /hr/admin/automation-rules
+          </Link>{' '}
+          are stored, but no part of MyJKKN checks attendance against them
+          today. No time or pay has been deducted because of them, and nothing
+          records a firing.
+        </p>
+        <p>
+          So an empty list below does not mean nobody came in late or left
+          early. It means the rules are not switched into attendance yet.
+        </p>
+      </AlertDescription>
+    </Alert>
+  );
+}
+
 function EmptyState({ totalRows }: { totalRows: number }) {
   if (totalRows === 0) {
     return (
       <Alert>
         <Inbox className="h-4 w-4" />
-        <AlertTitle>No automation rules have fired yet</AlertTitle>
+        <AlertTitle>
+          {RULES_ARE_EVALUATED
+            ? 'No automation rules have fired yet'
+            : 'No firings recorded, because the rules are not applied yet'}
+        </AlertTitle>
         <AlertDescription className="space-y-2">
           <p>
-            The HR attendance writer hasn&apos;t recorded any rule firings in
-            the last {LOOKBACK_DAYS} days.
+            {RULES_ARE_EVALUATED
+              ? `The HR attendance writer hasn't recorded any rule firings in the last ${LOOKBACK_DAYS} days.`
+              : 'Nothing evaluates the saved rules against attendance, so this list stays empty whatever happens at work.'}
           </p>
           <p className="text-xs">
             Director can configure rules at{' '}
