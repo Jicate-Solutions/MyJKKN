@@ -12,12 +12,20 @@
  *     not a person's word).
  */
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
+
+// The undo (3 Oct 2026) renders MarkOutcomeButtons, a client component whose
+// server action pulls in the whole scheduling import chain. None of that
+// participates in WHETHER the buttons show, which is all these tests ask.
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock('@/app/(routes)/meetings/[uid]/actions', () => ({ markMeetingOutcome: vi.fn() }));
 
 import {
   OutcomeRecordedLine,
   outcomeRecordedText,
+  canCorrectNotesClose,
 } from '@/app/(routes)/meetings/[uid]/_components/outcome-recorded-line';
 import { PersonHistorySection } from '@/app/(routes)/meetings/[uid]/_components/person-history-section';
 import { buildHistory } from '@/lib/services/meetings/meeting-person-history-service';
@@ -82,5 +90,71 @@ describe('the earlier-meetings badge', () => {
     render(<PersonHistorySection history={history} />);
     expect(screen.getByText('Closed automatically — notes linked')).toBeTruthy();
     expect(screen.queryByText('Happened')).toBeNull();
+  });
+});
+
+describe('the undo on a notes-closed meeting (3 Oct 2026)', () => {
+  const LEAD_IN = 'Wrong? You can still record what happened.';
+
+  function buttons() {
+    return {
+      happened: screen.queryByRole('button', { name: /Mark happened/ }),
+      noShow: screen.queryByRole('button', { name: /Mark no-show/ }),
+    };
+  }
+
+  it('offers the host Mark happened / Mark no-show under the auto-closed line', () => {
+    render(
+      <OutcomeRecordedLine markedBy="notes" markedByName={null} status="completed" uid="bk-1" canAct />,
+    );
+    // The line still says auto-closed until a person acts.
+    expect(screen.getByText(NOTES_LINE)).toBeTruthy();
+    expect(screen.getByText(LEAD_IN)).toBeTruthy();
+    expect(buttons().happened).toBeTruthy();
+    expect(buttons().noShow).toBeTruthy();
+    // Design-system token, so it reads in light and dark.
+    expect(screen.getByText(LEAD_IN).className).toContain('text-muted-foreground');
+  });
+
+  it('shows nothing to correct for someone who is neither the host nor a super admin', () => {
+    render(
+      <OutcomeRecordedLine
+        markedBy="notes"
+        markedByName={null}
+        status="completed"
+        uid="bk-1"
+        canAct={false}
+      />,
+    );
+    expect(screen.getByText(NOTES_LINE)).toBeTruthy();
+    expect(screen.queryByText(LEAD_IN)).toBeNull();
+    expect(buttons().happened).toBeNull();
+    expect(buttons().noShow).toBeNull();
+  });
+
+  it('offers no undo once a person has closed it, or for the retired sweep', () => {
+    for (const markedBy of ['host', 'admin', 'system']) {
+      cleanup();
+      render(
+        <OutcomeRecordedLine markedBy={markedBy} markedByName="Ravi K" status="completed" uid="bk-1" canAct />,
+      );
+      expect(screen.queryByText(LEAD_IN)).toBeNull();
+      expect(buttons().happened).toBeNull();
+    }
+  });
+
+  it('offers no undo on a notes-stamped row that is no longer completed', () => {
+    render(<OutcomeRecordedLine markedBy="notes" markedByName={null} status="no_show" uid="bk-1" canAct />);
+    expect(screen.queryByText(LEAD_IN)).toBeNull();
+    expect(buttons().noShow).toBeNull();
+  });
+
+  it('canCorrectNotesClose accepts exactly a completed, notes-stamped row for a host or admin', () => {
+    expect(canCorrectNotesClose('completed', 'notes', true)).toBe(true);
+    expect(canCorrectNotesClose('completed', 'notes', false)).toBe(false);
+    expect(canCorrectNotesClose('completed', 'system', true)).toBe(false);
+    expect(canCorrectNotesClose('completed', 'host', true)).toBe(false);
+    expect(canCorrectNotesClose('completed', null, true)).toBe(false);
+    expect(canCorrectNotesClose('cancelled', 'notes', true)).toBe(false);
   });
 });

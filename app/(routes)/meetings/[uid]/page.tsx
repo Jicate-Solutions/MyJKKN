@@ -353,14 +353,19 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
     booking.status === 'confirmed' &&
     new Date(booking.start_time).getTime() < Date.now();
   const isHost = !!user && user.id === booking.host_profile_id;
+  // A meeting the daily sweep closed because its notes were linked can still be
+  // corrected by a person (3 Oct 2026) — fn_meeting_mark_outcome accepts it.
+  const isNotesClosed =
+    booking.status === 'completed' && booking.outcome_marked_by === 'notes';
   // Only ask the database about super-admin when the answer could change
   // anything: a host already qualifies, and nobody qualifies on a booking that
-  // is not both open and started.
+  // is neither open-and-started nor notes-closed.
   const { data: isSuperAdmin } =
-    isOpenAndStarted && !!user && !isHost
+    (isOpenAndStarted || isNotesClosed) && !!user && !isHost
       ? await supabase.rpc('is_super_admin')
       : { data: false };
-  const canMark = isOpenAndStarted && (isHost || !!isSuperAdmin);
+  const canActOnOutcome = isHost || !!isSuperAdmin;
+  const canMark = isOpenAndStarted && canActOnOutcome;
 
   // Mode switch (2026-08-19, widened 2026-08-21). Three independent questions:
   //   • canSwitchToOnline — may the host turn this booking into a Google Meet?
@@ -500,6 +505,9 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
             <OutcomeRecordedLine
               markedBy={booking.outcome_marked_by as string | null}
               markedByName={markedByName}
+              status={booking.status as string}
+              uid={booking.uid}
+              canAct={canActOnOutcome}
             />
           </CardContent>
         </Card>

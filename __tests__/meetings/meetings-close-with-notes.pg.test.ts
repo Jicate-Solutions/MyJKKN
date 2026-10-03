@@ -28,6 +28,18 @@
  * (with the migration's own guard off) fails "authenticated cannot execute it"
  * because the prelude mirrors production's default grant to authenticated.
  *
+ * ROUND 3 (3 Oct 2026) — the host undo. The same migration now replaces
+ * fn_meeting_mark_outcome so the host (or a super admin) can correct a
+ * notes-closed meeting: 'no_show' (the undo) or 'completed' (a person confirms
+ * it), re-stamped with the real person. The last describe proves that, and that
+ * every other closed row (system, host, admin, cancelled, no-show, legacy) and
+ * every other person is still refused, and that a second call is refused once a
+ * person has answered. It runs on its own fixture rows, inserted after the sweep
+ * story above, so "closes exactly 2" is unchanged. With the round-3 section of
+ * the migration removed, the four "may correct" tests fail (not_markable) and
+ * the refusal tests pass vacuously — they earn their keep against a TOO-WIDE
+ * function, which the PR's mutation runs exercise one rule at a time.
+ *
  * REQUIRES a local PostgreSQL 16 and refuses to skip silently without one
  * (see "THE POSTGRES SERVICE" in .github/workflows/test-suite.yml):
  *   brew services start postgresql@16
@@ -54,6 +66,10 @@ const PGUSER =
 const DBNAME = `close_with_notes_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
 
 const HOST = '00000000-0000-4000-8000-0000000000a1';
+/** Signed in, not the host, not a super admin. */
+const OTHER = '00000000-0000-4000-8000-0000000000b2';
+/** A super admin who does not host the booking. */
+const ADMIN = '00000000-0000-4000-8000-0000000000c3';
 
 // Roles are cluster-wide, so every CREATE ROLE is guarded.
 const PRELUDE = `
@@ -72,10 +88,12 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO authenti
 CREATE SCHEMA IF NOT EXISTS auth;
 CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
   SELECT nullif(current_setting('test.uid', true), '')::uuid $$;
-CREATE FUNCTION public.is_super_admin() RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
+-- Off unless a test turns it on for one transaction (test.super_admin = 'on').
+CREATE FUNCTION public.is_super_admin() RETURNS boolean LANGUAGE sql STABLE AS $$
+  SELECT coalesce(current_setting('test.super_admin', true), '') = 'on' $$;
 
 CREATE TABLE public.profiles (id uuid PRIMARY KEY);
-INSERT INTO public.profiles VALUES ('${HOST}');
+INSERT INTO public.profiles VALUES ('${HOST}'), ('${OTHER}'), ('${ADMIN}');
 
 -- The columns the three migrations and the sweep touch, with production's
 -- status CHECK and range CHECK.
@@ -337,5 +355,121 @@ describe('mb_outcome_marked_by_chk after this migration', () => {
     expect(await tryStamp('check-kinds', 'host', HOST)).toBeNull();
     expect(await tryStamp('check-kinds', 'admin', HOST)).toBeNull();
     expect(await tryStamp('check-kinds', 'host', null)).toMatch(/mb_outcome_marked_by_person_chk/);
+  });
+});
+
+describe('fn_meeting_mark_outcome — a person may correct a notes-closed meeting (round 3)', () => {
+  type Answer = { success: boolean; error_code?: string; status?: string; marked_by?: string };
+
+  /** Call the RPC the way the page does: as a signed-in person (authenticated). */
+  async function markAs(actor: string, uid: string, outcome: string, superAdmin = false): Promise<Answer> {
+    await client.query('BEGIN');
+    try {
+      await client.query(`SELECT set_config('test.uid', $1, true), set_config('test.super_admin', $2, true)`, [
+        actor,
+        superAdmin ? 'on' : '',
+      ]);
+      await client.query('SET LOCAL ROLE authenticated');
+      const r = await client.query(`SELECT public.fn_meeting_mark_outcome($1, $2) AS r`, [uid, outcome]);
+      await client.query('COMMIT');
+      return r.rows[0].r as Answer;
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    }
+  }
+
+  const notesClosed = { endedDaysAgo: 8, status: 'completed', markedBy: 'notes', notes: 1 };
+
+  beforeAll(async () => {
+    await booking('nc-undo', notesClosed);
+    await booking('nc-confirm', notesClosed);
+    await booking('nc-admin', notesClosed);
+    await booking('nc-stranger', notesClosed);
+    await booking('r-system', { endedDaysAgo: 40, status: 'completed', markedBy: 'system', notes: 1 });
+    await booking('r-host', { endedDaysAgo: 8, status: 'completed', markedBy: 'host', markedByProfile: HOST, notes: 1 });
+    await booking('r-admin', { endedDaysAgo: 8, status: 'completed', markedBy: 'admin', markedByProfile: ADMIN, notes: 1 });
+    await booking('r-cancelled', { endedDaysAgo: 8, status: 'cancelled', notes: 1 });
+    // Cannot arise from the app today, but the CHECK allows it — only the
+    // status = 'completed' half of the widening keeps it out.
+    await booking('r-cancelled-notes', { endedDaysAgo: 8, status: 'cancelled', markedBy: 'notes', notes: 1 });
+    await booking('r-no-show', { endedDaysAgo: 8, status: 'no_show', markedBy: 'host', markedByProfile: HOST });
+    await booking('r-legacy', { endedDaysAgo: 40, status: 'completed', notes: 1 });
+    await booking('open-started', { endedDaysAgo: 2 });
+  });
+
+  it('the host can undo it: no_show, stamped with the host in place of notes', async () => {
+    const before = await row('nc-undo');
+    const r = await markAs(HOST, 'nc-undo', 'no_show');
+    expect(r).toMatchObject({ success: true, status: 'no_show', marked_by: 'host' });
+    const b = await row('nc-undo');
+    expect(b.status).toBe('no_show');
+    expect(b.outcome_marked_by).toBe('host');
+    expect(b.outcome_marked_by_profile_id).toBe(HOST);
+    expect(b.outcome_marked_at!.getTime()).toBeGreaterThan(before.outcome_marked_at!.getTime());
+  });
+
+  it("the host can confirm it happened: still completed, but 'notes' is replaced by the person", async () => {
+    const r = await markAs(HOST, 'nc-confirm', 'completed');
+    expect(r).toMatchObject({ success: true, status: 'completed', marked_by: 'host' });
+    const b = await row('nc-confirm');
+    expect(b.status).toBe('completed');
+    expect(b.outcome_marked_by).toBe('host');
+    expect(b.outcome_marked_by_profile_id).toBe(HOST);
+  });
+
+  it('a super admin can correct it for the host, and is stamped as themselves', async () => {
+    const r = await markAs(ADMIN, 'nc-admin', 'no_show', true);
+    expect(r).toMatchObject({ success: true, status: 'no_show', marked_by: 'admin' });
+    const b = await row('nc-admin');
+    expect(b.outcome_marked_by).toBe('admin');
+    expect(b.outcome_marked_by_profile_id).toBe(ADMIN);
+  });
+
+  it('someone who is neither the host nor a super admin is refused, and the row is untouched', async () => {
+    const r = await markAs(OTHER, 'nc-stranger', 'no_show');
+    expect(r).toMatchObject({ success: false, error_code: 'not_found' });
+    const b = await row('nc-stranger');
+    expect(b.status).toBe('completed');
+    expect(b.outcome_marked_by).toBe('notes');
+    expect(b.outcome_marked_by_profile_id).toBeNull();
+  });
+
+  it('a second call on the now person-marked row is refused', async () => {
+    expect(await markAs(HOST, 'nc-undo', 'completed')).toMatchObject({ success: false, error_code: 'not_markable' });
+    expect(await markAs(HOST, 'nc-confirm', 'no_show')).toMatchObject({ success: false, error_code: 'not_markable' });
+    expect((await row('nc-undo')).status).toBe('no_show');
+    expect((await row('nc-confirm')).status).toBe('completed');
+  });
+
+  it('still refuses every other closed row: system, host, admin, cancelled, no-show, legacy', async () => {
+    for (const uid of ['r-system', 'r-host', 'r-admin', 'r-cancelled', 'r-cancelled-notes', 'r-no-show', 'r-legacy']) {
+      const before = await row(uid);
+      for (const outcome of ['completed', 'no_show']) {
+        const r = await markAs(HOST, uid, outcome);
+        expect({ uid, outcome, ...r }).toMatchObject({ uid, outcome, success: false, error_code: 'not_markable' });
+        // and as a super admin
+        const a = await markAs(ADMIN, uid, outcome, true);
+        expect({ uid, outcome, ...a }).toMatchObject({ uid, outcome, success: false, error_code: 'not_markable' });
+      }
+      expect(await row(uid)).toEqual(before);
+    }
+  });
+
+  it('an open, started meeting is still markable exactly as before', async () => {
+    const r = await markAs(HOST, 'open-started', 'completed');
+    expect(r).toMatchObject({ success: true, status: 'completed', marked_by: 'host' });
+  });
+
+  it('anon still cannot execute it', async () => {
+    await client.query('BEGIN');
+    try {
+      await client.query('SET LOCAL ROLE anon');
+      await expect(client.query(`SELECT public.fn_meeting_mark_outcome('nc-stranger', 'no_show')`)).rejects.toThrow(
+        /permission denied/i,
+      );
+    } finally {
+      await client.query('ROLLBACK');
+    }
   });
 });

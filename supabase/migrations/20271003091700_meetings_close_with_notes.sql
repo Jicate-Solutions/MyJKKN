@@ -70,6 +70,37 @@
 --                                            it is not changed here.
 -- No trigger sends an email, a WhatsApp or a bell notification on this move.
 --
+-- ROUND 3 (3 Oct 2026) — A HOST UNDO
+-- ----------------------------------
+-- A meeting this sweep closes because a note was linked BY MISTAKE could not
+-- be corrected: fn_meeting_mark_outcome refused every row that was not
+-- 'confirmed'. Section 3 below replaces that function with ONE widening: it
+-- also accepts a row that is 'completed' AND stamped outcome_marked_by =
+-- 'notes'. From such a row the host (or a super admin) may record 'completed'
+-- (a person now says it happened) or 'no_show' (the undo); either way the row
+-- is re-stamped with the real person, replacing 'notes'. Everything else is
+-- refused exactly as before: cancelled, no_show, person-marked ('host' /
+-- 'admin') and 'system'-closed rows. The body is otherwise the 20260926010000
+-- body, which matched production's live definition byte-for-byte when read on
+-- 3 Oct 2026 (pg_get_functiondef, SELECT only).
+--
+-- Triggers on the two new moves (read from production pg_trigger 3 Oct 2026):
+--   completed('notes') -> completed(person): status does not change, so
+--     trg_enqueue_meeting_workflow_runs returns early; webhooks and the HR
+--     interview follower have no branch for it; tg_mb_updated sets updated_at.
+--   completed('notes') -> no_show: webhooks skip (OLD is not confirmed); the
+--     HR interview follower acts only on cancelled / a moved confirmed slot;
+--     trg_enqueue_meeting_workflow_runs treats it as 'on_booked' (the same
+--     pre-existing quirk the host's own "Mark no-show" on a confirmed row has)
+--     and would insert pending runs for the host's active workflows, ON
+--     CONFLICT DO NOTHING. Production has 0 meeting_workflows rows, 0 runs and
+--     0 meeting_webhooks rows, so nothing is enqueued and nobody is messaged.
+-- Notes, action items and every other row linked to the booking are not
+-- touched: this is an UPDATE of meeting_bookings columns, never a DELETE.
+--
+-- THIS FILE MUST NEVER BE EDITED AFTER IT IS APPLIED. Any later change is a
+-- new migration.
+--
 -- No BEGIN/COMMIT in this file on purpose, so a reviewer's BEGIN .. ROLLBACK
 -- rehearsal actually rolls back.
 -- =====================================================================
@@ -155,7 +186,117 @@ GRANT  EXECUTE ON FUNCTION public.fn_meetings_close_with_notes(integer) TO servi
 COMMENT ON FUNCTION public.fn_meetings_close_with_notes(integer) IS
   'Daily sweep (service role only): closes a confirmed, unmarked booking that ended more than p_older_than_days ago (default 7) as completed, stamped outcome_marked_by = notes, ONLY when a meeting_notes row is linked to it. Returns the number closed. Decision: confirmed by the Director in the myjkkn-agent chat on 2 Oct 2026, choosing "Close those with notes" over "Keep the 21 Aug rule" — a partial reversal of the 21 Aug 2026 retirement; meetings WITHOUT notes still wait for a person. fn_meetings_auto_close_unmarked must stay uncalled.';
 
--- ── 3. guard ─────────────────────────────────────────────────────────────────
+-- ── 3. fn_meeting_mark_outcome — a person may correct a notes-closed meeting ──
+-- Replaces the 20260926010000 version. The ONLY behavioural change is the set
+-- of rows it will act on, widened in exactly two places that must agree:
+--   (a) the refusal check, and
+--   (b) the UPDATE's re-assert under the row lock.
+-- If only (a) were widened, every notes-closed correction would fail as "This
+-- booking changed while you were marking it."
+--
+-- Markable after this file:
+--   status = 'confirmed'                                   (unchanged)
+--   status = 'completed' AND outcome_marked_by = 'notes'   (new — the undo)
+-- Still refused: cancelled, no_show, completed by 'host' / 'admin' / 'system',
+-- and a legacy completed row with no stamp at all. After a person acts the row
+-- is stamped 'host' or 'admin', so a second call is refused too.
+--
+-- Authorization, error codes, the start_time rule and the grants are unchanged.
+--
+-- error_codes: invalid_outcome | not_found | not_started | not_markable
+CREATE OR REPLACE FUNCTION public.fn_meeting_mark_outcome(
+  p_uid     text,
+  p_outcome text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_booking record;
+  v_actor   uuid := auth.uid();
+  v_kind    text;
+BEGIN
+  IF p_outcome NOT IN ('completed', 'no_show') THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'invalid_outcome');
+  END IF;
+
+  IF v_actor IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'not_found');
+  END IF;
+
+  SELECT b.id, b.status, b.start_time, b.host_profile_id, b.outcome_marked_by
+    INTO v_booking
+    FROM public.meeting_bookings b
+   WHERE b.uid = p_uid;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'not_found');
+  END IF;
+
+  -- The host records their own meeting; a super admin may record it for them,
+  -- and is stamped as themselves so the page can name them.
+  IF v_booking.host_profile_id = v_actor THEN
+    v_kind := 'host';
+  ELSIF public.is_super_admin() THEN
+    v_kind := 'admin';
+  ELSE
+    RETURN jsonb_build_object('success', false, 'error_code', 'not_found');
+  END IF;
+
+  -- (a) An open meeting, or one the notes sweep closed that no person has
+  -- answered for yet. IS NOT TRUE, not NOT (...): a NULL outcome_marked_by on a
+  -- completed row makes the inner test NULL, and NULL must refuse.
+  IF (v_booking.status = 'confirmed'
+      OR (v_booking.status = 'completed' AND v_booking.outcome_marked_by = 'notes'))
+     IS NOT TRUE THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'not_markable',
+      'message', format('This booking is already %s.', v_booking.status));
+  END IF;
+
+  -- start_time, not end_time: a no-show is knowable the moment the meeting was
+  -- due to begin, and making the host wait out the full slot to say so is the
+  -- friction that leaves the record empty.
+  IF v_booking.start_time > now() THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'not_started');
+  END IF;
+
+  UPDATE public.meeting_bookings
+     SET status                       = p_outcome,
+         outcome_marked_at            = now(),
+         outcome_marked_by            = v_kind,
+         outcome_marked_by_profile_id = v_actor,
+         updated_at                   = now()
+   WHERE id = v_booking.id
+     -- (b) re-assert under the row lock: a concurrent cancel, or a person who
+     -- answered first, must win rather than be overwritten
+     AND (status = 'confirmed'
+          OR (status = 'completed' AND outcome_marked_by = 'notes'));
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error_code', 'not_markable',
+      'message', 'This booking changed while you were marking it.');
+  END IF;
+
+  RETURN jsonb_build_object(
+    'success',   true,
+    'status',    p_outcome,
+    'marked_by', v_kind
+  );
+END $fn$;
+
+-- Same grants as the live function (ACL read 3 Oct 2026: postgres,
+-- authenticated, service_role — no anon, no PUBLIC). CREATE OR REPLACE keeps
+-- the ACL; these re-assert it.
+REVOKE EXECUTE ON FUNCTION public.fn_meeting_mark_outcome(text, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_meeting_mark_outcome(text, text) TO authenticated;
+
+COMMENT ON FUNCTION public.fn_meeting_mark_outcome(text, text) IS
+  'Records whether a started booking happened (completed) or did not (no_show). Callable by the booking''s own host, or by a super admin acting on their behalf; stamps outcome_marked_by_profile_id = auth.uid() either way so the page can name the real person. Acts on a confirmed booking, or (since 3 Oct 2026) on one the notes sweep closed (completed, outcome_marked_by = notes) so a person can correct it; every other row is refused. Returns not_found for "missing", "not yours" and "signed out" alike.';
+
+-- ── 4. guard ─────────────────────────────────────────────────────────────────
 -- RAISE EXCEPTION, never RAISE NOTICE: a NOTICE-only miss path reads as success
 -- in Studio while having done nothing.
 DO $guard$
@@ -181,6 +322,16 @@ BEGIN
        AND conname  = 'mb_outcome_marked_by_person_chk'
   ) THEN
     RAISE EXCEPTION 'mb_outcome_marked_by_person_chk is missing';
+  END IF;
+
+  IF to_regprocedure('public.fn_meeting_mark_outcome(text, text)') IS NULL THEN
+    RAISE EXCEPTION 'fn_meeting_mark_outcome(text, text) is missing';
+  END IF;
+  IF has_function_privilege('anon', 'public.fn_meeting_mark_outcome(text, text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'fn_meeting_mark_outcome is executable by anon';
+  END IF;
+  IF NOT has_function_privilege('authenticated', 'public.fn_meeting_mark_outcome(text, text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'fn_meeting_mark_outcome is not executable by authenticated';
   END IF;
 
   -- Assert the EFFECTIVE privilege, not the ACL text: anon is a member of
