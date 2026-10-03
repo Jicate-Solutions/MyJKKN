@@ -871,13 +871,31 @@ export class LearnerProfileService {
       }
     }
 
-    // Fetch institution entity_type to determine if school defaults should be enforced
-    const institutionId = dto.institution_id || (await supabase
+    // The saved institution, read once: it scopes the school-defaults lookup
+    // below when the DTO omits institution_id, and tells us whether this
+    // update MOVES the learner to another institution.
+    const { data: currentRow } = await supabase
       .from('learners_profiles')
       .select('institution_id')
       .eq('id', id)
-      .single()
-      .then(r => r.data?.institution_id));
+      .maybeSingle() as { data: { institution_id?: string | null } | null; error: any };
+    const currentInstitutionId = currentRow?.institution_id ?? null;
+
+    // application_id ("JKKN ID") is minted from the institution's counselling
+    // code (JKKN-CAS-12) by trigger set_learner_application_id, which fires on
+    // UPDATE too but only re-mints an EMPTY id. The edit form lets an officer
+    // change the institution, so the learner kept the old college's prefix —
+    // a B.Sc CS learner at CAS showing JKKN-JS-3, a B.Pharm learner showing
+    // JKKN-DCH-740 (BUG-004341, BUG-004285, BUG-004023). Clearing
+    // the id on an institution change lets the trigger re-mint it under the
+    // new code — the same thing transfer_learner_enquiry does for a transfer.
+    const institutionChanged =
+      !!dto.institution_id &&
+      !!currentInstitutionId &&
+      dto.institution_id !== currentInstitutionId;
+
+    // Fetch institution entity_type to determine if school defaults should be enforced
+    const institutionId = dto.institution_id || currentInstitutionId;
 
     let institution = null;
     if (institutionId) {
@@ -920,6 +938,7 @@ export class LearnerProfileService {
     const { data: updatedData, error: updateError } = await updateQuery
       .update({
         ...enforcedDto,
+        ...(institutionChanged ? { application_id: null } : {}),
         updated_at: new Date().toISOString(),
         updated_by: currentUserId,
       })
