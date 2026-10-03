@@ -83,17 +83,27 @@ export default function ReferralReviewWorklistPage() {
   const [releasingAtt, setReleasingAtt] = useState<ReferralReviewRow | null>(null);
   const [note, setNote] = useState('');
 
+  // Only the named owner may release a walk-in credit (Director ruling, 2026-09-27).
+  // Everyone else sees the list and who to ask.
+  const { data: owner } = useQuery({
+    queryKey: ['walkin-release-owner'],
+    queryFn: () => ReferralReviewService.getWalkinReleaseOwner(),
+  });
+
   const release = useMutation({
     mutationFn: ({ id, text }: { id: string; text: string }) =>
       ReferralReviewService.clearWalkinCredit(id, text),
     onSuccess: (res) => {
       if (!res.ok) {
         // Write-once: someone else released this while the dialog was open.
-        toast.error(
-          res.reason === 'already_cleared'
-            ? 'Already released by someone else — the list has been refreshed.'
-            : 'That credit could not be found. It may have been removed.',
-        );
+        const why: Record<string, string> = {
+          already_cleared: 'Already released — the list has been refreshed.',
+          not_owner: 'Only the named release owner can release walk-in credits.',
+          note_required: 'Write what you checked before releasing.',
+          learner_left: 'This learner has left, so the agency earns nothing for them.',
+          learner_inactive: 'This learner is marked inactive. Release once they are active again.',
+        };
+        toast.error(why[res.reason ?? ''] ?? 'That credit could not be found. It may have been removed.');
       } else {
         toast.success('Released. It can now enter a payment run.');
       }
@@ -209,9 +219,13 @@ export default function ReferralReviewWorklistPage() {
                 <CardDescription>
                   {hold.held > 0 ? (
                     <>
-                      A held credit is skipped by the commission generator, so it cannot be paid
-                      even after a rate is set. Release each one below once you are satisfied the
-                      agency really sent that learner.
+                      A held credit is not counted on the rate card and is skipped by the
+                      commission generator, so it cannot be paid. {owner?.owner_name
+                        ? <>Only <strong>{owner.owner_name}</strong> can release them.</>
+                        : <>Nobody is named as the release owner yet, so none can be released.</>}{' '}
+                      Release each one once you are satisfied the agency really sent that
+                      learner: the family confirms it, the agency shows proof, or your own
+                      judgement, with a note every time.
                     </>
                   ) : (
                     <>
@@ -309,7 +323,7 @@ export default function ReferralReviewWorklistPage() {
                     isLoading={isLoading}
                     showGap
                     showHold
-                    onRelease={(r) => { setReleasing(r); setNote(''); }}
+                    onRelease={owner?.is_owner ? (r) => { setReleasing(r); setNote(''); } : undefined}
                     empty={`No walk-in enquiries carry an agency credit in ${yearLabel(year)}.`}
                   />
                 </CardContent>
@@ -489,12 +503,12 @@ export default function ReferralReviewWorklistPage() {
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-1">
-                <Label htmlFor="release-note">What did you check? (optional)</Label>
+                <Label htmlFor="release-note">What did you check?</Label>
                 <Textarea
                   id="release-note"
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
-                  placeholder="e.g. Confirmed with the agency on 17 Aug — they introduced the family in June."
+                  placeholder="e.g. Called the parent on 27 Sep — the agency brought them to campus in June."
                   rows={3}
                 />
               </div>
@@ -512,7 +526,7 @@ export default function ReferralReviewWorklistPage() {
                       release.mutate({ id: releasing.attribution_id, text: note });
                     }
                   }}
-                  disabled={release.isPending || !releasing?.attribution_id}
+                  disabled={release.isPending || !releasing?.attribution_id || note.trim().length < 5}
                 >
                   {release.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
                   Yes, release it

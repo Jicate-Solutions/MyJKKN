@@ -44,6 +44,7 @@ import { Loader2, Save, Send, ChevronLeft, ChevronRight, X, CheckCircle2, AlertC
 // Import form sections
 import { BasicDetailsSection } from './form-sections/basic-details';
 import { AcademicInformationSection } from './form-sections/academic-information';
+import { cleanPreviousDegree, missingPreviousDegreeFields } from '@/lib/admission/previous-degree';
 import { CourseSelectionSection } from './form-sections/course-selection';
 import { ContactDetailsSection } from './form-sections/contact-details';
 import { AccommodationPreferencesSection } from './form-sections/accommodation-preferences';
@@ -171,6 +172,19 @@ export const enquiryFormSchema = z.object({
       history: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
       geography: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
     }).optional(),
+  }).nullable().optional(),
+  // 2026-09-30: postgraduate applicants' qualifying degree (own column, no
+  // longer squeezed into twelfth_marks). Required on submit for PG programmes —
+  // see missingPreviousDegreeFields.
+  previous_degree: z.object({
+    degree_name: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
+    university: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
+    year_of_passing: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
+    score_type: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
+    score: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
+    entrance_exam: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
+    entrance_score: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
+    entrance_rank: z.union([z.coerce.string(), z.null(), z.undefined()]).optional(),
   }).nullable().optional(),
   neet_roll_number: z.string().nullable().optional(),
   neet_score: z.string().nullable().optional(),
@@ -573,6 +587,7 @@ const fieldToTabMap: Record<string, string> = {
   board_of_study: 'academic-information',
   tenth_marks: 'academic-information',
   twelfth_marks: 'academic-information',
+  previous_degree: 'academic-information',
   neet_roll_number: 'academic-information',
   neet_score: 'academic-information',
   medical_cutoff_marks: 'academic-information',
@@ -634,6 +649,12 @@ const fieldToTabMap: Record<string, string> = {
 // SAME specific field list in either path. Previously onInvalid only
 // reported a count and onSubmit duplicated this map inline.
 const FIELD_LABELS: Record<string, string> = {
+  // Postgraduate previous degree (dotted keys — groupFieldsByTab looks these up first)
+  'previous_degree.degree_name':     'Previous Degree',
+  'previous_degree.university':      'University',
+  'previous_degree.year_of_passing': 'Year of Passing',
+  'previous_degree.score':           'Degree Marks (% or CGPA)',
+  'last_school':                     'College Name & Place',
   first_name:                 'First Name',
   last_name:                  'Last Name',
   date_of_birth:              'Date of Birth',
@@ -691,7 +712,7 @@ function groupFieldsByTab(fields: string[]): Record<string, string[]> {
     const rootKey = field.split('.')[0];
     const tabId = fieldToTabMap[rootKey] ?? 'unknown';
     const tabLabel = TAB_LABELS[tabId] ?? 'Other';
-    const label = FIELD_LABELS[rootKey] ?? rootKey;
+    const label = FIELD_LABELS[field] ?? FIELD_LABELS[rootKey] ?? rootKey;
     if (!byTab[tabLabel]) byTab[tabLabel] = [];
     if (!byTab[tabLabel].includes(`• ${label}`)) {
       byTab[tabLabel].push(`• ${label}`);
@@ -921,6 +942,18 @@ export function EnquiryForm({
             obtained_marks: learner.tenth_marks?.obtained_marks ? String(learner.tenth_marks.obtained_marks) : '',
             percentage: learner.tenth_marks?.percentage ? String(learner.tenth_marks.percentage) : '',
           },
+          // Old PG records typed the degree into twelfth_marks.course_name; the
+          // 20270611090000 backfill copied those 11 across, so read the column.
+          previous_degree: {
+            degree_name: learner.previous_degree?.degree_name ?? '',
+            university: learner.previous_degree?.university ?? '',
+            year_of_passing: learner.previous_degree?.year_of_passing ?? '',
+            score_type: learner.previous_degree?.score_type ?? 'percentage',
+            score: learner.previous_degree?.score ?? '',
+            entrance_exam: learner.previous_degree?.entrance_exam ?? '',
+            entrance_score: learner.previous_degree?.entrance_score ?? '',
+            entrance_rank: learner.previous_degree?.entrance_rank ?? '',
+          },
           twelfth_marks: {
             group: normalizeGroupValue(learner.twelfth_marks?.group),
             max_marks: learner.twelfth_marks?.max_marks ? String(learner.twelfth_marks.max_marks) : '',
@@ -1084,6 +1117,16 @@ export function EnquiryForm({
             max_marks: '',
             obtained_marks: '',
             percentage: '',
+          },
+          previous_degree: {
+            degree_name: '',
+            university: '',
+            year_of_passing: '',
+            score_type: 'percentage',
+            score: '',
+            entrance_exam: '',
+            entrance_score: '',
+            entrance_rank: '',
           },
           twelfth_marks: {
             group: '',
@@ -1332,6 +1375,7 @@ export function EnquiryForm({
         percentage: '',
         subjects: {},
       },
+      previous_degree: cleanPreviousDegree(values.previous_degree),
       medical_cutoff_marks: values.medical_cutoff_marks || undefined,
       engineering_cutoff_marks: values.engineering_cutoff_marks || undefined,
       neet_roll_number: values.neet_roll_number || undefined,
@@ -1959,6 +2003,36 @@ export function EnquiryForm({
         }
       );
       return;
+    }
+
+    // 2026-09-30 (Director ruling): a postgraduate applicant cannot be saved
+    // without their previous degree — old records included. Only enforced where
+    // the Academic Information tab is reachable, so a surface that hides it is
+    // never handed a block it cannot clear. Draft saves do not come through here.
+    const showsAcademicTab = !visibleTabs || visibleTabs.includes('academic-information');
+    if (selectedDegreeType === 'pg' && showsAcademicTab) {
+      const missing = missingPreviousDegreeFields(values);
+      if (missing.length > 0) {
+        missing.forEach((f) =>
+          form.setError(f as any, { type: 'required', message: 'Required for postgraduate applicants' }),
+        );
+        setActiveTab('academic-information');
+        setTimeout(() => {
+          try {
+            form.setFocus(missing[0] as any);
+          } catch (e) {
+            console.warn('[enquiry-form] could not focus invalid field', missing[0], e);
+          }
+        }, 50);
+        const pgErrors = Object.entries(groupFieldsByTab(missing))
+          .map(([tab, fields]) => `${tab}:\n${fields.join('\n')}`)
+          .join('\n\n');
+        toast.error(
+          `A postgraduate applicant needs their previous degree before saving:\n\n${pgErrors}`,
+          { duration: 8000, style: { maxWidth: '500px', whiteSpace: 'pre-line' } },
+        );
+        return;
+      }
     }
 
     // ======================================================================

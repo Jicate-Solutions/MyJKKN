@@ -11,7 +11,14 @@
 // UTC, '' → undefined, scope → visibility, the venue CHECK fallback, and the
 // empty-vs-absent distinction on config.enabled_tools.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// event-create-form imports the people fields, which read the signed-in user
+// and their permissions. Those hooks build a Supabase browser client when the
+// module loads; stub them so these pure builders still need no env.
+vi.mock('@/hooks/use-auth', () => ({ useAuth: () => ({ user: null, profile: null }) }));
+vi.mock('@/hooks/use-permissions', () => ({ usePermissions: () => ({ isSuperAdmin: false }) }));
+
 import {
   applyPresetToForm,
   buildCategoryDtos,

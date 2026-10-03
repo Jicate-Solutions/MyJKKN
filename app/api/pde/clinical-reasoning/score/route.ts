@@ -53,6 +53,7 @@ import {
   type PdeQuestion,
   type OsceScore,
 } from '@/lib/services/pde-osce-scoring';
+import { attachAnswersToQuestions } from '@/lib/services/pde-objective-marking';
 import {
   finalizeAiuTrailsForSubmission,
   AIU_SURFACE_PDE_CLINICAL_COACH,
@@ -310,7 +311,7 @@ export async function POST(request: NextRequest) {
   const { data: questionRows, error: qErr } = await svc
     .from('pde_assessment_questions')
     .select(
-      'id, question_text, correct_answer, metadata, order_index, question_type',
+      'id, question_text, correct_answer, metadata, order_index, question_type, options, expected_regions',
     )
     .eq('assessment_id', submission.assessment_id)
     .order('order_index', { ascending: true });
@@ -338,12 +339,39 @@ export async function POST(request: NextRequest) {
       // Drives the derived rubric when the assessment has no authored one.
       osce_domain:
         typeof meta.osce_domain === 'string' ? meta.osce_domain : null,
+      // mcq_warmup / image_tag are marked from objective_score below, not text.
+      question_type: q.question_type ?? null,
     };
   });
 
   // Answers were normalised out of both stored shapes above (readStoredAnswers).
   const answerItems = stored.items;
-  const answers = stored.answers;
+
+  // Attach each envelope to its question BY ID and re-mark mcq_warmup /
+  // image_tag answers against the key — see attachAnswersToQuestions. Their
+  // envelopes have no text, so the free-text path always scored them zero.
+  const keysById = new Map(
+    (questionRows ?? []).map((r) => [
+      r.id as string,
+      {
+        question_type: r.question_type ?? null,
+        correct_answer: r.correct_answer ?? null,
+        options: r.options,
+        expected_regions: r.expected_regions,
+      },
+    ]),
+  );
+  const { answers, positionalFallbacks } = attachAnswersToQuestions(
+    answerItems,
+    stored.answers,
+    questions,
+    keysById,
+  );
+  if (positionalFallbacks > 0) {
+    console.warn(
+      `[pde/clinical-reasoning] submission ${submission.id}: ${positionalFallbacks} answer(s) carried no known question_id; matched by position.`,
+    );
+  }
 
   // ---- Rubric: from assessment.rubric or derived from the questions -------
   // Every production assessment has rubric = NULL, so the derived path is the

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { requireParentUserDataAdmin } from '@/lib/utils/parent-admin-auth';
 import { hashPassword } from '@/lib/auth/parent-password';
+import { revokeParentSessions } from '@/lib/auth/parent-session-state';
 
 export const runtime = 'nodejs';
 
@@ -61,6 +62,18 @@ export async function POST(req: NextRequest) {
       .update({ password_hash, updated_at: nowIso })
       .eq('id', accountId);
     if (upd.error) return NextResponse.json({ error: 'Failed to reset password.' }, { status: 500 });
+  }
+
+  // Parent logins now slide for up to 400 days, so a reset must also sign out
+  // every phone still holding the old login. A separate write, so a database
+  // without the sessions_revoked_at column yet (migration 20270705094100) still
+  // resets the password and keeps the plaintext export above.
+  const revoked = await revokeParentSessions(
+    (patch) => db.from('pp_parent_accounts').update(patch).eq('id', accountId),
+    nowIso
+  );
+  if (revoked === 'error') {
+    console.error('[parent-portal/reset-password] password changed but old logins were not signed out', { accountId });
   }
 
   return NextResponse.json({ ok: true });
