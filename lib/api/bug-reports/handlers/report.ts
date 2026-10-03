@@ -325,19 +325,17 @@ export async function DELETE(
       );
     }
 
-    // Check if user is super admin
-    const { data: profile, error: profileError } = await supabase
+    // Super admins can delete any report. A reporter can delete their own
+    // report only while it is still untouched ('new'), so a wrong or duplicate
+    // submission can be withdrawn without erasing work already in progress.
+    const { data: profile } = await supabase
       .from('profiles')
       .select('role, is_super_admin')
       .eq('id', user.id)
       .single();
 
-    if (profileError || !profile || (!(profile as any).is_super_admin && profile.role !== 'super_admin')) {
-      return NextResponse.json(
-        { error: 'Only super administrators can delete bug reports' },
-        { status: 403 }
-      );
-    }
+    const isSuperAdmin =
+      !!profile && (!!(profile as any).is_super_admin || profile.role === 'super_admin');
 
     // Use admin client for deletion operations
     const adminSupabase = createAdminClient();
@@ -346,7 +344,7 @@ export async function DELETE(
     const { data: report, error: fetchError } = await (
       adminSupabase.from('bug_reports') as any
     )
-      .select('screenshot_url')
+      .select('screenshot_url, reporter_user_id, status')
       .eq('id', reportId)
       .single();
 
@@ -355,6 +353,21 @@ export async function DELETE(
         { error: 'Bug report not found' },
         { status: 404 }
       );
+    }
+
+    if (!isSuperAdmin) {
+      if (report.reporter_user_id !== user.id) {
+        return NextResponse.json(
+          { error: 'Only super administrators can delete bug reports' },
+          { status: 403 }
+        );
+      }
+      if (report.status !== 'new') {
+        return NextResponse.json(
+          { error: 'This bug report is already being handled and can no longer be deleted' },
+          { status: 403 }
+        );
+      }
     }
 
     // If there's a screenshot, delete it from storage

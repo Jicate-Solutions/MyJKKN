@@ -1,7 +1,7 @@
 'use client';
 
 
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import {
   useBugReport,
@@ -28,7 +28,8 @@ import {
   Eye,
   RefreshCw,
   Download,
-  Copy
+  Copy,
+  Trash2
 } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -97,7 +98,9 @@ const BugStatusBadge = ({ status }: { status: BugReportStatus }) => {
 export default function BugReportDetailPage() {
   const params = useParams();
   const reportId = params.id as string;
+  const router = useRouter();
   const supabase = createClientSupabaseClient();
+  const [isDeleting, setIsDeleting] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const { data: bugReport, isLoading, error, refetch } = useBugReport(reportId);
@@ -130,6 +133,28 @@ export default function BugReportDetailPage() {
   const canReopen =
     bugReport?.status === 'resolved' &&
     currentUserId === bugReport?.reporter_user_id;
+
+  // Reporters may withdraw their own report while it is still untouched
+  const canDelete =
+    bugReport?.status === 'new' &&
+    currentUserId === bugReport?.reporter_user_id;
+
+  const handleDelete = async () => {
+    if (!window.confirm('Delete this bug report? This cannot be undone.')) return;
+    setIsDeleting(true);
+    try {
+      const res = await fetch(`/api/bug-reports/${reportId}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || 'Failed to delete bug report');
+      }
+      toast.success('Bug report deleted');
+      router.push('/my-bug-reports');
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to delete bug report');
+      setIsDeleting(false);
+    }
+  };
 
   // Set up real-time subscription for this specific bug report
   useEffect(() => {
@@ -234,6 +259,18 @@ export default function BugReportDetailPage() {
           </div>
           <div className='flex shrink-0 items-center gap-2'>
             <BugStatusBadge status={bugReport.status} />
+            {canDelete && (
+              <Button
+                size='sm'
+                variant='outline'
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className='gap-2'
+              >
+                <Trash2 className='w-4 h-4' />
+                Delete
+              </Button>
+            )}
             {canReopen && (
               <Button
                 size='sm'
