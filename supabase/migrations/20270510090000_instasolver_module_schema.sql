@@ -402,6 +402,17 @@ REVOKE ALL ON FUNCTION
   public.instasolver_can_report(),
   public.instasolver_cao_user_ids()
 FROM PUBLIC, anon;
+-- The same revokes, one function per statement, so the CI definer gate's
+-- text scan sees each one (2026-10-03; no change in effect).
+REVOKE EXECUTE ON FUNCTION public.instasolver_has_role(TEXT) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.instasolver_cao_user_ids() FROM PUBLIC, anon;
+-- ci:allow-secdef-authenticated self-scoped identity helpers: each reads
+-- auth.uid() itself, takes no caller identity, and answers only about the
+-- CALLER (their own role, their own teams, their own institution). They are
+-- what every instasolver_* RLS policy is built on, so every signed-in user's
+-- queries must be able to call them; they reveal nothing about anyone else.
+-- instasolver_cao_user_ids is the exception and is revoked from authenticated
+-- in 20270510090600.
 
 GRANT EXECUTE ON FUNCTION
   public.instasolver_has_role(TEXT),

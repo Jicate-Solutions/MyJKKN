@@ -53,5 +53,8 @@ AS $fn$
   WHERE p.id = (SELECT auth.uid());
 $fn$;
 
+-- ci:allow-secdef-authenticated self-scoped: returns only the CALLER's own
+-- profile row (WHERE p.id = auth.uid()), for the Reporter card on the report
+-- and request forms that every signed-in reporter opens.
 REVOKE ALL ON FUNCTION public.instasolver_my_reporter_profile() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.instasolver_my_reporter_profile() TO authenticated;
