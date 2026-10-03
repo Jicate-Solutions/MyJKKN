@@ -369,6 +369,9 @@ export default function NewQuotationPage() {
       const filledSpecs: Record<string, QuotedSpec> = {};
 
       let keptTyped = 0;
+      // A set asked for as one item ("Computer × 5") comes back as its parts, all
+      // tagged to that item: one of each part per set, so the unit price is their sum.
+      const partsOf: Record<string, string[]> = {};
       for (const line of lines) {
         const id = line?.rfq_item_id;
         const price = typeof line?.unit_price === 'number' ? line.unit_price : NaN;
@@ -383,6 +386,23 @@ export default function NewQuotationPage() {
           keptTyped += 1;
           continue;
         }
+        const part = `${line.item_name || 'Unnamed line'} ₹${price.toLocaleString('en-IN')}`;
+        if (partsOf[id]) {
+          // Always a person's call: the AI may equally have tagged two alternative
+          // offers for one item, which must not be added up.
+          partsOf[id].push(part);
+          numericPrices[id] += price;
+          filledPrices[id] = String(numericPrices[id]);
+          marks[id] = 'uncertain';
+          filledSpecs[id] = {
+            manufacturer: '',
+            quality_grade: '',
+            concentration: '',
+            other_specs: `Set of ${partsOf[id].length} parts: ${partsOf[id].join('; ')}`,
+          };
+          continue;
+        }
+        partsOf[id] = [part];
         filledPrices[id] = String(price);
         numericPrices[id] = price;
         marks[id] = line.uncertain ? 'uncertain' : 'ai';
