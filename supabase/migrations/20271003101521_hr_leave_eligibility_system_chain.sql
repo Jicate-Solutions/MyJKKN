@@ -568,6 +568,13 @@ BEGIN
         USING ERRCODE = '42501';
     END IF;
     IF NEW.granted_directly OR NEW.status IS DISTINCT FROM 'pending' THEN
+      -- A record that resolves to no account cannot be checked for "is this
+      -- person an approver", so it is not granted directly (a super admin
+      -- excepted). A request for them still works: it goes to the chain.
+      IF cardinality(v_ids) = 0 AND NEW.subject_profile_id IS NULL AND NOT v_super THEN
+        RAISE EXCEPTION 'This team member''s record is not linked to any account, so it cannot be checked whether they are an approver. File a request for them instead.'
+          USING ERRCODE = '42501';
+      END IF;
       -- Default taken (Director did not answer, 3 Oct 2026): someone who
       -- could clear a step of this type's chain themselves is not granted
       -- directly. They request it, and the Director decides.
@@ -739,6 +746,7 @@ DECLARE
   v_uid    uuid := (SELECT auth.uid());
   v_super  boolean;
   v_manager boolean;
+  v_who    uuid[];
   v_my     uuid[];
   v_len    int;
   v_final  int;
@@ -747,6 +755,8 @@ DECLARE
   c_decision_keys CONSTANT text[] := ARRAY['decisions', 'status', 'decided_at', 'decided_by', 'comment'];
   c_revoke_cols   CONSTANT text[] := ARRAY['status', 'revoked_by', 'revoked_at', 'revoke_reason', 'updated_at', 'updated_by'];
   c_adjust_cols   CONSTANT text[] := ARRAY['valid_from', 'valid_until', 'entitled_days', 'updated_at', 'updated_by'];
+  c_decide_cols   CONSTANT text[] := ARRAY['approval_chain', 'current_step', 'status', 'decided_by', 'decided_at',
+                                           'decision_note', 'updated_at', 'updated_by'];
 BEGIN
   IF COALESCE(auth.role(), '') = 'service_role' OR v_uid IS NULL THEN
     RETURN NEW;
@@ -796,11 +806,15 @@ BEGIN
               AND (NEW.valid_until IS NULL OR (OLD.valid_until IS NOT NULL AND NEW.valid_until > OLD.valid_until)))
            OR ((NEW.entitled_days IS DISTINCT FROM OLD.entitled_days)
               AND (NEW.entitled_days IS NULL OR OLD.entitled_days IS NULL OR NEW.entitled_days > OLD.entitled_days)) THEN
+          v_who := public.fn_hr_leave_eligibility_person_ids(OLD.employee_id)
+                   || CASE WHEN OLD.subject_profile_id IS NULL THEN ARRAY[]::uuid[]
+                           ELSE ARRAY[OLD.subject_profile_id] END;
+          IF cardinality(v_who) = 0 AND NOT v_super THEN
+            RAISE EXCEPTION 'This team member''s record is not linked to any account, so it cannot be checked whether they are an approver. Their grant cannot be widened directly.'
+              USING ERRCODE = '42501';
+          END IF;
           IF public.fn_hr_leave_eligibility_chain_names_person(
-               OLD.hr_organization_id, OLD.leave_type_id, OLD.employee_id,
-               public.fn_hr_leave_eligibility_person_ids(OLD.employee_id)
-                 || CASE WHEN OLD.subject_profile_id IS NULL THEN ARRAY[]::uuid[]
-                         ELSE ARRAY[OLD.subject_profile_id] END) THEN
+               OLD.hr_organization_id, OLD.leave_type_id, OLD.employee_id, v_who) THEN
             RAISE EXCEPTION 'This team member is one of the approvers for this leave type, so their grant cannot be widened directly. Ask them to request it; the Director decides.'
               USING ERRCODE = '42501';
           END IF;
@@ -814,15 +828,9 @@ BEGIN
 
   -- A PENDING request, whoever the caller is: the decide path, every check.
 
-  IF (NEW.id, NEW.employee_id, NEW.leave_type_id, NEW.hr_organization_id, NEW.documents,
-      NEW.reason, NEW.entitled_days, NEW.valid_from, NEW.valid_until, NEW.revoked_by,
-      NEW.revoked_at, NEW.revoke_reason, NEW.granted_directly, NEW.created_by, NEW.created_at,
-      NEW.subject_profile_id)
-     IS DISTINCT FROM
-     (OLD.id, OLD.employee_id, OLD.leave_type_id, OLD.hr_organization_id, OLD.documents,
-      OLD.reason, OLD.entitled_days, OLD.valid_from, OLD.valid_until, OLD.revoked_by,
-      OLD.revoked_at, OLD.revoke_reason, OLD.granted_directly, OLD.created_by, OLD.created_at,
-      OLD.subject_profile_id)
+  -- A whitelist, like the decided path: every column except the decision
+  -- fields must stay as it was, including any column added later.
+  IF (to_jsonb(NEW) - c_decide_cols) IS DISTINCT FROM (to_jsonb(OLD) - c_decide_cols)
   THEN
     RAISE EXCEPTION 'An approver can only record a decision; nothing else on the request can change.'
       USING ERRCODE = '42501';

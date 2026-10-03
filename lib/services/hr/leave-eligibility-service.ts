@@ -324,19 +324,30 @@ export class LeaveEligibilityService {
   /**
    * Who is told that a request was approved or rejected: the person it is FOR
    * (the staff record's profile), not whoever filed it. HR can file a request
-   * on someone's behalf, and created_by is then HR. A team member with no
-   * sign-in is told nothing (null): the notice is theirs, never the filer's.
+   * on someone's behalf, and created_by is then HR. A record no longer linked
+   * to an account falls back to the person the row was filed for, kept on the
+   * row (subject_profile_id, migration 20271003101521). Nobody found: nobody
+   * is told (null); the notice is theirs, never the filer's.
    */
   static async decidedNoticeRecipient(
     supabase: SupabaseClient,
-    row: Pick<LeaveEligibility, 'employee_id'>
+    row: Pick<LeaveEligibility, 'id' | 'employee_id'>
   ): Promise<string | null> {
     const { data } = await supabase
       .from('staff')
       .select('profile_id')
       .eq('id', row.employee_id)
       .maybeSingle();
-    return (data as { profile_id?: string | null } | null)?.profile_id ?? null;
+    const linked = (data as { profile_id?: string | null } | null)?.profile_id ?? null;
+    if (linked) return linked;
+    // Read on its own, not through SELECT, so the eligibility pages never
+    // depend on the column; if it cannot be read, nobody is told.
+    const { data: kept } = await supabase
+      .from(TABLE)
+      .select('subject_profile_id')
+      .eq('id', row.id)
+      .maybeSingle();
+    return (kept as { subject_profile_id?: string | null } | null)?.subject_profile_id ?? null;
   }
 
   /**
