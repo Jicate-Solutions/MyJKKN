@@ -1662,3 +1662,55 @@ describe('review round 6', () => {
     });
   });
 });
+
+describe('review round 6 follow-ups', () => {
+  const ROW = id(981);
+  const set = (change: string) => `UPDATE public.hr_leave_eligibilities SET ${change} WHERE id = '${ROW}' RETURNING id`;
+  const UNLINK_ASKER = `UPDATE public.staff SET profile_id = NULL, email = NULL, institution_email = NULL WHERE id = '${S_ASKER}'`;
+  const grantFor = (member: string) =>
+    `INSERT INTO public.hr_leave_eligibilities (id, employee_id, leave_type_id, hr_organization_id, status, granted_directly, entitled_days, valid_from, valid_until)
+     VALUES ('${ROW}', '${member}', '${T_PHD}', '${ORG_A}', 'approved', true, 10, CURRENT_DATE, CURRENT_DATE + 30)`;
+  const NO_IDENTITY = /not linked to any account/;
+
+  describe('a record that resolves to no account', () => {
+    it('cannot be granted directly by HR', async () => {
+      const r = await tx([{ sql: UNLINK_ASKER }, { who: HR2, sql: request(S_ASKER, T_PHD, ORG_A, { granted_directly: 'true' }, 'approved') }]);
+      expect(r.error).toMatch(NO_IDENTITY);
+    });
+
+    it('a request for them still works, and a super admin may still grant', async () => {
+      const req = await tx([{ sql: UNLINK_ASKER }, { who: HR2, sql: request(S_ASKER, T_PHD, ORG_A) }]);
+      expect(req.error).toBeNull();
+      const sup = await tx([{ sql: UNLINK_ASKER }, { who: { ...HR2, super: true }, sql: request(S_ASKER, T_PHD, ORG_A, { granted_directly: 'true' }, 'approved') }]);
+      expect(sup.error).toBeNull();
+    });
+
+    it('its direct grant cannot be widened by HR, but can be narrowed, and a super admin may widen', async () => {
+      const filedUnlinked = [{ sql: UNLINK_ASKER }, { sql: grantFor(S_ASKER) }];
+      const widen = await tx([...filedUnlinked, { who: HR2, sql: set('valid_until = NULL') }]);
+      expect(widen.error).toMatch(NO_IDENTITY);
+      const narrow = await tx([...filedUnlinked, { who: HR2, sql: set('entitled_days = 5') }]);
+      expect(narrow.error).toBeNull();
+      const sup = await tx([...filedUnlinked, { who: { ...HR2, super: true }, sql: set('valid_until = NULL') }]);
+      expect(sup.error).toBeNull();
+    });
+  });
+
+  it("a HoD's direct grant, the record unlinked since, still cannot be widened (the kept owner counts)", async () => {
+    const r = await tx([
+      { sql: grantFor(S_HOD) },
+      { sql: `UPDATE public.staff SET profile_id = NULL WHERE id = '${S_HOD}'` },
+      { who: HR2, sql: set('valid_until = NULL') },
+    ]);
+    expect(r.error).toMatch(/cannot be widened directly\. Ask them to request it/);
+  });
+
+  it('a decider cannot change a column the rules do not name (any column added later)', async () => {
+    const r = await tx([
+      { sql: `ALTER TABLE public.hr_leave_eligibilities ADD COLUMN audit_note text` },
+      { sql: legacy(ROW, S_ASKER, [roleStep(1, 'hod'), roleStep(2, 'hr_head', true)]) },
+      { who: HOD, sql: set(`audit_note = 'changed'`) },
+    ]);
+    expect(r.error).toMatch(/can only record a decision/);
+  });
+});
