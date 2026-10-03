@@ -118,7 +118,7 @@ body {
     --accent: 210 40% 96.1%;
     --accent-foreground: 222.2 47.4% 11.2%;
 
-    --destructive: 0 84.2% 60.2%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 210 40% 98%;
 
     --border: 214.3 31.8% 91.4%;
@@ -157,9 +157,10 @@ body {
     --popover: 240 7% 10%;
     --popover-foreground: 0 0% 95%;
 
-    /* Brand green — preserved from JKKN identity */
-    --primary: 150 78% 26%;
-    --primary-foreground: 0 0% 100%;
+    /* Brand green — lifted for dark surfaces so green text reads at >=5.2:1;
+       button lettering becomes near-black green ink (6.9:1 on the fill) */
+    --primary: 150 50% 46%;
+    --primary-foreground: 145 50% 5%;
 
     /* L3 — Interactive surfaces (pills, tags, hover states) */
     --secondary: 240 5% 17%;
