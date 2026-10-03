@@ -384,11 +384,13 @@ CREATE TRIGGER trigger_update_user_institution_access_updated_at BEFORE UPDATE O
 -- ================================================================================
 
 -- Updated: 2025-09-05 - Added staff assignment validation trigger
--- Validate staff assignment before allowing attendance marking
-CREATE TRIGGER validate_attendance_staff_assignment_trigger
-    BEFORE INSERT OR UPDATE ON student_attendance
-    FOR EACH ROW
-    EXECUTE FUNCTION validate_attendance_staff_assignment();
+-- REMOVED: 2026-09-23. Production dropped this trigger and its function on
+-- 2025-09-05 via 20250905_rollback_attendance_staff_validation.sql, and setup/
+-- never followed. The function read NEW.marked_by, a column production's
+-- student_attendance does not have, so attaching it to a database rebuilt from
+-- setup/ made every attendance insert fail. Attendance authorization is enforced
+-- by RLS on student_attendance, not by this trigger. Do not restore it without
+-- first confirming the column exists.
 
 -- ================================================================================
 -- SECTION 18: AUTH MODULE TRIGGERS (IF NEEDED)
