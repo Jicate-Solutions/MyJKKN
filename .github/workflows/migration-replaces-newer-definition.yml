@@ -1,0 +1,96 @@
+name: Migration replaces a newer definition
+
+# A pull request may not `CREATE OR REPLACE` a function or trigger that the base
+# branch ALREADY redefines in a migration with a HIGHER version.
+#
+# WHY this is a CI guard and not something review catches: `CREATE OR REPLACE`
+# does not merge, it replaces the whole body. A migration authored against an old
+# copy of a function silently deletes every change made to that function since the
+# copy was taken. There is no conflict, no error, and nothing in the diff to look
+# at — the diff shows one added file, and the file looks right.
+#
+# It has now happened three times to fn_cdc_emit_drive_notification:
+#   20260914210000  added the attendance_day branch + the learner URLs.
+#   20260915100000  rebuilt the function from the MAY body. attendance_day
+#                   vanished; that transition notified nobody. Green CI, merged.
+#   20260919100000  restored it, and said so in its own header.
+#   PR #3892        was authored from what 20260915100000 had left running and
+#                   would have dropped the same behaviours a THIRD time. It was
+#                   caught by a human reading the restore migration's header.
+#
+# Nothing in CI could see it. migration-version-collision.yml compares FILENAMES,
+# secdef-anon-revoke.yml reads GRANTS, and the test suites test the migration file
+# the pull request SHIPS — never the file main already has.
+#
+# Kept as a SEPARATE workflow, and a separate status check, for the same reason
+# its siblings are: a collision, an unlocked function and a clobbered definition
+# are different facts and must not share one pass/fail.
+#
+# NOTE the workflow `name:` and the job `name:` are the status-check identity that
+# branch protection matches on. If this check is ever made required, renaming
+# either string silently orphans a rule pointing at the old name — and a
+# `paths:` filter would then have to go, because a workflow GitHub skips by path
+# reports NOTHING and a required context that never reports blocks every pull
+# request forever. See "WHY THERE IS NO paths: FILTER" in
+# .github/workflows/migration-version-collision.yml before making it required.
+# It is NOT required today, so the filter below is safe and keeps the cost off
+# pull requests that touch no SQL.
+#
+# Sibling of .github/workflows/migration-version-collision.yml,
+# migration-rename-applied.yml and secdef-anon-revoke.yml.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+      # The guard and its tests, so editing the guard runs the guard's own tests.
+      - 'scripts/ci/check-migration-replaces-newer-definition.mjs'
+      - '__tests__/ci/check-migration-replaces-newer-definition.test.ts'
+      - '.github/workflows/migration-replaces-newer-definition.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: No migration overwrites a newer definition on main
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout PR head (full history for base diff)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch base branch
+        run: git fetch --no-tags origin "${{ github.base_ref }}"
+
+      - name: Run guard
+        run: node scripts/ci/check-migration-replaces-newer-definition.mjs --base "origin/${{ github.base_ref }}"
+
+  self-test:
+    name: The guard's own tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      # A guard whose logic is never executed is a guard that has quietly stopped
+      # guarding. This repository has no blanket vitest run in its gates, so the
+      # file is named by EXACT PATH — a test file nobody names is dead code, which
+      # is how the 20 cross-PR cases went unexecuted for months (see the header of
+      # migration-version-collision.yml).
+      - name: Test the guard
+        run: npx vitest run __tests__/ci/check-migration-replaces-newer-definition.test.ts
