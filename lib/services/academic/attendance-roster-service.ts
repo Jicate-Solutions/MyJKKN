@@ -4,6 +4,7 @@ import {
   ACTIVE_ONLY_LIFECYCLE_FILTER,
   buildRosterLifecycleFilter,
 } from '@/lib/utils/academic/provisional-roster-filter';
+import { periodMarkedForLearners } from '@/lib/utils/practical-period-sections';
 import type {
   AttendanceRosterStudent,
   AttendanceStudent,
@@ -46,11 +47,15 @@ export function slotHasAttendance(slotData: any): boolean {
  * The record (of one timetable and day) that holds attendance for `slotId`,
  * looking only at records whose section_id / section_ids overlap `sectionIds`,
  * or at every record when no section is known. Null when none holds it.
+ * With `learnerIds` (a practical batch's learners, BUG-006204) the slot counts
+ * only when one of THOSE learners is stored, so another batch's save in the
+ * same slot does not read as this batch's.
  */
 export function findMarkedAttendanceRecord(
   records: AttendanceRecordForCheck[],
   slotId: string,
   sectionIds: Array<string | null | undefined>,
+  learnerIds?: string[] | null,
 ): AttendanceRecordForCheck | null {
   const wanted = new Set(sectionIds.filter((s): s is string => !!s));
   for (const record of records) {
@@ -60,7 +65,7 @@ export function findMarkedAttendanceRecord(
         (record.section_ids ?? []).some((s) => wanted.has(s));
       if (!covers) continue;
     }
-    if (slotHasAttendance(record.attendance_data?.[slotId])) return record;
+    if (periodMarkedForLearners(record.attendance_data?.[slotId], learnerIds)) return record;
   }
   return null;
 }
@@ -226,6 +231,9 @@ export class AttendanceRosterService {
       section_id: string;
       section_ids?: string[];
       attendance_date: string;
+      // Added: 2026-09-23 (BUG-006204) - a practical batch's learners; when set,
+      // the period counts as marked only if one of them is stored.
+      student_ids?: string[] | null;
     }>
   ): Promise<Map<string, { isMarked: boolean; recordId?: string }>> {
     const attendanceMap = new Map<string, { isMarked: boolean; recordId?: string }>();
@@ -268,6 +276,7 @@ export class AttendanceRosterService {
             (data ?? []) as AttendanceRecordForCheck[],
             period.timetable_slot_id,
             [period.section_id, ...(period.section_ids ?? [])],
+            period.student_ids,
           );
           attendanceMap.set(period.timetable_slot_id, {
             isMarked: !!record,

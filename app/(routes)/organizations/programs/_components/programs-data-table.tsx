@@ -10,6 +10,7 @@ import { Plus, TrashIcon, Loader2, Upload, Download, ChevronDown, FileSpreadshee
 import { useRouter } from 'next/navigation';
 import { ProgramService } from '@/lib/services/organization/program-service';
 import { Program } from '@/types/organizations';
+import { summarizeDeleteFailures } from '@/lib/utils/delete-failure-summary';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useState, useCallback } from 'react';
 import {
@@ -71,7 +72,7 @@ export function ProgramsDataTable({ search }: ProgramsDataTableProps) {
         institution_id: search.institution_id,
         degree_id: search.degree_id,
         department_id: search.department_id,
-        status: search.status
+        isActive: search.status ? search.status === 'active' : undefined
       };
 
       const { data, metadata } = await ProgramService.getPrograms(filters);
@@ -207,7 +208,7 @@ export function ProgramsDataTable({ search }: ProgramsDataTableProps) {
 
       if (failed > 0) {
         toast.error(
-          `Failed to delete ${failed} ${adapt('program')}${failed > 1 ? 's' : ''}`
+          `Failed to delete ${failed} ${adapt('program')}${failed > 1 ? 's' : ''}: ${summarizeDeleteFailures(results)}. Set it to Inactive instead.`
         );
       }
 

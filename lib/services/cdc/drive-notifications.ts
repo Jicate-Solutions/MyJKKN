@@ -28,7 +28,7 @@ import { createHash } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
 import { sendWebPushNotifications, type PushResult } from '@/lib/notifications/web-push';
-import { resolveTargetLearners, type TargetLearnerRow } from './drive-targeting';
+import { entryMiss, resolveTargetLearners, type TargetLearnerRow } from './drive-targeting';
 import type { CdcDrive } from '@/types/cdc';
 
 export const CDC_WILLINGNESS_NOTIFICATION_TYPE = 'cdc.drive.willingness_open';
@@ -265,6 +265,7 @@ export type LearnerNotifyVerdict =
   | 'not_found'
   | 'not_eligible_institution'
   | 'not_eligible_program'
+  | 'not_eligible_gender'
   | 'not_eligible_semester'
   | 'not_active'
   | 'no_profile'
@@ -299,7 +300,7 @@ export async function diagnoseLearnerNotification(
   const deep_link = learnerDriveUrl(drive.id);
   const { data: learner } = await service
     .from('learners_profiles')
-    .select('id, first_name, last_name, register_number, institution_id, program_id, semester_id, lifecycle_status')
+    .select('id, first_name, last_name, register_number, institution_id, program_id, semester_id, gender, lifecycle_status')
     .ilike('register_number', registerNumber.trim())
     .limit(1)
     .maybeSingle();
@@ -378,11 +379,15 @@ export async function diagnoseLearnerNotification(
   }
   const entry = (drive.institution_semesters ?? []).find((e) => e.institution_id === info.institution_id);
   const learnerProgramId = (learner.program_id as string | null) ?? null;
-  if (entry && entry.program_ids && entry.program_ids.length > 0 && (!learnerProgramId || !entry.program_ids.includes(learnerProgramId))) {
-    return { ...common, verdict: 'not_eligible_program', explanation: `Learner's program is not one of the ${entry.program_ids.length} program(s) the drive targets for this institution.` };
+  const learnerGender = (learner.gender as string | null) ?? null;
+  const miss = entry ? entryMiss(entry, learnerProgramId, semester_order, learnerGender) : 'semester';
+  if (entry && miss === 'gender') {
+    return { ...common, verdict: 'not_eligible_gender', explanation: `The drive's gender choice for this learner's program does not include them; the learner's gender is recorded as '${learnerGender ?? 'not set'}'.` };
   }
-  const semOk = entry && (entry.semester_orders.length === 0 || (semester_order != null && entry.semester_orders.includes(semester_order)));
-  if (!semOk) {
+  if (entry && miss === 'program') {
+    return { ...common, verdict: 'not_eligible_program', explanation: `Learner's program is not one of the ${entry.program_ids?.length ?? 0} program(s) the drive targets for this institution.` };
+  }
+  if (miss === 'semester') {
     return { ...common, verdict: 'not_eligible_semester', explanation: `Learner is in semester ${semester_order ?? 'unknown'}; the drive targets ${entry && entry.semester_orders.length ? 'semester ' + entry.semester_orders.join(', ') : 'no semesters'} for this institution.` };
   }
   if (!['active', 'graduated'].includes(info.lifecycle_status ?? '')) {

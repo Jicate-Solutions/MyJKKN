@@ -95,7 +95,10 @@ export function FacultyQuickAttendance({
             timetable_id: period.timetable_id,
             section_id: sectionIds[0] ?? '',
             section_ids: sectionIds,
-            attendance_date: targetDate
+            attendance_date: targetDate,
+            // Added: 2026-09-23 (BUG-006204) - a practical batch is marked only
+            // by its own learners, not by another batch sharing the slot.
+            student_ids: (period as any).practical_student_ids ?? null
           };
         });
 

@@ -36,6 +36,13 @@ import {
 import { INSTITUTIONS, DEPARTMENTS } from '@/lib/constants/permissions';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
+import { safeReturnPath } from '@/lib/auth/safe-return-path';
+
+/** The ?next= page /auth/callback passed along (e.g. a scanned QR sticker), if it is a path on this site. */
+function returnPathFromUrl(): string | null {
+  if (typeof window === 'undefined') return null;
+  return safeReturnPath(new URLSearchParams(window.location.search).get('next'));
+}
 
 const completeProfileSchema = z.object({
   full_name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -136,6 +143,11 @@ export default function CompleteProfile() {
             } else if (profile.role === 'driver') {
               destination = '/driver';
             }
+            // Return-to from /auth/callback (e.g. a scanned QR sticker) replaces
+            // only the default '/' landing, never a role-specific one.
+            if (destination === '/') {
+              destination = returnPathFromUrl() ?? destination;
+            }
 
             console.log('[Complete Profile] Redirecting to:', destination);
             router.push(destination);
@@ -220,12 +232,12 @@ export default function CompleteProfile() {
         } else {
           // Feature enabled - student allowed, redirect to dashboard
           // Lifecycle validation already happened in auth callback
-          router.push('/');
+          router.push(returnPathFromUrl() ?? '/');
         }
       } else if (profileData?.role === 'driver') {
         router.push('/driver');
       } else {
-        router.push('/');
+        router.push(returnPathFromUrl() ?? '/');
       }
     } catch (error) {
       console.error('Error updating profile:', error);

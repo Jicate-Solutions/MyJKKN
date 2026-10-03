@@ -96,6 +96,26 @@ describe('checkExistingAttendanceForPeriods — every record of the day, not one
   });
 });
 
+describe('with #4092 (BUG-006204): a practical batch is marked only by its own learners', () => {
+  const checkBatch = (slot: string, sections: string[], learners: string[] | null) =>
+    AttendanceRosterService.checkExistingAttendanceForPeriods([
+      { timetable_slot_id: slot, timetable_id: TT, section_id: sections[0] ?? '', section_ids: sections, attendance_date: DAY, student_ids: learners },
+    ]).then((m) => m.get(slot));
+
+  it('another batch\'s save in a covering record does not mark this batch', async () => {
+    // rec-B holds slot-dd6f for learner l1 only; batch C's learners are l7, l8.
+    expect((await checkBatch('slot-dd6f', [C], ['l7', 'l8']))?.isMarked).toBe(false);
+  });
+
+  it('this batch\'s save in another section group\'s record still marks it', async () => {
+    expect(await checkBatch('slot-dd6f', [C], [LEARNER, 'l8'])).toEqual({ isMarked: true, recordId: 'rec-B' });
+  });
+
+  it('no learner list keeps the any-learner rule', async () => {
+    expect((await checkBatch('slot-dd6f', [C], null))?.isMarked).toBe(true);
+  });
+});
+
 describe('the Senior Learner\'s own periods view checks every period', () => {
   const read = (f: string) =>
     readFileSync(path.resolve(__dirname, '../../../app/(routes)/academic/attendance/_components', f), 'utf8');

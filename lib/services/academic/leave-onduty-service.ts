@@ -74,6 +74,29 @@ export interface AttendancePreFillData {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Roll back an application whose submission failed before any approver row
+ * existed. Must go through fn_discard_unseeded_application: a plain DELETE runs
+ * under the learner's RLS, whose only DELETE policy admits CANCELLED rows, so a
+ * pending rollback silently removed nothing and the learner's retries piled up
+ * as applications no approver can see. Never throws — the caller is already
+ * surfacing the real error.
+ */
+async function discardUnseededApplication(
+  supabase: ReturnType<typeof getSupabase>,
+  applicationId: string
+): Promise<void> {
+  const { data, error } = await supabase.rpc('fn_discard_unseeded_application', {
+    p_application_id: applicationId,
+  });
+  if (error || data !== true) {
+    console.error('[leave-onduty] rollback of failed submission did not delete it', {
+      applicationId,
+      error,
+    });
+  }
+}
+
 export class LeaveOndutyService {
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -627,24 +650,29 @@ export class LeaveOndutyService {
         ? data.selected_periods
         : periodDetection.periods;
 
-    // Phase 2: sponsor-approval gate
-    // Look up whether the selected sub_category requires sponsor pre-approval.
-    // If yes, the learner must have provided a sponsor_id AND the application
-    // starts in the sponsor-pending state (current_step = 0 is a convention
-    // for "waiting for sponsor"; the academic chain starts at 1).
-    const { data: subCatRow } = await supabase
-      .from('leave_onduty_sub_categories')
-      .select('requires_sponsor_approval')
-      .eq('institution_id', institutionId)
-      .eq('category', data.category)
-      .eq('code', data.sub_category)
+    // The learner picks a learner_leave_types row. Its code is still written to
+    // sub_category (reports + get_approved_leave_for_attendance read it). Every
+    // rule of the type is enforced server-side by fn_lo_seed_approvals.
+    const { data: leaveType, error: leaveTypeError } = await supabase
+      .from('learner_leave_types')
+      .select('id, code, category, requires_sponsor_approval, is_active')
+      .eq('id', data.leave_type_id)
       .maybeSingle();
 
-    const requiresSponsor = !!subCatRow?.requires_sponsor_approval;
+    if (leaveTypeError) {
+      throw new Error(`Failed to load leave type: ${leaveTypeError.message}`);
+    }
+    if (!leaveType || !leaveType.is_active || leaveType.category !== data.category) {
+      throw new Error('Please choose a valid leave type.');
+    }
+
+    // Sponsor gate: the application waits at current_step 0 until the sponsor
+    // approves; fn_lo_sponsor_decide then seeds the academic chain.
+    const requiresSponsor = !!leaveType.requires_sponsor_approval;
 
     if (requiresSponsor && !data.sponsor_id) {
       throw new Error(
-        'This sub-category requires sponsor approval. Please select the person you are working with.'
+        'This leave type requires sponsor approval. Please select the person you are working with.'
       );
     }
 
@@ -670,7 +698,8 @@ export class LeaveOndutyService {
         semester_id: learner.semester_id,
         section_id: learner.section_id,
         category: data.category,
-        sub_category: data.sub_category,
+        sub_category: leaveType.code,
+        leave_type_id: leaveType.id,
         start_date: data.start_date,
         end_date: data.end_date,
         period_type: data.period_type,
@@ -706,19 +735,22 @@ export class LeaveOndutyService {
         .insert(rows);
 
       if (teamError) {
-        // Best-effort rollback — RLS may prevent the student from deleting
-        // their own application in some edge cases, which is why we log it
-        // explicitly rather than swallowing.
-        await supabase.from('leave_onduty_applications').delete().eq('id', application.id);
+        await discardUnseededApplication(supabase, application.id);
         throw new Error(`Failed to register team members: ${teamError.message}`);
       }
     }
 
-    // Seed approval rows from the applicable flow. Without this, the application
-    // sits in pending state forever because approvers query by approver_id on
-    // leave_onduty_approvals. Skip when sponsor pre-approval is required — the
-    // academic chain is seeded after sponsor approves (see processSponsorApproval).
-    if (!requiresSponsor) {
+    // Seed approval rows from the leave type's flow. Runs for sponsor-gated
+    // types too: fn_lo_seed_approvals validates every type rule (residency,
+    // max days, notice, attachment, half-day/period-wise) and returns 0 for a
+    // sponsor type — its chain is seeded when the sponsor approves
+    // (fn_lo_sponsor_decide).
+    //
+    // CHANGED 2026-09-28: was fn_seed_application_approvals, which read the
+    // per-institution leave_onduty_approval_flows and pinned PEOPLE. Role steps
+    // now freeze only the scope (institution / department / hostel block);
+    // whoever holds the role there can act.
+    {
       // Seeding runs SERVER-SIDE, in fn_seed_application_approvals (SECURITY
       // DEFINER). It must not be done from here.
       //
@@ -747,15 +779,17 @@ export class LeaveOndutyService {
       // side from the flow, and the function refuses to seed an application that
       // already has approver rows.
       const { data: seededCount, error: seedError } = await supabase.rpc(
-        'fn_seed_application_approvals',
+        'fn_lo_seed_approvals',
         { p_application_id: application.id }
       );
 
       if (seedError) {
         // The application is already inserted; a chain we could not build means
         // nobody can ever act on it, so roll it back rather than strand it.
-        await supabase.from('leave_onduty_applications').delete().eq('id', application.id);
-        throw new Error(`Failed to seed approvers: ${seedError.message}`);
+        // The RPC's messages are written for the learner (e.g. "must be applied
+        // at least 24 hour(s) in advance"), so surface them as-is.
+        await discardUnseededApplication(supabase, application.id);
+        throw new Error(seedError.message || 'Failed to submit the application');
       }
 
       const seededApprovers = typeof seededCount === 'number' ? seededCount : 0;
@@ -775,8 +809,8 @@ export class LeaveOndutyService {
       // This message is now a genuine configuration signal. Until 2026-08-07 it
       // also fired for every learner whose flow was merely INVISIBLE to them
       // under RLS, which is what the reporter was actually hitting.
-      if (seededApprovers === 0) {
-        await supabase.from('leave_onduty_applications').delete().eq('id', application.id);
+      if (seededApprovers === 0 && !requiresSponsor) {
+        await discardUnseededApplication(supabase, application.id);
         throw new Error(
           'No approver is set up for your class yet, so this request cannot be sent for approval. ' +
           'Please contact your department office to have the leave / on-duty approver configured, then submit again.'
@@ -875,25 +909,23 @@ export class LeaveOndutyService {
       throw new Error(`Application is ${app.status}, cannot process sponsor action`);
     }
 
-    const now = new Date().toISOString();
-    const patch: Record<string, any> = {
-      sponsor_approval_status: input.decision,
-      sponsor_comments: input.comments?.trim() || null,
-      sponsor_action_at: now,
-    };
+    // CHANGED 2026-09-28: the decision runs in fn_lo_sponsor_decide. The old
+    // client-side update advanced current_step to 1 but never seeded the
+    // approvers, so every sponsor-approved application sat pending with no one
+    // able to act (14 on 28 Sep). The RPC advances AND seeds in one transaction.
+    const { error: decideError } = await supabase.rpc('fn_lo_sponsor_decide', {
+      p_application_id: input.application_id,
+      p_decision: input.decision,
+      p_comments: input.comments?.trim() || null,
+    });
 
-    if (input.decision === 'approved') {
-      // Advance to the academic chain — step 1 is the first HOD/Principal etc.
-      patch.current_step = 1;
-    } else {
-      // Sponsor rejection is terminal. No academic chain runs.
-      patch.status = 'rejected';
+    if (decideError) {
+      console.error('[leave-onduty/sponsor] failed to process sponsor action', decideError);
+      throw new Error(decideError.message || 'Failed to record your decision');
     }
 
     const { data: updated, error: updateError } = await supabase
       .from('leave_onduty_applications')
-      .update(patch)
-      .eq('id', input.application_id)
       .select(
         `
         *,
@@ -902,11 +934,12 @@ export class LeaveOndutyService {
         )
         `
       )
+      .eq('id', input.application_id)
       .single();
 
     if (updateError) {
-      console.error('[leave-onduty/sponsor] failed to process sponsor action', updateError);
-      throw new Error(`Failed to ${input.decision === 'approved' ? 'approve' : 'reject'}: ${updateError.message}`);
+      console.error('[leave-onduty/sponsor] failed to reload application', updateError);
+      throw new Error(`Decision recorded, but reloading the application failed: ${updateError.message}`);
     }
 
     return updated as LeaveOndutyApplication;
@@ -1053,9 +1086,12 @@ export class LeaveOndutyService {
         department:departments(id, department_name),
         semester:semesters(id, semester_name),
         section:sections(id, section_name),
+        leave_type:learner_leave_types(id, code, name, color_code, residency, affects_attendance),
+        batch:leave_onduty_batches!batch_id(id, title),
         approvals:leave_onduty_approvals(
           *,
-          approver:profiles!leave_onduty_approvals_approver_id_fkey(id, full_name, email, avatar_url)
+          approver:profiles!leave_onduty_approvals_approver_id_fkey(id, full_name, email, avatar_url),
+          role:custom_roles(id, role_name)
         )
       `
       )
@@ -1123,9 +1159,12 @@ export class LeaveOndutyService {
         department:departments(id, department_name),
         semester:semesters(id, semester_name),
         section:sections(id, section_name),
+        leave_type:learner_leave_types(id, code, name, color_code, residency, affects_attendance),
+        batch:leave_onduty_batches!batch_id(id, title),
         approvals:leave_onduty_approvals(
           *,
-          approver:profiles!leave_onduty_approvals_approver_id_fkey(id, full_name, email, avatar_url)
+          approver:profiles!leave_onduty_approvals_approver_id_fkey(id, full_name, email, avatar_url),
+          role:custom_roles(id, role_name)
         )
       `
       )
@@ -1186,9 +1225,11 @@ export class LeaveOndutyService {
         department:departments(id, department_name),
         semester:semesters(id, semester_name),
         section:sections(id, section_name),
+        leave_type:learner_leave_types(id, code, name, color_code, residency, affects_attendance),
         approvals:leave_onduty_approvals(
           *,
-          approver:profiles!leave_onduty_approvals_approver_id_fkey(id, full_name, email, avatar_url)
+          approver:profiles!leave_onduty_approvals_approver_id_fkey(id, full_name, email, avatar_url),
+          role:custom_roles(id, role_name)
         )
       `
       )
@@ -1907,9 +1948,11 @@ export class LeaveOndutyService {
         department:departments(id, department_name),
         semester:semesters(id, semester_name),
         section:sections(id, section_name),
+        leave_type:learner_leave_types(id, code, name, color_code, residency, affects_attendance),
         approvals:leave_onduty_approvals(
           *,
-          approver:profiles!leave_onduty_approvals_approver_id_fkey(id, full_name, email, avatar_url)
+          approver:profiles!leave_onduty_approvals_approver_id_fkey(id, full_name, email, avatar_url),
+          role:custom_roles(id, role_name)
         )
       `
       )

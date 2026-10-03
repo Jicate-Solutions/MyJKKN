@@ -10,6 +10,11 @@
 // The card now says what it counts ("In progress", waiting on any approver)
 // and, for an approver, states the number waiting on them — the same number
 // the Pending Approvals tab shows.
+//
+// "Approved" also counts `fulfilled`: types with auto_fulfill_on_approval jump
+// straight there and never occupy `approved`, so the literal status alone left
+// Dental reading "Approved 0" over 39 fulfilled requests. An approver also sees
+// their own decisions under Approved and Rejected ("7 by you").
 
 export interface HubStatCard {
   key: 'total' | 'in_progress' | 'approved' | 'rejected';
@@ -23,10 +28,13 @@ export interface HubStatCard {
  * @param awaitingYou total of the viewer's Pending Approvals queue, or null
  *                    when the viewer cannot approve or the queue is not known
  *                    (still loading, or narrowed by a search).
+ * @param decidedByYou the viewer's own approve/reject actions, or null when
+ *                    the viewer cannot approve or they are still loading.
  */
 export function buildHubStatCards(
   counts: Record<string, unknown>,
-  awaitingYou: number | null
+  awaitingYou: number | null,
+  decidedByYou: { approved: number; rejected: number } | null = null
 ): HubStatCard[] {
   const n = (key: string) => {
     const v = counts[key];
@@ -48,7 +56,17 @@ export function buildHubStatCards(
           ? 'Waiting on any approver'
           : `${awaitingYou} waiting on you`,
     },
-    { key: 'approved', label: 'Approved', value: n('approved'), caption: null },
-    { key: 'rejected', label: 'Rejected', value: n('rejected'), caption: null },
+    {
+      key: 'approved',
+      label: 'Approved',
+      value: n('approved') + n('fulfilled'),
+      caption: decidedByYou ? `${decidedByYou.approved} by you` : null,
+    },
+    {
+      key: 'rejected',
+      label: 'Rejected',
+      value: n('rejected'),
+      caption: decidedByYou ? `${decidedByYou.rejected} by you` : null,
+    },
   ];
 }

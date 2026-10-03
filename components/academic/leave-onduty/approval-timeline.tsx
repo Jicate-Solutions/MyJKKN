@@ -137,7 +137,7 @@ function TimelineStep({
             {/* Step Header */}
             <div className="flex items-center gap-2 mb-1">
               <h4 className="font-medium text-gray-900 dark:text-gray-100">
-                {APPROVER_ROLE_LABELS[step.role]}
+                {step.role_label ?? APPROVER_ROLE_LABELS[step.role]}
               </h4>
               {step.is_required && (
                 <span className="text-xs text-red-600 dark:text-red-400">
@@ -155,7 +155,7 @@ function TimelineStep({
                 has been resolved, not just the one the viewer happens to be.
                 Powered by the view_approvals_for_visible_app RLS policy which
                 exposes the full chain to anyone who can see the application. */}
-            {step.approver_name && (
+            {step.approver_name ? (
               <div className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300 mb-2">
                 <User className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <div className="min-w-0 flex-1">
@@ -170,7 +170,11 @@ function TimelineStep({
                   )}
                 </div>
               </div>
-            )}
+            ) : step.status === 'pending' ? (
+              <p className="text-sm text-gray-500 dark:text-gray-400 italic mb-2">
+                Any {step.role_label ?? APPROVER_ROLE_LABELS[step.role]}
+              </p>
+            ) : null}
 
             {/* Action Date */}
             {step.action_taken_at && (

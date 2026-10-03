@@ -21,6 +21,7 @@ import {
   usePendingApprovals,
   useServiceRequests,
   useRequestCountsByStatus,
+  useMyApprovalStats,
 } from '@/hooks/service-requests/use-service-requests';
 import { useTablePagination } from '@/hooks/service-requests/use-table-pagination';
 import { RequestDataTable } from './_components/request-data-table';
@@ -80,6 +81,9 @@ export default function ServiceRequestsHubPage() {
 
   const canViewAll = can('service_requests.view_all') || isSuperAdmin;
   const canApprove = can('service_requests.approve') || isSuperAdmin;
+  // The approver's own approve/reject tallies, for "N by you" under the
+  // Approved / Rejected cards. Non-approvers have none, so no request.
+  const { data: myDecisions } = useMyApprovalStats(canApprove);
 
   return (
     <ContentLayout title="Service Requests">
@@ -125,7 +129,8 @@ export default function ServiceRequestsHubPage() {
               // narrows that tab, so the card never quotes a filtered count.
               canApprove && !approvalsPaging.search && pendingApprovalsData?.metadata
                 ? pendingApprovalsData.metadata.total
-                : null
+                : null,
+              canApprove ? (myDecisions ?? null) : null
             ).map((card) => {
               const Icon = STAT_CARD_ICONS[card.key];
               return (
