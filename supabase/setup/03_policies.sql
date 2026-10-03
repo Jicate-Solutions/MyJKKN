@@ -11640,3 +11640,15 @@ CREATE POLICY sign_out_notices_update_own ON public.sign_out_notices
   FOR UPDATE TO authenticated
   USING (user_id = (SELECT auth.uid()))
   WITH CHECK (user_id = (SELECT auth.uid()));
+
+
+-- ============================================================================
+-- Updated: 2026-10-03 - Leave eligibility records cannot be deleted by signed-in users.
+-- Mirror of supabase/migrations/20271003101521_hr_leave_eligibility_system_chain.sql (table grant)
+-- ============================================================================
+-- Nobody deletes an eligibility record from the app: a grant is revoked,
+-- a request is decided. Supabase's default privileges may have given
+-- signed-in users DELETE when the table was created (20261225100000 granted
+-- only SELECT, INSERT, UPDATE but did not take it back), and the manage
+-- policy is FOR ALL, so it is taken back here.
+REVOKE DELETE ON public.hr_leave_eligibilities FROM authenticated, anon;

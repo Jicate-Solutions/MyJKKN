@@ -15,20 +15,25 @@
  * it. A gated type with neither falls back to its LEAVE flow — the behaviour
  * every gated type had before eligibility flows existed.
  *
- * NO SECOND APPROVAL ENGINE. Whichever flow is picked, the chain is built by
- * the same LeaveService.buildChainFromFlow the leave itself uses, and decide()
- * advances it with the same pure applyDecision(), so quorum, multi-approver
- * steps and "the last step grants" behave identically. Anything else would be
- * a second set of rules to keep in step with the first.
+ * THE DATABASE BUILDS THE CHAIN (2026-10-01, Director ruling). The asker used
+ * to send approval_chain with the request, which let them name themselves as
+ * approver. Now request() sends no chain: the BEFORE INSERT trigger
+ * trg_hle_system_chain (migration 20271003101521) builds it with
+ * fn_hr_leave_eligibility_build_chain — same precedence as before, via the
+ * same fn_hr_leave_build_chain the re-route RPCs use — routes any step the
+ * asker could clear to the Director, and uses one HR Head step when no flow is
+ * set. Anything the client sends in those columns is overwritten.
+ *
+ * NO SECOND APPROVAL ENGINE. decide() advances the frozen chain with the same
+ * pure applyDecision() the leave itself uses, so quorum, multi-approver steps
+ * and "the last step grants" behave identically.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { applyDecision, isFinalStep, pickLeaveFlow } from '@/lib/hr/leave/approval-chain';
-import { LeaveApprovalFlowService } from '@/lib/services/hr/leave-approval-flow-service';
-import { LeaveService, type LeaveFlowRow } from '@/lib/services/hr/leave-service';
+import { applyDecision, isFinalStep } from '@/lib/hr/leave/approval-chain';
 import { getErrorMessage } from '@/lib/utils';
-import type { LeaveApprovalStep, LeaveDocument } from '@/types/hr';
+import type { LeaveDocument } from '@/types/hr';
 import type {
   LeaveEligibility,
   LeaveEligibilityRow,
@@ -46,12 +51,14 @@ export interface RequestEligibilityInput {
   employeeId: string;
   leaveTypeId: string;
   hrOrgId: string;
+  /** Accepted for route compatibility; the database builds the chain now. */
   departmentId: string | null;
   documents: LeaveDocument[];
   reason: string | null;
   /**
-   * profiles.id of the person filing — the decision notification's recipient.
-   * Set by the server route from the session, never trusted from the body.
+   * profiles.id of the person filing. Set by the server route from the
+   * session, never trusted from the body. Not the decision notice's
+   * recipient: see decidedNoticeRecipient().
    */
   createdBy: string;
 }
@@ -161,66 +168,6 @@ export class LeaveEligibilityService {
   }
 
   /**
-   * The chain an eligibility request freezes.
-   *
-   * Eligibility flow for this type → institution eligibility catch-all → the
-   * leave flow. pickLeaveFlow with no group IS that precedence (type beats
-   * catch-all, and eligibility flows carry no group), so the rule is not
-   * re-implemented here. The fallback goes through buildApprovalChain untouched,
-   * so a gated type nobody has configured behaves exactly as it did before
-   * eligibility flows existed — including its Teaching / Non-teaching split.
-   */
-  static async buildEligibilityChain(
-    supabase: SupabaseClient,
-    hrOrgId: string,
-    leaveTypeId: string,
-    departmentId: string | null,
-    employeeId: string
-  ): Promise<LeaveApprovalStep[]> {
-    const flows = await LeaveApprovalFlowService.listForOrg(
-      supabase,
-      hrOrgId,
-      'leave_eligibility'
-    );
-    const chosen = pickLeaveFlow(flows, leaveTypeId, null);
-
-    if (!chosen) {
-      return LeaveService.buildApprovalChain(
-        supabase,
-        hrOrgId,
-        leaveTypeId,
-        departmentId,
-        employeeId
-      );
-    }
-
-    const steps = await LeaveService.buildChainFromFlow(
-      supabase,
-      chosen as unknown as LeaveFlowRow,
-      employeeId
-    );
-
-    // An eligibility flow that resolves to nobody is a configuration fault on
-    // THIS screen, not the leave one, and the message has to send the admin
-    // to the right menu item.
-    if (steps.length === 0) {
-      if ((chosen.step_source ?? 'explicit') === 'role_ladder') {
-        throw new Error(
-          `The eligibility approval ladder on "${chosen.flow_name}" has nobody above you, so ` +
-            'there is no one to send this request to. Ask HR to set a fallback approver under ' +
-            'HR → Admin → Leave Types → "Who approves eligibility".'
-        );
-      }
-      throw new Error(
-        `The eligibility approval flow "${chosen.flow_name}" has no approval steps, so there ` +
-          'is nobody to send this request to. Ask HR to add one under HR → Admin → Leave Types → ' +
-          '"Who approves eligibility".'
-      );
-    }
-    return steps;
-  }
-
-  /**
    * File a request. The document is compulsory — it is the entire evidence the
    * approver has, and a gated type exists precisely because somebody must see
    * proof before the leave is opened up.
@@ -235,14 +182,8 @@ export class LeaveEligibilityService {
       );
     }
 
-    const chain = await this.buildEligibilityChain(
-      supabase,
-      input.hrOrgId,
-      input.leaveTypeId,
-      input.departmentId,
-      input.employeeId
-    );
-
+    // No approval_chain / current_step: trg_hle_system_chain builds them from
+    // the flow set for this leave type, so the asker cannot choose approvers.
     const { data, error } = await supabase
       .from(TABLE)
       .insert({
@@ -252,8 +193,6 @@ export class LeaveEligibilityService {
         status: 'pending',
         documents: input.documents,
         reason: input.reason,
-        approval_chain: chain,
-        current_step: 0,
         created_by: input.createdBy,
       })
       .select(SELECT)
@@ -380,6 +319,35 @@ export class LeaveEligibilityService {
     const saved = data as unknown as LeaveEligibility;
     await this.applyEntitlement(supabase, saved);
     return saved;
+  }
+
+  /**
+   * Who is told that a request was approved or rejected: the person it is FOR
+   * (the staff record's profile), not whoever filed it. HR can file a request
+   * on someone's behalf, and created_by is then HR. A record no longer linked
+   * to an account falls back to the person the row was filed for, kept on the
+   * row (subject_profile_id, migration 20271003101521). Nobody found: nobody
+   * is told (null); the notice is theirs, never the filer's.
+   */
+  static async decidedNoticeRecipient(
+    supabase: SupabaseClient,
+    row: Pick<LeaveEligibility, 'id' | 'employee_id'>
+  ): Promise<string | null> {
+    const { data } = await supabase
+      .from('staff')
+      .select('profile_id')
+      .eq('id', row.employee_id)
+      .maybeSingle();
+    const linked = (data as { profile_id?: string | null } | null)?.profile_id ?? null;
+    if (linked) return linked;
+    // Read on its own, not through SELECT, so the eligibility pages never
+    // depend on the column; if it cannot be read, nobody is told.
+    const { data: kept } = await supabase
+      .from(TABLE)
+      .select('subject_profile_id')
+      .eq('id', row.id)
+      .maybeSingle();
+    return (kept as { subject_profile_id?: string | null } | null)?.subject_profile_id ?? null;
   }
 
   /**
