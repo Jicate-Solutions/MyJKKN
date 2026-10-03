@@ -11640,3 +11640,82 @@ CREATE POLICY sign_out_notices_update_own ON public.sign_out_notices
   FOR UPDATE TO authenticated
   USING (user_id = (SELECT auth.uid()))
   WITH CHECK (user_id = (SELECT auth.uid()));
+-- ============================================================================
+-- HR staff harness — chase ladder: RLS and grants
+-- Migration: 20270613101207_hr_duty_chase_ladder.sql
+-- Added: 2026-10-01 - duty register (config table), chase ledger, blocked marks,
+-- run log. Seed rows (38 duties, policies, schedule, loop row) live in the
+-- migration only.
+-- ============================================================================
+ALTER TABLE public.hr_duty_definitions       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hr_duty_definitions_audit ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.hr_duty_definitions       FROM anon, PUBLIC;
+REVOKE ALL ON public.hr_duty_definitions_audit FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON public.hr_duty_definitions TO authenticated;
+GRANT SELECT ON public.hr_duty_definitions_audit TO authenticated;
+GRANT ALL ON public.hr_duty_definitions, public.hr_duty_definitions_audit TO service_role;
+
+DROP POLICY IF EXISTS hr_duty_definitions_read ON public.hr_duty_definitions;
+CREATE POLICY hr_duty_definitions_read ON public.hr_duty_definitions
+  FOR SELECT USING ((SELECT auth.uid()) IS NOT NULL);
+
+DROP POLICY IF EXISTS hr_duty_definitions_write ON public.hr_duty_definitions;
+CREATE POLICY hr_duty_definitions_write ON public.hr_duty_definitions
+  FOR ALL USING (public.is_super_admin())
+  WITH CHECK (public.is_super_admin());
+
+DROP POLICY IF EXISTS hr_duty_definitions_audit_read ON public.hr_duty_definitions_audit;
+CREATE POLICY hr_duty_definitions_audit_read ON public.hr_duty_definitions_audit
+  FOR SELECT USING (public.is_super_admin() OR public.is_admin());
+
+
+ALTER TABLE public.hr_duty_chase_ledger ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.hr_duty_chase_ledger FROM anon, PUBLIC;
+GRANT SELECT ON public.hr_duty_chase_ledger TO authenticated;
+GRANT ALL ON public.hr_duty_chase_ledger TO service_role;
+
+-- DELIBERATELY no is_super_admin() / is_admin() clause (a recorded exception
+-- to the standard policy shape): guardrail "a person sees their own numbers
+-- first; supervisors see their own team; the Director sees desks, never a
+-- ranking of people" (design decision 3, recommended option). Desks come from
+-- fn_hr_duty_desk_summary(). No INSERT/UPDATE/DELETE policy: only the cron's
+-- service role writes, and RLS denies what it does not name.
+DROP POLICY IF EXISTS hr_duty_chase_ledger_select ON public.hr_duty_chase_ledger;
+CREATE POLICY hr_duty_chase_ledger_select ON public.hr_duty_chase_ledger
+  FOR SELECT USING (
+    (SELECT auth.uid()) = ANY (owner_profile_ids)
+    OR (SELECT auth.uid()) = ANY (supervisor_profile_ids)
+  );
+
+
+ALTER TABLE public.hr_duty_blocked_marks ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.hr_duty_blocked_marks FROM anon, PUBLIC;
+GRANT SELECT ON public.hr_duty_blocked_marks TO authenticated;
+GRANT ALL ON public.hr_duty_blocked_marks TO service_role;
+
+-- The marker, and whoever can see that item's ledger rows (its owners and
+-- their supervisors) — the same audience as the ledger, nobody wider.
+DROP POLICY IF EXISTS hr_duty_blocked_marks_select ON public.hr_duty_blocked_marks;
+CREATE POLICY hr_duty_blocked_marks_select ON public.hr_duty_blocked_marks
+  FOR SELECT USING (
+    marked_by = (SELECT auth.uid())
+    OR EXISTS (
+      SELECT 1 FROM public.hr_duty_chase_ledger l
+       WHERE l.duty_code = hr_duty_blocked_marks.duty_code
+         AND l.item_id   = hr_duty_blocked_marks.item_id
+         AND l.stage_key = hr_duty_blocked_marks.stage_key
+    )
+  );
+
+
+ALTER TABLE public.hr_duty_chase_runs ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.hr_duty_chase_runs FROM anon, PUBLIC;
+GRANT SELECT ON public.hr_duty_chase_runs TO authenticated;
+GRANT ALL ON public.hr_duty_chase_runs TO service_role;
+
+DROP POLICY IF EXISTS hr_duty_chase_runs_select ON public.hr_duty_chase_runs;
+CREATE POLICY hr_duty_chase_runs_select ON public.hr_duty_chase_runs
+  FOR SELECT USING (public.is_super_admin() OR public.is_admin());
+
+

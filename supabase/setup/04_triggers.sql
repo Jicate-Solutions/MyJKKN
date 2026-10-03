@@ -2853,3 +2853,22 @@ DROP TRIGGER IF EXISTS trg_sign_out_notices_updated_at ON public.sign_out_notice
 CREATE TRIGGER trg_sign_out_notices_updated_at
   BEFORE UPDATE ON public.sign_out_notices
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+-- ============================================================================
+-- HR staff harness — chase ladder: triggers (functions in 02_functions.sql)
+-- Migration: 20270613101207_hr_duty_chase_ladder.sql
+-- Added: 2026-10-01 - duty register (config table), chase ledger, blocked marks,
+-- run log. Seed rows (38 duties, policies, schedule, loop row) live in the
+-- migration only.
+-- ============================================================================
+DROP TRIGGER IF EXISTS hr_duty_definitions_touch_trg ON public.hr_duty_definitions;
+CREATE TRIGGER hr_duty_definitions_touch_trg
+  BEFORE UPDATE ON public.hr_duty_definitions
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_duty_definitions_touch();
+
+DROP TRIGGER IF EXISTS hr_duty_definitions_audit_trg ON public.hr_duty_definitions;
+CREATE TRIGGER hr_duty_definitions_audit_trg
+  AFTER UPDATE ON public.hr_duty_definitions
+  FOR EACH ROW EXECUTE FUNCTION public.fn_hr_duty_definitions_audit();
+
+-- Cold-read config (read once per cron run), so no pg_notify cache trigger.
+
