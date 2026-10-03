@@ -369,6 +369,33 @@ mutate "M87 deleting a staff record takes its pay rows with it" \
 mutate "M88 the ask counts the email half too (linked records)" \
   's/^  v_ident := public\.hr_salary_revision_request_identity\(p_staff_id, v_s\.profile_id\);$/  v_ident := ARRAY[v_s.profile_id];/' \
   "a raise for a record linked to a decoy but carrying the Director's email is refused when asked for"
+# Defence in depth (after review r7): the job's pass checks the figure and the
+# status; the decider setting is one global row.
+mutate "M101 the job's pass writes only the approved figure" \
+  "s/^          AND \(CASE WHEN TG_OP = 'INSERT' THEN NEW\.monthly_gross = r\.final_monthly_gross$/          AND (CASE WHEN TG_OP = 'INSERT' THEN true/" \
+  "the job's pass writes only the approved figure"
+mutate "M102 the job's pass needs the request to be approved still" \
+  "s/^          AND r\.status = 'approved'$/          AND true/" \
+  "the job's pass needs the request to be approved still"
+mutate "M103 the decider setting is one global row" \
+  "s/^  IF NEW\.scope_type IS DISTINCT FROM 'global' OR NEW\.scope_id IS NOT NULL THEN$/  IF false THEN/" \
+  'the decider setting cannot be set for one college'
+# One row that cannot be written does not stop the others (#4140's per-row
+# block, kept in this file's apply_due_on).
+mutate "M104 a row that cannot be written does not stop the others" \
+  '/^-- f6\. /,/^-- f7\. /s/^    EXCEPTION WHEN OTHERS THEN$/    EXCEPTION WHEN division_by_zero THEN/' \
+  'one row that cannot be written does not stop the others'
+# 7 Oct 2026, #4140's head 9c66d7a7ad: a fresh yes after a missed start
+# overwrites the outcome row (upsert on request_id); the missed start keeps it.
+mutate "M105 a fresh yes overwrites the outcome row (ON CONFLICT removed)" \
+  '/^  ON CONFLICT \(request_id\) DO UPDATE$/,/^         starts_on = EXCLUDED\.starts_on;$/d; s/^(  VALUES \(p_request_id, v_r\.staff_id, COALESCE\(v_now_pay, v_r\.current_monthly_gross\), v_final, v_start\))$/\1;/' \
+  'a fresh yes after a missed start leaves one outcome row, at the fresh yes'
+mutate "M106 the overwrite takes the fresh yes's figures (DO NOTHING)" \
+  '/^  ON CONFLICT \(request_id\) DO UPDATE$/,/^         starts_on = EXCLUDED\.starts_on;$/{/DO UPDATE$/!d; s/DO UPDATE$/DO NOTHING;/;}' \
+  'a fresh yes after a missed start leaves one outcome row, at the fresh yes'
+mutate "M107 a missed start keeps the outcome row (DELETE put back)" \
+  's/^        -- their outcome row \(approve_one upserts on request_id\)\.$/        DELETE FROM public.hr_salary_revision_outcomes WHERE request_id = v_r.id;/' \
+  "a missed start keeps the person's outcome row"
 # Round seven: taking people off the Director list, and "on the list" as then
 # OR now OR the Director himself by the decider row.
 mutate "M94 only the Director himself takes anyone off the list" \

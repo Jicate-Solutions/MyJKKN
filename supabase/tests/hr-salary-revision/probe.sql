@@ -365,16 +365,31 @@ SELECT t.check('a missed start goes back to the Director instead of being writte
 SELECT t.check('the Director and the asker are told about the missed start',
   (SELECT count(DISTINCT u.user_id) FROM public.user_notifications u JOIN public.notifications n ON n.id = u.notification_id
     WHERE n.title = 'A salary revision missed its start date' AND u.user_id IN (:'D', :'PA')) = 2);
+-- 7 Oct 2026 (#4140's head 9c66d7a7ad): the missed start no longer deletes the
+-- person's outcome row; the fresh yes overwrites it (upsert on request_id).
+SELECT t.check('a missed start keeps the person''s outcome row',
+  (SELECT count(*) FROM public.hr_salary_revision_outcomes WHERE request_id = :'req_f7') = 1);
 SET ROLE authenticated;
 SELECT t.login(:'D');
-SELECT t.check('the Director gives F7 a fresh yes', public.fn_hr_salary_revision_director_decide(:'req_f7', true) = 'approved');
+-- At a new figure (25000, asked 24000), so the outcome row can show it was
+-- overwritten. t.try, so a refused yes prints FAIL here rather than ERROR.
+SELECT t.check('the Director gives F7 a fresh yes',
+  t.try(format('SELECT public.fn_hr_salary_revision_director_decide(%L, true, 25000)', :'req_f7')) = 'ok');
 SELECT t.check('the fresh yes carries a fresh start date',
-  (SELECT starts_on = :'start1'::date AND final_monthly_gross = 24000 FROM public.hr_salary_revision_requests WHERE id = :'req_f7'));
+  (SELECT starts_on = :'start1'::date AND final_monthly_gross = 25000 FROM public.hr_salary_revision_requests WHERE id = :'req_f7'));
 RESET ROLE;
+SELECT t.check('a fresh yes after a missed start leaves one outcome row, at the fresh yes',
+  (SELECT count(*) = 1 AND bool_and(o.new_monthly_gross = r.final_monthly_gross AND o.starts_on = r.starts_on
+                                     AND o.staff_id = r.staff_id AND o.new_monthly_gross = 25000)
+     FROM public.hr_salary_revision_outcomes o JOIN public.hr_salary_revision_requests r ON r.id = o.request_id
+    WHERE o.request_id = :'req_f7'),
+  (SELECT string_agg(o.new_monthly_gross::text || ' from ' || o.starts_on::text, ', ')
+     FROM public.hr_salary_revision_outcomes o WHERE o.request_id = :'req_f7'));
 SELECT t.check('the fresh yes is written on its own start date', public.hr_salary_revision_apply_due_on(:'start1') = 1);
 SELECT t.check('the fresh yes is the pay in force',
-  (SELECT monthly_gross FROM public.hr_staff_salaries WHERE staff_id = :'sF7' AND superseded_by IS NULL) = 24000
-  AND (SELECT status = 'applied' FROM public.hr_salary_revision_requests WHERE id = :'req_f7'));
+  (SELECT monthly_gross FROM public.hr_staff_salaries WHERE staff_id = :'sF7' AND superseded_by IS NULL) = 25000
+  AND (SELECT status = 'applied' FROM public.hr_salary_revision_requests WHERE id = :'req_f7')
+  AND (SELECT count(*) FROM public.hr_salary_revision_outcomes WHERE request_id = :'req_f7') = 1);
 
 -- ── 11. The database enforces one open request ──────────────────────────────
 SELECT t.check('the unique index refuses a second open request even without the function',
@@ -1571,3 +1586,85 @@ SELECT t.check('someone who joined the list after the ask and was then unlinked 
 RESET ROLE;
 SELECT t.login(NULL);
 UPDATE public.platform_policies SET value = value - :'W2' WHERE policy_key = :'LIST';
+
+-- ── 24. Defence in depth (3 Oct 2026, after review r7) ──────────────────────
+-- The approvals job's pass on Employee Salaries: a new row must carry the
+-- approved figure, and the named request must still be 'approved'. I, a list
+-- member, names requests for herself and tries to write her own pay.
+RESET ROLE;
+SELECT t.login(NULL);
+INSERT INTO public.hr_salary_revision_requests (staff_id, subject_profile_id, institution_id, asked_by, asked_as, route,
+  current_monthly_gross, asked_monthly_gross, reason, status, final_monthly_gross, starts_on,
+  director_decided_by, director_decided_at, decided_under_rules, subject_was_list_member)
+VALUES (:'sI', :'I', :'A', :'H', 'hr_head', 'direct', 165000, 170000, 'Proper yes for I (figure test)', 'approved', 170000, '2099-01-01', :'D', now(), true, true)
+RETURNING id AS req_i4 \gset
+SELECT set_config('request.jwt.claims', json_build_object('sub', :'I', 'role', 'authenticated')::text, false);
+SELECT set_config('app.hr_salary_revision_apply', :'req_i4', false);
+SELECT t.check('the job''s pass writes only the approved figure',
+  t.msg(format($q$INSERT INTO public.hr_staff_salaries (staff_id, hr_organization_id, monthly_gross, effective_from, superseded_by)
+                 SELECT %L, %L, 999999, '2099-01-01', s.id FROM public.hr_staff_salaries s
+                  WHERE s.staff_id = %L AND s.superseded_by IS NULL$q$, :'sI', :'OA', :'sI'))
+    = '42501 You cannot change your own pay.'
+  AND NOT EXISTS (SELECT 1 FROM public.hr_staff_salaries WHERE staff_id = :'sI' AND monthly_gross = 999999));
+-- req_i2 (I's second request) was applied in section 15: no longer 'approved'.
+SELECT set_config('app.hr_salary_revision_apply', :'req_i2', false);
+SELECT t.check('the job''s pass needs the request to be approved still',
+  (SELECT status FROM public.hr_salary_revision_requests WHERE id = :'req_i2') = 'applied'
+  AND t.msg(format('UPDATE public.hr_staff_salaries SET superseded_by = id WHERE staff_id = %L AND superseded_by IS NULL', :'sI'))
+    = '42501 You cannot change your own pay.');
+SELECT set_config('app.hr_salary_revision_apply', '', false);
+SELECT t.login(NULL);
+DELETE FROM public.hr_salary_revision_requests WHERE id = :'req_i4';
+-- The decider setting is one row for the whole group: a per-college row is
+-- refused even from the SQL console.
+SELECT t.check('the decider setting cannot be set for one college',
+  t.msg(format($q$INSERT INTO public.platform_policies (policy_key, scope_type, scope_id, value, data_type, is_active)
+                 VALUES (%L, 'institution', %L, to_jsonb(%L::text), 'string', true)$q$, :'KEY', :'A', :'D'))
+    LIKE '22023 There is one setting for the whole group%'
+  AND NOT EXISTS (SELECT 1 FROM public.platform_policies WHERE policy_key = :'KEY' AND scope_type = 'institution'));
+
+-- ── 25. One row that cannot be written does not stop the others ────────────
+-- Two proper yeses due on the same day. The first one's write is made to fail
+-- (a test-only trigger standing in for, say, #4122 refusing a past start); it
+-- is left as it was with the reason in apply_note, and the second is written.
+\set AF1  '00000000-0000-0000-0000-00000001002a'
+\set AF2  '00000000-0000-0000-0000-00000001002b'
+\set sAF1 '00000000-0000-0000-0000-00000002002e'
+\set sAF2 '00000000-0000-0000-0000-00000002002f'
+RESET ROLE;
+SELECT t.login(NULL);
+INSERT INTO public.profiles (id, full_name, role, is_super_admin, institution_id) VALUES
+  (:'AF1', 'Member AF1', 'faculty', false, :'A'), (:'AF2', 'Member AF2', 'faculty', false, :'A');
+INSERT INTO public.staff (id, profile_id, institution_id, department_id, category_id, first_name, last_name,
+                          staff_id, designation, date_of_joining) VALUES
+  (:'sAF1', :'AF1', :'A', :'A2', :'C', 'Member', 'AF1', 'A38', 'Assistant Professor', '2020-06-01'),
+  (:'sAF2', :'AF2', :'A', :'A2', :'C', 'Member', 'AF2', 'A39', 'Assistant Professor', '2020-06-01');
+INSERT INTO public.hr_staff_salaries (staff_id, hr_organization_id, monthly_gross, effective_from)
+SELECT id, :'OA'::uuid, 40000, '2026-04-01' FROM public.staff WHERE id IN (:'sAF1', :'sAF2');
+INSERT INTO public.hr_salary_revision_requests (staff_id, subject_profile_id, institution_id, asked_by, asked_as, route,
+  current_monthly_gross, asked_monthly_gross, reason, status, final_monthly_gross, starts_on,
+  director_decided_by, director_decided_at, decided_under_rules, subject_was_list_member)
+VALUES (:'sAF1', :'AF1', :'A', :'H', 'hr_head', 'direct', 40000, 41000, 'Will fail', 'approved', 41000, :'start2', :'D', now(), true, false),
+       (:'sAF2', :'AF2', :'A', :'H', 'hr_head', 'direct', 40000, 42000, 'Will be written', 'approved', 42000, :'start2', :'D', now(), true, false);
+CREATE FUNCTION t.refuse_af1() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.staff_id = '00000000-0000-0000-0000-00000002002e' THEN
+    RAISE EXCEPTION 'test: this salary write is refused';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER t_refuse_af1 BEFORE INSERT ON public.hr_staff_salaries FOR EACH ROW EXECUTE FUNCTION t.refuse_af1();
+SELECT t.msg(format('SELECT public.hr_salary_revision_apply_due_on(%L)', :'start2')) AS af_run \gset
+SELECT t.check('one row that cannot be written does not stop the others',
+  :'af_run' = 'ok'
+  AND (SELECT status = 'approved' AND applied_salary_id IS NULL
+              AND apply_note = 'The new pay could not be written: test: this salary write is refused'
+         FROM public.hr_salary_revision_requests WHERE staff_id = :'sAF1')
+  AND (SELECT monthly_gross FROM public.hr_staff_salaries WHERE staff_id = :'sAF1' AND superseded_by IS NULL) = 40000
+  AND (SELECT status = 'applied' FROM public.hr_salary_revision_requests WHERE staff_id = :'sAF2')
+  AND (SELECT monthly_gross FROM public.hr_staff_salaries WHERE staff_id = :'sAF2' AND superseded_by IS NULL) = 42000,
+  :'af_run' || ' | ' || COALESCE((SELECT status || '/' || COALESCE(apply_note, '-') FROM public.hr_salary_revision_requests WHERE staff_id = :'sAF1'), '?'));
+SELECT t.check('the job counts only what it wrote',
+  public.hr_salary_revision_apply_due_on(:'start2') = 0
+  AND (SELECT status FROM public.hr_salary_revision_requests WHERE staff_id = :'sAF1') = 'approved');
+DROP TRIGGER t_refuse_af1 ON public.hr_staff_salaries;
