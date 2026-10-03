@@ -11080,3 +11080,47 @@ CREATE INDEX IF NOT EXISTS idx_legacy_is_req_pending ON public.legacy_instasolve
 CREATE INDEX IF NOT EXISTS idx_legacy_is_req_institution ON public.legacy_instasolver_requirements (institution_id);
 CREATE INDEX IF NOT EXISTS idx_legacy_is_req_reporter ON public.legacy_instasolver_requirements (reporter_profile_id);
 CREATE INDEX IF NOT EXISTS idx_legacy_is_req_pr ON public.legacy_instasolver_requirements (imported_purchase_request_id);
+
+
+-- ============================================================================
+-- Updated: 2026-10-02 - Parent password views + sign-out notices (migration 20271002150000)
+-- pp_parent_password_views: one row per super-admin "Show password" click. sign_out_notices: admin sign-out notice, shown once.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.pp_parent_password_views (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  account_id  UUID NOT NULL REFERENCES public.pp_parent_accounts(id) ON DELETE CASCADE,
+  viewed_by   UUID NOT NULL,
+  viewed_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  result      TEXT NOT NULL CHECK (result IN ('shown', 'changed_by_parent')),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_pp_parent_password_views_account
+  ON public.pp_parent_password_views (account_id, viewed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pp_parent_password_views_viewer
+  ON public.pp_parent_password_views (viewed_by, viewed_at DESC);
+
+COMMENT ON TABLE public.pp_parent_password_views IS
+  'One row per super-admin "Show password" click on a parent account (Director ruling 2026-10-02). Stores the outcome, never the password. Written by the service role only.';
+
+-- ---------------------------------------------------------------------------
+-- 2. sign_out_notices
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.sign_out_notices (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id            UUID NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  parent_account_id  UUID NULL REFERENCES public.pp_parent_accounts(id) ON DELETE CASCADE,
+  signed_out_by      UUID NOT NULL,
+  signed_out_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  seen_at            TIMESTAMPTZ NULL,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT sign_out_notices_one_target CHECK (num_nonnulls(user_id, parent_account_id) = 1)
+);
+CREATE INDEX IF NOT EXISTS idx_sign_out_notices_user_unseen
+  ON public.sign_out_notices (user_id) WHERE seen_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_sign_out_notices_parent_unseen
+  ON public.sign_out_notices (parent_account_id) WHERE seen_at IS NULL;
+
+COMMENT ON TABLE public.sign_out_notices IS
+  'An admin signed this person out of all devices; shown once after their next sign-in (Director ruling 2026-10-02). Written by the service role only.';

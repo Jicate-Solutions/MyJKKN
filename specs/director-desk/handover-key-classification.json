@@ -164,6 +164,7 @@
     "users.permissions_audit.view",
     "users.relationship.manage",
     "users.relationship.view",
+    "users.sessions.revoke",
     "users.view",
     "view_dashboard",
     "view_profile"
@@ -1032,7 +1033,10 @@
     "induction.create",
     "induction.manage",
     "induction.view",
+    "instasolver.analytics",
+    "instasolver.triage",
     "instasolver.view",
+    "instasolver.work",
     "internship.assignments.create",
     "internship.assignments.delete",
     "internship.assignments.edit",

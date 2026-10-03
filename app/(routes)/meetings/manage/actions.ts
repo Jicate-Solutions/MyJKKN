@@ -15,6 +15,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
+import { readInterviewHostSetting } from '@/lib/services/hr/interview-booking-service';
 
 // NOTE: repo compiles with strictNullChecks:false — flat optional-field shape,
 // not a discriminated union.
@@ -783,6 +784,8 @@ export interface MyBookingPage {
   isPublic: boolean;
   /** Set by the system when the host's Google connection broke (D19). */
   autoHidden: boolean;
+  /** Slug of this host's interview-link type (its link is /book-interview), if any. */
+  interviewSlug: string | null;
 }
 
 /**
@@ -804,12 +807,15 @@ export async function getMyBookingPage(): Promise<ActionResult<MyBookingPage | n
     }
     if (!data) return { success: true, data: null };
     const row = data as { handle: string; is_public: boolean | null; auto_hidden: boolean | null };
+    const interview = await readInterviewHostSetting(supabase);
     return {
       success: true,
       data: {
         handle: row.handle,
         isPublic: row.is_public === true,
         autoHidden: row.auto_hidden === true,
+        interviewSlug:
+          interview && interview.handle === row.handle.toLowerCase() ? interview.type_slug : null,
       },
     };
   } catch (err) {

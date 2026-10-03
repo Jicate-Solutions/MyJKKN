@@ -37,6 +37,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
+import { JoinedReportsList, type JoinedReportItem } from '@/components/campus-walk/joined-reports-list';
 
 // ── Types shared with the server component ──────────────────────────────────
 
@@ -63,6 +64,8 @@ export interface ReviewItem {
   /** Signed URLs — the `campus-walk` bucket is private and stays that way (G4). */
   problemPhotoUrl: string | null;
   fixPhotoUrl: string | null;
+  /** Extra reports added from the QR sticker while the job was open. No names (D10). */
+  joinedReports: JoinedReportItem[];
   submittedAt: string | null;
   /** Who did the work. Not the observer — see D10 note above. */
   submittedByName: string | null;
@@ -301,6 +304,8 @@ function ReviewCard({
             missingTone="warn"
           />
         </div>
+
+        <JoinedReportsList reports={item.joinedReports} />
 
         {item.fixNote && (
           <div className="rounded-md bg-muted px-3 py-2 text-sm">

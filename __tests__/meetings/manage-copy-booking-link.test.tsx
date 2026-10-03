@@ -69,7 +69,7 @@ describe('Meetings → Manage: Copy link', () => {
     render(
       <EventTypesManager
         initialEventTypes={[type({})]}
-        bookingPage={{ handle: 'omm', isPublic: true, autoHidden: false }}
+        bookingPage={{ handle: 'omm', isPublic: true, autoHidden: false, interviewSlug: null }}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Copy the booking link for Interview' }));
@@ -81,7 +81,7 @@ describe('Meetings → Manage: Copy link', () => {
     render(
       <EventTypesManager
         initialEventTypes={[type({ hidden: true })]}
-        bookingPage={{ handle: 'omm', isPublic: true, autoHidden: false }}
+        bookingPage={{ handle: 'omm', isPublic: true, autoHidden: false, interviewSlug: null }}
       />,
     );
     expect(screen.getByText('Hidden')).toBeInTheDocument();
@@ -95,7 +95,7 @@ describe('Meetings → Manage: Copy link', () => {
     render(
       <EventTypesManager
         initialEventTypes={[type({})]}
-        bookingPage={{ handle: 'omm', isPublic: true, autoHidden: true }}
+        bookingPage={{ handle: 'omm', isPublic: true, autoHidden: true, interviewSlug: null }}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Copy the booking link for Interview' }));
@@ -108,7 +108,7 @@ describe('Meetings → Manage: Copy link', () => {
     render(
       <EventTypesManager
         initialEventTypes={[type({})]}
-        bookingPage={{ handle: 'omm', isPublic: false, autoHidden: false }}
+        bookingPage={{ handle: 'omm', isPublic: false, autoHidden: false, interviewSlug: null }}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Copy the booking link for Interview' }));
@@ -129,11 +129,52 @@ describe('Meetings → Manage: Copy link', () => {
     render(
       <EventTypesManager
         initialEventTypes={[type({})]}
-        bookingPage={{ handle: 'omm', isPublic: true, autoHidden: false }}
+        bookingPage={{ handle: 'omm', isPublic: true, autoHidden: false, interviewSlug: null }}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Copy the booking link for Interview' }));
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
     expect(toast.error.mock.calls[0][0]).toContain(URL);
+  });
+
+  it('clipboard refused on a hidden type → the manual-copy message keeps the hidden warning', async () => {
+    writeText.mockRejectedValue(new Error('denied'));
+    render(
+      <EventTypesManager
+        initialEventTypes={[type({ hidden: true })]}
+        bookingPage={{ handle: 'omm', isPublic: true, autoHidden: false, interviewSlug: null }}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Copy the booking link for Interview' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(toast.error.mock.calls[0][0]).toContain(URL);
+    expect(toast.error.mock.calls[0][0]).toContain('will not open for anyone until you make it visible');
+  });
+
+  it('the interview type copies /book-interview, with no hidden warning (Director #31)', async () => {
+    render(
+      <EventTypesManager
+        initialEventTypes={[type({ hidden: true })]}
+        bookingPage={{ handle: 'omm', isPublic: true, autoHidden: false, interviewSlug: 'interview' }}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Copy the booking link for Interview' }));
+    const link = `${window.location.origin}/book-interview`;
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(link));
+    expect(toast.warning).not.toHaveBeenCalled();
+    expect(toast.success.mock.calls[0][0]).toContain(`Interview booking link copied: ${link}`);
+  });
+
+  it('the interview type still warns when the whole booking page is switched off', async () => {
+    render(
+      <EventTypesManager
+        initialEventTypes={[type({ hidden: true })]}
+        bookingPage={{ handle: 'omm', isPublic: false, autoHidden: false, interviewSlug: 'interview' }}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Copy the booking link for Interview' }));
+    await waitFor(() => expect(toast.warning).toHaveBeenCalled());
+    expect(toast.warning.mock.calls[0][0]).toContain('/book-interview');
+    expect(toast.warning.mock.calls[0][0]).toContain('switched off');
   });
 });

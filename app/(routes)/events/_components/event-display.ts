@@ -72,6 +72,49 @@ export function canEditEvent(event: EventOwnership, viewer: EventEditViewer): bo
   return !!viewer.institutionId && event.institution_id === viewer.institutionId;
 }
 
+/** The viewer, as much of them as the cancel decision needs. */
+export interface EventCancelViewer {
+  userId?: string | null;
+  isSuperAdmin?: boolean;
+  /** profiles.role — is_admin() also admits admin / super_admin / administrator. */
+  role?: string | null;
+}
+
+/** is_admin()'s role list (supabase/setup/02_functions.sql). */
+const IS_ADMIN_ROLES = ['admin', 'super_admin', 'administrator'];
+
+/**
+ * May this viewer CANCEL this event? Director's ruling, 30 Sep 2026: only the
+ * event's in-charges and admins — not every editor, not the creator as such.
+ *
+ * MIRRORS the database, which refuses everyone else twice over:
+ * event_cancellations' write policies and trg_events_cancel_incharge_or_admin
+ * on events (migration 20270601110000), both
+ *
+ *   is_admin()  OR  fn_is_event_incharge(id)
+ *
+ * is_admin() = super admin flag, or role admin / super_admin / administrator.
+ * fn_is_event_incharge = auth.uid() appears as a member_id in
+ * events.config->incharges. Independent of canEditEvent: an in-charge without
+ * events.edit may cancel; an editor who is not an in-charge may not.
+ */
+export function canCancelEvent(
+  event: { config?: unknown },
+  viewer: EventCancelViewer,
+): boolean {
+  if (viewer.isSuperAdmin) return true;
+  if (viewer.role && IS_ADMIN_ROLES.includes(viewer.role)) return true;
+  if (!viewer.userId) return false;
+  const incharges = (event.config as { incharges?: unknown } | null | undefined)?.incharges;
+  if (!Array.isArray(incharges)) return false;
+  return incharges.some(
+    (i) =>
+      !!i &&
+      typeof i === 'object' &&
+      (i as { member_id?: unknown }).member_id === viewer.userId,
+  );
+}
+
 /**
  * Where "open this event" goes. Specialised types get their own console —
  * /events/[id] would only redirect there anyway (see DEDICATED_EVENT_CONSOLES),
