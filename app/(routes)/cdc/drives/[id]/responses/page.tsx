@@ -9,6 +9,8 @@
 
 import Link from 'next/link';
 import { use, useMemo, useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
@@ -32,7 +34,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ChevronLeft, ChevronRight, Download, Search, Users } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, RotateCcw, Search, Users } from 'lucide-react';
 import { useCdcDrive, useCdcDriveResponses, cdcDriveResponsesExportUrl } from '@/hooks/cdc/use-cdc-drives';
 import { formatArrearsForExport } from '@/lib/services/cdc/academic-standing';
 import type { CdcWillingnessStatus } from '@/types/cdc';
@@ -47,6 +49,29 @@ const STATUS_LABEL: Record<CdcWillingnessStatus, string> = {
   withdrawn: 'Declined',
   no_show: 'No show',
 };
+/**
+ * Has the drive day NOT yet passed (IST)? Mirrors `driveDayNotPassed` in
+ * lib/services/cdc/willingness-service.ts, which is the authority — that module
+ * reaches the COE service and Supabase and must not be pulled into a client
+ * bundle, so the two-line rule is restated here. The server refuses a late
+ * reopen regardless of what this says; this only greys the button out.
+ *
+ * `<=`, not `<`: the drive day itself is allowed (Director ruling, 2026-09-18).
+ * The day is read in Asia/Kolkata on BOTH sides — the browser's own local day
+ * would cut a learner off early for anyone whose device is not on IST, and
+ * `drive_date` is an Indian calendar day with no zone of its own.
+ */
+function driveDayNotPassedIst(driveDate: string | null | undefined): boolean {
+  if (!driveDate) return true;
+  const today = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+  return today <= driveDate;
+}
+
 const STATUS_VARIANT: Record<CdcWillingnessStatus, 'default' | 'secondary' | 'outline' | 'destructive'> = {
   willing: 'default',
   confirmed: 'default',
@@ -105,6 +130,39 @@ function ResponsesContent({ params }: { params: Promise<{ id: string }> }) {
 
   const exportUrl = cdcDriveResponsesExportUrl(id, filters);
   const canExport = (data?.total ?? 0) > 0;
+
+  // Ruling B (Director, 2026-09-18) — any CDC team member may reopen ONE
+  // learner's declined answer, up to and including the drive day. The button is
+  // disabled only once that day has passed; the server refuses it regardless, so
+  // a stale page cannot reopen a drive whose day is over.
+  const driveDayNotPassed = driveDayNotPassedIst(drive?.drive_date);
+  // Mirrors REOPEN_REFUSING_DRIVE_STATUSES in willingness-service.ts (the
+  // authority; the server refuses regardless). A cancelled or closed drive is not
+  // going to happen, so no declined answer on it can be reopened.
+  const driveRefusesReopen = drive?.status === 'cancelled' || drive?.status === 'closed';
+  const reopenAllowed = driveDayNotPassed && !driveRefusesReopen;
+  const qc = useQueryClient();
+  const reopen = useMutation({
+    mutationFn: async (willingnessId: string) => {
+      const res = await fetch(`/api/cdc/drives/${id}/responses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reopen', willingness_id: willingnessId }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Could not reopen the response (${res.status})`);
+      }
+      return (await res.json()).data;
+    },
+    onSuccess: () => {
+      toast.success('Reopened. The learner can answer again up to the end of the drive day.');
+      qc.invalidateQueries({ queryKey: ['cdc-drive-responses', id] });
+    },
+    onError: (err: unknown) => {
+      toast.error(err instanceof Error ? err.message : 'Could not reopen the response');
+    },
+  });
 
   return (
     <ContentLayout title="Willingness responses">
@@ -241,6 +299,7 @@ function ResponsesContent({ params }: { params: Promise<{ id: string }> }) {
                       <TableHead className="text-right">Arrears</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Submitted</TableHead>
+                      <TableHead className="text-right">Action</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -284,6 +343,33 @@ function ResponsesContent({ params }: { params: Promise<{ id: string }> }) {
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                           {new Date(r.declared_at).toLocaleString()}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {r.status === 'withdrawn' && r.reopened ? (
+                            <Badge
+                              variant="outline"
+                              title="Reopened by the Career Development Centre. The learner can answer again up to the end of the drive day."
+                            >
+                              Reopened
+                            </Badge>
+                          ) : r.status === 'withdrawn' ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={!reopenAllowed || reopen.isPending}
+                              title={
+                                driveRefusesReopen
+                                  ? `This drive is ${drive?.status} — a declined response can no longer be reopened`
+                                  : driveDayNotPassed
+                                    ? 'Let this learner answer again, up to the end of the drive day'
+                                    : 'The drive day has passed — a declined response can no longer be reopened'
+                              }
+                              onClick={() => reopen.mutate(r.willingness_id)}
+                            >
+                              <RotateCcw className="mr-1 h-3.5 w-3.5" />
+                              Reopen
+                            </Button>
+                          ) : null}
                         </TableCell>
                       </TableRow>
                     ))}
