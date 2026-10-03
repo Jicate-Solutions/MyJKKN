@@ -406,14 +406,19 @@ export function EventTypesManager({
       );
       return;
     }
-    const url = `${window.location.origin}/meet/${bookingPage.handle}/${et.slug}`;
+    // The interview type's real link is /book-interview, which asks the
+    // candidate questions and works while the type is hidden (Director #31).
+    const isInterview = bookingPage.interviewSlug === et.slug;
+    const url = isInterview
+      ? `${window.location.origin}/book-interview`
+      : `${window.location.origin}/meet/${bookingPage.handle}/${et.slug}`;
     // Why the link will not open, if it will not — said on the copied AND the
     // copy-by-hand path, so a failed clipboard never drops the warning.
     const blocker = !bookingPage.isPublic
       ? 'Your booking page is switched off, so it will not open for others until it is switched on.'
       : bookingPage.autoHidden
         ? 'Your booking page was hidden because your Google connection stopped working, so the link will not open until you reconnect Google.'
-        : et.hidden
+        : et.hidden && !isInterview
           ? 'This type is hidden, so the link will not open for anyone until you make it visible (Edit → turn off "Hide from booking page").'
           : null;
     try {
@@ -427,6 +432,10 @@ export function EventTypesManager({
     }
     if (blocker) {
       toast.warning(`Link copied: ${url}. ${blocker}`);
+    } else if (isInterview) {
+      toast.success(
+        `Interview booking link copied: ${url}. Candidates answer the post and CV questions there.`,
+      );
     } else {
       toast.success(`Link copied: ${url}`);
     }
