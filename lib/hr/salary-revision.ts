@@ -18,7 +18,9 @@ export type SalaryRevisionStatus =
   | 'approved'
   | 'applied'
   | 'stopped'
-  | 'refused';
+  | 'refused'
+  /** 30 Sep: an approved raise whose person left before its start date. */
+  | 'cancelled';
 
 export type SalaryRevisionAskedAs = 'director' | 'hr_head' | 'principal' | 'hod';
 
@@ -51,6 +53,14 @@ export interface SalaryRevisionRow {
   director_decided_at: string | null;
   applied_at: string | null;
   comment_count: number;
+  /** 30 Sep: the asker is the principal AND the head of this person's department. */
+  asker_is_also_hod: boolean;
+  /** 30 Sep: the college's pay band changed since the request. Only ever true for the Director. */
+  band_changed: boolean;
+  /** Why an approved raise could not be written yet, or that its start date was missed. */
+  apply_note: string | null;
+  /** 30 Sep: why an approved raise was cancelled (the person left). */
+  cancel_note: string | null;
 }
 
 export const STATUS_LABELS: Record<SalaryRevisionStatus, string> = {
@@ -60,6 +70,7 @@ export const STATUS_LABELS: Record<SalaryRevisionStatus, string> = {
   applied: 'Approved — now in the pay',
   stopped: 'Stopped by the principal',
   refused: 'Not approved',
+  cancelled: 'Cancelled — the person left before the start',
 };
 
 export const ASKED_AS_LABELS: Record<SalaryRevisionAskedAs, string> = {
@@ -81,7 +92,7 @@ export function toAmount(value: number | string | null | undefined): number | nu
   return Number.isFinite(n) ? n : null;
 }
 
-export type SalaryRevisionFlagKind = 'cut' | 'self' | 'senior';
+export type SalaryRevisionFlagKind = 'cut' | 'self' | 'senior' | 'also_hod';
 
 export interface SalaryRevisionFlag {
   kind: SalaryRevisionFlagKind;
@@ -95,13 +106,17 @@ export interface SalaryRevisionFlag {
  * raise is not. RULING 9: asking for oneself or for a senior is flagged.
  */
 export function flagsFor(row: Pick<SalaryRevisionRow,
-  'is_cut' | 'final_is_cut' | 'final_monthly_gross' | 'is_self' | 'is_for_senior'>): SalaryRevisionFlag[] {
+  'is_cut' | 'final_is_cut' | 'final_monthly_gross' | 'is_self' | 'is_for_senior'>
+  & { asker_is_also_hod?: boolean }): SalaryRevisionFlag[] {
   const flags: SalaryRevisionFlag[] = [];
   const decided = toAmount(row.final_monthly_gross) !== null;
   const cut = decided ? row.final_is_cut === true : row.is_cut === true;
   if (cut) flags.push({ kind: 'cut', label: 'PAY CUT' });
   if (row.is_self) flags.push({ kind: 'self', label: 'Asking for self' });
   if (row.is_for_senior) flags.push({ kind: 'senior', label: 'Asking for a senior' });
+  // 30 Sep: a principal who is also the head of the department had nobody to
+  // check them, so the Director sees it marked.
+  if (row.asker_is_also_hod) flags.push({ kind: 'also_hod', label: 'Principal is also the head of department' });
   return flags;
 }
 
@@ -190,6 +205,9 @@ export function decisionSummary(row: Pick<SalaryRevisionRow,
       return 'The principal stopped it.';
     case 'waiting_principal':
       return 'Waiting for the principal to agree or stop it.';
+    case 'cancelled':
+      // 30 Sep: an approved raise whose person left before its start date.
+      return `Cancelled: the person left before the new pay was to start${row.starts_on ? ` on ${longDate(row.starts_on)}` : ''}.`;
     default:
       return 'Waiting for the Director’s yes or no.';
   }

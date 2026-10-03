@@ -10596,6 +10596,35 @@ CREATE TABLE IF NOT EXISTS public.hr_salary_revision_requests (
     CHECK ((status = 'applied') = (applied_salary_id IS NOT NULL AND applied_at IS NOT NULL))
 );
 
+-- Updated: 2026-09-30 - 20270524090000: the marker, the band snapshot, the cancelled state.
+ALTER TABLE public.hr_salary_revision_requests
+  ADD COLUMN IF NOT EXISTS asker_is_also_hod boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS band_snapshot     jsonb,
+  ADD COLUMN IF NOT EXISTS cancelled_at      timestamptz,
+  ADD COLUMN IF NOT EXISTS cancel_note       text;
+
+COMMENT ON COLUMN public.hr_salary_revision_requests.asker_is_also_hod IS
+  '30 Sep: the asker is the principal AND the head of this department, so there was no separate check; the Director sees it marked.';
+COMMENT ON COLUMN public.hr_salary_revision_requests.band_snapshot IS
+  '30 Sep: the college''s pay band as it stood when asked, so the Director''s screen can say the band changed since. Never sent to a browser.';
+COMMENT ON COLUMN public.hr_salary_revision_requests.cancel_note IS
+  '30 Sep: why an approved raise was cancelled (the person left before its start date).';
+
+-- 'cancelled' joins the statuses. The inline CHECK of 20270519090000 carries
+-- PostgreSQL's default name.
+ALTER TABLE public.hr_salary_revision_requests
+  DROP CONSTRAINT IF EXISTS hr_salary_revision_requests_status_check;
+ALTER TABLE public.hr_salary_revision_requests
+  ADD CONSTRAINT hr_salary_revision_requests_status_check
+  CHECK (status IN ('waiting_principal', 'waiting_director',
+                    'approved', 'applied', 'stopped', 'refused', 'cancelled'));
+ALTER TABLE public.hr_salary_revision_requests
+  DROP CONSTRAINT IF EXISTS hr_srr_cancelled_has_note;
+ALTER TABLE public.hr_salary_revision_requests
+  ADD CONSTRAINT hr_srr_cancelled_has_note
+  CHECK ((status = 'cancelled') = (cancelled_at IS NOT NULL AND cancel_note IS NOT NULL));
+
+
 -- RULING 10: one open request per person. 'approved' counts as open: until the
 -- new pay is written, a second yes could be applied on top of the first.
 CREATE UNIQUE INDEX IF NOT EXISTS hr_salary_revision_requests_one_open

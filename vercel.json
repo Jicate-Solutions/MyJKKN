@@ -18,11 +18,11 @@
   },
   "crons": [
     {
-      "path": "/api/cron/hr-salary-revisions?mode=apply&secret=${CRON_SECRET}",
+      "path": "/api/cron/hr-salary-revisions?mode=apply",
       "schedule": "43 18 * * *"
     },
     {
-      "path": "/api/cron/hr-salary-revisions?mode=digest&secret=${CRON_SECRET}",
+      "path": "/api/cron/hr-salary-revisions?mode=digest",
       "schedule": "47 3 * * 1"
     },
     {

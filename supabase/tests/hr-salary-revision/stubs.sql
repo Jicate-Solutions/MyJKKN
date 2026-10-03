@@ -24,6 +24,14 @@ CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
   SELECT (NULLIF(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')::uuid
 $$;
 GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated, service_role;
+-- #4121's guard trigger asks auth.role(); the probe's t.login() sets only the sub.
+CREATE OR REPLACE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(
+    NULLIF(current_setting('request.jwt.claim.role', true), ''),
+    (NULLIF(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role')
+  )::text
+$$;
+GRANT EXECUTE ON FUNCTION auth.role() TO anon, authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION public.set_updated_at() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN NEW.updated_at := now(); RETURN NEW; END $$;
@@ -83,10 +91,22 @@ CREATE TABLE public.user_notifications (
   user_id uuid NOT NULL, read_at timestamptz, created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT user_notifications_notification_id_user_id_key UNIQUE (notification_id, user_id));
 
--- platform_policies with the columns #4119's functions filter on.
+-- platform_policies with the columns #4119's functions filter on, plus the
+-- ones #4121's seed writes and the unique key its ON CONFLICT names.
 CREATE TABLE public.platform_policies (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   policy_key text NOT NULL, scope_type text NOT NULL, scope_id uuid,
   value jsonb NOT NULL, draft_value jsonb,
   publication_state text NOT NULL DEFAULT 'published',
-  is_active boolean DEFAULT true, updated_at timestamptz DEFAULT now());
+  is_active boolean DEFAULT true,
+  description text, data_type text, is_system boolean DEFAULT false,
+  updated_by uuid, updated_at timestamptz DEFAULT now());
+CREATE UNIQUE INDEX platform_policies_key_scope_uq ON public.platform_policies
+  (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid));
+ALTER TABLE public.platform_policies ENABLE ROW LEVEL SECURITY;
+CREATE POLICY platform_policies_select ON public.platform_policies
+  FOR SELECT USING (auth.uid() IS NOT NULL);
+-- #4121 seeds the Director list from auth.users. No Director account here, so
+-- it seeds an EMPTY list; seed.sql then puts D on it directly (as the SQL
+-- console would), and S stays a super admin who is NOT on it.
+CREATE TABLE auth.users (id uuid PRIMARY KEY, email text, email_confirmed_at timestamptz, deleted_at timestamptz);

@@ -39,8 +39,7 @@ import {
   RevisionPage,
   StatusBadge,
   SuggestionBeside,
-  rupees,
-} from '../_components/revision-bits';
+  rupees, BandChangedNote, RequestNote } from '../_components/revision-bits';
 import { RevisionTable } from '../_components/revision-table';
 
 export const navMeta = { label: 'Approve Salary Revisions', icon: 'BadgeCheck' };
@@ -173,9 +172,13 @@ export default function ApproveSalaryRevisionsPage() {
                           {changeText(toAmount(r.current_monthly_gross), toAmount(r.asked_monthly_gross))}
                         </div>
                         <BandWarning text={r.band_warning} />
+                        <BandChangedNote changed={r.band_changed} />
                       </TableCell>
                       <TableCell className='text-right'><SuggestionBeside suggestion={r.suggestion} /></TableCell>
-                      <TableCell className='max-w-xs text-sm'><p className='line-clamp-3'>{r.reason}</p></TableCell>
+                      <TableCell className='max-w-xs text-sm'>
+                        <p className='line-clamp-3'>{r.reason}</p>
+                        <RequestNote text={r.apply_note} />
+                      </TableCell>
                       <TableCell>
                         <Button asChild size='sm' variant='outline'>
                           <Link href={`/hr/salary-revisions/${r.id}`}>Open</Link>
