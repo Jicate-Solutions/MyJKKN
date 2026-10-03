@@ -429,6 +429,22 @@ export const PLATFORM_OPS_ROUTINES: AIRoutine[] = [
     "notes": "Auth: Bearer or ?secret=. IST math: 07:00 UTC = 12:30 IST (minute_of_day 750)."
   },
   {
+    "id": "hr-intake-cleanup",
+    "name": "HR intake helper — close idle uploads",
+    "category": "platform-ops",
+    "type": "cron",
+    "schedule": "Daily · 03:30 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/hr-intake-cleanup",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based storage and status sweep over hr_intake_batches; no model involved.",
+    "whatItDoes": "Closes every CVViZ intake upload that nobody has touched for 30 days (the batch and its rows), removes the applicants' resume copies it still holds in the private hr-intake bucket, and clears the paths on its rows. Applications already filed into MyJKKN are left as they are.",
+    "configKnobs": "IDLE_BATCH_DAYS (30) in lib/services/hr/intake/intake-service.ts; at most 200 batches a run. Day/time editable at /admin/ai-routines.",
+    "sideEffects": "Deletes storage objects under hr-intake/<batch id>/ and sets hr_intake_batches.status = 'closed'. SENDS NOTHING.",
+    "safeToManualTrigger": true,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'hr-intake-cleanup', seeded by migration 20270613101319), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer ONLY, constant-time). Idempotent: a closed batch is never picked again. IST slot 03:30 (minute_of_day 210)."
+  },
+  {
     "id": "hr-policy-promote-detector",
     "name": "HR policy promotion detector (weekly)",
     "category": "platform-ops",
