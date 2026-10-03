@@ -47,10 +47,12 @@ export interface MyBookingFilter {
   ascending: boolean;
 }
 
-// Upcoming/Past are TIME questions, not status questions — nothing moves a
-// booking to 'completed' on its own, so a meeting held last month is still
-// 'confirmed'. Filtering on status alone would list every past meeting under
-// Upcoming and leave Past permanently empty (the bug the inbox already fixed).
+// Upcoming/Past are TIME questions, not status questions — a booking moves to
+// 'completed' only when a person marks it, or (since 20271003091700) when the
+// daily sweep closes it 7 days after it ends because its notes are linked, so
+// a meeting held last month is often still 'confirmed'. Filtering on status
+// alone would list every past meeting under Upcoming and leave Past
+// permanently empty (the bug the inbox already fixed).
 // 'no_show' is history by definition and only ever appears under Past/All.
 export const MY_BOOKING_FILTERS: readonly MyBookingFilter[] = [
   { key: 'upcoming', label: 'Upcoming', statuses: ['confirmed'], when: 'future', ascending: true },

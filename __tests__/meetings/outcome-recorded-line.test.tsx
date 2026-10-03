@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 
 // The undo (3 Oct 2026) renders MarkOutcomeButtons, a client component whose
 // server action pulls in the whole scheduling import chain. None of that
@@ -27,6 +27,7 @@ import {
   outcomeRecordedText,
   canCorrectNotesClose,
 } from '@/app/(routes)/meetings/[uid]/_components/outcome-recorded-line';
+import { MarkOutcomeButtons } from '@/app/(routes)/meetings/[uid]/_components/mark-outcome-buttons';
 import { PersonHistorySection } from '@/app/(routes)/meetings/[uid]/_components/person-history-section';
 import { buildHistory } from '@/lib/services/meetings/meeting-person-history-service';
 
@@ -156,5 +157,37 @@ describe('the undo on a notes-closed meeting (3 Oct 2026)', () => {
     expect(canCorrectNotesClose('completed', 'host', true)).toBe(false);
     expect(canCorrectNotesClose('completed', null, true)).toBe(false);
     expect(canCorrectNotesClose('cancelled', 'notes', true)).toBe(false);
+  });
+});
+
+describe('the "Mark happened" confirm dialog on a notes-closed meeting (3 Oct 2026)', () => {
+  const NOTES_CLOSED_CONFIRM =
+    'The booking is already Completed, closed automatically because its notes were linked. This records you as the person who confirmed it happened.';
+
+  it('says it records the person as having confirmed it — not that the booking moves to Completed', () => {
+    render(
+      <OutcomeRecordedLine markedBy="notes" markedByName={null} status="completed" uid="bk-1" canAct />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Mark happened/ }));
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog.textContent).toContain(NOTES_CLOSED_CONFIRM);
+    expect(dialog.textContent).not.toContain('The booking moves to Completed.');
+  });
+
+  it('keeps the confirmed-meeting wording as it was', () => {
+    render(<MarkOutcomeButtons uid="bk-1" />);
+    fireEvent.click(screen.getByRole('button', { name: /Mark happened/ }));
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog.textContent).toContain('The booking moves to Completed.');
+    expect(dialog.textContent).not.toContain('already Completed');
+  });
+
+  it('leaves the no-show wording unchanged on a notes-closed meeting', () => {
+    render(
+      <OutcomeRecordedLine markedBy="notes" markedByName={null} status="completed" uid="bk-1" canAct />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Mark no-show/ }));
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog.textContent).toContain('The booking moves to No-show');
   });
 });

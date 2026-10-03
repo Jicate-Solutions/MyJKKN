@@ -80,7 +80,7 @@ export function OutcomeRecordedLine({
     <div className="space-y-2">
       {line}
       <p className="text-xs text-muted-foreground">{CORRECT_NOTES_CLOSE_TEXT}</p>
-      <MarkOutcomeButtons uid={uid} />
+      <MarkOutcomeButtons uid={uid} notesClosed />
     </div>
   );
 }

@@ -7,7 +7,7 @@
 -- DECISION
 -- --------
 -- Requested by the Front desk session on 2 Oct 2026 and confirmed by the
--- Director in the myjkkn-agent chat on 2 Oct 2026 (~23:25 IST), who chose the
+-- Director in the myjkkn-agent chat on 2 Oct 2026 (about 23:22 IST), who chose the
 -- option "Close those with notes" over "Keep the 21 Aug rule".
 --
 -- This PARTIALLY reverses the 21 Aug 2026 retirement of the 7-day auto-close.
