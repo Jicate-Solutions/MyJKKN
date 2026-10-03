@@ -147,7 +147,7 @@ export function RequirementsClient() {
       />
       <PageHeader
         title="Requirements"
-        description="Items requested for learning studios, labs, the learning auditorium and learning commons"
+        description="Items requested for learning studios, the learning auditorium, the learning commons and offices"
         actions={actions}
       />
 

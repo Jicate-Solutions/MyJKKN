@@ -23,7 +23,7 @@ You have three things. Use all three:
 |---|---|---|
 | **The requirements** | `INSTASOLVER-PRD.md` — 1 500 lines, current | Says *what* and *why*. §5 data model, §6 authorization matrix, §7 requirements by role, §11 acceptance, §17 known gaps |
 | **The database** | `supabase/migrations/` — 46 files | The real specification. Every rule that matters is a trigger, a policy or an RPC, not application code |
-| **The application** | `lib/services/`, `hooks/`, `app/(app)/`, `components/` | ~40 components and 14 service classes. Layered, typed, and already reviewed against MyJKKN conventions |
+| **The application** | `lib/services/`, `hooks/`, `app/(app)/`, `components/` | ~40 components and 14 services. Layered, typed, and already reviewed against MyJKKN conventions |
 
 **The one sentence that governs everything below:** authorization and business
 rules live in Postgres (RLS + triggers), not in the UI. The UI's role checks
@@ -319,7 +319,7 @@ the next exists.
 | Route | Who | What it must do |
 |---|---|---|
 | `/issues/new`, `/requirements/new` | Reporter, Maintenance, Super Admin, CAO, Principal | The report form: institution, category, severity, location, title, details (≥10 characters), photographs. A checklist beside it ticks off what is still missing |
-| `/issues`, `/requirements` | everyone, RLS-scoped | Server-side pagination and filtering, chip filters, remembered per person, row click opens the record, CSV export and bulk assign for staff |
+| `/issues`, `/requirements` | everyone, RLS-scoped | Server-side pagination and filtering, chip filters, remembered per person, row click opens the record, CSV export and bulk assign for the CAO |
 | `/issues/[id]` | RLS-scoped | The record: progress bar, the next action, quick assign, notes, the timeline, the confirmation panel, photo viewer |
 | `/triage` | CAO, Super Admin | The ranked queue, opening on "needs a decision"; assign or prioritise from the row |
 | `/work` | Maintenance, Super Admin | Tabs with counts: assigned, in progress, to claim, completed. Held-by column. Claim / start / complete from the row |

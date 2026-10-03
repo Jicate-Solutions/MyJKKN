@@ -326,7 +326,7 @@ export function RequirementForm({ initial, submitLabel, submitting, onSubmit, on
         </Label>
         <Input
           id="usage_location"
-          placeholder="e.g. Block B, learning lab 3"
+          placeholder="e.g. Block B, first floor, learning studio 3"
           aria-invalid={!!errors.usage_location}
           {...register('usage_location')}
         />

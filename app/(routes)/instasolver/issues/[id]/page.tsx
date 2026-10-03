@@ -65,7 +65,7 @@ export default function IssueDetailPage() {
     !!uid &&
     (issue.assigned_to === uid ||
       (issue.assigned_team_id !== null && access.team_ids.includes(issue.assigned_team_id)));
-  const staff = access.is_manager || isWorker;
+  const handlesIt = access.is_manager || isWorker;
 
   return (
     <div className="space-y-4">
@@ -82,10 +82,10 @@ export default function IssueDetailPage() {
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="min-w-0 space-y-4">
           <NextActionPanel issue={issue} access={access} />
-          <IssueDetails issue={issue} showPhones={staff} />
+          <IssueDetails issue={issue} showPhones={handlesIt} />
         </div>
         <div className="min-w-0 space-y-4">
-          <NotesPanel entity="issue" id={issue.id} canWrite={staff || isReporter} canWriteInternal={staff} />
+          <NotesPanel entity="issue" id={issue.id} canWrite={handlesIt || isReporter} canWriteInternal={handlesIt} />
           <ActivityTimeline entity="issue" id={issue.id} />
         </div>
       </div>

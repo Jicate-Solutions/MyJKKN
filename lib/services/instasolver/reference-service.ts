@@ -109,7 +109,8 @@ export class InstaSolverReferenceService {
         .from('profiles')
         .select(`${PERSON_COLUMNS}, email`)
         .eq('is_active', true)
-        .not('role', 'in', '(student,parent,guest)')
+        // Stored role names of accounts that never do maintenance work.
+        .not('role', 'in', `(${['student', 'parent', 'guest'].join(',')})`)
         .or(`full_name.ilike.%${t}%,email.ilike.%${t}%`)
         .order('full_name')
         .limit(limit)

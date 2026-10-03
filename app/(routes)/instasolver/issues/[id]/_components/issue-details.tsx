@@ -143,7 +143,7 @@ export function IssueDetails({ issue, showPhones }: { issue: Issue; showPhones: 
               <Field label="Assigned by">{issue.assigner?.full_name ?? '—'}</Field>
             </dl>
           )}
-          {/* Who covers this category — the assigner's question, so staff only
+          {/* Who covers this category — shown to the CAO and the people working it
               (standalone quick-assign.tsx, CategoryTeamLine). */}
           {showPhones && <CategoryTeamLine issue={issue} />}
         </CardContent>

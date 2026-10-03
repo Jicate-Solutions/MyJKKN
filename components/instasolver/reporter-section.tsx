@@ -26,13 +26,20 @@ function initials(name: string | null | undefined, email: string | null | undefi
   return ((parts[0]?.[0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase() || '?';
 }
 
-/** JKKN terminology for the role-name fallback. */
+// JKKN terminology for the role-name fallback. The keys are MyJKKN's stored
+// role names (data values), mapped to the words people should read.
+const ROLE_NAME_TO_JKKN: Record<string, string> = {
+  'student': 'Learner',
+  'students': 'Learner',
+  'faculty': 'Senior Learner',
+  'teacher': 'Senior Learner',
+  'teachers': 'Senior Learner',
+  'staff': 'Team member'
+};
+
 function displayDesignation(d: string | null | undefined): string | null {
   if (!d) return null;
-  if (/^students?$/i.test(d.trim())) return 'Learner';
-  if (/^(faculty|teachers?)$/i.test(d.trim())) return 'Senior Learner';
-  if (/^staff$/i.test(d.trim())) return 'Team member';
-  return d;
+  return ROLE_NAME_TO_JKKN[d.trim().toLowerCase()] ?? d;
 }
 
 /** A numbered section heading, as on the standalone forms. */

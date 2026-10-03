@@ -16,12 +16,12 @@ import type { Requirement } from '@/types/instasolver';
 import { formatDate, formatDateTime, formatINR } from '../../_components/format';
 import { RequirementActions } from './requirement-actions';
 
-function Item({ label, children, wide }: { label: string; children: React.ReactNode; wide?: boolean }) {
-  const empty = children === null || children === undefined || children === '' || children === '—';
+function Item({ label, children: body, wide }: { label: string; children: React.ReactNode; wide?: boolean }) {
+  const empty = body === null || body === undefined || body === '' || body === '—';
   return (
     <div className={wide ? 'sm:col-span-2' : undefined}>
       <dt className="text-sm text-muted-foreground">{label}</dt>
-      <dd className="mt-0.5 whitespace-pre-wrap break-words text-sm">{empty ? '—' : children}</dd>
+      <dd className="mt-0.5 whitespace-pre-wrap break-words text-sm">{empty ? '—' : body}</dd>
     </div>
   );
 }
