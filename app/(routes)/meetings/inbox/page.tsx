@@ -31,10 +31,12 @@ interface InboxPageProps {
   searchParams: Promise<{ status?: string }>;
 }
 
-// Upcoming/Past are TIME questions, not status questions. Nothing ever
-// transitions a booking to 'completed', so a meeting held in June is still
-// 'confirmed' — filtering these two tabs on status alone listed every past
-// booking under "Upcoming" and left "Past" permanently empty (production:
+// Upcoming/Past are TIME questions, not status questions. A booking becomes
+// 'completed' only when a person marks it, or (since 20271003091700) when the
+// daily sweep closes it 7 days after it ends because its notes are linked, so
+// a meeting held in June can still be 'confirmed' — filtering these two tabs
+// on status alone listed every past booking under "Upcoming" and left "Past"
+// permanently empty (production:
 // 31 confirmed, of which 24 were already in the past; zero rows have ever
 // held 'completed' or 'no_show'). Both tabs now carry a start_time predicate.
 // 'pending'/'rescheduled' are dropped from the match list because
@@ -137,8 +139,10 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
       {filterKey === 'awaiting' ? (
         <p className="text-xs text-muted-foreground">
           These meetings have ended and nobody has said what happened. Open one to mark it
-          held or not held, or to move it to a new time. Until 21 August they were recorded
-          as completed automatically after seven days, whether or not anyone met.
+          held or not held, or to move it to a new time. A meeting whose notes are linked
+          closes on its own 7 days after it ends, and its page then says it was closed
+          automatically because the notes were linked. Every other meeting stays here until
+          a person marks it.
         </p>
       ) : null}
 
