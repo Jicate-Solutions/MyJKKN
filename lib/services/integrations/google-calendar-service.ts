@@ -30,6 +30,7 @@ const LOG_PREFIX = '[google-calendar]';
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const CAL_BASE = 'https://www.googleapis.com/calendar/v3';
+const MEET_BASE = 'https://meet.googleapis.com/v2';
 
 const SCOPES = [
   'openid',
@@ -41,6 +42,13 @@ const SCOPES = [
   // calendarList.list — it grants the list only, not the events inside them
   // (calendar.readonly would have granted both).
   'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
+  // Creates the Google Meet SPACE ourselves (Meet REST API v2) so the meeting
+  // can be born with auto recording on — the alternative to parking a notetaker
+  // bot in the room. Narrowest Meet scope there is: it grants control of spaces
+  // THIS app created and nothing else. A host connected before this scope
+  // existed keeps working; their token simply has no Meet access, space
+  // creation 403s, and booking falls back to an ordinary Calendar-minted link.
+  'https://www.googleapis.com/auth/meetings.space.created',
 ].join(' ');
 
 /** OAuth state tokens older than this are rejected. */
@@ -101,6 +109,13 @@ export interface CreateEventInput {
   withMeet: boolean;
   /** PR1: in-person venue directions shown as the event location. */
   location?: string;
+  /**
+   * A Meet link we already made ourselves (createRecordedMeetSpace). When set,
+   * the event carries THAT conference instead of asking Calendar to mint a new
+   * one — the whole point, since only our own space can have recording on.
+   * Ignored unless withMeet is true.
+   */
+  existingMeetUri?: string;
 }
 
 export interface CreatedEvent {
@@ -517,23 +532,48 @@ export class GoogleCalendarService {
       attendees: input.attendees,
     };
     if (input.location) body.location = input.location;
+    const attachedMeetUri = input.withMeet ? input.existingMeetUri : undefined;
     if (input.withMeet) {
-      body.conferenceData = {
-        createRequest: {
-          requestId: crypto.randomBytes(8).toString('hex'),
-          conferenceSolutionKey: { type: 'hangoutsMeet' },
-        },
-      };
+      body.conferenceData = attachedMeetUri
+        ? {
+            // Carry the space we already created. meetingCode is the last path
+            // segment of the meeting URI.
+            conferenceId: attachedMeetUri.split('/').pop(),
+            conferenceSolution: { key: { type: 'hangoutsMeet' } },
+            entryPoints: [{ entryPointType: 'video', uri: attachedMeetUri }],
+          }
+        : {
+            createRequest: {
+              requestId: crypto.randomBytes(8).toString('hex'),
+              conferenceSolutionKey: { type: 'hangoutsMeet' },
+            },
+          };
     }
 
-    const res = await fetch(
-      `${CAL_BASE}/calendars/primary/events?conferenceDataVersion=1&sendUpdates=all`,
-      {
+    const url = `${CAL_BASE}/calendars/primary/events?conferenceDataVersion=1&sendUpdates=all`;
+    const post = (payload: Record<string, unknown>) =>
+      fetch(url, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      },
-    );
+        body: JSON.stringify(payload),
+      });
+
+    let res = await post(body);
+    if (!res.ok && attachedMeetUri) {
+      // Calendar has historically refused hand-built hangoutsMeet conference
+      // data. Losing the event would be far worse than losing the Join button,
+      // so retry once with the link in the body and the location instead — the
+      // booking email sends video_url regardless, so the guest still gets in.
+      const text = await res.text().catch(() => '');
+      console.warn(
+        `${LOG_PREFIX} attaching our Meet space was rejected (${res.status}); ` +
+          `retrying with the link in the event body: ${text.slice(0, 160)}`,
+      );
+      delete body.conferenceData;
+      body.description = `${(body.description as string) || ''}\n\nJoin: ${attachedMeetUri}`.trim();
+      if (!body.location) body.location = attachedMeetUri;
+      res = await post(body);
+    }
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       console.error(`${LOG_PREFIX} event create failed:`, res.status, text.slice(0, 200));
@@ -547,7 +587,63 @@ export class GoogleCalendarService {
       };
     };
     if (!json.id) return null;
-    return { eventId: json.id, meetUrl: extractMeetUrl(json) };
+    // Our own space wins: on the fallback path Calendar reports no conference
+    // at all, and the recorded space is the link the guest must use.
+    return { eventId: json.id, meetUrl: attachedMeetUri ?? extractMeetUrl(json) };
+  }
+
+  /**
+   * Create a Google Meet space that records itself (Meet REST API v2,
+   * spaces.create with artifactConfig). Returns the meeting URI to put on the
+   * calendar event, or null — never throws, because a booking must not fail
+   * over a recording preference.
+   *
+   * Three things must all be true for an actual recording to appear:
+   *   1. this call succeeds (host reconnected Google, so the token carries
+   *      meetings.space.created);
+   *   2. the host's Google licence grants the recording privilege (Teaching &
+   *      Learning Upgrade / Education Plus / Business Plus);
+   *   3. that host actually joins — Google records "when someone with the
+   *      privilege to record joins".
+   * When 2 or 3 is missing the meeting still runs; there is simply no file.
+   * The recording lands in the space creator's Drive under "Meet Recordings".
+   */
+  static async createRecordedMeetSpace(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+  ): Promise<string | null> {
+    const token = await this.accessTokenForHost(supabase, hostProfileId);
+    if (!token) return null;
+    try {
+      const res = await fetch(`${MEET_BASE}/spaces`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          config: {
+            artifactConfig: {
+              recordingConfig: { autoRecordingGeneration: 'ON' },
+              transcriptionConfig: { autoTranscriptionGeneration: 'ON' },
+              smartNotesConfig: { autoSmartNotesGeneration: 'ON' },
+            },
+          },
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        // 403 here is the ordinary "host has not reconnected Google since the
+        // Meet scope was added" case, not a fault worth alarming on.
+        console.warn(
+          `${LOG_PREFIX} recorded Meet space not created (${res.status}); ` +
+            `falling back to a normal Meet link: ${text.slice(0, 160)}`,
+        );
+        return null;
+      }
+      const json = (await res.json()) as { meetingUri?: string };
+      return json.meetingUri ?? null;
+    } catch (err) {
+      console.warn(`${LOG_PREFIX} recorded Meet space threw:`, err);
+      return null;
+    }
   }
 
   /** Move an existing event (true reschedule, D16). */
