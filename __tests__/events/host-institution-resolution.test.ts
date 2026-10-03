@@ -10,7 +10,15 @@
 // The rule pinned here is the one that made the failure invisible: a host that
 // was not chosen must be NO host, never a guess.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// event-create-form imports the people fields, which read the signed-in user
+// and their permissions. Those hooks build a Supabase browser client when the
+// module loads; stub them so this pure resolver still needs no env (same stubs
+// as __tests__/events/create-event-dto.test.ts).
+vi.mock('@/hooks/use-auth', () => ({ useAuth: () => ({ user: null, profile: null }) }));
+vi.mock('@/hooks/use-permissions', () => ({ usePermissions: () => ({ isSuperAdmin: false }) }));
+
 import { resolveHostInstitutionId } from '@/app/(routes)/events/create/_components/event-create-form';
 
 const MAIN_OFFICE = 'b962527f-97ce-4238-89ce-7b532d7c2bc6';
