@@ -18,6 +18,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ShieldCheck, UserPlus, Loader2 } from 'lucide-react';
 import { MemberPickerDialog, type PickedMember } from '@/components/events/shared/member-picker-dialog';
+import { dropSelfUnlessAdmin } from '@/components/events/shared/event-people-fields';
+import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useUpdateTournament } from '@/hooks/events/use-tournaments';
 import { getIncharges, type EventIncharge } from '@/hooks/events/use-tournament-access';
 import type { Event } from '@/types/events';
@@ -28,12 +31,18 @@ export function InchargePanel({
   canAssign,
 }: {
   eventId: string;
-  tournament: Pick<Event, 'config'>;
+  tournament: Pick<Event, 'config' | 'created_by'>;
   canAssign: boolean;
 }) {
   const update = useUpdateTournament();
+  const { profile } = useAuth();
+  const { isSuperAdmin } = usePermissions();
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [selfNote, setSelfNote] = useState(false);
   const incharges = getIncharges(tournament);
+  // The database refuses self-appointment except for admins and the
+  // tournament's own creator (#4127), so drop the viewer's name here first.
+  const isCreator = !!profile?.id && tournament.created_by === profile.id;
 
   const save = (next: EventIncharge[], onDone?: () => void) => {
     update.mutate(
@@ -50,7 +59,11 @@ export function InchargePanel({
     );
   };
 
-  const add = (people: PickedMember[]) => {
+  const add = (picked: PickedMember[]) => {
+    const { kept: people, droppedSelf } = isCreator
+      ? { kept: picked, droppedSelf: false }
+      : dropSelfUnlessAdmin(picked, { userId: profile?.id, isSuperAdmin, role: profile?.role });
+    setSelfNote(droppedSelf);
     const existing = new Set(incharges.map((i) => i.member_id));
     const fresh = people.filter((p) => !existing.has(p.member_id));
     if (fresh.length === 0) {
@@ -93,6 +106,11 @@ export function InchargePanel({
             fixtures and results. Committee members can view everything but only update
             their tasks.
           </p>
+          {selfNote && (
+            <p className="mb-2 text-xs text-muted-foreground">
+              You can&apos;t make yourself an in-charge. Ask an admin to add you.
+            </p>
+          )}
           {incharges.length === 0 ? (
             <p className="py-2 text-sm text-muted-foreground">
               No in-charge assigned — only staff with the Sports Tournaments manage

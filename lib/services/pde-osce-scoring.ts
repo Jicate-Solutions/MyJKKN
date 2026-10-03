@@ -89,11 +89,34 @@ export interface PdeQuestion {
    * every case (all `pde_assessments.rubric` are NULL).
    */
   osce_domain?: string | null;
+  /**
+   * `pde_assessment_questions.question_type`. Only `free_text_socratic` (or an
+   * absent type) goes to the examiner model; mcq_warmup and image_tag are
+   * marked arithmetically from `PdeAnswer.objective_score`.
+   */
+  question_type?: string | null;
 }
 
 export interface PdeAnswer {
   q_number: number;
   student_answer: string;
+  /**
+   * 0..100 mark for an objectively markable answer (mcq_warmup, image_tag),
+   * computed SERVER-SIDE against the answer key by the score route. Never the
+   * `is_correct` / `region_score` the browser wrote into the envelope — the
+   * learner inserts pde_submissions.answers, so those could be forged.
+   */
+  objective_score?: number;
+}
+
+/** Question types marked from a server-side verdict, never from answer text. */
+export const OBJECTIVELY_MARKED_TYPES: ReadonlySet<string> = new Set([
+  'mcq_warmup',
+  'image_tag',
+]);
+
+function isObjectivelyMarked(q: PdeQuestion): boolean {
+  return typeof q.question_type === 'string' && OBJECTIVELY_MARKED_TYPES.has(q.question_type);
 }
 
 export interface ScoreAttemptArgs {
@@ -537,16 +560,20 @@ export interface DomainAllocation {
   domain: RubricDomain;
   /** q_numbers of this domain that the assessment actually asks. */
   present_q_numbers: number[];
-  /** Present questions the learner answered. */
+  /** Present FREE-TEXT questions the learner answered — sent to the examiner. */
   answered_q_numbers: number[];
   /** Present questions left blank — denominator only. */
   unanswered_q_numbers: number[];
   /**
    * Ceiling the examiner model may award: domain.max_score scaled by the share
-   * of the domain's questions that were answered. The remainder
-   * (max_score - scored_max) is denominator-only.
+   * of the domain's questions that were answered in free text. Objective marks
+   * and blanks make up the remainder.
    */
   scored_max: number;
+  /** Present objective questions (mcq_warmup, image_tag) that carry a mark. */
+  objective_q_numbers: number[];
+  /** Marks those objective answers earned, decided without the examiner. */
+  objective_earned: number;
 }
 
 export interface ScoringPlan {
@@ -572,9 +599,20 @@ export function planScoring(
   // real answer (submissions can carry a draft row plus the final one).
   const answerByQ = new Map<number, PdeAnswer>();
   for (const a of answers) {
-    if (!answerByQ.has(a.q_number) || isAnswered(a)) answerByQ.set(a.q_number, a);
+    if (
+      !answerByQ.has(a.q_number) ||
+      isAnswered(a) ||
+      typeof a.objective_score === 'number'
+    ) {
+      answerByQ.set(a.q_number, a);
+    }
   }
   const askedQNumbers = new Set(questions.map((q) => q.q_number));
+  // An objective question has no free text, so reading it through
+  // student_answer always said "blank". It is judged by its mark instead.
+  const objectiveQNumbers = new Set(
+    questions.filter(isObjectivelyMarked).map((q) => q.q_number),
+  );
 
   const allocations: DomainAllocation[] = [];
   const covered = new Set<number>();
@@ -589,17 +627,35 @@ export function planScoring(
     // attempt below the passing threshold.
     if (present.length === 0) continue;
 
-    const answered = present.filter((n) => isAnswered(answerByQ.get(n)));
-    const unanswered = present.filter((n) => !isAnswered(answerByQ.get(n)));
+    const share = domain.max_score / present.length;
+    const answered: number[] = [];
+    const unanswered: number[] = [];
+    const objective: number[] = [];
+    let objectiveEarned = 0;
+    for (const n of present) {
+      const a = answerByQ.get(n);
+      if (objectiveQNumbers.has(n)) {
+        const mark = a?.objective_score;
+        if (typeof mark === 'number' && Number.isFinite(mark)) {
+          objective.push(n);
+          objectiveEarned += (share * Math.max(0, Math.min(100, mark))) / 100;
+        } else {
+          unanswered.push(n);
+        }
+      } else if (isAnswered(a)) {
+        answered.push(n);
+      } else {
+        unanswered.push(n);
+      }
+    }
     allocations.push({
       domain,
       present_q_numbers: present,
       answered_q_numbers: answered,
       unanswered_q_numbers: unanswered,
-      scored_max: roundTo(
-        (domain.max_score * answered.length) / present.length,
-        4,
-      ),
+      scored_max: roundTo(share * answered.length, 4),
+      objective_q_numbers: objective,
+      objective_earned: roundTo(objectiveEarned, 4),
     });
   }
 
@@ -610,15 +666,25 @@ export function planScoring(
   return { allocations, uncovered_q_numbers: uncovered };
 }
 
-/** Domain the learner left entirely blank: 0 awarded, full weight charged. */
-function zeroDomainScore(allocation: DomainAllocation): DomainScore {
+export const OBJECTIVE_ONLY_DOMAIN_JUSTIFICATION =
+  'Not sent to the examiner: this domain has no free-text answer. Its score ' +
+  'is the marks its objective questions (MCQ, image tag) earned against the answer key.';
+
+/**
+ * Domain with no free-text answer to examine: the objective marks it earned
+ * (0 when everything was left blank), full weight charged. No AI call.
+ */
+function noExaminerDomainScore(allocation: DomainAllocation): DomainScore {
+  const objectiveOnly = allocation.objective_q_numbers.length > 0;
   return {
     domain_key: allocation.domain.key,
     domain_label: allocation.domain.label,
-    score: 0,
+    score: allocation.objective_earned,
     max_score: allocation.domain.max_score,
-    justification: UNANSWERED_DOMAIN_JUSTIFICATION,
-    evidence_q_numbers: [],
+    justification: objectiveOnly
+      ? withUnansweredNote(OBJECTIVE_ONLY_DOMAIN_JUSTIFICATION, allocation)
+      : UNANSWERED_DOMAIN_JUSTIFICATION,
+    evidence_q_numbers: allocation.objective_q_numbers,
     unanswered_q_numbers: allocation.unanswered_q_numbers,
   };
 }
@@ -630,8 +696,13 @@ function withUnansweredNote(
 ): string {
   if (allocation.unanswered_q_numbers.length === 0) return justification;
   const blanks = allocation.unanswered_q_numbers.map((n) => `Q${n}`).join(', ');
+  // Everything but the blanks' share: the examiner ceiling plus any objective
+  // questions. Equals scored_max when the domain is all free text.
+  const { present_q_numbers: present, unanswered_q_numbers: unanswered } = allocation;
+  const outOf =
+    (allocation.domain.max_score * (present.length - unanswered.length)) / present.length;
   return `${justification}\n\n[Auto] ${blanks} left blank — counted as zero, so this domain was scored out of ${roundTo(
-    allocation.scored_max,
+    outOf,
     2,
   )} of ${allocation.domain.max_score}.`;
 }
@@ -754,10 +825,10 @@ async function extractDomainScore({
   return {
     domain_key: domain.key,
     domain_label: domain.label,
-    score,
+    score: score + allocation.objective_earned,
     max_score: domain.max_score,
     justification: withUnansweredNote(justification, allocation),
-    evidence_q_numbers: evidenceNumbers,
+    evidence_q_numbers: [...evidenceNumbers, ...allocation.objective_q_numbers],
     unanswered_q_numbers: allocation.unanswered_q_numbers,
   };
 }
@@ -811,7 +882,8 @@ async function scoreAttemptViaMaxLane(
   const enqueued = await Promise.all(
     plan.allocations.map(async (allocation) => {
       const domain = allocation.domain;
-      // Fully-blank domain: scored 0 arithmetically, no lane job spent on it.
+      // No free-text answer: objective marks (or 0) decided arithmetically,
+      // no lane job spent on it.
       if (allocation.answered_q_numbers.length === 0) {
         return {
           allocation,
@@ -848,19 +920,20 @@ async function scoreAttemptViaMaxLane(
       : new Map<string, string>();
 
   const domainScores: DomainScore[] = enqueued.map((e) => {
-    if (e.blank) return zeroDomainScore(e.allocation);
+    if (e.blank) return noExaminerDomainScore(e.allocation);
     const domain = e.allocation.domain;
     const text = e.jobId ? results.get(e.jobId) : undefined;
     if (!text) {
       return {
         domain_key: domain.key,
         domain_label: domain.label,
-        score: 0,
+        // The examiner's share is lost; marks decided from the key are not.
+        score: e.allocation.objective_earned,
         max_score: domain.max_score,
         justification: e.jobId
           ? 'Scoring did not complete in time on the Max lane.'
           : 'Scoring could not be started on the Max lane.',
-        evidence_q_numbers: e.evidenceNumbers,
+        evidence_q_numbers: [...e.evidenceNumbers, ...e.allocation.objective_q_numbers],
         unanswered_q_numbers: e.allocation.unanswered_q_numbers,
       };
     }
@@ -871,10 +944,10 @@ async function scoreAttemptViaMaxLane(
     return {
       domain_key: domain.key,
       domain_label: domain.label,
-      score,
+      score: score + e.allocation.objective_earned,
       max_score: domain.max_score,
       justification: withUnansweredNote(justification, e.allocation),
-      evidence_q_numbers: e.evidenceNumbers,
+      evidence_q_numbers: [...e.evidenceNumbers, ...e.allocation.objective_q_numbers],
       unanswered_q_numbers: e.allocation.unanswered_q_numbers,
     };
   });
@@ -929,11 +1002,11 @@ export async function scoreAttempt(args: ScoreAttemptArgs): Promise<OsceScore> {
   const domainScores: DomainScore[] = [];
   for (const allocation of plan.allocations) {
     const domain = allocation.domain;
-    // Every question in this domain was left blank — 0 out of its full weight,
-    // decided arithmetically. No AI call, so no chance of a blank answer
+    // No free-text answer in this domain — its objective marks (0 if every
+    // question was left blank) out of its full weight, decided arithmetically. No AI call, so no chance of a blank answer
     // floating up to the Likert floor of 1.
     if (allocation.answered_q_numbers.length === 0) {
-      domainScores.push(zeroDomainScore(allocation));
+      domainScores.push(noExaminerDomainScore(allocation));
       continue;
     }
     try {
@@ -953,10 +1026,12 @@ export async function scoreAttempt(args: ScoreAttemptArgs): Promise<OsceScore> {
       domainScores.push({
         domain_key: domain.key,
         domain_label: domain.label,
-        score: 0,
+        // An examiner outage loses only the free-text share, never the
+        // objective marks already decided against the key.
+        score: allocation.objective_earned,
         max_score: domain.max_score,
         justification: `Scoring failed: ${e instanceof Error ? e.message : String(e)}`,
-        evidence_q_numbers: allocation.answered_q_numbers,
+        evidence_q_numbers: [...allocation.answered_q_numbers, ...allocation.objective_q_numbers],
         unanswered_q_numbers: allocation.unanswered_q_numbers,
       });
     }

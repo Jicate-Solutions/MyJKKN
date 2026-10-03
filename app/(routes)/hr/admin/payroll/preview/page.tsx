@@ -1,7 +1,7 @@
 // ============================================================================
 // HR PAYROLL — READ-ONLY PAYSLIP PREVIEW (T4.1 + T4.2 deliverable)
 // ============================================================================
-// Spec: specs/t4-payroll-design-lock-2026-05-15.md
+// No written spec; the deduction rules live in lib/services/hr/payroll/deduction-engine.ts.
 //
 // This page demonstrates the T4.2 deduction engine end-to-end on three
 // representative staff profiles. It is a READ-ONLY surface — no save, no

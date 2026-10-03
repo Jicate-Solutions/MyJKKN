@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { useGrns } from '@/hooks/procurement/use-grns';
@@ -34,14 +34,23 @@ export default function GrnListPage() {
 
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounceValue(search, 300);
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [institutionId, setInstitutionId] = useState<string | undefined>(undefined);
-  const effectiveInstitution = institutionId ?? profile?.institution_id ?? undefined;
+  const searchParams = useSearchParams();
+  // The Overview status bars link here with ?institution=<id|all>&status=<status>.
+  const [statusFilter, setStatusFilter] = useState<string>(() => searchParams.get('status') ?? 'all');
+  const [institutionId, setInstitutionId] = useState<string | undefined>(
+    () => searchParams.get('institution') ?? undefined
+  );
+  // 'all' = every college the viewer may see (RLS scopes the rows). effectiveInstitution
+  // stays a concrete college for anything that creates a document.
+  const allColleges = institutionId === 'all';
+  const effectiveInstitution =
+    (institutionId && !allColleges ? institutionId : undefined) ?? profile?.institution_id ?? undefined;
 
   const filters: GrnFilters = {
     search: debouncedSearch || undefined,
     status: statusFilter !== 'all' ? (statusFilter as GrnStatus) : undefined,
-    institution_id: effectiveInstitution,
+    institution_id: allColleges ? undefined : effectiveInstitution,
+    all_institutions: allColleges,
   };
 
   const { data: response, isLoading, isError } = useGrns(filters);
@@ -84,8 +93,9 @@ export default function GrnListPage() {
                 </SelectContent>
               </Select>
               <InstitutionFilter
-                value={effectiveInstitution}
+                value={allColleges ? 'all' : effectiveInstitution}
                 onChange={setInstitutionId}
+                allLabel="All colleges"
                 label={null}
                 className="w-full sm:w-[200px]"
               />

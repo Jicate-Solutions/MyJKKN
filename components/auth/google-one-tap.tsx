@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
+import { safeReturnPath } from '@/lib/auth/safe-return-path';
 
 declare global {
   interface Window {
@@ -130,8 +131,18 @@ export function GoogleOneTap() {
       // Type cast to fix TypeScript inference after React 19 upgrade
       const profileData = profile as { role: string; profile_completed: boolean } | null;
 
+      // Return-to: the page proxy.ts sent the person here from (e.g. a scanned
+      // QR sticker). Only a path on this site; anything else is ignored.
+      const returnPath = safeReturnPath(
+        new URLSearchParams(window.location.search).get('redirectedFrom')
+      );
+
       if (!profileData?.profile_completed) {
-        router.push('/auth/complete-profile');
+        router.push(
+          returnPath
+            ? `/auth/complete-profile?next=${encodeURIComponent(returnPath)}`
+            : '/auth/complete-profile'
+        );
       } else {
         // Check if this is a child app auth request
         if (childAppAuth) {
@@ -163,11 +174,11 @@ export function GoogleOneTap() {
               return;
             } else {
               // Feature enabled - allow students through to dashboard
-              router.push('/');
+              router.push(returnPath ?? '/');
               return;
             }
           } else {
-            router.push('/');
+            router.push(returnPath ?? '/');
           }
         }
       }

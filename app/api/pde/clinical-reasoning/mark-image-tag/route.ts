@@ -12,53 +12,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-
-interface ClickPoint {
-  x: number;
-  y: number;
-  imgWidth: number;
-  imgHeight: number;
-}
-
-interface Region {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  label?: string;
-  tolerance_px?: number;
-}
-
-// Ported verbatim from the former client-side localFallbackScore so scoring is
-// unchanged, only relocated server-side. Regions are FRACTIONS of the natural
-// image dimensions; the click arrives in natural pixels.
-function scoreRegions(
-  pt: ClickPoint,
-  regions: Region[] | null | undefined,
-): { score: number; matched_label?: string } {
-  if (!regions || regions.length === 0) {
-    // No expected regions defined → award full credit (faculty must define).
-    return { score: 100 };
-  }
-  let best = 0;
-  let matched: string | undefined;
-  for (const r of regions) {
-    const rw = r.w * pt.imgWidth;
-    const rh = r.h * pt.imgHeight;
-    const cx = r.x * pt.imgWidth + rw / 2;
-    const cy = r.y * pt.imgHeight + rh / 2;
-    const dx = pt.x - cx;
-    const dy = pt.y - cy;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    const tol = r.tolerance_px ?? Math.max(rw, rh) / 2;
-    const s = Math.max(0, Math.min(100, (1 - dist / (tol * 2)) * 100));
-    if (s > best) {
-      best = s;
-      matched = r.label;
-    }
-  }
-  return { score: Math.round(best), matched_label: matched };
-}
+// Shared with the OSCE score route, which re-marks image_tag answers server-side.
+import { scoreRegions, type ClickPoint, type Region } from '@/lib/services/pde-objective-marking';
 
 function isFiniteNumber(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);

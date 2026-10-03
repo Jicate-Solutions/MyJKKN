@@ -3,7 +3,8 @@
 /**
  * /hr/admin/payroll/periods — payroll period list page (T4.3 PR 3).
  *
- * Spec: specs/t4-3-pr3-payroll-ui-design-lock-2026-05-19.md (Q1 + Q7 + E10 + E13)
+ * No written spec; the list rules live in this code (row scope is RLS on
+ * hr_payroll_periods).
  *
  * - Default scope: most-recent 50 periods (RLS scopes server-side; Director
  *   sees all 11 orgs, HR Officer sees their own). Note: a "current FY" hard

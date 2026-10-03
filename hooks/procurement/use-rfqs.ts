@@ -8,7 +8,7 @@ export function useRfqs(filters: RfqFilters) {
   return useQuery({
     queryKey: ['procurement-rfqs', filters],
     queryFn: () => ProcurementRfqService.getRfqs(filters),
-    enabled: !!(filters.store_id || filters.institution_id),
+    enabled: !!(filters.store_id || filters.institution_id || filters.all_institutions),
     staleTime: 2 * 60 * 1000,
   });
 }

@@ -1,7 +1,8 @@
 /**
  * HR Payroll Approvals Service (T4.3 PR 2)
  *
- * Spec: specs/t4-payroll-design-lock-2026-05-15.md (Decisions #9, #17, #20)
+ * No written spec; the approval-chain rules live in the RPCs of migration
+ * 20260629000000_t4_3_pr2_payroll_rpcs.sql.
  * Table: hr_payroll_period_approvals (substrate migration 20260628000000)
  *
  * Append-only audit table. The 4 stage-transition RPCs in periods-service
