@@ -86,6 +86,12 @@ describe('checkExistingAttendanceForPeriods — every record of the day, not one
     expect((await check('slot-0455', [A]))?.isMarked).toBe(true);
   });
 
+  it('when several records hold the slot, the section\'s own record is the report link', async () => {
+    // A combined-group record listed FIRST also holds slot-7616 for B.
+    table.unshift({ id: 'rec-combined', timetable_id: TT, attendance_date: DAY, section_id: D, section_ids: [D, B], attendance_data: { 'slot-7616': present } });
+    expect(await check('slot-7616', [B])).toEqual({ isMarked: true, recordId: 'rec-B' });
+  });
+
   it('an empty slot, a missing slot and a missing timetable are not marked', async () => {
     expect((await check('slot-empty', [D]))?.isMarked).toBe(false);
     expect((await check('slot-none', []))?.isMarked).toBe(false);

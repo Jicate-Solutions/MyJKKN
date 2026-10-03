@@ -50,6 +50,9 @@ export function slotHasAttendance(slotData: any): boolean {
  * With `learnerIds` (a practical batch's learners, BUG-006204) the slot counts
  * only when one of THOSE learners is stored, so another batch's save in the
  * same slot does not read as this batch's.
+ * When several records hold it, the section's OWN record wins (section_id is
+ * the period's first section, then any of its sections), so the report link
+ * opens that record rather than a combined group's — as the old lookup did.
  */
 export function findMarkedAttendanceRecord(
   records: AttendanceRecordForCheck[],
@@ -57,17 +60,26 @@ export function findMarkedAttendanceRecord(
   sectionIds: Array<string | null | undefined>,
   learnerIds?: string[] | null,
 ): AttendanceRecordForCheck | null {
-  const wanted = new Set(sectionIds.filter((s): s is string => !!s));
+  const ordered = sectionIds.filter((s): s is string => !!s);
+  const wanted = new Set(ordered);
+  const rank = (record: AttendanceRecordForCheck): number => {
+    if (wanted.size === 0) return 0;
+    if (record.section_id != null && record.section_id === ordered[0]) return 0;
+    if (record.section_id != null && wanted.has(record.section_id)) return 1;
+    if ((record.section_ids ?? []).some((s) => wanted.has(s))) return 2;
+    return -1;
+  };
+  let best: AttendanceRecordForCheck | null = null;
+  let bestRank = Infinity;
   for (const record of records) {
-    if (wanted.size > 0) {
-      const covers =
-        (record.section_id != null && wanted.has(record.section_id)) ||
-        (record.section_ids ?? []).some((s) => wanted.has(s));
-      if (!covers) continue;
+    const r = rank(record);
+    if (r < 0 || r >= bestRank) continue;
+    if (periodMarkedForLearners(record.attendance_data?.[slotId], learnerIds)) {
+      best = record;
+      bestRank = r;
     }
-    if (periodMarkedForLearners(record.attendance_data?.[slotId], learnerIds)) return record;
   }
-  return null;
+  return best;
 }
 
 export class AttendanceRosterService {
