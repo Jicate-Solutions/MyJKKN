@@ -87,11 +87,13 @@ export class IaPaperService {
   static async listPlannedScopes(
     institutionId: string,
     academicYearId?: string,
-    examStartDate?: string
+    examStartDate?: string,
+    includeDepartmentOfferings = false
   ): Promise<PlannedScope[]> {
     const qs = new URLSearchParams({ institutionId });
     if (academicYearId) qs.set('academicYearId', academicYearId);
     if (examStartDate) qs.set('examStartDate', examStartDate);
+    if (includeDepartmentOfferings) qs.set('include', 'department_offerings');
     const res = await fetch(`/api/question-papers/planned-scopes?${qs.toString()}`);
     if (!res.ok) throw new Error((await safeError(res)).message ?? 'Failed to fetch planned scopes');
     return asArray<PlannedScope>((await res.json()).data);
