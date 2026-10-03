@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-01
 **Module:** ID Cards (Windows print bridge `C:\jkkn-bridge\evolis_bridge.py`)
-**Status:** cloud half SHIPPED in the repo; bridge half PREPARED — run at the station PC.
+**Status:** cloud half SHIPPED in the repo; bridge v0.3.2 WRITTEN against the real v0.3.1 file (2026-10-03) — install at the station PC, not yet done.
 
 ## The fault
 
@@ -50,27 +50,39 @@ These do not save ribbon on their own. They make the back K-panel-ready.
 
 ### Bridge half (station PC — this is the one that saves ribbon)
 
-Three scripts in `scripts/id-card-bridge/`. Copy them to `C:\jkkn-bridge\`.
+**Status 2026-10-03:** the live bridge (v0.3.1, read from a copy of
+`C:\jkkn-bridge`) confirms the cause in its own docstring: staging a back
+image makes the SDK "fall back to the ribbon's default" duplex type, which
+for YMCKO is colour on both faces. Nothing in the file ever sets
+`GDuplexType`. `evolis_help.txt` in the same folder lists
+`evolis.SettingKey`, so the setting is addressable.
 
-1. **`probe-sdk.ps1`** — read-only, uses no ribbon. Prints how the bridge
-   builds its print session and what the installed SDK calls its duplex
-   settings. Run it first and keep the output.
-2. **`apply-mono-back.ps1`** — backs up `evolis_bridge.py`, adds a helper,
-   calls it right after every `… = evolis.PrintSession(…)`, compile-checks,
-   restarts `JKKNPrintBridge`. The helper:
-   - `session.init_from_driver_settings()` — the Premium Suite choice
-     (including its colour tuning) now applies to bridge jobs;
-   - `session.set_setting(SettingKey.GDuplexType, "DUPLEX_CM")` — colour
-     front / mono back, stated explicitly, with a string-key fallback.
-   Every step is `try/except` and logged as `[mono-back] …`; a name the
-   SDK does not know can never stop a print. The script changes nothing
-   if the file is already patched or it cannot find the session line.
-3. **`rollback-mono-back.ps1`** — restores the newest backup.
+**v0.3.2** is a full replacement file, `scripts/id-card-bridge/evolis_bridge.py`.
+It differs from v0.3.1 in exactly one behaviour: after
+`ps.set_image(CardFace.BACK, …)` — which is the call that resets the
+duplex type — it runs `_force_mono_back(ps)`:
 
+```python
+key = getattr(evolis.SettingKey, "GDuplexType", None)
+ok = ps.set_setting(key, "DUPLEX_CM")       # colour front / black back
+print("[mono-back] GDuplexType=DUPLEX_CM accepted=…", flush=True)
 ```
-powershell -ExecutionPolicy Bypass -File C:\jkkn-bridge\probe-sdk.ps1
-powershell -ExecutionPolicy Bypass -File C:\jkkn-bridge\apply-mono-back.ps1
-```
+
+Guarded and logged at every step: if the SDK lacks the key or rejects the
+value, the card still prints the old two-set way and the log says so.
+The front path, polling, retry and rate limit are byte-for-byte v0.3.1.
+
+Install (station PC):
+
+1. Copy `scripts/id-card-bridge/evolis_bridge.py` to
+   `C:\jkkn-bridge\evolis_bridge.v0.3.2.py` and
+   `scripts/id-card-bridge/install-mono-back.ps1` to `C:\jkkn-bridge\`.
+2. `powershell -ExecutionPolicy Bypass -File C:\jkkn-bridge\install-mono-back.ps1`
+   — backs up the live file, compile-checks the new one, swaps, restarts
+   `JKKNPrintBridge`.
+3. `rollback-mono-back.ps1` restores the newest backup. `probe-sdk.ps1` is
+   read-only and prints the SDK's setting names if the log shows the key
+   was not accepted.
 
 ## Verify — six cards settle it
 
@@ -92,6 +104,21 @@ select percentile_cont(0.5) within group (order by
 from id_card_print_jobs
 where status = 'printed' and picked_up_at > now() - interval '2 hours';
 ```
+
+## Print timing
+
+Per card today: 84 s printing (two colour passes) + 15 s bridge pause + ~1 s
+poll = about 100 s, i.e. 36 cards an hour. v0.3.2 changes both parts:
+
+| Part | v0.3.1 | v0.3.2 | Why |
+|---|---|---|---|
+| Printing (pickup → result) | 84 s | about 40 s | one colour pass + one black pass instead of two colour passes |
+| Pause after each card | 15 s | 2 s | `ps.print()` returns only when the card is done, so the old "rate limit" was idle time; the physical cycle is the limit |
+| Expected cycle | ~100 s | ~45 s | about 80 cards an hour; a 100-card class in ~75 min instead of ~2 h 45 min |
+
+MyJKKN's batch-print estimate still uses the measured 100 s per card
+(`MEASURED_SECONDS_PER_CARD`). Re-measure from the queue after the first
+v0.3.2 batch and lower it then; do not guess it down beforehand.
 
 ## Known trade-off
 
