@@ -75,6 +75,7 @@ import { LeaveOndutyAttendanceCheckService } from '@/lib/services/academic/leave
 import { StudentLeaveIndicatorCompact } from './_components/student-leave-indicator';
 import { ProvisionalLearnerIndicatorCompact } from './_components/provisional-learner-indicator';
 import { isProvisionalAttendanceStatus } from '@/lib/constants/provisional-access';
+import { savedStatusesForPeriod } from '@/lib/utils/academic/saved-period-statuses';
 import type { ApprovedLeaveInfo } from '@/lib/services/academic/leave-onduty-attendance-check-service';
 // Updated: 2026-09-07 - Per-learner attendance history, opened from the roster.
 import { History, Minus } from 'lucide-react';
@@ -770,19 +771,9 @@ export default function AttendanceMarkPage() {
           } else {
             toast.error('Attendance was already marked for this class. This record is read-only.');
           }
-          if (existingRecord.attendance_data) {
-            const existingData: Record<string, 'Present' | 'Absent'> = {};
-            Object.values(existingRecord.attendance_data).forEach((periodData: any) => {
-              if (periodData.students && Array.isArray(periodData.students)) {
-                periodData.students.forEach((student: any) => {
-                  if (student.student_id && student.status) {
-                    existingData[student.student_id] = student.status;
-                  }
-                });
-              }
-            });
-            setAttendanceData(existingData);
-          }
+          // Updated: 2026-09-23 (BUG-005969) - this period's statuses only; the
+          // effect below re-applies them once the roster has loaded.
+          setAttendanceData(savedStatusesForPeriod(existingRecord, periodId));
         } else {
           setExistingAttendance(null);
         }
@@ -1401,6 +1392,18 @@ export default function AttendanceMarkPage() {
 
     loadApprovedLeave();
   }, [sectionId, date, periodId, students, existingAttendance]);
+
+  // Added: 2026-09-23 (BUG-005969 / BUG-004995 / BUG-004356 / BUG-006120) - The
+  // roster loader initialises every learner to 'Present'. When it finished after
+  // the saved record had loaded, a marked period reopened as all Present (21/21
+  // instead of the saved 15/21). Re-apply the saved statuses whenever either
+  // side (re)loads, so the order no longer matters.
+  useEffect(() => {
+    if (!existingAttendance || students.length === 0) return;
+    const saved = savedStatusesForPeriod(existingAttendance, periodId);
+    if (Object.keys(saved).length === 0) return;
+    setAttendanceData((prev) => ({ ...prev, ...saved }));
+  }, [existingAttendance, students, periodId]);
 
   // NOTE: Existing attendance check and staff loading have been merged into the
   // parallelized useEffect above (2026-03-10 optimization)
