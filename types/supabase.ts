@@ -212198,6 +212198,7 @@ export type Database = {
           age_days: number
           amount: number
           detail: string
+          due_at: string
           href: string
           item_id: string
           source: string
