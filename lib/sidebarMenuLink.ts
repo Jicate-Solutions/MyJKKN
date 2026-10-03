@@ -64,7 +64,6 @@ import {
   CircleDot,
   TrendingUp,
   Wrench,
-  LifeBuoy,
   FileBarChart2,
   History,
   Sparkles,
@@ -116,6 +115,18 @@ import {
   SearchCheck,
   BadgeCheck,
   Presentation,
+  LayoutPanelLeft,
+  Siren,
+  ShoppingBasket,
+  ListTodo,
+  PackageSearch,
+  ListFilter,
+  Drill,
+  Weight,
+  ChartPie,
+  HardHat,
+  SlidersHorizontal,
+  WandSparkles,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // The single answer to "which MENU_PERMISSIONS values are not permission keys".
@@ -327,6 +338,26 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/instasolver/broken': 'instasolver.view',
   '/instasolver/complaint': 'instasolver.view',
   '/instasolver/track/[token]': 'instasolver.view',
+  // The InstaSolver desk (MYJKKN-MODULE-SPEC.md, PRD D-9): issues and
+  // requirements with CAO triage, maintenance teams and reporter confirmation.
+  // The role-specific screens carry their own keys (migration
+  // 20270510090300) so the sidebar shows each person only their rows. The keys
+  // are usability; the database (instasolver_my_access + RLS) still decides
+  // who may actually triage, work a job or read analytics.
+  '/instasolver/dashboard': 'instasolver.view',
+  '/instasolver/issues': 'instasolver.view',
+  '/instasolver/issues/new': 'instasolver.view',
+  '/instasolver/issues/[id]': 'instasolver.view',
+  '/instasolver/requirements': 'instasolver.view',
+  '/instasolver/requirements/new': 'instasolver.view',
+  '/instasolver/requirements/[id]': 'instasolver.view',
+  '/instasolver/triage': 'instasolver.triage',
+  '/instasolver/work': 'instasolver.work',
+  '/instasolver/workload': 'instasolver.triage',
+  '/instasolver/analytics': 'instasolver.analytics',
+  '/instasolver/admin': 'instasolver.triage',
+  '/instasolver/admin/teams': 'instasolver.triage',
+  '/instasolver/admin/categories': 'instasolver.triage',
 
   // Profile
   '/profile': 'view_profile', // All users should be able to view their own profile
@@ -2244,16 +2275,100 @@ export function GetPages(pathname: string): MenuGroup[] {
           // institution shares, and reporting a broken tap should never be a
           // scavenger hunt down the sidebar.
           //
-          // NO SUBMENUS, deliberately. Decision I3 is "one button whose first
-          // screen asks what kind" — the chooser page IS the submenu. Hanging
-          // the three lanes here would also break the sidebar filter: a parent
-          // with submenus renders only when one of its children is permitted,
-          // and the lanes carry their own destination keys.
+          // Submenus (2026-10-01): the InstaSolver desk's screens, in the same
+          // order as the standalone app's menu (C:\jkkn_instasolver
+          // lib/constants/navigation.ts), so people who used
+          // instasolver.jkkn.ac.in find everything where it was. Each row has
+          // its own icon, none reused elsewhere in this sidebar, so the
+          // InstaSolver rows are recognisable at a glance.
+          // The older chooser and its lanes (/instasolver, /broken, /complaint,
+          // /track) are hidden from navigation (owner's decision 2026-10-01);
+          // /instasolver now redirects to the desk dashboard, and the lanes
+          // still answer direct links (e.g. an anonymous tracking link).
+          //
+          // Each row's MENU_PERMISSIONS key decides visibility:
+          // instasolver.view (everyone), .triage (CAO), .work (team-member
+          // roles), .analytics (Principal, CAO). Super Admin sees all. The
+          // parent shows because Dashboard is instasolver.view.
           href: '/instasolver',
           label: 'InstaSolver',
           active: pathname === '/instasolver' || pathname.startsWith('/instasolver/'),
-          icon: LifeBuoy,
-          submenus: []
+          // A wand with sparkles: "report it and it gets solved" — the
+          // instant-fix promise in the name (2026-10-01, replaces LifeBuoy).
+          icon: WandSparkles,
+          submenus: [
+            {
+              href: '/instasolver/dashboard',
+              label: 'Dashboard',
+              active: pathname === '/instasolver/dashboard',
+              icon: LayoutPanelLeft
+            },
+            {
+              href: '/instasolver/issues/new',
+              label: 'Report an issue',
+              active: pathname === '/instasolver/issues/new',
+              icon: Siren
+            },
+            {
+              href: '/instasolver/requirements/new',
+              label: 'Request an item',
+              active: pathname === '/instasolver/requirements/new',
+              icon: ShoppingBasket
+            },
+            {
+              href: '/instasolver/issues',
+              label: 'Issues',
+              active:
+                pathname === '/instasolver/issues' ||
+                (pathname.startsWith('/instasolver/issues/') && pathname !== '/instasolver/issues/new'),
+              icon: ListTodo
+            },
+            {
+              href: '/instasolver/requirements',
+              label: 'Requirements',
+              active:
+                pathname === '/instasolver/requirements' ||
+                (pathname.startsWith('/instasolver/requirements/') &&
+                  pathname !== '/instasolver/requirements/new'),
+              icon: PackageSearch
+            },
+            {
+              href: '/instasolver/triage',
+              label: 'Triage queue',
+              active: pathname === '/instasolver/triage',
+              icon: ListFilter
+            },
+            {
+              href: '/instasolver/work',
+              label: 'My work',
+              active: pathname === '/instasolver/work',
+              icon: Drill
+            },
+            {
+              href: '/instasolver/workload',
+              label: 'Workload',
+              active: pathname === '/instasolver/workload',
+              icon: Weight
+            },
+            {
+              href: '/instasolver/analytics',
+              label: 'Analytics',
+              active: pathname === '/instasolver/analytics',
+              icon: ChartPie
+            },
+            {
+              href: '/instasolver/admin/teams',
+              label: 'Maintenance teams',
+              active: pathname === '/instasolver/admin/teams',
+              icon: HardHat
+            },
+            {
+              href: '/instasolver/admin',
+              label: 'Administration',
+              active: pathname === '/instasolver/admin' || pathname === '/instasolver/admin/categories',
+              icon: SlidersHorizontal
+            }
+          ]
         },
         {
           href: '/ai-query',

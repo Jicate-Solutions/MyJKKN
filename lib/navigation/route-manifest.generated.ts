@@ -901,6 +901,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admission/consultants/commission-approvals",
+            "label": "Commission Approvals",
+            "iconName": "Users",
+            "children": []
+          },
+          {
+            "path": "/admission/consultants/commission-payments",
+            "label": "Commission Payments",
+            "iconName": "Users",
+            "children": []
+          },
+          {
             "path": "/admission/consultants/commissions",
             "label": "Commissions",
             "iconName": "Users",
@@ -4738,6 +4750,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/hr/payroll/pay-band-check",
+            "label": "Pay Band Check",
+            "iconName": "Scale",
+            "children": []
+          },
+          {
             "path": "/hr/payroll/register",
             "label": "Register",
             "iconName": "FileText",
@@ -5213,6 +5231,31 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     "iconName": "FileText",
     "children": [
       {
+        "path": "/instasolver/admin",
+        "label": "Admin",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/instasolver/admin/categories",
+            "label": "Categories",
+            "iconName": "Tags",
+            "children": []
+          },
+          {
+            "path": "/instasolver/admin/teams",
+            "label": "Teams",
+            "iconName": "Users",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/instasolver/analytics",
+        "label": "Analytics",
+        "iconName": "BarChart",
+        "children": []
+      },
+      {
         "path": "/instasolver/broken",
         "label": "Broken",
         "iconName": "FileText",
@@ -5225,8 +5268,58 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/instasolver/dashboard",
+        "label": "Dashboard",
+        "iconName": "LayoutGrid",
+        "children": []
+      },
+      {
+        "path": "/instasolver/issues",
+        "label": "Issues",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/instasolver/issues/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/instasolver/requirements",
+        "label": "Requirements",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/instasolver/requirements/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/instasolver/track",
         "label": "Track",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/instasolver/triage",
+        "label": "Triage",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/instasolver/work",
+        "label": "Work",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/instasolver/workload",
+        "label": "Workload",
         "iconName": "FileText",
         "children": []
       }

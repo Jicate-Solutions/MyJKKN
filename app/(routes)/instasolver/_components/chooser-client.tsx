@@ -12,7 +12,7 @@
 // disappearing or linking somewhere that will bounce (rule #27).
 
 import Link from 'next/link';
-import { ChevronRight, MessageSquareWarning, ShoppingCart, Wrench } from 'lucide-react';
+import { ChevronRight, ClipboardList, MessageSquareWarning, ShoppingCart, Wrench } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 
 interface ChooserClientProps {
@@ -105,6 +105,28 @@ export function ChooserClient({ canRaisePurchase }: ChooserClientProps) {
           </CardContent>
         </Card>
       )}
+
+      {/* The InstaSolver desk (MYJKKN-MODULE-SPEC.md): tracked issues and
+          requirements with CAO triage, maintenance teams and reporter
+          confirmation. Sits beside the three lanes above, not in place of them. */}
+      <Link href="/instasolver/dashboard" className={CARD_BASE}>
+        <div className="flex min-h-[72px] items-center gap-4 p-5">
+          <span className={ICON_WRAP} aria-hidden="true">
+            <ClipboardList className="h-6 w-6" />
+          </span>
+          <span className="flex-1">
+            <span className="block text-lg font-semibold">Issues and requirements desk</span>
+            <span className="mt-1 block text-sm text-muted-foreground">
+              Report a fault or request an item with a reference number, follow it through triage and
+              repair, and confirm when it is fixed.
+            </span>
+          </span>
+          <ChevronRight
+            className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5"
+            aria-hidden="true"
+          />
+        </div>
+      </Link>
     </div>
   );
 }

@@ -205,6 +205,13 @@ const NAV_EXCLUDE = new Set<string>([
   // chip-reachable parent /billing/apportionment list page.
   '/billing/apportionment/rules',
 
+  // InstaSolver chooser lanes — hidden from navigation on 2026-10-01 (owner's
+  // decision) but kept for direct links, e.g. an anonymous complainant's
+  // tracking link. /instasolver itself now redirects to the desk dashboard.
+  '/instasolver/broken',
+  '/instasolver/complaint',
+  '/instasolver/track',
+
   // Academic /new forms
   '/academic/batches/new',
   '/academic/leaves/new',
