@@ -98,12 +98,26 @@ export interface ReferralReviewWorklist {
  *  attempt reports already_cleared rather than re-stamping who owns the decision. */
 export interface ClearWalkinCreditResult {
   ok: boolean;
-  reason?: 'not_found' | 'already_cleared';
+  reason?: 'not_found' | 'already_cleared' | 'not_owner' | 'note_required' | 'learner_left' | 'learner_inactive';
   attribution_id?: string;
   cleared_at?: string;
 }
 
+/** The one person allowed to release walk-in credits (Director ruling, 2026-09-27),
+ *  read from a config row, and whether that is the viewer. */
+export interface WalkinReleaseOwner {
+  owner_name: string | null;
+  is_owner: boolean;
+}
+
 export class ReferralReviewService {
+  static async getWalkinReleaseOwner(): Promise<WalkinReleaseOwner> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await (supabase as any).rpc('fn_walkin_release_owner');
+    if (error) throw new Error(error.message);
+    return data as WalkinReleaseOwner;
+  }
+
   static async getWorklist(academicYear: number): Promise<ReferralReviewWorklist> {
     const supabase = createClientSupabaseClient();
     const { data, error } = await (supabase as any).rpc('fn_referral_review_worklist', {

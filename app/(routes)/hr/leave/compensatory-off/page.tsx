@@ -34,6 +34,7 @@ import {
   COMP_OFF_STATUS_LABELS,
   COMP_OFF_EXPIRY_WARNING_DAYS,
   formatWorkLocation,
+  type CompOffCredit,
   type CompOffEffectiveStatus,
 } from '@/types/hr-comp-off';
 import type { HRLeaveApplicationWithType } from '@/types/hr';
@@ -48,6 +49,35 @@ const fmtDate = (d: string) =>
 
 /** How long a refused claim stays on the Request tab after it lapsed. */
 const REFUSED_CLAIM_SHOWN_DAYS = 30;
+
+/**
+ * The line under a decided claim's status: who decided it and, for a refusal,
+ * the whole reason (BUG-006231 — "don't know who gives the comments"). It
+ * wraps rather than truncating: the reason used to be cut to one line with the
+ * rest in a hover tooltip, which a phone cannot show. A decision taken before
+ * the decider was recorded, or the nightly auto-reject, has no name — just the
+ * reason.
+ */
+function decisionNote(c: CompOffCredit): string | null {
+  const by = c.decided_by_name?.trim() || null;
+  if (c.status === 'rejected') {
+    const reason = c.rejection_reason?.trim() || null;
+    if (by) return reason ? `Rejected by ${by}: ${reason}` : `Rejected by ${by}`;
+    return reason;
+  }
+  if ((c.status === 'approved' || c.status === 'consumed') && by) return `Approved by ${by}`;
+  return null;
+}
+
+function DecisionNote({ credit }: { credit: CompOffCredit }) {
+  const note = decisionNote(credit);
+  if (!note) return null;
+  return (
+    <span className="mt-0.5 block max-w-[260px] whitespace-normal break-words text-xs text-muted-foreground">
+      {note}
+    </span>
+  );
+}
 
 const CREDIT_TONE: Record<CompOffEffectiveStatus, string> = {
   approved: 'border-emerald-600/30 bg-emerald-600/10 text-emerald-700 dark:text-emerald-400',
@@ -221,12 +251,12 @@ export default function CompensatoryOffPage() {
                         'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium',
                         CREDIT_TONE[c.effective_status]
                       )}
-                      // A rejection says why — including the nightly auto-reject
-                      // of a claim nobody decided before it expired.
-                      title={c.status === 'rejected' ? c.rejection_reason ?? undefined : undefined}
                     >
                       {COMP_OFF_STATUS_LABELS[c.effective_status]}
                     </span>
+                    {/* A rejection says why — including the nightly auto-reject
+                        of a claim nobody decided before it expired. */}
+                    <DecisionNote credit={c} />
                   </TableCell>
                   <TableCell className="text-right">
                     {/* Only a claim nobody has decided yet. An approved credit is
@@ -325,15 +355,10 @@ export default function CompensatoryOffPage() {
                           'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium',
                           CREDIT_TONE[c.status]
                         )}
-                        title={c.status === 'rejected' ? c.rejection_reason ?? undefined : undefined}
                       >
                         {COMP_OFF_STATUS_LABELS[c.status]}
                       </span>
-                      {c.status === 'rejected' && c.rejection_reason && (
-                        <span className="mt-0.5 block max-w-[220px] truncate text-xs text-muted-foreground">
-                          {c.rejection_reason}
-                        </span>
-                      )}
+                      <DecisionNote credit={c} />
                     </TableCell>
                     <TableCell className="text-right">
                       {/* Same guard as the Balance tab: hcoc_withdraw_own_pending

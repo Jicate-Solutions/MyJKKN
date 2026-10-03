@@ -2,20 +2,25 @@
 // ============================================================================
 // Campus Walk — the FIXER's endpoint. Closes out a reported campus condition.
 //
-// Spec: specs/campus-walk-2026-08-17.md (D4, D8, D10; guardrails G4, G5).
+// Spec: specs/campus-walk-2026-08-17.md (D4 as superseded, D8, D10; G4, G5).
 //
 // Three actions, one route, because they are three buttons on one phone screen:
-//   submit   upload the fix photo -> task moves to AWAITING APPROVAL (never done)
+//   submit   upload the fix photo -> the job CLOSES (Director, 2026-09-30)
 //   block    "I cannot fix this yet" -> stops the SLA clock against the assignee
 //   unblock  "I can start now"      -> restarts it and pushes the deadline out
 //
-// ── D4: A FIX PHOTO DOES NOT CLOSE THE TICKET ───────────────────────────────
-// Closure = fix photo + a manager's approval. The Director chose the stricter of
-// the two options on the table. So `submit` moves the task to status_key
-// 'review' (project_statuses category = 'active', NOT 'done') and leaves
-// completed_at NULL. Nothing in this file can ever write 'done'. The approval
-// decision lives on metadata.fix.approval and is written by the reviewer's
-// screen, not here.
+// ── THE FIX PHOTO CLOSES THE JOB (Director's ruling, 2026-09-30) ────────────
+// "Make it easy for users to InstaSolver and for the action takers to resolve
+// it instantly." This supersedes D4 ("a fix photo alone does not close the
+// ticket"). `submit` records the photo exactly as before — the evidence row,
+// metadata.fix, status 'review' — and then hands the task straight to
+// lib/campus-walk/closure.ts `closeCampusWalkTask(auto: true)`, which writes
+// 'done' + completed_at + an approved record and tells the person who reported
+// it. They can tap "Not fixed" within 7 days to reopen the same job
+// (app/api/campus-walk/not-fixed/route.ts). The two steps are kept apart on
+// purpose: if the close write fails, the photo is still recorded and the job
+// sits in the old approval queue, where a manager can still close it — the
+// fixer never loses their work to a failed second write.
 //
 // ── G5: CLOSURE VERIFICATION IS THE PRODUCT ─────────────────────────────────
 // The evidence is a project_task_attachments row that supersedes the observation
@@ -46,6 +51,8 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { isJpegMagic, scanJpegForMetadata, stripJpegMetadata } from '@/lib/services/pde/jpeg-metadata';
 import { createBellNotification } from '@/lib/services/meetings/meeting-trigger-service';
 import { resolveDirectors, validateTargeting } from '@/lib/services/director-desk/handover-chase-service';
+import { closeCampusWalkTask } from '@/lib/campus-walk/closure';
+import { updateTaskKeepingJoins } from '@/lib/campus-walk/join-report';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -100,6 +107,8 @@ interface TaskRow {
   is_overdue: boolean;
   owner_staff_id: string | null;
   completed_at: string | null;
+  /** Compare-and-set version for the photo step (bumped by the updated_at trigger). */
+  updated_at?: string | null;
   metadata: Record<string, any>;
 }
 
@@ -201,7 +210,7 @@ async function resolveAccess(
   const { data: task, error: taskErr } = await admin
     .from('project_tasks')
     .select(
-      'id, project_id, title, description, due_date, status_key, is_blocked, is_overdue, owner_staff_id, completed_at, metadata'
+      'id, project_id, title, description, due_date, status_key, is_blocked, is_overdue, owner_staff_id, completed_at, updated_at, metadata'
     )
     .eq('id', taskId)
     .maybeSingle();
@@ -740,6 +749,37 @@ export async function POST(request: NextRequest) {
   // DB write, overwrites the same object instead of littering the bucket.
   const storagePath = `${taskId}/fix/${sha256}.jpg`;
 
+  // ── Done-guard ─────────────────────────────────────────────────────────────
+  // A job already closed by a photo is finished. The same photo again is a
+  // retry after a dropped response — answer with the closure that stands and
+  // ring nothing. A DIFFERENT photo on a closed job is refused: re-closing it
+  // would ring the reporter a second time for work that did not change. A job
+  // that needs more work comes back through the reporter's "Not fixed".
+  if (task.status_key === 'done' && metadata.fix?.approval?.state === 'approved') {
+    if (metadata.fix?.storage_path === storagePath) {
+      return NextResponse.json({
+        ok: true,
+        already: true,
+        action: 'submit',
+        closed: true,
+        status_key: 'done',
+        approval_state: 'approved',
+        attachment_id: metadata.fix?.attachment_id ?? null,
+        storage_path: storagePath,
+        message: 'Done — this job is already closed with this photo.',
+      });
+    }
+    return NextResponse.json(
+      {
+        ok: false,
+        code: 'already_closed',
+        error:
+          'This job is already closed. If it needs more work, the person who reported it can mark it "Not fixed".',
+      },
+      { status: 409 }
+    );
+  }
+
   const { error: upErr } = await admin.storage
     .from(BUCKET)
     .upload(storagePath, cleaned, { contentType: 'image/jpeg', upsert: true });
@@ -858,10 +898,10 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // ── D4: awaiting approval, NOT done ────────────────────────────────────────
-  // 'review' is a seeded project_statuses key in category 'active'. completed_at
-  // stays NULL. The reviewer's decision writes metadata.fix.approval.state and
-  // only then may the task become 'done'.
+  // ── Step 1: record the fix ─────────────────────────────────────────────────
+  // Written as 'review' / awaiting_approval first, then closed in step 2. If
+  // step 2 fails, this row is a normal entry in the old approval queue and a
+  // manager can still close it — nothing the fixer did is lost.
   const previousApproval = metadata.fix?.approval ?? null;
   metadata.fix = {
     submitted_at: nowIso,
@@ -890,25 +930,33 @@ export async function POST(request: NextRequest) {
   // hour still shows up late in every report that reads due_date.
   const { dueDate: settledDueDate } = closePause(metadata, task.due_date, nowIso);
 
-  const { error: taskErr } = await admin
-    .from('project_tasks')
-    .update({
+  // The job was read before the photo upload. Someone may have JOINED the
+  // report in the meantime (InstaSolver ruling 2); a plain whole-metadata write
+  // would erase them, and they would never hear it was fixed. This write is a
+  // compare-and-set on updated_at that puts any late joins back and retries
+  // (lib/campus-walk/join-report.ts updateTaskKeepingJoins). It does not add a
+  // status check — this step never had one.
+  const stepOne = await updateTaskKeepingJoins(admin as any, {
+    taskId,
+    expectStatus: null,
+    updatedAt: task.updated_at ?? null,
+    patch: {
       status_key: 'review',
-      completed_at: null, // D4 — a fix photo alone never closes the ticket
+      completed_at: null, // closed in step 2 below, under a compare-and-set
       is_blocked: false,
       due_date: settledDueDate,
-      metadata,
-    })
-    .eq('id', taskId);
+    },
+    metadata,
+  });
 
-  if (taskErr) {
-    console.error('[campus-walk/fix] task update failed:', taskErr.message);
+  if (stepOne.ok === false) {
+    console.error('[campus-walk/fix] task update failed:', stepOne.error);
     return NextResponse.json(
       {
         ok: false,
         code: 'attachment_saved_not_submitted',
         error:
-          'Your photo is saved on the ticket but we could not send it for approval. Tap send again — nothing is lost.',
+          'Your photo is saved on the ticket but we could not close the job. Tap send again — nothing is lost.',
         attachment_id: attachmentId,
         storage_path: storagePath,
         retryable: true,
@@ -917,15 +965,52 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // ── Step 2: the photo closes the job (Director, 2026-09-30) ────────────────
+  const closed = await closeCampusWalkTask(
+    admin as any,
+    {
+      id: taskId,
+      title: task.title,
+      status_key: 'review', // what step 1 just wrote — the compare-and-set version
+      updated_at: stepOne.updatedAt,
+      owner_staff_id: task.owner_staff_id,
+      completed_at: null,
+      metadata: stepOne.metadata,
+    },
+    { decidedByProfileId: user.id, auto: true }
+  );
+
+  if (closed.ok === false) {
+    console.error(
+      `[campus-walk/fix] photo recorded but the job did not close (task ${taskId}, ${closed.code})`
+    );
+    return NextResponse.json({
+      ok: true,
+      action: 'submit',
+      closed: false,
+      status_key: 'review',
+      approval_state: 'awaiting_approval',
+      attachment_id: attachmentId,
+      attachment_version: attachmentVersion,
+      supersedes_id: supersededId,
+      storage_path: storagePath,
+      message:
+        'Your photo is saved on the job, but we could not close it just now. A manager will check it and close it.',
+    });
+  }
+
   return NextResponse.json({
     ok: true,
     action: 'submit',
-    status_key: 'review',
-    approval_state: 'awaiting_approval',
+    closed: true,
+    status_key: 'done',
+    approval_state: 'approved',
+    completed_at: closed.completedAt,
+    reporter_notified: closed.reporterNotified,
     attachment_id: attachmentId,
     attachment_version: attachmentVersion,
     supersedes_id: supersededId,
     storage_path: storagePath,
-    message: 'Sent for approval. The ticket closes once a manager has checked the photo.',
+    message: 'Done — the job is closed. Thank you.',
   });
 }

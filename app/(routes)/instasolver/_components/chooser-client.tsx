@@ -9,15 +9,30 @@
 // The purchase card is the only conditional one. `canRaisePurchase` is decided
 // server-side in page.tsx from procurement.request_create; when it is false the
 // card still renders — as a plain panel with the real next step — instead of
-// disappearing or linking somewhere that will bounce (rule #27).
+// disappearing or linking somewhere that will bounce (rule #27). The real next
+// step names who holds procurement.request_create: the Store Administrator and
+// the Procurement team. A HOD does not hold it.
+//
+// "My complaints" renders only when `showMyComplaints` is true — page.tsx sets
+// it from the build's route manifest, so the button never opens a not-found
+// page (its page arrives with PR #4144).
 
 import Link from 'next/link';
-import { ChevronRight, ClipboardList, MessageSquareWarning, ShoppingCart, Wrench } from 'lucide-react';
+import {
+  ChevronRight,
+  ListChecks,
+  MessageSquareText,
+  MessageSquareWarning,
+  ShoppingCart,
+  Wrench
+} from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 
 interface ChooserClientProps {
   /** Resolved server-side from `procurement.request_create`. */
   canRaisePurchase: boolean;
+  /** True only when /instasolver/my-complaints is a page in this build. */
+  showMyComplaints: boolean;
 }
 
 const CARD_BASE =
@@ -25,10 +40,15 @@ const CARD_BASE =
   'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 ' +
   'focus-visible:ring-ring focus-visible:ring-offset-2';
 
+const FOLLOW_UP_LINK =
+  'flex min-h-[48px] items-center justify-center gap-2 rounded-lg border bg-background ' +
+  'px-3 text-sm font-medium text-primary shadow-sm transition-colors hover:bg-accent ' +
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+
 const ICON_WRAP =
   'flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground';
 
-export function ChooserClient({ canRaisePurchase }: ChooserClientProps) {
+export function ChooserClient({ canRaisePurchase, showMyComplaints }: ChooserClientProps) {
   return (
     <div className="mt-2 flex flex-col gap-4">
       <Link href="/instasolver/broken" className={CARD_BASE}>
@@ -98,35 +118,32 @@ export function ChooserClient({ canRaisePurchase }: ChooserClientProps) {
                 We need to buy something
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Direct purchase requests open soon — for now ask your HOD to raise it in
-                Procurement.
+                Ask your Store Administrator or the Procurement team. They can raise a
+                purchase request for you in Procurement.
               </p>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* The InstaSolver desk (MYJKKN-MODULE-SPEC.md): tracked issues and
-          requirements with CAO triage, maintenance teams and reporter
-          confirmation. Sits beside the three lanes above, not in place of them. */}
-      <Link href="/instasolver/dashboard" className={CARD_BASE}>
-        <div className="flex min-h-[72px] items-center gap-4 p-5">
-          <span className={ICON_WRAP} aria-hidden="true">
-            <ClipboardList className="h-6 w-6" />
-          </span>
-          <span className="flex-1">
-            <span className="block text-lg font-semibold">Issues and requirements desk</span>
-            <span className="mt-1 block text-sm text-muted-foreground">
-              Report a fault or request an item with a reference number, follow it through triage and
-              repair, and confirm when it is fixed.
-            </span>
-          </span>
-          <ChevronRight
-            className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5"
-            aria-hidden="true"
-          />
-        </div>
-      </Link>
+      {/* How you follow up (Director, 2026-09-30): where "fixed" shows up and
+          "Not fixed" lives, and where a complaint's progress shows up.
+          My complaints shows only when its page is in this build (#4144). */}
+      <nav
+        aria-label="Follow up"
+        className={showMyComplaints ? 'grid grid-cols-2 gap-3' : 'grid grid-cols-1 gap-3'}
+      >
+        <Link href="/instasolver/my-reports" className={FOLLOW_UP_LINK}>
+          <ListChecks className="h-4 w-4" aria-hidden="true" />
+          My reports
+        </Link>
+        {showMyComplaints ? (
+          <Link href="/instasolver/my-complaints" className={FOLLOW_UP_LINK}>
+            <MessageSquareText className="h-4 w-4" aria-hidden="true" />
+            My complaints
+          </Link>
+        ) : null}
+      </nav>
     </div>
   );
 }
