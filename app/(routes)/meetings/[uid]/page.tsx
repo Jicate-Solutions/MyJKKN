@@ -781,8 +781,8 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
             <CardContent className="space-y-3">
               <p className="text-sm text-muted-foreground">
                 Nothing is recorded until you say so. Until you do, this meeting stays
-                under Awaiting you on your meetings list. It is no longer closed
-                automatically after seven days.
+                under Awaiting you on your meetings list. If its notes are linked, it
+                closes on its own seven days after it ends; otherwise it waits for you.
               </p>
               <MarkOutcomeButtons uid={booking.uid} />
             </CardContent>
