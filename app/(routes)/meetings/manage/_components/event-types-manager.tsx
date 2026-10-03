@@ -407,24 +407,26 @@ export function EventTypesManager({
       return;
     }
     const url = `${window.location.origin}/meet/${bookingPage.handle}/${et.slug}`;
+    // Why the link will not open, if it will not — said on the copied AND the
+    // copy-by-hand path, so a failed clipboard never drops the warning.
+    const blocker = !bookingPage.isPublic
+      ? 'Your booking page is switched off, so it will not open for others until it is switched on.'
+      : bookingPage.autoHidden
+        ? 'Your booking page was hidden because your Google connection stopped working, so the link will not open until you reconnect Google.'
+        : et.hidden
+          ? 'This type is hidden, so the link will not open for anyone until you make it visible (Edit → turn off "Hide from booking page").'
+          : null;
     try {
       await navigator.clipboard.writeText(url);
     } catch {
-      toast.error(`Could not copy automatically. The link is: ${url}`, { duration: 15000 });
+      toast.error(
+        `Could not copy automatically. The link is: ${url}${blocker ? `. ${blocker}` : ''}`,
+        { duration: 15000 },
+      );
       return;
     }
-    if (!bookingPage.isPublic) {
-      toast.warning(
-        `Link copied: ${url}. Your booking page is switched off, so it will not open for others until it is switched on.`,
-      );
-    } else if (bookingPage.autoHidden) {
-      toast.warning(
-        `Link copied: ${url}. Your booking page was hidden because your Google connection stopped working, so the link will not open until you reconnect Google.`,
-      );
-    } else if (et.hidden) {
-      toast.warning(
-        `Link copied: ${url}. This type is hidden, so the link will not open for anyone until you make it visible (Edit → turn off "Hide from booking page").`,
-      );
+    if (blocker) {
+      toast.warning(`Link copied: ${url}. ${blocker}`);
     } else {
       toast.success(`Link copied: ${url}`);
     }
