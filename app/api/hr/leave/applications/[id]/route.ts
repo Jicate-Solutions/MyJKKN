@@ -6,6 +6,7 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { LeaveService } from '@/lib/services/hr/leave-service';
+import { errorMessage } from '@/lib/utils/supabase-error';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import type { LeaveApprovalStep, LeaveChainNames } from '@/types/hr';
 
@@ -258,6 +259,6 @@ export async function GET(
     return NextResponse.json({ data: { ...app, chain_names, applicant } });
   } catch (err) {
     console.error('[hr/leave/applications/:id] GET error', err);
-    return NextResponse.json({ error: err instanceof Error ? err.message : 'Unknown error' }, { status: 500 });
+    return NextResponse.json({ error: errorMessage(err, 'Unknown error') }, { status: 500 });
   }
 }
