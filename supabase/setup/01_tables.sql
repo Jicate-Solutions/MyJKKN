@@ -11124,3 +11124,40 @@ CREATE INDEX IF NOT EXISTS idx_sign_out_notices_parent_unseen
 
 COMMENT ON TABLE public.sign_out_notices IS
   'An admin signed this person out of all devices; shown once after their next sign-in (Director ruling 2026-10-02). Written by the service role only.';
+-- ============================================================================
+-- Updated: 2026-10-01 - HR staff harness (duties R9 onboarding, A3 regularisation):
+-- hr_duty_notices notice ledger (one row per notice, ever). Migration 20270613101133_hr_duty_notices_onboarding_regularization.sql
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.hr_duty_notices (
+  id                 uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- Duty code from the harness design page: 'R9' onboarding, 'A3' regularisation.
+  duty_code          text        NOT NULL CHECK (char_length(duty_code) BETWEEN 1 AND 16),
+  -- Which table subject_id points into, for a human reading the ledger.
+  subject_table      text        NOT NULL,
+  subject_id         uuid        NOT NULL,
+  -- Narrows the subject: the onboarding step position, '' when not needed.
+  subject_key        text        NOT NULL DEFAULT '',
+  -- step_turn | step_reminder | joining_passed | submitted | reminder | hr_head | decided
+  reminder_kind      text        NOT NULL,
+  recipient_user_ids uuid[]      NOT NULL DEFAULT ARRAY[]::uuid[],
+  notified_count     integer     NOT NULL DEFAULT 0,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hr_duty_notices_once UNIQUE (duty_code, subject_id, subject_key, reminder_kind)
+);
+
+COMMENT ON TABLE public.hr_duty_notices IS
+  'HR staff harness notice ledger (2026-10-01). One row per notice ever sent for a duty subject; the UNIQUE key is what makes every reminder fire at most once. Written by the service role only.';
+
+CREATE INDEX IF NOT EXISTS hr_duty_notices_subject_idx
+  ON public.hr_duty_notices (duty_code, subject_id);
+
+ALTER TABLE public.hr_duty_notices ENABLE ROW LEVEL SECURITY;
+
+-- The anon key ships in every page; Supabase's default privileges grant it ALL on
+-- new tables. RLS already denies it, but the grant itself is removed so the table
+-- is closed at both layers. Signed-in users keep SELECT only (the policy below
+-- narrows it to their own rows); writes are the service role's alone.
+REVOKE ALL ON public.hr_duty_notices FROM anon;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.hr_duty_notices FROM authenticated;
+
