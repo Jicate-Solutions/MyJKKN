@@ -15,25 +15,32 @@ vi.mock('@/hooks/events/use-tournament-registration-form', () => ({
   useSaveRegistrationForm: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
+// The editor reads the tournament's divisions via useTournament (904ccc5b45), whose
+// service module builds a Supabase client at import time. Stub it: these tests
+// only cover the standard-fields cards.
+vi.mock('@/hooks/events/use-tournaments', () => ({
+  useTournament: () => ({ data: undefined, isLoading: false }),
+}));
+
 import { RegistrationFormEditor } from '@/app/(routes)/events/tournament/[id]/registration-form/_components/registration-form-editor';
 
 afterEach(() => cleanup());
 
 describe('RegistrationFormEditor standard fields', () => {
   it('shows the standard fields in both columns', () => {
-    render(<RegistrationFormEditor eventId="ev-1" />);
+    render(<RegistrationFormEditor eventId="ev-1" formId="form-1" />);
     // One heading from the builder card, one from the preview list.
     expect(screen.getAllByText('Standard fields')).toHaveLength(2);
     expect(screen.getAllByText('Roster (name + jersey no)')).toHaveLength(2);
   });
 
   it('tells the organizer not to re-create them, in the builder card', () => {
-    render(<RegistrationFormEditor eventId="ev-1" />);
+    render(<RegistrationFormEditor eventId="ev-1" formId="form-1" />);
     expect(screen.getByText(/re-create them/i)).toBeInTheDocument();
   });
 
   it('lists the standard fields in the preview column too', () => {
-    render(<RegistrationFormEditor eventId="ev-1" />);
+    render(<RegistrationFormEditor eventId="ev-1" formId="form-1" />);
     // Builder card + preview list both render, so every label appears twice.
     expect(screen.getAllByText('Event / division')).toHaveLength(2);
     expect(screen.getAllByText('Phone, Email')).toHaveLength(2);
@@ -43,7 +50,7 @@ describe('RegistrationFormEditor standard fields', () => {
   });
 
   it('still renders the empty-state prompt for custom sections', () => {
-    render(<RegistrationFormEditor eventId="ev-1" />);
+    render(<RegistrationFormEditor eventId="ev-1" formId="form-1" />);
     expect(screen.getByText(/No custom fields yet/i)).toBeInTheDocument();
   });
 });

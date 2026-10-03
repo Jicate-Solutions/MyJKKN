@@ -253,6 +253,7 @@ describe('subject bounds', () => {
   it('refuses a title that is too short and accepts one that fits', () => {
     expect(validateSubject('hi')).not.toBeNull();
     expect(validateSubject('Broken fan in room 12')).toBeNull();
+    expect(validateSubject('Fan')).toBeNull();
   });
 
   it('refuses a title beyond the maximum', () => {

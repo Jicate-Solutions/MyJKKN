@@ -9,6 +9,11 @@ END $$;
 CREATE SCHEMA IF NOT EXISTS auth;
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
   SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
+-- auth.users, only the column the reminder sign-in rule reads (2026-10-02).
+CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY, last_sign_in_at timestamptz);
+-- auth.sessions, only what the rule reads (W12 review of #4177): refreshed_at has no time zone.
+CREATE TABLE IF NOT EXISTS auth.sessions (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL,
+  updated_at timestamptz, refreshed_at timestamp without time zone);
 
 CREATE TABLE public.institutions (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(), name varchar(255) NOT NULL, is_active boolean DEFAULT true);
@@ -16,6 +21,13 @@ CREATE TABLE public.profiles (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(), email text, full_name text,
   role text NOT NULL DEFAULT 'student', profile_completed boolean NOT NULL DEFAULT false,
   is_active boolean NOT NULL DEFAULT true, is_super_admin boolean, institution_id uuid, department_id uuid);
+CREATE OR REPLACE FUNCTION public._stub_profile_signed_in() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO auth.users (id, last_sign_in_at) VALUES (NEW.id, now()) ON CONFLICT (id) DO NOTHING;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER _stub_profile_signed_in AFTER INSERT ON public.profiles
+  FOR EACH ROW EXECUTE FUNCTION public._stub_profile_signed_in();
 CREATE TABLE public.custom_roles (
   id uuid PRIMARY KEY DEFAULT uuid_generate_v4(), role_key varchar(50) NOT NULL UNIQUE, role_name varchar(50) NOT NULL,
   permissions jsonb NOT NULL DEFAULT '{}'::jsonb, is_active boolean DEFAULT true, updated_at timestamptz DEFAULT now());

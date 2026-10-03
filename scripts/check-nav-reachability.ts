@@ -66,6 +66,17 @@ const NAV_EXCLUDE = new Set<string>([
   // (see its `searchParams: { task?: string }`) and shows a "no ticket" state
   // with no task id, so it has no standalone chip surface to be reached from.
   '/campus-walk/fix',
+  // Campus Walk routine check screen. Reached from the bell a routine check
+  // job raises, as `/campus-walk/check?task=<id>` — one specific job, same
+  // shape as the fixer screen above, so no standalone chip surface.
+  '/campus-walk/check',
+  // Campus Walk spot checks (2026-09-30 interview, rulings 1 and 3). Reached
+  // from the two bells that name it — "spot check" to the checker and "failed
+  // twice" to the college head. A sidebar row would be keyed instasolver.view
+  // (principals are not guaranteed projects.view) and so would show a Campus
+  // Walk group to every learner; the page itself refuses anyone but a
+  // principal or the Director.
+  '/campus-walk/spot-checks',
   // Top-bar avatar / bell targets
   '/profile',
   '/notifications',
@@ -208,6 +219,18 @@ const NAV_EXCLUDE = new Set<string>([
   // Billing apportionment rules — button-invoked ("Default Rules") from the
   // chip-reachable parent /billing/apportionment list page.
   '/billing/apportionment/rules',
+
+  // InstaSolver chooser lanes — hidden from navigation on 2026-10-01 (owner's
+  // decision) but kept for direct links, e.g. an anonymous complainant's
+  // tracking link. /instasolver itself now redirects to the desk dashboard.
+  '/instasolver/broken',
+  '/instasolver/complaint',
+  '/instasolver/track',
+  // Reached from the chooser's "My complaints" / "My reports" buttons, the
+  // bell, and a room's QR sticker (/r/[token]) — not from the desk's chip row.
+  '/instasolver/my-complaints',
+  '/instasolver/my-reports',
+  '/instasolver/r',
 
   // Academic /new forms
   '/academic/batches/new',

@@ -11511,3 +11511,132 @@ CREATE POLICY hvci_delete ON public.hostel_vacate_checklist_items FOR DELETE TO 
     OR (SELECT public.is_admin())
     OR (SELECT public.user_has_permission('campus_living.vacate_checklist.manage'))
   );
+
+-- ═══ 2026-10-01: vacate approval chain + room damage + fine bill (20261001100000/110000) ═══
+DROP POLICY IF EXISTS hdt_select ON public.hostel_damage_types;
+CREATE POLICY hdt_select ON public.hostel_damage_types FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (SELECT public.user_has_permission('campus_living.damage_types.manage'))
+    OR (SELECT public.user_has_permission('campus_living.vacate_requests.view'))
+  );
+
+DROP POLICY IF EXISTS hdt_insert ON public.hostel_damage_types;
+CREATE POLICY hdt_insert ON public.hostel_damage_types FOR INSERT TO authenticated
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (SELECT public.user_has_permission('campus_living.damage_types.manage'))
+  );
+
+DROP POLICY IF EXISTS hdt_update ON public.hostel_damage_types;
+CREATE POLICY hdt_update ON public.hostel_damage_types FOR UPDATE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (SELECT public.user_has_permission('campus_living.damage_types.manage'))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (SELECT public.user_has_permission('campus_living.damage_types.manage'))
+  );
+
+DROP POLICY IF EXISTS hvdm_select ON public.hostel_vacate_damages;
+CREATE POLICY hvdm_select ON public.hostel_vacate_damages FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR EXISTS (
+      SELECT 1 FROM public.hostel_vacate_requests r
+       WHERE r.id = hostel_vacate_damages.vacate_request_id
+         AND (
+           ((SELECT public.user_has_permission('campus_living.vacate_requests.view'))
+             AND public.fn_cl_vacate_scope_ok(r.institution_id, r.allocation_id))
+           OR ((SELECT public.user_has_permission('campus_living.vacate_requests.view_own'))
+             AND (r.submitted_by_id = (SELECT auth.uid()) OR r.learner_id = (SELECT auth.uid())))
+         )
+    )
+  );
+
+DROP POLICY IF EXISTS hva_select ON public.hostel_vacate_approvals;
+CREATE POLICY hva_select ON public.hostel_vacate_approvals FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR EXISTS (
+      SELECT 1 FROM public.hostel_vacate_requests r
+       WHERE r.id = hostel_vacate_approvals.vacate_request_id
+         AND (
+           ((SELECT public.user_has_permission('campus_living.vacate_requests.view'))
+             AND public.fn_cl_vacate_scope_ok(r.institution_id, r.allocation_id))
+           OR ((SELECT public.user_has_permission('campus_living.vacate_requests.view_own'))
+             AND (r.submitted_by_id = (SELECT auth.uid()) OR r.learner_id = (SELECT auth.uid())))
+         )
+    )
+  );
+
+
+-- ============================================================================
+-- Updated: 2026-10-01 - Old InstaSolver site history (migration 20270617094100)
+-- Read: super admin, admin, grievance.categories.manage. Write: service role only.
+-- ============================================================================
+ALTER TABLE public.legacy_instasolver_issues ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.legacy_instasolver_requirements ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.legacy_instasolver_issues FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.legacy_instasolver_requirements FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.legacy_instasolver_issues FROM authenticated;
+REVOKE ALL ON TABLE public.legacy_instasolver_requirements FROM authenticated;
+GRANT SELECT ON TABLE public.legacy_instasolver_issues TO authenticated;
+GRANT SELECT ON TABLE public.legacy_instasolver_requirements TO authenticated;
+GRANT ALL ON TABLE public.legacy_instasolver_issues TO service_role;
+GRANT ALL ON TABLE public.legacy_instasolver_requirements TO service_role;
+DROP POLICY IF EXISTS legacy_instasolver_issues_select ON public.legacy_instasolver_issues;
+CREATE POLICY legacy_instasolver_issues_select ON public.legacy_instasolver_issues
+  FOR SELECT TO authenticated
+  USING (public.is_super_admin() OR public.is_admin() OR public.user_has_permission('grievance.categories.manage'));
+DROP POLICY IF EXISTS legacy_instasolver_requirements_select ON public.legacy_instasolver_requirements;
+CREATE POLICY legacy_instasolver_requirements_select ON public.legacy_instasolver_requirements
+  FOR SELECT TO authenticated
+  USING (public.is_super_admin() OR public.is_admin() OR public.user_has_permission('grievance.categories.manage'));
+
+
+-- ============================================================================
+-- Updated: 2026-10-02 - Parent password views + sign-out notices (migration 20271002150000)
+-- Password views: super admins read; service role writes. Notices: own rows, seen_at only; service role writes. No anon.
+-- ============================================================================
+ALTER TABLE public.pp_parent_password_views ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sign_out_notices         ENABLE ROW LEVEL SECURITY;
+
+-- Supabase's default privileges grant ALL on every new table to anon and
+-- authenticated; take that back before granting the narrow set.
+REVOKE ALL ON TABLE public.pp_parent_password_views FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.sign_out_notices         FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.pp_parent_password_views FROM authenticated;
+REVOKE ALL ON TABLE public.sign_out_notices         FROM authenticated;
+
+GRANT SELECT ON TABLE public.pp_parent_password_views TO authenticated;
+GRANT SELECT ON TABLE public.sign_out_notices         TO authenticated;
+GRANT UPDATE (seen_at) ON TABLE public.sign_out_notices TO authenticated;
+
+GRANT ALL ON TABLE public.pp_parent_password_views TO service_role;
+GRANT ALL ON TABLE public.sign_out_notices         TO service_role;
+
+-- Password views: super admins only (ruling A — not is_admin()).
+DROP POLICY IF EXISTS pp_parent_password_views_select ON public.pp_parent_password_views;
+CREATE POLICY pp_parent_password_views_select ON public.pp_parent_password_views
+  FOR SELECT TO authenticated
+  USING (public.is_super_admin());
+
+-- Sign-out notices: the person themself, own rows only.
+DROP POLICY IF EXISTS sign_out_notices_select_own ON public.sign_out_notices;
+CREATE POLICY sign_out_notices_select_own ON public.sign_out_notices
+  FOR SELECT TO authenticated
+  USING (user_id = (SELECT auth.uid()));
+
+DROP POLICY IF EXISTS sign_out_notices_update_own ON public.sign_out_notices;
+CREATE POLICY sign_out_notices_update_own ON public.sign_out_notices
+  FOR UPDATE TO authenticated
+  USING (user_id = (SELECT auth.uid()))
+  WITH CHECK (user_id = (SELECT auth.uid()));

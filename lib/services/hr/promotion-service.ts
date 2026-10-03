@@ -14,6 +14,12 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  incrementBlocked,
+  parseRatings,
+  resolveAreas,
+  type AppraisalRatingPolicySlice,
+} from '@/lib/hr/appraisal-ratings';
 
 // ----------------------------------------------------------------------------
 // Policy shape (hr.promotion_policy JSONB)
@@ -163,50 +169,109 @@ export async function getPromotionPolicy(
 // Scoring
 // ----------------------------------------------------------------------------
 /**
- * Compute merit score for a staff member.
+ * Compute merit score for a staff member, from their approved appraisals.
  *
- * Per policy formula `appraisal_score / 10`, capped at `max_merit_points`.
- * Reads the last `delay_lookback_years` worth of performance reviews — if no
- * reviews exist (or table doesn't exist in this env), returns 0 and the SEDC
- * reviewer enters a manual override on the detail page.
+ * What the number means now. An appraisal is four ratings, not a score:
+ * Teaching, Research, Service and Collegiality, each Exceeds / Meets / Below.
+ * At sign-off those ratings are converted once, by
+ * lib/hr/appraisal-ratings.ts, into a 0-100 figure stored on final_score —
+ * all Meets is 50, all Exceeds is 100, all Below is 0, and every area counts
+ * the same. This function divides that by 10 and caps it, so a straight
+ * "Meets" record earns 5 merit points and a straight "Exceeds" record earns
+ * 10. The figure exists only to order candidates and is never shown to staff
+ * as their appraisal result.
  *
- * Note: hr_performance_reviews is a T5.1 table; the table may not exist yet
- * in every environment. The function tolerates that by checking for table
- * existence via the .single().error path and returning 0.
+ * Only `final_approved` reviews count. A draft or half-finished appraisal has
+ * no agreed ratings behind it, so letting one into a promotion score would
+ * quietly reward whoever happened to be mid-cycle.
+ *
+ * Fixed here: this read previously asked for `appraisal_score` and
+ * `review_period_end`, neither of which exists on hr_performance_reviews. The
+ * query therefore errored every single time and the function returned 0 for
+ * everyone, while a comment attributed that to the table being absent. The
+ * real columns are final_score and final_approved_at.
  */
 export async function calculateMeritScore(
   supabase: SupabaseClient,
   staffId: string,
-  policy: PromotionPolicy
-): Promise<{ score: number; review_count: number; lookback_years: number }> {
+  policy: PromotionPolicy,
+  /**
+   * The college of the person being scored (their staff row's
+   * institution_id). Required on purpose: whether a Below blocks the
+   * increment is set per college, and a missing college silently reads the
+   * group value instead.
+   */
+  institutionId: string | null
+): Promise<{
+  score: number;
+  review_count: number;
+  lookback_years: number;
+  /**
+   * True when a college has chosen that a Below stops the increment, and one
+   * of these appraisals has one.
+   *
+   * The score alongside it stays REAL. Flattening it to zero would destroy
+   * the thing the reader needs: somebody rated Exceeds in three areas and
+   * Below in one is not the same as somebody rated Below in all four, and a
+   * stored zero cannot tell them apart afterwards. The block is a separate
+   * fact, and every screen that shows the score must show this beside it.
+   */
+  increment_blocked: boolean;
+}> {
   const lookbackYears = policy.delay_lookback_years;
   const cutoff = new Date();
   cutoff.setFullYear(cutoff.getFullYear() - lookbackYears);
   const cutoffIso = cutoff.toISOString();
 
-  // We probe the table; if it errors with relation-not-found, we return 0.
   const probe = await (supabase as any)
     .from('hr_performance_reviews')
-    .select('appraisal_score, review_period_end')
+    .select('final_score, final_approved_at, sedc_review_jsonb')
     .eq('staff_id', staffId)
-    .gte('review_period_end', cutoffIso)
+    .eq('status', 'final_approved')
+    .not('final_score', 'is', null)
+    .gte('final_approved_at', cutoffIso)
     .limit(50);
 
   if (probe.error) {
-    // Table missing in this env (pre-T5.1). Score remains 0 — SEDC enters
-    // override manually on the detail page.
-    return { score: 0, review_count: 0, lookback_years: lookbackYears };
+    // The table is absent in this environment (pre-T5.1). Score stays 0 and
+    // the reviewer enters a manual override on the detail page. Logged rather
+    // than swallowed: a query fault here is indistinguishable from "nobody has
+    // been appraised", and that hid a broken read for months.
+    console.error('[hr/promotion] merit read failed', probe.error);
+    return { score: 0, review_count: 0, lookback_years: lookbackYears, increment_blocked: false };
   }
 
-  const rows: Array<{ appraisal_score: number | null }> = probe.data ?? [];
+  const rows: Array<{
+    final_score: number | null;
+    sedc_review_jsonb: Record<string, unknown> | null;
+  }> = probe.data ?? [];
   if (rows.length === 0) {
-    return { score: 0, review_count: 0, lookback_years: lookbackYears };
+    return { score: 0, review_count: 0, lookback_years: lookbackYears, increment_blocked: false };
   }
 
-  // Formula: appraisal_score / 10, averaged across reviews. (Per-review max
-  // appraisal is typically 100, giving max 10 points per review; we average
-  // and then cap at max_merit_points.)
-  const sum = rows.reduce((acc, r) => acc + (r.appraisal_score ?? 0), 0);
+  // A college can decide that a Below stops the increment outright. That is a
+  // decision about the ratings, not about the number, so it is re-read from the
+  // ratings themselves rather than inferred from a low score.
+  let appraisalPolicy: AppraisalRatingPolicySlice | null = null;
+  try {
+    const { data } = await (supabase as any).rpc('fn_get_policy_json', {
+      p_key: 'hr.performance_review',
+      p_scope_id: institutionId,
+    });
+    appraisalPolicy = (data as AppraisalRatingPolicySlice) ?? null;
+  } catch {
+    // No policy row reachable — the block is off by default, so nothing to do.
+  }
+
+  const areas = resolveAreas();
+  const blocked = rows.some((r) =>
+    incrementBlocked(parseRatings(r.sedc_review_jsonb, areas), appraisalPolicy),
+  );
+
+  // final_score is the 0-100 figure derived from the ratings at sign-off.
+  // Averaged across the appraisals in the lookback window, divided by 10, and
+  // capped at the policy's ceiling.
+  const sum = rows.reduce((acc, r) => acc + (r.final_score ?? 0), 0);
   const avg = sum / rows.length;
   const raw = avg / 10;
   const capped = Math.min(raw, policy.max_merit_points);
@@ -215,6 +280,7 @@ export async function calculateMeritScore(
     score: Math.round(capped * 100) / 100,
     review_count: rows.length,
     lookback_years: lookbackYears,
+    increment_blocked: blocked,
   };
 }
 
