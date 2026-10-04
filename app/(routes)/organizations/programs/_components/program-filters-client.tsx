@@ -21,6 +21,13 @@ export function ProgramFiltersClient({ searchParams }: ProgramFiltersClientProps
       } else {
         params.delete(key);
       }
+      // Clear dependent filters in the SAME navigation (separate pushes off
+      // the same stale params overwrite each other).
+      const dependents: Record<string, string[]> = {
+        institution_id: ['degree_id', 'department_id'],
+        degree_id: ['department_id']
+      };
+      for (const dep of dependents[key] ?? []) params.delete(dep);
       params.set('page', '1');
       router.push(`/organizations/programs?${params.toString()}`);
     },

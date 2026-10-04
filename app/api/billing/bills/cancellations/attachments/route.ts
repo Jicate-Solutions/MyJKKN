@@ -18,6 +18,18 @@ export async function POST(request: NextRequest) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
+  // Only people who can raise a bill-cancel request may upload its evidence;
+  // this used to accept any logged-in user and write to the shared Drive.
+  const [{ data: isSuper }, { data: canRequest }] = await Promise.all([
+    supabase.rpc('is_super_admin'),
+    supabase.rpc('user_has_permission', {
+      permission_name: 'billing.schedule.cancel.request',
+    }),
+  ]);
+  if (isSuper !== true && canRequest !== true) {
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  }
+
   const form = await request.formData();
   const file = form.get('file') as File | null;
   const institutionName = sanitizeSegment(

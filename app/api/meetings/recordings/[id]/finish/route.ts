@@ -91,7 +91,10 @@ export const POST = withAuth(async (request, auth, context) => {
       status: indices.length === 0 ? 'failed' : 'uploaded',
       chunk_count: indices.length,
       bytes_total: bytesTotal,
-      duration_seconds: body.duration_seconds ?? null,
+      // Only when the caller knows it. A finish sent from the meeting page has
+      // no clock to report, and `?? null` would have wiped a duration the phone
+      // had already recorded.
+      ...(typeof body.duration_seconds === 'number' ? { duration_seconds: body.duration_seconds } : {}),
       finished_at: new Date().toISOString(),
       audio_delete_after: indices.length === 0 ? null : deleteAfter.toISOString(),
       error: problem,

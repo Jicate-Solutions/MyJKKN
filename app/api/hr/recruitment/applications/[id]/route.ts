@@ -59,7 +59,22 @@ export async function GET(
   }
 }
 
-/** Screening decision: body { status: 'reviewed'|'shortlisted'|'rejected', review_notes? } */
+/** Longest screening note we accept — matches the detail page's counter. */
+const MAX_REVIEW_NOTE_LENGTH = 2000;
+
+/**
+ * Two shapes, deliberately distinguished by the presence of `status`:
+ *
+ *   1. Screening decision — { status: 'reviewed'|'shortlisted'|'rejected', review_notes? }
+ *      Omitting review_notes leaves the stored note untouched (see
+ *      reviewJobApplication); only an explicit null clears it.
+ *
+ *   2. Note-only edit — { review_notes: string | null }, from the application
+ *      detail page. Touches nothing but the note: no status change, no
+ *      reviewed_at stamp, and allowed on promoted applicants.
+ *
+ * Both are RLS-gated on hr.recruitment.edit + role_has_institution_access.
+ */
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -72,6 +87,33 @@ export async function PATCH(
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await request.json();
+
+    // ---- Shape 2: note-only edit -------------------------------------------
+    if (body.status === undefined) {
+      if (!('review_notes' in body)) {
+        return NextResponse.json(
+          { error: 'Provide a status to record a screening decision, or review_notes to edit the note.' },
+          { status: 400 }
+        );
+      }
+      const raw = body.review_notes;
+      if (raw !== null && typeof raw !== 'string') {
+        return NextResponse.json({ error: 'review_notes must be a string or null' }, { status: 400 });
+      }
+      // Blank input means "clear the note", not "store an empty string".
+      const trimmed = raw === null ? null : raw.trim() || null;
+      if (trimmed && trimmed.length > MAX_REVIEW_NOTE_LENGTH) {
+        return NextResponse.json(
+          { error: `Note must be ${MAX_REVIEW_NOTE_LENGTH} characters or fewer.` },
+          { status: 400 }
+        );
+      }
+
+      const updated = await RecruitmentService.updateApplicationNotes(supabase, id, trimmed);
+      return NextResponse.json({ data: updated });
+    }
+
+    // ---- Shape 1: screening decision ---------------------------------------
     if (!['reviewed', 'shortlisted', 'rejected'].includes(body.status)) {
       return NextResponse.json(
         { error: "status must be one of 'reviewed', 'shortlisted', 'rejected'" },

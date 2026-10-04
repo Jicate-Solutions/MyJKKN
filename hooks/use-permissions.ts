@@ -498,6 +498,15 @@ export function usePermissions(
     isSuperAdmin
   ]);
 
+  // Generic permission check (legacy support). Memoised: callers list `can` in
+  // effect deps, and a fresh function every render re-ran those effects on
+  // every render — the apply page re-fetched learners_profiles ~7x/second.
+  const can = useCallback(
+    (permission: string) =>
+      isLoading ? false : isSuperAdmin ? true : enhancedPermissions[permission] || false,
+    [isLoading, isSuperAdmin, enhancedPermissions]
+  );
+
   // Check if user has specific permission for a module and action (using enhanced permissions)
   const canAccess = useCallback(
     (module: string, action: string) => {
@@ -638,8 +647,7 @@ export function usePermissions(
     isStudentProfileComplete,
 
     // Generic permission check (legacy support) - using enhanced permissions
-    can: (permission: string) =>
-      isLoading ? false : isSuperAdmin ? true : enhancedPermissions[permission] || false,
+    can,
     // New module-based permission checks
     canAccess,
     canPerformAll,

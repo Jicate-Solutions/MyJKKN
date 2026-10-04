@@ -25,6 +25,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getErrorMessage } from '@/lib/utils';
+import { recordFeatureUse } from '@/lib/usage/record';
 
 /** One institution's state for a month, as the console lists it. */
 export interface AttendancePeriodConsoleRow {
@@ -226,6 +227,17 @@ export class AttendancePeriodService {
     });
 
     if (error) throw new Error(getErrorMessage(error));
+
+    // Adoption loop: HR froze this institution-month. Placed AFTER the RPC has
+    // already returned, so it cannot change what the close does — it only
+    // records that a person managed to do it. Once per college per month by
+    // design, so a low count is the correct count.
+    //
+    // The key is spelled out rather than taken from FEATURE_KEYS so this PR
+    // shares no line with the seven-key batch (#3966) and the two can land in
+    // either order. lib/services/admission/consultant-service.ts does the same.
+    await recordFeatureUse(supabase, 'hr.attendance_month_close');
+
     return data as AttendancePeriod;
   }
 

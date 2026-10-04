@@ -337,7 +337,7 @@ export function CancellationDetailDialog({
                       {bills.map((b) => (
                         <TableRow key={b.bill_id}>
                           <TableCell className='font-medium'>
-                            {b.bill_description ?? '—'}
+                            {b.category_name ?? b.bill_description ?? '—'}
                           </TableCell>
                           <TableCell>
                             {b.status ? (

@@ -19,7 +19,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { BillCancelAttachmentsField } from './bill-cancel-attachments-field';
 import {
   BILL_CANCEL_REASON_CODES,
   BILL_CANCEL_REASON_LABELS,
@@ -42,7 +41,6 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   /** One bill, or several for the bulk case — they share one reason + document set. */
   bills: BillCancelTarget[];
-  institutionName: string;
   isPending: boolean;
   onConfirm: (payload: {
     reasonCode: BillCancelReasonCode;
@@ -66,15 +64,16 @@ function formatCurrency(amount: number) {
  * The single cancellation dialog, shared by the learner page and the schedule
  * list so the two cannot capture different things.
  *
- * The submit button stays disabled until BOTH a reason of real length and at
- * least one document are present. That mirrors fn_cancel_student_bill, which
- * refuses either way — the disabled button is the courtesy, the RPC is the rule.
+ * The submit button stays disabled until a reason of real length is present.
+ * That mirrors fn_request_bill_cancellation, which refuses a shorter one — the
+ * disabled button is the courtesy, the RPC is the rule. Supporting documents
+ * are not collected (reason code + notes are the evidence); the payload keeps
+ * an empty attachments list so the RPC signature stays unchanged.
  */
 export function BillCancelDialog({
   open,
   onOpenChange,
   bills,
-  institutionName,
   isPending,
   onConfirm,
 }: Props) {
@@ -86,13 +85,11 @@ export function BillCancelDialog({
           scrolls only the middle. */}
       <DialogContent className='max-w-lg max-h-[85vh] flex flex-col gap-0 p-0'>
         {/* The form is a child so it MOUNTS with the dialog: Radix unmounts
-            DialogContent on close, which resets the reason and — more
-            importantly — the attachment list, with no effect to do it. State
-            hoisted up here would survive the close and let one cancellation
-            inherit the previous one's documents. */}
+            DialogContent on close, which resets the reason and notes with no
+            effect to do it. State hoisted up here would survive the close and
+            let one request inherit the previous one's notes. */}
         <BillCancelForm
           bills={bills}
-          institutionName={institutionName}
           isPending={isPending}
           onCancel={() => onOpenChange(false)}
           onConfirm={onConfirm}
@@ -104,30 +101,31 @@ export function BillCancelDialog({
 
 function BillCancelForm({
   bills,
-  institutionName,
   isPending,
   onCancel,
   onConfirm,
 }: Omit<Props, 'open' | 'onOpenChange'> & { onCancel: () => void }) {
   const [reasonCode, setReasonCode] = useState<BillCancelReasonCode>('duplicate_bill');
   const [reason, setReason] = useState('');
-  const [attachments, setAttachments] = useState<BillCancellationAttachment[]>([]);
 
   const total = bills.reduce((sum, b) => sum + (Number(b.final_amount) || 0), 0);
   const reasonOk = reason.trim().length >= MIN_REASON_LENGTH;
-  const docsOk = attachments.length > 0;
-  const canSubmit = reasonOk && docsOk && !isPending && bills.length > 0;
+  const canSubmit = reasonOk && !isPending && bills.length > 0;
 
   return (
     <>
       <DialogHeader className='p-6 pb-4 shrink-0'>
         <DialogTitle className='flex items-center gap-2'>
           <Ban className='h-5 w-5 text-amber-600' />
-          {bills.length > 1 ? `Cancel ${bills.length} Bills` : 'Cancel Bill'}
+          {bills.length > 1
+            ? `Request Cancellation of ${bills.length} Bills`
+            : 'Request Bill Cancellation'}
         </DialogTitle>
         <DialogDescription>
-          The amount stops counting toward what the learner owes. The bill is kept
-          for audit, along with the reason and documents you record here.
+          Your request goes to the approver for this institution. The bill stays
+          payable until it is approved; on approval the amount stops counting toward
+          what the learner owes, and the bill is kept for audit with the reason and
+          notes you record here.
         </DialogDescription>
       </DialogHeader>
 
@@ -147,7 +145,7 @@ function BillCancelForm({
             </p>
           )}
           <div className='flex items-center justify-between pt-2 mt-1 border-t text-sm font-semibold'>
-            <span>Amount cancelled</span>
+            <span>Amount to cancel</span>
             <span>{formatCurrency(total)}</span>
           </div>
         </div>
@@ -179,7 +177,7 @@ function BillCancelForm({
           </Select>
         </div>
 
-        <div className='space-y-2'>
+        <div className='space-y-2 pb-2'>
           <Label htmlFor='bill-cancel-notes'>Notes *</Label>
           <Textarea
             id='bill-cancel-notes'
@@ -195,21 +193,6 @@ function BillCancelForm({
           )}
         </div>
 
-        <div className='space-y-2 pb-2'>
-          <Label>Supporting documents *</Label>
-          <BillCancelAttachmentsField
-            value={attachments}
-            onChange={setAttachments}
-            institutionName={institutionName}
-            billRef={bills.length === 1 ? bills[0].id : `bulk-${bills.length}`}
-            disabled={isPending}
-          />
-          {!docsOk && (
-            <p className='text-xs text-muted-foreground'>
-              At least one document is required before a bill can be cancelled.
-            </p>
-          )}
-        </div>
       </div>
 
       <div className='flex justify-end gap-2 border-t p-6 pt-4 shrink-0'>
@@ -219,9 +202,11 @@ function BillCancelForm({
         <Button
           className='bg-amber-600 hover:bg-amber-700 text-white'
           disabled={!canSubmit}
-          onClick={() => onConfirm({ reasonCode, reason: reason.trim(), attachments })}
+          onClick={() =>
+            onConfirm({ reasonCode, reason: reason.trim(), attachments: [] })
+          }
         >
-          {isPending ? 'Cancelling…' : bills.length > 1 ? 'Cancel Bills' : 'Cancel Bill'}
+          {isPending ? 'Submitting…' : 'Submit for Approval'}
         </Button>
       </div>
     </>

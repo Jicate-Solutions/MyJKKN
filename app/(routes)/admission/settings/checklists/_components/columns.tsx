@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { DotsHorizontalIcon } from '@radix-ui/react-icons';
 import { Eye, Pencil, Trash2, Archive, ArchiveRestore } from 'lucide-react';
+import { admissionChecklistLifecycleLabel } from '@/lib/constants/admission-checklist-lifecycle';
 
 export interface ChecklistRow {
   id: string;
@@ -109,8 +110,8 @@ export function buildChecklistColumns({
       cell: ({ row }) => (
         <div className="flex gap-1 flex-wrap">
           {row.original.applies_to_lifecycle.map((lc) => (
-            <Badge key={lc} variant="outline" className="text-xs capitalize">
-              {lc}
+            <Badge key={lc} variant="outline" className="text-xs">
+              {admissionChecklistLifecycleLabel(lc)}
             </Badge>
           ))}
         </div>

@@ -552,6 +552,19 @@ export function useApplicationsByStatusForInstitution(
 }
 
 /**
+ * The caller's approval queue, resolved server-side (role + scope steps).
+ * Used for every non-super-admin approver — HOD, Principal, CAO, Warden.
+ */
+export function useMyApprovalQueue(status: string = 'pending', enabled: boolean = true) {
+  return useQuery({
+    queryKey: [...KEYS.approvals.all, 'my-queue', status],
+    queryFn: () => LeaveOndutyApprovalService.getMyApprovalQueue(status),
+    enabled,
+    refetchInterval: 30000,
+  });
+}
+
+/**
  * Process an approval (approve/reject)
  */
 export function useProcessApproval() {

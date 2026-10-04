@@ -13,10 +13,11 @@ export type EventVisibility = 'public' | 'all_jkkn' | 'institution' | 'invited';
 /**
  * Which kind of organisation an EXTERNAL participant represents on the public
  * tournament registration form. 'school' shows "School / club" backed by the
- * school_master directory picker; 'college' shows "College" as free text.
+ * school_master directory picker; 'college' shows "College" as free text;
+ * 'both' lets the entrant say which they are, then shows the matching control.
  * Defaults to 'school' in the DB so existing tournaments are unaffected.
  */
-export type ParticipantOrgType = 'school' | 'college';
+export type ParticipantOrgType = 'school' | 'college' | 'both';
 
 export type EventStatus = 'draft' | 'planning' | 'preparation' | 'execution' | 'live' | 'post_event' | 'archived' | 'cancelled';
 
@@ -185,6 +186,8 @@ export function inductionStatusLabel(status: string): string {
 export interface Event {
   id: string;
   institution_id: string;
+  /** All host institutions, primary (institution_id) included; null = single host. */
+  host_institution_ids?: string[] | null;
   event_type: EventType;
   name: string;
   slug: string;
@@ -224,6 +227,8 @@ export interface Event {
   visibility: EventVisibility | null;
   venue_resource_id: string | null;
   venue_text: string | null;
+  /** Booked room, embedded by EventBaseService.getEvent only (null under RLS). */
+  venue_resource?: { id: string; name: string } | null;
   // Institutional event number (migration 20261118093000). `event_number` is a
   // GENERATED column — read-only, never send it in an Insert/Update DTO. Its
   // presence is what tells the UI the event's college is now frozen.
@@ -362,6 +367,8 @@ export interface EventPaymentTransaction {
 
 export interface CreateEventDto {
   institution_id: string;
+  /** All host institutions, primary included (tournaments). Fees settle to institution_id only. */
+  host_institution_ids?: string[] | null;
   event_type: EventType;
   name: string;
   slug: string;
@@ -401,7 +408,7 @@ export interface UpdateEventDto extends Partial<CreateEventDto> {
   status?: EventStatus;
   registration_open_date?: string;
   registration_close_date?: string;
-  hero_image_url?: string;
+  hero_image_url?: string | null;
   hero_video_url?: string;
   route_config?: Record<string, unknown>;
   // Deliberately no `cancellation_reason`: it is not a column on `events`. See

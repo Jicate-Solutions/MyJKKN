@@ -35,6 +35,11 @@ import {
 } from '@/lib/utils/enhanced-logger';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { dataURLtoFile } from '@/lib/utils/file-converters';
+import {
+  buildLastInteraction,
+  interactionForReport,
+  type StoredInteraction
+} from '@/components/bug-reporter/last-interaction';
 import toast from 'react-hot-toast';
 
 // Initialize enhanced log capture with deduplication
@@ -360,6 +365,19 @@ export function BugReporterWidget() {
   const fileInputRef = useRef<HTMLInputElement>(null); // File input ref for manual upload (single)
   const multipleFileInputRef = useRef<HTMLInputElement>(null); // File input ref for multiple uploads
 
+  // Where the page was scrolled when the reporter opened the widget. Read at
+  // open time, NOT at submit: the scroll-lock effect below pins body.style.top
+  // and window.scrollY reads 0 from then on.
+  const scrollYAtOpenRef = useRef<number | null>(null);
+  // The last thing the reporter touched before opening the widget.
+  // Stored with the page it was recorded on: a tap on the previous page is not
+  // what a report filed on this one is about.
+  const lastInteractionRef = useRef<StoredInteraction | null>(null);
+  const isOpenRef = useRef(false);
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+  }, [isOpen]);
+
   useEffect(() => {
     setIsClient(true);
     // Restore last-used category from localStorage (default: 'bug')
@@ -369,6 +387,38 @@ export function BugReporterWidget() {
         setCategory(saved);
       }
     } catch { /* ignore */ }
+  }, []);
+
+  // Remember the last element the reporter actually touched, so a report can
+  // link to the spot on the page and not just the page.
+  //
+  // This fires on EVERY tap on EVERY page, and these pages carry learner
+  // records, marks, fee ledgers and parent phone numbers — which is why
+  // buildLastInteraction() records structure only — the tag, a role, and a
+  // data-testid / data-slot that looks like a UI name — and never an element
+  // id, any text (visible or aria-label), a value or a placeholder. The rule
+  // and its reasoning live in components/bug-reporter/last-interaction.ts.
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      // Taps on the reporter itself are not what the report is about.
+      if (isOpenRef.current) return;
+      const target = event.target as Element | null;
+      if (target?.closest?.('.bug-reporter-widget')) return;
+
+      const descriptor = buildLastInteraction(target);
+      lastInteractionRef.current = descriptor ? { path: window.location.pathname, descriptor } : null;
+    };
+
+    document.addEventListener('pointerdown', onPointerDown, {
+      capture: true,
+      passive: true
+    });
+
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, {
+        capture: true
+      });
+    };
   }, []);
 
   // Prevent background scroll when modal is open
@@ -422,6 +472,10 @@ export function BugReporterWidget() {
   };
 
   const handleOpenBugReport = async () => {
+    // Stash the scroll position BEFORE anything opens: the scroll-lock effect
+    // pins the body once isOpen flips, after which window.scrollY reads 0.
+    scrollYAtOpenRef.current = Math.round(window.scrollY);
+
     // Capture screenshot FIRST (modal must not be in DOM yet), then open modal.
     // handleRetakeScreenshot already does this correctly; keep consistent.
     setCapturedScreenshot('');
@@ -738,6 +792,10 @@ export function BugReporterWidget() {
           timestamp: new Date().toISOString(),
           captureMethod: capturedScreenshot ? 'html2canvas' : 'none',
           devicePixelRatio: window.devicePixelRatio,
+          // Where on the page the reporter was, and what they were touching —
+          // enough for a verifier's link to land on the spot, not the page.
+          scrollY: scrollYAtOpenRef.current ?? Math.round(window.scrollY),
+          lastInteraction: interactionForReport(lastInteractionRef.current, window.location.pathname),
           additionalImagesCount: additionalImages.length,
           logStats: {
             uniqueEntries: structuredLogs.summary.totalUniqueEntries,

@@ -13,6 +13,7 @@ import { DayOfWeek } from '@/types/academics';
 import { TimetableHeader } from './timetable-header';
 import { TimelineCard } from './timeline-card';
 import { CurrentClassIndicator } from './current-class-indicator';
+import { isShowingToday } from '@/lib/services/learners/timetable-week';
 import { EmptyState } from './empty-state';
 import { CourseDetailSheet } from './course-detail-sheet';
 import { cn } from '@/lib/utils';
@@ -89,9 +90,10 @@ export function DaySwiper({ timetableData }: DaySwiperProps) {
     setIsSheetOpen(true);
   };
 
-  // Check if it's Sunday
-  const isToday = new Date().getDay() - 1 === currentDayIndex;
-  const isSunday = new Date().getDay() === 0 && currentDayIndex === 0;
+  // On a Sunday the swiper opens on Monday (see dayMap above), so the first
+  // tab is Monday's real schedule. It used to be replaced by an "It's Sunday"
+  // card, which hid Monday's classes all day Sunday (BUG-004127).
+  const isToday = isShowingToday(availableDays[currentDayIndex]);
 
   return (
     <div className="space-y-4">
@@ -122,9 +124,7 @@ export function DaySwiper({ timetableData }: DaySwiperProps) {
               exit={{ opacity: 0, x: -50 }}
               transition={{ duration: 0.3 }}
             >
-              {isSunday ? (
-                <EmptyState type="weekend" />
-              ) : todaySlots.length === 0 ? (
+              {todaySlots.length === 0 ? (
                 <EmptyState type="no-classes" />
               ) : (
                 <div className="space-y-6">

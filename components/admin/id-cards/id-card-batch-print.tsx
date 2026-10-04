@@ -40,7 +40,20 @@
 // ============================================================================
 
 import { useEffect, useMemo, useState } from 'react';
-import { Check, ChevronsUpDown, Copy, Loader2, Printer, Users, X } from 'lucide-react';
+import {
+  Building2,
+  Check,
+  ChevronsUpDown,
+  Copy,
+  ImageOff,
+  Layers,
+  Loader2,
+  Printer,
+  Search,
+  Timer,
+  Users,
+  X
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import { Button } from '@/components/ui/button';
@@ -49,6 +62,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Select,
@@ -271,6 +285,87 @@ export function hasPrintablePhoto(learnerPhotoUrl: string | null): boolean {
   return isRenderablePhotoRef(learnerPhotoUrl);
 }
 
+/** One learner in the loaded cohort — the roster the in-charge ticks from. */
+export interface RosterLearner {
+  id: string;
+  name: string;
+  rollNumber: string | null;
+  photoUrl: string | null;
+  programId: string | null;
+  sectionName: string | null;
+}
+
+/**
+ * Selection is stored as the EXCLUDED ids: everyone is in by default, and a
+ * fresh cohort starts with nobody excluded. (Exported for unit tests.)
+ */
+export function selectedRoster(
+  roster: readonly RosterLearner[],
+  excluded: ReadonlySet<string>
+): RosterLearner[] {
+  return roster.filter((l) => !excluded.has(l.id));
+}
+
+/** Case-insensitive match on name or roll number. (Exported for unit tests.) */
+export function filterRoster(roster: readonly RosterLearner[], search: string): RosterLearner[] {
+  const q = search.trim().toLowerCase();
+  if (q === '') return [...roster];
+  return roster.filter(
+    (l) => l.name.toLowerCase().includes(q) || (l.rollNumber ?? '').toLowerCase().includes(q)
+  );
+}
+
+/** The roster split per class, in roster order. (Exported for unit tests.) */
+export interface RosterGroup {
+  key: string;
+  learners: RosterLearner[];
+}
+export function groupRosterByClass(roster: readonly RosterLearner[]): RosterGroup[] {
+  const groups: RosterGroup[] = [];
+  const byKey = new Map<string, RosterGroup>();
+  for (const l of roster) {
+    const key = l.programId ?? '__none__';
+    let g = byKey.get(key);
+    if (!g) {
+      g = { key, learners: [] };
+      byKey.set(key, g);
+      groups.push(g);
+    }
+    g.learners.push(l);
+  }
+  return groups;
+}
+
+/**
+ * Measured station cadence, not the printer's rated speed: the 30 Sept 2026
+ * batch (101 double-sided cards) ran at a median 101 s from one pickup to the
+ * next, with a 99–107 s spread. The Primacy 2 itself needs ~30 s for a duplex
+ * colour card; the rest is the bridge's cycle (poll interval + two renders).
+ * Revisit once result.reported_at (jobs/[id]/result) has split the two.
+ * (Exported for unit tests.)
+ */
+export const MEASURED_SECONDS_PER_CARD = 100;
+
+export function estimatePrintTime(cards: number, secondsPerCard = MEASURED_SECONDS_PER_CARD): string {
+  if (cards <= 0) return '—';
+  const seconds = cards * secondsPerCard;
+  if (seconds < 90) return `≈ ${seconds} s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `≈ ${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m === 0 ? `≈ ${h} h` : `≈ ${h} h ${m} min`;
+}
+
+/** Two-letter initials for the photo fallback. (Exported for unit tests.) */
+export function rosterInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  const first = parts[0][0] ?? '';
+  const second = parts.length > 1 ? parts[parts.length - 1][0] ?? '' : parts[0][1] ?? '';
+  return (first + second).toUpperCase();
+}
+
 export function IdCardBatchPrint() {
   const { institutions, loading: institutionsLoading } =
     useInstitutionsWithAccess({
@@ -299,8 +394,14 @@ export function IdCardBatchPrint() {
   const [semesters, setSemesters] = useState<SemesterChoice[] | null>(null);
   const [sections, setSections] = useState<SectionChoice[] | null>(null);
 
-  const [matchCount, setMatchCount] = useState<number | null>(null);
-  const [countLoading, setCountLoading] = useState(false);
+  // The cohort itself, loaded as soon as the pickers are complete, so the
+  // in-charge sees WHO matches (photo, roll number, name) and can untick
+  // anyone before printing. null = not loaded; [] = loaded, nobody matches.
+  const [roster, setRoster] = useState<RosterLearner[] | null>(null);
+  const [rosterLoading, setRosterLoading] = useState(false);
+  // Learners the in-charge unticked. Everyone is selected until they do.
+  const [excluded, setExcluded] = useState<Set<string>>(() => new Set());
+  const [rosterSearch, setRosterSearch] = useState('');
   const [preparing, setPreparing] = useState(false);
 
   // Preview first (the gate), then — from inside the preview only — the
@@ -325,6 +426,14 @@ export function IdCardBatchPrint() {
     () => buildProgramLabels(programs ?? []),
     [programs]
   );
+
+  // Schools call their programmes "classes" and carry one semester row per
+  // class, always named "YEAR" — a picker with a single choice is noise, so it
+  // is hidden whenever there is nothing to choose between.
+  const isSchool =
+    institutions.find((inst) => inst.id === institutionId)?.entity_type === 'school';
+  const classNoun = isSchool ? 'class' : 'class / programme';
+  const classLabel = isSchool ? 'Class' : 'Class / programme';
 
   // ── Dependent dropdown data ────────────────────────────────────────────────
 
@@ -479,7 +588,11 @@ export function IdCardBatchPrint() {
     return sections?.find((choice) => choice.name === sectionName)?.ids ?? null;
   }, [sectionName, sections]);
 
-  // ── Live cohort count ──────────────────────────────────────────────────────
+  // Nothing to narrow by when the chosen classes share a single semester name
+  // (every school class is one "YEAR" row). Still shown while loading.
+  const showSemesterPicker = semesters === null || semesters.length > 1;
+
+  // ── Cohort roster (replaces the old head-count query) ─────────────────────
 
   const cohortReady =
     Boolean(institutionId) &&
@@ -487,66 +600,36 @@ export function IdCardBatchPrint() {
 
   useEffect(() => {
     if (!cohortReady) {
-      setMatchCount(null);
+      setRoster(null);
+      setExcluded(new Set());
       return;
     }
     let cancelled = false;
-    setCountLoading(true);
+    setRosterLoading(true);
+    setRoster(null);
+    setExcluded(new Set());
+    setRosterSearch('');
     const supabase = createClientSupabaseClient();
-    let query = supabase
-      .from('learners_profiles')
-      .select('id', { count: 'exact', head: true })
-      .eq('institution_id', institutionId)
-      .in('lifecycle_status', statuses);
-    if (mode === 'freshers') {
-      query = query.eq('admission_year_id', admissionYearId);
-    } else {
-      query = query.in('program_id', programIds);
-      if (semesterIds) query = query.in('semester_id', semesterIds);
-      if (sectionIds) query = query.in('section_id', sectionIds);
-    }
-    query.then(({ count, error }) => {
-      if (cancelled) return;
-      setCountLoading(false);
-      if (error) {
-        console.error('[id-cards] Cohort count failed:', error);
-        setMatchCount(null);
-        return;
-      }
-      setMatchCount(count ?? 0);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [cohortReady, institutionId, mode, admissionYearId, programIds, semesterIds, sectionIds, statuses]);
 
-  // ── Review & print ─────────────────────────────────────────────────────────
-
-  const prepareAndReview = async () => {
-    if (!cohortReady) return;
-    setPreparing(true);
-    // Fresh reports every prepare — stale lists from a previous cohort would
-    // mislead the office.
-    setSkippedNoAccount(0);
-    setSkippedNoPhoto([]);
-    try {
-      const supabase = createClientSupabaseClient();
-
-      // Fetch ALL matching learners, paged. Ordered by program then roll
-      // number so the physical print stack comes out grouped per class —
-      // the bridge prints jobs in enqueue order.
-      const matched: Array<{
+    (async () => {
+      // Fetch ALL matching learners, paged. Ordered by class then roll number
+      // so the list — and the physical print stack, which follows this order —
+      // comes out grouped per class.
+      const rows: Array<{
         id: string;
         first_name: string | null;
         last_name: string | null;
         roll_number: string | null;
         student_photo_url: string | null;
         program_id: string | null;
+        section: { section_name: string | null } | null;
       }> = [];
       for (let from = 0; ; from += FETCH_PAGE_SIZE) {
         let query = supabase
           .from('learners_profiles')
-          .select('id, first_name, last_name, roll_number, student_photo_url, program_id')
+          .select(
+            'id, first_name, last_name, roll_number, student_photo_url, program_id, section:sections(section_name)'
+          )
           .eq('institution_id', institutionId)
           .in('lifecycle_status', statuses)
           .order('program_id')
@@ -562,12 +645,88 @@ export function IdCardBatchPrint() {
         }
         const { data, error } = await query;
         if (error) throw error;
-        matched.push(...(data ?? []));
+        rows.push(...((data ?? []) as unknown as typeof rows));
         if (!data || data.length < FETCH_PAGE_SIZE) break;
       }
+      return rows.map<RosterLearner>((l) => ({
+        id: l.id,
+        name:
+          [l.first_name, l.last_name].filter(Boolean).join(' ').trim() || 'Unnamed learner',
+        rollNumber: l.roll_number,
+        photoUrl: l.student_photo_url,
+        programId: l.program_id,
+        sectionName: l.section?.section_name ?? null
+      }));
+    })()
+      .then((list) => {
+        if (cancelled) return;
+        setRoster(list);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('[id-cards] Cohort load failed:', err);
+        setRoster([]);
+        toast.error('Failed to load the cohort. Please try again.');
+      })
+      .finally(() => {
+        if (!cancelled) setRosterLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cohortReady, institutionId, mode, admissionYearId, programIds, semesterIds, sectionIds, statuses]);
+
+  const matchCount = roster?.length ?? null;
+  const selected = useMemo(() => (roster ? selectedRoster(roster, excluded) : []), [roster, excluded]);
+  const visibleRoster = useMemo(() => filterRoster(roster ?? [], rosterSearch), [roster, rosterSearch]);
+
+  const selectedWithPhoto = useMemo(
+    () => selected.filter((l) => hasPrintablePhoto(l.photoUrl)).length,
+    [selected]
+  );
+  // Cards that will actually reach the ribbon with the current photo policy.
+  const cardsToPrint = includeNoPhoto ? selected.length : selectedWithPhoto;
+  const rosterGroups = useMemo(() => groupRosterByClass(visibleRoster), [visibleRoster]);
+  const showGroupHeaders = rosterGroups.length > 1;
+  const institutionName = institutions.find((inst) => inst.id === institutionId)?.name ?? null;
+
+  const setLearnerSelected = (id: string, on: boolean) =>
+    setExcluded((prev) => {
+      const next = new Set(prev);
+      if (on) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const selectMany = (ids: readonly string[], on: boolean) =>
+    setExcluded((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (on) next.delete(id);
+        else next.add(id);
+      }
+      return next;
+    });
+  const selectShown = (on: boolean) =>
+    selectMany(
+      visibleRoster.map((l) => l.id),
+      on
+    );
+
+  // ── Review & print ─────────────────────────────────────────────────────────
+
+  const prepareAndReview = async () => {
+    if (!cohortReady || !roster) return;
+    setPreparing(true);
+    // Fresh reports every prepare — stale lists from a previous cohort would
+    // mislead the office.
+    setSkippedNoAccount(0);
+    setSkippedNoPhoto([]);
+    try {
+      // The TICKED learners, in roster (class → roll number) order.
+      const matched = selected;
 
       if (matched.length === 0) {
-        toast('No learners match this cohort.');
+        toast('No learners are ticked — tick at least one to print.');
         return;
       }
 
@@ -586,28 +745,22 @@ export function IdCardBatchPrint() {
       const noPhoto: NoPhotoLearner[] = [];
       let noAccount = 0;
       for (const l of matched) {
-        const name =
-          [l.first_name, l.last_name].filter(Boolean).join(' ').trim() ||
-          'Unnamed learner';
         const account = accountMap.get(l.id);
         if (!account) {
           noAccount += 1;
           continue;
         }
-        if (
-          !includeNoPhoto &&
-          !hasPrintablePhoto(l.student_photo_url)
-        ) {
-          noPhoto.push({ name, rollNumber: l.roll_number });
+        if (!includeNoPhoto && !hasPrintablePhoto(l.photoUrl)) {
+          noPhoto.push({ name: l.name, rollNumber: l.rollNumber });
           continue;
         }
         printable.push({
           learnerId: l.id,
-          name,
-          rollNumber: l.roll_number,
+          name: l.name,
+          rollNumber: l.rollNumber,
           // Class / programme grouping → "Download PDF per class" in the preview.
-          groupKey: l.program_id ?? null,
-          groupLabel: l.program_id ? programLabels.get(l.program_id) ?? null : null
+          groupKey: l.programId ?? null,
+          groupLabel: l.programId ? programLabels.get(l.programId) ?? null : null
         });
       }
 
@@ -622,7 +775,7 @@ export function IdCardBatchPrint() {
           );
         } else {
           toast.error(
-            `None of the ${matched.length} matching learners have an account yet — no cards can be printed.`
+            `None of the ${matched.length} ticked learners have an account yet — no cards can be printed.`
           );
         }
         return;
@@ -643,7 +796,7 @@ export function IdCardBatchPrint() {
       setPreviewOpen(true);
     } catch (err) {
       console.error('[id-cards] Failed to prepare batch:', err);
-      toast.error('Failed to load the cohort. Please try again.');
+      toast.error('Failed to prepare the batch. Please try again.');
     } finally {
       setPreparing(false);
     }
@@ -664,18 +817,25 @@ export function IdCardBatchPrint() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
-      <Card className="shadow-sm">
-        <CardHeader className="pb-4">
-          <CardTitle className="text-base">Choose the cohort</CardTitle>
-          <CardDescription>
-            Pick the institution, then a freshers batch or one or more classes. The count on the
-            right updates as you go.
-          </CardDescription>
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+      <Card className="overflow-hidden border-border/70 shadow-sm">
+        <CardHeader className="border-b bg-muted/30 pb-4">
+          <div className="flex items-start gap-3">
+            <StepBadge n={1} />
+            <div>
+              <CardTitle className="text-base">Choose the cohort</CardTitle>
+              <CardDescription>
+                Institution first, then a freshers batch or one or more classes. Matching learners
+                appear below, all ticked.
+              </CardDescription>
+            </div>
+          </div>
         </CardHeader>
-        <CardContent className="grid gap-5">
+        <CardContent className="grid gap-5 pt-5">
         <div className="space-y-1.5">
-          <Label>Institution</Label>
+          <Label className="flex items-center gap-1.5">
+            <Building2 className="h-3.5 w-3.5 text-muted-foreground" /> Institution
+          </Label>
           <Select
             value={institutionId || undefined}
             onValueChange={setInstitutionId}
@@ -743,24 +903,34 @@ export function IdCardBatchPrint() {
             </p>
           </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
+          <div
+            className={
+              showSemesterPicker
+                ? 'grid gap-4 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]'
+                : 'grid gap-4 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]'
+            }
+          >
             <div className="space-y-1.5">
-              <Label>Class / program</Label>
+              <Label>{classLabel}</Label>
               <ProgramMultiSelect
                 programs={programs}
                 labels={programLabels}
                 value={programIds}
                 onChange={setProgramIds}
                 disabled={!institutionId || programs === null}
+                noun={classNoun}
                 placeholder={
                   !institutionId
                     ? 'Select an institution first'
                     : programs === null
                       ? 'Loading…'
-                      : 'Select one or more classes'
+                      : isSchool
+                        ? 'Select one or more classes'
+                        : 'Select one or more classes / programmes'
                 }
               />
             </div>
+            {showSemesterPicker && (
             <div className="space-y-1.5">
               <Label>Semester</Label>
               <Select
@@ -781,6 +951,7 @@ export function IdCardBatchPrint() {
                 </SelectContent>
               </Select>
             </div>
+            )}
             <div className="space-y-1.5">
               <Label>Section</Label>
               <Select
@@ -801,7 +972,7 @@ export function IdCardBatchPrint() {
                 </SelectContent>
               </Select>
             </div>
-            <ProgramChips programs={programs} labels={programLabels} value={programIds} onChange={setProgramIds} />
+            <ProgramChips programs={programs} labels={programLabels} value={programIds} onChange={setProgramIds} noun={classNoun} />
           </div>
         )}
 
@@ -845,45 +1016,289 @@ export function IdCardBatchPrint() {
         </CardContent>
       </Card>
 
-      <aside className="space-y-4 lg:sticky lg:top-6">
-      <Card className="border-primary/20 shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Print run</CardTitle>
-          <CardDescription>Preview first — the PDF and sheets are exactly what you review.</CardDescription>
+      {cohortReady && (
+        <Card className="overflow-hidden border-border/70 shadow-sm lg:col-start-1">
+          <CardHeader className="border-b bg-muted/30 pb-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <StepBadge n={2} />
+                <div>
+                  <CardTitle className="text-base">Review the learners</CardTitle>
+                  <CardDescription>
+                    Everyone is ticked. Untick anyone who should not get a card, or untick all and
+                    tick just the few you need.
+                  </CardDescription>
+                </div>
+              </div>
+              {roster && roster.length > 0 && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border bg-background px-3 py-1 text-xs font-medium tabular-nums shadow-sm">
+                  <Check className="h-3.5 w-3.5 text-primary" />
+                  {selected.length} of {roster.length} ticked
+                </span>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3 pt-4">
+            {rosterLoading || roster === null ? (
+              <div className="space-y-2 py-2">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-3 rounded-lg border border-dashed px-3 py-2.5">
+                    <span className="h-4 w-4 rounded border bg-muted/60" />
+                    <span className="h-11 w-11 animate-pulse rounded-lg bg-muted" />
+                    <span className="flex-1 space-y-1.5">
+                      <span className="block h-3.5 w-40 animate-pulse rounded bg-muted" />
+                      <span className="block h-3 w-28 animate-pulse rounded bg-muted/70" />
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : roster.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 py-10 text-center">
+                <Users className="h-8 w-8 text-muted-foreground/60" />
+                <p className="text-sm font-medium">No learners match this cohort</p>
+                <p className="text-xs text-muted-foreground">
+                  Try another section, or widen “Which learners?” to include newly admitted.
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative min-w-[220px] flex-1">
+                    <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      value={rosterSearch}
+                      onChange={(e) => setRosterSearch(e.target.value)}
+                      placeholder="Search name or roll number"
+                      className="h-9 pl-8"
+                    />
+                  </div>
+                  <Button type="button" variant="outline" size="sm" onClick={() => selectShown(true)}>
+                    <Check className="mr-1.5 h-3.5 w-3.5" />
+                    {rosterSearch.trim() ? `Tick shown (${visibleRoster.length})` : 'Tick all'}
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => selectShown(false)}>
+                    <X className="mr-1.5 h-3.5 w-3.5" />
+                    {rosterSearch.trim() ? 'Untick shown' : 'Untick all'}
+                  </Button>
+                </div>
+                <div className="max-h-[560px] overflow-y-auto rounded-xl border bg-card">
+                  {visibleRoster.length === 0 && (
+                    <p className="px-3 py-8 text-center text-sm text-muted-foreground">
+                      No learner matches “{rosterSearch.trim()}”.
+                    </p>
+                  )}
+                  {rosterGroups.map((group) => {
+                    const groupLabel =
+                      group.key === '__none__'
+                        ? 'No class'
+                        : programLabels.get(group.key) ?? 'Class';
+                    const groupTicked = group.learners.filter((l) => !excluded.has(l.id)).length;
+                    const allTicked = groupTicked === group.learners.length;
+                    return (
+                      <section key={group.key}>
+                        {showGroupHeaders && (
+                          <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b bg-muted/80 px-3 py-1.5 text-xs backdrop-blur supports-[backdrop-filter]:bg-muted/60">
+                            <span className="flex items-center gap-2 font-semibold uppercase tracking-wide text-muted-foreground">
+                              <Layers className="h-3.5 w-3.5" />
+                              {groupLabel}
+                              <span className="rounded-full bg-background px-2 py-0.5 font-medium normal-case tracking-normal tabular-nums">
+                                {groupTicked}/{group.learners.length}
+                              </span>
+                            </span>
+                            <button
+                              type="button"
+                              className="font-medium text-primary hover:underline"
+                              onClick={() =>
+                                selectMany(
+                                  group.learners.map((l) => l.id),
+                                  !allTicked
+                                )
+                              }
+                            >
+                              {allTicked ? 'Untick class' : 'Tick class'}
+                            </button>
+                          </header>
+                        )}
+                        <ul className="divide-y">
+                          {group.learners.map((l) => {
+                            const on = !excluded.has(l.id);
+                            const photoOk = hasPrintablePhoto(l.photoUrl);
+                            const meta = [
+                              l.rollNumber,
+                              showGroupHeaders ? null : programLabels.get(l.programId ?? '') ?? null,
+                              l.sectionName ? `Section ${l.sectionName}` : null
+                            ]
+                              .filter(Boolean)
+                              .join(' · ');
+                            return (
+                              <li key={l.id}>
+                                <label
+                                  className={`group flex cursor-pointer items-center gap-3 px-3 py-2.5 text-sm transition-colors hover:bg-muted/40 ${
+                                    on ? '' : 'bg-muted/20 text-muted-foreground'
+                                  }`}
+                                >
+                                  <Checkbox
+                                    checked={on}
+                                    onCheckedChange={(v) => setLearnerSelected(l.id, v === true)}
+                                    aria-label={`Print card for ${l.name}`}
+                                  />
+                                  <Avatar
+                                    className={`h-11 w-11 rounded-lg ring-1 ring-border transition-opacity ${
+                                      on ? '' : 'opacity-50 grayscale'
+                                    }`}
+                                  >
+                                    {photoOk && (
+                                      <AvatarImage
+                                        src={l.photoUrl ?? undefined}
+                                        alt=""
+                                        loading="lazy"
+                                        className="object-cover"
+                                      />
+                                    )}
+                                    <AvatarFallback className="rounded-lg bg-muted text-xs font-semibold text-muted-foreground">
+                                      {photoOk ? (
+                                        rosterInitials(l.name)
+                                      ) : (
+                                        <ImageOff className="h-4 w-4" />
+                                      )}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <span className="min-w-0 flex-1">
+                                    <span className={`block truncate font-medium ${on ? '' : 'line-through decoration-muted-foreground/60'}`}>
+                                      {l.name}
+                                    </span>
+                                    <span className="block truncate text-xs text-muted-foreground">{meta || '—'}</span>
+                                  </span>
+                                  {!photoOk && (
+                                    <Badge
+                                      variant="outline"
+                                      className="shrink-0 border-amber-300 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400"
+                                    >
+                                      No photo
+                                    </Badge>
+                                  )}
+                                </label>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </section>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <aside className="space-y-4 lg:sticky lg:top-6 lg:col-start-2 lg:row-start-1 lg:row-span-2">
+      <Card className="overflow-hidden border-primary/25 shadow-md">
+        <CardHeader className="border-b bg-muted/30 pb-4">
+          <div className="flex items-start gap-3">
+            <StepBadge n={3} />
+            <div>
+              <CardTitle className="text-base">Print run</CardTitle>
+              <CardDescription>Preview first — the PDF and sheets are exactly what you review.</CardDescription>
+            </div>
+          </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-        <div className="flex items-start gap-3 text-sm">
-          <Users className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
-          {!cohortReady ? (
-            <span className="text-muted-foreground">
-              Choose a cohort above to see how many learners match.
-            </span>
-          ) : countLoading ? (
-            <span className="text-muted-foreground">Counting…</span>
-          ) : matchCount === null ? (
-            <span className="text-muted-foreground">Count unavailable.</span>
-          ) : (
-            <span className="flex items-baseline gap-2">
-              <strong className="text-3xl font-semibold tabular-nums leading-none">{matchCount}</strong>
-              <span className="text-muted-foreground">
-                learner{matchCount === 1 ? '' : 's'} match this cohort
-              </span>
-            </span>
+        <CardContent className="space-y-4 pt-5">
+          <div className="rounded-xl border bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-4">
+            {!cohortReady ? (
+              <p className="text-sm text-muted-foreground">
+                Choose a cohort to see how many learners match.
+              </p>
+            ) : rosterLoading || matchCount === null ? (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading learners…
+              </p>
+            ) : (
+              <>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-4xl font-semibold tabular-nums leading-none tracking-tight">
+                    {selected.length}
+                  </span>
+                  <span className="text-sm text-muted-foreground">
+                    of {matchCount} learner{matchCount === 1 ? '' : 's'} ticked
+                  </span>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-1.5 text-xs">
+                  {selected.length - selectedWithPhoto > 0 && (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
+                      <ImageOff className="h-3 w-3" />
+                      {selected.length - selectedWithPhoto} without photo
+                      {includeNoPhoto ? ' (printing anyway)' : ' (skipped)'}
+                    </span>
+                  )}
+                  {excluded.size > 0 && (
+                    <span className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-muted-foreground">
+                      <X className="h-3 w-3" />
+                      {excluded.size} unticked
+                    </span>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+
+          {cohortReady && (
+            <dl className="grid grid-cols-2 gap-3 text-sm">
+              <div className="rounded-lg border p-3">
+                <dt className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Printer className="h-3.5 w-3.5" /> Cards / ribbon
+                </dt>
+                <dd className="mt-1 text-lg font-semibold tabular-nums">{cardsToPrint}</dd>
+              </div>
+              <div className="rounded-lg border p-3">
+                <dt className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Timer className="h-3.5 w-3.5" /> Station time
+                </dt>
+                <dd className="mt-1 text-lg font-semibold tabular-nums">{estimatePrintTime(cardsToPrint)}</dd>
+              </div>
+            </dl>
           )}
-        </div>
-        <Button
-          size="lg"
-          className="w-full"
-          onClick={prepareAndReview}
-          disabled={!cohortReady || preparing || matchCount === 0}
-        >
-          {preparing ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Printer className="mr-2 h-4 w-4" />
+
+          {cohortReady && (
+            <div className="flex flex-wrap gap-1.5">
+              {institutionName && <Badge variant="secondary" className="font-normal">{institutionName}</Badge>}
+              {mode === 'freshers'
+                ? admissionYearId && (
+                    <Badge variant="secondary" className="font-normal">
+                      Freshers · {admissionYears?.find((y) => y.id === admissionYearId)?.admission_year_name ?? '…'}
+                    </Badge>
+                  )
+                : programIds.map((id) => (
+                    <Badge key={id} variant="secondary" className="font-normal">
+                      {programLabels.get(id) ?? '…'}
+                    </Badge>
+                  ))}
+              {mode === 'class' && sectionName !== ALL_SECTIONS && (
+                <Badge variant="secondary" className="font-normal">Section {sectionName}</Badge>
+              )}
+              {mode === 'class' && showSemesterPicker && semesterName !== ALL_SEMESTERS && (
+                <Badge variant="secondary" className="font-normal">{semesterName}</Badge>
+              )}
+            </div>
           )}
-          Preview &amp; print
-        </Button>
+
+          <Button
+            size="lg"
+            className="w-full shadow-sm"
+            onClick={prepareAndReview}
+            disabled={!cohortReady || preparing || rosterLoading || selected.length === 0}
+          >
+            {preparing ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Printer className="mr-2 h-4 w-4" />
+            )}
+            Preview &amp; print
+          </Button>
+          <p className="text-center text-xs text-muted-foreground">
+            Each card uses one ribbon set when the driver is on “YMCO / K”, two otherwise.
+            Check stock before confirming.
+          </p>
         </CardContent>
       </Card>
 
@@ -959,10 +1374,28 @@ export function IdCardBatchPrint() {
   );
 }
 
+/** Numbered step marker on each card header — cohort → learners → print. */
+function StepBadge({ n }: { n: number }) {
+  return (
+    <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground shadow-sm">
+      {n}
+    </span>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ProgramMultiSelect — pick several classes / programmes at once. Search box,
 // per-row checkboxes, "Select all" / "Clear", selection shown as chips.
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** "class" → "classes", "class / programme" → "classes / programmes". (Exported for unit tests.) */
+export function pluralNoun(noun: string, count: number): string {
+  if (count === 1) return noun;
+  return noun
+    .split(' / ')
+    .map((word) => (word === 'class' ? 'classes' : `${word}s`))
+    .join(' / ');
+}
 
 function ProgramMultiSelect({
   programs,
@@ -970,7 +1403,8 @@ function ProgramMultiSelect({
   value,
   onChange,
   disabled,
-  placeholder
+  placeholder,
+  noun = 'class'
 }: {
   programs: ProgramOption[] | null;
   labels: Map<string, string>;
@@ -978,6 +1412,8 @@ function ProgramMultiSelect({
   onChange: (ids: string[]) => void;
   disabled?: boolean;
   placeholder: string;
+  /** What one picked row is called in the summary ("class", "class / programme"). */
+  noun?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -1007,7 +1443,7 @@ function ProgramMultiSelect({
                 ? placeholder
                 : value.length === 1
                   ? labelOf(value[0])
-                  : `${value.length} classes selected`}
+                  : `${value.length} ${pluralNoun(noun, value.length)} selected`}
             </span>
             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
           </Button>
@@ -1082,19 +1518,21 @@ function ProgramChips({
   programs,
   labels,
   value,
-  onChange
+  onChange,
+  noun = 'class'
 }: {
   programs: ProgramOption[] | null;
   labels: Map<string, string>;
   value: string[];
   onChange: (ids: string[]) => void;
+  noun?: string;
 }) {
   if (value.length < 2) return null;
   const labelOf = (id: string) =>
     labels.get(id) ?? programs?.find((p) => p.id === id)?.program_name ?? id;
   return (
     <div className="flex flex-wrap items-center gap-1.5 sm:col-span-3">
-      <span className="mr-1 text-xs text-muted-foreground">{value.length} classes:</span>
+      <span className="mr-1 text-xs text-muted-foreground">{value.length} {pluralNoun(noun, value.length)}:</span>
       {value.map((id) => (
         <Badge key={id} variant="secondary" className="gap-1 pr-1 font-normal">
           {labelOf(id)}

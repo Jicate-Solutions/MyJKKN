@@ -16,10 +16,11 @@
 // which already solved "server component page, server action, refresh the
 // badge" on this same screen.
 
-import { useState, useTransition } from 'react';
+import { useState, useTransition, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Loader2, Link2, Link2Off, UserSearch } from 'lucide-react';
+import { ExternalLink, Loader2, Link2, Link2Off, UserSearch } from 'lucide-react';
+import { MeetingNoteText } from './meeting-note-text';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -48,11 +49,116 @@ export interface JobOption {
   title: string;
 }
 
+export interface CandidateProfile {
+  email: string | null;
+  phone: string | null;
+  status: string | null;
+  cvUrl: string | null;
+  currentJob: string | null;
+  payExpectation: string | null;
+  whyThisRole: string | null;
+  qualification: string | null;
+  experienceMonths: number | null;
+}
+
+export interface CandidateApplication {
+  currentJobTitle: string | null;
+  currentCompany: string | null;
+  experienceMonths: number | null;
+  qualification: string | null;
+  resumeUrl: string | null;
+}
+
 export interface LinkedInterview {
+  candidateId?: string | null;
   candidateName: string | null;
   roleTitle: string | null;
   roundName: string | null;
   outcomeSummary: string | null;
+  /** The summary is the same text as the Meeting notes card, so it is not repeated. */
+  outcomeSameAsNotes?: boolean;
+  /** null when the viewer may not read the candidate (RLS). */
+  profile?: CandidateProfile | null;
+  application?: CandidateApplication | null;
+}
+
+function experienceLabel(months: number | null | undefined): string | null {
+  if (months === null || months === undefined || months <= 0) return null;
+  const y = Math.floor(months / 12);
+  const m = months % 12;
+  const parts = [y ? `${y} yr${y === 1 ? '' : 's'}` : '', m ? `${m} mo` : ''].filter(Boolean);
+  return parts.join(' ');
+}
+
+/** One labelled line; renders nothing when there is no value. */
+function Fact(p: { label: string; children: ReactNode }) {
+  const { label } = p;
+  const value = p.children;
+  if (value === null || value === undefined || value === '') return null;
+  return (
+    <div className="grid grid-cols-[7.5rem_1fr] gap-2">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 break-words text-foreground">{value}</dd>
+    </div>
+  );
+}
+
+/**
+ * Who the interviewer is talking to, on the meeting page itself (Director,
+ * 24 Sep 2026: "why can't I see the profile of the candidate during the
+ * interview"). Everything the booking form and the application captured.
+ */
+function CandidatePanel({ linked }: { linked: LinkedInterview }) {
+  const p = linked.profile;
+  const a = linked.application;
+  if (!p && !a) return null;
+  const currentJob =
+    p?.currentJob ??
+    ([a?.currentJobTitle, a?.currentCompany].filter(Boolean).join(', ') || null);
+  const experience = experienceLabel(a?.experienceMonths ?? p?.experienceMonths);
+  const cv = p?.cvUrl ?? a?.resumeUrl ?? null;
+  return (
+    <div className="rounded-md border border-border bg-muted/40 p-3">
+      <dl className="space-y-1.5 text-sm">
+        <Fact label="Phone">
+          {p?.phone ? (
+            <a href={`tel:${p.phone.replace(/\s+/g, '')}`} className="text-primary underline-offset-4 hover:underline">
+              {p.phone}
+            </a>
+          ) : null}
+        </Fact>
+        <Fact label="Email">
+          {p?.email ? (
+            <a href={`mailto:${p.email}`} className="text-primary underline-offset-4 hover:underline">
+              {p.email}
+            </a>
+          ) : null}
+        </Fact>
+        <Fact label="Current job">{currentJob}</Fact>
+        <Fact label="Experience">{experience}</Fact>
+        <Fact label="Qualification">{a?.qualification ?? p?.qualification ?? null}</Fact>
+        <Fact label="Expects">{p?.payExpectation ?? null}</Fact>
+        <Fact label="Why this role">{p?.whyThisRole ? <span className="whitespace-pre-wrap">{p.whyThisRole}</span> : null}</Fact>
+        <Fact label="CV">
+          {cv ? (
+            <a href={cv} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline">
+              Open CV <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+            </a>
+          ) : (
+            <span className="text-muted-foreground">Not on file yet</span>
+          )}
+        </Fact>
+      </dl>
+      {linked.candidateId ? (
+        <a
+          href={`/hr/recruitment/candidates/${linked.candidateId}`}
+          className="mt-2 inline-flex items-center gap-1 text-xs text-primary underline-offset-4 hover:underline"
+        >
+          Full candidate record
+        </a>
+      ) : null}
+    </div>
+  );
 }
 
 // Radix treats "" as "clear the selection" and throws on a SelectItem whose
@@ -136,10 +242,11 @@ export function InterviewLinkSection({
             <span className="text-muted-foreground">· {linked.roundName}</span>
           ) : null}
         </div>
+        <CandidatePanel linked={linked} />
         {linked.outcomeSummary ? (
-          <p className="whitespace-pre-wrap leading-relaxed text-muted-foreground">
-            {linked.outcomeSummary}
-          </p>
+          <MeetingNoteText text={linked.outcomeSummary} muted />
+        ) : linked.outcomeSameAsNotes ? (
+          <p className="text-muted-foreground">The outcome is the Meeting notes summary above.</p>
         ) : (
           <p className="text-muted-foreground">
             No outcome recorded yet. It fills in on its own once the recording arrives.

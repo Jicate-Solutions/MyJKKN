@@ -3,7 +3,7 @@
 /**
  * PeriodRejectModal — confirms rejection of a period to the prior stage.
  *
- * Per spec specs/t4-3-pr3-payroll-ui-design-lock-2026-05-19.md E8:
+ * No written spec; the rules live in this code:
  *   - Reason (textarea) required, min 10 chars.
  *   - Confirm button is destructive (red).
  *   - Calls useRejectPayrollPeriod which wraps fn_reject_payroll_period RPC.

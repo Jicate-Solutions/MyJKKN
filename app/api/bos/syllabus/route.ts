@@ -18,6 +18,7 @@ import {
   UNIQUE_VIOLATION,
 } from '@/lib/utils/bos/course-code-conflict';
 import { CoeRestClient } from '@/lib/services/coe/coe-rest-client';
+import { applyStreamFilter, normalizeStreamInput } from '@/lib/utils/bos/stream-filter';
 import { BosCourseSyllabus, BosSyllabusListResponse, CreateBosSyllabusDto } from '@/types/bos';
 
 // Sort syllabi by course_mapping.course_order (asc, nulls last) with course_code
@@ -175,7 +176,10 @@ export async function GET(request: NextRequest) {
     // request per 1000-row chunk — needs a fresh, identically-filtered builder
     // each time. Every filter therefore lives here, in one place, so the chunked
     // reads and the paginated read below can never drift apart.
-    const buildQuery = () => {
+    // `widen` drops ONLY the person's own Board and Stream choices — every
+    // authorization filter (institution / counselling_code, board membership)
+    // and every other filter stays — to count what those two choices hide.
+    const buildQuery = (widen = false) => {
       let q = readDb
         .from('bos_course_syllabi')
         .select('*', { count: 'exact' });
@@ -194,10 +198,12 @@ export async function GET(request: NextRequest) {
       // resolved (and the empty case returned early) in Step 2.
       if (!seeAll) q = q.in('board_id', boardIds);
 
-      if (boardId) q = q.eq('board_id', boardId);
+      if (boardId && !widen) q = q.eq('board_id', boardId);
       if (regulationIdsFilter) q = q.in('regulation_id', regulationIdsFilter);
       if (courseCode) q = q.eq('course_code', courseCode);
-      if (stream) q = q.eq('stream', stream);
+      // Stream is free text, so match ignoring case and surrounding spaces
+      // ("Arts", "ARTS", "arts " are one stream) — see lib/utils/bos/stream-filter.ts.
+      if (stream && !widen) q = applyStreamFilter(q, stream);
       if (isLatest) q = q.eq('is_latest', true);
       if (isArchived !== undefined) q = q.eq('is_archived', isArchived);
 
@@ -357,6 +363,21 @@ export async function GET(request: NextRequest) {
       };
     }
 
+    // Rows the person's own Stream / Board choice hides. Stream is typed by
+    // hand, so one department's syllabi carry "Arts", "Science" and blanks side
+    // by side (Zoology, JKKN CAS, 27 Sep 2026: 33 current UG papers, 16 under
+    // any spelling of Arts), and a paper can sit under the other board. The
+    // six reports behind this change each saw a short list with no sign that
+    // their own filter was the cause. The page shows this count with a
+    // "show all streams and boards" button. Best-effort: a failed count
+    // leaves the list as it is.
+    if (stream || boardId) {
+      const { count: wider, error: widerErr } = await buildQuery(true).range(0, 0);
+      if (!widerErr && wider != null && wider > response.metadata.total) {
+        response.metadata.hidden_by_filters = wider - response.metadata.total;
+      }
+    }
+
     return NextResponse.json(response);
   } catch (error) {
     console.error('[GET /api/bos/syllabus] Error:', error);
@@ -444,6 +465,7 @@ export async function POST(request: NextRequest) {
       .from('bos_course_syllabi')
       .insert({
         ...body,
+        stream: normalizeStreamInput(body.stream),
         board_id: body.board_id || null, // Allow null if not provided
         created_by: user.id,
         version_number: 1,

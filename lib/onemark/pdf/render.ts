@@ -11,7 +11,7 @@
 import puppeteerCore, { type Browser } from 'puppeteer-core';
 import chromium from '@sparticuz/chromium';
 import { pdfFontFaceCss } from '@/lib/utils/bos/pdf-fonts';
-import { answerKeyHtml, footerTemplate, questionPaperHtml } from './document';
+import { answerKeyHtml, footerTemplate, questionPaperHtml, turnOverPageCss } from './document';
 import { arrangeForSeries } from './layout';
 import { paperGlyphGaps } from './notation';
 import type { ArrangedPaper, PaperModel, PaperSeries } from './types';
@@ -49,7 +49,7 @@ async function getBrowser(): Promise<Browser> {
   return browser;
 }
 
-async function htmlToPdf(html: string, footer: string): Promise<Buffer> {
+async function printOnce(html: string, footer: string): Promise<Buffer> {
   const b = await getBrowser();
   const page = await b.newPage();
   try {
@@ -74,6 +74,38 @@ async function htmlToPdf(html: string, footer: string): Promise<Buffer> {
       console.warn('[onemark-pdf] warning closing page:', closeErr);
     }
   }
+}
+
+/** Pages in a Chromium PDF: Skia writes one `/Type /Page` dictionary per page
+ *  (the page-tree node is `/Type /Pages`). 0 when the bytes are not one. */
+export function countPdfPages(pdf: Uint8Array): number {
+  const text = Buffer.from(pdf).toString('latin1');
+  return (text.match(/\/Type\s*\/Page(?![A-Za-z])/g) ?? []).length;
+}
+
+/** Page CSS added to the document's <head> for the second print pass. */
+export function withPageCss(html: string, css: string): string {
+  if (!css) return html;
+  return html.replace('</head>', `<style>${css}</style>\n</head>`);
+}
+
+/**
+ * Two print passes, so the LAST page can drop "[ Turn over" (BUG-006062 /
+ * BUG-006063): the first learns the page count, the second prints with
+ * turnOverPageCss(), which names the pages that get it. The added CSS only
+ * fills the bottom-right page-margin box — the content area, and so the page
+ * breaks, are the same in both passes. A one-page document keeps the first
+ * pass: it never says "Turn over".
+ */
+async function htmlToPdf(html: string, footer: string, pageCss: (pageCount: number) => string): Promise<Buffer> {
+  const first = await printOnce(html, footer);
+  const pages = countPdfPages(first);
+  if (pages === 0) {
+    console.warn('[onemark-pdf] could not count the pages of the first print pass; printing without "Turn over"');
+  }
+  const css = pageCss(pages);
+  if (!css) return first;
+  return printOnce(withPageCss(html, css), footer);
 }
 
 /** The print footer runs in its own document, so the faces are embedded again
@@ -113,14 +145,14 @@ function logUncoverable(model: PaperModel, doc: 'paper' | 'answer-key'): void {
 export async function renderQuestionPaperPdf(model: PaperModel, series: PaperSeries): Promise<RenderedPaper> {
   logUncoverable(model, 'paper');
   const paper = arrangeForSeries(model, series);
-  const buffer = await htmlToPdf(questionPaperHtml(paper), footerWithFonts(paper));
+  const buffer = await htmlToPdf(questionPaperHtml(paper), footerWithFonts(paper), (n) => turnOverPageCss(paper, n));
   return { buffer, filename: filenameFor(model, series, false) };
 }
 
 export async function renderAnswerKeyPdf(model: PaperModel, series: PaperSeries): Promise<RenderedPaper> {
   logUncoverable(model, 'answer-key');
   const paper = arrangeForSeries(model, series);
-  const buffer = await htmlToPdf(answerKeyHtml(paper), footerWithFonts(paper));
+  const buffer = await htmlToPdf(answerKeyHtml(paper), footerWithFonts(paper), (n) => turnOverPageCss(paper, n));
   return { buffer, filename: filenameFor(model, series, true) };
 }
 

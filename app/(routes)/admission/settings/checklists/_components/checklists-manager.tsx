@@ -56,6 +56,10 @@ import { useDepartments } from '@/hooks/organization/use-departments';
 import { usePrograms } from '@/hooks/organization/use-programs';
 import { buildChecklistColumns, type ChecklistRow } from './columns';
 import { ChecklistDetailDialog } from './checklist-detail-dialog';
+import {
+  ADMISSION_CHECKLIST_LIFECYCLE_OPTIONS,
+  DEFAULT_ADMISSION_CHECKLIST_LIFECYCLE,
+} from '@/lib/constants/admission-checklist-lifecycle';
 
 type ScopeType = 'institution' | 'degree' | 'department' | 'program';
 
@@ -68,7 +72,6 @@ interface ChecklistItem {
   is_active: boolean;
 }
 
-const LIFECYCLE_OPTIONS = ['lead', 'admitted', 'enrolled'] as const;
 
 // ============================================================================
 // Top-level ChecklistsManager
@@ -263,7 +266,7 @@ function newChecklist(): DraftChecklist {
     key: crypto.randomUUID(),
     name: '',
     description: '',
-    lifecycle: ['lead', 'admitted', 'enrolled'],
+    lifecycle: [...DEFAULT_ADMISSION_CHECKLIST_LIFECYCLE],
     items: [newItem()],
   };
 }
@@ -499,8 +502,8 @@ function ChecklistDraftCard({
               </div>
               <div className="col-span-2">
                 <Label className="text-xs">Lifecycle stages</Label>
-                <div className="flex gap-3 mt-1">
-                  {LIFECYCLE_OPTIONS.map((lc) => (
+                <div className="flex flex-wrap gap-3 mt-1">
+                  {ADMISSION_CHECKLIST_LIFECYCLE_OPTIONS.map(({ value: lc, label }) => (
                     <label key={lc} className="flex items-center gap-1.5 text-sm">
                       <Checkbox
                         checked={draft.lifecycle.includes(lc)}
@@ -512,7 +515,7 @@ function ChecklistDraftCard({
                           });
                         }}
                       />
-                      <span className="capitalize">{lc}</span>
+                      <span>{label}</span>
                     </label>
                   ))}
                 </div>
@@ -727,8 +730,8 @@ function EditChecklistDialog({
           </div>
           <div>
             <Label>Lifecycle stages</Label>
-            <div className="flex gap-4 mt-2">
-              {LIFECYCLE_OPTIONS.map((lc) => (
+            <div className="flex flex-wrap gap-4 mt-2">
+              {ADMISSION_CHECKLIST_LIFECYCLE_OPTIONS.map(({ value: lc, label }) => (
                 <label key={lc} className="flex items-center gap-2 text-sm">
                   <Checkbox
                     checked={lifecycle.includes(lc)}
@@ -740,7 +743,7 @@ function EditChecklistDialog({
                       );
                     }}
                   />
-                  <span className="capitalize">{lc}</span>
+                  <span>{label}</span>
                 </label>
               ))}
             </div>
