@@ -51,11 +51,19 @@ describe('IdCardPrintJobPickup shape', () => {
       enqueued_at: '2026-07-25T00:00:00.000Z',
       picked_up_at: '2026-07-25T00:00:05.000Z',
       result: null,
-      has_back: false
+      has_back: false,
+      print_plan: { front: 'color' }
     };
     // Compile-time: the assignment above type-checks. Runtime: the duplex
     // hint is a plain boolean field, JSON-serializable as-is.
     expect(typeof pickup.has_back).toBe('boolean');
     expect(JSON.parse(JSON.stringify(pickup)).has_back).toBe(false);
+  });
+
+  it('carries the print plan: colour front, black back when there is one', () => {
+    const duplex: IdCardPrintJobPickup['print_plan'] = { front: 'color', back: 'monochrome' };
+    const frontOnly: IdCardPrintJobPickup['print_plan'] = { front: 'color' };
+    expect(duplex.back).toBe('monochrome');
+    expect(frontOnly.back).toBeUndefined();
   });
 });

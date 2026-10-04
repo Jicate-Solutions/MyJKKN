@@ -45,7 +45,15 @@ export interface ProcurementPurchaseOrder {
   terms_and_conditions: string | null;
   created_at: string;
   updated_at: string;
-  supplier?: { id: string; name: string; code: string; email: string | null; gstin: string | null } | null;
+  supplier?: {
+    id: string;
+    name: string;
+    code: string;
+    email: string | null;
+    gstin: string | null;
+    address?: string | null;
+    phone?: string | null;
+  } | null;
   created_by_profile?: { full_name: string | null } | null;
   approved_by_profile?: { full_name: string | null } | null;
   po_format?: ProcurementPoFormat | null;
@@ -73,10 +81,19 @@ export interface ProcurementPurchaseOrderItem {
 
 export interface PoWithItems extends ProcurementPurchaseOrder {
   items: ProcurementPurchaseOrderItem[];
+  /** The vendor quotation this PO was awarded from (via its items), for the printed document. */
+  source_quotation?: {
+    vendor_quote_number: string | null;
+    quote_date: string | null;
+    delivery_time_days: number | null;
+    payment_terms: string | null;
+  } | null;
 }
 
 export interface PurchaseOrderFilters {
   institution_id?: string;
+  /** No institution filter: every institution the viewer's RLS allows. */
+  all_institutions?: boolean;
   store_id?: string;
   status?: PoStatus;
   supplier_id?: string;

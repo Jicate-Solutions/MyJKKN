@@ -1,19 +1,22 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { useGrns } from '@/hooks/procurement/use-grns';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import { StatusBadge } from '@/components/procurement/status-badge';
+import { ResponsiveList } from '@/components/procurement/responsive-list';
+import { PageHeader, FilterBar } from '@/components/procurement/page-header';
 import { EmptyState } from '@/components/empty-state';
 import { AlertBox } from '@/components/ui/alert-box';
 import { formatDateDMY } from '@/lib/utils/date-format';
 import { GRN_STATUS_CONFIG, type GrnStatus, type GrnFilters } from '@/types/procurement';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { ReceiveSwitcher } from '@/components/procurement/receive-switcher';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -22,14 +25,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Eye, Search } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 
@@ -39,37 +34,46 @@ export default function GrnListPage() {
 
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounceValue(search, 300);
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [institutionId, setInstitutionId] = useState<string | undefined>(undefined);
-  const effectiveInstitution = institutionId ?? profile?.institution_id ?? undefined;
+  const searchParams = useSearchParams();
+  // The Overview status bars link here with ?institution=<id|all>&status=<status>.
+  const [statusFilter, setStatusFilter] = useState<string>(() => searchParams.get('status') ?? 'all');
+  const [institutionId, setInstitutionId] = useState<string | undefined>(
+    () => searchParams.get('institution') ?? undefined
+  );
+  // 'all' = every college the viewer may see (RLS scopes the rows). effectiveInstitution
+  // stays a concrete college for anything that creates a document.
+  const allColleges = institutionId === 'all';
+  const effectiveInstitution =
+    (institutionId && !allColleges ? institutionId : undefined) ?? profile?.institution_id ?? undefined;
 
   const filters: GrnFilters = {
     search: debouncedSearch || undefined,
     status: statusFilter !== 'all' ? (statusFilter as GrnStatus) : undefined,
-    institution_id: effectiveInstitution,
+    institution_id: allColleges ? undefined : effectiveInstitution,
+    all_institutions: allColleges,
   };
 
   const { data: response, isLoading, isError } = useGrns(filters);
   const grns = response?.data ?? [];
 
   return (
-    <ContentLayout title="Goods Receipt">
+    <ContentLayout title="Deliveries">
       <div className="space-y-4 sm:space-y-6">
-        <div>
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Goods Receipt Notes</h2>
-          <p className="hidden text-muted-foreground sm:block">
-            Receive deliveries against a PO, run three-way matching, and post accepted
-            stock to inventory on verification.
-          </p>
+        <div className="space-y-2">
+          <PageHeader
+            title="Deliveries"
+            description="Receive deliveries against a purchase order, check they match the PO and invoice, and add accepted stock to inventory once verified."
+          />
+          <ReceiveSwitcher active="receipts" />
         </div>
 
         <Card>
-          <CardContent className="pt-6">
-            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+          <CardContent className="p-4 sm:p-6">
+            <FilterBar>
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search by GRN number..."
+                  placeholder="Search by delivery number..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-9"
@@ -89,12 +93,13 @@ export default function GrnListPage() {
                 </SelectContent>
               </Select>
               <InstitutionFilter
-                value={effectiveInstitution}
+                value={allColleges ? 'all' : effectiveInstitution}
                 onChange={setInstitutionId}
+                allLabel="All colleges"
                 label={null}
                 className="w-full sm:w-[200px]"
               />
-            </div>
+            </FilterBar>
           </CardContent>
         </Card>
 
@@ -106,53 +111,59 @@ export default function GrnListPage() {
               </div>
             ) : isError ? (
               <div className="p-6">
-                <AlertBox type="error" message="Failed to load goods receipt notes. Please try again." />
+                <AlertBox type="error" message="Failed to load delivery records. Please try again." />
               </div>
             ) : grns.length === 0 ? (
               <EmptyState
-                title="No goods receipt notes found"
-                description="Open an approved PO to receive a delivery."
+                title="No delivery records found"
+                description="Open an approved purchase order to record a delivery."
               />
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>GRN #</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>PO #</TableHead>
-                    <TableHead>Vendor</TableHead>
-                    <TableHead>Invoice</TableHead>
-                    <TableHead>Items</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {grns.map((grn) => (
-                    <TableRow key={grn.id}>
-                      <TableCell className="font-medium">{grn.grn_number}</TableCell>
-                      <TableCell>{formatDateDMY(grn.created_at)}</TableCell>
-                      <TableCell>{grn.purchase_order?.po_number || '-'}</TableCell>
-                      <TableCell>{grn.supplier?.name || '-'}</TableCell>
-                      <TableCell>{grn.invoice_number || '-'}</TableCell>
-                      <TableCell>{grn.item_count ?? '-'}</TableCell>
-                      <TableCell>
-                        <StatusBadge status={grn.status} config={GRN_STATUS_CONFIG} />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          aria-label={`View ${grn.grn_number}`}
-                          onClick={() => router.push(`/procurement/grn/${grn.id}`)}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <ResponsiveList
+                rows={grns}
+                getRowKey={(grn) => grn.id}
+                onRowClick={(grn) => router.push(`/procurement/grn/${grn.id}`)}
+                rowLabel={(grn) => `View ${grn.grn_number}`}
+                columns={[
+                  {
+                    key: 'grn',
+                    header: 'Delivery #',
+                    mobile: 'title',
+                    className: 'font-medium',
+                    cell: (grn) => grn.grn_number,
+                  },
+                  { key: 'date', header: 'Date', cell: (grn) => formatDateDMY(grn.created_at) },
+                  { key: 'po', header: 'PO #', cell: (grn) => grn.purchase_order?.po_number || '-' },
+                  { key: 'vendor', header: 'Vendor', cell: (grn) => grn.supplier?.name || '-' },
+                  { key: 'invoice', header: 'Invoice', cell: (grn) => grn.invoice_number || '-' },
+                  { key: 'items', header: 'Items', cell: (grn) => grn.item_count ?? '-' },
+                  {
+                    key: 'status',
+                    header: 'Status',
+                    mobile: 'badge',
+                    cell: (grn) => <StatusBadge status={grn.status} config={GRN_STATUS_CONFIG} />,
+                  },
+                  {
+                    key: 'actions',
+                    header: 'Actions',
+                    mobile: 'hidden',
+                    className: 'text-right',
+                    cell: (grn) => (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label={`View ${grn.grn_number}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          router.push(`/procurement/grn/${grn.id}`);
+                        }}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    ),
+                  },
+                ]}
+              />
             )}
           </CardContent>
         </Card>

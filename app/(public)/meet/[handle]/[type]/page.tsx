@@ -27,9 +27,10 @@
 //   private or draft types by guessing slugs.
 
 import type { Metadata } from 'next';
-import { notFound, permanentRedirect } from 'next/navigation';
+import { notFound, permanentRedirect, redirect } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { resolveRetiredHandle } from '@/lib/services/meetings/handle-redirect';
+import { readInterviewHostSetting } from '@/lib/services/hr/interview-booking-service';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import {
   PublicHostService,
@@ -68,12 +69,22 @@ async function loadViewer(): Promise<{ name: string; email: string } | null> {
   }
 }
 
+function serviceClient() {
+  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+}
+
 async function loadHost(handle: string): Promise<PublicHost | null> {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  return PublicHostService.resolveBookableHost(serviceClient(), handle);
+}
+
+/** True when handle + slug are the interview link's own meeting type. */
+async function isInterviewType(handle: string, slug: string): Promise<boolean> {
+  const setting = await readInterviewHostSetting(serviceClient());
+  return (
+    !!setting &&
+    setting.handle === handle.toLowerCase() &&
+    setting.type_slug === slug.toLowerCase()
   );
-  return PublicHostService.resolveBookableHost(supabase, handle);
 }
 
 /** resolveBookableHost already filters to live, visible types, so matching
@@ -120,6 +131,12 @@ export default async function MeetTypePage({ params }: MeetTypePageProps) {
     if (current) permanentRedirect(`/meet/${current}/${encodeURIComponent(type)}`);
     notFound();
   }
+
+  // The interview type is booked only through /book-interview, which asks the
+  // candidate questions (Director 29 Sep 2026, #28/#32). A /meet link to it
+  // forwards there — even if the type was left visible. That link is public
+  // anyway, so this reveals nothing.
+  if (await isInterviewType(host.handle, type)) redirect('/book-interview');
 
   const meetingType = findType(host, type);
   // Deliberately the same 404 as an unknown handle — see the "no oracle" note

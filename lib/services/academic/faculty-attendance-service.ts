@@ -5,7 +5,7 @@ import { AttendanceService } from './attendance-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { isTimetableOnApprovedLeave } from '@/lib/utils/academic/approved-leave-scope';
 import { fillPeriodSectionNames, sectionIdsNeedingNames } from '@/lib/utils/academic/fill-period-section-names';
-import { practicalSectionIdsForStaff } from '@/lib/utils/practical-period-sections';
+import { practicalSectionIdsForStaff, practicalStudentIdsForStaff } from '@/lib/utils/practical-period-sections';
 import { isNonMarkableSlot } from '@/lib/utils/academic/non-markable-slot';
 import type {
   TimetableWithRelations,
@@ -702,6 +702,9 @@ export class FacultyAttendanceService {
               course: practicalCourseId ? { id: practicalCourseId } : undefined,
               sections: practicalSectionIds.map((sid) => ({ id: sid, name: '' })),
               section_ids: practicalSectionIds,
+              // Added: 2026-09-23 (BUG-006204) - every batch saves under this one
+              // slot key, so the marked check needs this staff's own learners.
+              practical_student_ids: practicalStudentIdsForStaff(practicalBatches, staffId),
               degree_name: (timetable.degrees as any)?.degree_name,
               program_name: (timetable.programs as any)?.program_name,
               department_name: (timetable.departments as any)?.department_name,

@@ -18,6 +18,18 @@
   },
   "crons": [
     {
+      "path": "/api/cron/hr-salary-revisions?mode=apply&secret=${CRON_SECRET}",
+      "schedule": "43 18 * * *"
+    },
+    {
+      "path": "/api/cron/hr-salary-revisions?mode=digest&secret=${CRON_SECRET}",
+      "schedule": "47 3 * * 1"
+    },
+    {
+      "path": "/api/cron/ims-pos-device-sweep?secret=${CRON_SECRET}",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/cdc-willingness-cycles?secret=${CRON_SECRET}",
       "schedule": "3,18,33,48 * * * *"
     },
@@ -258,8 +270,20 @@
       "schedule": "30 2 * * *"
     },
     {
+      "path": "/api/cron/campus-walk-director-digest?secret=${CRON_SECRET}",
+      "schedule": "33 2 * * *"
+    },
+    {
       "path": "/api/cron/campus-walk-photo-retention?secret=${CRON_SECRET}",
       "schedule": "17 3 * * *"
+    },
+    {
+      "path": "/api/cron/weekly-report-card",
+      "schedule": "37 2 * * 1"
+    },
+    {
+      "path": "/api/cron/routine-checks",
+      "schedule": "47 1 * * *"
     },
     {
       "path": "/api/cron/meeting-audio-retention?secret=${CRON_SECRET}",

@@ -83,12 +83,21 @@ describe('groupRosterByClass — sticky class headers when several classes are c
   });
 });
 
-describe('estimatePrintTime — 15 s per card', () => {
+describe('estimatePrintTime — measured station cadence', () => {
+  it('defaults to the measured 100 s per card', async () => {
+    const { estimatePrintTime, MEASURED_SECONDS_PER_CARD } = await import(
+      '@/components/admin/id-cards/id-card-batch-print'
+    );
+    expect(MEASURED_SECONDS_PER_CARD).toBe(100);
+    expect(estimatePrintTime(0)).toBe('—');
+    expect(estimatePrintTime(1)).toBe('≈ 2 min');
+    expect(estimatePrintTime(19)).toBe('≈ 32 min');
+    expect(estimatePrintTime(101)).toBe('≈ 2 h 48 min');
+  });
   it('reads as seconds under 90 s, minutes after, hours past 60 min', async () => {
     const { estimatePrintTime } = await import('@/components/admin/id-cards/id-card-batch-print');
-    expect(estimatePrintTime(0)).toBe('—');
-    expect(estimatePrintTime(4)).toBe('≈ 60 s');
-    expect(estimatePrintTime(19)).toBe('≈ 5 min');
-    expect(estimatePrintTime(552)).toBe('≈ 2 h 18 min');
+    expect(estimatePrintTime(4, 15)).toBe('≈ 60 s');
+    expect(estimatePrintTime(19, 15)).toBe('≈ 5 min');
+    expect(estimatePrintTime(552, 15)).toBe('≈ 2 h 18 min');
   });
 });

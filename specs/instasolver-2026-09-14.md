@@ -38,6 +38,7 @@ Proof it already happens: the four tickets titled "test" carried 8
 | I8 | Complaint about own HOD | **Routes to isvarya@jkkn.ac.in** (Isvarya Lakshmi, Joint MD, super_admin, profile 583f39e2…). Record as a `platform_policies` row, not a hardcoded email |
 | I9 | Old site | **Point `instasolver.jkkn.ac.in` at MyJKKN once the button is live.** Copy open tickets across first |
 | I10 | Test tickets | **Delete** GRV-20260910-0021, -0020, GRV-20260909-0019, GRV-20260810-0016 and their 8 evidence rows. Backup in `artifacts/instasolver-test-tickets-backup-2026-09-14.json` |
+| I11 | Closing a job (2026-09-30) | **The fixer's photo closes the job at once — no approval queue**, for ALL Campus Walk tasks (InstaSolver reports and the Director's own walk jobs). "Make it easy for users to InstaSolver and for the action takers to resolve it instantly." The reporter is told "fixed" and can tap **Not fixed** on /instasolver/my-reports for 7 days; that reopens the SAME job (not a recurrence) with a fresh due date and re-armed reminders |
 
 ## Consequence for the unapplied migration — REVISE, DO NOT APPLY AS-IS
 `20261103000000_instasolver_substrate.sql` must be rewritten before it touches production:
@@ -58,3 +59,6 @@ Proof it already happens: the four tickets titled "test" carried 8
    I8 routing policy
 5. Purchases: request form for all roles → tier approval → `purchase-request-service.createPurchaseRequest`
 6. Old-ticket import + subdomain redirect (I9)
+
+## Superseded
+- **Campus Walk spec D4** (`specs/campus-walk-2026-08-17.md`, "a fix photo alone does not close the ticket") — superseded 2026-09-30 by the Director: the fixer's photo closes the job; the reporter can reopen within 7 days (I11). That spec file is not on `main`, so the note is recorded here.

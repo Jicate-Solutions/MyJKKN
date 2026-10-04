@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -13,10 +13,13 @@ import {
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
 import { StatusBadge } from '@/components/procurement/status-badge';
+import { ResponsiveList } from '@/components/procurement/responsive-list';
+import { PageHeader, FilterBar } from '@/components/procurement/page-header';
 import { EmptyState } from '@/components/empty-state';
 import { AlertBox } from '@/components/ui/alert-box';
 import { formatDateDMY } from '@/lib/utils/date-format';
-import { RFQ_STATUS_CONFIG, type RfqStatus, type RfqFilters } from '@/types/procurement';
+import { displayRequestNumber } from '@/lib/procurement/display-number';
+import { RFQ_STATUS_CONFIG, type ProcurementRfq, type RfqStatus, type RfqFilters } from '@/types/procurement';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,24 +32,58 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Plus, Eye, Search } from 'lucide-react';
+import { Plus, Search } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
+
+/** `Keyboard, Mouse +2 more` — enough to recognise a request without flooding the dropdown. */
+function summariseItems(names: string[], shown = 2): string {
+  if (names.length === 0) return 'No items';
+  const head = names.slice(0, shown).join(', ');
+  return names.length > shown ? `${head} +${names.length - shown} more` : head;
+}
+
+/**
+ * Where a quotation is, in plain words. The stored status stays "draft" until the
+ * choice goes to the Super Admin, so "has quotes" and "was sent back" come from the
+ * row itself.
+ */
+const STAGE_CONFIG: Record<string, { label: string; color: string }> = {
+  ...RFQ_STATUS_CONFIG,
+  comparing: { label: 'Comparing quotes', color: 'purple' },
+  sent_back: { label: 'Sent back by Super Admin', color: 'red' },
+};
+
+function stageOf(rfq: ProcurementRfq): string {
+  const open = ['draft', 'pending_review', 'approved', 'rejected', 'sent', 'quotations_received', 'compared'];
+  if (!open.includes(rfq.status)) return rfq.status;
+  if (rfq.award_rejection_reason) return 'sent_back';
+  return (rfq.quote_count ?? 0) > 0 ? 'comparing' : 'draft';
+}
+
+/** "Keyboard × 5" · "Keyboard × 5, Mouse × 2" · "Keyboard × 5 + 3 more" */
+function whatIsNeeded(rfq: ProcurementRfq): string {
+  const items = rfq.item_preview ?? [];
+  if (!items.length) return `${rfq.item_count ?? 0} item${rfq.item_count === 1 ? '' : 's'}`;
+  const fmt = (i: { item_name: string; quantity: number }) => `${i.item_name} × ${Number(i.quantity)}`;
+  if (items.length <= 2) return items.map(fmt).join(', ');
+  return `${fmt(items[0])} + ${items.length - 1} more`;
+}
+
+/** Stage filter: one entry per plain stage (the retired statuses share labels). */
+const STAGE_FILTERS: Array<{ value: RfqStatus; label: string }> = [
+  { value: 'draft', label: 'Waiting for quotes / comparing' },
+  { value: 'pending_award_approval', label: 'Waiting for Super Admin' },
+  { value: 'awarded', label: 'Ordered' },
+  { value: 'cancelled', label: 'Cancelled' },
+];
 
 export default function RfqsPage() {
   const router = useRouter();
@@ -56,16 +93,25 @@ export default function RfqsPage() {
 
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounceValue(search, 300);
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [institutionId, setInstitutionId] = useState<string | undefined>(undefined);
-  const effectiveInstitution = institutionId ?? profile?.institution_id ?? undefined;
+  const searchParams = useSearchParams();
+  // The Overview status bars link here with ?institution=<id|all>&status=<status>.
+  const [statusFilter, setStatusFilter] = useState<string>(() => searchParams.get('status') ?? 'all');
+  const [institutionId, setInstitutionId] = useState<string | undefined>(
+    () => searchParams.get('institution') ?? undefined
+  );
+  // 'all' = every college the viewer may see (RLS scopes the rows). effectiveInstitution
+  // stays a concrete college for anything that creates a document.
+  const allColleges = institutionId === 'all';
+  const effectiveInstitution =
+    (institutionId && !allColleges ? institutionId : undefined) ?? profile?.institution_id ?? undefined;
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedPR, setSelectedPR] = useState<string>('');
 
   const filters: RfqFilters = {
     search: debouncedSearch || undefined,
     status: statusFilter !== 'all' ? (statusFilter as RfqStatus) : undefined,
-    institution_id: effectiveInstitution,
+    institution_id: allColleges ? undefined : effectiveInstitution,
+    all_institutions: allColleges,
   };
 
   const { data: response, isLoading, isError } = useRfqs(filters);
@@ -77,40 +123,38 @@ export default function RfqsPage() {
     if (!selectedPR || !profile?.id) return;
     try {
       const rfq = await createRfq.mutateAsync({ requestId: selectedPR, userId: profile.id });
-      toast.success(`RFQ ${rfq.rfq_number} created`);
+      toast.success('Quotations opened for this request');
       setCreateOpen(false);
       setSelectedPR('');
-      router.push(`/procurement/rfqs/${rfq.id}`);
+      router.push(`/procurement/rfqs/${rfq.id}/quotations`);
     } catch (e) {
-      toast.error(errorMessage(e, 'Failed to create RFQ'));
+      toast.error(errorMessage(e, 'Failed to get quotations'));
     }
   };
 
   return (
-    <ContentLayout title="RFQs">
+    <ContentLayout title="Quotations">
       <div className="space-y-4 sm:space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Requests for Quotation</h2>
-            <p className="hidden text-muted-foreground sm:block">
-              Convert approved requests into RFQs and issue requirement lists to vendors.
-            </p>
-          </div>
-          {canManage && (
-            <Button onClick={() => setCreateOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              New RFQ
-            </Button>
-          )}
-        </div>
+        <PageHeader
+          title="Quotations"
+          description="Turn requests into quotations, collect vendor quotes and send the choice to the Super Admin."
+          actions={
+            canManage && (
+              <Button onClick={() => setCreateOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Get quotations
+              </Button>
+            )
+          }
+        />
 
         <Card>
-          <CardContent className="pt-6">
-            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+          <CardContent className="p-4 sm:p-6">
+            <FilterBar>
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search by RFQ or PR number..."
+                  placeholder="Search by request number..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-9"
@@ -121,21 +165,22 @@ export default function RfqsPage() {
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  {Object.entries(RFQ_STATUS_CONFIG).map(([key, config]) => (
-                    <SelectItem key={key} value={key}>
-                      {config.label}
+                  <SelectItem value="all">All stages</SelectItem>
+                  {STAGE_FILTERS.map((f) => (
+                    <SelectItem key={f.value} value={f.value}>
+                      {f.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <InstitutionFilter
-                value={effectiveInstitution}
+                value={allColleges ? 'all' : effectiveInstitution}
                 onChange={setInstitutionId}
+                allLabel="All colleges"
                 label={null}
                 className="w-full sm:w-[200px]"
               />
-            </div>
+            </FilterBar>
           </CardContent>
         </Card>
 
@@ -147,51 +192,43 @@ export default function RfqsPage() {
               </div>
             ) : isError ? (
               <div className="p-6">
-                <AlertBox type="error" message="Failed to load RFQs. Please try again." />
+                <AlertBox type="error" message="Failed to load quotations. Please try again." />
               </div>
             ) : rfqs.length === 0 ? (
               <EmptyState
-                title="No RFQs found"
-                description="Create an RFQ from an approved request to get started."
+                title="No quotations found"
+                description="Get quotations for a request to get started."
               />
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>RFQ #</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Source Request</TableHead>
-                    <TableHead>Items</TableHead>
-                    <TableHead>Vendors</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rfqs.map((rfq) => (
-                    <TableRow key={rfq.id}>
-                      <TableCell className="font-medium">{rfq.rfq_number}</TableCell>
-                      <TableCell>{formatDateDMY(rfq.created_at)}</TableCell>
-                      <TableCell>{rfq.source_request?.request_number || '-'}</TableCell>
-                      <TableCell>{rfq.item_count ?? '-'}</TableCell>
-                      <TableCell>{rfq.vendor_count ?? '-'}</TableCell>
-                      <TableCell>
-                        <StatusBadge status={rfq.status} config={RFQ_STATUS_CONFIG} />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          aria-label={`View RFQ ${rfq.rfq_number}`}
-                          onClick={() => router.push(`/procurement/rfqs/${rfq.id}`)}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <ResponsiveList
+                rows={rfqs}
+                getRowKey={(rfq) => rfq.id}
+                onRowClick={(rfq) => router.push(`/procurement/rfqs/${rfq.id}/quotations`)}
+                rowLabel={(rfq) => `View quotations for ${displayRequestNumber(rfq.source_request?.request_number) || rfq.rfq_number}`}
+                columns={[
+                  {
+                    key: 'needed',
+                    header: 'What is being bought',
+                    mobile: 'title',
+                    cell: (rfq) => (
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">{whatIsNeeded(rfq)}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {displayRequestNumber(rfq.source_request?.request_number) || rfq.rfq_number}
+                        </p>
+                      </div>
+                    ),
+                  },
+                  { key: 'date', header: 'Date', cell: (rfq) => formatDateDMY(rfq.created_at) },
+                  { key: 'quotes', header: 'Quotes received', cell: (rfq) => rfq.quote_count ?? 0 },
+                  {
+                    key: 'stage',
+                    header: 'Where it is',
+                    mobile: 'badge',
+                    cell: (rfq) => <StatusBadge status={stageOf(rfq)} config={STAGE_CONFIG} />,
+                  },
+                ]}
+              />
             )}
           </CardContent>
         </Card>
@@ -201,35 +238,36 @@ export default function RfqsPage() {
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Create RFQ from approved request</DialogTitle>
+            <DialogTitle>Get quotations for a request</DialogTitle>
           </DialogHeader>
-          {/* Institution chooser co-located with the PR picker: approved requests are
+          {/* Institution chooser co-located with the PR picker: open requests are
               institution-scoped, so a multi-institution user must pick the institution
-              here to see its approved requests. Renders nothing for single-institution users. */}
+              here to see its open requests. Renders nothing for single-institution users. */}
           <InstitutionFilter
             value={effectiveInstitution}
             onChange={(id) => {
               setInstitutionId(id);
               setSelectedPR('');
             }}
-            hint="Approved requests are shown for this institution."
+            hint="Open requests are shown for this institution."
           />
           <div className="space-y-2">
-            <Label>Approved purchase request</Label>
+            <Label>Request</Label>
             <Select value={selectedPR} onValueChange={setSelectedPR}>
               <SelectTrigger>
-                <SelectValue placeholder="Select an approved request..." />
+                <SelectValue placeholder="Select a request..." />
               </SelectTrigger>
               <SelectContent>
                 {approvedPRs.length === 0 ? (
                   <div className="px-3 py-2 text-sm text-muted-foreground">
-                    No approved requests in this institution. Approve a request first, or
+                    No approved requests in this institution. A request must be approved first, or
                     switch institution above.
                   </div>
                 ) : (
                   approvedPRs.map((pr) => (
-                    <SelectItem key={pr.id} value={pr.id}>
-                      {pr.request_number}
+                    <SelectItem key={pr.id} value={pr.id} textValue={displayRequestNumber(pr.request_number)}>
+                      <span className="font-medium">{displayRequestNumber(pr.request_number)}</span>
+                      <span className="text-muted-foreground"> · {summariseItems(pr.item_names)}</span>
                     </SelectItem>
                   ))
                 )}
@@ -241,7 +279,7 @@ export default function RfqsPage() {
               Cancel
             </Button>
             <Button onClick={handleCreate} disabled={!selectedPR || createRfq.isPending}>
-              {createRfq.isPending ? 'Creating...' : 'Create RFQ'}
+              {createRfq.isPending ? 'Getting quotations...' : 'Get quotations'}
             </Button>
           </DialogFooter>
         </DialogContent>

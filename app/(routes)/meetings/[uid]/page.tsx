@@ -48,6 +48,7 @@ import {
   switchSourceMode,
 } from '@/lib/services/meetings/meeting-mode-switch';
 import { EndRecordingButton } from './_components/end-recording-button';
+import { DownloadRecordButton } from './_components/download-record-button';
 import { CancelBookingButton } from './_components/cancel-booking-button';
 import { RescheduleBookingButton } from './_components/reschedule-booking-button';
 import { SwitchToOnlineButton } from './_components/switch-to-online-button';
@@ -425,6 +426,8 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
     !isPast &&
     switchRequestState(booking, meetingType?.min_notice_min) === 'pending';
 
+  const canDownloadRecord = isPast && (!!meetingNote || actionItems.length > 0);
+
   const answers: Record<string, string> =
     booking.answers && typeof booking.answers === 'object' && !Array.isArray(booking.answers)
       ? booking.answers
@@ -551,6 +554,14 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
             </CardContent>
           </Card>
         ) : null}
+
+        {/* The finished record as a document someone can keep or forward.
+            Only for a meeting that is over AND has something to put in it —
+            a note or at least one follow-up; the route repeats this rule. The
+            route re-reads everything as this viewer. The PDF also lists who
+            was on the call (names only, no email addresses or links), which
+            this page does not show. */}
+        {canDownloadRecord ? <DownloadRecordButton uid={booking.uid} /> : null}
 
         {/* Only rendered when there is something to show or something the
             viewer may do. A meeting that is not an interview, seen by somebody

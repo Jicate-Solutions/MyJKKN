@@ -137,19 +137,7 @@ export function SemesterFilters({
     key: string,
     value: string | undefined
   ) => {
-    // Reset dependent fields when parent changes
-    if (key === 'institution_id') {
-      onFilterChange('degree_id', undefined);
-      onFilterChange('department_id', undefined);
-      onFilterChange('program_id', undefined);
-    } else if (key === 'degree_id') {
-      onFilterChange('department_id', undefined);
-      onFilterChange('program_id', undefined);
-    } else if (key === 'department_id') {
-      onFilterChange('program_id', undefined);
-    }
-
-    // Set the current filter
+    // Dependent fields are cleared by the filter client in the same navigation.
     onFilterChange(key, value);
   };
 
