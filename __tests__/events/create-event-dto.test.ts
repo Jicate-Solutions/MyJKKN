@@ -11,7 +11,14 @@
 // UTC, '' → undefined, scope → visibility, the venue CHECK fallback, and the
 // empty-vs-absent distinction on config.enabled_tools.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// event-create-form imports the people fields, which read the signed-in user
+// and their permissions. Those hooks build a Supabase browser client when the
+// module loads; stub them so these pure builders still need no env.
+vi.mock('@/hooks/use-auth', () => ({ useAuth: () => ({ user: null, profile: null }) }));
+vi.mock('@/hooks/use-permissions', () => ({ usePermissions: () => ({ isSuperAdmin: false }) }));
+
 import {
   applyPresetToForm,
   buildCategoryDtos,
@@ -203,6 +210,41 @@ describe('buildCreateEventDto — config', () => {
     expect(buildWith({ entry_fee: '' }).config).not.toHaveProperty('fee');
     // 0 is a real answer ("free"), not an absent one.
     expect(buildWith({ entry_fee: '0' }).config).toMatchObject({ fee: 0 });
+  });
+});
+
+describe('co-host institutions', () => {
+  it('writes every co-host with its name alongside the primary host', () => {
+    const dto = buildWith({
+      co_hosts: [
+        { id: 'inst-2', name: 'JKKN College of Pharmacy' },
+        { id: 'inst-3', name: 'JKKN Dental College' },
+      ],
+    });
+    expect(dto.institution_id).toBe('inst-1');
+    expect(dto.config).toMatchObject({
+      co_hosts: [
+        { id: 'inst-2', name: 'JKKN College of Pharmacy' },
+        { id: 'inst-3', name: 'JKKN Dental College' },
+      ],
+    });
+  });
+
+  it('drops the primary host if it was also ticked as a co-host', () => {
+    const dto = buildWith({
+      co_hosts: [
+        { id: 'inst-1', name: 'Primary' },
+        { id: 'inst-2', name: 'Other' },
+      ],
+    });
+    expect(dto.config?.co_hosts).toEqual([{ id: 'inst-2', name: 'Other' }]);
+  });
+
+  it('omits the key when there are no co-hosts', () => {
+    expect(buildWith({ co_hosts: [] }).config).not.toHaveProperty('co_hosts');
+    expect(
+      buildWith({ co_hosts: [{ id: 'inst-1', name: 'Primary' }] }).config,
+    ).not.toHaveProperty('co_hosts');
   });
 });
 

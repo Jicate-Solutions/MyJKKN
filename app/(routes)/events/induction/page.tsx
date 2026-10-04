@@ -99,13 +99,15 @@ export default function InductionLandingPage() {
   // value to compare against events.created_by.
   const { profile } = useAuth();
   const { isSuperAdmin, canAccess } = usePermissions();
+  const canEditAny = canAccess('events', 'edit');
   const viewer = useMemo(
     () => ({
       userId: profile?.id,
       institutionId: profile?.institution_id,
       isSuperAdmin,
+      canEditAny,
     }),
-    [profile?.id, profile?.institution_id, isSuperAdmin]
+    [profile?.id, profile?.institution_id, isSuperAdmin, canEditAny]
   );
 
   const [editing, setEditing] = useState<InductionListRow | null>(null);

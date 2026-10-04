@@ -56,6 +56,11 @@ export async function GET(request: NextRequest) {
     // lead. Default behavior unchanged (BUG-003220): exclude them so the
     // KPI reflects top-of-funnel only.
     const includeConverted = searchParams.get('include_converted') === 'true';
+    // FIX (2026-09-23): default to admission calls only, matching the sibling
+    // /api/admission/calls and /api/admission/calls/stats routes (BUG-003257).
+    // Without this, non-admission calls (job-vacancy, dental-hospital, office)
+    // showed up under "Unique Callers".
+    const admissionOnly = searchParams.get('admission_only') === 'false' ? false : true;
 
     const supabase = createServiceRoleClient();
 
@@ -90,6 +95,7 @@ export async function GET(request: NextRequest) {
       if (institutionId) query = query.eq('institution_id', institutionId);
       if (fromDate) query = query.gte('created_at', fromDate);
       if (toDate) query = query.lte('created_at', toDate);
+      if (admissionOnly) query = query.eq('is_admission_call', true);
 
       const { data: page, error } = await query;
       if (error) throw new Error(error.message);

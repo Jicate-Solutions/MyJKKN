@@ -50,7 +50,11 @@
  * off the result becomes a TS2339. Keep it on one line however long it gets.
  */
 export const PUBLIC_EVENT_COLUMNS =
-  'id, name, event_type, status, event_date, start_date, venue, venue_text, registration_open_date, registration_close_date, max_registrations, cap_behavior';
+  'id, name, event_type, status, event_date, start_date, venue, venue_text, registration_open_date, registration_close_date, max_registrations, cap_behavior, hero_image_url';
+
+// `hero_image_url` was added on 2026-09-24 so the public form can show the
+// event's banner above the title. SAFE under the 42703 rule: verified against
+// production's information_schema the same day (events.hero_image_url exists).
 
 // `cap_behavior` was added on 2026-09-14 so the page can honour the event's
 // own full-event switch. SAFE under the 42703 rule above: the column has

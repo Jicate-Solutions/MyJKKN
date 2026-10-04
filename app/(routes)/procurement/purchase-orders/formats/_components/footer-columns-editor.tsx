@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Plus, Trash2 } from 'lucide-react';
-import type { PoFooterColumnDef } from '@/types/procurement';
+import type { PoFooterColumnDef, PoFieldSource } from '@/types/procurement';
 import { generateFieldKey } from './slug';
 
 interface FooterColumnsEditorProps {
@@ -55,7 +55,7 @@ export function FooterColumnsEditor({ columns, onChange }: FooterColumnsEditorPr
 
   const addFieldToGroup = (groupIndex: number) => {
     const group = groups[groupIndex];
-    const fields = [...(group.fields || []), { key: '', label: '', source: 'footer_values.' }];
+    const fields = [...(group.fields || []), { key: '', label: '', source: 'footer_values.' as PoFieldSource }];
     updateGroup(groupIndex, { fields });
   };
 
@@ -77,7 +77,7 @@ export function FooterColumnsEditor({ columns, onChange }: FooterColumnsEditorPr
       <div>
         <Label className="text-base font-semibold">Footer (3 columns)</Label>
         <p className="hidden text-xs text-muted-foreground sm:block">
-          Matches the standard PO footer layout: Terms &amp; Condition, Enclosure, Special Note.
+          Matches the standard order footer layout: Terms &amp; Condition, Enclosure, Special Note.
           Rename titles or fields per vendor; toggle a group to free text if it should just be a
           paragraph (e.g. Special Note).
         </p>
@@ -108,7 +108,7 @@ export function FooterColumnsEditor({ columns, onChange }: FooterColumnsEditorPr
             <CardContent className="p-3 pt-2 space-y-2">
               {group.freeText ? (
                 <p className="hidden text-xs text-muted-foreground sm:block">
-                  Rendered as a single free-text paragraph, filled in per PO.
+                  Rendered as a single free-text paragraph, filled in per order.
                 </p>
               ) : (
                 <>
@@ -124,7 +124,7 @@ export function FooterColumnsEditor({ columns, onChange }: FooterColumnsEditorPr
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 shrink-0"
+                        className="h-10 w-10 shrink-0 sm:h-8 sm:w-8"
                         aria-label="Remove field"
                         onClick={() => removeGroupField(gi, fi)}
                       >
@@ -137,7 +137,7 @@ export function FooterColumnsEditor({ columns, onChange }: FooterColumnsEditorPr
                     variant="outline"
                     size="sm"
                     onClick={() => addFieldToGroup(gi)}
-                    className="w-full h-8 text-xs gap-1"
+                    className="h-10 w-full gap-1 text-xs sm:h-8"
                   >
                     <Plus className="h-3 w-3" />
                     Add Field

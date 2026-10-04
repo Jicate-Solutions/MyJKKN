@@ -267,6 +267,8 @@ export interface RefundAttachmentUploadOptions {
   institutionName: string;
   requestRef: string; // request_number, or 'draft-<studentId>' before initiation
   file: File;
+  /** Top-level folder; defaults to 'Billing Refunds'. Commission payments use their own. */
+  rootFolder?: string;
 }
 
 /** Upload a refund supporting document to <ROOT>/Billing Refunds/<Institution>/<RequestRef>. */
@@ -275,7 +277,11 @@ export async function uploadRefundAttachment(
 ): Promise<{ name: string; driveFileId: string; url: string }> {
   if (!isDriveConfigured()) throw new Error('Google Drive is not configured.');
   const drive = createDriveClient();
-  const folderId = await ensureFolderPath(drive, ['Billing Refunds', opts.institutionName, opts.requestRef]);
+  const folderId = await ensureFolderPath(drive, [
+    opts.rootFolder ?? 'Billing Refunds',
+    opts.institutionName,
+    opts.requestRef,
+  ]);
   const buffer = Buffer.from(await opts.file.arrayBuffer());
   const safeName = (opts.file.name || 'file').replace(/[\r\n]/g, ' ').slice(0, 200);
   const storedName = `${Date.now()}-${safeName}`;
@@ -340,6 +346,61 @@ export async function uploadRoomConditionPhoto(
   if (!fileId) throw new Error('Drive upload returned no file id.');
   return {
     name: opts.file.name || storedName,
+    driveFileId: fileId,
+    url: created.data.webViewLink ?? `https://drive.google.com/file/d/${fileId}/view`,
+  };
+}
+
+export interface EventBudgetAttachmentUploadOptions {
+  eventId: string;
+  eventName: string;
+  file: File;
+}
+
+export interface EventBudgetAttachmentUploadResult {
+  name: string;
+  driveFileId: string;
+  url: string;
+}
+
+/**
+ * Upload a budget line's bill / quotation / receipt (BUG-004627) to
+ *   <ROOT> / Event Budgets / <Event name> [<id8>] / file
+ * and grant anyone-with-link read, as procurement invoices do — budget bills
+ * are business documents, not personal data. Returns the metadata the caller
+ * stores on event_budget_items (receipt_url / receipt_drive_file_id / receipt_name).
+ */
+export async function uploadEventBudgetAttachment(
+  opts: EventBudgetAttachmentUploadOptions
+): Promise<EventBudgetAttachmentUploadResult> {
+  if (!isDriveConfigured()) throw new Error('Google Drive is not configured.');
+  const drive = createDriveClient();
+
+  const eventFolder = `${(opts.eventName || 'Event').slice(0, 80).trim()} [${opts.eventId.slice(0, 8)}]`;
+  const folderId = await ensureFolderPath(drive, ['Event Budgets', eventFolder]);
+
+  const buffer = Buffer.from(await opts.file.arrayBuffer());
+  const safeName = (opts.file.name || 'attachment').replace(/[\r\n]/g, ' ').slice(0, 200);
+  const storedName = `${Date.now()}-${safeName}`;
+
+  const created = await drive.files.create({
+    requestBody: { name: storedName, parents: [folderId] },
+    media: { mimeType: opts.file.type || 'application/octet-stream', body: Readable.from(buffer) },
+    fields: 'id, webViewLink',
+    supportsAllDrives: true,
+  });
+
+  const fileId = created.data.id;
+  if (!fileId) throw new Error('Drive upload returned no file id.');
+
+  await drive.permissions.create({
+    fileId,
+    requestBody: { role: 'reader', type: 'anyone' },
+    supportsAllDrives: true,
+  });
+
+  return {
+    name: safeName,
     driveFileId: fileId,
     url: created.data.webViewLink ?? `https://drive.google.com/file/d/${fileId}/view`,
   };
@@ -736,5 +797,70 @@ export async function uploadCdcDriveDocument(
     url: created.data.webViewLink ?? `https://drive.google.com/file/d/${fileId}/view`,
     mimeType: opts.file.type || 'application/octet-stream',
     sizeBytes: buffer.byteLength,
+  };
+}
+
+// =============================================================================
+// InstaSolver — issue / requirement / resolution photographs
+// =============================================================================
+// Ported from the standalone InstaSolver (lib/google/drive-upload.ts there).
+// Filed as InstaSolver/<institution>/<kind>/<YYYY-MM>/. Shared "anyone with
+// the link can view" so the record, the triage queue and the reporter's phone
+// can render the thumbnail from lh3.googleusercontent.com without a proxy —
+// these are photographs of fans and taps, not personal documents. If a
+// sensitive attachment type is ever added, give it its own function with NO
+// permissions.create, never widen this one.
+
+export type InstaSolverAttachmentKind = 'issue' | 'requirement' | 'resolution';
+
+export interface InstaSolverAttachmentUploadOptions {
+  file: File;
+  kind: InstaSolverAttachmentKind;
+  institutionName: string;
+}
+
+export interface InstaSolverAttachmentUploadResult {
+  url: string;
+  driveFileId: string;
+  name: string;
+}
+
+const INSTASOLVER_KIND_FOLDER: Record<InstaSolverAttachmentKind, string> = {
+  issue: 'Issue Photos',
+  requirement: 'Requirement Photos',
+  resolution: 'Resolution Photos',
+};
+
+export async function uploadInstaSolverAttachment(
+  opts: InstaSolverAttachmentUploadOptions
+): Promise<InstaSolverAttachmentUploadResult> {
+  if (!isDriveConfigured()) throw new Error('Google Drive is not configured.');
+  const drive = createDriveClient();
+  const month = new Date().toISOString().slice(0, 7);
+  const folderId = await ensureFolderPath(drive, [
+    'InstaSolver', opts.institutionName, INSTASOLVER_KIND_FOLDER[opts.kind], month,
+  ]);
+  const buffer = Buffer.from(await opts.file.arrayBuffer());
+  const safeName = (opts.file.name || 'photo').replace(/[\r\n\/\\]/g, ' ').slice(0, 120);
+  const storedName = `${Date.now()}-${safeName}`;
+  const created = await drive.files.create({
+    requestBody: { name: storedName, parents: [folderId] },
+    media: { mimeType: opts.file.type || 'application/octet-stream', body: Readable.from(buffer) },
+    fields: 'id',
+    supportsAllDrives: true,
+  });
+  const fileId = created.data.id;
+  if (!fileId) throw new Error('Drive upload returned no file id.');
+
+  await drive.permissions.create({
+    fileId,
+    requestBody: { role: 'reader', type: 'anyone' },
+    supportsAllDrives: true,
+  });
+
+  return {
+    url: `https://lh3.googleusercontent.com/d/${fileId}`,
+    driveFileId: fileId,
+    name: opts.file.name || storedName,
   };
 }

@@ -4,6 +4,7 @@ import {
   ACTIVE_ONLY_LIFECYCLE_FILTER,
   buildRosterLifecycleFilter,
 } from '@/lib/utils/academic/provisional-roster-filter';
+import { periodMarkedForLearners } from '@/lib/utils/practical-period-sections';
 import type {
   AttendanceRosterStudent,
   AttendanceStudent,
@@ -177,6 +178,9 @@ export class AttendanceRosterService {
       timetable_id: string;
       section_id: string;
       attendance_date: string;
+      // Added: 2026-09-23 (BUG-006204) - a practical batch's learners; when set,
+      // the period counts as marked only if one of them is stored.
+      student_ids?: string[] | null;
     }>
   ): Promise<Map<string, { isMarked: boolean; recordId?: string }>> {
     const attendanceMap = new Map<
@@ -290,7 +294,7 @@ export class AttendanceRosterService {
             // Even for multi-section records, we should only mark a period as complete
             // if THIS specific slot has attendance data
             const slotData = (data as any).attendance_data[period.timetable_slot_id];
-            if (this.periodHasAttendance(slotData)) {
+            if (periodMarkedForLearners(slotData, period.student_ids)) {
               isMarked = true;
             }
           }
@@ -310,6 +314,28 @@ export class AttendanceRosterService {
     }
 
     return attendanceMap;
+  }
+
+  /**
+   * Every attendance row of the given timetables on one date. Practical
+   * periods need the whole day, not one section's row: a batch save can land
+   * in a row keyed to a section the batch doesn't list (BUG-004733).
+   */
+  static async getAttendanceRecordsForTimetablesOnDate(
+    timetableIds: string[],
+    attendanceDate: string
+  ): Promise<Array<{ id: string; timetable_id: string; attendance_data: any }>> {
+    const ids = Array.from(new Set(timetableIds.filter(Boolean)));
+    if (ids.length === 0 || !attendanceDate) return [];
+
+    const { data, error } = await this.supabase
+      .from('student_attendance')
+      .select('id, timetable_id, attendance_data')
+      .in('timetable_id', ids)
+      .eq('attendance_date', attendanceDate);
+
+    if (error) throw error;
+    return (data || []) as Array<{ id: string; timetable_id: string; attendance_data: any }>;
   }
 
   static async getConsolidatedAttendance(

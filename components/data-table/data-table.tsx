@@ -1154,6 +1154,7 @@ export function DataTable<TData extends ExportableData, TValue>({
           other pages — mirrors the Gmail "Select all N" pattern. */}
       {tableConfig.enableRowSelection &&
         fetchAllItemsFn &&
+        tableConfig.enableCrossPageSelectAll !== false &&
         (() => {
           const total = data?.pagination.total_items ?? 0;
           const pageRowCount = table.getRowModel().rows.length;
@@ -1214,6 +1215,15 @@ export function DataTable<TData extends ExportableData, TValue>({
       >
         <Table
           className={tableConfig.enableColumnResizing ? 'resizable-table' : ''}
+          style={
+            tableConfig.fixedColumnWidths
+              ? {
+                  tableLayout: 'fixed',
+                  width: table.getTotalSize(),
+                  minWidth: '100%'
+                }
+              : undefined
+          }
         >
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (

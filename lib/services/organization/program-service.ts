@@ -116,8 +116,6 @@ export class ProgramService {
         .eq('id', id);
 
       if (error) throw error;
-
-      toast.success('Program deleted successfully');
     } catch (error) {
       console.error('Error deleting program:', error);
       throw error;

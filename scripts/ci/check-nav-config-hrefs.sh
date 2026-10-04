@@ -28,6 +28,12 @@ if [ ! -d "$ROUTES_ROOT" ]; then
 fi
 
 # Find every nav-config.ts file
+# Every page URL whose folder path contains a route group "(…)" below the
+# routes root, with the group folders removed.
+GROUPED_ROUTES=$(find "$ROUTES_ROOT" -name 'page.tsx' -path "${ROUTES_ROOT}/*(*)*" 2>/dev/null \
+  | cut -c$(( ${#ROUTES_ROOT} + 1 ))- \
+  | sed -E 's#/page\.tsx$##; s#/\([^/)]*\)##g; s#^$#/#')
+
 while IFS= read -r nav; do
   [ -z "$nav" ] && continue
 
@@ -38,6 +44,11 @@ while IFS= read -r nav; do
 
     # Strip the `href:` prefix + surrounding quotes
     path=$(echo "$raw_href" | sed -E "s/href:[[:space:]]*['\"]//; s/['\"]$//")
+
+    # Query strings and fragments don't select a route (?tab=flows is served by
+    # the same page.tsx), so drop them before looking the file up.
+    path="${path%%\?*}"
+    path="${path%%#*}"
 
     # Skip dynamic-segment hrefs (template strings with ${...}, or unresolved [id])
     if echo "$path" | grep -qE '\$\{|\[[a-zA-Z_]+\]'; then
@@ -69,6 +80,14 @@ while IFS= read -r nav; do
     #    page exists as menu-editor/[tier]/page.tsx. Mid-path dynamics still unsupported.)
     parent_dir=$(dirname "$path")
     if compgen -G "${ROUTES_ROOT}${parent_dir}/\[*\]/page.tsx" > /dev/null 2>&1; then
+      checked=$((checked + 1))
+      continue
+    fi
+    # Next.js route groups — a folder named "(anything)" adds no URL segment,
+    # so app/(routes)/instasolver/(desk)/dashboard/page.tsx serves
+    # /instasolver/dashboard. Match against the page list with group folders
+    # stripped (the route manifest generator does the same).
+    if printf '%s\n' "$GROUPED_ROUTES" | grep -qxF "$path"; then
       checked=$((checked + 1))
       continue
     fi

@@ -55,6 +55,7 @@ const VERDICT_TONE: Record<LearnerNotifyDiagnosis['verdict'], 'ok' | 'warn' | 'b
   not_triggered: 'warn',
   not_eligible_institution: 'warn',
   not_eligible_program: 'warn',
+  not_eligible_gender: 'warn',
   not_eligible_semester: 'warn',
   not_active: 'warn',
   not_found: 'bad',
