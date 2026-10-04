@@ -14,8 +14,8 @@
 //   end_date   = last day at end_time (IST), where last day is the day already
 //                on 'Runs until' ONLY when it is later than event_date (a
 //                multi-day event); otherwise event_date.
-// When a clock field is blank the typed 'Runs from / until' value is kept, so
-// older rows without hours stay editable.
+// When ANY clock field is blank, both typed 'Runs from / until' values are kept
+// as typed, so older rows without hours stay editable.
 
 import { istDateTimeToIso, istLocalInputToIso } from '@/lib/utils/date-format';
 
@@ -53,21 +53,20 @@ export function runWindowFollowsClock(form: RunWindowFormInput): boolean {
 }
 
 export function deriveRunWindow(form: RunWindowFormInput): RunWindow {
+  // All-or-nothing: with any clock field blank the dialog shows the editable
+  // 'Runs from / until' boxes, so the save must use what the organiser typed
+  // there — deriving one side alone would drop their edit silently.
+  if (!runWindowFollowsClock(form)) {
+    return {
+      start_date: istLocalInputToIso(form.start_date) ?? undefined,
+      end_date: istLocalInputToIso(form.end_date) ?? undefined,
+    };
+  }
   const eventDate = form.event_date.trim();
-  const startTime = form.start_time.trim();
-  const endTime = form.end_time.trim();
-
-  const start_date =
-    (eventDate && startTime ? istDateTimeToIso(eventDate, startTime) : null) ??
-    istLocalInputToIso(form.start_date) ??
-    undefined;
-
-  const end_date =
-    (eventDate && endTime
-      ? istDateTimeToIso(runWindowLastDay(eventDate, form.end_date), endTime)
-      : null) ??
-    istLocalInputToIso(form.end_date) ??
-    undefined;
-
-  return { start_date, end_date };
+  return {
+    start_date: istDateTimeToIso(eventDate, form.start_time.trim()) ?? undefined,
+    end_date:
+      istDateTimeToIso(runWindowLastDay(eventDate, form.end_date), form.end_time.trim()) ??
+      undefined,
+  };
 }

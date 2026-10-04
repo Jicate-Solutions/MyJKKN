@@ -73,4 +73,29 @@ describe('deriveRunWindow', () => {
     expect(w.start_date).toBe('2026-08-04T04:30:00.000Z');
     expect(w.end_date).toBe('2026-08-04T06:30:00.000Z');
   });
+
+  it('with end_time blank, the typed run window is saved as typed on BOTH sides (no silent half-derive)', () => {
+    // Dialog shows the editable boxes here; the organiser moved Runs from to 11:00.
+    const w = deriveRunWindow({
+      event_date: '2026-10-06',
+      start_time: '09:30',
+      end_time: '',
+      start_date: '2026-10-06T11:00',
+      end_date: '2026-10-06T13:00',
+    });
+    expect(w.start_date).toBe('2026-10-06T05:30:00.000Z'); // 11:00 IST as typed
+    expect(w.end_date).toBe('2026-10-06T07:30:00.000Z'); // 13:00 IST as typed
+  });
+
+  it('with start_time blank, the typed end is saved as typed', () => {
+    const w = deriveRunWindow({
+      event_date: '2026-10-06',
+      start_time: '',
+      end_time: '15:30',
+      start_date: '2026-10-06T14:00',
+      end_date: '2026-10-06T16:45',
+    });
+    expect(w.start_date).toBe('2026-10-06T08:30:00.000Z');
+    expect(w.end_date).toBe('2026-10-06T11:15:00.000Z');
+  });
 });

@@ -151,7 +151,13 @@ function EditGeneralEventForm({ event, onClose }: { event: Event; onClose: () =>
   // Derived from the clock fields when they are set — see event-run-window.ts.
   const { start_date: startIso, end_date: endIso } = deriveRunWindow(form);
   const followsClock = runWindowFollowsClock(form);
-  const badRunWindow = !!startIso && !!endIso && new Date(endIso) < new Date(startIso);
+  const badRunWindow =
+    !!startIso &&
+    !!endIso &&
+    // With hours set, end must be strictly after start (as on the create page).
+    (followsClock
+      ? new Date(endIso) <= new Date(startIso)
+      : new Date(endIso) < new Date(startIso));
 
   const peopleError = validatePeople({
     incharges: form.incharges,
