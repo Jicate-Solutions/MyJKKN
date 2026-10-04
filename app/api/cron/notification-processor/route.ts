@@ -40,6 +40,11 @@ export async function GET(request: NextRequest) {
     // 2026-09-16: the bug-feedback step
     bug_feedback_dropped: 0,
     bug_feedback_released: 0,
+    bug_feedback_still_open_expired: 0,
+    bug_feedback_still_open_closed: 0,
+    bug_feedback_still_open_expired_unseen: 0,
+    bug_feedback_still_open_prepared: 0,
+    bug_feedback_still_open_sent: 0,
     bug_feedback_reminders: 0,
     errors: [] as string[],
   };
@@ -231,10 +236,59 @@ export async function GET(request: NextRequest) {
         results.bug_feedback_dropped = Number(dropRes?.dropped ?? 0);
       }
 
+      // Ruling 4 (18 Sep): a shown "is this still happening?" prompt left
+      // unanswered for its 14 days closes its report, with a note.
+      const { data: silenceRes, error: silenceErr } = await svc.rpc('fn_bug_still_open_expire');
+      if (silenceErr) {
+        results.errors.push(`Bug still-open silence sweep error: ${silenceErr.message}`);
+      } else if (silenceRes?.success === false) {
+        results.errors.push(`Bug still-open silence sweep refused: ${silenceRes?.error ?? 'unknown'}`);
+      } else {
+        results.bug_feedback_still_open_expired = Number(silenceRes?.expired ?? 0);
+        results.bug_feedback_still_open_closed = Number(silenceRes?.closed ?? 0);
+        // Expired without ever being seen — closes nothing (Director, 27 Sep).
+        results.bug_feedback_still_open_expired_unseen = Number(silenceRes?.expired_unseen ?? 0);
+      }
+
+      // Queue a "still happening?" prompt for every open report older than 60
+      // days that sits in no group and was never asked (Director, 16 Sep:
+      // "ask each reporter"). Idempotent — a report is queued once — and it
+      // only queues; the send below respects the 3-per-reporter cap. Like the
+      // send, it had only ever been run by hand (16-17 Sep).
+      const { data: prepRes, error: prepErr } = await svc.rpc('fn_bug_stale_prompt_prepare', {
+        p_older_than_days: 60,
+        p_limit: 200,
+      });
+      if (prepErr) {
+        results.errors.push(`Bug still-open prepare error: ${prepErr.message}`);
+      } else if (prepRes?.success === false) {
+        results.errors.push(`Bug still-open prepare refused: ${prepRes?.error ?? 'unknown'}`);
+      } else {
+        results.bug_feedback_still_open_prepared = Number(prepRes?.prepared ?? 0);
+      }
+
+      // Send the next queued "still happening?" prompts. A reporter holds at
+      // most 3 open ones and fn_bug_stale_prompt_send only tops each reporter up
+      // to that cap (one notice per reporter per day), so running it every hour
+      // sends nothing until a slot frees — answered, or expired just above.
+      // It had only ever been run by hand (16-17 Sep), leaving 183 queued;
+      // fn_bug_feedback_release_queued below releases fix_check prompts only.
+      const { data: staleRes, error: staleErr } = await svc.rpc('fn_bug_stale_prompt_send', { p_limit: 200 });
+      if (staleErr) {
+        results.errors.push(`Bug still-open send error: ${staleErr.message}`);
+      } else if (staleRes?.success === false) {
+        results.errors.push(`Bug still-open send refused: ${staleRes?.error ?? 'unknown'}`);
+      } else {
+        results.bug_feedback_still_open_sent = Number(staleRes?.sent ?? 0);
+      }
+
       const { data: queuedReporters, error: queuedErr } = await svc
         .from('bug_fix_feedback_requests')
         .select('reporter_user_id')
         .eq('status', 'pending_send')
+        // Only fix_check rows: the release below handles nothing else, and the
+        // hundreds of queued still_open rows would otherwise fill the window.
+        .eq('kind', 'fix_check')
         .limit(200);
       if (queuedErr) {
         results.errors.push(`Bug-feedback queued fetch error: ${queuedErr.message}`);

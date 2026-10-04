@@ -18,9 +18,22 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { OneMarkExamKeys } from '@/types/onemark';
 
 const LOG = 'foundation/service';
+/** A OneMark MCQ always has four options (approve-rules.ts OPTIONS_PER_ITEM). */
+const ONEMARK_OPTIONS_PER_ITEM = 4;
 const getSupabase = (): any => createClientSupabaseClient();
+
+/**
+ * True when an exam_definitions.config_key is one of the two OneMark subject
+ * rows (tn_hsc_physics / tn_hsc_english). The shared Foundation console uses it
+ * to apply the OneMark rulings (specs/onemark-decisions-2026-09-02.md) to those
+ * exams only — every other Foundation exam keeps its behaviour unchanged.
+ */
+export function isOneMarkExam(configKey: string | null | undefined): boolean {
+  return !!configKey && (Object.values(OneMarkExamKeys) as string[]).includes(configKey);
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -61,7 +74,7 @@ export interface FoundationCohort {
   // Embedded
   exam_definition?: Pick<
     ExamDefinition,
-    'id' | 'display_name' | 'exam_family' | 'level'
+    'id' | 'config_key' | 'display_name' | 'exam_family' | 'level'
   > | null;
   resource_person?: { id: string; full_name: string | null } | null;
   enrolled_count?: number;
@@ -125,6 +138,8 @@ export interface FoundationItem {
   exam_definition_id: string;
   topic_id: string | null;
   difficulty: number | null;
+  /** JABT K1–K6; NULL = not yet levelled. The only level OneMark uses (decision 6). */
+  bloom_level?: string | null;
   q_type: string | null;
   stem: string;
   options: any;
@@ -181,7 +196,8 @@ export interface StudentProgress {
 export interface CreateItemInput {
   exam_definition_id: string;
   topic_id: string | null;
-  difficulty: number;
+  /** Omitted for OneMark exams (decision 6) — the column default applies. */
+  difficulty?: number;
   q_type: string;
   stem: string;
   options: any;
@@ -281,6 +297,31 @@ export class FoundationService {
     return (data ?? []) as SyllabusTopic[];
   }
 
+  /**
+   * The topics mapped to ONE exam through exam_topic_map, in the map's order,
+   * with retired topics dropped. Same read as the OneMark review queue's
+   * listTopicsForExam (onemark/review/_lib/drafts.ts); listTopics above returns
+   * every subject's topics, which is how a Physics question could be filed
+   * under an English chapter (BUG-006062).
+   */
+  static async listTopicsForExam(examDefinitionId: string): Promise<SyllabusTopic[]> {
+    const { data, error } = await getSupabase()
+      .from('exam_topic_map')
+      .select(
+        'sort_order, topic:cdc_exam_syllabus_topics!inner(id, config_key, display_name, is_shared, is_active, sort_order)',
+      )
+      .eq('exam_definition_id', examDefinitionId)
+      .order('sort_order', { ascending: true });
+
+    if (error) {
+      logger.error(LOG, 'listTopicsForExam failed', error);
+      throw error;
+    }
+    return (data ?? [])
+      .filter((r: any) => r.topic && r.topic.is_active !== false)
+      .map((r: any) => r.topic as SyllabusTopic);
+  }
+
   // =========================================================================
   // Cohorts + roster
   // =========================================================================
@@ -294,7 +335,7 @@ export class FoundationService {
       .select(
         `id, school_id, exam_definition_id, institution_id, term,
          resource_person_id, is_active, created_at,
-         exam_definition:exam_definitions!fp_cohorts_exam_definition_id_fkey(id, display_name, exam_family, level),
+         exam_definition:exam_definitions!fp_cohorts_exam_definition_id_fkey(id, config_key, display_name, exam_family, level),
          resource_person:profiles!fp_cohorts_resource_person_id_fkey(id, full_name),
          fp_enrollments(count)`,
       )
@@ -543,7 +584,7 @@ export class FoundationService {
     const { data, error } = await getSupabase()
       .from('fp_items')
       .select(
-        `id, exam_definition_id, topic_id, difficulty, q_type, stem, options,
+        `id, exam_definition_id, topic_id, difficulty, bloom_level, q_type, stem, options,
          answer, explanation, source, is_active, created_at`,
       )
       .eq('exam_definition_id', examDefinitionId)
@@ -557,13 +598,69 @@ export class FoundationService {
     return (data ?? []) as FoundationItem[];
   }
 
+  /**
+   * The OneMark authoring rules, enforced on the write path so a caller other
+   * than the console form cannot bypass them (the form checks the same two
+   * rules, but only for itself). Applies ONLY to OneMark exams; for every other
+   * Foundation exam this is a no-op and the insert is unchanged.
+   *   - four options (A–D, distinct keys, each with text) — BUG-006063;
+   *   - a chosen topic must be mapped to this exam in exam_topic_map
+   *     (BUG-006062). No topic at all stays allowed, as the form allows it.
+   * Throws an Error with a plain reason when a rule is broken.
+   */
+  private static async assertOneMarkItemRules(input: CreateItemInput): Promise<void> {
+    const supabase = getSupabase();
+    const { data: exam, error: examError } = await supabase
+      .from('exam_definitions')
+      .select('config_key')
+      .eq('id', input.exam_definition_id)
+      .maybeSingle();
+    if (examError) {
+      logger.error(LOG, 'createItem exam lookup failed', examError);
+      throw examError;
+    }
+    if (!isOneMarkExam(exam?.config_key)) return;
+
+    const filled = new Set<string>();
+    for (const o of Array.isArray(input.options) ? input.options : []) {
+      if (!o || typeof o !== 'object') continue;
+      const key = String((o as any).key ?? '').toUpperCase();
+      const text = String((o as any).text ?? '').trim();
+      if (['A', 'B', 'C', 'D'].includes(key) && text) filled.add(key);
+    }
+    if (filled.size < ONEMARK_OPTIONS_PER_ITEM) {
+      throw new Error(
+        `A OneMark question needs all four options (A–D). ${filled.size} of ${ONEMARK_OPTIONS_PER_ITEM} filled.`,
+      );
+    }
+
+    if (input.topic_id) {
+      const { data: mapped, error: mapError } = await supabase
+        .from('exam_topic_map')
+        .select('topic_id')
+        .eq('exam_definition_id', input.exam_definition_id)
+        .eq('topic_id', input.topic_id)
+        .maybeSingle();
+      if (mapError) {
+        logger.error(LOG, 'createItem topic check failed', mapError);
+        throw mapError;
+      }
+      if (!mapped) {
+        throw new Error(
+          "That topic does not belong to this OneMark subject. Pick one of the subject's own chapters.",
+        );
+      }
+    }
+  }
+
   static async createItem(input: CreateItemInput): Promise<FoundationItem> {
+    await FoundationService.assertOneMarkItemRules(input);
     const { data, error } = await getSupabase()
       .from('fp_items')
       .insert({
         exam_definition_id: input.exam_definition_id,
         topic_id: input.topic_id,
-        difficulty: input.difficulty,
+        ...(input.difficulty !== undefined ? { difficulty: input.difficulty } : {}),
         q_type: input.q_type,
         stem: input.stem,
         options: input.options,

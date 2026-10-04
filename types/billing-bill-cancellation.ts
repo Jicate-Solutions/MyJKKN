@@ -2,7 +2,7 @@
  * Bill cancellation — the audit record behind voiding a learner bill.
  *
  * Shapes here mirror `billing_bill_cancellations` and the payload
- * `fn_cancel_student_bill` accepts. The attachment shape is deliberately
+ * `fn_request_bill_cancellation` accepts. The attachment shape is deliberately
  * identical to RefundAttachment so the two upload fields stay interchangeable.
  */
 
@@ -66,19 +66,6 @@ export interface BillCancellation {
   cancelled_by_is_super_admin: boolean | null;
   cancelled_at: string;
   created_at: string;
-}
-
-export interface CancelBillInput {
-  billId: string;
-  reasonCode: BillCancelReasonCode;
-  reason: string;
-  attachments: BillCancellationAttachment[];
-  /** Display only, for the activity-log line. Never trusted for authorization. */
-  studentName?: string;
-}
-
-export interface CancelBillResult {
-  cancellationId: string;
-  billId: string;
-  amountCancelled: number;
+  /** The approved billing_bill_cancel_requests row; NULL for pre-approval-flow (legacy direct) cancellations. */
+  request_id: string | null;
 }

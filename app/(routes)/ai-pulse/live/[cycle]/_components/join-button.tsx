@@ -47,6 +47,22 @@ interface JoinButtonProps {
   joinOpen: boolean;
   /** ISO timestamp when the button unlocks (null when underivable). */
   joinOpensAt: string | null;
+  /**
+   * The session's end time has passed. `joinOpen` is false both before the
+   * doors open and after the session ends; without this the ended case printed
+   * "Join opens <that evening's time> IST" for a session already over.
+   */
+  sessionEnded?: boolean;
+}
+
+/** True when `endsAt` is a real instant that is already behind us. */
+export function hasSessionEnded(
+  endsAt: string | null,
+  nowMs: number = Date.now(),
+): boolean {
+  if (!endsAt) return false;
+  const endMs = new Date(endsAt).getTime();
+  return Number.isFinite(endMs) && nowMs > endMs;
 }
 
 function formatIstTime(iso: string): string {
@@ -100,6 +116,7 @@ export function JoinButton({
   alreadyJoined,
   joinOpen,
   joinOpensAt,
+  sessionEnded = false,
 }: JoinButtonProps) {
   const [submitting, setSubmitting] = useState(false);
   const recordJoin = useRecordJoin(cycleId);
@@ -134,6 +151,34 @@ export function JoinButton({
           Joined this session
         </Button>
         <OpenMeetingFallback meetUrl={meetUrl} />
+      </div>
+    );
+  }
+
+  // Over, not "opening later". Joins are recorded only by pressing Join here
+  // while the session is on — BUG-006038 / BUG-006039 attended on 3 Sep through
+  // the meeting link alone, and the next day this page told them "Join opens
+  // Thu 6:40 pm", as if their session were still to come.
+  if (!joinOpen && sessionEnded) {
+    return (
+      <div className="flex flex-col gap-1">
+        <Button
+          variant="outline"
+          disabled
+          className="gap-2 self-start"
+          data-testid="ai-pulse-join-button"
+        >
+          <Clock className="h-4 w-4" />
+          This session has ended
+        </Button>
+        <span
+          className="text-xs text-muted-foreground"
+          data-testid="ai-pulse-join-ended-note"
+        >
+          A join is recorded only when Join is pressed on this page during the
+          session. Opening the meeting link from anywhere else does not record
+          one.
+        </span>
       </div>
     );
   }

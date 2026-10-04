@@ -10,6 +10,7 @@ import { Plus, TrashIcon, Loader2, Upload, Download, ChevronDown, FileSpreadshee
 import { useRouter } from 'next/navigation';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { Department } from '@/types/organizations';
+import { summarizeDeleteFailures } from '@/lib/utils/delete-failure-summary';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useState, useCallback } from 'react';
 import {
@@ -76,7 +77,7 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
           sortOrder: (params.sort_order as 'asc' | 'desc') || undefined,
           institution_id: search.institution_id,
           degree_id: search.degree_id,
-          status: search.status,
+          isActive: search.status ? search.status === 'active' : undefined,
           userId: user?.id // FIXED: Add userId for RLS filtering
         };
 
@@ -137,7 +138,7 @@ export function DepartmentsDataTable({ search }: DepartmentsDataTableProps) {
 
       if (failed > 0) {
         toast.error(
-          `Failed to delete ${failed} ${adapt('department').toLowerCase()}${failed > 1 ? 's' : ''}`
+          `Failed to delete ${failed} ${adapt('department').toLowerCase()}${failed > 1 ? 's' : ''}: ${summarizeDeleteFailures(results)}`
         );
       }
 

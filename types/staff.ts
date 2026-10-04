@@ -101,6 +101,9 @@ export interface Staff {
   state?: string;
   district?: string;
   pincode?: string;
+  emergency_contact_name?: string | null;
+  emergency_contact_relationship?: string | null;
+  emergency_contact_phone?: string | null;
   date_of_joining: string;
   designation: string;
   institution_email: string;
@@ -206,6 +209,9 @@ export interface CreateStaffDto {
   state?: string;
   district?: string;
   pincode?: string;
+  emergency_contact_name?: string | null;
+  emergency_contact_relationship?: string | null;
+  emergency_contact_phone?: string | null;
   date_of_joining: string;
   designation: string;
   category_id: string;
@@ -449,6 +455,36 @@ export interface StaffDashboardStats {
   demographicStats: StaffDemographicStats;
   tenureAnalytics: StaffTenureAnalytics;
   profileAnalytics: StaffProfileAnalytics;
+  roleStats: StaffRoleStats;
+}
+
+/** Headcount for one system role (staff.role_key → custom_roles.role_name). */
+export interface StaffRoleStat {
+  roleKey: string;
+  roleName: string;
+  count: number;
+  activeCount: number;
+  percentage: number;
+}
+
+/** One row of the Roles tab name list. */
+export interface StaffRoleMember {
+  id: string;
+  name: string;
+  staffId: string | null;
+  institutionEmail: string | null;
+  roleKey: string;
+  roleName: string;
+  designation: string | null;
+  institutionName: string | null;
+  departmentName: string | null;
+  isActive: boolean;
+}
+
+export interface StaffRoleStats {
+  total: number;
+  roles: StaffRoleStat[];
+  members: StaffRoleMember[];
 }
 
 /**

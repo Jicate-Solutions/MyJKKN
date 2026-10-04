@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { format } from 'date-fns'
@@ -60,6 +61,7 @@ import type {
 import { RateCardPaymentDialog, type PaymentDialogState } from './rate-card-payment-dialog'
 import { RateCardLadderDialog, type LadderDialogState } from './rate-card-ladder-dialog'
 import { RateCardAdvanceDialog } from './rate-card-advance-dialog'
+import { CommissionPaymentRequestsCard } from './commission-payment-requests-card'
 
 function rupees(value: number | null | undefined): string {
   return formatCurrency(value, { showDecimals: false, minimumFractionDigits: 0, maximumFractionDigits: 0 })
@@ -96,9 +98,10 @@ function rowStatus(r: ConsultantRateCardEarning): Exclude<StatusFilter, 'all'> |
 
 interface RateCardPanelProps {
   consultantId: string
+  consultantName: string
 }
 
-export function RateCardPanel({ consultantId }: RateCardPanelProps) {
+export function RateCardPanel({ consultantId, consultantName }: RateCardPanelProps) {
   const queryClient = useQueryClient()
   const { isSuperAdmin, userProfile } = usePermissions()
   // RLS is the real gate; this only hides buttons that would be refused.
@@ -135,6 +138,12 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
   const { data: payments, isLoading: paymentsLoading } = useQuery({
     queryKey: ['commission-rate-card-payments', consultantId, year],
     queryFn: () => ConsultantService.getRateCardPayments(consultantId, year!),
+    enabled: !!consultantId && year != null,
+  })
+
+  const { data: walkinHeld } = useQuery({
+    queryKey: ['commission-rate-card-walkin-held', consultantId, year],
+    queryFn: () => ConsultantService.getConsultantRateCardWalkinHeld(consultantId, year!),
     enabled: !!consultantId && year != null,
   })
 
@@ -481,7 +490,19 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
         id: 'reference',
         accessorFn: row => row.reference ?? '',
         header: 'Reference',
-        cell: ({ row }) => row.original.reference || '—',
+        cell: ({ row }) => (
+          <div className="space-y-0.5">
+            <span>{row.original.reference || '—'}</span>
+            {row.original.payment_request && (
+              <Link
+                href={`/admission/consultants/commission-payments/${row.original.payment_request.id}`}
+                className="block text-xs text-primary underline"
+              >
+                via {row.original.payment_request.request_number}
+              </Link>
+            )}
+          </div>
+        ),
       },
       {
         id: 'notes',
@@ -499,7 +520,9 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
         header: () => null,
         enableSorting: false,
         enableHiding: false,
-        cell: ({ row }) => (
+        // Entries written by an approved request are changed through the
+        // request trail, not here, or the ledger and the approvals disagree.
+        cell: ({ row }) => row.original.payment_request_id ? null : (
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -639,6 +662,13 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
             <CardDescription>
               Learners counted are those in Account, Admitted or Active status for the selected
               admission year.
+              {!!walkinHeld && walkinHeld > 0 && (
+                <span className="mt-1 block text-amber-700 dark:text-amber-400">
+                  {walkinHeld} walk-in learner{walkinHeld === 1 ? ' is' : 's are'} not counted yet.
+                  Each is waiting for the release owner to confirm this agency really sent them
+                  (Review Worklist).
+                </span>
+              )}
             </CardDescription>
           </div>
           {canManage && (
@@ -791,6 +821,16 @@ export function RateCardPanel({ consultantId }: RateCardPanelProps) {
           )}
         </CardContent>
       </Card>
+
+      {year != null && (
+        <CommissionPaymentRequestsCard
+          consultantId={consultantId}
+          consultantName={consultantName}
+          year={year}
+          yearLabel={yearLabel(year)}
+          feeCollection={feeCollection ?? []}
+        />
+      )}
 
       <Card>
         <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">

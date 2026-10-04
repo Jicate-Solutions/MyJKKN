@@ -31,14 +31,18 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useCdcLookups } from '@/hooks/cdc/use-cdc-drives';
 import { useJkknInstitutions } from '@/hooks/use-jkkn-institutions';
-import type {
-  CdcDrive,
-  CdcDriveCircular,
-  CdcDriveEligibility,
-  CdcDriveEligibilityInput,
-  CdcDriveInstitutionSemesters,
-  CdcDriveMode,
+import {
+  CDC_DRIVE_GENDER_DB_VALUE,
+  CDC_DRIVE_GENDER_LABELS,
+  type CdcDrive,
+  type CdcDriveCircular,
+  type CdcDriveEligibility,
+  type CdcDriveEligibilityInput,
+  type CdcDriveInstitutionSemesters,
+  type CdcDriveMode,
+  type CdcDriveTargetGender,
 } from '@/types/cdc';
+import { cn } from '@/lib/utils';
 import { RecruiterQuickAdd } from '../new/_components/recruiter-quick-add';
 import { InstitutionSemesterPicker, describeTargeting } from './institution-semester-picker';
 import { CircularAttachment } from './circular-attachment';
@@ -137,6 +141,10 @@ export function DriveForm({ mode, drive, eligibility, submitting, submitError, o
   const [driveTypeId, setDriveTypeId] = useState(drive?.drive_type_id ?? '');
   const [institutions, setInstitutions] = useState<string[]>(drive?.institutions ?? []);
   const [targeting, setTargeting] = useState<CdcDriveInstitutionSemesters>(drive?.institution_semesters ?? []);
+  // One gender for the whole drive; written onto every targeting entry on save.
+  const [gender, setGender] = useState<CdcDriveTargetGender>(
+    () => (drive?.institution_semesters ?? []).find((t) => t.gender === 'male' || t.gender === 'female')?.gender ?? 'all'
+  );
   const [circular, setCircular] = useState<CdcDriveCircular | null>(
     drive?.circular_drive_file_id
       ? {
@@ -198,10 +206,15 @@ export function DriveForm({ mode, drive, eligibility, submitting, submitError, o
     if (arrears != null && (Number.isNaN(arrears) || arrears < 0)) {
       return setLocalError('Maximum arrears cannot be negative');
     }
-    const hasEligibility = cgpa != null || arrears != null || passedOutAllowed || eligibilityNotes.trim();
+    const hasEligibility = cgpa != null || arrears != null || passedOutAllowed || eligibilityNotes.trim() || gender !== 'all';
     // Audience programs are the single source; mirror them onto the eligibility
     // record so "Who is eligible" and the audience picker never disagree.
-    const activeTargeting = targeting.filter((t) => institutions.includes(t.institution_id));
+    const activeTargeting = targeting
+      .filter((t) => institutions.includes(t.institution_id))
+      .map((t) => {
+        const { gender: _drop, ...rest } = t;
+        return gender === 'all' ? rest : { ...rest, gender };
+      });
     const audienceProgramIds = Array.from(new Set(activeTargeting.flatMap((t) => t.program_ids ?? [])));
 
     void onSubmit({
@@ -216,6 +229,11 @@ export function DriveForm({ mode, drive, eligibility, submitting, submitError, o
         hasEligibility || audienceProgramIds.length > 0
           ? {
               program_ids: audienceProgramIds,
+              // Mirrors the audience gender so "Who is eligible" agrees with it.
+              allowed_genders:
+                gender === 'all' || activeTargeting.some((t) => t.degree_semesters?.some((g) => g.gender !== undefined || g.program_genders !== undefined))
+                  ? null
+                  : [CDC_DRIVE_GENDER_DB_VALUE[gender]],
               min_cgpa: cgpa,
               max_arrears: arrears,
               passed_out_allowed: passedOutAllowed,
@@ -292,10 +310,38 @@ export function DriveForm({ mode, drive, eligibility, submitting, submitError, o
           <SectionHeader
             step={2}
             icon={Users}
-            title="Audience — institutions & semesters *"
-            description="Pick the institutions, then the semesters in each. Only these learners receive the willingness notification."
+            title="Audience — gender, institutions, programs & semesters *"
+            description="Pick who the drive is open to, then the institutions and the programs and semesters in each. Only learners matching all of these receive the willingness notification."
           />
           <CardContent>
+            <div className="mb-5">
+              <Label className="mb-2 block">Open to</Label>
+              <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Gender the drive is open to">
+                {(['all', 'male', 'female'] as CdcDriveTargetGender[]).map((g) => (
+                  <button
+                    key={g}
+                    type="button"
+                    role="radio"
+                    aria-checked={gender === g}
+                    onClick={() => setGender(g)}
+                    className={cn(
+                      'rounded-full border px-4 py-1.5 text-sm font-medium transition-colors',
+                      gender === g
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'bg-background hover:bg-muted text-foreground'
+                    )}
+                  >
+                    {CDC_DRIVE_GENDER_LABELS[g]}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                {gender === 'all'
+                  ? 'Every learner in the selected programs and semesters is notified.'
+                  : `Only ${gender} learners in the selected programs and semesters are notified and can respond.`}{' '}
+                This applies to every institution; a UG / PG block below can set its own.
+              </p>
+            </div>
             <InstitutionSemesterPicker
               institutions={allInstitutions}
               institutionsLoading={instLoading}
@@ -305,12 +351,13 @@ export function DriveForm({ mode, drive, eligibility, submitting, submitError, o
               targeting={targeting}
               onTargetingChange={setTargeting}
               fallbackProgramIds={eligibility?.program_ids ?? []}
+              driveGender={gender}
             />
             {institutions.length > 0 ? (
               <div className="mt-4 flex items-start gap-2 rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
                 <Info className="h-4 w-4 shrink-0 mt-0.5" />
                 <span>
-                  Targeting: <strong className="text-foreground">{describeTargeting(targeting, institutions.length)}</strong>.{' '}
+                  Targeting: <strong className="text-foreground">{describeTargeting(targeting, institutions.length, gender)}</strong>.{' '}
                   {isOpen
                     ? 'This drive is already open: saving a changed audience notifies only the newly eligible learners. Nobody is notified twice.'
                     : 'Learners are notified when willingness opens.'}
@@ -476,7 +523,7 @@ export function DriveForm({ mode, drive, eligibility, submitting, submitError, o
             {errorText ? (
               <span className="text-destructive font-medium">{errorText}</span>
             ) : institutions.length > 0 ? (
-              <span>{describeTargeting(targeting, institutions.length)}{circular ? ' · circular attached' : ''}</span>
+              <span>{describeTargeting(targeting, institutions.length, gender)}{circular ? ' · circular attached' : ''}</span>
             ) : (
               <span>Select at least one institution to continue.</span>
             )}

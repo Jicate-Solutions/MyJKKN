@@ -16,6 +16,22 @@ import { z } from 'zod';
  * parent_category_id / sub_category_id / *_name fields are tolerated on read
  * for older records but are no longer written.
  */
+/**
+ * A postgraduate applicant's qualifying degree (learners_profiles.previous_degree,
+ * Director ruling 2026-09-30). The college is last_school. All values are strings
+ * as typed on the form; score_type says how to read score.
+ */
+export interface PreviousDegree {
+  degree_name?: string;
+  university?: string;
+  year_of_passing?: string;
+  score_type?: 'percentage' | 'cgpa';
+  score?: string;
+  entrance_exam?: string;
+  entrance_score?: string;
+  entrance_rank?: string;
+}
+
 export interface LearnerFeeItem {
   category_id: string;
   category_name: string;
@@ -151,6 +167,8 @@ export interface LearnerProfile {
     percentage?: string;
     subjects?: Record<string, string>;
   };
+  /** Postgraduate applicants only — the qualifying degree (2026-09-30). */
+  previous_degree?: PreviousDegree | null;
   medical_cutoff_marks?: string;
   engineering_cutoff_marks?: string;
   neet_roll_number?: string;
@@ -479,6 +497,8 @@ export interface UpdateLearnerProfileDto {
     percentage?: string;
     subjects?: Record<string, string>;
   };
+  /** Postgraduate applicants only — the qualifying degree (2026-09-30). */
+  previous_degree?: PreviousDegree | null;
   medical_cutoff_marks?: string | null;
   engineering_cutoff_marks?: string | null;
   neet_roll_number?: string | null;

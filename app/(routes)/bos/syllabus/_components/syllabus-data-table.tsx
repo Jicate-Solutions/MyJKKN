@@ -11,7 +11,8 @@ import { useDeleteBosSyllabus } from '@/hooks/bos/use-bos-syllabus';
 import { useBosBoardScope } from '@/hooks/bos/use-bos-board-scope';
 import { useDataTableRefreshOnInvalidate } from '@/hooks/use-data-table-refresh';
 import { Button } from '@/components/ui/button';
-import { Plus } from 'lucide-react';
+import { Plus, Info } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { createSyllabusColumns } from './columns';
 import { BulkSyllabiDownloadButton } from './bulk-syllabi-download';
@@ -35,6 +36,10 @@ export function SyllabusDataTable({ search }: SyllabusDataTableProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  // How many syllabi match everything else but are hidden by the chosen
+  // Stream / Board (the API's metadata.hidden_by_filters). Stream is typed by
+  // hand, so one department's papers can carry different streams.
+  const [hiddenByFilters, setHiddenByFilters] = useState(0);
 
   const isReady = !permissionsLoading && !!userProfile;
 
@@ -150,6 +155,7 @@ export function SyllabusDataTable({ search }: SyllabusDataTableProps) {
           isLatest: search.is_latest === 'true' ? true : search.is_latest === 'false' ? false : undefined,
           institutionsId: scopedInstitutionsId,
         });
+        setHiddenByFilters(metadata?.hidden_by_filters ?? 0);
 
         return {
           success: true,
@@ -199,8 +205,34 @@ export function SyllabusDataTable({ search }: SyllabusDataTableProps) {
     );
   }
 
+  const showAllStreamsAndBoards = () => {
+    const params = new URLSearchParams(window.location.search);
+    params.delete('stream');
+    params.delete('boardId');
+    params.set('page', '1');
+    router.push(`?${params.toString()}`);
+  };
+
+  const hiddenNotice =
+    hiddenByFilters > 0 && (search.stream || search.boardId) ? (
+      <Alert className='mb-3'>
+        <Info className='h-4 w-4' />
+        <AlertDescription className='flex flex-wrap items-center gap-x-3 gap-y-2'>
+          <span>
+            {hiddenByFilters} more {hiddenByFilters === 1 ? 'paper matches' : 'papers match'} your other
+            filters but {hiddenByFilters === 1 ? 'is' : 'are'} hidden by the Stream or Board you picked. The stream
+            is typed in by hand, so one department&apos;s papers can carry different streams.
+          </span>
+          <Button size='sm' variant='outline' onClick={showAllStreamsAndBoards}>
+            Show all streams and boards
+          </Button>
+        </AlertDescription>
+      </Alert>
+    ) : null;
+
   return (
     <>
+      {hiddenNotice}
       <DataTable
         fetchDataFn={fetchData}
         getColumns={() => createSyllabusColumns(institutionName, casInstitutionIds, cetInstitutionIds)}
@@ -249,7 +281,7 @@ export function SyllabusDataTable({ search }: SyllabusDataTableProps) {
                 size='sm'
                 variant='destructive'
                 onClick={() => {
-                  setSelectedIds(allSelectedIds);
+                  setSelectedIds(allSelectedIds.map(String));
                   setDeleteDialogOpen(true);
                 }}
               >

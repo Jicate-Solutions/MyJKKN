@@ -121,14 +121,14 @@ export class ProcurementGrnService {
    */
   static async createGrnAgainstPO(input: CreateGrnInput, userId: string): Promise<ProcurementGrn> {
     try {
-      if (!input.lines?.length) throw new Error('A GRN needs at least one line.');
+      if (!input.lines?.length) throw new Error('A delivery record needs at least one line.');
       // Supplier invoice is mandatory — a GRN records goods received against a billed
       // invoice, and the three-way match has nothing to compare against without it.
       if (!input.invoice_number?.trim()) {
-        throw new Error('Invoice number is required to create a GRN.');
+        throw new Error('Invoice number is required to record a delivery.');
       }
       if (!input.invoice_date) {
-        throw new Error('Invoice date is required to create a GRN.');
+        throw new Error('Invoice date is required to record a delivery.');
       }
 
       // 1) Load PO header + lines (ordered qty and remaining-to-receive per line).
@@ -139,7 +139,7 @@ export class ProcurementGrnService {
         .single();
       if (poErr) throw poErr;
       if (!['sent', 'approved', 'partially_received'].includes(po.status)) {
-        throw new Error(`PO ${po.po_number} is "${po.status}" — receive only sent/approved POs.`);
+        throw new Error(`Order ${po.po_number} is "${po.status}" — receive only sent/approved orders.`);
       }
 
       const { data: poItems, error: piErr } = await this.supabase
@@ -166,7 +166,7 @@ export class ProcurementGrnService {
       const grnItemRows: any[] = [];
       for (const line of input.lines) {
         const poItem = poItemMap.get(line.po_item_id);
-        if (!poItem) throw new Error('A submitted line does not belong to this PO.');
+        if (!poItem) throw new Error('A submitted line does not belong to this order.');
 
         const orderedRemaining =
           Number(poItem.ordered_quantity) - Number(poItem.received_quantity ?? 0);
@@ -303,7 +303,7 @@ export class ProcurementGrnService {
     try {
       const grn = await this.getGrn(id);
       if (grn.status !== 'pending_verification') {
-        throw new Error(`GRN ${grn.grn_number} is "${grn.status}" — only pending GRNs can be verified.`);
+        throw new Error(`Delivery record ${grn.grn_number} is "${grn.status}" — only pending delivery records can be verified.`);
       }
 
       // 1) Chemical validation — block the whole verify if any accepted chemical line
@@ -333,7 +333,7 @@ export class ProcurementGrnService {
         .select()
         .single();
       if (lockErr) throw lockErr;
-      if (!locked) throw new Error('GRN was already verified by someone else; refresh.');
+      if (!locked) throw new Error('Delivery record was already verified by someone else; refresh.');
 
       const domain = (grn.domain ?? 'ims') as ProcurementDomain;
       const ctx: DomainCtx = { institutionId: grn.institution_id, storeId: grn.store_id, userId };
@@ -612,7 +612,7 @@ export class ProcurementGrnService {
     if (rep.status !== 'pending') throw new Error('This replacement has already been received.');
 
     const originItem = rep.grn_item;
-    if (!originItem) throw new Error('Replacement is missing its originating GRN line.');
+    if (!originItem) throw new Error('Replacement is missing its originating delivery line.');
     if (accepted > Number(rep.rejected_quantity) + 0.001) {
       throw new Error(
         `Accepted (${accepted}) exceeds the rejected quantity awaiting replacement (${rep.rejected_quantity}).`
@@ -832,7 +832,7 @@ export class ProcurementGrnService {
       .select()
       .single();
     if (error) throw error;
-    if (!data) throw new Error('Only a pending GRN can be cancelled.');
+    if (!data) throw new Error('Only a pending delivery record can be cancelled.');
     return data as ProcurementGrn;
   }
 

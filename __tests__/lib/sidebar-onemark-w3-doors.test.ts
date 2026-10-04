@@ -32,6 +32,7 @@ import {
   GetPages,
   GetRoleBasedPages,
   MENU_PERMISSIONS,
+  isStudentPortalRoute,
   type RolePermissionData,
 } from '@/lib/sidebarMenuLink';
 import { validateSidebar } from '@/lib/sidebar-validator';
@@ -204,18 +205,42 @@ describe('Wave 3 doors — the proxy trie narrows the whole results subtree', ()
 });
 
 describe('Wave 3 — the hub door Lane N did NOT open', () => {
-  it('holds the Academic group at 14 top-level rows, one below the validator cap', () => {
+  it('holds the Academic group at 13 top-level rows (regrouped module-wise 2027-04), under the validator cap', () => {
     const academic = GetPages('/').find((g) => g.groupLabel === ACADEMIC_GROUP);
     expect(academic, 'the Academic group vanished').toBeDefined();
     // A 15th row makes validateSidebar raise a BLOCKING issue and check:sidebar
     // fails the build for every module. Lane N's two new entries are children of
     // 'Foundation Programme' for exactly this reason, and the flat learner door
     // to /foundation/onemark was reported instead of forced.
-    expect(academic!.menus.length).toBe(14);
+    // 2027-04: the Academic group was regrouped into module accordions and the
+    // Foundation rows moved to their own 'Foundation' group, so this dropped from
+    // 14 to 13. The hub door mentioned above could now be added deliberately.
+    expect(academic!.menus.length).toBe(13);
   });
 
+  // Mirrors scripts/check-sidebar-health.ts, which validates the FILTERED view
+  // a super admin gets (student-portal rows stripped), not the raw GetPages()
+  // config. Since the Learners admin regroup (7070d4df06, 29 Sep) the raw
+  // Learners group holds 15 rows — 11 learner-portal rows plus 4 admin rows —
+  // which no single audience is served. The learner audience the super-admin
+  // probe strips is checked separately, holding every key a portal row asks for.
   it('keeps the whole sidebar free of blocking structural issues', () => {
-    const errors = validateSidebar(GetPages('/')).filter((i) => i.severity === 'error');
-    expect(errors.map((e) => `${e.groupLabel}: ${e.count}`)).toEqual([]);
+    const blocking = (role: RolePermissionData) =>
+      validateSidebar(GetRoleBasedPages('/', role))
+        .filter((i) => i.severity === 'error')
+        .map((e) => `${e.groupLabel}: ${e.count}`);
+
+    expect(blocking({ role_key: 'super_admin', permissions: {} })).toEqual([]);
+
+    const portalKeys = Object.entries(MENU_PERMISSIONS)
+      .filter(([href]) => isStudentPortalRoute(href))
+      .flatMap(([, key]) => [key].flat())
+      .filter((key): key is string => typeof key === 'string');
+    const learner: RolePermissionData = {
+      role_key: 'student',
+      permissions: Object.fromEntries(portalKeys.map((key) => [key, true])),
+    };
+    expect(portalKeys.length).toBeGreaterThan(0);
+    expect(blocking(learner)).toEqual([]);
   });
 });

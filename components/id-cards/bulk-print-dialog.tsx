@@ -29,8 +29,10 @@ import {
 import { Progress } from '@/components/ui/progress';
 import {
   enqueuePrintJob,
+  requeuePrintJob,
   resolveProfileIdsForLearners
 } from '@/lib/services/id-cards/print-jobs-client';
+import { Checkbox } from '@/components/ui/checkbox';
 import { resolveLearnerInstitutions } from '@/lib/services/id-cards/card-preview-client';
 import { pickTemplateForInstitution } from '@/lib/services/id-cards/institution-template';
 import {
@@ -93,6 +95,8 @@ export function BulkPrintDialog({
   const [results, setResults] = useState<BulkPrintResults>(EMPTY_RESULTS);
   // Purpose chosen for this batch ('' = each institution's default learner template).
   const [purposeKey, setPurposeKey] = useState('');
+  // Replace jobs that are already waiting instead of skipping them.
+  const [requeueExisting, setRequeueExisting] = useState(false);
 
   const { templates, selectedTemplateId, selectTemplate, inactiveOnly } =
     useIdCardTemplates(open);
@@ -155,11 +159,20 @@ export function BulkPrintDialog({
         summary.failed.push({ name: learner.name, message: 'no template for this institution' });
       } else {
         if (choice.usedFallback) fallbackUsed += 1;
-        const outcome = await enqueuePrintJob(profileId, choice.template.id);
+        const outcome = requeueExisting
+          ? await requeuePrintJob(profileId, choice.template.id)
+          : await enqueuePrintJob(profileId, choice.template.id);
         if (outcome.status === 'queued') {
           summary.queued.push(learner.name);
         } else if (outcome.status === 'already_queued') {
           summary.alreadyQueued.push(learner.name);
+        } else if (outcome.status === 'replacement_fee') {
+          // Bulk never accepts a charge on someone's behalf: name the fee and
+          // point at the one place that can — the learner's profile.
+          summary.failed.push({
+            name: learner.name,
+            message: `replacement card ${outcome.replacementNumber} — ${outcome.feeCurrency} ${outcome.feeAmount} fee; print from the learner profile to accept it`
+          });
         } else {
           summary.failed.push({ name: learner.name, message: outcome.message });
         }
@@ -226,6 +239,19 @@ export function BulkPrintDialog({
                     onChange={setPurposeKey}
                     className="h-9 w-full"
                   />
+                  <label className="flex items-start gap-2 text-sm">
+                    <Checkbox
+                      checked={requeueExisting}
+                      onCheckedChange={(v) => setRequeueExisting(v === true)}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      Cancel &amp; re-queue learners already in the print queue
+                      <span className="block text-xs text-muted-foreground">
+                        Off: those learners are reported as “already queued” and left as they are.
+                      </span>
+                    </span>
+                  </label>
                   <p className="text-sm font-medium">Fallback template</p>
                   <TemplateSelect
                     templates={templates}

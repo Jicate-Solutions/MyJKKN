@@ -25,7 +25,10 @@ import {
 } from '@/components/ui/select';
 import { ArrowRight, ArrowUpDown, UserCheck, Loader2 } from 'lucide-react';
 import { getOnboardingColumns } from './columns';
+import { getOnboardingExportConfig } from './onboarding-export-config';
+import { exportOnboardingLearners } from '../_actions/export-onboarding-learners';
 import { PaymentThresholdBanner } from './payment-threshold-banner';
+import { AwaitingPaymentExportButton } from './awaiting-payment-export-button';
 import type {
   OnboardingProfileRow,
   OnboardingTier,
@@ -221,6 +224,16 @@ export function OnboardingTableServer({
     };
   }, [localData, localMetadata]);
 
+  // "Export All" must not page through fetchData above: it returns the same
+  // server-rendered page whatever page is asked for, so it would export that
+  // page N times. Re-read the whole tier under the URL's filters instead.
+  const fetchAllForExport = useCallback(
+    () => exportOnboardingLearners(Object.fromEntries(searchParams.entries()), tier),
+    [searchParams, tier]
+  );
+
+  const exportConfig = useMemo(() => getOnboardingExportConfig(tier), [tier]);
+
   const renderCustomToolbar = (props: {
     selectedRows: any[];
     allSelectedIds: (string | number)[];
@@ -246,6 +259,8 @@ export function OnboardingTableServer({
             ))}
           </SelectContent>
         </Select>
+
+        {tier === 'awaiting_payment' && <AwaitingPaymentExportButton />}
 
         {/* On the Ready to Activate tier the useful bulk action is activation,
             not "assign academic info" — those fields are already filled, which
@@ -287,12 +302,7 @@ export function OnboardingTableServer({
     );
   };
 
-  // Columns are rebuilt when the basis changes, not on every render: the basis
-  // comes from admission_statuses and is constant for the life of a page.
-  const columns = useMemo(
-    () => getOnboardingColumns(tier, paymentSummary?.threshold_basis ?? 'due_to_date'),
-    [tier, paymentSummary?.threshold_basis]
-  );
+  const columns = useMemo(() => getOnboardingColumns(tier), [tier]);
 
   return (
     <>
@@ -303,19 +313,24 @@ export function OnboardingTableServer({
       <DataTable
         fetchDataFn={fetchData}
         getColumns={() => columns as any}
-        exportConfig={{
-          entityName: `onboarding-${tier}-learners`,
-          columnMapping: {},
-          columnWidths: [],
-          headers: []
-        }}
+        fetchAllItemsFn={fetchAllForExport}
+        exportConfig={exportConfig}
         idField="id"
         config={{
           enableUrlState: true,
           enableDateFilter: false,
-          enableExport: false,
+          enableExport: true,
+          exportAllPagesByDefault: true,
+          // fetchAllItemsFn is here for export only. Select-all across pages
+          // would feed Assign Academic Info hundreds of ids in one URL.
+          enableCrossPageSelectAll: false,
           enableRowSelection: true,
-          enableSearch: false
+          enableSearch: false,
+          // Columns keep their declared widths and the table scrolls sideways;
+          // otherwise the multi-line fee / Blocked At cells are squeezed and cut.
+          fixedColumnWidths: true,
+          // Own key so sizes dragged on other tables never leak in here.
+          columnResizingTableId: 'learners-onboarding'
         }}
         renderToolbarContent={renderCustomToolbar}
       />

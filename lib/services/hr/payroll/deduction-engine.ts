@@ -1,7 +1,7 @@
 /**
  * T4.2 — Pure deduction engine for the JKKN payroll module.
  *
- * Spec: specs/t4-payroll-design-lock-2026-05-15.md (Director-locked 2026-05-15).
+ * No written spec; the rules live in this code.
  *
  * Computes TDS / PF / ESI / Professional Tax for a single staff member for one
  * month, given:
@@ -19,8 +19,7 @@
  *
  * Day-counting note: this engine computes deductions on the GROSS passed in.
  * The caller is responsible for LOP-adjusting basic/gross BEFORE calling
- * (see spec Day-counting model section: calendar-pay with working-day
- * LOP-divisor).
+ * (calendar-pay with a working-day LOP divisor; no written spec).
  */
 
 import type { PolicyKey } from '@/lib/policies/keys';
@@ -166,7 +165,7 @@ export function computeEsi(gross: number, policy: EsiPolicy): { amount: number; 
  * Section 87A rebate. Adds cess. Divides back to per-month.
  *
  * Deliberately simplified for T4.2: no Chapter VI-A (80C/80D etc), no surcharge
- * computation, no other-income, no perquisites. Director-locked decision: ship
+ * computation, no other-income, no perquisites. Design choice: ship
  * a directionally-correct number that HR can override per-staff via 12BB later.
  */
 export function computeTds(
@@ -221,7 +220,7 @@ export function computePt(
       };
     }
   }
-  // Fallback: should not happen since spec guarantees an open-ended top slab
+  // Fallback: should not happen when the PT policy ends with an open-ended top slab
   return { amount: 0, basis: 'no slab matched (policy misconfigured)' };
 }
 
