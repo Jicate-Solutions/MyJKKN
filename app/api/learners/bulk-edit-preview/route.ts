@@ -11,6 +11,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { BulkLearnerEditService, type BulkEditRow } from '@/lib/services/bulk-learner-edit-service';
+import { getLearnerBulkEditInstitutionIds } from '@/lib/auth/learner-bulk-edit-scope';
 import { LearnerValidationService } from '@/lib/services/learner-validation-service';
 import { parseExcelFile, mapColumns, sanitizeValue, hasColumn, listColumns } from '@/lib/utils/excel-parser';
 import {
@@ -327,6 +328,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Institutions this uploader may edit: every institution the role grants
+    // (Admission spans several), not just profiles.institution_id.
+    const institutionScope: string[] | undefined = profile.is_super_admin
+      ? undefined
+      : await getLearnerBulkEditInstitutionIds(supabase, user.id, profile.institution_id);
+
     // 3. Parse file from form data
     const formData = await request.formData();
     const file = formData.get('file') as File;
@@ -552,7 +559,7 @@ export async function POST(request: NextRequest) {
       const validation = await BulkLearnerEditService.previewChanges(
         learnerId,
         sanitizedData,
-        profile.institution_id || undefined,
+        institutionScope,
         !!profile.is_super_admin
       );
 

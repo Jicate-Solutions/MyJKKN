@@ -20,6 +20,10 @@ export const dynamic = 'force-dynamic';
 //   the front only — never blocks a claim on the duplex hint).
 //   Backward compatible: pre-duplex bridges ignore unknown fields, so this
 //   field is dark until a bridge version reads it AND a template opts in.
+//
+// PRINT PLAN (additive, 2026-10-01): `print_plan` = { front: 'color',
+//   back?: 'monochrome' }. The bridge must print the back from the SAME ribbon
+//   set's black panel; see docs/modules/id-cards/2026-10-01-OPS-bridge-mono-back.md.
 
 import { NextRequest, connection } from 'next/server';
 import { z } from 'zod';
@@ -103,7 +107,10 @@ export async function POST(
 
     return jsonOk<IdCardPrintJobPickup>({
       ...claimedJob,
-      has_back: hasBack
+      has_back: hasBack,
+      // Colour front; the back (when there is one) is black-only and is
+      // served two-tone by ?side=back&format=png — see print_plan in types.
+      print_plan: hasBack ? { front: 'color', back: 'monochrome' } : { front: 'color' }
     });
   } catch (err) {
     console.error('[id-cards/jobs/pickup] unexpected:', err);

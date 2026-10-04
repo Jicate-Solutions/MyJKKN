@@ -22,11 +22,18 @@
  * pay), with their hidden lines collapsed into one unnamed "Other fees" row so
  * the receipt total still ties. RLS enforces the same rule on the bill rows;
  * this filter is what keeps the derived totals honest.
+ *
+ * Advance-year window: the student RLS policies on billing_student_bills also
+ * drop bills more than ONE academic year ahead of the institution's current AY
+ * (fn_learner_bill_year_visible) — so a learner cannot pick a far-future year to
+ * pay by mistake. Nothing to filter here; they never arrive, and the totals
+ * follow. The window rolls forward on its own as the current AY changes.
  */
 
 import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { getUserWithRetry } from '@/lib/auth/auth-retry';
 import { StudentValidationService } from '@/lib/services/auth/student-validation-service';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -71,7 +78,7 @@ export default async function MyBillsPage() {
   const supabase = await createClient();
 
   // 1) Authentication
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getUserWithRetry(supabase);
   if (!user) redirect('/auth/login');
 
   // 2) Role gate — students only (never super admin / staff).

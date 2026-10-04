@@ -154,6 +154,12 @@ export interface CompOffCredit {
   work_place: string | null;
   /** 0 once lapsed — never negative. */
   days_until_expiry: number;
+  /**
+   * Who approved or refused the claim (who revoked it, for a revoked one).
+   * Null while pending, for a decision taken before 2026-09-30 (nobody was
+   * recorded), and for the nightly auto-reject.
+   */
+  decided_by_name?: string | null;
 }
 
 export interface CompOffBalance {

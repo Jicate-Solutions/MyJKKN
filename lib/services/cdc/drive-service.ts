@@ -382,6 +382,16 @@ export class CdcDriveService {
               institution_id: e.institution_id,
               semester_orders: [...(e.semester_orders ?? [])].sort((a, b) => a - b),
               program_ids: [...((e as { program_ids?: string[] }).program_ids ?? [])].sort(),
+              gender: e.gender ?? 'all',
+              degree_semesters: [...(e.degree_semesters ?? [])]
+                .map((g) => ({
+                  key: g.key,
+                  gender: g.gender ?? null,
+                  program_genders: Object.entries(g.program_genders ?? {}).sort(([x], [y]) => x.localeCompare(y)),
+                  program_ids: [...g.program_ids].sort(),
+                  semester_orders: [...g.semester_orders].sort((x, y) => x - y),
+                }))
+                .sort((x, y) => x.key.localeCompare(y.key)),
             }))
             .sort((a, b) => a.institution_id.localeCompare(b.institution_id))
         );

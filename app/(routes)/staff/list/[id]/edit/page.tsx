@@ -39,7 +39,6 @@ export default function EditStaffPage({ params }: EditStaffPageProps) {
   const {
     canAccess,
     isSuperAdmin,
-    userProfile,
     isLoading: permissionsLoading
   } = usePermissions([], { waitForLoad: true });
 
@@ -50,12 +49,8 @@ export default function EditStaffPage({ params }: EditStaffPageProps) {
     }
   }, [permissionsLoading]);
 
-  // Fetch staff data after permissions are loaded. The edit-permission gate
-  // (below, once `staff` is available) also allows self-edit — mirroring the
-  // API's isSelfEdit branch in app/api/staff/[id]/route.ts — which needs the
-  // fetched record's institution_email/profile_id, so the fetch can no longer
-  // be blocked on the blanket `staff.edit` permission check alone
-  // (BUG-002565: own-record users without staff.edit could never reach here).
+  // Fetch staff data after permissions are loaded; the edit gate below runs
+  // once `staff` is available.
   useEffect(() => {
     if (!permissionsLoaded) return;
 
@@ -77,12 +72,8 @@ export default function EditStaffPage({ params }: EditStaffPageProps) {
   }, [id, permissionsLoaded]);
 
   // Gate access once both permissions and the staff record are available.
-  const canEditStaff =
-    !!staff &&
-    (isSuperAdmin ||
-      canAccess('staff', 'edit') ||
-      (!!staff.institution_email && staff.institution_email === userProfile?.email) ||
-      (!!(staff as any).profile_id && (staff as any).profile_id === userProfile?.id));
+  // HR Head (staff.edit) or super admin only — no self-edit (2026-09-25).
+  const canEditStaff = !!staff && (isSuperAdmin || canAccess('staff', 'edit'));
 
   useEffect(() => {
     if (!permissionsLoaded || loading || !staff) return;

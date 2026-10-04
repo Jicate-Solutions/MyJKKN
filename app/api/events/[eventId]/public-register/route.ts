@@ -31,6 +31,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { EventPaymentService } from '@/lib/services/events/core/event-payment-service';
 import { validateCustomFields } from '@/lib/services/events/tournament/event-registration-form-service';
+import { resolveMyjkknRegistrant } from '@/lib/services/events/registration/registrant-profile';
+import type { MyjkknRegistrantSnapshot } from '@/lib/services/events/registration/registrant-profile';
 import {
   effectiveFee,
   formRegistrationState,
@@ -222,11 +224,18 @@ export async function POST(
 
     // ---- custom fields, validated BY form_id ----
     // By event_id it would demand answers to every other month's questions.
-    const { data: customFieldDefs } = await (svc as any)
-      .from('event_registration_form_fields')
-      .select('*')
-      .eq('form_id', formRow.id);
-    const customFieldsError = validateCustomFields(customFieldDefs ?? [], dto.custom_fields);
+    const [{ data: customFieldDefs }, { data: customSectionDefs }] = await Promise.all([
+      (svc as any).from('event_registration_form_fields').select('*').eq('form_id', formRow.id),
+      (svc as any)
+        .from('event_registration_form_sections')
+        .select('id, condition')
+        .eq('form_id', formRow.id),
+    ]);
+    const customFieldsError = validateCustomFields(
+      customFieldDefs ?? [],
+      dto.custom_fields,
+      customSectionDefs ?? [],
+    );
     if (customFieldsError) {
       return NextResponse.json({ error: customFieldsError }, { status: 422 });
     }
@@ -244,15 +253,16 @@ export async function POST(
     // event_registration_waitlist.profile_id is NOT NULL and a FOREIGN KEY to
     // profiles(id): only an identity the waiting list can store is claimed.
     let selfProfileId: string | null = null;
+    // Who they are AS A LEARNER / FACILITATOR — stamped onto the registration
+    // so the organizer sees institution, department, program, semester,
+    // roll / employee number without joining anything later.
+    let selfSnapshot: MyjkknRegistrantSnapshot | null = null;
     if (user) {
-      const { data: profile } = await (svc as any)
-        .from('profiles')
-        .select('id, learner_id, institution_id')
-        .eq('id', user.id)
-        .maybeSingle();
-      selfProfileId = profile?.id ?? null;
-      selfLearnerId = profile?.learner_id ?? null;
-      selfInstitutionId = profile?.institution_id ?? null;
+      const resolved = await resolveMyjkknRegistrant(svc as any, user.id);
+      selfProfileId = resolved?.profileId ?? null;
+      selfSnapshot = resolved?.snapshot ?? null;
+      selfLearnerId = resolved?.snapshot.learner_id ?? null;
+      selfInstitutionId = resolved?.snapshot.institution_id ?? null;
     }
 
     // ---- fee ----
@@ -371,6 +381,26 @@ export async function POST(
       }
     }
 
+    // ---- one registration per person per form ----
+    // Say so in words. The partial UNIQUE index
+    // events_registrations_one_self_per_form still backs this up below, but a
+    // person pressing Register twice should read "you're already registered",
+    // not a constraint name.
+    if (selfProfileId) {
+      const live = await findLiveRegistration(svc as any, eventId, formRow.id, selfProfileId);
+      if (live) {
+        return NextResponse.json(
+          {
+            already_registered: true,
+            registration_id: live.id,
+            paid_required: false,
+            message: 'You are already registered for this event with this account.',
+          },
+          { status: 200 }
+        );
+      }
+    }
+
     // ---- registration ----
     const { data: reg, error: regErr } = await (svc as any)
       .from('events_registrations')
@@ -387,6 +417,9 @@ export async function POST(
         learner_id: selfLearnerId,
         profile_id: user?.id ?? null,
         institution_id: selfInstitutionId,
+        institution_name: selfSnapshot?.institution_name ?? null,
+        department: selfSnapshot?.department_name ?? null,
+        myjkkn_profile: selfSnapshot,
         status: 'registered',
         payment_status: paymentStatus,
         payment_amount: fee,
@@ -397,6 +430,22 @@ export async function POST(
       .single();
 
     if (regErr || !reg) {
+      // Two taps in the same instant: the check above passed for both, the
+      // index refused the second. Same friendly answer.
+      if (regErr?.code === '23505' && selfProfileId) {
+        const live = await findLiveRegistration(svc as any, eventId, formRow.id, selfProfileId).catch(
+          () => null
+        );
+        return NextResponse.json(
+          {
+            already_registered: true,
+            registration_id: live?.id ?? null,
+            paid_required: false,
+            message: 'You are already registered for this event with this account.',
+          },
+          { status: 200 }
+        );
+      }
       return NextResponse.json(
         { error: regErr?.message || 'Failed to register' },
         { status: 500 }

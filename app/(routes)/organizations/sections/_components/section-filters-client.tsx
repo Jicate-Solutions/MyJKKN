@@ -21,6 +21,15 @@ export function SectionFiltersClient({ searchParams }: SectionFiltersClientProps
       } else {
         params.delete(key);
       }
+      // Clear dependent filters in the SAME navigation (separate pushes off
+      // the same stale params overwrite each other).
+      const dependents: Record<string, string[]> = {
+        institution_id: ['degree_id', 'department_id', 'program_id', 'semester_id'],
+        degree_id: ['department_id', 'program_id', 'semester_id'],
+        department_id: ['program_id', 'semester_id'],
+        program_id: ['semester_id']
+      };
+      for (const dep of dependents[key] ?? []) params.delete(dep);
       params.set('page', '1');
       router.push(`/organizations/sections?${params.toString()}`);
     },

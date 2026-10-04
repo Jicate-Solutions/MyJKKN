@@ -43,6 +43,7 @@ import { cn } from '@/lib/utils';
 import { formatDistanceToNow, format } from 'date-fns';
 import type { ReputationLevel, BadgeCategory, PDEBadge, PDELearnerBadge } from '@/types/pde';
 import { AgencyIndexCard } from '../_components/agency-index-card';
+import { SignOutEverywhereCard } from '@/app/(routes)/profile/_components/sign-out-everywhere-card';
 
 // ============================================
 // Constants
@@ -501,6 +502,10 @@ export default function ProfilePage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Lost or shared phone: learners reach this page from the sidebar,
+            not /profile, so the "Sign out of all devices" card lives here too. */}
+        <SignOutEverywhereCard />
       </div>
     </ContentLayout>
   );

@@ -21,12 +21,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useHostelBlocks } from '@/hooks/campus-living/use-hostel-blocks';
 import {
   useCreateHostelWarden,
   useUpdateHostelWarden,
 } from '@/hooks/campus-living/use-hostel-wardens';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { resolveStaffSearchInstitutionId } from '@/lib/services/campus-living/staff-picker-scope';
 import {
   WARDEN_DESIGNATIONS,
   WARDEN_SHIFTS,
@@ -76,7 +78,17 @@ export function WardenFormDialog({
   defaultBlockId,
 }: WardenFormDialogProps) {
   const { profile } = useAuth();
+  const { isSuperAdmin } = usePermissions();
   const institutionId = profile?.institution_id ?? '';
+  // A super admin's profile.institution_id is a HOME institution, not a scope,
+  // so it must NOT narrow the staff search — that hid 860 of 872 staff rows and
+  // is why boyshostel@jkkn.ac.in (a Main Office warden) never appeared for an
+  // admin homed at Jicate Solutions. RLS still confines everyone else. Same
+  // rule useHostelBlocks already applies to the Block dropdown below.
+  const staffSearchInstitutionId = resolveStaffSearchInstitutionId({
+    isSuperAdmin,
+    profileInstitutionId: profile?.institution_id,
+  });
   const createMut = useCreateHostelWarden();
   const updateMut = useUpdateHostelWarden();
   const { data: blocksResult } = useHostelBlocks(institutionId);
@@ -249,7 +261,7 @@ export function WardenFormDialog({
                   </div>
                 ) : (
                   <StaffPicker
-                    institutionId={institutionId}
+                    institutionId={staffSearchInstitutionId}
                     onSelect={handleStaffSelect}
                   />
                 )}
@@ -411,7 +423,14 @@ const StaffPicker = memo(function StaffPicker({
   institutionId,
   onSelect,
 }: {
-  institutionId: string;
+  /**
+   * Institution to narrow the search to, or `undefined` for no narrowing —
+   * already resolved by resolveStaffSearchInstitutionId(). Do NOT pass
+   * `profile.institution_id` raw: super admins have one set and it is not a
+   * scope. `institutionId` is in the effect deps below so the search re-runs if
+   * it changes once permissions finish loading.
+   */
+  institutionId: string | undefined;
   onSelect: (staff: FoundStaff) => void;
 }) {
   const [searchTerm, setSearchTerm] = useState('');

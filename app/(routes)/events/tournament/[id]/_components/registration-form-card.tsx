@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ClipboardList, ArrowRight } from 'lucide-react';
-import { useRegistrationForm } from '@/hooks/events/use-tournament-registration-form';
+import { useEventRegistrationForms } from '@/hooks/events/use-tournament-registration-form';
 
 export function RegistrationFormCard({
   eventId,
@@ -17,20 +17,21 @@ export function RegistrationFormCard({
   eventId: string;
   canManage: boolean;
 }) {
-  const { data: form } = useRegistrationForm(canManage ? eventId : '');
+  // An event holds many forms, addressed by FORM id — summarise the list rather
+  // than passing the event id where a form id is expected.
+  const { data: forms } = useEventRegistrationForms(canManage ? eventId : '');
 
   if (!canManage) return null;
 
-  const sections = form?.sections ?? [];
-  const fieldCount = sections.reduce((n, s) => n + (s.fields?.length ?? 0), 0);
-  const enabled = form?.is_enabled !== false;
+  const formCount = forms?.length ?? 0;
+  const openCount = forms?.filter((f) => f.is_enabled).length ?? 0;
+  const responseCount = forms?.reduce((n, f) => n + (f.response_count ?? 0), 0) ?? 0;
 
-  const summary = !enabled
-    ? 'Custom fields are turned off.'
-    : fieldCount === 0
-      ? 'No custom fields yet — learners only answer the standard fields.'
-      : `${fieldCount} custom ${fieldCount === 1 ? 'field' : 'fields'} across ${sections.length} ${
-          sections.length === 1 ? 'section' : 'sections'
+  const summary =
+    formCount === 0
+      ? 'No registration forms yet — create one to start collecting entries.'
+      : `${formCount} ${formCount === 1 ? 'form' : 'forms'} (${openCount} open) · ${responseCount} ${
+          responseCount === 1 ? 'response' : 'responses'
         }.`;
 
   return (
@@ -45,7 +46,7 @@ export function RegistrationFormCard({
       </CardHeader>
       <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-0">
         <p className="text-sm text-muted-foreground">
-          Configure the questions students answer when they register. {summary}
+          Configure the banner and questions students see when they register. {summary}
         </p>
         <Button asChild size="sm" variant="outline">
           <Link href={`/events/tournament/${eventId}/registration-form`}>

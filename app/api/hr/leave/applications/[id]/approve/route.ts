@@ -11,6 +11,7 @@ import { StaffNotificationService } from '@/lib/services/staff/notification-serv
 import { HrDecisionEmailService } from '@/lib/services/hr/decision-email-service';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { recordFeatureUse, FEATURE_KEYS } from '@/lib/usage/record';
+import { getErrorMessage } from '@/lib/utils';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -105,6 +106,21 @@ export async function POST(
     return NextResponse.json({ data: updated });
   } catch (err) {
     console.error('[hr/leave/applications/:id/approve] error', err);
-    return NextResponse.json({ error: err instanceof Error ? err.message : 'Unknown error' }, { status: 400 });
+
+    // Supabase errors are plain objects, so `instanceof Error` was always false
+    // and the approver saw "Unknown error". The balance guard raises 23514 with
+    // the figures in the message; say what it means and what to do about it.
+    const message = getErrorMessage(err);
+    const code = (err as { code?: string } | null)?.code;
+    if (code === '23514' && /^Insufficient .* balance/.test(message)) {
+      return NextResponse.json(
+        {
+          error: `Cannot approve — ${message} Reject this request instead, with the reason "No leave balance available".`,
+          code: 'INSUFFICIENT_BALANCE',
+        },
+        { status: 422 }
+      );
+    }
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }

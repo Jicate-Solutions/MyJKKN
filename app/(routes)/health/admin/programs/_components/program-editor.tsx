@@ -15,6 +15,7 @@ import {
   ArrowLeft,
   BarChart3,
   ClipboardList,
+  ListChecks,
   Loader2,
   Save,
 } from 'lucide-react';
@@ -213,6 +214,17 @@ export function ProgramEditor({ programId }: ProgramEditorProps) {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              router.push(`/health/admin/programs/${programId}/surveys`)
+            }
+            className="gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+          >
+            <ListChecks className="h-4 w-4" />
+            Surveys
+          </Button>
           <Button
             variant="outline"
             size="sm"

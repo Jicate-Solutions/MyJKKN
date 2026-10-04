@@ -17,6 +17,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { recordChatCall, resolveChatModel } from '@/lib/services/platform/ai-clients/chat';
 import { anthropicApiKey } from '@/lib/services/platform/ai-clients/api-key';
+import { namesShareAWord } from '@/lib/procurement/item-name-match';
 
 export const QUOTATION_EXTRACT_API_FEATURE = 'procurement.quotation_extract_api';
 
@@ -29,6 +30,8 @@ export interface DirectExtractedLine {
   rfq_item_id: string | null;
   item_name: string;
   unit_price: number;
+  /** The match to rfq_item_id is a guess a person must confirm. */
+  uncertain: boolean;
   manufacturer: string | null;
   quality_grade: string | null;
   concentration: string | null;
@@ -51,7 +54,7 @@ export interface DirectExtractedVendor {
  * don't, so the route re-reads rather than reusing them.
  */
 export interface DirectExtractResult {
-  version: 2;
+  version: typeof EXTRACT_RESULT_VERSION;
   lines: DirectExtractedLine[];
   unmatched_note: string | null;
   vendor: DirectExtractedVendor | null;
@@ -60,7 +63,11 @@ export interface DirectExtractResult {
   payment_terms: string | null;
 }
 
-export const EXTRACT_RESULT_VERSION = 2;
+// 3: lines carry `uncertain` from a same/similar/none match grade. Readings saved
+// at 2 are re-read instead of reused, so an old over-confident match never returns.
+// 4: the parts of a set ("Computer" quoted as CPU + RAM + monitor…) are all tagged
+// to that item, so a set quote is no longer read as one part.
+export const EXTRACT_RESULT_VERSION = 4;
 
 /** Either key name works (see ai-clients/api-key.ts). */
 export const directExtractApiKey = anthropicApiKey;
@@ -100,7 +107,15 @@ const RECORD_TOOL: Anthropic.Tool = {
             rfq_item_id: {
               type: 'string',
               description:
-                'The id of the requested item this line matches (from the provided list). Empty string if the line matches none of them.',
+                'The id of the requested item this line is for (from the provided list). Empty string if it is for none of them.',
+            },
+            match: {
+              type: 'string',
+              enum: ['same', 'similar', 'none'],
+              description:
+                '"same" = clearly the same kind of product as the requested item (a different brand or model of it is fine). ' +
+                '"similar" = plausibly it, but you are not sure. "none" = a different kind of product, or no requested item fits. ' +
+                'Never pick an item just because it is the only one requested.',
             },
             item_name: {
               type: 'string',
@@ -129,7 +144,7 @@ const RECORD_TOOL: Anthropic.Tool = {
                 'Any other product-specific detail printed for this line that does not fit the fields above. Omit if none.',
             },
           },
-          required: ['rfq_item_id', 'item_name', 'unit_price'],
+          required: ['rfq_item_id', 'match', 'item_name', 'unit_price'],
         },
       },
     },
@@ -182,8 +197,14 @@ export async function extractQuotationDirect(
               text:
                 "Record this vendor quotation: the seller's details, quotation number, delivery period " +
                 'and payment terms from the header, and each line item with its UNIT price. ' +
-                'For each line, set rfq_item_id to the id of the requested item it matches ' +
-                '(match by meaning, not exact spelling), or "" if it matches none. ' +
+                'For each line, decide which requested item it is FOR, by meaning (spelling and brand may differ): ' +
+                'it must be the same kind of product — a PoE injector is not a keyboard, a switch is not a camera. ' +
+                'Grade it: match "same", "similar" (unsure) or "none". When it is "none", set rfq_item_id to "". ' +
+                'A quotation often lists things nobody asked for; leave those unmatched rather than forcing a fit. ' +
+                'Exception — sets: when a requested item is a complete set (e.g. a computer or desktop) and the ' +
+                'quotation prices it as its parts (processor, motherboard, RAM, SSD, monitor, keyboard, mouse, cabinet…), ' +
+                'give EVERY part line that requested item\'s id with match "similar"; one item may then have many lines. ' +
+                'Give each part its own UNIT price, as quoted. ' +
                 'Return unit_price as a plain number. Also capture manufacturer, quality_grade, ' +
                 'concentration, and other_specs when the quotation states them for that line — ' +
                 'leave them out when not shown, do not guess.\n\nRequested items (id — name):\n' +
@@ -221,12 +242,17 @@ export async function extractQuotationDirect(
     if (!(price > 0)) continue;
     const name = String(row?.item_name ?? '').trim();
     const idRaw = String(row?.rfq_item_id ?? '').trim();
-    const id = validIds.has(idRaw) ? idRaw : null;
+    const grade = String(row?.match ?? '').trim();
+    const id = validIds.has(idRaw) && grade !== 'none' ? idRaw : null;
     if (!id && name) unmatched.push(name);
+    const requested = id ? items.find((i) => i.id === id)?.item_name ?? '' : '';
     lines.push({
       rfq_item_id: id,
       item_name: name,
       unit_price: price,
+      // A person confirms anything the model was unsure of, and anything whose
+      // name shares no word with what was asked for — whatever the model said.
+      uncertain: !!id && (grade !== 'same' || !namesShareAWord(requested, name)),
       manufacturer: asSpec(row?.manufacturer),
       quality_grade: asSpec(row?.quality_grade),
       concentration: asSpec(row?.concentration),

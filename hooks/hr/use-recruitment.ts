@@ -11,6 +11,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import type {
   HRRecruitmentCandidate,
   HRRecruitmentCandidateInsert,
@@ -56,8 +57,12 @@ const BASE = '/api/hr/recruitment';
 // Candidate queries
 // =====================================================================================
 
-export function useCandidates(filters: CandidateFilters = {}) {
+export function useCandidates(
+  filters: CandidateFilters = {},
+  options?: { enabled?: boolean },
+) {
   return useQuery({
+    enabled: options?.enabled ?? true,
     queryKey: ['hr-recruitment-candidates', filters],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -90,10 +95,21 @@ export function useCandidate(id: string | undefined) {
     queryKey: ['hr-recruitment-candidate', id],
     queryFn: async () => {
       const res = await fetch(`${BASE}/candidates/${id}`);
-      if (!res.ok) throw new Error(`Candidate fetch failed: ${res.status}`);
+      if (!res.ok) {
+        // Keep the server's sentence and status: the page shows a "no access"
+        // message for 403 instead of a misleading "not found".
+        const body = await res.json().catch(() => ({}));
+        throw Object.assign(
+          new Error(body?.error || `Candidate fetch failed: ${res.status}`),
+          { status: res.status }
+        );
+      }
       return ((await res.json()).data) as HRRecruitmentCandidate;
     },
     enabled: !!id,
+    // A 403/404 will not change on retry; show the message at once.
+    retry: (failureCount, err) =>
+      ![403, 404].includes((err as { status?: number }).status ?? 0) && failureCount < 3,
   });
 }
 
@@ -220,11 +236,13 @@ export function useWithdrawCandidate() {
 export function useUpdateCandidateStatus() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: CandidateStatus }) => {
+    mutationFn: async ({
+      id, status, reason,
+    }: { id: string; status: CandidateStatus; reason?: string }) => {
       const res = await fetch(`${BASE}/candidates/${id}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, reason }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -688,8 +706,12 @@ export interface JobApplicationFilters {
   pageSize?: number;
 }
 
-export function useJobApplications(filters: JobApplicationFilters = {}) {
+export function useJobApplications(
+  filters: JobApplicationFilters = {},
+  options?: { enabled?: boolean },
+) {
   return useQuery({
+    enabled: options?.enabled ?? true,
     queryKey: ['hr-job-applications', filters],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -731,9 +753,13 @@ export function useReviewApplication() {
     mutationFn: async (payload: {
       id: string;
       status: Extract<JobApplicationStatus, 'reviewed' | 'shortlisted' | 'rejected'>;
+      /** Omit to keep the existing screening note; pass null to clear it. */
       review_notes?: string | null;
     }) => {
       const res = await fetch(`${BASE}/applications/${payload.id}`, {
+        // JSON.stringify drops undefined keys, so an omitted review_notes
+        // reaches the server as absent — which the handler reads as
+        // "leave the stored note alone".
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: payload.status, review_notes: payload.review_notes }),
@@ -744,10 +770,49 @@ export function useReviewApplication() {
       }
       return ((await res.json()).data) as HRJobApplication;
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['hr-job-application', variables.id] });
       qc.invalidateQueries({ queryKey: ['hr-job-applications'] });
       qc.invalidateQueries({ queryKey: ['hr-recruitment-approvals-overview'] });
       qc.invalidateQueries({ queryKey: ['hr-recruitment-job-analytics'] });
+    },
+  });
+}
+
+/**
+ * Edit the screening note alone, from the application detail page.
+ *
+ * Distinct from useReviewApplication: sending no `status` tells the PATCH
+ * handler this is an annotation, not a screening decision, so status and
+ * reviewed_at stay untouched.
+ */
+export function useUpdateApplicationNotes() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { id: string; review_notes: string | null }) => {
+      const res = await fetch(`${BASE}/applications/${payload.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ review_notes: payload.review_notes }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Could not save the note');
+      }
+      return ((await res.json()).data) as HRJobApplication;
+    },
+    onSuccess: (data, variables) => {
+      // The detail page reads ['hr-job-application', id]; patch it so the card
+      // shows the saved note immediately, then refetch for consistency.
+      // MERGE, don't replace — the PATCH response comes from a plain
+      // .select() with no `job:` embed, so overwriting would blank the job
+      // title in the sidebar until the refetch lands.
+      qc.setQueryData(
+        ['hr-job-application', variables.id],
+        (prev: HRJobApplication | null | undefined) => (prev ? { ...prev, ...data } : data),
+      );
+      qc.invalidateQueries({ queryKey: ['hr-job-application', variables.id] });
+      qc.invalidateQueries({ queryKey: ['hr-job-applications'] });
     },
   });
 }
@@ -846,6 +911,8 @@ export function useAddCandidateComment() {
       candidate_id: string;
       comment: string;
       parent_comment_id?: string | null;
+      /** Profile ids whose "@Name" is still in the text. Tagged after the post. */
+      mention_ids?: string[];
     }) => {
       const res = await fetch(`${BASE}/candidates/${payload.candidate_id}/comments`, {
         method: 'POST',
@@ -859,7 +926,44 @@ export function useAddCandidateComment() {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || 'Comment failed');
       }
-      return ((await res.json()).data) as HRRecruitmentCandidateComment;
+      const created = ((await res.json()).data) as HRRecruitmentCandidateComment;
+
+      // Tagging is a SECOND request, on purpose: the comment is the thing the
+      // writer came to save. If tagging fails — the alert bounced, someone is
+      // not an active staff account — their words are already stored, and the
+      // toast says who was not reached instead of throwing the paragraph away.
+      if (payload.mention_ids && payload.mention_ids.length > 0) {
+        try {
+          const tagRes = await fetch(
+            `${BASE}/candidates/${payload.candidate_id}/comments/mentions`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                comment_id: created.id,
+                user_ids: payload.mention_ids,
+              }),
+            },
+          );
+          if (!tagRes.ok) {
+            const err = await tagRes.json().catch(() => ({}));
+            toast.warning(err.error || 'Comment saved, but nobody could be tagged.');
+          } else {
+            const out = (await tagRes.json()) as { notified?: string[]; not_notified?: string[] };
+            if (out.not_notified?.length) {
+              toast.warning(
+                `Comment saved. Could not alert ${out.not_notified.join(', ')} — it will be retried.`,
+              );
+            } else if (out.notified?.length) {
+              toast.success(`Notified ${out.notified.join(', ')}`);
+            }
+          }
+        } catch {
+          toast.warning('Comment saved, but the tag alert could not be sent.');
+        }
+      }
+
+      return created;
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['hr-recruitment-candidate-comments', data.candidate_id] });

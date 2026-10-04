@@ -64,7 +64,7 @@ export const LEAVE_ONDUTY_REPORT_EXPORT_COLUMNS: CsvColumn<LeaveOndutyApplicatio
     header: 'Category',
     accessor: (app) => (app.category === 'leave' ? 'Leave' : 'On-Duty')
   },
-  { header: 'Type', accessor: (app) => formatType(app.sub_category) },
+  { header: 'Type', accessor: (app) => app.leave_type?.name ?? formatType(app.sub_category) },
   { header: 'From', accessor: (app) => formatDay(app.start_date) },
   { header: 'To', accessor: (app) => formatDay(app.end_date) },
   {

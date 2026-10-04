@@ -35,6 +35,22 @@ type RawSaleItemWithItemRow = {
   sale: { institution_id: string; store_id: string | null; status: string } | null;
 };
 
+// ─── Date filters ────────────────────────────────────────────────────────
+
+// The pages pass bare IST dates ('2026-08-21'). Used as-is in .lte(), a bare
+// date is that day's UTC midnight, so the end day itself was cut off and the
+// "Today" preset matched nothing (BUG-005855, BUG-005890). Widen a bare date
+// to its IST day bounds; a full timestamp passes through unchanged.
+const BARE_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function dateFromBound(date: string): string {
+  return BARE_DATE.test(date) ? istDayBounds(date).from : date;
+}
+
+function dateToBound(date: string): string {
+  return BARE_DATE.test(date) ? istDayBounds(date).to : date;
+}
+
 // ─── Service ─────────────────────────────────────────────────────────────
 
 export class ImsFinancialService {
@@ -74,10 +90,10 @@ export class ImsFinancialService {
 
       // Date range
       if (filters.date_from) {
-        query = query.gte('created_at', filters.date_from);
+        query = query.gte('created_at', dateFromBound(filters.date_from));
       }
       if (filters.date_to) {
-        query = query.lte('created_at', filters.date_to);
+        query = query.lte('created_at', dateToBound(filters.date_to));
       }
 
       // Primary: store_id; Fallback: institution_id
@@ -136,10 +152,10 @@ export class ImsFinancialService {
       }
 
       if (dateFrom) {
-        query = query.gte('created_at', dateFrom);
+        query = query.gte('created_at', dateFromBound(dateFrom));
       }
       if (dateTo) {
-        query = query.lte('created_at', dateTo);
+        query = query.lte('created_at', dateToBound(dateTo));
       }
 
       const { data, error } = await query;
@@ -260,7 +276,9 @@ export class ImsFinancialService {
    */
   static async getItemProfitSummary(
     institution_id: string,
-    storeId?: string
+    storeId?: string,
+    dateFrom?: string,
+    dateTo?: string
   ): Promise<ImsItemProfitSummary[]> {
     try {
       let profitQuery = this.supabase
@@ -268,7 +286,7 @@ export class ImsFinancialService {
         .select(
           `item_id, quantity, total, profit, cost_price, unit_price,
            item:ims_items(id,name,code),
-           sale:ims_sales!inner(institution_id, store_id, status)`
+           sale:ims_sales!inner(institution_id, store_id, status, created_at)`
         );
 
       // Primary: store_id; Fallback: institution_id
@@ -276,6 +294,15 @@ export class ImsFinancialService {
         profitQuery = profitQuery.eq('sale.store_id', storeId);
       } else {
         profitQuery = profitQuery.eq('sale.institution_id', institution_id);
+      }
+
+      // The Sales Report's period must bound Top Selling too — without it the
+      // table listed all-time sellers on a day with no sales (BUG-005877).
+      if (dateFrom) {
+        profitQuery = profitQuery.gte('sale.created_at', dateFromBound(dateFrom));
+      }
+      if (dateTo) {
+        profitQuery = profitQuery.lte('sale.created_at', dateToBound(dateTo));
       }
 
       const { data, error } = await profitQuery

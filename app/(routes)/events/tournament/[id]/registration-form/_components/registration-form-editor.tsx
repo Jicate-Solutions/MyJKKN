@@ -26,11 +26,17 @@ import {
 } from '@/components/ui/select';
 import { Plus, Trash2, ChevronUp, ChevronDown, Loader2, ArrowLeft, Save } from 'lucide-react';
 import { useRegistrationForm, useSaveRegistrationForm } from '@/hooks/events/use-tournament-registration-form';
+import { useTournament } from '@/hooks/events/use-tournaments';
 import type { SaveFormSectionPayload } from '@/lib/services/events/tournament/event-registration-form-service';
-import { DynamicFieldInput, isFieldVisible } from '@/components/events/dynamic-field-input';
+import {
+  DynamicFieldInput,
+  isFieldVisible,
+  isSectionVisible,
+} from '@/components/events/dynamic-field-input';
 import { StandardFieldsCard, StandardFieldsPreview } from './standard-fields-card';
 import { FORM_FIELD_TYPES } from '@/types/tournament';
 import { REGISTRATION_PREFILL_SOURCES } from '@/lib/services/events/registration/form-prefill';
+import { parseConditionList, SPORT_CONDITION_KEY } from '@/lib/services/events/registration/form-visibility';
 import type {
   EventRegistrationFormField,
   FormFieldType,
@@ -69,6 +75,8 @@ interface EditableField {
 interface EditableSection {
   uid: string;
   title: string;
+  /** Show the whole section only when another field's answer matches. */
+  condition: FormFieldCondition | null;
   fields: EditableField[];
 }
 
@@ -153,6 +161,7 @@ function serialize(sections: EditableSection[]): SaveFormSectionPayload[] {
   return sections.map((s, si) => ({
     title: s.title.trim() || 'Section',
     display_order: si,
+    condition: s.condition,
     fields: s.fields.map((f, fi) => ({
       field_key: f.field_key ?? uniquify(slugifyKey(f.field_label)),
       field_label: f.field_label.trim() || 'Field',
@@ -225,7 +234,8 @@ export interface ConditionSourceField {
 const CONDITION_OPS: { value: FormFieldCondition['op']; label: string; needsValue: boolean }[] = [
   { value: 'eq', label: 'is', needsValue: true },
   { value: 'neq', label: 'is not', needsValue: true },
-  { value: 'contains', label: 'contains', needsValue: true },
+  { value: 'in', label: 'is any of', needsValue: true },
+  { value: 'contains', label: 'contains text', needsValue: true },
   { value: 'not_empty', label: 'is answered', needsValue: false },
   { value: 'empty', label: 'is not answered', needsValue: false },
 ];
@@ -235,13 +245,17 @@ function ConditionEditor({
   sources,
   onChange,
   onPickSource,
+  scope = 'field',
 }: {
   condition: FormFieldCondition | null;
   sources: ConditionSourceField[];
   onChange: (next: FormFieldCondition | null) => void;
   /** Returns the (possibly newly assigned) field_key of the chosen source. */
   onPickSource: (uid: string) => string;
+  /** Wording only: a field's rule or a whole section's rule. */
+  scope?: 'field' | 'section';
 }) {
+  const what = scope === 'section' ? 'this section' : 'this field';
   const source = condition ? sources.find((s) => s.key === condition.field) ?? null : null;
   const op = CONDITION_OPS.find((o) => o.value === condition?.op) ?? CONDITION_OPS[0];
   const choices = source?.options ?? null;
@@ -249,7 +263,7 @@ function ConditionEditor({
 
   return (
     <div className="space-y-2 rounded-md border border-dashed p-2.5">
-      <Label className="text-xs">Show only when</Label>
+      <Label className="text-xs">{scope === 'section' ? 'Show this section only when' : 'Show only when'}</Label>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <Select
           value={sourceValue}
@@ -307,7 +321,42 @@ function ConditionEditor({
           </Select>
         )}
 
-        {condition && source && op.needsValue && (
+        {condition && source && op.value === 'in' && (
+          <div className="rounded-md border p-2 sm:col-span-1">
+            {choices && choices.length > 0 ? (
+              <div className="space-y-1">
+                {choices.map((o) => {
+                  const picked = parseConditionList(condition.value);
+                  const on = picked.includes(o.value);
+                  return (
+                    <label key={o.value} className="flex cursor-pointer items-center gap-2 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={(e) => {
+                          const next = e.target.checked
+                            ? [...picked, o.value]
+                            : picked.filter((v) => v !== o.value);
+                          onChange({ ...condition, value: next.join(', ') });
+                        }}
+                      />
+                      {o.label}
+                    </label>
+                  );
+                })}
+              </div>
+            ) : (
+              <Input
+                className="h-9"
+                value={condition.value}
+                onChange={(e) => onChange({ ...condition, value: e.target.value })}
+                placeholder="value1, value2, value3"
+              />
+            )}
+          </div>
+        )}
+
+        {condition && source && op.needsValue && op.value !== 'in' && (
           choices && choices.length > 0 && op.value !== 'contains' ? (
             <Select
               value={condition.value}
@@ -336,8 +385,16 @@ function ConditionEditor({
       </div>
       <p className="text-xs text-muted-foreground">
         {condition && source
-          ? `Hidden unless "${source.label || 'that field'}" ${op.label}${op.needsValue ? ` "${choices?.find((c) => c.value === condition.value)?.label ?? condition.value}"` : ''}. A hidden field is never required.`
-          : 'Shown to everyone. Pick a dropdown or choice field to show this only for some answers — e.g. Category is "Parent".'}
+          ? `Hidden unless "${source.label || 'that field'}" ${op.label}${
+              op.value === 'in'
+                ? ` ${parseConditionList(condition.value)
+                    .map((v) => `"${choices?.find((c) => c.value === v)?.label ?? v}"`)
+                    .join(', ') || '(pick at least one)'}`
+                : op.needsValue
+                  ? ` "${choices?.find((c) => c.value === condition.value)?.label ?? condition.value}"`
+                  : ''
+            }. Hidden questions are never required.`
+          : `Shown to everyone. Pick a dropdown or choice field to show ${what} only for some answers — e.g. Category is "Parent".`}
       </p>
     </div>
   );
@@ -623,6 +680,22 @@ export function RegistrationFormEditor({
   const backTo = backHref ?? `/events/tournament/${eventId}`;
   const { data: form, isLoading } = useRegistrationForm(formId);
   const save = useSaveRegistrationForm(eventId);
+  // Tournament only: the built-in Sport dropdown can drive a show/hide rule too
+  // (e.g. "Jersey size" only when Sport is Volleyball). Not a custom field, so
+  // it is offered as a pseudo source keyed SPORT_CONDITION_KEY.
+  const { data: tournament } = useTournament(isTournament ? eventId : '');
+  const sportSource = useMemo<ConditionSourceField | null>(() => {
+    if (!isTournament) return null;
+    const sports = Array.from(new Set((tournament?.divisions ?? []).map((d) => d.sport).filter(Boolean)));
+    if (sports.length === 0) return null;
+    return {
+      uid: SPORT_CONDITION_KEY,
+      key: SPORT_CONDITION_KEY,
+      label: 'Sport (standard field)',
+      type: 'select',
+      options: sports.map((s) => ({ value: s, label: s })),
+    };
+  }, [isTournament, tournament?.divisions]);
 
   const [sections, setSections] = useState<EditableSection[]>([]);
   const [isEnabled, setIsEnabled] = useState(true);
@@ -650,6 +723,7 @@ export function RegistrationFormEditor({
       (form.sections ?? []).map((s) => ({
         uid: nextUid(),
         title: s.title,
+        condition: s.condition ?? null,
         fields: (s.fields ?? []).map(toEditableField),
       }))
     );
@@ -674,10 +748,28 @@ export function RegistrationFormEditor({
   }
 
   function addSection() {
-    applyLocal([...sections, { uid: nextUid(), title: 'New section', fields: [] }]);
+    applyLocal([...sections, { uid: nextUid(), title: 'New section', condition: null, fields: [] }]);
   }
   function updateSection(uid: string, title: string) {
     applyLocal(sections.map((s) => (s.uid === uid ? { ...s, title } : s)));
+  }
+  function updateSectionCondition(uid: string, condition: FormFieldCondition | null) {
+    applyLocal(sections.map((s) => (s.uid === uid ? { ...s, condition } : s)));
+  }
+  /** Fields a SECTION may be conditioned on: every answerable field outside it. */
+  function conditionSourcesForSection(sectionUid: string): ConditionSourceField[] {
+    const custom = sections
+      .filter((s) => s.uid !== sectionUid)
+      .flatMap((s) => s.fields)
+      .filter((f) => f.field_type !== 'image_display')
+      .map((f) => ({
+        uid: f.uid,
+        key: f.field_key,
+        label: f.field_label,
+        type: f.field_type,
+        options: f.options,
+      }));
+    return sportSource ? [sportSource, ...custom] : custom;
   }
   function deleteSection(uid: string) {
     applyLocal(sections.filter((s) => s.uid !== uid));
@@ -715,6 +807,7 @@ export function RegistrationFormEditor({
    * condition written before that would point at nothing.
    */
   function ensureFieldKey(fieldUid: string): string {
+    if (fieldUid === SPORT_CONDITION_KEY) return SPORT_CONDITION_KEY;
     const used = new Set<string>();
     let target: EditableField | null = null;
     for (const s of sections) {
@@ -743,7 +836,7 @@ export function RegistrationFormEditor({
 
   /** Fields a given field may be conditioned on: every other answerable field on the form. */
   function conditionSourcesFor(fieldUid: string): ConditionSourceField[] {
-    return sections
+    const custom = sections
       .flatMap((s) => s.fields)
       .filter((f) => f.uid !== fieldUid && f.field_type !== 'image_display')
       .map((f) => ({
@@ -753,6 +846,7 @@ export function RegistrationFormEditor({
         type: f.field_type,
         options: f.options,
       }));
+    return sportSource ? [sportSource, ...custom] : custom;
   }
   function moveField(sectionUid: string, index: number, direction: 'up' | 'down') {
     applyLocal(
@@ -812,6 +906,7 @@ export function RegistrationFormEditor({
       sections.map((s) => ({
         uid: s.uid,
         title: s.title,
+        condition: s.condition,
         fields: s.fields.map(toPreviewField),
       })),
     [sections]
@@ -917,6 +1012,16 @@ export function RegistrationFormEditor({
                 </Button>
               </div>
 
+              {/* Whole-section rule: one dropdown answer shows or hides every
+                  field below, without repeating the rule on each field. */}
+              <ConditionEditor
+                condition={section.condition}
+                sources={conditionSourcesForSection(section.uid)}
+                onChange={(next) => updateSectionCondition(section.uid, next)}
+                onPickSource={ensureFieldKey}
+                scope="section"
+              />
+
               <div className="space-y-2">
                 {section.fields.map((field, fIdx) => (
                   <FieldRow
@@ -966,7 +1071,9 @@ export function RegistrationFormEditor({
             <p className="text-sm text-muted-foreground">Nothing to preview yet.</p>
           )}
           {isEnabled &&
-            previewSections.map((section) => (
+            previewSections
+              .filter((section) => isSectionVisible(section, previewValues))
+              .map((section) => (
               <div key={section.uid} className="space-y-3">
                 <p className="text-sm font-semibold">{section.title || 'Untitled section'}</p>
                 {section.fields

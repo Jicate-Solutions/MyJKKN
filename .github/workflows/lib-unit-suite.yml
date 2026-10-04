@@ -41,7 +41,11 @@ name: Lib unit suite
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    # ready_for_review is REQUIRED, not decorative: the job below is gated on
+    # !draft, so on a draft PR it is skipped. Without this event a flip to
+    # Ready does not re-fire the workflow, the check keeps its draft-era
+    # 'skipped' state for good, and GitHub counts a skip as a pass.
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
     paths:
       # The tests themselves.
