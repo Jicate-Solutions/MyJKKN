@@ -10,7 +10,6 @@ import {
   useSubmitPO,
   useApprovePO,
   useRejectPO,
-  useMarkPOSent,
   useCancelPO,
   useUpdatePoDocumentFields,
   useUpdatePoItemExtraFields,
@@ -22,7 +21,14 @@ import { PO_STATUS_CONFIG, type ProcurementPoFormat } from '@/types/procurement'
 import { downloadPurchaseOrderPdf } from '@/lib/procurement/purchase-order-pdf';
 import { downloadPurchaseOrderDocx } from '@/lib/procurement/purchase-order-docx';
 import { StatusBadge } from '@/components/procurement/status-badge';
+import { ResponsiveList } from '@/components/procurement/responsive-list';
+import {
+  DocumentHeader,
+  type DocAction,
+  type DocPrimaryAction,
+} from '@/components/procurement/document-header';
 import { formatDateDMY } from '@/lib/utils/date-format';
+import { STANDARD_PO_FORMAT } from '@/lib/procurement/po-document-model';
 import { AlertBox } from '@/components/ui/alert-box';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -39,21 +45,13 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { ArrowLeft, FileDown, FileText, Send, Check, X, PackageCheck } from 'lucide-react';
+import { FileDown, FileText, Send, Check, X, PackageCheck, Ban, Plus } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
 import { errorMessage } from '@/lib/utils/supabase-error';
@@ -91,7 +89,6 @@ export default function PurchaseOrderDetailPage() {
   const submitPO = useSubmitPO();
   const approvePO = useApprovePO();
   const rejectPO = useRejectPO();
-  const markSent = useMarkPOSent();
   const cancelPO = useCancelPO();
   const updateDocFields = useUpdatePoDocumentFields();
   const updateItemExtra = useUpdatePoItemExtraFields();
@@ -112,8 +109,10 @@ export default function PurchaseOrderDetailPage() {
     Object.keys(po?.footer_field_values || {}).length > 0 ||
     !!po?.terms_and_conditions;
   const activeFormat = po?.po_format ?? null;
-  const { header: headerFieldDefs, footer: footerFieldDefs } = freeEntryFields(activeFormat);
-  const itemExtraColumns = (activeFormat?.item_columns ?? []).filter((c) => c.source.startsWith('item_extra.'));
+  // No custom format = the standard paper-PO layout, whose fill-in fields are editable too.
+  const docFormat = activeFormat ?? STANDARD_PO_FORMAT;
+  const { header: headerFieldDefs, footer: footerFieldDefs } = freeEntryFields(docFormat);
+  const itemExtraColumns = docFormat.item_columns.filter((c) => c.source.startsWith('item_extra.'));
 
   const [headerValues, setHeaderValues] = useState<Record<string, string>>({});
   const [footerValues, setFooterValues] = useState<Record<string, string>>({});
@@ -213,24 +212,10 @@ export default function PurchaseOrderDetailPage() {
     );
   }
 
-  // The badge names the state; this says what it means and who moves it on.
-  // 'rejected' is omitted — it already has its own card carrying the reason.
-  const STATUS_HINT: Record<string, string> = {
-    draft: 'Not yet sent for approval. Submitting sends it to a Super Admin.',
-    pending_approval: 'Waiting for a Super Admin to approve before it can go to the vendor.',
-    approved: 'Approved. Send it to the vendor, then record deliveries as goods receipts.',
-    sent: 'With the vendor. Record each delivery as a goods receipt against this order.',
-    partially_received: 'Some goods have arrived. The order stays open until every line is received.',
-    completed: 'Everything ordered has been received and verified.',
-    closed: 'Closed. No further deliveries are expected.',
-    cancelled: 'Cancelled. This order will not be fulfilled.',
-  };
-  const statusHint = STATUS_HINT[po.status];
-
   // One workflow action at a time — a second click while the first is in
   // flight would try the same transition from a state the PO has already left.
   const transitionBusy =
-    submitPO.isPending || approvePO.isPending || markSent.isPending || cancelPO.isPending || rejectPO.isPending;
+    submitPO.isPending || approvePO.isPending || cancelPO.isPending || rejectPO.isPending;
 
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     try {
@@ -241,189 +226,156 @@ export default function PurchaseOrderDetailPage() {
     }
   };
 
+  const canCreateGrn = ['sent', 'approved', 'partially_received'].includes(po.status) && canReceive;
+  const canCancel = (po.status === 'draft' || po.status === 'pending_approval') && canCreate;
+
+  let primary: DocPrimaryAction | null = null;
+  if (po.status === 'draft' && canCreate) {
+    primary = {
+      key: 'submit',
+      label: 'Submit for approval',
+      icon: Send,
+      disabled: transitionBusy,
+      onClick: () => run(() => submitPO.mutateAsync({ id, userId: profile!.id }), 'Submitted for approval'),
+    };
+  } else if (po.status === 'pending_approval' && canApprove) {
+    primary = {
+      key: 'approve',
+      label: 'Approve',
+      icon: Check,
+      disabled: transitionBusy,
+      onClick: () => run(() => approvePO.mutateAsync({ id, userId: profile!.id }), 'Purchase order approved'),
+    };
+  } else if (canCreateGrn) {
+    primary = {
+      key: 'create-grn',
+      label: 'Record delivery',
+      icon: PackageCheck,
+      onClick: () => router.push(`/procurement/grn/new?po=${po.id}`),
+    };
+  }
+
+  const reject: DocAction | null =
+    po.status === 'pending_approval' && canApprove
+      ? { key: 'reject', label: 'Reject', icon: X, onClick: () => setRejectOpen(true) }
+      : null;
+
+  const actions: DocAction[] = [];
+  if (canCancel) {
+    actions.push({
+      key: 'cancel',
+      label: 'Cancel PO',
+      disabled: transitionBusy,
+      icon: Ban,
+      destructive: true,
+      confirm: {
+        title: `Cancel ${po.po_number}?`,
+        description: 'The purchase order stops here and cannot be reopened.',
+        confirmLabel: 'Cancel PO',
+      },
+      onClick: () => run(() => cancelPO.mutateAsync({ id, userId: profile!.id }), 'Purchase order cancelled'),
+    });
+  }
+
   return (
     <ContentLayout title={po.po_number}>
-      <div className="space-y-4 sm:space-y-6 max-w-5xl">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label="Back to purchase orders"
-              onClick={() => router.push('/procurement/purchase-orders')}
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <div className="min-w-0">
-              <h2 className="text-2xl font-bold tracking-tight truncate">{po.po_number}</h2>
-              <p className="text-muted-foreground break-words">
-                {po.supplier?.name ?? po.supplier_id} · ₹{Number(po.total_amount).toLocaleString()}
-                {po.created_at ? ` · raised ${formatDateDMY(po.created_at)}` : ''}
-              </p>
-            </div>
-          </div>
-          <StatusBadge
-            status={po.status}
-            config={PO_STATUS_CONFIG}
-            className="self-start shrink-0 text-sm sm:self-auto"
-          />
-        </div>
-
-        {statusHint && (
-          <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-            {statusHint}
-          </p>
-        )}
-
-        {/* Actions — the workflow only. Producing the printed document lives in
-            the Document card below, so downloads no longer outrank Approve. */}
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
-          {po.status === 'draft' && canCreate && (
-            <Button
-              className="w-full sm:w-auto"
-              onClick={() => run(() => submitPO.mutateAsync({ id, userId: profile!.id }), 'Submitted for approval')}
-              disabled={transitionBusy}
-            >
-              <Send className="mr-2 h-4 w-4" />
-              Submit for approval
-            </Button>
-          )}
-          {po.status === 'pending_approval' && canApprove && (
+      <div className="space-y-3">
+        <DocumentHeader
+          compact
+          onBack={() => router.push('/procurement/purchase-orders')}
+          backLabel="Back to purchase orders"
+          title={po.po_number}
+          status={<StatusBadge status={po.status} config={PO_STATUS_CONFIG} />}
+          next={
             <>
-              <Button
-                className="w-full sm:w-auto"
-                onClick={() => run(() => approvePO.mutateAsync({ id, userId: profile!.id }), 'PO approved')}
-                disabled={transitionBusy}
-              >
-                <Check className="mr-2 h-4 w-4" />
-                Approve
-              </Button>
-              <Button
-                variant="outline"
-                className="w-full text-destructive hover:text-destructive sm:ml-auto sm:w-auto"
-                onClick={() => setRejectOpen(true)}
-              >
-                <X className="mr-2 h-4 w-4" />
-                Reject
-              </Button>
+              {po.supplier?.name ?? po.supplier_id} ·{' '}
+              <span className="font-semibold text-foreground tabular-nums">
+                ₹{Number(po.total_amount).toLocaleString()}
+              </span>
+              {po.created_at ? ` · ${formatDateDMY(po.created_at)}` : ''}
             </>
-          )}
-          {po.status === 'approved' && canCreate && (
-            <Button
-              className="w-full sm:w-auto"
-              onClick={() => run(() => markSent.mutateAsync({ id, userId: profile!.id }), 'PO marked as sent')}
-              disabled={transitionBusy}
-            >
-              <Send className="mr-2 h-4 w-4" />
-              Send to vendor
-            </Button>
-          )}
-          {['sent', 'approved', 'partially_received'].includes(po.status) && canReceive && (
-            <Button className="w-full sm:w-auto" onClick={() => router.push(`/procurement/grn/new?po=${po.id}`)}>
-              <PackageCheck className="mr-2 h-4 w-4" />
-              Create GRN
-            </Button>
-          )}
-          {(po.status === 'draft' || po.status === 'pending_approval') && canCreate && (
-            <Button
-              variant="ghost"
-              className="w-full sm:w-auto"
-              onClick={() => run(() => cancelPO.mutateAsync({ id, userId: profile!.id }), 'PO cancelled')}
-              disabled={transitionBusy}
-            >
-              Cancel PO
-            </Button>
-          )}
-        </div>
+          }
+          primary={primary}
+          reject={reject}
+          actions={actions}
+        />
 
+        {/* Document toolbar — print format, library tag and downloads in one slim row. */}
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Document</CardTitle>
-            <p className="hidden text-sm text-muted-foreground sm:block">
-              Choose the layout this order prints with, then download it to send to the vendor.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
             {canCreate ? (
-              <div className="space-y-2">
-                <Label className="text-xs">Print format</Label>
-                <Select value={po.po_format_id ?? 'none'} onValueChange={handleFormatChange}>
-                  <SelectTrigger className="w-full sm:w-[260px]">
-                    <SelectValue placeholder="Document format" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Standard (default)</SelectItem>
-                    {(formats ?? []).map((f) => (
-                      <SelectItem key={f.id} value={f.id}>
-                        {f.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <>
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs font-normal text-muted-foreground">Print as</Label>
+                  <Select value={po.po_format_id ?? 'none'} onValueChange={handleFormatChange}>
+                    <SelectTrigger className="h-8 w-[170px] text-xs">
+                      <SelectValue placeholder="Standard" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Standard</SelectItem>
+                      {(formats ?? []).map((f) => (
+                        <SelectItem key={f.id} value={f.id}>
+                          {f.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 {(formats ?? []).length === 0 ? (
                   <button
                     type="button"
                     onClick={() => router.push('/procurement/purchase-orders/formats/new')}
-                    className="block text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+                    className="flex items-center gap-0.5 text-xs text-primary hover:underline"
                   >
-                    No custom formats for this institution — create one
+                    <Plus className="h-3 w-3" />
+                    New format
                   </button>
                 ) : (
-                  <div className="flex items-center gap-1.5">
+                  <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
                     <Checkbox
-                      id="set-as-vendor-default"
                       checked={setAsVendorDefault}
                       onCheckedChange={(c) => handleToggleSetAsDefault(!!c)}
                     />
-                    <Label htmlFor="set-as-vendor-default" className="text-xs text-muted-foreground cursor-pointer">
-                      Also use for {po.supplier?.name ?? 'this vendor'} going forward
-                    </Label>
-                  </div>
+                    Use for {po.supplier?.name ?? 'this vendor'} always
+                  </label>
                 )}
-              </div>
+                <span className="hidden h-5 w-px bg-border sm:block" />
+                {/* Accreditation classification — tagged POs auto-emit NAAC library
+                    purchase-bill evidence once approved (DB trigger, Wave 2D). */}
+                <label
+                  className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground"
+                  title="Counts as NAAC accreditation evidence once approved"
+                >
+                  <Checkbox
+                    checked={!!po.is_library_resource}
+                    onCheckedChange={(c) =>
+                      run(
+                        () => updateDocFields.mutateAsync({ id, patch: { is_library_resource: !!c } }),
+                        c
+                          ? 'Tagged as library purchase — counts as accreditation evidence once approved'
+                          : 'Library purchase tag removed'
+                      )
+                    }
+                  />
+                  Library purchase
+                </label>
+              </>
             ) : (
-              <p className="text-sm text-muted-foreground">
-                Prints with the{' '}
-                <span className="font-medium text-foreground">{activeFormat?.name ?? 'Standard'}</span>{' '}
-                format.
-              </p>
+              <>
+                <span className="text-xs text-muted-foreground">
+                  Prints as <span className="font-medium text-foreground">{activeFormat?.name ?? 'Standard'}</span>
+                </span>
+                {po.is_library_resource && <Badge variant="secondary">Library purchase</Badge>}
+              </>
             )}
-
-            {/* Accreditation classification — tagged POs auto-emit NAAC library
-                purchase-bill evidence once approved (DB trigger, Wave 2D). */}
-            {canCreate ? (
-              <div className="flex items-center gap-2 border-t pt-4">
-                <Checkbox
-                  id="is-library-resource"
-                  checked={!!po.is_library_resource}
-                  onCheckedChange={(c) =>
-                    run(
-                      () => updateDocFields.mutateAsync({ id, patch: { is_library_resource: !!c } }),
-                      c
-                        ? 'Tagged as library resource — counts as accreditation evidence once approved'
-                        : 'Library-resource tag removed'
-                    )
-                  }
-                />
-                <Label htmlFor="is-library-resource" className="text-sm cursor-pointer">
-                  Library resource purchase{' '}
-                  <span className="text-muted-foreground">
-                    (counts as accreditation evidence once approved)
-                  </span>
-                </Label>
-              </div>
-            ) : po.is_library_resource ? (
-              <Badge variant="secondary">Library resource</Badge>
-            ) : null}
-
-            <div className="flex flex-wrap gap-2 sm:gap-3 border-t pt-4">
-              <Button variant="outline" onClick={() => downloadPurchaseOrderPdf(po)}>
-                <FileDown className="mr-2 h-4 w-4" />
-                Download PDF
+            <div className="ml-auto flex gap-1.5">
+              <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" onClick={() => downloadPurchaseOrderPdf(po)}>
+                <FileDown className="mr-1 h-3.5 w-3.5" />
+                PDF
               </Button>
-              <Button variant="outline" onClick={() => downloadPurchaseOrderDocx(po)}>
-                <FileText className="mr-2 h-4 w-4" />
-                Download Word
+              <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" onClick={() => downloadPurchaseOrderDocx(po)}>
+                <FileText className="mr-1 h-3.5 w-3.5" />
+                Word
               </Button>
             </div>
           </CardContent>
@@ -440,16 +392,16 @@ export default function PurchaseOrderDetailPage() {
           </Card>
         )}
 
-        {(canCreate && activeFormat && (headerFieldDefs.length > 0 || footerFieldDefs.length > 0)) || hasSavedDocDetails ? (
+        {(canCreate && (headerFieldDefs.length > 0 || footerFieldDefs.length > 0)) || hasSavedDocDetails ? (
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Format fields</CardTitle>
+              <CardTitle className="text-base">Details printed on the PO</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {canCreate ? (
                 <>
                   {headerFieldDefs.length > 0 && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                       {headerFieldDefs.map((f) => {
                         const key = f.source.slice('header_values.'.length);
                         return (
@@ -507,83 +459,86 @@ export default function PurchaseOrderDetailPage() {
           </Card>
         ) : null}
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Items</CardTitle>
-          </CardHeader>
+        <Card className="overflow-hidden">
           <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Item</TableHead>
-                  <TableHead className="text-right">Ordered</TableHead>
-                  <TableHead className="text-right">Received</TableHead>
-                  <TableHead className="text-right">Unit Price</TableHead>
-                  <TableHead className="text-right">Line Total</TableHead>
-                  {itemExtraColumns.map((c) => (
-                    <TableHead key={c.key} className="text-right">{c.label}</TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {po.items.map((it) => (
-                  <TableRow key={it.id}>
-                    <TableCell className="font-medium">
+            <ResponsiveList
+              rows={po.items}
+              getRowKey={(it) => it.id}
+              columns={[
+                {
+                  key: 'item',
+                  header: 'Item',
+                  mobile: 'title',
+                  cell: (it) => (
+                    <>
                       {it.item_name}
                       {it.item_spec && (
-                        <span className="block text-xs text-muted-foreground">{it.item_spec}</span>
+                        <span className="text-xs font-normal text-muted-foreground"> · {it.item_spec}</span>
                       )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {it.ordered_quantity} {it.unit_label || ''}
-                    </TableCell>
-                    <TableCell className="text-right">{it.received_quantity}</TableCell>
-                    <TableCell className="text-right">
-                      {po.status === 'draft' && canCreate ? (
+                    </>
+                  ),
+                },
+                {
+                  key: 'ordered',
+                  header: 'Ordered',
+                  className: 'text-right',
+                  cell: (it) => `${it.ordered_quantity} ${it.unit_label || ''}`,
+                },
+                {
+                  key: 'received',
+                  header: 'Received',
+                  className: 'text-right',
+                  cell: (it) => it.received_quantity,
+                },
+                {
+                  key: 'price',
+                  header: 'Price',
+                  className: 'text-right',
+                  cell: (it) =>
+                    po.status === 'draft' && canCreate ? (
+                      <Input
+                        type="number"
+                        min={0}
+                        defaultValue={String(it.unit_price)}
+                        onBlur={(e) => handleItemPriceBlur(it.id, e.target.value)}
+                        className="h-10 w-full text-right md:ml-auto md:h-8 md:w-28"
+                      />
+                    ) : (
+                      `₹${Number(it.unit_price).toLocaleString()}`
+                    ),
+                },
+                {
+                  key: 'total',
+                  header: 'Amount',
+                  className: 'text-right',
+                  cell: (it) => `₹${Number(it.line_total).toLocaleString()}`,
+                },
+                ...itemExtraColumns.map((c) => {
+                  const key = extraFieldKey(c.source);
+                  return {
+                    key: c.key,
+                    header: c.label,
+                    className: 'text-right',
+                    cell: (it: (typeof po.items)[number]) =>
+                      canCreate ? (
                         <Input
-                          type="number"
-                          min={0}
-                          defaultValue={String(it.unit_price)}
-                          onBlur={(e) => handleItemPriceBlur(it.id, e.target.value)}
-                          className="h-8 w-28 ml-auto text-right"
+                          defaultValue={String(it.extra_fields?.[key] ?? '')}
+                          onBlur={(e) => handleItemExtraBlur(it.id, key, e.target.value)}
+                          className="h-10 w-full text-right md:ml-auto md:h-8 md:w-28"
                         />
                       ) : (
-                        `₹${Number(it.unit_price).toLocaleString()}`
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">₹{Number(it.line_total).toLocaleString()}</TableCell>
-                    {itemExtraColumns.map((c) => {
-                      const key = extraFieldKey(c.source);
-                      return (
-                        <TableCell key={c.key} className="text-right">
-                          {canCreate ? (
-                            <Input
-                              defaultValue={String(it.extra_fields?.[key] ?? '')}
-                              onBlur={(e) => handleItemExtraBlur(it.id, key, e.target.value)}
-                              className="h-8 w-28 ml-auto text-right"
-                            />
-                          ) : (
-                            it.extra_fields?.[key] ?? '-'
-                          )}
-                        </TableCell>
-                      );
-                    })}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            <div className="flex justify-end border-t p-4">
-              <div className="text-right space-y-1">
-                <p className="text-sm text-muted-foreground">
-                  Subtotal: ₹{Number(po.subtotal).toLocaleString()}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Tax: ₹{Number(po.tax_amount).toLocaleString()}
-                </p>
-                <p className="text-base font-semibold">
-                  Total: ₹{Number(po.total_amount).toLocaleString()}
-                </p>
-              </div>
+                        it.extra_fields?.[key] ?? '-'
+                      ),
+                  };
+                }),
+              ]}
+            />
+            <div className="flex flex-wrap justify-end gap-x-6 gap-y-1 border-t bg-muted/30 px-4 py-2 text-xs text-muted-foreground tabular-nums">
+              <span>Subtotal ₹{Number(po.subtotal).toLocaleString()}</span>
+              <span>Tax ₹{Number(po.tax_amount).toLocaleString()}</span>
+              <span className="text-sm text-foreground">
+                Total <b>₹{Number(po.total_amount).toLocaleString()}</b>
+              </span>
             </div>
           </CardContent>
         </Card>
@@ -593,14 +548,14 @@ export default function PurchaseOrderDetailPage() {
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Reject purchase order</DialogTitle>
+            <DialogTitle>Reject PO</DialogTitle>
           </DialogHeader>
           <div className="space-y-2">
             <Label>Reason (required)</Label>
             <Textarea
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="Explain why this PO is being rejected..."
+              placeholder="Explain why this purchase order is being rejected..."
             />
           </div>
           <DialogFooter>
@@ -614,7 +569,7 @@ export default function PurchaseOrderDetailPage() {
               onClick={async () => {
                 await run(
                   () => rejectPO.mutateAsync({ id, userId: profile!.id, reason: rejectReason }),
-                  'PO rejected'
+                  'Purchase order rejected'
                 );
                 setRejectOpen(false);
                 setRejectReason('');

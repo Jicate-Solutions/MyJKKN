@@ -51,6 +51,7 @@ import { DriveStatusBadge, STATUS_BADGE_VARIANT } from '../_components/drive-sta
 import { describeTargeting } from '../_components/institution-semester-picker';
 import { CircularAttachment } from '../_components/circular-attachment';
 import { DriveDayCard } from '../_components/drive-day-card';
+import { PublicRegistrationCard } from '../_components/public-registration-card';
 import { MoveBackButton } from '../_components/move-back-dialog';
 
 const TRANSITION_HINT: Partial<Record<CdcDriveStatus, string>> = {
@@ -437,6 +438,9 @@ function CdcDriveDetailContent({ params }: { params: Promise<{ id: string }> }) 
         <div className="space-y-4">
           <PermissionGuard module="cdc.drives" action="edit" fallback={<DriveDayCard drive={drive} canEdit={false} />}>
             <DriveDayCard drive={drive} canEdit />
+          </PermissionGuard>
+          <PermissionGuard module="cdc.drives" action="edit" fallback={<PublicRegistrationCard drive={drive} canEdit={false} />}>
+            <PublicRegistrationCard drive={drive} canEdit />
           </PermissionGuard>
           <Card>
             <CardHeader className="pb-3">

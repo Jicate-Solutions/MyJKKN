@@ -74,6 +74,29 @@ export interface AttendancePreFillData {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Roll back an application whose submission failed before any approver row
+ * existed. Must go through fn_discard_unseeded_application: a plain DELETE runs
+ * under the learner's RLS, whose only DELETE policy admits CANCELLED rows, so a
+ * pending rollback silently removed nothing and the learner's retries piled up
+ * as applications no approver can see. Never throws — the caller is already
+ * surfacing the real error.
+ */
+async function discardUnseededApplication(
+  supabase: ReturnType<typeof getSupabase>,
+  applicationId: string
+): Promise<void> {
+  const { data, error } = await supabase.rpc('fn_discard_unseeded_application', {
+    p_application_id: applicationId,
+  });
+  if (error || data !== true) {
+    console.error('[leave-onduty] rollback of failed submission did not delete it', {
+      applicationId,
+      error,
+    });
+  }
+}
+
 export class LeaveOndutyService {
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -712,10 +735,7 @@ export class LeaveOndutyService {
         .insert(rows);
 
       if (teamError) {
-        // Best-effort rollback — RLS may prevent the student from deleting
-        // their own application in some edge cases, which is why we log it
-        // explicitly rather than swallowing.
-        await supabase.from('leave_onduty_applications').delete().eq('id', application.id);
+        await discardUnseededApplication(supabase, application.id);
         throw new Error(`Failed to register team members: ${teamError.message}`);
       }
     }
@@ -768,7 +788,7 @@ export class LeaveOndutyService {
         // nobody can ever act on it, so roll it back rather than strand it.
         // The RPC's messages are written for the learner (e.g. "must be applied
         // at least 24 hour(s) in advance"), so surface them as-is.
-        await supabase.from('leave_onduty_applications').delete().eq('id', application.id);
+        await discardUnseededApplication(supabase, application.id);
         throw new Error(seedError.message || 'Failed to submit the application');
       }
 
@@ -790,7 +810,7 @@ export class LeaveOndutyService {
       // also fired for every learner whose flow was merely INVISIBLE to them
       // under RLS, which is what the reporter was actually hitting.
       if (seededApprovers === 0 && !requiresSponsor) {
-        await supabase.from('leave_onduty_applications').delete().eq('id', application.id);
+        await discardUnseededApplication(supabase, application.id);
         throw new Error(
           'No approver is set up for your class yet, so this request cannot be sent for approval. ' +
           'Please contact your department office to have the leave / on-duty approver configured, then submit again.'
@@ -1067,6 +1087,7 @@ export class LeaveOndutyService {
         semester:semesters(id, semester_name),
         section:sections(id, section_name),
         leave_type:learner_leave_types(id, code, name, color_code, residency, affects_attendance),
+        batch:leave_onduty_batches!batch_id(id, title),
         approvals:leave_onduty_approvals(
           *,
           approver:profiles!leave_onduty_approvals_approver_id_fkey(id, full_name, email, avatar_url),
@@ -1139,6 +1160,7 @@ export class LeaveOndutyService {
         semester:semesters(id, semester_name),
         section:sections(id, section_name),
         leave_type:learner_leave_types(id, code, name, color_code, residency, affects_attendance),
+        batch:leave_onduty_batches!batch_id(id, title),
         approvals:leave_onduty_approvals(
           *,
           approver:profiles!leave_onduty_approvals_approver_id_fkey(id, full_name, email, avatar_url),

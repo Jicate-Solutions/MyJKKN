@@ -16,6 +16,7 @@ import { SentryUserSync } from '@/hooks/use-sentry-user-sync';
 import { UsageBeacon } from '@/components/analytics/usage-beacon';
 import { Navbar } from '@/components/Navbar/Navbar';
 import { FeePaymentNoticeBanner } from '@/components/billing/fee-payment-notice-banner';
+import { SignOutNoticeBanner } from '@/components/auth/sign-out-notice-banner';
 import { HandoverLauncher } from '@/components/director-desk/handover-launcher';
 
 interface DashboardLayoutProps {
@@ -68,6 +69,12 @@ const Dashboardlayout = ({ children }: DashboardLayoutProps) => {
           learners with no notice.
          */}
         <FeePaymentNoticeBanner key='fee-payment-notice' />
+        {/*
+          SignOutNoticeBanner: "An admin signed you out of all devices on
+          <date>." — shown once after the next sign-in, then marked seen.
+          Renders null when there is no notice.
+         */}
+        <SignOutNoticeBanner key='sign-out-notice' endpoint='/api/auth/sign-out-notice' />
         <div key='auto-breadcrumbs' className='px-4 md:px-8 pt-3'>
           <AutoBreadcrumbs />
         </div>

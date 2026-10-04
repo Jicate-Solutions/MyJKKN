@@ -178,6 +178,14 @@ export class PublicHostService {
   static async resolveBookableHost(
     supabase: SupabaseClient,
     handle: string,
+    opts: {
+      /**
+       * One HIDDEN type to include as well. Only the interview link passes this
+       * (Director 29 Sep 2026, #28): its type stays off /meet/<handle> but the
+       * link can still book it. Every other caller keeps "hidden = not bookable".
+       */
+      alsoHiddenSlug?: string;
+    } = {},
   ): Promise<PublicHost | null> {
     const normalized = (handle ?? '').toLowerCase().trim();
     if (!normalized) return null;
@@ -203,7 +211,13 @@ export class PublicHostService {
         .select('id, title, slug, duration_min, description, location_mode, location_text, location_resource_id, purpose_group')
         .eq('host_profile_id', page.host_profile_id)
         .eq('is_active', true)
-        .eq('hidden', false)
+        // The slug is interpolated into a PostgREST filter, so it must be a plain
+        // slug; anything else is ignored and only visible types are returned.
+        .or(
+          opts.alsoHiddenSlug && /^[a-z0-9-]+$/.test(opts.alsoHiddenSlug)
+            ? `hidden.eq.false,slug.eq.${opts.alsoHiddenSlug}`
+            : 'hidden.eq.false',
+        )
         .order('duration_min', { ascending: true }),
     ]);
     if (!profile) return null;

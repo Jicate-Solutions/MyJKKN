@@ -123,22 +123,12 @@ export function ProgramFilters({
   }, [searchParams.degree_id]);
 
   const handleInstitutionChange = (value: string) => {
+    // Dependent filters are cleared by the filter client in the same navigation.
     onFilterChange('institution_id', value === 'all' ? undefined : value);
-    // Reset dependent filters when institution changes
-    if (searchParams.degree_id) {
-      onFilterChange('degree_id', undefined);
-    }
-    if (searchParams.department_id) {
-      onFilterChange('department_id', undefined);
-    }
   };
 
   const handleDegreeChange = (value: string) => {
     onFilterChange('degree_id', value === 'all' ? undefined : value);
-    // Reset department when degree changes
-    if (searchParams.department_id) {
-      onFilterChange('department_id', undefined);
-    }
   };
 
   const hasActiveFilters = !!(

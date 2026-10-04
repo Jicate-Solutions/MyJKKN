@@ -753,9 +753,13 @@ export function useReviewApplication() {
     mutationFn: async (payload: {
       id: string;
       status: Extract<JobApplicationStatus, 'reviewed' | 'shortlisted' | 'rejected'>;
+      /** Omit to keep the existing screening note; pass null to clear it. */
       review_notes?: string | null;
     }) => {
       const res = await fetch(`${BASE}/applications/${payload.id}`, {
+        // JSON.stringify drops undefined keys, so an omitted review_notes
+        // reaches the server as absent — which the handler reads as
+        // "leave the stored note alone".
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: payload.status, review_notes: payload.review_notes }),
@@ -766,10 +770,49 @@ export function useReviewApplication() {
       }
       return ((await res.json()).data) as HRJobApplication;
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['hr-job-application', variables.id] });
       qc.invalidateQueries({ queryKey: ['hr-job-applications'] });
       qc.invalidateQueries({ queryKey: ['hr-recruitment-approvals-overview'] });
       qc.invalidateQueries({ queryKey: ['hr-recruitment-job-analytics'] });
+    },
+  });
+}
+
+/**
+ * Edit the screening note alone, from the application detail page.
+ *
+ * Distinct from useReviewApplication: sending no `status` tells the PATCH
+ * handler this is an annotation, not a screening decision, so status and
+ * reviewed_at stay untouched.
+ */
+export function useUpdateApplicationNotes() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { id: string; review_notes: string | null }) => {
+      const res = await fetch(`${BASE}/applications/${payload.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ review_notes: payload.review_notes }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Could not save the note');
+      }
+      return ((await res.json()).data) as HRJobApplication;
+    },
+    onSuccess: (data, variables) => {
+      // The detail page reads ['hr-job-application', id]; patch it so the card
+      // shows the saved note immediately, then refetch for consistency.
+      // MERGE, don't replace — the PATCH response comes from a plain
+      // .select() with no `job:` embed, so overwriting would blank the job
+      // title in the sidebar until the refetch lands.
+      qc.setQueryData(
+        ['hr-job-application', variables.id],
+        (prev: HRJobApplication | null | undefined) => (prev ? { ...prev, ...data } : data),
+      );
+      qc.invalidateQueries({ queryKey: ['hr-job-application', variables.id] });
+      qc.invalidateQueries({ queryKey: ['hr-job-applications'] });
     },
   });
 }

@@ -336,10 +336,19 @@ export function groupRosterByClass(roster: readonly RosterLearner[]): RosterGrou
   return groups;
 }
 
-/** Roughly 15 s per card on the Evolis → "≈ 4 min". (Exported for unit tests.) */
-export function estimatePrintTime(cards: number): string {
+/**
+ * Measured station cadence, not the printer's rated speed: the 30 Sept 2026
+ * batch (101 double-sided cards) ran at a median 101 s from one pickup to the
+ * next, with a 99–107 s spread. The Primacy 2 itself needs ~30 s for a duplex
+ * colour card; the rest is the bridge's cycle (poll interval + two renders).
+ * Revisit once result.reported_at (jobs/[id]/result) has split the two.
+ * (Exported for unit tests.)
+ */
+export const MEASURED_SECONDS_PER_CARD = 100;
+
+export function estimatePrintTime(cards: number, secondsPerCard = MEASURED_SECONDS_PER_CARD): string {
   if (cards <= 0) return '—';
-  const seconds = cards * 15;
+  const seconds = cards * secondsPerCard;
   if (seconds < 90) return `≈ ${seconds} s`;
   const minutes = Math.round(seconds / 60);
   if (minutes < 60) return `≈ ${minutes} min`;
@@ -1243,7 +1252,7 @@ export function IdCardBatchPrint() {
               </div>
               <div className="rounded-lg border p-3">
                 <dt className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Timer className="h-3.5 w-3.5" /> Printer time
+                  <Timer className="h-3.5 w-3.5" /> Station time
                 </dt>
                 <dd className="mt-1 text-lg font-semibold tabular-nums">{estimatePrintTime(cardsToPrint)}</dd>
               </div>
@@ -1287,7 +1296,8 @@ export function IdCardBatchPrint() {
             Preview &amp; print
           </Button>
           <p className="text-center text-xs text-muted-foreground">
-            Each card uses one ribbon panel. Check stock before confirming.
+            Each card uses one ribbon set when the driver is on “YMCO / K”, two otherwise.
+            Check stock before confirming.
           </p>
         </CardContent>
       </Card>

@@ -145,7 +145,7 @@ export class LearnerLeaveTypeService {
     const { data, error } = await getSupabase()
       .from('learner_leave_flows')
       .select(
-        `id, leave_type_id, institution_id, is_active,
+        `id, leave_type_id, institution_id, flow_residency, is_active,
          institution:institutions(id, name),
          steps:learner_leave_flow_steps(id, step_order, role_id, scope,
            role:custom_roles(id, role_key, role_name, institution_scope))`
@@ -166,11 +166,13 @@ export class LearnerLeaveTypeService {
   static async saveFlow(
     leaveTypeId: string,
     institutionId: string | null,
-    steps: Pick<LearnerLeaveFlowStep, 'role_id' | 'scope'>[]
+    steps: Pick<LearnerLeaveFlowStep, 'role_id' | 'scope'>[],
+    flowResidency: 'day_scholar' | 'hostel' | null = null
   ): Promise<void> {
     const { error } = await getSupabase().rpc('fn_lo_save_flow', {
       p_leave_type_id: leaveTypeId,
       p_institution_id: institutionId,
+      p_residency: flowResidency,
       p_steps: steps.map((s) => ({ role_id: s.role_id, scope: s.scope as LearnerLeaveStepScope })),
     });
     if (error) throw new Error(`Failed to save approval flow: ${getErrorMessage(error)}`);

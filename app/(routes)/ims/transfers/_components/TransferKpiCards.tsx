@@ -15,9 +15,10 @@ interface TransferKpiCardsProps {
 
 export function TransferKpiCards({ cards }: TransferKpiCardsProps) {
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+    // One row of equal cards on md+ whatever the count (Incoming has five).
+    <div className="grid grid-cols-2 md:flex gap-4">
       {cards.map((card) => (
-        <button key={card.label} onClick={card.onClick} className="text-left w-full">
+        <button key={card.label} onClick={card.onClick} className="text-left w-full md:flex-1 md:min-w-0">
           <Card className={card.active ? 'ring-2 ring-primary' : 'hover:shadow-md transition-shadow'}>
             <CardHeader className="pb-1 pt-4 px-4">
               <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
